@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<!-- saved from url=(0057)file:///C:/Users/alexa/Downloads/meetaaron-landing_1.html -->
+<html lang="fr"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meet Aaron — Le copilote de votre commercial</title>
+<script src="./Meet Aaron — Le copilote de votre commercial_files/qrcode.min.js.téléchargement"></script>
+<style>
+  :root{
+    --ink:#171B29;
+    --ink-2:#232A3D;
+    --paper:#F6F4EF;
+    --card:#FFFFFF;
+    --border:#E4DFD2;
+    --gold:#E7A33E;
+    --gold-deep:#9C7326;
+    --teal:#4E9E8E;
+    --teal-deep:#0F6E56;
+    --coral:#D96A5C;
+    --muted:#8B8FA3;
+    --text:#1B1F2A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--paper);
+    color:var(--text);
+    line-height:1.5;
+  }
+  a{color:inherit;text-decoration:none;}
+
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px 6vw;
+    background:var(--ink);
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:50%;
+    background:var(--gold);color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:700;
+  }
+  .brand .word{color:var(--paper);font-family:Georgia,'Times New Roman',serif;font-size:19px;}
+  header nav a{color:#B7BAC9;font-size:14px;margin-left:28px;}
+  header nav a:hover{color:var(--paper);}
+
+  .hero{
+    padding:88px 6vw 64px;
+    background:var(--ink);
+    color:var(--paper);
+    text-align:center;
+  }
+  .hero p.eyebrow{
+    color:var(--gold);font-size:13px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:18px;
+  }
+  .hero h1{
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:clamp(32px,5vw,54px);
+    font-weight:400;
+    max-width:780px;margin:0 auto 20px;
+    line-height:1.15;
+  }
+  .hero h1 em{color:var(--gold);font-style:normal;}
+  .hero p.sub{
+    max-width:520px;margin:0 auto 34px;color:#B7BAC9;font-size:16px;
+  }
+  .hero .cta{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--gold);color:var(--ink);
+    padding:14px 28px;border-radius:999px;font-weight:600;font-size:15px;
+    border:none;cursor:pointer;
+  }
+  .hero .cta-sub{margin-top:14px;font-size:12px;color:#7C8098;}
+
+  main{max-width:1080px;margin:0 auto;padding:70px 6vw 100px;}
+
+  .section-head{text-align:center;margin-bottom:44px;}
+  .section-head p.eyebrow{color:var(--gold-deep);font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:10px;}
+  .section-head h2{font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:30px;}
+  .section-head p.sub{color:var(--muted);font-size:15px;margin-top:10px;}
+
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:20px;
+  }
+  @media(max-width:760px){ .grid{grid-template-columns:1fr;} }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:26px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  .card .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .card .icon{
+    width:42px;height:42px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:19px;
+    background:#EFEBE0;
+  }
+  .badge{
+    font-size:11px;font-weight:600;letter-spacing:.02em;
+    padding:4px 10px;border-radius:999px;white-space:nowrap;height:fit-content;
+  }
+  .badge.live{background:#EAF4F1;color:var(--teal-deep);}
+  .badge.soon{background:#F1EFE8;color:#5F5E5A;}
+
+  .card h3{font-size:17px;font-weight:600;}
+  .card p.desc{font-size:13.5px;color:#5B5F70;line-height:1.55;}
+
+  .qr-wrap{
+    display:flex;align-items:center;gap:16px;
+    background:var(--paper);border:1px solid var(--border);border-radius:12px;
+    padding:14px;
+  }
+  .qr-box{
+    width:96px;height:96px;background:#fff;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
+    border:1px solid var(--border);flex-shrink:0;
+  }
+  .qr-box img, .qr-box canvas{width:100%!important;height:100%!important;}
+  .qr-note{font-size:12.5px;color:var(--muted);}
+  .qr-note b{color:var(--text);font-weight:600;}
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 18px;border-radius:10px;font-size:14px;font-weight:600;
+    border:1px solid var(--border);cursor:pointer;background:transparent;color:var(--text);
+    width:100%;
+  }
+  .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .btn.primary:hover{background:var(--ink-2);}
+  .btn:disabled{opacity:.55;cursor:not-allowed;}
+
+  .install-status{font-size:12px;color:var(--teal-deep);min-height:16px;}
+
+  footer{
+    text-align:center;padding:30px 6vw 50px;color:var(--muted);font-size:12.5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">A</div>
+    <div class="word">Meet Aaron</div>
+  </div>
+  <nav>
+    <a href="file:///C:/Users/alexa/Downloads/meetaaron-landing_1.html#telecharger">Télécharger</a>
+    <a href="file:///C:/Users/alexa/Downloads/meetaaron-landing_1.html#">Tarifs</a>
+    <a href="file:///C:/Users/alexa/Downloads/meetaaron-landing_1.html#">Contact</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <p class="eyebrow">Assistant commercial IA</p>
+  <h1>Aaron, le <em>copilote</em> de votre commercial</h1>
+  <p class="sub">Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.</p>
+  <button class="cta" onclick="document.getElementById(&#39;telecharger&#39;).scrollIntoView({behavior:&#39;smooth&#39;})">Essayer maintenant →</button>
+  <p class="cta-sub">Premier mois à -50% · aucune carte bancaire requise pour tester</p>
+</section>
+
+<main id="telecharger">
+  <div class="section-head">
+    <p class="eyebrow">Installation</p>
+    <h2>Utilisez Aaron où vous voulez</h2>
+    <p class="sub">La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. PC / Mac (PWA desktop) -->
+    <div class="card">
+      <div class="top">
+        <div class="icon">🖥️</div>
+        <span class="badge live">Disponible</span>
+      </div>
+      <div>
+        <h3>Sur votre PC ou Mac</h3>
+        <p class="desc">Installez Aaron comme une vraie application de bureau, avec icône et fenêtre dédiée — sans passer par un store.</p>
+      </div>
+      <button class="btn primary" id="installDesktopBtn" onclick="installDesktop()">Installer sur cet ordinateur</button>
+      <p class="install-status" id="installStatus"></p>
+    </div>
+
+    <!-- 4. PWA iOS / Android -->
+    <div class="card">
+      <div class="top">
+        <div class="icon">📱</div>
+        <span class="badge live">Disponible</span>
+      </div>
+      <div>
+        <h3>Sur votre téléphone (web)</h3>
+        <p class="desc">Scannez avec l'appareil photo de votre téléphone, puis choisissez "Ajouter à l'écran d'accueil" — Aaron se comporte comme une app native.</p>
+      </div>
+      <div class="qr-wrap">
+        <div class="qr-box" id="qr-pwa" title="https://meetaaron.app/app"><canvas width="88" height="88" style="display: none;"></canvas><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFgAAABYCAYAAABxlTA0AAAEyklEQVR4AeycYW5UMQyEV3sJKtELwP3Pwgn4wS2KrCrSl+ybrP3itNutkcKbNxmP02lcLQJx/fHz11v2esMveoPuoNKQV5hGHg31xKp2lb9e6tfWBCrgrfFeLl3A//7+uZxd0XO+vP6+tMWeUR/qlU/rY0/qFaZPFI+eXcDjZr2vJ1ABr2c4dZAB2zjdW1Png036HWy7KY6tKqKGOHoG6hVWZzBeBmybtdYTqIDXM5w6bA+Y40msTsUxVHpq6BPlWbsLbw9418G/iu9TBvxI4W8PmGNLrMafvEf/SGEenWV7wEdNvxNXAW/+bsuAOaoKe84WreWPBfqTpyc1xErvqaUP9QpTP2IZ8Cis93MJVMDncnNXdQFzrKJYdaQPNYqnhiNJnpg+UT19iOkZxfQx3AVsRK3cBCrg3Dxv3K4cqyzMLvT08NR4sPJnLcecPDF9MnHdYKa8AacFvOFsT2F59YwPNTuwSpK9qCGvMMectcSsJU+sNORnuG4w09yAK+ANodKy+xTBDV578gpzJImVnrzqpXzIK0x/Yo9enYc+Co/+dYNVUkl8BZwUpLLpPkWo0RivfXunKWuJqWl145OaFcy+xOxHnnilL/1Hn7rBYyLJ7xVwcqCjnfwUQSFHiZgaNSbkWUvs8aFG1VKjMM9DDT2zNOZZN5gpjzjhvQJOCHFm0X2KUKNBXmEbh7aoUc09muZnT/p4aqm3+rbIe3yoIabPDNcNnqWTsFcBJ4Q4s1j6FNHGzp4cH3tvSzVv+/akxt7boicx9R4crW39zzzH89QNHhNJfq+AkwMd7WTAK2PFWo4ZeR6EPDE19CGmhpg+1CvMWoXpSY3iTSMDts1a6wlUwOsZTh26P2go5WwEWo3SkOd4Kr752ZN6e28rWkt98/io5+Pd4I/6yj+oTwW8OeguYDWS5DluxNQQR8/PWvoTKw17UU+emBpipYn2Nc8uYBoXzkmgAs7JUbrIgDkOqpoaG4ejpTTK08Ozj9KzLzH1iqc/NYqnhv6GZcC2WWs9gQp4PcOpgytgNRqKn3a8s6k81Rgq/k6bm22PDzU8JzE1hl0B35ymCHcCFbA7qnPCcMAcB7ZUPDU2MkfLU0sNPehPTRTTR/l7NGPf94BZWTg1gQo4Nc5bMxkwrzpHxoNv27wz9CSm57ty/jtriVmlPMkTszaKZz4y4GiT0h8nUAEf55LGdv8uQo0beQ9OO53DiONJzHMqG2oUjtaO+rrBYyLJ7xVwcqCjXfeXnhyxFTw2ae/0bNyZp/LhmNNX6aMa6r24brA3qZO6CvhkcN6yLmCOWBR7Gx7p2Otof+Q8+pfX2P+w7fFUGv4IGnEX8PiF1Pt6AhXweoZTBxnweNWP3qfOB5scMfpRqniPhrXRXqwl9vSlhn0Ny4BZVPh8AhXw+exclZ8WsI1PW+qkbd+eHFt7b4u1jbMn9UqjeKu/t1g7w58W8OxQz7RXAW/+bm4PmKPGsSX2fI308eipYa2nLzXE9PTwptkeMA/1HXEFvPm7LgPmWCl8e7Y5o3xslNpSDm1/fNKTtVGetQqzNzWql2lkwLZZaz2BCng9w6lDFzBHIIpVF4+PGjHWUkNMTRQrH/IezK991HcBU1g4J4EKOCdH6VIBy2hyNv4DAAD//2aAv+UAAAAGSURBVAMA/luyjmzBqbYAAAAASUVORK5CYII=" style="display: block;"></div>
+        <p class="qr-note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
+      </div>
+    </div>
+
+    <!-- 3. iOS App Store — à venir -->
+    <div class="card">
+      <div class="top">
+        <div class="icon"></div>
+        <span class="badge soon">Bientôt disponible</span>
+      </div>
+      <div>
+        <h3>App Store (iOS)</h3>
+        <p class="desc">L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
+      </div>
+      <div class="qr-wrap">
+        <div class="qr-box" id="qr-ios" title="https://meetaaron.app/ios"><canvas width="88" height="88" style="display: none;"></canvas><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFgAAABYCAYAAABxlTA0AAAFGklEQVR4AeyZUW4UMRBER3sJkOACcP+zcAI+uEVIC/Xus3fK0/bYSZh0hOWacnXZW+NGG+X25duPl9njJfCj9lSl1Ec01BOfqaVPFN+2/FmaQAa8NN5tKwL+8/vXNjoi5/z6/efmQ+2jfKinxv1sJk89sel8UE9MfS+mj+EiYCNyzE0gA56b55ObDNjbqDU/uR0QbLcD6dOyOkfEk7VPxgcEaxVuWciAW0W5Fk8gA45nNaR804B7W4x6/ldArDSKZ+1QYp1Fbxpw59kuIb9kwB/pzbxbwGxVtjMxNSo0alir9BGNqh3h3y3gkcP+jzUZ8OK3JgNm6ykcORtbkj7k6UMNeWLWElNDHNFQT8zzKEx9jWXAtTCfxxLIgMdyC1cVAbOVenF4xx0hW4/7Ukqeemp6edYSc69eTB/DRcBG5JibQAY8N88ntxvbahbmLvTs5dme9CFPT8VTQx/FU3MW5w1mygvwtIAXnO0SlrdIWykNeWImo/iIhu1JH/L0IU9MDX2IlYb8CM4bPJJaR00G3BHWiLQImC1DzHYjzw2pIR/BqpZ7UUOe/uSJqVGYeu5FPTXkiakxXARMYeI5CWTAc3KULvIXDVbYVfcxq33oT+z72Bzh1Xl6a5WPncOH8vR1m+ljOG8wU1uAM+AFodIyFLBddR/WBj6cq2dft7le82db88ED+brNirc1H+5hs3M2s7YXm5cP89obUc9QwFGzy+kmfKAMeEKILYtTAXsb1TNbqrX50Rp96j38mRrlRw2xe9Sz8qGOPtRTY/hUwDROvJ9ABryfyzRWBswWsKvugztTQ+za1kwfYlVDDTH15CPnUXrWKo3iWWtYBkyDxOMJZMDj2YUqi4DZbsR21X3QlRpi19Yza7kW4ZVG+Si94nl+asiP4CJgGieek0AGPCdH6SL/6MnWY2vQiRpiaoipUZ7kqSemhv4KU08f6lfw5vnxbjA/9QVwBrz4JcqA2VaRM1BPrGqtfXxQ75zN5Oljaz7IRzA9iSO1vqfNEb1pZMC2mON8Ahnw+QybDsUfPam0NvCheLaYa22mnhrFW42PiJ4aYvoTu3drpg8xfRRPX2oM5w1mggtwBrwgVFoWv2jwqlMUwdYOPqjv9aSemJ4R7GexmXp79kFeYdfarM5jaz5qn7zBdSKTnzPgyYHWdvJbhF95m+uivWe2D7HV7409jyhHf2LuQ68ITx+F6RnF/25wVJ267gQy4O7I+gqKbxGqlC2jNGxDYtYS04d6YmpYqzTU92J6KkxPani2GucNZmoLcAa8IFRaym8RvOosIKZGYbYSa4lVLTW9PqxVWO1LXtWS59lqnDeYSS3AGfCCUGlZfIuor/foMzdgu9GPPPUKU09MT2JqiJU/a5WGvPIkbzhvMFNbgDPgBaHSsgjYrvTooCkxW4/e5JVe8aylJ/Xb9nii/sGWqNeHnq3aIuByy3yakUAGPCPFhocMmC2gcMP3vsT2oQ/5u/gVRHhqzniyVuHXI93/cV/iu2AHyIB3tEkNJJABD4TWU7I8YLZetK2OPoDyJH/kYeu956E/sXn5IG94ecC+8WedM+DFb355wGxDaxkfkc/l2npmLdcUrzTU85zE1Izg5QGPHOpKNRnw4rcpA2abKPx8tjZDn0jb0o21xNScweo83Eth1tYaGfCZw2btI4EM+JHFElQEzKvei9Xp6KM0ime70YeYtdRHeOXTy3OvGhcB14v5fD6BDPh8hk2HDLgZz/nFvwAAAP//J6V6kgAAAAZJREFUAwBEgxC3XqA1owAAAABJRU5ErkJggg==" style="display: block;"></div>
+        <p class="qr-note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
+      </div>
+    </div>
+
+    <!-- 2. Android Google Play — à venir -->
+    <div class="card">
+      <div class="top">
+        <div class="icon">▶</div>
+        <span class="badge soon">Bientôt disponible</span>
+      </div>
+      <div>
+        <h3>Google Play (Android)</h3>
+        <p class="desc">L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
+      </div>
+      <div class="qr-wrap">
+        <div class="qr-box" id="qr-android" title="https://meetaaron.app/android"><canvas width="88" height="88" style="display: none;"></canvas><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFgAAABYCAYAAABxlTA0AAAFG0lEQVR4AeycXW4UMRCEV7kESHABuP9ZOAEP3AJSSjr5PDvl8a+0WhrRuKZdXe2tdUuTPPDy5duPv6vjr/nDPqQwT+w4zDtMHeJePmtH8Mst/2x1IA3eau/tVhj85/ev22jMnNP1pCY5zH/9/vN2FuQTk0sdYvJ7MXWEC4OVyFjrQBq81s87NWswR8nhO7UFCfaiHPPEHGHyiclnvgWz1uGajjW4VpR77Q6kwe1eDTEfzmCOPEeSeWLHcXnWDjnWWfRwBnee/+HpT2nwI7n+cAa70XamceRZ6/gtHFc7kn84g0c+xCPXpMGbvx1rMEfP4ZazuZF0efZy+qwlbuE7jsvzPA67WuWtwdrMmHcgDZ73sKpQGMxx68XVLu+bHLH31N3Cvtxk3un05qlPzF69mDrChcFKZKx1IA1e6+ed2gvHahVmF2py3Jgnn9jxmW/hk+P6Mr8S5w2m+xvwMoM3nO0pJF/cuPHTOQ7zxL215LvxpD45rpZ5YuoQOw7zIzhv8IhrHTVpcIdZI9TiLYICbnzIIebYulpyiKnDWmLymXe1zLdgarIXa8lhnpgc4bzBdGcDToM3mErJwmBd6QiSODKxr5UcPUeQT+z4zDsc2lrJoT4xOaqJYJ58YnKiTqvLay+COsKFwRRIvMaBNHiNj1al+EFDVzrCVmAjuMc1xqW2sgaSFpJPzB62uHODmuxF3CqZN7jm1IK9NHiBiTWJ4gcNjoYrcmPiamf4rKU+sePw/OQQU4eYtcTkUMdxxM8bTHc24DR4g6mULN4iuMER0FWPICdyWsknZwZLN8LpxL5WcvR8FeTz/MSO4/KsFc4bTKc24DR4g6mUnDJYIxDBcWQD4uBqZb6llnzVX4Xju7w7A/MjeMpgHjbxuQNp8Lkvy7JNBnMcOSY8BTnME7tacoipSex0mHd85l2vVXn1ajKYDbfjJ2uQBm/+QqcM5kgSazQies9PHWLqhLZW5lswNYlbatUvooUvzpTBEsioO5AG1/2Z3i1+XUm1lvGJcTmuTufIu3p2OjwbMfnEV320Tx1i6ri86iPIEc4bTAc34DR4g6mULH5dGddcK0ktWOMQ4fixr5UcPZ+FzhFB/gxmnxYd8uMsWllLDvPCeYPlwsZIgzeaK2n7FqExiBAxInJaORp6jmA+6rTGvlY9R+j5LGL/uJ5xlSOPZyB2HNVfBWtb8dsNbmUnr9uBNLjbsr6C4i2ir/RW/Cd2bgw5do7j8jxPiw45xNRxmGdwmLXksNcR5w2maxtwGrzBVEratwiSWvBxNOKZo0Qd5oOrlRxi8pmfwep3FS36PNsR5w1ucXCCkwZPmNdSWrxFHK/36DMbcwRdnn3IIaYOsatlnnxqEpPPvMNOk3nhvMHOwUX5NHiRkU6mMFhXejRcg5bRY0/HZ56YteUZPp/I/8yWqFeHmrXawuCyZT6tcCANXuFiRcMazBFwuKL7scXxIf4gvALqvz6e/mUtMWuJySGmOPkOk08dYtaSL2wN1mbGvANp8LyHVYXtBnN8iKunutikDkf1ouxuu7eWfYmpw7zwdoPvPtV/lkiDN3/h2w3m+BC7z9XCYa3GMIJ54tjXyjwx+xKTM4K3GzxyqGeqSYM3f5vWYI6Jw/dnq2c0omdRr3rbZR3P87Y7/y/1qcZeDrP2yLEGs0nicQfS4HHvmioLg3nVe7HrRh2Oj+Mzz1qXpyYxa5l3OjN51h5xYfBxM5/nHUiD5z2sKqTBVXvmN/8BAAD//xXl//0AAAAGSURBVAMAe1TbwnZPddcAAAAASUVORK5CYII=" style="display: block;"></div>
+        <p class="qr-note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  Meet Aaron — meetaaron.app
+</footer>
+
+<script>
+  // ---- URLs cibles (à remplacer par les vraies une fois le site déployé) ----
+  const BASE = "https://meetaaron.app";
+  const URL_PWA     = BASE + "/app";        // ouvre directement l'application web
+  const URL_ANDROID = BASE + "/android";    // redirige vers Google Play une fois publié, sinon vers /app
+  const URL_IOS     = BASE + "/ios";        // redirige vers l'App Store une fois publié, sinon vers /app
+
+  function makeQR(elId, url) {
+    new QRCode(document.getElementById(elId), {
+      text: url,
+      width: 88,
+      height: 88,
+      colorDark: "#171B29",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  }
+  makeQR("qr-pwa", URL_PWA);
+  makeQR("qr-ios", URL_IOS);
+  makeQR("qr-android", URL_ANDROID);
+
+  // ---- Installation PWA sur PC/Mac ----
+  let deferredPrompt = null;
+  const installBtn = document.getElementById('installDesktopBtn');
+  const installStatus = document.getElementById('installStatus');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.disabled = false;
+  });
+
+  function installDesktop() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choice) => {
+        installStatus.textContent = choice.outcome === 'accepted'
+          ? "Installation lancée."
+          : "Installation annulée — vous pouvez réessayer à tout moment.";
+        deferredPrompt = null;
+      });
+    } else {
+      installStatus.textContent = "Ouvrez ce menu dans votre navigateur : icône ⊕ / \"Installer Meet Aaron\" dans la barre d'adresse (Chrome/Edge).";
+    }
+  }
+
+  window.addEventListener('appinstalled', () => {
+    installStatus.textContent = "Meet Aaron est installé.";
+  });
+</script>
+
+
+
+</body></html>
