@@ -18,6 +18,7 @@ interface AaronOutput {
   personality_type: 'dominant' | 'influent' | 'stable' | 'consciencieux' | null;
   personality_notes: string | null;
   aaron_advice: string;
+  detected_phone: string | null;
   appointment_proposal: {
     detected: boolean;
     type: 'telephonique' | 'physique' | 'visio';
