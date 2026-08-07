@@ -3,17 +3,52 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
 
-// TODO: remplacer par le vrai user_id une fois l'authentification construite.
-// Pour l'instant, on lit un user_id passé en paramètre d'URL (?user_id=...) pour les tests,
-// avec un fallback vide qui affiche un message d'invite plutôt que de planter.
-function useCurrentUserId() {
+// Authentification réelle : récupère la session Supabase, la lie au profil Meet Aaron
+// correspondant via /api/auth/link, et redirige vers /login si non connecté.
+function useAuthedUser() {
+  const router = useRouter();
   const [userId, setUserId] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setUserId(params.get('user_id'));
-  }, []);
-  return userId;
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+      const body = await res.json();
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        setAuthError(body.error || 'Accès refusé');
+        setAuthLoading(false);
+        return;
+      }
+
+      setUserId(body.user.id);
+      setAuthLoading(false);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { userId, authLoading, authError };
 }
 
 const STATUS_META = {
@@ -25,7 +60,7 @@ const STATUS_META = {
 };
 
 export default function DashboardPage() {
-  const userId = useCurrentUserId();
+  const { userId, authLoading, authError } = useAuthedUser();
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -59,14 +94,43 @@ export default function DashboardPage() {
     .slice(0, 5);
   const pendingAppointments = appointments.filter((a) => a.status === 'proposé');
 
-  if (!userId) {
+  if (authLoading) {
     return (
-      <Shell active="Tableau de bord" userId={userId}>
-        <EmptyState
-          title="Aucun identifiant commercial"
-          body="Ouvrez ce tableau de bord avec ?user_id=... dans l'URL, le temps que la connexion soit mise en place."
-        />
-      </Shell>
+      <div className="auth-loading">
+        <p>Connexion…</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #8b90a8;
+            font-family: 'Inter', sans-serif;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="auth-loading">
+        <p>{authError}</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #e5484d;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+            padding: 2rem;
+          }
+        `}</style>
+      </div>
     );
   }
 
