@@ -16,7 +16,7 @@ function useCurrentUserId() {
 
 const STATUS_META = {
   vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#F0C24B' },
+  jaune: { label: 'En cours', color: '#8B90A8' },
   orange: { label: 'Risque de perdre', color: '#F0914E' },
   rouge: { label: 'Perdu', color: '#E5484D' },
   bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
