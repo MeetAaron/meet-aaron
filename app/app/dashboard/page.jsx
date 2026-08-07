@@ -2,9 +2,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 // TODO: remplacer par le vrai user_id une fois l'authentification construite.
-// Pour l'instant, on lit un user_id passé en paramètre d'URL (?user_id=...) pour les tests.
+// Pour l'instant, on lit un user_id passé en paramètre d'URL (?user_id=...) pour les tests,
+// avec un fallback vide qui affiche un message d'invite plutôt que de planter.
 function useCurrentUserId() {
   const [userId, setUserId] = useState(null);
   useEffect(() => {
@@ -16,7 +18,7 @@ function useCurrentUserId() {
 
 const STATUS_META = {
   vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#8B90A8' },
+  jaune: { label: 'En cours', color: '#F0C24B' },
   orange: { label: 'Risque de perdre', color: '#F0914E' },
   rouge: { label: 'Perdu', color: '#E5484D' },
   bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
@@ -59,7 +61,7 @@ export default function DashboardPage() {
 
   if (!userId) {
     return (
-      <Shell>
+      <Shell active="Tableau de bord" userId={userId}>
         <EmptyState
           title="Aucun identifiant commercial"
           body="Ouvrez ce tableau de bord avec ?user_id=... dans l'URL, le temps que la connexion soit mise en place."
@@ -69,7 +71,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <Shell>
+    <Shell active="Tableau de bord" userId={userId}>
       <header className="header">
         <div>
           <p className="eyebrow">Tableau de bord</p>
@@ -330,7 +332,19 @@ function EmptyState({ title, body, compact }) {
   );
 }
 
-function Shell({ children }) {
+function Shell({ children, active, userId }) {
+  const NAV_ITEMS = [
+    { label: 'Tableau de bord', slug: 'dashboard' },
+    { label: 'Prospects', slug: 'prospects' },
+    { label: 'Campagnes', slug: 'campaigns' },
+    { label: 'Agenda', slug: 'agenda' },
+    { label: 'Résultats', slug: 'resultats' },
+    { label: 'Clients gagnés', slug: 'clients-gagnes' },
+    { label: 'Mes documents', slug: 'documents' },
+    { label: 'Chat avec Aaron', slug: 'chat' },
+    { label: 'Connexions', slug: 'connexions' },
+    { label: 'Préférences', slug: 'preferences' },
+  ];
   return (
     <div className="shell">
       <nav className="sidebar">
@@ -339,16 +353,11 @@ function Shell({ children }) {
           <span>Meet Aaron</span>
         </div>
         <ul className="nav-list">
-          <li className="active">Tableau de bord</li>
-          <li>Prospects</li>
-          <li>Campagnes</li>
-          <li>Agenda</li>
-          <li>Résultats</li>
-          <li>Clients gagnés</li>
-          <li>Mes documents</li>
-          <li>Chat avec Aaron</li>
-          <li>Connexions</li>
-          <li>Préférences</li>
+          {NAV_ITEMS.map((item) => (
+            <Link key={item.label} href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`} className="nav-link">
+              <li className={item.label === active ? 'active' : ''}>{item.label}</li>
+            </Link>
+          ))}
         </ul>
       </nav>
       <main className="content">{children}</main>
@@ -403,6 +412,9 @@ function Shell({ children }) {
           display: flex;
           flex-direction: column;
           gap: 0.15rem;
+        }
+        .nav-link {
+          text-decoration: none;
         }
         .nav-list li {
           padding: 0.6rem 0.7rem;
