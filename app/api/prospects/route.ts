@@ -1,0 +1,116 @@
+// app/api/prospects/route.ts
+// GET  -> liste les prospects du commercial connecté
+// POST -> crée un nouveau prospect, détecte/crée sa "prospect_company" via le domaine
+//         email, puis déclenche le tout premier message d'Aaron.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { generateAaronResponse } from '@/lib/aaron';
+import { sendGmailEmail } from '@/lib/google';
+
+export async function GET(request: NextRequest) {
+  const userId = request.nextUrl.searchParams.get('user_id');
+  if (!userId) {
+    return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
+  }
+
+  const { data: prospects, error } = await supabaseAdmin
+    .from('prospects')
+    .select('*, prospect_companies(name, domain)')
+    .eq('assigned_user_id', userId)
+    .eq('is_won', false)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ prospects });
+}
+
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const { company_id, assigned_user_id, full_name, email, phone, job_title } = body;
+
+  if (!company_id || !assigned_user_id || !full_name || !email) {
+    return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
+  }
+
+  const domain = email.split('@')[1];
+
+  // Cherche ou crée la prospect_company associée à ce domaine
+  let { data: prospectCompany } = await supabaseAdmin
+    .from('prospect_companies')
+    .select('id')
+    .eq('company_id', company_id)
+    .eq('domain', domain)
+    .single();
+
+  if (!prospectCompany) {
+    const { data: newCompany, error: companyError } = await supabaseAdmin
+      .from('prospect_companies')
+      .insert({ company_id, domain })
+      .select('id')
+      .single();
+
+    if (companyError) {
+      return NextResponse.json({ error: companyError.message }, { status: 500 });
+    }
+    prospectCompany = newCompany;
+  }
+
+  // Crée le prospect
+  const { data: prospect, error: prospectError } = await supabaseAdmin
+    .from('prospects')
+    .insert({
+      company_id,
+      assigned_user_id,
+      prospect_company_id: prospectCompany.id,
+      full_name,
+      email,
+      phone,
+      job_title,
+      status: 'jaune',
+    })
+    .select()
+    .single();
+
+  if (prospectError) {
+    return NextResponse.json({ error: prospectError.message }, { status: 500 });
+  }
+
+  // Crée la conversation associée
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .insert({ prospect_id: prospect.id, channel: 'email' })
+    .select()
+    .single();
+
+  // Demande à Aaron de générer le premier message
+  const aaronOutput = await generateAaronResponse(prospect.id);
+
+  // Envoie l'email via Gmail (au nom du commercial)
+  await sendGmailEmail(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+
+  // Enregistre le message envoyé
+  await supabaseAdmin.from('messages').insert({
+    conversation_id: conversation!.id,
+    direction: 'outbound',
+    sender_email: full_name, // remplacé par l'email réel du commercial côté frontend/logique complète
+    recipient_email: email,
+    body: aaronOutput.email_draft.body,
+  });
+
+  // Met à jour le statut/personnalité détectés
+  await supabaseAdmin
+    .from('prospects')
+    .update({
+      status: aaronOutput.prospect_status,
+      personality_type: aaronOutput.personality_type,
+      personality_notes: aaronOutput.personality_notes,
+      aaron_advice: aaronOutput.aaron_advice,
+    })
+    .eq('id', prospect.id);
+
+  return NextResponse.json({ prospect, aaronOutput });
+}
