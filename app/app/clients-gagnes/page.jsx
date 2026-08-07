@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 function useCurrentUserId() {
   const [userId, setUserId] = useState(null);
@@ -29,14 +30,14 @@ export default function WonClientsPage() {
 
   if (!userId) {
     return (
-      <Shell active="Clients gagnés">
+      <Shell active="Clients gagnés" userId={userId}>
         <EmptyState title="Aucun identifiant commercial" body="Ouvrez cette page avec ?user_id=... dans l'URL." />
       </Shell>
     );
   }
 
   return (
-    <Shell active="Clients gagnés">
+    <Shell active="Clients gagnés" userId={userId}>
       <header className="header">
         <p className="eyebrow">Succès</p>
         <h1>Clients gagnés grâce à Aaron</h1>
@@ -161,18 +162,18 @@ function EmptyState({ title, body }) {
   );
 }
 
-function Shell({ children, active }) {
-  const items = [
-    'Tableau de bord',
-    'Prospects',
-    'Campagnes',
-    'Agenda',
-    'Résultats',
-    'Clients gagnés',
-    'Mes documents',
-    'Chat avec Aaron',
-    'Connexions',
-    'Préférences',
+function Shell({ children, active, userId }) {
+  const NAV_ITEMS = [
+    { label: 'Tableau de bord', slug: 'dashboard' },
+    { label: 'Prospects', slug: 'prospects' },
+    { label: 'Campagnes', slug: 'campaigns' },
+    { label: 'Agenda', slug: 'agenda' },
+    { label: 'Résultats', slug: 'resultats' },
+    { label: 'Clients gagnés', slug: 'clients-gagnes' },
+    { label: 'Mes documents', slug: 'documents' },
+    { label: 'Chat avec Aaron', slug: 'chat' },
+    { label: 'Connexions', slug: 'connexions' },
+    { label: 'Préférences', slug: 'preferences' },
   ];
   return (
     <div className="shell">
@@ -182,10 +183,10 @@ function Shell({ children, active }) {
           <span>Meet Aaron</span>
         </div>
         <ul className="nav-list">
-          {items.map((item) => (
-            <li key={item} className={item === active ? 'active' : ''}>
-              {item}
-            </li>
+          {NAV_ITEMS.map((item) => (
+            <Link key={item.label} href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`} className="nav-link">
+              <li className={item.label === active ? 'active' : ''}>{item.label}</li>
+            </Link>
           ))}
         </ul>
       </nav>
@@ -241,6 +242,9 @@ function Shell({ children, active }) {
           display: flex;
           flex-direction: column;
           gap: 0.15rem;
+        }
+        .nav-link {
+          text-decoration: none;
         }
         .nav-list li {
           padding: 0.6rem 0.7rem;
