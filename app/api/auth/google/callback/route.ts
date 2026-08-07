@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error');
 
   if (error) {
-    return NextResponse.redirect(`${process.env.APP_URL}/app/settings?oauth_error=${error}`);
+    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=${error}`);
   }
 
   if (!code || !userId) {
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token Google:', errBody);
-    return NextResponse.redirect(`${process.env.APP_URL}/app/settings?oauth_error=token_exchange_failed`);
+    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed`);
   }
 
   const tokens = await tokenResponse.json();
@@ -70,8 +70,8 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens Google:', dbError);
-    return NextResponse.redirect(`${process.env.APP_URL}/app/settings?oauth_error=db_error`);
+    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
   }
 
-  return NextResponse.redirect(`${process.env.APP_URL}/app/settings?oauth_success=google`);
+  return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_success=google`);
 }
