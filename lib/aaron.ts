@@ -22,6 +22,7 @@ interface AaronOutput {
   aaron_advice: string;
   detected_phone: string | null;
   appointment_cancelled: boolean;
+  rescue_proposal: { subject: string; body: string } | null;
   appointment_proposal: {
     detected: boolean;
     type: 'telephonique' | 'physique' | 'visio';
@@ -70,7 +71,6 @@ async function buildContext(prospectId: string) {
     extrait: doc.extracted_text ? doc.extracted_text.slice(0, MAX_CHARS_PER_DOC) : null,
   }));
 
-  // Vérifie s'il existe un RDV validé pour ce prospect (nécessaire pour détecter une annulation)
   const { data: validatedAppointment } = await supabaseAdmin
     .from('appointments')
     .select('id, proposed_at, type')
