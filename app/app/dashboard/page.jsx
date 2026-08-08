@@ -249,12 +249,23 @@ const cancelledByClient = appointments.filter(
         </>
       )}
 
-      {selectedAppointment && (
+{selectedAppointment && (
         <ActionCardModal
           appointment={selectedAppointment}
           onClose={() => setSelectedAppointment(null)}
           onDone={() => {
             setSelectedAppointment(null);
+            loadAll();
+          }}
+        />
+      )}
+
+      {selectedRescue && (
+        <RescueModal
+          prospect={selectedRescue}
+          onClose={() => setSelectedRescue(null)}
+          onDone={() => {
+            setSelectedRescue(null);
             loadAll();
           }}
         />
@@ -743,6 +754,163 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         }
         .center {
           text-align: center;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function RescueModal({ prospect, onClose, onDone }) {
+  const [acting, setActing] = useState(false);
+
+  async function handleAction(action) {
+    setActing(true);
+    await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    setActing(false);
+    onDone();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card" onClick={(e) => e.stopPropagation()}>
+        <button className="close-btn" onClick={onClose}>✕</button>
+
+        <div className="prospect-center">
+          <div className="avatar">{prospect.full_name?.[0] || '?'}</div>
+          <h2>{prospect.full_name}</h2>
+          <p className="company muted">{prospect.prospect_companies?.name || 'société inconnue'}</p>
+          <span className="status-pill" style={{ color: '#8B90A8', borderColor: '#8B90A8' }}>
+            Sur le point d'être perdu
+          </span>
+        </div>
+
+        <div className="scroll-section">
+          <p className="rescue-subject"><strong>{prospect.rescue_proposal_subject}</strong></p>
+          <p className="rescue-body">{prospect.rescue_proposal_body}</p>
+        </div>
+
+        <div className="actions-row">
+          <button className="btn-valid" disabled={acting} onClick={() => handleAction('approuver_sauvetage')}>
+            Envoyer cette tentative
+          </button>
+          <button className="btn-danger" disabled={acting} onClick={() => handleAction('rejeter_sauvetage')}>
+            Abandonner ce prospect
+          </button>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.65);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 20px;
+          padding: 2rem;
+          width: 420px;
+          max-width: 100%;
+          max-height: 85vh;
+          overflow-y: auto;
+          position: relative;
+        }
+        .close-btn {
+          position: absolute;
+          top: 1rem;
+          right: 1rem;
+          background: none;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .prospect-center {
+          text-align: center;
+          margin-bottom: 1.4rem;
+        }
+        .avatar {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: var(--accent);
+          color: white;
+          font-family: var(--font-display);
+          font-size: 1.4rem;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto 0.8rem;
+        }
+        .prospect-center h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0 0 0.2rem;
+        }
+        .company {
+          font-size: 0.86rem;
+          margin: 0 0 0.6rem;
+        }
+        .status-pill {
+          display: inline-block;
+          border: 1px solid;
+          border-radius: 999px;
+          padding: 0.2rem 0.7rem;
+          font-size: 0.76rem;
+        }
+        .scroll-section {
+          max-height: 260px;
+          overflow-y: auto;
+          margin-bottom: 1.2rem;
+          background: var(--bg);
+          border-radius: 12px;
+          padding: 1rem;
+        }
+        .rescue-subject {
+          margin: 0 0 0.6rem;
+          font-size: 0.9rem;
+        }
+        .rescue-body {
+          margin: 0;
+          font-size: 0.86rem;
+          white-space: pre-wrap;
+          color: var(--muted);
+        }
+        .actions-row {
+          display: flex;
+          gap: 0.6rem;
+        }
+        .btn-valid, .btn-danger {
+          flex: 1;
+          border: none;
+          border-radius: 10px;
+          padding: 0.7rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-valid {
+          background: var(--accent-green);
+          color: #08130d;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid #e5484d;
+          color: #e5484d;
+        }
+        .muted {
+          color: var(--muted);
         }
       `}</style>
     </div>
