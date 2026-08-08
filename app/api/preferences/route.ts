@@ -1,6 +1,6 @@
 // app/api/preferences/route.ts
-// GET   -> lit les préférences actuelles du commercial + le niveau de collaboration de sa société
-// PATCH -> met à jour ses préférences (canal de notif, délai avant RDV, niveau de collaboration)
+// GET   -> lit les préférences du commercial + niveau de collaboration + offre souscrite
+// PATCH -> met à jour préférences, niveau de collaboration, et/ou offre souscrite
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level')
+    .select('collaboration_level, offer')
     .eq('id', user.company_id)
     .single();
 
@@ -31,12 +31,13 @@ export async function GET(request: NextRequest) {
     preferences: {
       ...user,
       collaboration_level: company?.collaboration_level ?? 0,
+      offer: company?.offer ?? 'AP',
     },
   });
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, notify_channel, notify_before_appointment_minutes, collaboration_level } = await request.json();
+  const { user_id, notify_channel, notify_before_appointment_minutes, collaboration_level, offer } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -53,12 +54,20 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  if (collaboration_level !== undefined) {
+  if (collaboration_level !== undefined || offer !== undefined) {
+    if (offer !== undefined && offer !== 'AP') {
+      return NextResponse.json({ error: 'Cette offre est bientôt disponible' }, { status: 400 });
+    }
+
     const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', user_id).single();
     if (user) {
+      const companyUpdates: Record<string, unknown> = {};
+      if (collaboration_level !== undefined) companyUpdates.collaboration_level = collaboration_level;
+      if (offer !== undefined) companyUpdates.offer = offer;
+
       await supabaseAdmin
         .from('companies')
-        .update({ collaboration_level })
+        .update(companyUpdates)
         .eq('id', user.company_id);
     }
   }
