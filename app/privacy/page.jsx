@@ -1,3 +1,4 @@
+'use client';
 // app/privacy/page.jsx
 export default function PrivacyPage() {
   return (
