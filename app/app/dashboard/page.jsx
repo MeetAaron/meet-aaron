@@ -107,6 +107,10 @@ export default function DashboardPage() {
     .filter((a) => a.status === 'validé' && new Date(a.proposed_at) > new Date())
     .slice(0, 5);
   const pendingAppointments = appointments.filter((a) => a.status === 'proposé');
+  const cancelledByClient = appointments.filter(
+    (a) => a.status === 'annulé' && a.cancelled_by === 'client' && !a.client_cancel_acknowledged
+  );
+  const totalActions = pendingAppointments.length + cancelledByClient.length;
 
   if (authLoading) {
     return (
@@ -151,25 +155,34 @@ export default function DashboardPage() {
         <p className="muted">Chargement…</p>
       ) : (
         <>
-          <section className="actions-panel">
+         <section className="actions-panel">
             <button className="actions-toggle" onClick={() => setActionsOpen(!actionsOpen)}>
               <span>
-                Actions requises {pendingAppointments.length > 0 && <span className="badge">{pendingAppointments.length}</span>}
+                Actions requises {totalActions > 0 && <span className="badge">{totalActions}</span>}
               </span>
               <span className="chevron">{actionsOpen ? '▲' : '▼'}</span>
             </button>
             {actionsOpen && (
               <div className="actions-list">
-                {pendingAppointments.length === 0 ? (
+                {totalActions === 0 ? (
                   <p className="empty-actions">Rien à traiter pour le moment.</p>
                 ) : (
-                  pendingAppointments.map((a) => (
-                    <button key={a.id} className="action-row" onClick={() => setSelectedAppointment(a)}>
-                      <span className="dot" style={{ background: '#F0914E' }} />
-                      <span className="action-label">RDV à valider — {a.prospects?.full_name}</span>
-                      <span className="action-arrow">→</span>
-                    </button>
-                  ))
+                  <>
+                    {pendingAppointments.map((a) => (
+                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'valider' })}>
+                        <span className="dot" style={{ background: '#F0914E' }} />
+                        <span className="action-label">RDV à valider — {a.prospects?.full_name}</span>
+                        <span className="action-arrow">→</span>
+                      </button>
+                    ))}
+                    {cancelledByClient.map((a) => (
+                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
+                        <span className="dot" style={{ background: '#E5484D' }} />
+                        <span className="action-label">RDV annulé par le client — {a.prospects?.full_name}</span>
+                        <span className="action-arrow">→</span>
+                      </button>
+                    ))}
+                  </>
                 )}
               </div>
             )}
