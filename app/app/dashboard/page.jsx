@@ -77,7 +77,8 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(true);
-  const [selectedAppointment, setSelectedAppointment] = useState(null);
+ const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [selectedRescue, setSelectedRescue] = useState(null);
 
   async function loadAll() {
     setLoading(true);
@@ -107,10 +108,11 @@ export default function DashboardPage() {
     .filter((a) => a.status === 'validé' && new Date(a.proposed_at) > new Date())
     .slice(0, 5);
   const pendingAppointments = appointments.filter((a) => a.status === 'proposé');
-  const cancelledByClient = appointments.filter(
+const cancelledByClient = appointments.filter(
     (a) => a.status === 'annulé' && a.cancelled_by === 'client' && !a.client_cancel_acknowledged
   );
-  const totalActions = pendingAppointments.length + cancelledByClient.length;
+  const rescueProspects = prospects.filter((p) => p.rescue_proposal_pending);
+  const totalActions = pendingAppointments.length + cancelledByClient.length + rescueProspects.length;
 
   if (authLoading) {
     return (
@@ -175,10 +177,17 @@ export default function DashboardPage() {
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
-                    {cancelledByClient.map((a) => (
+{cancelledByClient.map((a) => (
                       <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
                         <span className="dot" style={{ background: '#E5484D' }} />
                         <span className="action-label">RDV annulé par le client — {a.prospects?.full_name}</span>
+                        <span className="action-arrow">→</span>
+                      </button>
+                    ))}
+                    {rescueProspects.map((p) => (
+                      <button key={p.id} className="action-row" onClick={() => setSelectedRescue(p)}>
+                        <span className="dot" style={{ background: '#8B90A8' }} />
+                        <span className="action-label">Prospect perdu — tentative de sauvetage pour {p.full_name}</span>
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
