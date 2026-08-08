@@ -1,17 +1,18 @@
 // app/api/appointments/[id]/route.ts
-// PATCH -> le commercial clique sur Valider / Reporter / Annuler pour un RDV proposé par Aaron.
-//   - "valider"  -> crée l'événement calendrier (Google ou Outlook selon la connexion active)
-//   - "reporter" -> repasse la main à Aaron pour proposer une nouvelle date au prospect
-//   - "annuler"  -> marque le RDV annulé, prévient le prospect
+// PATCH -> actions sur un rendez-vous :
+//   - "valider"  -> crée l'événement calendrier (Google ou Outlook)
+//   - "reporter" -> repasse la main à Aaron pour une nouvelle date
+//   - "annuler"  -> annule côté commercial, prévient le prospect
+//   - "relancer" -> (RDV annulé par le client) envoie un email de relance pour reprogrammer
+//   - "traiter"  -> (RDV annulé par le client) marque l'annulation comme prise en compte, sans email
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createGoogleCalendarEvent } from '@/lib/google';
+import { createGoogleCalendarEvent, sendGmailEmail } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
-import { sendGmailEmail } from '@/lib/google';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action } = await request.json(); // "valider" | "reporter" | "annuler"
+  const { action } = await request.json();
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin
@@ -27,7 +28,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const userId = appointment.prospects.assigned_user_id;
 
   if (action === 'valider') {
-    // Détermine quel calendrier utiliser (priorité Google, sinon Microsoft)
     const { data: connections } = await supabaseAdmin
       .from('oauth_connections')
       .select('provider')
@@ -37,7 +37,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const hasMicrosoft = connections?.some((c) => c.provider === 'microsoft');
 
     const startISO = appointment.proposed_at;
-    const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString(); // durée par défaut 30 min
+    const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
 
     let calendarEvent;
     let calendarProvider: 'google' | 'microsoft';
@@ -76,7 +76,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       })
       .eq('id', appointmentId);
 
-    // Prospect repasse en statut "bleu" (RDV confirmé)
     await supabaseAdmin.from('prospects').update({ status: 'bleu' }).eq('id', appointment.prospect_id);
 
     return NextResponse.json({ success: true, status: 'validé' });
@@ -84,15 +83,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   if (action === 'reporter') {
     await supabaseAdmin.from('appointments').update({ status: 'reporté' }).eq('id', appointmentId);
-    // Le déclenchement d'une nouvelle proposition de créneau par Aaron se fait
-    // via l'endpoint /api/prospects/[id]/generate (Aaron reprend la conversation).
     return NextResponse.json({ success: true, status: 'reporté' });
   }
 
   if (action === 'annuler') {
-    await supabaseAdmin.from('appointments').update({ status: 'annulé' }).eq('id', appointmentId);
+    await supabaseAdmin.from('appointments').update({ status: 'annulé', cancelled_by: 'commercial' }).eq('id', appointmentId);
 
-    // Prévient le prospect par email
     await sendGmailEmail(
       userId,
       appointment.prospects.email,
@@ -103,6 +99,33 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     await supabaseAdmin.from('prospects').update({ status: 'jaune' }).eq('id', appointment.prospect_id);
 
     return NextResponse.json({ success: true, status: 'annulé' });
+  }
+
+  if (action === 'relancer') {
+    await sendGmailEmail(
+      userId,
+      appointment.prospects.email,
+      'Reprogrammons notre rendez-vous',
+      `Bonjour ${appointment.prospects.full_name},\n\nJ'ai bien noté que notre rendez-vous ne pouvait finalement pas avoir lieu. Quand seriez-vous disponible pour le reprogrammer ?\n\nCordialement.`
+    );
+
+    await supabaseAdmin
+      .from('appointments')
+      .update({ client_cancel_acknowledged: true })
+      .eq('id', appointmentId);
+
+    await supabaseAdmin.from('prospects').update({ status: 'jaune' }).eq('id', appointment.prospect_id);
+
+    return NextResponse.json({ success: true, status: 'relance_envoyee' });
+  }
+
+  if (action === 'traiter') {
+    await supabaseAdmin
+      .from('appointments')
+      .update({ client_cancel_acknowledged: true })
+      .eq('id', appointmentId);
+
+    return NextResponse.json({ success: true, status: 'traite' });
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
