@@ -57,6 +57,13 @@ const CHANNEL_OPTIONS = [
 
 const DELAY_OPTIONS = [15, 30, 60];
 
+const COLLABORATION_LEVELS = [
+  { value: 0, label: 'Niveau 0', desc: 'Aucun lien CRM — Aaron travaille avec sa propre base de données.' },
+  { value: 1, label: 'Niveau 1', desc: 'Connexion CRM basique, synchronisation manuelle ponctuelle.' },
+  { value: 2, label: 'Niveau 2', desc: 'Synchronisation automatique quotidienne avec votre CRM.' },
+  { value: 3, label: 'Niveau 3', desc: 'Synchronisation automatique horaire, intégration complète.' },
+];
+
 export default function PreferencesPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [prefs, setPrefs] = useState(null);
@@ -84,6 +91,7 @@ export default function PreferencesPage() {
         user_id: userId,
         notify_channel: prefs.notify_channel,
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
+        collaboration_level: prefs.collaboration_level,
       }),
     });
     setSaving(false);
@@ -97,13 +105,8 @@ export default function PreferencesPage() {
         <p>Connexion…</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
-            font-family: 'Inter', sans-serif;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -116,15 +119,9 @@ export default function PreferencesPage() {
         <p>{authError}</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
-            font-family: 'Inter', sans-serif;
-            text-align: center;
-            padding: 2rem;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
           }
         `}</style>
       </div>
@@ -172,6 +169,22 @@ export default function PreferencesPage() {
             </div>
           </div>
 
+          <div className="field">
+            <label>Niveau de collaboration avec votre CRM</label>
+            <div className="collab-options">
+              {COLLABORATION_LEVELS.map((lvl) => (
+                <button
+                  key={lvl.value}
+                  className={prefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
+                  onClick={() => setPrefs({ ...prefs, collaboration_level: lvl.value })}
+                >
+                  <span className="collab-title">{lvl.label}</span>
+                  <span className="collab-desc">{lvl.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="actions">
             <button className="btn-primary" onClick={handleSave} disabled={saving}>
               {saving ? 'Enregistrement…' : 'Enregistrer'}
@@ -207,10 +220,10 @@ export default function PreferencesPage() {
           border: 1px solid var(--border);
           border-radius: 14px;
           padding: 1.6rem;
-          max-width: 560px;
+          max-width: 640px;
         }
         .field {
-          margin-bottom: 1.6rem;
+          margin-bottom: 1.8rem;
         }
         .field label {
           display: block;
@@ -235,6 +248,36 @@ export default function PreferencesPage() {
           border-color: var(--accent);
           color: var(--text);
           background: rgba(75, 57, 239, 0.14);
+        }
+        .collab-options {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.6rem;
+        }
+        .collab-card {
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.8rem;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .collab-card.active {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .collab-title {
+          font-weight: 600;
+          font-size: 0.86rem;
+          color: var(--text);
+        }
+        .collab-desc {
+          font-size: 0.76rem;
+          color: var(--muted);
+          line-height: 1.35;
         }
         .actions {
           display: flex;
@@ -273,35 +316,13 @@ export default function PreferencesPage() {
         .muted {
           color: var(--muted);
         }
+        @media (max-width: 600px) {
+          .collab-options {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
     </Shell>
-  );
-}
-
-function EmptyState({ title, body }) {
-  return (
-    <div className="empty">
-      <p className="empty-title">{title}</p>
-      <p className="empty-body">{body}</p>
-      <style jsx>{`
-        .empty {
-          text-align: center;
-          padding: 4rem 1rem;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 14px;
-        }
-        .empty-title {
-          font-weight: 600;
-          margin: 0 0 0.35rem;
-        }
-        .empty-body {
-          color: var(--muted);
-          font-size: 0.88rem;
-          margin: 0;
-        }
-      `}</style>
-    </div>
   );
 }
 
@@ -317,6 +338,7 @@ function Shell({ children, active, userId }) {
     { label: 'Chat avec Aaron', slug: 'chat' },
     { label: 'Connexions', slug: 'connexions' },
     { label: 'Préférences', slug: 'preferences' },
+    { label: 'Mon équipe', slug: 'team' },
   ];
   return (
     <div className="shell">
