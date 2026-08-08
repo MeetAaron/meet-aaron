@@ -4,6 +4,7 @@ export default function PrivacyPage() {
   return (
     <div className="wrap">
       <div className="content">
+        <a href="/app/preferences" className="back-link">← Retour aux préférences</a>
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
         <h1>Politique de confidentialité</h1>
         <p className="updated">Dernière mise à jour : 8 août 2026</p>
@@ -116,6 +117,16 @@ export default function PrivacyPage() {
         .content {
           max-width: 680px;
           width: 100%;
+        }
+        .back-link {
+          display: inline-block;
+          color: #8b90a8;
+          font-size: 0.82rem;
+          text-decoration: none;
+          margin-bottom: 1.5rem;
+        }
+        .back-link:hover {
+          color: #f4f1ea;
         }
         .logo {
           width: 40px;
