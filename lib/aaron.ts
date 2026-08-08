@@ -6,14 +6,13 @@ import { supabaseAdmin } from './supabase-admin';
 import { readFileSync } from 'fs';
 import path from 'path';
 
-// Le prompt système d'Aaron est stocké en dur dans le repo (voir aaron_system_prompt.md)
 const AARON_SYSTEM_PROMPT = readFileSync(
   path.join(process.cwd(), 'lib', 'aaron_system_prompt.md'),
   'utf-8'
 );
 
-const MAX_DOCS_IN_CONTEXT = 3;       // combien de documents on envoie au maximum
-const MAX_CHARS_PER_DOC = 600;       // extrait maximum par document, pour limiter les tokens
+const MAX_DOCS_IN_CONTEXT = 3;
+const MAX_CHARS_PER_DOC = 600;
 
 interface AaronOutput {
   email_draft: { subject: string; body: string };
@@ -22,6 +21,7 @@ interface AaronOutput {
   personality_notes: string | null;
   aaron_advice: string;
   detected_phone: string | null;
+  appointment_cancelled: boolean;
   appointment_proposal: {
     detected: boolean;
     type: 'telephonique' | 'physique' | 'visio';
@@ -31,7 +31,6 @@ interface AaronOutput {
   action_required_from_sales: string | null;
 }
 
-// Construit le contexte complet à injecter dans le message utilisateur envoyé à Claude
 async function buildContext(prospectId: string) {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
@@ -47,7 +46,6 @@ async function buildContext(prospectId: string) {
     .eq('prospect_id', prospectId)
     .order('created_at', { ascending: true });
 
-  // Détecte s'il y a d'autres contacts de la même société (pour le contexte multi-contacts)
   let siblingContacts: any[] = [];
   if (prospect.prospect_company_id) {
     const { data } = await supabaseAdmin
@@ -58,9 +56,6 @@ async function buildContext(prospectId: string) {
     siblingContacts = data || [];
   }
 
-  // Récupère les documents de l'entreprise (devis types, tarifs, brochures) pour
-  // qu'Aaron comprenne mieux le métier du commercial. On ne prend que les plus récents,
-  // et un extrait limité de chacun, pour ne pas exploser le nombre de tokens envoyés.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
     .select('file_name, description, extracted_text')
@@ -74,6 +69,16 @@ async function buildContext(prospectId: string) {
     description: doc.description,
     extrait: doc.extracted_text ? doc.extracted_text.slice(0, MAX_CHARS_PER_DOC) : null,
   }));
+
+  // Vérifie s'il existe un RDV validé pour ce prospect (nécessaire pour détecter une annulation)
+  const { data: validatedAppointment } = await supabaseAdmin
+    .from('appointments')
+    .select('id, proposed_at, type')
+    .eq('prospect_id', prospectId)
+    .eq('status', 'validé')
+    .order('proposed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   return {
     commercial: {
@@ -92,10 +97,12 @@ async function buildContext(prospectId: string) {
     autres_contacts_meme_societe: siblingContacts,
     societe_deja_cliente: prospect.prospect_companies?.is_won_client || false,
     documents_entreprise: documentsSummary,
+    rdv_valide_existant: validatedAppointment
+      ? { date: validatedAppointment.proposed_at, type: validatedAppointment.type }
+      : null,
   };
 }
 
-// Appelle Claude avec le prompt système d'Aaron + le contexte, retourne la réponse structurée
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
   const context = await buildContext(prospectId);
 
@@ -113,7 +120,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
       messages: [
         {
           role: 'user',
-          content: `Voici le contexte complet de la situation, y compris un extrait des documents de l'entreprise (devis types, tarifs, brochures) si disponibles — utilise-les pour mieux comprendre le métier du commercial et adapter tes messages. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
+          content: `Voici le contexte complet de la situation, y compris un extrait des documents de l'entreprise si disponibles, et l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
         },
       ],
     }),
@@ -131,7 +138,6 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
     throw new Error('Aucune réponse texte reçue de Claude');
   }
 
-  // Nettoyage au cas où Claude ajoute des balises ```json malgré la consigne
   const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
 
   try {
