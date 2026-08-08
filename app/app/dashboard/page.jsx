@@ -6,8 +6,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 
-// Authentification réelle : récupère la session Supabase, la lie au profil Meet Aaron
-// correspondant via /api/auth/link, et redirige vers /login si non connecté.
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -59,28 +57,44 @@ const STATUS_META = {
   bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
 };
 
+const PERSONALITY_LABELS = {
+  dominant: 'Dominant',
+  influent: 'Influent',
+  stable: 'Stable',
+  consciencieux: 'Consciencieux',
+};
+
+const TYPE_LABELS = {
+  telephonique: 'Téléphonique',
+  physique: 'Physique',
+  visio: 'Visio',
+};
+
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionsOpen, setActionsOpen] = useState(true);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+
+  async function loadAll() {
+    setLoading(true);
+    const [pRes, cRes, aRes] = await Promise.all([
+      fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
+    ]);
+    setProspects(pRes.prospects || []);
+    setCampaigns(cRes.campaigns || []);
+    setAppointments(aRes.appointments || []);
+    setLoading(false);
+  }
 
   useEffect(() => {
     if (!userId) return;
-    async function load() {
-      setLoading(true);
-      const [pRes, cRes, aRes] = await Promise.all([
-        fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
-        fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
-        fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
-      ]);
-      setProspects(pRes.prospects || []);
-      setCampaigns(cRes.campaigns || []);
-      setAppointments(aRes.appointments || []);
-      setLoading(false);
-    }
-    load();
+    loadAll();
   }, [userId]);
 
   const statusCounts = Object.keys(STATUS_META).reduce((acc, key) => {
@@ -100,13 +114,8 @@ export default function DashboardPage() {
         <p>Connexion…</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
-            font-family: 'Inter', sans-serif;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -119,15 +128,9 @@ export default function DashboardPage() {
         <p>{authError}</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
-            font-family: 'Inter', sans-serif;
-            text-align: center;
-            padding: 2rem;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
           }
         `}</style>
       </div>
@@ -148,11 +151,29 @@ export default function DashboardPage() {
         <p className="muted">Chargement…</p>
       ) : (
         <>
-          {pendingAppointments.length > 0 && (
-            <section className="alert">
-              <strong>{pendingAppointments.length}</strong> rendez-vous propos{pendingAppointments.length > 1 ? 'és' : 'é'} par Aaron attendent votre validation.
-            </section>
-          )}
+          <section className="actions-panel">
+            <button className="actions-toggle" onClick={() => setActionsOpen(!actionsOpen)}>
+              <span>
+                Actions requises {pendingAppointments.length > 0 && <span className="badge">{pendingAppointments.length}</span>}
+              </span>
+              <span className="chevron">{actionsOpen ? '▲' : '▼'}</span>
+            </button>
+            {actionsOpen && (
+              <div className="actions-list">
+                {pendingAppointments.length === 0 ? (
+                  <p className="empty-actions">Rien à traiter pour le moment.</p>
+                ) : (
+                  pendingAppointments.map((a) => (
+                    <button key={a.id} className="action-row" onClick={() => setSelectedAppointment(a)}>
+                      <span className="dot" style={{ background: '#F0914E' }} />
+                      <span className="action-label">RDV à valider — {a.prospects?.full_name}</span>
+                      <span className="action-arrow">→</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </section>
 
           <section className="stat-row">
             {Object.entries(STATUS_META).map(([key, meta]) => (
@@ -206,6 +227,17 @@ export default function DashboardPage() {
         </>
       )}
 
+      {selectedAppointment && (
+        <ActionCardModal
+          appointment={selectedAppointment}
+          onClose={() => setSelectedAppointment(null)}
+          onDone={() => {
+            setSelectedAppointment(null);
+            loadAll();
+          }}
+        />
+      )}
+
       <style jsx>{`
         .header {
           display: flex;
@@ -228,14 +260,82 @@ export default function DashboardPage() {
           max-width: 26ch;
           line-height: 1.2;
         }
-        .alert {
-          background: rgba(240, 169, 78, 0.12);
-          border: 1px solid rgba(240, 169, 78, 0.4);
-          color: #f0c68a;
-          padding: 0.9rem 1.2rem;
-          border-radius: 10px;
+        .actions-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
           margin-bottom: 1.5rem;
+          overflow: hidden;
+        }
+        .actions-toggle {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: none;
+          border: none;
+          color: var(--text);
           font-size: 0.92rem;
+          font-weight: 600;
+          padding: 1rem 1.3rem;
+          cursor: pointer;
+        }
+        .badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: #f0914e;
+          color: #1b0d02;
+          border-radius: 999px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          padding: 0.1rem 0.5rem;
+          margin-left: 0.5rem;
+        }
+        .chevron {
+          color: var(--muted);
+          font-size: 0.7rem;
+        }
+        .actions-list {
+          border-top: 1px solid var(--border);
+        }
+        .empty-actions {
+          padding: 1.2rem 1.3rem;
+          color: var(--muted);
+          font-size: 0.86rem;
+          margin: 0;
+        }
+        .action-row {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          background: none;
+          border: none;
+          border-bottom: 1px solid var(--border);
+          color: var(--text);
+          padding: 0.9rem 1.3rem;
+          font-size: 0.88rem;
+          cursor: pointer;
+          text-align: left;
+        }
+        .action-row:last-child {
+          border-bottom: none;
+        }
+        .action-row:hover {
+          background: rgba(75, 57, 239, 0.08);
+        }
+        .action-label {
+          flex: 1;
+        }
+        .action-arrow {
+          color: var(--muted);
+        }
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
         }
         .stat-row {
           display: grid;
@@ -251,11 +351,6 @@ export default function DashboardPage() {
           display: flex;
           flex-direction: column;
           gap: 0.35rem;
-        }
-        .dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
         }
         .stat-number {
           font-family: var(--font-mono);
@@ -320,6 +415,298 @@ export default function DashboardPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+function ActionCardModal({ appointment, onClose, onDone }) {
+  const [view, setView] = useState('main'); // 'main' | 'historique' | 'fiche'
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/prospects/${appointment.prospect_id}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setDetail(res);
+        setLoading(false);
+      });
+  }, [appointment.prospect_id]);
+
+  async function handleAction(action) {
+    setActing(true);
+    await fetch(`/api/appointments/${appointment.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    setActing(false);
+    onDone();
+  }
+
+  const prospect = detail?.prospect;
+  const meta = prospect ? (STATUS_META[prospect.status] || STATUS_META.jaune) : null;
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="card" onClick={(e) => e.stopPropagation()}>
+        <button className="close-btn" onClick={onClose}>✕</button>
+
+        {loading ? (
+          <p className="muted center">Chargement…</p>
+        ) : (
+          <>
+            <div className="prospect-center">
+              <div className="avatar">{prospect?.full_name?.[0] || '?'}</div>
+              <h2>{prospect?.full_name}</h2>
+              <p className="company muted">{prospect?.prospect_companies?.name || 'société inconnue'}</p>
+              {meta && (
+                <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
+                  {meta.label}
+                </span>
+              )}
+            </div>
+
+            {view === 'main' && (
+              <div className="rdv-info">
+                <p><strong>{TYPE_LABELS[appointment.type]}</strong></p>
+                <p className="muted">{new Date(appointment.proposed_at).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}</p>
+              </div>
+            )}
+
+            {view === 'historique' && (
+              <div className="scroll-section">
+                {(detail.messages || []).length === 0 ? (
+                  <p className="muted center">Aucun échange pour le moment.</p>
+                ) : (
+                  detail.messages.map((m, i) => (
+                    <div key={i} className={`msg ${m.direction}`}>
+                      <p>{m.body}</p>
+                      <span className="msg-date">{new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {view === 'fiche' && (
+              <div className="scroll-section fiche">
+                <div className="fiche-row">
+                  <span className="fiche-label">Email</span>
+                  <span>{prospect?.email}</span>
+                </div>
+                {prospect?.phone && (
+                  <div className="fiche-row">
+                    <span className="fiche-label">Téléphone</span>
+                    <span>{prospect.phone}</span>
+                  </div>
+                )}
+                <div className="fiche-row">
+                  <span className="fiche-label">Personnalité</span>
+                  <span>{prospect?.personality_type ? PERSONALITY_LABELS[prospect.personality_type] : 'Pas encore détectée'}</span>
+                </div>
+                {prospect?.personality_notes && (
+                  <div className="fiche-row">
+                    <span className="fiche-label">Notes</span>
+                    <span>{prospect.personality_notes}</span>
+                  </div>
+                )}
+                <div className="fiche-row">
+                  <span className="fiche-label">Conseil d'Aaron</span>
+                  <span>{prospect?.aaron_advice || '—'}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="toggle-row">
+              <button className={view === 'historique' ? 'toggle-btn active' : 'toggle-btn'} onClick={() => setView(view === 'historique' ? 'main' : 'historique')}>
+                Historique des échanges
+              </button>
+              <button className={view === 'fiche' ? 'toggle-btn active' : 'toggle-btn'} onClick={() => setView(view === 'fiche' ? 'main' : 'fiche')}>
+                Fiche client
+              </button>
+            </div>
+
+            <div className="actions-row">
+              <button className="btn-valid" disabled={acting} onClick={() => handleAction('valider')}>Valider</button>
+              <button className="btn-neutral" disabled={acting} onClick={() => handleAction('reporter')}>Reporter</button>
+              <button className="btn-danger" disabled={acting} onClick={() => handleAction('annuler')}>Annuler</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.65);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 20px;
+          padding: 2rem;
+          width: 420px;
+          max-width: 100%;
+          max-height: 85vh;
+          overflow-y: auto;
+          position: relative;
+        }
+        .close-btn {
+          position: absolute;
+          top: 1rem;
+          right: 1rem;
+          background: none;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .prospect-center {
+          text-align: center;
+          margin-bottom: 1.4rem;
+        }
+        .avatar {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: var(--accent);
+          color: white;
+          font-family: var(--font-display);
+          font-size: 1.4rem;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto 0.8rem;
+        }
+        .prospect-center h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0 0 0.2rem;
+        }
+        .company {
+          font-size: 0.86rem;
+          margin: 0 0 0.6rem;
+        }
+        .status-pill {
+          display: inline-block;
+          border: 1px solid;
+          border-radius: 999px;
+          padding: 0.2rem 0.7rem;
+          font-size: 0.76rem;
+        }
+        .rdv-info {
+          text-align: center;
+          background: var(--bg);
+          border-radius: 12px;
+          padding: 1rem;
+          margin-bottom: 1.2rem;
+        }
+        .rdv-info p {
+          margin: 0.2rem 0;
+        }
+        .scroll-section {
+          max-height: 220px;
+          overflow-y: auto;
+          margin-bottom: 1.2rem;
+          background: var(--bg);
+          border-radius: 12px;
+          padding: 1rem;
+        }
+        .msg {
+          margin-bottom: 0.9rem;
+          font-size: 0.84rem;
+        }
+        .msg p {
+          margin: 0 0 0.2rem;
+          white-space: pre-wrap;
+        }
+        .msg.inbound p {
+          color: var(--text);
+        }
+        .msg.outbound p {
+          color: var(--muted);
+        }
+        .msg-date {
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .fiche-row {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          margin-bottom: 0.8rem;
+          font-size: 0.86rem;
+        }
+        .fiche-row:last-child {
+          margin-bottom: 0;
+        }
+        .fiche-label {
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+        }
+        .toggle-row {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1.2rem;
+        }
+        .toggle-btn {
+          flex: 1;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.5rem;
+          font-size: 0.78rem;
+          cursor: pointer;
+        }
+        .toggle-btn.active {
+          border-color: var(--accent);
+          color: var(--text);
+        }
+        .actions-row {
+          display: flex;
+          gap: 0.6rem;
+        }
+        .btn-valid, .btn-neutral, .btn-danger {
+          flex: 1;
+          border: none;
+          border-radius: 10px;
+          padding: 0.7rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-valid {
+          background: var(--accent-green);
+          color: #08130d;
+        }
+        .btn-neutral {
+          background: var(--border);
+          color: var(--text);
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid #e5484d;
+          color: #e5484d;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .center {
+          text-align: center;
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -408,6 +795,7 @@ function Shell({ children, active, userId }) {
     { label: 'Chat avec Aaron', slug: 'chat' },
     { label: 'Connexions', slug: 'connexions' },
     { label: 'Préférences', slug: 'preferences' },
+    { label: 'Mon équipe', slug: 'team' },
   ];
   return (
     <div className="shell">
