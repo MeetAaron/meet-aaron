@@ -3,14 +3,50 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
 
-function useCurrentUserId() {
+function useAuthedUser() {
+  const router = useRouter();
   const [userId, setUserId] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setUserId(params.get('user_id'));
-  }, []);
-  return userId;
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+      const body = await res.json();
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        setAuthError(body.error || 'Accès refusé');
+        setAuthLoading(false);
+        return;
+      }
+
+      setUserId(body.user.id);
+      setAuthLoading(false);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { userId, authLoading, authError };
 }
 
 const CHANNEL_OPTIONS = [
@@ -22,7 +58,7 @@ const CHANNEL_OPTIONS = [
 const DELAY_OPTIONS = [15, 30, 60];
 
 export default function PreferencesPage() {
-  const userId = useCurrentUserId();
+  const { userId, authLoading, authError } = useAuthedUser();
   const [prefs, setPrefs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,11 +91,43 @@ export default function PreferencesPage() {
     setTimeout(() => setSaved(false), 2500);
   }
 
-  if (!userId) {
+  if (authLoading) {
     return (
-      <Shell active="Préférences" userId={userId}>
-        <EmptyState title="Aucun identifiant commercial" body="Ouvrez cette page avec ?user_id=... dans l'URL." />
-      </Shell>
+      <div className="auth-loading">
+        <p>Connexion…</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #8b90a8;
+            font-family: 'Inter', sans-serif;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="auth-loading">
+        <p>{authError}</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #e5484d;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+            padding: 2rem;
+          }
+        `}</style>
+      </div>
     );
   }
 
