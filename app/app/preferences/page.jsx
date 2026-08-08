@@ -194,8 +194,10 @@ export default function PreferencesPage() {
         </div>
       )}
 
-      <footer className="page-footer">
+<footer className="page-footer">
         <a href="/privacy" target="_blank" rel="noreferrer">Politique de confidentialité</a>
+        <span className="footer-sep">·</span>
+        <a href="/unsubscribe" className="unsubscribe-link">Se désabonner</a>
       </footer>
 
       <style jsx>{`
@@ -307,11 +309,18 @@ export default function PreferencesPage() {
           margin-top: 2rem;
           padding-top: 1.2rem;
           border-top: 1px solid var(--border);
-        }
-        .page-footer a {
+       .page-footer a {
           color: var(--muted);
           font-size: 0.78rem;
           text-decoration: underline;
+        }
+        .footer-sep {
+          color: var(--muted);
+          font-size: 0.78rem;
+          margin: 0 0.4rem;
+        }
+        .unsubscribe-link {
+          color: #e5484d;
         }
         .muted {
           color: var(--muted);
