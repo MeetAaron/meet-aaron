@@ -1,11 +1,13 @@
 // app/api/documents/route.ts
 // GET  -> liste les documents de la société du commercial, avec un lien de téléchargement temporaire
-// POST -> upload un nouveau document (multipart/form-data) dans Supabase Storage
+// POST -> upload un nouveau document (multipart/form-data) dans Supabase Storage,
+//         et extrait automatiquement son texte (PDF / .txt) pour qu'Aaron puisse s'en servir.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const BUCKET = 'documents';
+const MAX_EXTRACTED_CHARS = 4000; // on ne garde qu'un extrait, pour limiter les tokens envoyés à Aaron
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -40,6 +42,26 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ documents: documentsWithUrls });
 }
 
+// Extrait le texte d'un fichier selon son type. Renvoie null si le type
+// n'est pas supporté (ex: .docx pour l'instant) — le document reste utilisable,
+// juste sans texte exploitable par Aaron.
+async function extractText(buffer: Buffer, mimeType: string): Promise<string | null> {
+  try {
+    if (mimeType === 'application/pdf') {
+      const pdfParse = (await import('pdf-parse')).default;
+      const result = await pdfParse(buffer);
+      return result.text.slice(0, MAX_EXTRACTED_CHARS);
+    }
+    if (mimeType === 'text/plain') {
+      return buffer.toString('utf-8').slice(0, MAX_EXTRACTED_CHARS);
+    }
+    return null;
+  } catch (err) {
+    console.error('Erreur extraction texte document:', err);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
@@ -67,6 +89,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
+  const extractedText = await extractText(buffer, file.type);
+
   const { data: doc, error: dbError } = await supabaseAdmin
     .from('company_documents')
     .insert({
@@ -77,6 +101,7 @@ export async function POST(request: NextRequest) {
       file_type: file.type,
       file_size_bytes: file.size,
       description,
+      extracted_text: extractedText,
     })
     .select()
     .single();
