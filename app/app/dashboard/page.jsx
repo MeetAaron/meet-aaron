@@ -482,6 +482,9 @@ function ActionCardModal({ appointment, onClose, onDone }) {
 
             {view === 'main' && (
               <div className="rdv-info">
+                {appointment.actionType === 'annule' && (
+                  <p className="cancel-label">RDV annulé par le client</p>
+                )}
                 <p><strong>{TYPE_LABELS[appointment.type]}</strong></p>
                 <p className="muted">{new Date(appointment.proposed_at).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}</p>
               </div>
@@ -541,9 +544,18 @@ function ActionCardModal({ appointment, onClose, onDone }) {
             </div>
 
             <div className="actions-row">
-              <button className="btn-valid" disabled={acting} onClick={() => handleAction('valider')}>Valider</button>
-              <button className="btn-neutral" disabled={acting} onClick={() => handleAction('reporter')}>Reporter</button>
-              <button className="btn-danger" disabled={acting} onClick={() => handleAction('annuler')}>Annuler</button>
+              {appointment.actionType === 'annule' ? (
+                <>
+                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('relancer')}>Relancer le prospect</button>
+                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('traiter')}>Marquer comme traité</button>
+                </>
+              ) : (
+                <>
+                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('valider')}>Valider</button>
+                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('reporter')}>Reporter</button>
+                  <button className="btn-danger" disabled={acting} onClick={() => handleAction('annuler')}>Annuler</button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -624,6 +636,11 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         }
         .rdv-info p {
           margin: 0.2rem 0;
+        }
+        .cancel-label {
+          color: #e5484d;
+          font-weight: 600;
+          font-size: 0.82rem;
         }
         .scroll-section {
           max-height: 220px;
