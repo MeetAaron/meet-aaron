@@ -77,6 +77,27 @@ export async function GET(request: NextRequest) {
 
       const aaronOutput = await generateAaronResponse(prospect.id);
 
+      // Si Aaron propose une tentative de sauvetage, on ne l'envoie PAS automatiquement —
+      // elle attend la validation du commercial (voir Action requise "Prospect perdu").
+      if (aaronOutput.rescue_proposal) {
+        await supabaseAdmin
+          .from('prospects')
+          .update({
+            status: aaronOutput.prospect_status,
+            personality_type: aaronOutput.personality_type,
+            personality_notes: aaronOutput.personality_notes,
+            aaron_advice: aaronOutput.aaron_advice,
+            ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
+            rescue_proposal_subject: aaronOutput.rescue_proposal.subject,
+            rescue_proposal_body: aaronOutput.rescue_proposal.body,
+            rescue_proposal_pending: true,
+          })
+          .eq('id', prospect.id);
+
+        results.push({ prospect_id: prospect.id, new_status: aaronOutput.prospect_status, rescue_pending: true });
+        continue;
+      }
+
       await sendGmailEmail(
         connection.user_id,
         fromEmail,
@@ -103,8 +124,6 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', prospect.id);
 
-      // Si Aaron a détecté une annulation par le prospect, on marque le RDV validé
-      // le plus récent comme annulé par le client — ça déclenchera une "Action requise".
       if (aaronOutput.appointment_cancelled) {
         const { data: cancelledAppointment } = await supabaseAdmin
           .from('appointments')
