@@ -54,6 +54,10 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackSending, setFeedbackSending] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -88,19 +92,32 @@ export default function ChatPage() {
     }
   }
 
+  async function handleSendFeedback(e) {
+    e.preventDefault();
+    if (!feedbackText.trim() || feedbackSending) return;
+    setFeedbackSending(true);
+
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, message: feedbackText }),
+    });
+
+    setFeedbackSending(false);
+    setFeedbackText('');
+    setShowFeedback(false);
+    setFeedbackSent(true);
+    setTimeout(() => setFeedbackSent(false), 3000);
+  }
+
   if (authLoading) {
     return (
       <div className="auth-loading">
         <p>Connexion…</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
-            font-family: 'Inter', sans-serif;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -113,15 +130,9 @@ export default function ChatPage() {
         <p>{authError}</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
-            font-family: 'Inter', sans-serif;
-            text-align: center;
-            padding: 2rem;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
           }
         `}</style>
       </div>
@@ -131,9 +142,33 @@ export default function ChatPage() {
   return (
     <Shell active="Chat avec Aaron" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Discussion</p>
-        <h1>Chat avec Aaron</h1>
+        <div>
+          <p className="eyebrow">Discussion</p>
+          <h1>Chat avec Aaron</h1>
+        </div>
+        <button className="btn-feedback" onClick={() => setShowFeedback(!showFeedback)}>
+          🚩 Signaler à l'équipe
+        </button>
       </header>
+
+      {feedbackSent && <p className="feedback-sent">Merci, ton message a été transmis à l'équipe !</p>}
+
+      {showFeedback && (
+        <form className="feedback-form" onSubmit={handleSendFeedback}>
+          <textarea
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="Une idée, un bug, une suggestion ? Décris-le ici, ça sera transmis directement à l'équipe Meet Aaron."
+            rows={3}
+          />
+          <div className="feedback-actions">
+            <button type="button" className="btn-secondary" onClick={() => setShowFeedback(false)}>Annuler</button>
+            <button type="submit" className="btn-primary" disabled={feedbackSending || !feedbackText.trim()}>
+              {feedbackSending ? 'Envoi…' : 'Envoyer'}
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="chat-box">
         <div className="messages">
@@ -166,6 +201,9 @@ export default function ChatPage() {
 
       <style jsx>{`
         .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
           margin-bottom: 1.2rem;
         }
         .eyebrow {
@@ -181,13 +219,76 @@ export default function ChatPage() {
           font-size: 1.9rem;
           margin: 0;
         }
+        .btn-feedback {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 10px;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .feedback-sent {
+          background: rgba(61, 214, 140, 0.12);
+          border: 1px solid rgba(61, 214, 140, 0.4);
+          color: #3dd68c;
+          padding: 0.7rem 1rem;
+          border-radius: 10px;
+          font-size: 0.85rem;
+          margin-bottom: 1rem;
+        }
+        .feedback-form {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1rem;
+          margin-bottom: 1.2rem;
+        }
+        .feedback-form textarea {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .feedback-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.5rem;
+          margin-top: 0.7rem;
+        }
+        .btn-primary, .btn-secondary {
+          border-radius: 8px;
+          padding: 0.5rem 1rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          font-weight: 600;
+        }
+        .btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+        }
         .chat-box {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 16px;
           display: flex;
           flex-direction: column;
-          height: 65vh;
+          height: 60vh;
           overflow: hidden;
         }
         .messages {
@@ -263,33 +364,6 @@ export default function ChatPage() {
   );
 }
 
-function EmptyState({ title, body }) {
-  return (
-    <div className="empty">
-      <p className="empty-title">{title}</p>
-      <p className="empty-body">{body}</p>
-      <style jsx>{`
-        .empty {
-          text-align: center;
-          padding: 4rem 1rem;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 14px;
-        }
-        .empty-title {
-          font-weight: 600;
-          margin: 0 0 0.35rem;
-        }
-        .empty-body {
-          color: var(--muted);
-          font-size: 0.88rem;
-          margin: 0;
-        }
-      `}</style>
-    </div>
-  );
-}
-
 function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard' },
@@ -302,6 +376,7 @@ function Shell({ children, active, userId }) {
     { label: 'Chat avec Aaron', slug: 'chat' },
     { label: 'Connexions', slug: 'connexions' },
     { label: 'Préférences', slug: 'preferences' },
+    { label: 'Mon équipe', slug: 'team' },
   ];
   return (
     <div className="shell">
