@@ -12,6 +12,9 @@ const AARON_SYSTEM_PROMPT = readFileSync(
   'utf-8'
 );
 
+const MAX_DOCS_IN_CONTEXT = 3;       // combien de documents on envoie au maximum
+const MAX_CHARS_PER_DOC = 600;       // extrait maximum par document, pour limiter les tokens
+
 interface AaronOutput {
   email_draft: { subject: string; body: string };
   prospect_status: 'vert' | 'jaune' | 'orange' | 'rouge' | 'bleu';
@@ -55,6 +58,23 @@ async function buildContext(prospectId: string) {
     siblingContacts = data || [];
   }
 
+  // Récupère les documents de l'entreprise (devis types, tarifs, brochures) pour
+  // qu'Aaron comprenne mieux le métier du commercial. On ne prend que les plus récents,
+  // et un extrait limité de chacun, pour ne pas exploser le nombre de tokens envoyés.
+  const { data: documents } = await supabaseAdmin
+    .from('company_documents')
+    .select('file_name, description, extracted_text')
+    .eq('company_id', prospect.company_id)
+    .not('extracted_text', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(MAX_DOCS_IN_CONTEXT);
+
+  const documentsSummary = (documents || []).map((doc) => ({
+    nom_fichier: doc.file_name,
+    description: doc.description,
+    extrait: doc.extracted_text ? doc.extracted_text.slice(0, MAX_CHARS_PER_DOC) : null,
+  }));
+
   return {
     commercial: {
       nom: prospect.users.full_name,
@@ -71,6 +91,7 @@ async function buildContext(prospectId: string) {
     historique_conversation: conversations,
     autres_contacts_meme_societe: siblingContacts,
     societe_deja_cliente: prospect.prospect_companies?.is_won_client || false,
+    documents_entreprise: documentsSummary,
   };
 }
 
@@ -92,7 +113,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
       messages: [
         {
           role: 'user',
-          content: `Voici le contexte complet de la situation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
+          content: `Voici le contexte complet de la situation, y compris un extrait des documents de l'entreprise (devis types, tarifs, brochures) si disponibles — utilise-les pour mieux comprendre le métier du commercial et adapter tes messages. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
         },
       ],
     }),
