@@ -181,6 +181,10 @@ export default function PreferencesPage() {
         </div>
       )}
 
+      <footer className="page-footer">
+        <a href="/privacy" target="_blank" rel="noreferrer">Politique de confidentialité</a>
+      </footer>
+
       <style jsx>{`
         .header {
           margin-bottom: 1.8rem;
@@ -255,6 +259,16 @@ export default function PreferencesPage() {
         .saved-msg {
           color: var(--accent-green);
           font-size: 0.84rem;
+        }
+        .page-footer {
+          margin-top: 2rem;
+          padding-top: 1.2rem;
+          border-top: 1px solid var(--border);
+        }
+        .page-footer a {
+          color: var(--muted);
+          font-size: 0.78rem;
+          text-decoration: underline;
         }
         .muted {
           color: var(--muted);
