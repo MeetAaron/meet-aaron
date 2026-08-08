@@ -8,7 +8,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { listNewGmailMessages, getGmailMessage, sendGmailEmail } from '@/lib/google';
 import { generateAaronResponse } from '@/lib/aaron';
 
-// Protège la route : seul Vercel Cron (avec le bon secret) peut l'appeler
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
@@ -47,7 +46,6 @@ export async function GET(request: NextRequest) {
       const fromHeader = headers.find((h: any) => h.name === 'From')?.value || '';
       const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
 
-      // Retrouve le prospect correspondant à cet expéditeur
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
         .select('id, is_won')
@@ -55,7 +53,7 @@ export async function GET(request: NextRequest) {
         .eq('assigned_user_id', connection.user_id)
         .single();
 
-      if (!prospect || prospect.is_won) continue; // ignore si pas un prospect actif connu
+      if (!prospect || prospect.is_won) continue;
 
       const { data: conversation } = await supabaseAdmin
         .from('conversations')
@@ -68,7 +66,6 @@ export async function GET(request: NextRequest) {
 
       const bodyText = extractEmailBody(fullMessage.payload);
 
-      // Enregistre le message entrant
       await supabaseAdmin.from('messages').insert({
         conversation_id: conversation.id,
         direction: 'inbound',
@@ -78,10 +75,8 @@ export async function GET(request: NextRequest) {
         provider_message_id: msg.id,
       });
 
-      // Fait réagir Aaron
       const aaronOutput = await generateAaronResponse(prospect.id);
 
-      // Envoie la réponse d'Aaron
       await sendGmailEmail(
         connection.user_id,
         fromEmail,
@@ -97,7 +92,6 @@ export async function GET(request: NextRequest) {
         body: aaronOutput.email_draft.body,
       });
 
-       // Met à jour le prospect (statut, personnalité, conseils, téléphone si détecté)
       await supabaseAdmin
         .from('prospects')
         .update({
@@ -109,7 +103,26 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', prospect.id);
 
-      // Si Aaron a détecté un créneau de RDV accepté par le prospect -> crée l'appointment "proposé"
+      // Si Aaron a détecté une annulation par le prospect, on marque le RDV validé
+      // le plus récent comme annulé par le client — ça déclenchera une "Action requise".
+      if (aaronOutput.appointment_cancelled) {
+        const { data: cancelledAppointment } = await supabaseAdmin
+          .from('appointments')
+          .select('id')
+          .eq('prospect_id', prospect.id)
+          .eq('status', 'validé')
+          .order('proposed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (cancelledAppointment) {
+          await supabaseAdmin
+            .from('appointments')
+            .update({ status: 'annulé', cancelled_by: 'client' })
+            .eq('id', cancelledAppointment.id);
+        }
+      }
+
       if (aaronOutput.appointment_proposal?.detected) {
         await supabaseAdmin.from('appointments').insert({
           prospect_id: prospect.id,
