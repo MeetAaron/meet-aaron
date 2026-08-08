@@ -3,18 +3,54 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
 
-function useCurrentUserId() {
+function useAuthedUser() {
+  const router = useRouter();
   const [userId, setUserId] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setUserId(params.get('user_id'));
-  }, []);
-  return userId;
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+      const body = await res.json();
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        setAuthError(body.error || 'Accès refusé');
+        setAuthLoading(false);
+        return;
+      }
+
+      setUserId(body.user.id);
+      setAuthLoading(false);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { userId, authLoading, authError };
 }
 
 export default function ChatPage() {
-  const userId = useCurrentUserId();
+  const { userId, authLoading, authError } = useAuthedUser();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -52,11 +88,43 @@ export default function ChatPage() {
     }
   }
 
-  if (!userId) {
+  if (authLoading) {
     return (
-      <Shell active="Chat avec Aaron" userId={userId}>
-        <EmptyState title="Aucun identifiant commercial" body="Ouvrez cette page avec ?user_id=... dans l'URL." />
-      </Shell>
+      <div className="auth-loading">
+        <p>Connexion…</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #8b90a8;
+            font-family: 'Inter', sans-serif;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="auth-loading">
+        <p>{authError}</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            color: #e5484d;
+            font-family: 'Inter', sans-serif;
+            text-align: center;
+            padding: 2rem;
+          }
+        `}</style>
+      </div>
     );
   }
 
