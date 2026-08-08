@@ -6,8 +6,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 
-// Authentification réelle : récupère la session Supabase, la lie au profil Meet Aaron
-// correspondant via /api/auth/link, et redirige vers /login si non connecté.
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -71,14 +69,23 @@ export default function ProspectsPage() {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('tous');
+  const [companyId, setCompanyId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  async function loadProspects() {
+    setLoading(true);
+    const res = await fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json());
+    setProspects(res.prospects || []);
+    setLoading(false);
+  }
 
   useEffect(() => {
     if (!userId) return;
-    fetch(`/api/prospects?user_id=${userId}`)
+    loadProspects();
+    fetch(`/api/users/${userId}`)
       .then((r) => r.json())
       .then((res) => {
-        setProspects(res.prospects || []);
-        setLoading(false);
+        if (res.user) setCompanyId(res.user.company_id);
       });
   }, [userId]);
 
@@ -90,13 +97,8 @@ export default function ProspectsPage() {
         <p>Connexion…</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
-            font-family: 'Inter', sans-serif;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -109,15 +111,9 @@ export default function ProspectsPage() {
         <p>{authError}</p>
         <style jsx>{`
           .auth-loading {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
-            font-family: 'Inter', sans-serif;
-            text-align: center;
-            padding: 2rem;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
           }
         `}</style>
       </div>
@@ -131,6 +127,9 @@ export default function ProspectsPage() {
           <p className="eyebrow">Pipeline</p>
           <h1>Vos prospects</h1>
         </div>
+        <button className="btn-primary" onClick={() => setShowAddForm(true)}>
+          + Ajouter un prospect
+        </button>
       </header>
 
       <div className="filters">
@@ -157,7 +156,7 @@ export default function ProspectsPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           title="Aucun prospect ici"
-          body={prospects.length === 0 ? "Lancez une campagne pour qu'Aaron commence à prospecter." : "Aucun prospect ne correspond à ce filtre."}
+          body={prospects.length === 0 ? "Lancez une campagne ou ajoutez un prospect manuellement." : "Aucun prospect ne correspond à ce filtre."}
         />
       ) : (
         <div className="table-wrap">
@@ -206,8 +205,23 @@ export default function ProspectsPage() {
         </div>
       )}
 
+      {showAddForm && (
+        <AddProspectModal
+          userId={userId}
+          companyId={companyId}
+          onClose={() => setShowAddForm(false)}
+          onCreated={() => {
+            setShowAddForm(false);
+            loadProspects();
+          }}
+        />
+      )}
+
       <style jsx>{`
         .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
           margin-bottom: 1.5rem;
         }
         .eyebrow {
@@ -222,6 +236,16 @@ export default function ProspectsPage() {
           font-family: var(--font-display);
           font-size: 1.9rem;
           margin: 0;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 10px;
+          padding: 0.7rem 1.1rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
         }
         .filters {
           display: flex;
@@ -326,6 +350,156 @@ export default function ProspectsPage() {
   );
 }
 
+function AddProspectModal({ userId, companyId, onClose, onCreated }) {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const res = await fetch('/api/prospects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        assigned_user_id: userId,
+        full_name: fullName,
+        email,
+        phone: phone || null,
+        job_title: jobTitle || null,
+      }),
+    });
+
+    setSubmitting(false);
+
+    if (!res.ok) {
+      const body = await res.json();
+      setError(body.error || 'Erreur lors de la création');
+      return;
+    }
+
+    onCreated();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <h2>Ajouter un prospect</h2>
+        <p className="hint">Renseignez juste l'essentiel — comme sur une carte de visite. Aaron démarrera la conversation dès l'enregistrement, et complètera la fiche au fil des échanges.</p>
+
+        <label>
+          Nom complet
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ex: Marie Dupont" required />
+        </label>
+
+        <label>
+          Email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ex: marie.dupont@societe.fr" required />
+        </label>
+
+        <label>
+          Téléphone (optionnel)
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="ex: 06 12 34 56 78" />
+        </label>
+
+        <label>
+          Poste (optionnel)
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ex: Directrice des achats" />
+        </label>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button type="submit" className="btn-primary" disabled={submitting}>
+            {submitting ? 'Création…' : 'Ajouter et démarrer'}
+          </button>
+        </div>
+      </form>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        h2 {
+          font-family: var(--font-display);
+          margin: 0 0 0.6rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.4;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 1rem;
+        }
+        input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.88rem;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.82rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 1.2rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function EmptyState({ title, body }) {
   return (
     <div className="empty">
@@ -365,6 +539,7 @@ function Shell({ children, active, userId }) {
     { label: 'Chat avec Aaron', slug: 'chat' },
     { label: 'Connexions', slug: 'connexions' },
     { label: 'Préférences', slug: 'preferences' },
+    { label: 'Mon équipe', slug: 'team' },
   ];
   return (
     <div className="shell">
