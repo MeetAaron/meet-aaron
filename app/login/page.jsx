@@ -25,12 +25,12 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      window.location.href = '/app/dashboard';
+      window.location.href = '/onboarding';
     } else {
       const { error } = await supabaseBrowser.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/app/dashboard` },
+        options: { emailRedirectTo: `${window.location.origin}/onboarding` },
       });
       setLoading(false);
       if (error) {
@@ -46,7 +46,7 @@ export default function LoginPage() {
     setError(null);
     const { error } = await supabaseBrowser.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${window.location.origin}/app/dashboard` },
+      options: { redirectTo: `${window.location.origin}/onboarding` },
     });
     if (error) {
       setError(error.message);
