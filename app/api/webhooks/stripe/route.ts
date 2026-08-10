@@ -1,0 +1,60 @@
+// app/api/webhooks/stripe/route.ts
+// Écoute les événements Stripe. À la confirmation d'un paiement ("checkout.session.completed"),
+// crée automatiquement la société + le profil utilisateur (patron) dans Supabase.
+
+import { NextRequest, NextResponse } from 'next/server';
+import { stripe } from '@/lib/stripe';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+
+export async function POST(request: NextRequest) {
+  const body = await request.text();
+  const signature = request.headers.get('stripe-signature');
+
+  if (!signature) {
+    return NextResponse.json({ error: 'Signature manquante' }, { status: 400 });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err: any) {
+    return NextResponse.json({ error: `Signature invalide: ${err.message}` }, { status: 400 });
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as any;
+    const { auth_user_id, email, full_name, company_name, country } = session.metadata;
+
+    const { data: existing } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', auth_user_id)
+      .maybeSingle();
+
+    if (!existing) {
+      const { data: company } = await supabaseAdmin
+        .from('companies')
+        .insert({
+          name: company_name,
+          country,
+          offer: 'AP',
+          stripe_customer_id: session.customer,
+          stripe_subscription_id: session.subscription,
+        })
+        .select()
+        .single();
+
+      if (company) {
+        await supabaseAdmin.from('users').insert({
+          auth_user_id,
+          email,
+          full_name,
+          role: 'patron',
+          company_id: company.id,
+        });
+      }
+    }
+  }
+
+  return NextResponse.json({ received: true });
+}
