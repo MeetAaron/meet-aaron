@@ -181,33 +181,61 @@ export async function getGmailMessage(userId: string, messageId: string) {
 // Crée un événement dans Google Calendar
 export async function createGoogleCalendarEvent(
   userId: string,
-  params: { title: string; description: string; startISO: string; endISO: string; attendeeEmail: string }
+  params: {
+    title: string;
+    description: string;
+    startISO: string;
+    endISO: string;
+    attendeeEmail: string;
+    // Si true (RDV de type "visio"), demande à Google de générer automatiquement
+    // un lien Google Meet rattaché à l'événement.
+    wantsMeetLink?: boolean;
+  }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
-  const response = await fetch(
-    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+  const body: any = {
+    summary: params.title,
+    description: params.description,
+    start: { dateTime: params.startISO },
+    end: { dateTime: params.endISO },
+    attendees: [{ email: params.attendeeEmail }],
+    reminders: { useDefault: true },
+  };
+
+  if (params.wantsMeetLink) {
+    body.conferenceData = {
+      createRequest: {
+        // Identifiant unique requis par l'API pour éviter les doublons de création
+        requestId: `meetaaron-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
       },
-      body: JSON.stringify({
-        summary: params.title,
-        description: params.description,
-        start: { dateTime: params.startISO },
-        end: { dateTime: params.endISO },
-        attendees: [{ email: params.attendeeEmail }],
-        reminders: { useDefault: true },
-      }),
-    }
-  );
+    };
+  }
+
+  // sendUpdates=all : sans ce paramètre, Google n'envoie aucune notification au
+  // prospect invité — il ne recevrait jamais l'invitation ni le lien Google Meet.
+  const query = params.wantsMeetLink ? 'conferenceDataVersion=1&sendUpdates=all' : 'sendUpdates=all';
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${query}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
 
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`Erreur création événement Google Calendar: ${err}`);
   }
 
-  return response.json(); // contient event.id -> à stocker dans appointments.calendar_event_id
+  const event = await response.json();
+  return {
+    ...event,
+    meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.find((e: any) => e.entryPointType === 'video')?.uri || null,
+  };
+  // contient event.id -> à stocker dans appointments.calendar_event_id, et meetLink si visio
 }

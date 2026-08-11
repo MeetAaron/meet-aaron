@@ -116,7 +116,10 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: AARON_SYSTEM_PROMPT,
+      // Prompt caching : ce system prompt est identique à chaque appel (un par
+      // prospect, à chaque cycle de prospection) — le mettre en cache réduit
+      // fortement le coût et la latence sur le plus gros poste d'appels API.
+      system: [{ type: 'text', text: AARON_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       messages: [
         {
           role: 'user',
