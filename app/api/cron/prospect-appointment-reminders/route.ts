@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 
 const REMINDER_TYPE = 'prospect_appointment_reminder_24h';
 const TARGET_HOURS_BEFORE = 24;
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
       });
 
       try {
-        await sendGmailEmail(
+        await sendEmailForUser(
           appt.user_id,
           prospect.email,
           'Rappel : notre rendez-vous demain',
