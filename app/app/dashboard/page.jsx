@@ -1005,6 +1005,7 @@ function Shell({ children, active, userId }) {
     { label: 'Disponibilités', slug: 'disponibilites' },
     { label: 'Préférences', slug: 'preferences' },
     { label: 'Mon équipe', slug: 'team' },
+    { label: 'Suggestions', slug: 'suggestions' },
   ];
   return (
     <div className="shell">
