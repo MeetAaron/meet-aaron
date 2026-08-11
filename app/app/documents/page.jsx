@@ -354,6 +354,7 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents' },
     { label: 'Chat avec Aaron', slug: 'chat' },
     { label: 'Connexions', slug: 'connexions' },
+    { label: 'Disponibilités', slug: 'disponibilites' },
     { label: 'Préférences', slug: 'preferences' },
   ];
   return (
