@@ -72,6 +72,18 @@ export async function POST(request: NextRequest) {
     .eq('id', user_id)
     .single();
 
+  let businessContext = '';
+  if (user?.company_id) {
+    const { data: company } = await supabaseAdmin
+      .from('companies')
+      .select('business_summary')
+      .eq('id', user.company_id)
+      .maybeSingle();
+    if (company?.business_summary) {
+      businessContext = `\n\nRésumé de l'activité de la société (généré précédemment à partir des documents et des explications du commercial) : ${company.business_summary}`;
+    }
+  }
+
   const messages = [
     ...(history || []).map((h: any) => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
@@ -88,7 +100,13 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
-        system: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'}.`,
+        system: [
+          {
+            type: 'text',
+            text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'}.${businessContext}`,
+            cache_control: { type: 'ephemeral' },
+          },
+        ],
         messages,
       }),
     }),
