@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 
 export async function POST(request: NextRequest) {
   const { user_id } = await request.json();
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   ]);
   const csvBody = [headers, ...rows].map((row) => row.join(' | ')).join('\n');
 
-  await sendGmailEmail(
+  await sendEmailForUser(
     user_id,
     user.email,
     'Vos clients gagnés — Meet Aaron',
