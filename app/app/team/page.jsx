@@ -52,6 +52,8 @@ function useAuthedUser() {
 export default function TeamPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [members, setMembers] = useState([]);
+  const [inviteCode, setInviteCode] = useState(null);
+  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [teamError, setTeamError] = useState(null);
 
@@ -64,10 +66,19 @@ export default function TeamPage() {
           setTeamError(body.error);
         } else {
           setMembers(body.members || []);
+          setInviteCode(body.invite_code || null);
         }
         setLoading(false);
       });
   }, [userId]);
+
+  function copyInviteCode() {
+    if (!inviteCode) return;
+    navigator.clipboard.writeText(inviteCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   if (authLoading) {
     return (
@@ -115,6 +126,21 @@ export default function TeamPage() {
         <p className="eyebrow">Équipe</p>
         <h1>Mon équipe</h1>
       </header>
+
+      {!loading && inviteCode && (
+        <div className="invite-box">
+          <div>
+            <p className="invite-label">Code d'invitation de votre société</p>
+            <p className="invite-hint">Communiquez ce code à un commercial : il pourra rejoindre votre société lors de son inscription, sans repasser par le paiement.</p>
+          </div>
+          <div className="invite-code-row">
+            <code className="invite-code">{inviteCode}</code>
+            <button type="button" className="btn-copy" onClick={copyInviteCode}>
+              {copied ? 'Copié !' : 'Copier'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="muted">Chargement…</p>
@@ -171,6 +197,55 @@ export default function TeamPage() {
           font-family: var(--font-display);
           font-size: 1.9rem;
           margin: 0;
+        }
+        .invite-box {
+          background: rgba(75, 57, 239, 0.1);
+          border: 1px solid var(--accent);
+          border-radius: 14px;
+          padding: 1.1rem 1.3rem;
+          margin-bottom: 1.6rem;
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+        }
+        .invite-label {
+          margin: 0 0 0.25rem;
+          font-weight: 600;
+          font-size: 0.88rem;
+        }
+        .invite-hint {
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.8rem;
+          max-width: 460px;
+        }
+        .invite-code-row {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .invite-code {
+          font-family: var(--font-mono);
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.95rem;
+          letter-spacing: 0.04em;
+          color: var(--accent-green);
+        }
+        .btn-copy {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
         }
         .table-wrap {
           background: var(--surface);
