@@ -26,6 +26,12 @@ export async function POST(request: NextRequest) {
     const session = event.data.object as any;
     const { auth_user_id, email, full_name, company_name, country } = session.metadata;
 
+    // Adresse de facturation complète collectée par Stripe Checkout
+    // (billing_address_collection: 'required' dans /api/checkout) — stockée
+    // telle quelle pour affichage/export, Stripe restant la source de vérité
+    // pour la facturation elle-même.
+    const billingAddress = session.customer_details?.address || null;
+
     const { data: existing } = await supabaseAdmin
       .from('users')
       .select('id')
@@ -42,6 +48,7 @@ export async function POST(request: NextRequest) {
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
           invite_code: generateInviteCode(company_name),
+          billing_address: billingAddress,
         })
         .select()
         .single();
