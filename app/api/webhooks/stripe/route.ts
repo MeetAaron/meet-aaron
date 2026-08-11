@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { generateInviteCode } from '@/lib/invite-code';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
           offer: 'AP',
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
+          invite_code: generateInviteCode(company_name),
         })
         .select()
         .single();
