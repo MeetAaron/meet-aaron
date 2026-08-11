@@ -68,6 +68,7 @@ export default function AgendaPage() {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState(null);
+  const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
 
   async function load() {
     setLoading(true);
@@ -81,14 +82,22 @@ export default function AgendaPage() {
     load();
   }, [userId]);
 
-  async function handleAction(appointmentId, action) {
+  async function handleAction(appointmentId, action, force = false) {
     setActingOn(appointmentId);
-    await fetch(`/api/appointments/${appointmentId}`, {
+    const res = await fetch(`/api/appointments/${appointmentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, force }),
     });
     setActingOn(null);
+
+    if (res.status === 409) {
+      const body = await res.json();
+      setConflict({ appointmentId, action, reasons: body.reasons || [] });
+      return;
+    }
+
+    setConflict(null);
     load();
   }
 
@@ -141,6 +150,27 @@ export default function AgendaPage() {
         <p className="eyebrow">Rendez-vous</p>
         <h1>Votre agenda</h1>
       </header>
+
+      {conflict && (
+        <div className="conflict-overlay" onClick={() => setConflict(null)}>
+          <div className="conflict-box" onClick={(e) => e.stopPropagation()}>
+            <p className="conflict-title">Ce créneau semble poser problème</p>
+            <ul className="conflict-reasons">
+              {conflict.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+            <p className="conflict-hint">Voulez-vous confirmer ce rendez-vous malgré tout ?</p>
+            <div className="conflict-actions">
+              <button className="btn-neutral" onClick={() => setConflict(null)}>Annuler</button>
+              <button
+                className="btn-valid"
+                onClick={() => handleAction(conflict.appointmentId, conflict.action, true)}
+              >
+                Confirmer quand même
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="muted">Chargement…</p>
@@ -301,6 +331,45 @@ export default function AgendaPage() {
           font-size: 0.76rem;
           white-space: nowrap;
           flex-shrink: 0;
+        }
+        .conflict-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .conflict-box {
+          background: var(--surface);
+          border: 1px solid #e5484d;
+          border-radius: 14px;
+          padding: 1.6rem;
+          max-width: 420px;
+          width: 100%;
+        }
+        .conflict-title {
+          font-weight: 600;
+          margin: 0 0 0.8rem;
+          color: #e5484d;
+        }
+        .conflict-reasons {
+          margin: 0 0 1rem;
+          padding-left: 1.2rem;
+          font-size: 0.86rem;
+          color: var(--text);
+        }
+        .conflict-hint {
+          font-size: 0.84rem;
+          color: var(--muted);
+          margin: 0 0 1.2rem;
+        }
+        .conflict-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
         }
       `}</style>
     </Shell>
