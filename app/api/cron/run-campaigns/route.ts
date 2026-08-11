@@ -1,7 +1,9 @@
 // app/api/cron/run-campaigns/route.ts
 // Exécuté toutes les 10 minutes via Vercel Cron.
-// Fait avancer UNE campagne "en_attente" ou "en_cours" par petits lots, puis déclenche
-// le premier message d'Aaron pour chaque nouveau prospect trouvé dans ce lot.
+// Fait avancer UNE campagne "en_attente" ou "en_cours" PAR COMPTE COMMERCIAL,
+// tous les comptes étant traités en parallèle (design validé pour le scaling :
+// un commercial ne doit jamais attendre que la campagne d'un autre commercial
+// soit passée avant que la sienne n'avance).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -14,35 +16,19 @@ function isAuthorized(request: NextRequest) {
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  }
-
-  const { data: campaign } = await supabaseAdmin
-    .from('prospecting_campaigns')
-    .select('id')
-    .in('status', ['en_attente', 'en_cours'])
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (!campaign) {
-    return NextResponse.json({ message: 'Aucune campagne active' });
-  }
-
+async function runOneCampaign(campaignId: string) {
   await supabaseAdmin
     .from('prospecting_campaigns')
     .update({ status: 'en_cours' })
-    .eq('id', campaign.id)
+    .eq('id', campaignId)
     .eq('status', 'en_attente');
 
-  const result = await processCampaignBatch(campaign.id, 5);
+  const result = await processCampaignBatch(campaignId, 5);
 
   const { data: newProspectCompanies } = await supabaseAdmin
     .from('prospect_companies')
     .select('id')
-    .eq('found_by_campaign_id', campaign.id);
+    .eq('found_by_campaign_id', campaignId);
 
   const companyIds = (newProspectCompanies || []).map((c) => c.id);
 
@@ -52,6 +38,9 @@ export async function GET(request: NextRequest) {
     .in('prospect_company_id', companyIds.length > 0 ? companyIds : ['00000000-0000-0000-0000-000000000000'])
     .is('personality_type', null);
 
+  // Reste séquentiel PAR campagne (donc par commercial) pour ne pas déclencher
+  // trop d'envois Gmail d'un coup depuis un même compte — seul le traitement
+  // ENTRE campagnes de commerciaux différents est parallélisé (voir GET ci-dessous).
   for (const prospect of newProspects || []) {
     let conversationId = (prospect as any).conversations?.[0]?.id;
     if (!conversationId) {
@@ -103,9 +92,38 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    campaign_id: campaign.id,
-    batch_result: result,
-    first_contacts_sent: (newProspects || []).length,
-  });
+  return { campaign_id: campaignId, batch_result: result, first_contacts_sent: (newProspects || []).length };
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
+  const { data: activeCampaigns } = await supabaseAdmin
+    .from('prospecting_campaigns')
+    .select('id, assigned_user_id')
+    .in('status', ['en_attente', 'en_cours'])
+    .order('created_at', { ascending: true });
+
+  if (!activeCampaigns || activeCampaigns.length === 0) {
+    return NextResponse.json({ message: 'Aucune campagne active' });
+  }
+
+  // Une seule campagne retenue par commercial pour ce tick (la plus ancienne
+  // active), pour ne pas surcharger un même compte Gmail en un seul passage.
+  const oneCampaignPerUser = new Map<string, string>();
+  for (const c of activeCampaigns) {
+    if (!oneCampaignPerUser.has(c.assigned_user_id)) {
+      oneCampaignPerUser.set(c.assigned_user_id, c.id);
+    }
+  }
+
+  const results = await Promise.all(
+    Array.from(oneCampaignPerUser.values()).map((campaignId) =>
+      runOneCampaign(campaignId).catch((err) => ({ campaign_id: campaignId, error: err.message }))
+    )
+  );
+
+  return NextResponse.json({ campaigns_processed: results.length, results });
 }
