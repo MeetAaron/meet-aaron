@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 // import { sendPushNotification } from '@/lib/push'; // à implémenter selon le fournisseur choisi (ex: OneSignal, FCM)
 
 function isAuthorized(request: NextRequest) {
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const message = `Rappel : RDV avec ${appt.prospects.full_name} dans ${reminderMinutes} minutes.`;
 
     if (channel === 'email' || channel === 'both') {
-      await sendGmailEmail(appt.users.id, appt.users.email, 'Rappel de rendez-vous', message);
+      await sendEmailForUser(appt.users.id, appt.users.email, 'Rappel de rendez-vous', message);
       await supabaseAdmin.from('notifications_log').insert({
         user_id: appt.users.id,
         appointment_id: appt.id,
