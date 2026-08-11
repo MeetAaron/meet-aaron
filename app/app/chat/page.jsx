@@ -58,11 +58,77 @@ export default function ChatPage() {
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackSending, setFeedbackSending] = useState(false);
+  const [isWelcome, setIsWelcome] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryDone, setSummaryDone] = useState(false);
   const bottomRef = useRef(null);
+
+  // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
+  // d'avoir à englober la page dans un <Suspense> côté build Next.js.
+  useEffect(() => {
+    const welcome = new URLSearchParams(window.location.search).get('welcome');
+    if (welcome === '1') {
+      setIsWelcome(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isWelcome || messages.length > 0) return;
+    setMessages([
+      {
+        role: 'assistant',
+        content:
+          "Bienvenue sur Meet Aaron ! Je suis Aaron, ton copilote commercial IA. Avant de me lancer sur le " +
+          "terrain pour toi, j'ai besoin de mieux comprendre ton métier.\n\n" +
+          "Direction \"Mes documents\" pour m'envoyer ce que tu as sous la main (devis type, plaquette, liste de " +
+          "tarifs), puis reviens ici et raconte-moi en quelques phrases ce que fait ton entreprise et à qui tu " +
+          "vends. Dès que j'ai de quoi travailler, clique sur \"Générer mon résumé\" ci-dessous et je te dirai ce " +
+          "que j'ai compris.",
+      },
+    ]);
+  }, [isWelcome, messages.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  async function handleGenerateSummary() {
+    if (summarizing) return;
+    setSummarizing(true);
+
+    const description = messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .join('\n');
+
+    const res = await fetch('/api/business-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, description }),
+    });
+    const data = await res.json();
+    setSummarizing(false);
+
+    if (!res.ok) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: data.error || "Je n'ai pas encore assez d'informations pour faire un résumé — ajoute un document ou décris-moi ton métier ici." },
+      ]);
+      return;
+    }
+
+    setSummaryDone(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content:
+          `Voici ce que j'ai compris de ton activité :\n\n${data.summary}\n\n` +
+          "On pourra toujours l'ajuster plus tard. Je te propose maintenant une petite visite guidée de l'appli — " +
+          "clique sur \"Voir comment fonctionne l'appli\" ci-dessous.",
+      },
+    ]);
+  }
 
   async function handleSend(e) {
     e.preventDefault();
@@ -185,6 +251,19 @@ export default function ChatPage() {
           {sending && <div className="bubble assistant typing">Aaron réfléchit…</div>}
           <div ref={bottomRef} />
         </div>
+
+        {isWelcome && (
+          <div className="welcome-actions">
+            {!summaryDone && (
+              <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
+                {summarizing ? 'Génération du résumé…' : 'Générer mon résumé'}
+              </button>
+            )}
+            <Link href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="btn-primary btn-tour">
+              Voir comment fonctionne l'appli
+            </Link>
+          </div>
+        )}
 
         <form className="input-row" onSubmit={handleSend}>
           <input
@@ -329,6 +408,17 @@ export default function ChatPage() {
         .bubble.typing {
           color: var(--muted);
           font-style: italic;
+        }
+        .welcome-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.6rem;
+          padding: 0 1rem 1rem;
+        }
+        .btn-tour {
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
         }
         .input-row {
           display: flex;
