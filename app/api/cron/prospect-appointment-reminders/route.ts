@@ -38,53 +38,59 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const notified = [];
+  // Chaque RDV appartient à un commercial différent (comptes distincts) — les
+  // traiter en parallèle plutôt que un par un accélère nettement ce cron
+  // quand plusieurs commerciaux ont des RDV à rappeler au même moment.
+  const results = await Promise.all(
+    (appointments || []).map(async (appt) => {
+      const prospect = (appt as any).prospects;
+      const commercial = (appt as any).users;
 
-  for (const appt of appointments || []) {
-    const prospect = (appt as any).prospects;
-    const commercial = (appt as any).users;
+      if (!prospect?.email) return null;
 
-    if (!prospect?.email) continue;
+      const { data: alreadySent } = await supabaseAdmin
+        .from('notifications_log')
+        .select('id')
+        .eq('appointment_id', appt.id)
+        .eq('type', REMINDER_TYPE);
 
-    const { data: alreadySent } = await supabaseAdmin
-      .from('notifications_log')
-      .select('id')
-      .eq('appointment_id', appt.id)
-      .eq('type', REMINDER_TYPE);
+      if (alreadySent && alreadySent.length > 0) return null;
 
-    if (alreadySent && alreadySent.length > 0) continue;
-
-    const dateStr = new Date(appt.proposed_at).toLocaleString('fr-FR', {
-      dateStyle: 'full',
-      timeStyle: 'short',
-      timeZone: 'Europe/Paris',
-    });
-
-    try {
-      await sendGmailEmail(
-        appt.user_id,
-        prospect.email,
-        'Rappel : notre rendez-vous demain',
-        `Bonjour ${prospect.full_name},\n\n` +
-          `Petit rappel : nous avons rendez-vous demain, le ${dateStr}.\n\n` +
-          `N'hésitez pas à me répondre directement à cet email si vous avez besoin de le décaler.\n\n` +
-          `À demain,\n${commercial?.full_name || ''}`
-      );
-
-      await supabaseAdmin.from('notifications_log').insert({
-        user_id: appt.user_id,
-        appointment_id: appt.id,
-        channel: 'email',
-        type: REMINDER_TYPE,
+      const dateStr = new Date(appt.proposed_at).toLocaleString('fr-FR', {
+        dateStyle: 'full',
+        timeStyle: 'short',
+        timeZone: 'Europe/Paris',
       });
 
-      notified.push(appt.id);
-    } catch (err: any) {
-      // On continue avec les autres RDV même si l'envoi échoue pour l'un d'eux
-      // (ex: token Google expiré pour ce commercial) — pas de log ici pour retenter au prochain passage.
-      console.error(`Erreur rappel prospect pour le RDV ${appt.id}:`, err.message);
-    }
-  }
+      try {
+        await sendGmailEmail(
+          appt.user_id,
+          prospect.email,
+          'Rappel : notre rendez-vous demain',
+          `Bonjour ${prospect.full_name},\n\n` +
+            `Petit rappel : nous avons rendez-vous demain, le ${dateStr}.\n\n` +
+            `N'hésitez pas à me répondre directement à cet email si vous avez besoin de le décaler.\n\n` +
+            `À demain,\n${commercial?.full_name || ''}`
+        );
+
+        await supabaseAdmin.from('notifications_log').insert({
+          user_id: appt.user_id,
+          appointment_id: appt.id,
+          channel: 'email',
+          type: REMINDER_TYPE,
+        });
+
+        return appt.id;
+      } catch (err: any) {
+        // On continue avec les autres RDV même si l'envoi échoue pour l'un d'eux
+        // (ex: token Google expiré pour ce commercial) — pas de log ici pour retenter au prochain passage.
+        console.error(`Erreur rappel prospect pour le RDV ${appt.id}:`, err.message);
+        return null;
+      }
+    })
+  );
+
+  const notified = results.filter(Boolean);
 
   return NextResponse.json({ notified: notified.length });
 }
