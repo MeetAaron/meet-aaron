@@ -103,7 +103,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    router.push('/app/dashboard');
+    router.push('/app/chat?welcome=1');
   }
 
   if (checking) {
