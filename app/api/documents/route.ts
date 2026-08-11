@@ -42,6 +42,51 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ documents: documentsWithUrls });
 }
 
+// Génère une courte synthèse (2-4 phrases) du document via Claude, pour un
+// aperçu rapide côté équipe (liste des documents). Renvoie null si le texte
+// extrait est vide/absent, ou si l'appel échoue — le document reste utilisable
+// sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
+async function summarizeDocument(fileName: string, extractedText: string): Promise<string | null> {
+  if (!extractedText || extractedText.trim().length < 50) return null;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 300,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Voici le contenu extrait du document "${fileName}" (usage commercial : plaquette, argumentaire, tarifs, etc.). ` +
+              `Rédige une synthèse en français de 2 à 4 phrases maximum, utile pour qu'un commercial comprenne en un coup d'œil ` +
+              `à quoi sert ce document et ce qu'il contient. Réponds UNIQUEMENT avec la synthèse, sans titre ni préambule.\n\n` +
+              `${extractedText.slice(0, 4000)}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Erreur API Anthropic (synthèse document):', await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    const textBlock = data.content.find((block: any) => block.type === 'text');
+    return textBlock ? textBlock.text.trim() : null;
+  } catch (err: any) {
+    console.error('Erreur génération synthèse document:', err.message);
+    return null;
+  }
+}
+
 // Extrait le texte d'un fichier selon son type. Renvoie null si le type
 // n'est pas supporté (ex: .docx pour l'instant) — le document reste utilisable,
 // juste sans texte exploitable par Aaron.
@@ -90,6 +135,7 @@ export async function POST(request: NextRequest) {
   }
 
   const extractedText = await extractText(buffer, file.type);
+  const summary = extractedText ? await summarizeDocument(file.name, extractedText) : null;
 
   const { data: doc, error: dbError } = await supabaseAdmin
     .from('company_documents')
@@ -102,6 +148,7 @@ export async function POST(request: NextRequest) {
       file_size_bytes: file.size,
       description,
       extracted_text: extractedText,
+      summary,
     })
     .select()
     .single();
