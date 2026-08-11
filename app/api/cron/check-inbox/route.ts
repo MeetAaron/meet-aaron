@@ -1,11 +1,13 @@
 // app/api/cron/check-inbox/route.ts
 // Exécuté périodiquement (ex. toutes les 5 minutes via Vercel Cron).
-// Pour chaque commercial connecté à Gmail : regarde les nouveaux emails reçus,
-// les rattache à la bonne conversation prospect, et fait réagir Aaron.
+// Pour chaque commercial connecté à Gmail OU Outlook : regarde les nouveaux
+// emails reçus, les rattache à la bonne conversation prospect, et fait réagir Aaron.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { listNewGmailMessages, getGmailMessage, sendGmailEmail } from '@/lib/google';
+import { listNewGmailMessages, getGmailMessage } from '@/lib/google';
+import { listNewOutlookMessages, getOutlookMessage } from '@/lib/microsoft';
+import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 
 function isAuthorized(request: NextRequest) {
@@ -13,7 +15,7 @@ function isAuthorized(request: NextRequest) {
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-function extractEmailBody(payload: any): string {
+function extractGmailBody(payload: any): string {
   if (payload.body?.data) {
     return Buffer.from(payload.body.data, 'base64').toString('utf-8');
   }
@@ -24,27 +26,69 @@ function extractEmailBody(payload: any): string {
   return '';
 }
 
+type NormalizedMessage = { id: string; fromEmail: string; bodyText: string };
+
+// Normalise les nouveaux messages (Gmail ou Outlook) vers une forme commune,
+// pour que tout le traitement en aval (fiche prospect, réponse d'Aaron, etc.)
+// soit identique quel que soit le fournisseur du commercial.
+async function fetchNewMessagesForConnection(connection: {
+  user_id: string;
+  provider: string;
+}): Promise<NormalizedMessage[]> {
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+  if (connection.provider === 'google') {
+    const newMessages = await listNewGmailMessages(connection.user_id, fiveMinutesAgo);
+    const detailed: NormalizedMessage[] = [];
+    for (const msg of newMessages) {
+      const full = await getGmailMessage(connection.user_id, msg.id);
+      const headers = full.payload.headers;
+      const fromHeader = headers.find((h: any) => h.name === 'From')?.value || '';
+      const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
+      detailed.push({ id: msg.id, fromEmail, bodyText: extractGmailBody(full.payload) });
+    }
+    return detailed;
+  }
+
+  // Outlook / Microsoft Graph : réponse déjà en JSON simple, pas de MIME à décoder
+  const newMessages = await listNewOutlookMessages(connection.user_id, fiveMinutesAgo);
+  const detailed: NormalizedMessage[] = [];
+  for (const msg of newMessages) {
+    const full = await getOutlookMessage(connection.user_id, msg.id);
+    detailed.push({
+      id: msg.id,
+      fromEmail: full.from?.emailAddress?.address || '',
+      bodyText: full.body?.content || '',
+    });
+  }
+  return detailed;
+}
+
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  const { data: googleConnections } = await supabaseAdmin
+  const { data: connections } = await supabaseAdmin
     .from('oauth_connections')
-    .select('user_id, provider_account_email')
-    .eq('provider', 'google');
+    .select('user_id, provider, provider_account_email')
+    .in('provider', ['google', 'microsoft']);
 
   const results = [];
 
-  for (const connection of googleConnections || []) {
-    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    const newMessages = await listNewGmailMessages(connection.user_id, fiveMinutesAgo);
+  for (const connection of connections || []) {
+    let newMessages: NormalizedMessage[] = [];
+    try {
+      newMessages = await fetchNewMessagesForConnection(connection);
+    } catch (err: any) {
+      // Un token expiré/révoqué pour ce commercial ne doit pas bloquer les autres.
+      console.error(`Erreur lecture boîte mail (${connection.provider}) pour ${connection.user_id}:`, err.message);
+      continue;
+    }
 
     for (const msg of newMessages) {
-      const fullMessage = await getGmailMessage(connection.user_id, msg.id);
-      const headers = fullMessage.payload.headers;
-      const fromHeader = headers.find((h: any) => h.name === 'From')?.value || '';
-      const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
+      const { fromEmail, bodyText } = msg;
+      if (!fromEmail) continue;
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
@@ -63,8 +107,6 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (!conversation) continue;
-
-      const bodyText = extractEmailBody(fullMessage.payload);
 
       await supabaseAdmin.from('messages').insert({
         conversation_id: conversation.id,
@@ -98,7 +140,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      await sendGmailEmail(
+      await sendEmailForUser(
         connection.user_id,
         fromEmail,
         aaronOutput.email_draft.subject,
