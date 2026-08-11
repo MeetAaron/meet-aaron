@@ -8,15 +8,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createGoogleCalendarEvent, sendGmailEmail, getGoogleFreeBusy } from '@/lib/google';
+import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
+import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 
 // Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
 //  - une indisponibilité ponctuelle déclarée (availability_blocks)
 //  - les créneaux récurrents déclarés (availability_rules), s'il y en a
-//  - le calendrier Google réel du commercial (freebusy), s'il est connecté
+//  - le calendrier réel du commercial (freebusy Google et/ou Microsoft), s'il est connecté
 // Retourne la liste des raisons de conflit (vide = aucun conflit détecté).
-async function detectSchedulingConflicts(userId: string, startISO: string, endISO: string, hasGoogle: boolean) {
+async function detectSchedulingConflicts(userId: string, startISO: string, endISO: string) {
   const reasons: string[] = [];
   const start = new Date(startISO);
   const end = new Date(endISO);
@@ -48,18 +49,10 @@ async function detectSchedulingConflicts(userId: string, startISO: string, endIS
     }
   }
 
-  if (hasGoogle) {
-    try {
-      const busy = await getGoogleFreeBusy(userId, startISO, endISO);
-      const overlaps = busy.some((b) => new Date(b.start) < end && new Date(b.end) > start);
-      if (overlaps) {
-        reasons.push('Chevauche un événement déjà présent sur votre agenda Google.');
-      }
-    } catch (err: any) {
-      // On ne bloque pas la validation si la vérification freebusy échoue
-      // (ex: token expiré) — on log simplement pour investigation.
-      console.error('Erreur vérification freebusy Google:', err.message);
-    }
+  const busy = await getFreeBusyForUser(userId, startISO, endISO);
+  const overlaps = busy.some((b) => new Date(b.start) < end && new Date(b.end) > start);
+  if (overlaps) {
+    reasons.push('Chevauche un événement déjà présent sur votre agenda (Google ou Outlook).');
   }
 
   return reasons;
@@ -94,7 +87,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
 
     if (!force) {
-      const conflicts = await detectSchedulingConflicts(userId, startISO, endISO, !!hasGoogle);
+      const conflicts = await detectSchedulingConflicts(userId, startISO, endISO);
       if (conflicts.length > 0) {
         return NextResponse.json({ conflict: true, reasons: conflicts }, { status: 409 });
       }
@@ -152,7 +145,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (action === 'annuler') {
     await supabaseAdmin.from('appointments').update({ status: 'annulé', cancelled_by: 'commercial' }).eq('id', appointmentId);
 
-    await sendGmailEmail(
+    await sendEmailForUser(
       userId,
       appointment.prospects.email,
       'Concernant notre rendez-vous',
@@ -165,7 +158,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   if (action === 'relancer') {
-    await sendGmailEmail(
+    await sendEmailForUser(
       userId,
       appointment.prospects.email,
       'Reprogrammons notre rendez-vous',
