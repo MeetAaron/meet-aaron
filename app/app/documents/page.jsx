@@ -179,6 +179,7 @@ export default function DocumentsPage() {
               <tr>
                 <th>Fichier</th>
                 <th>Description</th>
+                <th>Synthèse (Aaron)</th>
                 <th>Taille</th>
                 <th>Ajouté le</th>
                 <th></th>
@@ -189,6 +190,7 @@ export default function DocumentsPage() {
                 <tr key={d.id}>
                   <td className="strong">{d.file_name}</td>
                   <td className="muted">{d.description || '—'}</td>
+                  <td className="muted summary-cell">{d.summary || '—'}</td>
                   <td className="muted">{formatSize(d.file_size_bytes)}</td>
                   <td className="muted">{new Date(d.created_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</td>
                   <td>
@@ -304,6 +306,11 @@ export default function DocumentsPage() {
         }
         .muted {
           color: var(--muted);
+        }
+        .summary-cell {
+          max-width: 280px;
+          font-size: 0.8rem;
+          line-height: 1.4;
         }
         .link {
           color: var(--accent);
