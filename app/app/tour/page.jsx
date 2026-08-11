@@ -160,6 +160,25 @@ export default function TourPage() {
 
   return (
     <div className="tour-wrap">
+      <nav className="tour-sidebar">
+        <div className="brand">
+          <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
+          <span>Meet Aaron</span>
+        </div>
+        <ul className="nav-list">
+          {slides.map((s, i) => (
+            <li
+              key={s.slug}
+              className={i === step ? 'active' : ''}
+              onClick={() => setStep(i)}
+            >
+              <span className="nav-icon">{s.icon}</span>
+              {s.title}
+            </li>
+          ))}
+        </ul>
+      </nav>
+
       <div className="tour-card">
         <p className="tour-progress">{step + 1} / {slides.length}</p>
         <div className="tour-icon">{current.icon}</div>
@@ -213,9 +232,72 @@ export default function TourPage() {
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 1.5rem;
           background: #0b0e1a;
           font-family: 'Inter', sans-serif;
           padding: 1.5rem;
+        }
+        .tour-sidebar {
+          background: #131629;
+          border: 1px solid #232744;
+          border-radius: 18px;
+          padding: 1.4rem 1rem;
+          width: 240px;
+          flex-shrink: 0;
+          align-self: stretch;
+          max-height: 640px;
+          overflow-y: auto;
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          padding: 0 0.4rem;
+          margin-bottom: 1.4rem;
+        }
+        .brand-mark {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+        }
+        .brand span {
+          font-family: 'Space Grotesk', sans-serif;
+          color: #f4f1ea;
+          font-weight: 600;
+          font-size: 0.94rem;
+        }
+        .nav-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+        }
+        .nav-list li {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          padding: 0.6rem 0.7rem;
+          border-radius: 8px;
+          font-size: 0.86rem;
+          color: #8b90a8;
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .nav-list li:hover {
+          color: #f4f1ea;
+        }
+        .nav-list li.active {
+          background: rgba(75, 57, 239, 0.18);
+          color: #f4f1ea;
+          font-weight: 500;
+        }
+        .nav-icon {
+          font-size: 0.95rem;
+          width: 1.1em;
+          text-align: center;
+          flex-shrink: 0;
         }
         .tour-card {
           background: #131629;
@@ -296,6 +378,11 @@ export default function TourPage() {
           color: #8b90a8;
           font-size: 0.8rem;
           text-decoration: underline;
+        }
+        @media (max-width: 860px) {
+          .tour-sidebar {
+            display: none;
+          }
         }
       `}</style>
     </div>
