@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -89,8 +89,8 @@ export async function POST(request: NextRequest) {
   // Demande à Aaron de générer le premier message
   const aaronOutput = await generateAaronResponse(prospect.id);
 
-  // Envoie l'email via Gmail (au nom du commercial)
-  await sendGmailEmail(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+  // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
+  await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
 
   // Enregistre le message envoyé
   await supabaseAdmin.from('messages').insert({
