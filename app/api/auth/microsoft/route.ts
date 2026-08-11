@@ -1,5 +1,5 @@
 // app/api/auth/microsoft/route.ts
-// Démarre le flux OAuth Microsoft pour Outlook Calendar.
+// Démarre le flux OAuth Microsoft pour Outlook (calendrier + email).
 // À activer une fois l'app Azure créée (Client ID / Secret Microsoft).
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,6 +9,8 @@ const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0
 const SCOPES = [
   'offline_access', // nécessaire pour obtenir un refresh_token
   'Calendars.ReadWrite',
+  'Mail.Send', // envoi d'emails de prospection/relance au nom du commercial
+  'Mail.Read', // lecture des réponses des prospects (cron check-inbox)
   'User.Read',
 ].join(' ');
 
