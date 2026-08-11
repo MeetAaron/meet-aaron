@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -57,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Aucune tentative de sauvetage en attente' }, { status: 400 });
     }
 
-    await sendGmailEmail(
+    await sendEmailForUser(
       prospect.assigned_user_id,
       prospect.email,
       prospect.rescue_proposal_subject,
