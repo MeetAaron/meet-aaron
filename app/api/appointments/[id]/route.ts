@@ -8,11 +8,65 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createGoogleCalendarEvent, sendGmailEmail } from '@/lib/google';
+import { createGoogleCalendarEvent, sendGmailEmail, getGoogleFreeBusy } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 
+// Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
+//  - une indisponibilité ponctuelle déclarée (availability_blocks)
+//  - les créneaux récurrents déclarés (availability_rules), s'il y en a
+//  - le calendrier Google réel du commercial (freebusy), s'il est connecté
+// Retourne la liste des raisons de conflit (vide = aucun conflit détecté).
+async function detectSchedulingConflicts(userId: string, startISO: string, endISO: string, hasGoogle: boolean) {
+  const reasons: string[] = [];
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+
+  const { data: blocks } = await supabaseAdmin
+    .from('availability_blocks')
+    .select('start_at, end_at, reason')
+    .eq('user_id', userId)
+    .lt('start_at', endISO)
+    .gt('end_at', startISO);
+
+  if (blocks && blocks.length > 0) {
+    reasons.push(`Chevauche une indisponibilité déclarée${blocks[0].reason ? ` (${blocks[0].reason})` : ''}.`);
+  }
+
+  const { data: rules } = await supabaseAdmin
+    .from('availability_rules')
+    .select('day_of_week, start_time, end_time')
+    .eq('user_id', userId);
+
+  if (rules && rules.length > 0) {
+    const dayOfWeek = start.getDay();
+    const timeStr = start.toTimeString().slice(0, 8); // HH:MM:SS
+    const withinAnyRule = rules.some(
+      (r) => r.day_of_week === dayOfWeek && timeStr >= r.start_time && timeStr < r.end_time
+    );
+    if (!withinAnyRule) {
+      reasons.push("En dehors des créneaux de disponibilité déclarés.");
+    }
+  }
+
+  if (hasGoogle) {
+    try {
+      const busy = await getGoogleFreeBusy(userId, startISO, endISO);
+      const overlaps = busy.some((b) => new Date(b.start) < end && new Date(b.end) > start);
+      if (overlaps) {
+        reasons.push('Chevauche un événement déjà présent sur votre agenda Google.');
+      }
+    } catch (err: any) {
+      // On ne bloque pas la validation si la vérification freebusy échoue
+      // (ex: token expiré) — on log simplement pour investigation.
+      console.error('Erreur vérification freebusy Google:', err.message);
+    }
+  }
+
+  return reasons;
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action } = await request.json();
+  const { action, force } = await request.json();
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin
@@ -38,6 +92,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     const startISO = appointment.proposed_at;
     const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
+
+    if (!force) {
+      const conflicts = await detectSchedulingConflicts(userId, startISO, endISO, !!hasGoogle);
+      if (conflicts.length > 0) {
+        return NextResponse.json({ conflict: true, reasons: conflicts }, { status: 409 });
+      }
+    }
 
     let calendarEvent;
     let calendarProvider: 'google' | 'microsoft';
