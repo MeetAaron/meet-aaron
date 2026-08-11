@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { generateInviteCode } from '@/lib/invite-code';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -23,6 +24,20 @@ export async function GET(request: NextRequest) {
 
   if (requester.role !== 'patron') {
     return NextResponse.json({ error: "Réservé au fondateur/patron de l'entreprise" }, { status: 403 });
+  }
+
+  // Récupère (ou génère si absent — sociétés créées avant ce chantier) le code
+  // d'invitation permettant aux commerciaux de rejoindre la société.
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('id, name, invite_code')
+    .eq('id', requester.company_id)
+    .single();
+
+  let inviteCode = company?.invite_code || null;
+  if (company && !inviteCode) {
+    inviteCode = generateInviteCode(company.name);
+    await supabaseAdmin.from('companies').update({ invite_code: inviteCode }).eq('id', company.id);
   }
 
   const { data: members, error } = await supabaseAdmin
@@ -65,5 +80,5 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  return NextResponse.json({ members: membersWithStats });
+  return NextResponse.json({ members: membersWithStats, invite_code: inviteCode });
 }
