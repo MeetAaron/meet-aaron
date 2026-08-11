@@ -24,7 +24,7 @@ export default function OnboardingSuccessPage() {
       });
 
       if (res.ok) {
-        router.push('/app/dashboard');
+        router.push('/app/chat?welcome=1');
         return;
       }
 
