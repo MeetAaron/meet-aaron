@@ -310,6 +310,7 @@ function Shell({ children, active, userId }) {
     { label: 'Connexions', slug: 'connexions' },
     { label: 'Disponibilités', slug: 'disponibilites' },
     { label: 'Préférences', slug: 'preferences' },
+    { label: 'Suggestions', slug: 'suggestions' },
   ];
   return (
     <div className="shell">
