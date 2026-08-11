@@ -110,6 +110,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         startISO,
         endISO,
         attendeeEmail: appointment.prospects.email,
+        wantsMeetLink: appointment.type === 'visio',
       });
       calendarProvider = 'google';
     } else if (hasMicrosoft) {
@@ -134,6 +135,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         status: 'validé',
         calendar_provider: calendarProvider,
         calendar_event_id: calendarEvent.id,
+        meet_link: calendarEvent.meetLink || null,
       })
       .eq('id', appointmentId);
 
