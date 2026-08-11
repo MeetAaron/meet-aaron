@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/run-campaigns",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/prospect-appointment-reminders",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
