@@ -96,6 +96,54 @@ export async function sendGmailEmail(userId: string, to: string, subject: string
   return response.json(); // { id, threadId, labelIds }
 }
 
+// Envoie un email "système" (confirmation de compte, etc.), pas encore lié à un
+// commercial précis (ex: juste après l'inscription, avant même la création de
+// la société). En attendant qu'aaron@meetaaron.app ait sa propre connexion OAuth
+// dans l'app, on réutilise un compte Google déjà connecté et fonctionnel
+// (configurable via SYSTEM_EMAIL_SENDER_USER_ID) pour ne pas dépendre du SMTP
+// par défaut de Supabase (peu fiable / rate-limité).
+export async function sendSystemEmail(to: string, subject: string, body: string) {
+  const senderUserId = process.env.SYSTEM_EMAIL_SENDER_USER_ID;
+  if (!senderUserId) {
+    throw new Error(
+      'SYSTEM_EMAIL_SENDER_USER_ID manquant — ajouter cette variable d\'environnement ' +
+      '(id de la ligne users dont le compte Google est connecté) pour activer l\'envoi ' +
+      'des emails système (confirmation de compte, etc.).'
+    );
+  }
+  return sendGmailEmail(senderUserId, to, subject, body);
+}
+
+// Vérifie les créneaux déjà occupés sur le calendrier Google du commercial
+// (RDV client existant, RDV docteur, etc.) via l'API freebusy.
+// Retourne un tableau de { start, end } (ISO strings) représentant les
+// créneaux occupés dans la plage demandée.
+export async function getGoogleFreeBusy(userId: string, timeMinISO: string, timeMaxISO: string) {
+  const accessToken = await getValidAccessToken(userId);
+
+  const response = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      timeMin: timeMinISO,
+      timeMax: timeMaxISO,
+      items: [{ id: 'primary' }],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Erreur freeBusy Google Calendar: ${err}`);
+  }
+
+  const data = await response.json();
+  const busy = data.calendars?.primary?.busy || [];
+  return busy as { start: string; end: string }[];
+}
+
 // Liste les nouveaux messages reçus depuis une date donnée (pour le cron de lecture)
 export async function listNewGmailMessages(userId: string, afterTimestamp: number) {
   const accessToken = await getValidAccessToken(userId);
