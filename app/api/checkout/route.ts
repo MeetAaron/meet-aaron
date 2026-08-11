@@ -17,21 +17,26 @@ export async function POST(request: NextRequest) {
 
   const origin = request.nextUrl.origin;
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer_email: email,
-    line_items: [{ price: PRICE_ID_AARON_PROSPECT, quantity: 1 }],
-    allow_promotion_codes: true,
-    success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/onboarding`,
-    metadata: {
-      auth_user_id,
-      email,
-      full_name,
-      company_name,
-      country,
-    },
-  });
+try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: email,
+      line_items: [{ price: PRICE_ID_AARON_PROSPECT, quantity: 1 }],
+      allow_promotion_codes: true,
+      success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/onboarding`,
+      metadata: {
+        auth_user_id,
+        email,
+        full_name,
+        company_name,
+        country,
+      },
+    });
 
-  return NextResponse.json({ url: session.url });
+    return NextResponse.json({ url: session.url });
+  } catch (err: any) {
+    console.error('Erreur création session Stripe:', err);
+    return NextResponse.json({ error: err.message || 'Erreur Stripe inconnue' }, { status: 500 });
+  }
 }
