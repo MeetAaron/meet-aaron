@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendGmailEmail } from '@/lib/google';
+import { sendEmailForUser } from '@/lib/messaging';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -56,7 +56,7 @@ async function runOneCampaign(campaignId: string) {
     try {
       const aaronOutput = await generateAaronResponse(prospect.id);
 
-      await sendGmailEmail(
+      await sendEmailForUser(
         prospect.assigned_user_id,
         prospect.email,
         aaronOutput.email_draft.subject,
