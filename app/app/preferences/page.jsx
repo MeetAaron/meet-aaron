@@ -230,6 +230,8 @@ export default function PreferencesPage() {
       )}
 
       <footer className="page-footer">
+        <a href={`/app/tour${userId ? `?user_id=${userId}` : ''}`}>Revoir la visite guidée</a>
+        <span className="footer-sep">·</span>
         <a href="/privacy" target="_blank" rel="noreferrer">Politique de confidentialité</a>
         <span className="footer-sep">·</span>
         <a href="/unsubscribe" className="unsubscribe-link">Se désabonner</a>
