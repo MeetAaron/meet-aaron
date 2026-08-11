@@ -60,6 +60,104 @@ async function getValidAccessToken(userId: string): Promise<string> {
   return newTokens.access_token;
 }
 
+// Envoie un email via Microsoft Graph (boîte Outlook du commercial), pour que
+// Outlook soit un vrai second fournisseur au même titre que Gmail (prospection,
+// relances, annulations...) et pas seulement pour la création de RDV.
+export async function sendOutlookEmail(userId: string, to: string, subject: string, body: string) {
+  const accessToken = await getValidAccessToken(userId);
+
+  const response = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: 'Text', content: body },
+        toRecipients: [{ emailAddress: { address: to } }],
+      },
+      saveToSentItems: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Erreur envoi Outlook: ${err}`);
+  }
+
+  // /sendMail répond 202 sans corps — on renvoie un objet simple pour rester
+  // cohérent avec la forme de retour de sendGmailEmail côté appelant.
+  return { sent: true };
+}
+
+// Créneaux occupés du calendrier Outlook du commercial sur la plage demandée
+// (équivalent de getGoogleFreeBusy, utilisé pour la détection de conflit RDV).
+export async function getOutlookFreeBusy(userId: string, timeMinISO: string, timeMaxISO: string) {
+  const accessToken = await getValidAccessToken(userId);
+
+  const params = new URLSearchParams({ startDateTime: timeMinISO, endDateTime: timeMaxISO });
+
+  const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendarView?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Prefer: 'outlook.timezone="UTC"',
+    },
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Erreur calendarView Outlook: ${err}`);
+  }
+
+  const data = await response.json();
+  return (data.value || []).map((event: any) => ({
+    start: event.start.dateTime.endsWith('Z') ? event.start.dateTime : `${event.start.dateTime}Z`,
+    end: event.end.dateTime.endsWith('Z') ? event.end.dateTime : `${event.end.dateTime}Z`,
+  })) as { start: string; end: string }[];
+}
+
+// Liste les nouveaux messages reçus depuis une date donnée (pour le cron de lecture)
+export async function listNewOutlookMessages(userId: string, afterTimestamp: number) {
+  const accessToken = await getValidAccessToken(userId);
+  const afterISO = new Date(afterTimestamp).toISOString();
+
+  const params = new URLSearchParams({
+    $filter: `receivedDateTime ge ${afterISO}`,
+    $select: 'id',
+    $orderby: 'receivedDateTime desc',
+  });
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok) {
+    throw new Error('Erreur lecture messages Outlook');
+  }
+
+  const data = await response.json();
+  return (data.value || []) as { id: string }[]; // même forme que listNewGmailMessages
+}
+
+// Récupère le contenu complet d'un message Outlook
+export async function getOutlookMessage(userId: string, messageId: string) {
+  const accessToken = await getValidAccessToken(userId);
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok) {
+    throw new Error('Erreur récupération message Outlook');
+  }
+
+  return response.json(); // { from: { emailAddress: { address, name } }, body: { contentType, content }, ... }
+}
+
 // Crée un événement dans le calendrier Outlook du commercial
 export async function createOutlookCalendarEvent(
   userId: string,
