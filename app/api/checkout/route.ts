@@ -23,6 +23,9 @@ try {
       customer_email: email,
       line_items: [{ price: PRICE_ID_AARON_PROSPECT, quantity: 1 }],
       allow_promotion_codes: true,
+      // Adresse de facturation complète (rue, ville, code postal) requise pour
+      // pouvoir générer une vraie facture — avant, seul le pays était demandé.
+      billing_address_collection: 'required',
       success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/onboarding`,
       metadata: {
