@@ -330,18 +330,18 @@ function EmptyState({ title, body }) {
 
 function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
-    { label: 'Tableau de bord', slug: 'dashboard' },
-    { label: 'Prospects', slug: 'prospects' },
-    { label: 'Campagnes', slug: 'campaigns' },
-    { label: 'Agenda', slug: 'agenda' },
-    { label: 'Résultats', slug: 'resultats' },
-    { label: 'Clients gagnés', slug: 'clients-gagnes' },
-    { label: 'Mes documents', slug: 'documents' },
-    { label: 'Chat avec Aaron', slug: 'chat' },
-    { label: 'Connexions', slug: 'connexions' },
-    { label: 'Disponibilités', slug: 'disponibilites' },
-    { label: 'Préférences', slug: 'preferences' },
-    { label: 'Suggestions', slug: 'suggestions' },
+    { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
+    { label: 'Prospects', slug: 'prospects', icon: '🎯' },
+    { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
+    { label: 'Agenda', slug: 'agenda', icon: '📅' },
+    { label: 'Résultats', slug: 'resultats', icon: '📈' },
+    { label: 'Clients gagnés', slug: 'clients-gagnes', icon: '🏆' },
+    { label: 'Mes documents', slug: 'documents', icon: '📁' },
+    { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
+    { label: 'Connexions', slug: 'connexions', icon: '🔗' },
+    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
+    { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
+    { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -353,7 +353,7 @@ function Shell({ children, active, userId }) {
         <ul className="nav-list">
           {NAV_ITEMS.map((item) => (
             <Link key={item.label} href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`} className="nav-link">
-              <li className={item.label === active ? 'active' : ''}>{item.label}</li>
+              <li className={item.label === active ? 'active' : ''}><span className="nav-icon">{item.icon}</span>{item.label}</li>
             </Link>
           ))}
         </ul>
@@ -420,6 +420,15 @@ function Shell({ children, active, userId }) {
           font-size: 0.88rem;
           color: var(--muted);
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .nav-icon {
+          font-size: 0.95rem;
+          width: 1.1em;
+          text-align: center;
+          flex-shrink: 0;
         }
         .nav-list li.active {
           background: rgba(75, 57, 239, 0.18);
