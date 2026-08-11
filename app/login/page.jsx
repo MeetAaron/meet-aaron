@@ -1,7 +1,7 @@
 // app/login/page.jsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 
 export default function LoginPage() {
@@ -11,6 +11,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+
+  // Lu directement depuis window.location (plutôt que useSearchParams) pour
+  // éviter d'avoir à englober la page dans un <Suspense> côté build Next.js.
+  useEffect(() => {
+    const verified = new URLSearchParams(window.location.search).get('verified');
+    if (verified === '1') {
+      setMessage('Adresse email confirmée ! Vous pouvez vous connecter.');
+    } else if (verified === 'error') {
+      setError("Le lien de confirmation est invalide ou a expiré. Réessayez de créer un compte, ou contactez-nous.");
+    }
+  }, []);
 
   async function handleEmailSubmit(e) {
     e.preventDefault();
@@ -27,17 +38,27 @@ export default function LoginPage() {
       }
       window.location.href = '/onboarding';
     } else {
-      const { error } = await supabaseBrowser.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: `${window.location.origin}/onboarding` },
-      });
+      const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
       setLoading(false);
       if (error) {
         setError(error.message);
         return;
       }
-      setMessage('Compte créé ! Vérifiez votre boîte mail pour confirmer votre adresse avant de vous connecter.');
+
+      // Envoie notre propre email de confirmation via Gmail (aaron), plutôt que
+      // de dépendre du mailer par défaut de Supabase (peu fiable / rate-limité).
+      if (data.user) {
+        const res = await fetch('/api/auth/send-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auth_user_id: data.user.id, email }),
+        });
+        if (!res.ok) {
+          setMessage("Compte créé, mais l'envoi de l'email de confirmation a échoué — vous pouvez tout de même vous connecter dès maintenant.");
+          return;
+        }
+      }
+      setMessage('Compte créé ! Vérifiez votre boîte mail pour confirmer votre adresse (vous pouvez déjà vous connecter en attendant).');
     }
   }
 
