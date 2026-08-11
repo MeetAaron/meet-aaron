@@ -9,10 +9,12 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [session, setSession] = useState(null);
+  const [role, setRole] = useState(null); // null | 'patron' | 'commercial'
   const [companyName, setCompanyName] = useState('');
   const [fullName, setFullName] = useState('');
   const [country, setCountry] = useState('');
   const [attested, setAttested] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -45,7 +47,7 @@ export default function OnboardingPage() {
     checkExisting();
   }, [router]);
 
-  async function handleSubmit(e) {
+  async function handlePatronSubmit(e) {
     e.preventDefault();
     if (!attested) {
       setError('Merci de confirmer la case ci-dessous avant de continuer.');
@@ -77,6 +79,33 @@ export default function OnboardingPage() {
     window.location.href = body.url;
   }
 
+  async function handleJoinCompany(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const res = await fetch('/api/join-company', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        auth_user_id: session.user.id,
+        email: session.user.email,
+        full_name: fullName,
+        invite_code: inviteCode,
+      }),
+    });
+
+    const body = await res.json();
+    setSubmitting(false);
+
+    if (!res.ok) {
+      setError(body.error || 'Une erreur est survenue');
+      return;
+    }
+
+    router.push('/app/dashboard');
+  }
+
   if (checking) {
     return (
       <div className="wrap">
@@ -89,44 +118,169 @@ export default function OnboardingPage() {
     );
   }
 
-  return (
-    <div className="wrap">
-      <form className="card" onSubmit={handleSubmit}>
-        <img src="/icon.png" alt="Meet Aaron" className="logo" />
-        <h1>Créez votre espace Meet Aaron</h1>
-        <p className="subtitle">Quelques infos, puis direction le paiement pour activer votre compte.</p>
+  if (!role) {
+    return (
+      <div className="wrap">
+        <div className="card">
+          <img src="/icon.png" alt="Meet Aaron" className="logo" />
+          <h1>Bienvenue sur Meet Aaron</h1>
+          <p className="subtitle">Pour commencer, dites-nous qui vous êtes.</p>
 
-        <label>
-          Votre nom complet
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-        </label>
+          <button type="button" className="role-btn" onClick={() => setRole('patron')}>
+            <span className="role-title">Je suis dirigeant(e) / fondateur(trice)</span>
+            <span className="role-desc">Je crée l'espace Meet Aaron de mon entreprise (abonnement).</span>
+          </button>
 
-        <label>
-          Nom de votre société
-          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Open X" required />
-        </label>
-
-        <label>
-          Pays de votre société
-          <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="ex: France" required />
-        </label>
-
-        <div className="plan-box">
-          <span className="plan-name">Aaron Prospect</span>
-          <span className="plan-price">30€ / mois</span>
+          <button type="button" className="role-btn" onClick={() => setRole('commercial')}>
+            <span className="role-title">Je suis commercial(e)</span>
+            <span className="role-desc">On m'a donné un code d'invitation pour rejoindre l'espace de mon entreprise.</span>
+          </button>
         </div>
 
-        <label className="checkbox-row">
-          <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
-          <span>Je certifie être autorisé(e) par mon entreprise à créer ce compte et à partager les documents commerciaux nécessaires au fonctionnement d'Aaron.</span>
-        </label>
+        <style jsx>{`
+          @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500&display=swap');
+          .wrap {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0e1a;
+            font-family: 'Inter', sans-serif;
+            padding: 2rem 1rem;
+          }
+          .card {
+            background: #131629;
+            border: 1px solid #232744;
+            border-radius: 16px;
+            padding: 2.2rem;
+            width: 420px;
+            max-width: 100%;
+          }
+          .logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 11px;
+            margin-bottom: 1rem;
+          }
+          h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            color: #f4f1ea;
+            font-size: 1.35rem;
+            margin: 0 0 0.4rem;
+          }
+          .subtitle {
+            color: #8b90a8;
+            font-size: 0.86rem;
+            margin: 0 0 1.4rem;
+          }
+          .role-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.3rem;
+            width: 100%;
+            background: #0b0e1a;
+            border: 1px solid #232744;
+            border-radius: 10px;
+            padding: 1rem 1.1rem;
+            margin-bottom: 0.8rem;
+            cursor: pointer;
+            text-align: left;
+            transition: border-color 0.15s ease;
+          }
+          .role-btn:hover {
+            border-color: #4b39ef;
+          }
+          .role-title {
+            color: #f4f1ea;
+            font-weight: 600;
+            font-size: 0.92rem;
+          }
+          .role-desc {
+            color: #8b90a8;
+            font-size: 0.8rem;
+          }
+        `}</style>
+      </div>
+    );
+  }
 
-        {error && <p className="error">{error}</p>}
+  return (
+    <div className="wrap">
+      {role === 'patron' ? (
+        <form className="card" onSubmit={handlePatronSubmit}>
+          <img src="/icon.png" alt="Meet Aaron" className="logo" />
+          <h1>Créez votre espace Meet Aaron</h1>
+          <p className="subtitle">Quelques infos, puis direction le paiement pour activer votre compte.</p>
 
-        <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Redirection…' : 'Continuer vers le paiement'}
-        </button>
-      </form>
+          <label>
+            Votre nom complet
+            <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+          </label>
+
+          <label>
+            Nom de votre société
+            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Open X" required />
+          </label>
+
+          <label>
+            Pays de votre société
+            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="ex: France" required />
+          </label>
+
+          <div className="plan-box">
+            <span className="plan-name">Aaron Prospect</span>
+            <span className="plan-price">30€ / mois</span>
+          </div>
+
+          <label className="checkbox-row">
+            <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
+            <span>Je certifie être autorisé(e) par mon entreprise à créer ce compte et à partager les documents commerciaux nécessaires au fonctionnement d'Aaron.</span>
+          </label>
+
+          {error && <p className="error">{error}</p>}
+
+          <button type="submit" className="btn-primary" disabled={submitting}>
+            {submitting ? 'Redirection…' : 'Continuer vers le paiement'}
+          </button>
+
+          <button type="button" className="link-back" onClick={() => { setRole(null); setError(null); }}>
+            ← Retour
+          </button>
+        </form>
+      ) : (
+        <form className="card" onSubmit={handleJoinCompany}>
+          <img src="/icon.png" alt="Meet Aaron" className="logo" />
+          <h1>Rejoignez votre équipe</h1>
+          <p className="subtitle">Entrez le code d'invitation transmis par votre dirigeant(e).</p>
+
+          <label>
+            Votre nom complet
+            <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+          </label>
+
+          <label>
+            Code d'invitation
+            <input
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="ex: OPENX-7K3F"
+              style={{ textTransform: 'uppercase' }}
+              required
+            />
+          </label>
+
+          {error && <p className="error">{error}</p>}
+
+          <button type="submit" className="btn-primary" disabled={submitting}>
+            {submitting ? 'Connexion…' : 'Rejoindre mon équipe'}
+          </button>
+
+          <button type="button" className="link-back" onClick={() => { setRole(null); setError(null); }}>
+            ← Retour
+          </button>
+        </form>
+      )}
 
       <style jsx>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500&display=swap');
@@ -230,6 +384,18 @@ export default function OnboardingPage() {
         .btn-primary:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+        .link-back {
+          display: block;
+          width: 100%;
+          text-align: center;
+          background: none;
+          border: none;
+          color: #8b90a8;
+          font-size: 0.78rem;
+          cursor: pointer;
+          margin-top: 0.9rem;
+          text-decoration: underline;
         }
       `}</style>
     </div>
