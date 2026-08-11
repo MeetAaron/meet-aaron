@@ -233,6 +233,11 @@ export default function AgendaPage() {
                       <div className="meta">
                         {TYPE_LABELS[a.type]} · {new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                       </div>
+                      {a.meet_link && (
+                        <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link">
+                          🎥 Lien Google Meet
+                        </a>
+                      )}
                     </div>
                     <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
                       {meta.label}
@@ -294,6 +299,13 @@ export default function AgendaPage() {
           font-size: 0.78rem;
           color: var(--muted);
           margin-top: 0.25rem;
+        }
+        .meet-link {
+          display: inline-block;
+          font-size: 0.78rem;
+          color: var(--accent);
+          text-decoration: none;
+          margin-top: 0.3rem;
         }
         .muted {
           color: var(--muted);
