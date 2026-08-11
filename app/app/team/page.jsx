@@ -243,6 +243,7 @@ function EmptyState({ title, body }) {
 }
 
 function Shell({ children, active, userId }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard' },
     { label: 'Prospects', slug: 'prospects' },
@@ -258,14 +259,30 @@ function Shell({ children, active, userId }) {
   ];
   return (
     <div className="shell">
-      <nav className="sidebar">
+      <button
+        type="button"
+        className="mobile-menu-btn"
+        aria-label="Ouvrir le menu"
+        onClick={() => setMobileOpen(true)}
+      >
+        <span className="bar" />
+        <span className="bar" />
+        <span className="bar" />
+      </button>
+      {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
+      <nav className={`sidebar${mobileOpen ? ' open' : ''}`}>
         <div className="brand">
           <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
           <span>Meet Aaron</span>
         </div>
         <ul className="nav-list">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.label} href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`} className="nav-link">
+            <Link
+              key={item.label}
+              href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
+              className="nav-link"
+              onClick={() => setMobileOpen(false)}
+            >
               <li className={item.label === active ? 'active' : ''}>{item.label}</li>
             </Link>
           ))}
@@ -342,15 +359,66 @@ function Shell({ children, active, userId }) {
         .content {
           padding: 2.5rem 3rem;
         }
+        .mobile-menu-btn {
+          display: none;
+        }
+        .sidebar-overlay {
+          display: none;
+        }
         @media (max-width: 900px) {
           .shell {
             grid-template-columns: 1fr;
           }
+          .mobile-menu-btn {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 4px;
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 60;
+            width: 38px;
+            height: 38px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            padding: 0;
+          }
+          .mobile-menu-btn .bar {
+            display: block;
+            width: 18px;
+            height: 2px;
+            margin: 0 auto;
+            background: var(--text);
+            border-radius: 1px;
+          }
           .sidebar {
-            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 240px;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            z-index: 70;
+            overflow-y: auto;
+          }
+          .sidebar.open {
+            transform: translateX(0);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+          }
+          .sidebar-overlay {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 65;
           }
           .content {
             padding: 1.5rem;
+            padding-top: 4.5rem;
           }
         }
       `}</style>
