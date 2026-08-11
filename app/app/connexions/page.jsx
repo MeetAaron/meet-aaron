@@ -51,7 +51,7 @@ function useAuthedUser() {
 
 const PROVIDER_META = {
   google: { name: 'Google', desc: 'Gmail (envoi/lecture) + Google Calendar' },
-  microsoft: { name: 'Microsoft', desc: 'Outlook Calendar' },
+  microsoft: { name: 'Microsoft', desc: 'Outlook (envoi/lecture) + Calendrier Outlook' },
 };
 
 export default function ConnexionsPage() {
