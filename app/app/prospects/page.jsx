@@ -71,6 +71,7 @@ export default function ProspectsPage() {
   const [statusFilter, setStatusFilter] = useState('tous');
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [linkedinProspect, setLinkedinProspect] = useState(null);
 
   async function loadProspects() {
     setLoading(true);
@@ -196,6 +197,9 @@ export default function ProspectsPage() {
                     <td className="contact">
                       <div>{p.email}</div>
                       {p.phone && <div className="muted">{p.phone}</div>}
+                      <button type="button" className="li-btn" onClick={() => setLinkedinProspect(p)}>
+                        Message LinkedIn
+                      </button>
                     </td>
                   </tr>
                 );
@@ -203,6 +207,10 @@ export default function ProspectsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {linkedinProspect && (
+        <LinkedInDraftModal prospect={linkedinProspect} onClose={() => setLinkedinProspect(null)} />
       )}
 
       {showAddForm && (
@@ -346,6 +354,18 @@ export default function ProspectsPage() {
         }
         .contact {
           font-size: 0.82rem;
+          white-space: nowrap;
+        }
+        .li-btn {
+          display: block;
+          margin-top: 0.35rem;
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--accent);
+          border-radius: 6px;
+          padding: 0.25rem 0.55rem;
+          font-size: 0.72rem;
+          cursor: pointer;
           white-space: nowrap;
         }
       `}</style>
@@ -498,6 +518,184 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           border-radius: 8px;
           padding: 0.6rem 1rem;
           cursor: pointer;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Aaron rédige une proposition de note de connexion + premier message LinkedIn,
+// mais n'envoie jamais rien lui-même : le commercial copie et envoie depuis son
+// propre compte LinkedIn (voir lib/linkedin-assist.ts pour le pourquoi — aucune
+// automatisation LinkedIn n'est faite ou prévue, ça violerait les CGU LinkedIn
+// et risquerait de faire bannir le compte du commercial).
+function LinkedInDraftModal({ prospect, onClose }) {
+  const [draft, setDraft] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/prospects/${prospect.id}/linkedin-draft`, { method: 'POST' })
+      .then(async (r) => {
+        const body = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setError(body.error || 'Erreur');
+        } else {
+          setDraft(body.draft);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Erreur réseau');
+          setLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [prospect.id]);
+
+  function copy(text, which) {
+    navigator.clipboard?.writeText(text);
+    setCopied(which);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Message LinkedIn pour {prospect.full_name}</h2>
+        <p className="hint">
+          Aaron propose ce texte — c'est à toi de le coller et de l'envoyer depuis ton propre compte LinkedIn
+          (rien n'est envoyé automatiquement).
+        </p>
+
+        {loading && <p className="muted">Rédaction en cours…</p>}
+        {error && <p className="error">{error}</p>}
+
+        {draft && (
+          <>
+            {draft.linkedin_url ? (
+              <a href={draft.linkedin_url} target="_blank" rel="noreferrer" className="li-profile-link">
+                Ouvrir le profil LinkedIn ↗
+              </a>
+            ) : (
+              <p className="muted small">Profil LinkedIn non identifié — cherche {prospect.full_name} manuellement sur LinkedIn.</p>
+            )}
+
+            <label>
+              Note de demande de connexion
+              <textarea readOnly value={draft.connection_note} rows={3} />
+            </label>
+            <button type="button" className="btn-secondary" onClick={() => copy(draft.connection_note, 'note')}>
+              {copied === 'note' ? 'Copié ✓' : 'Copier la note'}
+            </button>
+
+            <label style={{ marginTop: '1rem' }}>
+              Premier message (une fois connecté)
+              <textarea readOnly value={draft.first_message} rows={4} />
+            </label>
+            <button type="button" className="btn-secondary" onClick={() => copy(draft.first_message, 'message')}>
+              {copied === 'message' ? 'Copié ✓' : 'Copier le message'}
+            </button>
+          </>
+        )}
+
+        <div className="actions">
+          <button type="button" className="btn-primary" onClick={onClose}>Fermer</button>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 480px;
+          max-width: 100%;
+        }
+        h2 {
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+          margin: 0 0 0.6rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.4;
+        }
+        .li-profile-link {
+          display: inline-block;
+          color: var(--accent);
+          font-size: 0.82rem;
+          margin-bottom: 1rem;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 0.5rem;
+        }
+        textarea {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.82rem;
+        }
+        .muted {
+          color: var(--muted);
+          font-size: 0.82rem;
+        }
+        .small {
+          font-size: 0.78rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 1.2rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.45rem 0.8rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+          margin-bottom: 0.8rem;
         }
       `}</style>
     </div>
