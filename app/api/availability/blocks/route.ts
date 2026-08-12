@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   const { user_id, start_at, end_at, reason } = await request.json();
@@ -10,6 +11,10 @@ export async function POST(request: NextRequest) {
   if (!user_id || !start_at || !end_at) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== user_id) return forbiddenResponse();
 
   if (new Date(start_at) >= new Date(end_at)) {
     return NextResponse.json({ error: 'La date de fin doit être après la date de début' }, { status: 400 });
