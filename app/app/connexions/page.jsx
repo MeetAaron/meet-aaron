@@ -78,7 +78,7 @@ export default function ConnexionsPage() {
 
   async function handleDisconnect(connectionId) {
     if (!confirm('Déconnecter ce compte ? Aaron ne pourra plus envoyer/lire les emails ou gérer le calendrier associé.')) return;
-    await fetch(`/api/oauth-connections?connection_id=${connectionId}`, { method: 'DELETE' });
+    await fetch(`/api/oauth-connections?connection_id=${connectionId}&user_id=${userId}`, { method: 'DELETE' });
     load();
   }
 
@@ -310,6 +310,7 @@ function Shell({ children, active, userId }) {
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
     { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
+    { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
   ];
   return (
