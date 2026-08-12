@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { callClaude } from '@/lib/anthropic-client';
 
 const BUCKET = 'documents';
 const MAX_EXTRACTED_CHARS = 4000; // on ne garde qu'un extrait, pour limiter les tokens envoyés à Aaron
@@ -51,18 +52,12 @@ export async function GET(request: NextRequest) {
 // aperçu rapide côté équipe (liste des documents). Renvoie null si le texte
 // extrait est vide/absent, ou si l'appel échoue — le document reste utilisable
 // sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
-async function summarizeDocument(fileName: string, extractedText: string): Promise<string | null> {
+async function summarizeDocument(fileName: string, extractedText: string, companyId: string): Promise<string | null> {
   if (!extractedText || extractedText.trim().length < 50) return null;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
+    const data = await callClaude(
+      {
         model: 'claude-sonnet-4-6',
         max_tokens: 300,
         messages: [
@@ -75,18 +70,15 @@ async function summarizeDocument(fileName: string, extractedText: string): Promi
               `${extractedText.slice(0, 4000)}`,
           },
         ],
-      }),
-    });
+      },
+      companyId
+    );
 
-    if (!response.ok) {
-      console.error('Erreur API Anthropic (synthèse document):', await response.text());
-      return null;
-    }
-
-    const data = await response.json();
     const textBlock = data.content.find((block: any) => block.type === 'text');
     return textBlock ? textBlock.text.trim() : null;
   } catch (err: any) {
+    // Y compris un plafond de dépense atteint : le document reste utilisable
+    // sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
     console.error('Erreur génération synthèse document:', err.message);
     return null;
   }
@@ -144,7 +136,7 @@ export async function POST(request: NextRequest) {
   }
 
   const extractedText = await extractText(buffer, file.type);
-  const summary = extractedText ? await summarizeDocument(file.name, extractedText) : null;
+  const summary = extractedText ? await summarizeDocument(file.name, extractedText, user.company_id) : null;
 
   const { data: doc, error: dbError } = await supabaseAdmin
     .from('company_documents')
