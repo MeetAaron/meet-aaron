@@ -95,7 +95,12 @@ export async function POST(request: NextRequest) {
   } catch (err: any) {
     if (err instanceof MonthlyCapExceededError) {
       return NextResponse.json(
-        { error: "Le plafond de dépense API mensuel de votre société est atteint — contactez votre administrateur." },
+        {
+          error:
+            err.reason === 'daily'
+              ? "Plafond de dépense API du jour atteint pour votre société — ça repart automatiquement demain."
+              : "Le plafond de dépense API mensuel de votre société est atteint — contactez votre administrateur.",
+        },
         { status: 429 }
       );
     }
