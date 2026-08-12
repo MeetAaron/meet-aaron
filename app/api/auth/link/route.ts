@@ -5,13 +5,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email } = await request.json();
-
-  if (!auth_user_id || !email) {
-    return NextResponse.json({ error: 'auth_user_id ou email manquant' }, { status: 400 });
+  // Sécurité : auth_user_id et email sont dérivés du token de session Supabase
+  // vérifié côté serveur, JAMAIS du corps de la requête — sinon n'importe qui
+  // pouvait envoyer l'auth_user_id de son choix + l'email d'un profil "users"
+  // pas encore relié à un compte, et se lier définitivement au compte de
+  // quelqu'un d'autre (prise de contrôle de compte).
+  const identity = await getAuthedIdentity(request);
+  if (!identity) {
+    return unauthorizedResponse();
   }
+  const { auth_user_id, email } = identity;
 
   const { data: alreadyLinked } = await supabaseAdmin
     .from('users')
