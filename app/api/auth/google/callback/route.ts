@@ -6,18 +6,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { encryptToken } from '@/lib/encryption';
 
+// Redirige tout en effaçant le cookie anti-CSRF à usage unique (posé par
+// /api/auth/google), qu'il ait été consommé avec succès ou non.
+function redirectClearingCookie(url: string) {
+  const response = NextResponse.redirect(url);
+  response.cookies.set('oauth_google_state', '', { path: '/api/auth/google', maxAge: 0 });
+  return response;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
-  const userId = searchParams.get('state'); // récupéré depuis /api/auth/google
+  const returnedState = searchParams.get('state');
   const error = searchParams.get('error');
 
   if (error) {
-    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=${error}`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}`);
   }
 
-  if (!code || !userId) {
+  if (!code || !returnedState) {
     return NextResponse.json({ error: 'code ou state manquant' }, { status: 400 });
+  }
+
+  // Vérifie le cookie anti-CSRF posé par /api/auth/google dans CE même navigateur —
+  // le user_id vient du cookie (posé côté serveur à partir d'un token vérifié),
+  // jamais du "state" renvoyé par Google, qui n'est qu'une valeur de contrôle.
+  const cookieValue = request.cookies.get('oauth_google_state')?.value;
+  const [cookieNonce, userId] = cookieValue?.split(':') || [];
+
+  if (!cookieValue || cookieNonce !== returnedState || !userId) {
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch`);
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/google/callback`;
@@ -38,7 +56,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token Google:', errBody);
-    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed`);
   }
 
   const tokens = await tokenResponse.json();
@@ -70,8 +88,8 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens Google:', dbError);
-    return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
   }
 
-  return NextResponse.redirect(`${process.env.APP_URL}/app/connexions?oauth_success=google`);
+  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google`);
 }
