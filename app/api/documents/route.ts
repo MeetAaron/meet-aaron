@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 const BUCKET = 'documents';
 const MAX_EXTRACTED_CHARS = 4000; // on ne garde qu'un extrait, pour limiter les tokens envoyés à Aaron
@@ -14,6 +15,10 @@ export async function GET(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).single();
   if (!user) {
@@ -116,6 +121,10 @@ export async function POST(request: NextRequest) {
   if (!file || !userId) {
     return NextResponse.json({ error: 'Fichier ou user_id manquant' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).single();
   if (!user) {
