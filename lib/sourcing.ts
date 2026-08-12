@@ -4,6 +4,16 @@
 
 import { supabaseAdmin } from './supabase-admin';
 
+// Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
+// (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
+// libellé lisible qu'ici, au moment de construire le prompt de recherche).
+const COMPANY_SIZE_LABELS: Record<string, string> = {
+  artisan_tpe: 'Artisan / TPE (1 à 9 salariés)',
+  pme: 'PME (10 à 249 salariés)',
+  eti: 'ETI (250 à 4999 salariés)',
+  grand_compte: 'Grand compte (5000 salariés et plus)',
+};
+
 interface FoundCompany {
   name: string;
   domain: string | null;
@@ -24,14 +34,17 @@ interface FoundContact {
 async function searchCompaniesInZone(
   sectorKeywords: string[],
   zoneLabel: string,
+  companySizeKeys: string[],
   excludeDomains: string[],
   count: number
 ): Promise<FoundCompany[]> {
+  const companySizeLabels = (companySizeKeys || []).map((k) => COMPANY_SIZE_LABELS[k]).filter(Boolean);
+
   const prompt = `Tu es un assistant de sourcing B2B. Cherche sur le web (Google Maps, annuaires professionnels, pages "contact" d'entreprises) des entreprises correspondant à ces critères :
 
 Secteur(s) : ${sectorKeywords.join(', ')}
 Zone géographique : ${zoneLabel}
-Nombre d'entreprises à trouver : ${count}
+${companySizeLabels.length ? `Taille d'entreprise recherchée : ${companySizeLabels.join(' ou ')}\n` : ''}Nombre d'entreprises à trouver : ${count}
 
 Exclus ces domaines déjà connus : ${excludeDomains.join(', ') || 'aucun'}
 
@@ -150,6 +163,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   const foundCompanies = await searchCompaniesInZone(
     campaign.sector_keywords,
     campaign.zone_label,
+    campaign.company_sizes || [],
     excludeDomains,
     batchSize
   );
