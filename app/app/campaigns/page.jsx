@@ -56,11 +56,22 @@ const STATUS_LABELS = {
   en_pause: { label: 'En pause', color: '#F0914E' },
 };
 
-const ZONE_TYPE_LABELS = {
-  departement: 'Département',
-  region: 'Région',
-  ville: 'Ville',
-};
+const ZONE_TYPE_OPTIONS = [
+  { key: 'ville', label: 'Ville', icon: '🏙️', placeholder: 'ex: Lyon, Marseille', hint: "Ville(s), séparées par des virgules" },
+  { key: 'departement', label: 'Département', icon: '🗺️', placeholder: 'ex: 77, 75', hint: "Numéro(s) de département, séparés par des virgules" },
+  { key: 'region', label: 'Région', icon: '🌍', placeholder: 'ex: Île-de-France', hint: "Nom(s) de région, séparés par des virgules" },
+];
+
+// Doit rester synchronisé avec COMPANY_SIZE_LABELS dans lib/sourcing.ts —
+// les clés stockées en base (company_sizes) sont ces mêmes clés courtes.
+const COMPANY_SIZE_OPTIONS = [
+  { key: 'artisan_tpe', label: 'Artisan / TPE', desc: '1 à 9 salariés', icon: '🔨' },
+  { key: 'pme', label: 'PME', desc: '10 à 249 salariés', icon: '🏢' },
+  { key: 'eti', label: 'ETI', desc: '250 à 4 999 salariés', icon: '🏭' },
+  { key: 'grand_compte', label: 'Grand compte', desc: '5 000 salariés et plus', icon: '🏛️' },
+];
+
+const QUICK_SECTORS = ['Plomberie', 'Chauffagiste', 'Électricité', 'Bâtiment', 'Restauration', 'Coiffure', 'Immobilier', 'Comptabilité'];
 
 export default function CampaignsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
@@ -153,6 +164,11 @@ export default function CampaignsPage() {
                   <div>
                     <h3>{c.zone_label}</h3>
                     <p className="muted">{c.sector_keywords?.join(', ')}</p>
+                    {c.company_sizes?.length > 0 && (
+                      <p className="muted">
+                        {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
+                      </p>
+                    )}
                   </div>
                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
                     {status.label}
@@ -267,17 +283,57 @@ export default function CampaignsPage() {
   );
 }
 
+const WIZARD_STEPS = ['Zone géographique', "Taille d'entreprise", "Secteur d'activité", 'Objectif'];
+
 function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
+  const [step, setStep] = useState(0);
   const [zoneLabel, setZoneLabel] = useState('');
   const [zoneType, setZoneType] = useState('departement');
   const [zoneCodes, setZoneCodes] = useState('');
+  const [companySizes, setCompanySizes] = useState([]);
   const [sectors, setSectors] = useState('');
   const [targetCount, setTargetCount] = useState(20);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  const isLastStep = step === WIZARD_STEPS.length - 1;
+  const canGoNext =
+    (step === 0 && zoneLabel.trim() && zoneCodes.trim()) ||
+    step === 1 ||
+    (step === 2 && sectors.trim()) ||
+    (step === 3 && Number(targetCount) > 0);
+
+  function toggleCompanySize(key) {
+    setCompanySizes((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  function addQuickSector(sector) {
+    const current = sectors.split(',').map((s) => s.trim()).filter(Boolean);
+    if (current.some((s) => s.toLowerCase() === sector.toLowerCase())) return;
+    setSectors(current.length ? `${sectors}, ${sector}` : sector);
+  }
+
+  function handleNext() {
+    if (!canGoNext) return;
+    setError(null);
+    setStep((s) => Math.min(s + 1, WIZARD_STEPS.length - 1));
+  }
+
+  function handleBack() {
+    if (step === 0) {
+      onClose();
+      return;
+    }
+    setStep((s) => Math.max(s - 1, 0));
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
+    if (isLastStep && !canGoNext) return;
+    if (!isLastStep) {
+      handleNext();
+      return;
+    }
     setSubmitting(true);
     setError(null);
     const res = await fetch('/api/campaigns', {
@@ -290,6 +346,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         zone_type: zoneType,
         zone_codes: zoneCodes.split(',').map((s) => s.trim()).filter(Boolean),
         sector_keywords: sectors.split(',').map((s) => s.trim()).filter(Boolean),
+        company_sizes: companySizes,
         target_count: Number(targetCount),
       }),
     });
@@ -302,66 +359,134 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
     onCreated();
   }
 
+  const selectedZoneType = ZONE_TYPE_OPTIONS.find((z) => z.key === zoneType) || ZONE_TYPE_OPTIONS[0];
+
   return (
     <div className="overlay" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <h2>Nouvelle campagne</h2>
 
-        <label>
-          Zone géographique
-          <input
-            value={zoneLabel}
-            onChange={(e) => setZoneLabel(e.target.value)}
-            placeholder="ex: Seine-et-Marne (77)"
-            required
-          />
-        </label>
+        <div className="steps-track">
+          {WIZARD_STEPS.map((label, i) => (
+            <div key={label} className={`step-dot-wrap${i === step ? ' active' : ''}${i < step ? ' done' : ''}`}>
+              <span className="step-dot">{i < step ? '✓' : i + 1}</span>
+              <span className="step-label">{label}</span>
+            </div>
+          ))}
+        </div>
 
-        <label>
-          Type de zone
-          <select value={zoneType} onChange={(e) => setZoneType(e.target.value)}>
-            {Object.entries(ZONE_TYPE_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-        </label>
+        {step === 0 && (
+          <div className="step-body">
+            <p className="step-title">🎯 Où veux-tu prospecter ?</p>
+            <div className="zone-type-picker">
+              {ZONE_TYPE_OPTIONS.map((z) => (
+                <button
+                  type="button"
+                  key={z.key}
+                  className={`zone-type-btn${zoneType === z.key ? ' active' : ''}`}
+                  onClick={() => setZoneType(z.key)}
+                >
+                  <span className="zone-icon">{z.icon}</span>
+                  {z.label}
+                </button>
+              ))}
+            </div>
 
-        <label>
-          Code(s) de zone, séparés par des virgules
-          <input
-            value={zoneCodes}
-            onChange={(e) => setZoneCodes(e.target.value)}
-            placeholder="ex: 77 ou 75,77,78,91,92,93,94,95"
-            required
-          />
-        </label>
+            <label>
+              Nom de la zone (pour t'y retrouver)
+              <input
+                value={zoneLabel}
+                onChange={(e) => setZoneLabel(e.target.value)}
+                placeholder="ex: Seine-et-Marne (77)"
+                required
+              />
+            </label>
 
-        <label>
-          Secteur(s) d'activité, séparés par des virgules
-          <input
-            value={sectors}
-            onChange={(e) => setSectors(e.target.value)}
-            placeholder="ex: plomberie, chauffagiste"
-            required
-          />
-        </label>
+            <label>
+              {selectedZoneType.hint}
+              <input
+                value={zoneCodes}
+                onChange={(e) => setZoneCodes(e.target.value)}
+                placeholder={selectedZoneType.placeholder}
+                required
+              />
+            </label>
+          </div>
+        )}
 
-        <label>
-          Nombre de contacts visés
-          <input
-            type="number"
-            min="1"
-            value={targetCount}
-            onChange={(e) => setTargetCount(e.target.value)}
-          />
-        </label>
+        {step === 1 && (
+          <div className="step-body">
+            <p className="step-title">🏗️ Quelle taille d'entreprise ?</p>
+            <p className="step-subtitle">Optionnel — laisse tout décoché pour cibler toutes les tailles.</p>
+            <div className="size-grid">
+              {COMPANY_SIZE_OPTIONS.map((opt) => (
+                <button
+                  type="button"
+                  key={opt.key}
+                  className={`size-btn${companySizes.includes(opt.key) ? ' active' : ''}`}
+                  onClick={() => toggleCompanySize(opt.key)}
+                >
+                  <span className="size-icon">{opt.icon}</span>
+                  <span className="size-label">{opt.label}</span>
+                  <span className="size-desc">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="step-body">
+            <p className="step-title">🔍 Quel secteur d'activité ?</p>
+            <label>
+              Secteur(s), séparés par des virgules
+              <input
+                value={sectors}
+                onChange={(e) => setSectors(e.target.value)}
+                placeholder="ex: plomberie, chauffagiste"
+                required
+              />
+            </label>
+            <div className="quick-chips">
+              {QUICK_SECTORS.map((s) => (
+                <button type="button" key={s} className="chip" onClick={() => addQuickSector(s)}>
+                  + {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="step-body">
+            <p className="step-title">🚀 Objectif de la campagne</p>
+            <label>
+              Nombre de contacts visés
+              <input
+                type="number"
+                min="1"
+                value={targetCount}
+                onChange={(e) => setTargetCount(e.target.value)}
+              />
+            </label>
+
+            <div className="recap">
+              <p className="recap-title">Récapitulatif</p>
+              <p><strong>Zone :</strong> {zoneLabel || '—'} ({selectedZoneType.label.toLowerCase()})</p>
+              <p><strong>Taille(s) :</strong> {companySizes.length ? companySizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label).join(', ') : 'Toutes'}</p>
+              <p><strong>Secteur(s) :</strong> {sectors || '—'}</p>
+            </div>
+          </div>
+        )}
 
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={submitting}>
-            {submitting ? 'Création…' : 'Lancer la campagne'}
+          <button type="button" className="btn-secondary" onClick={handleBack}>
+            {step === 0 ? 'Annuler' : '← Retour'}
+          </button>
+          <button type="submit" className="btn-primary" disabled={submitting || !canGoNext}>
+            {submitting ? 'Création…' : isLastStep ? 'Lancer la campagne 🚀' : 'Suivant →'}
           </button>
         </div>
       </form>
@@ -375,18 +500,180 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           align-items: center;
           justify-content: center;
           z-index: 50;
+          padding: 1rem;
         }
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 16px;
           padding: 1.8rem;
-          width: 420px;
-          max-width: 90vw;
+          width: 480px;
+          max-width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
         }
         h2 {
           font-family: var(--font-display);
           margin: 0 0 1.2rem;
+        }
+        .steps-track {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 1.6rem;
+        }
+        .step-dot-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.35rem;
+          flex: 1;
+          position: relative;
+        }
+        .step-dot {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.74rem;
+          font-weight: 600;
+        }
+        .step-dot-wrap.active .step-dot {
+          background: var(--accent);
+          border-color: var(--accent);
+          color: white;
+        }
+        .step-dot-wrap.done .step-dot {
+          background: var(--accent-green);
+          border-color: var(--accent-green);
+          color: #0b0e1a;
+        }
+        .step-label {
+          font-size: 0.62rem;
+          color: var(--muted);
+          text-align: center;
+          line-height: 1.2;
+        }
+        .step-dot-wrap.active .step-label {
+          color: var(--text);
+        }
+        .step-body {
+          min-height: 180px;
+        }
+        .step-title {
+          font-weight: 600;
+          font-size: 0.96rem;
+          margin: 0 0 0.3rem;
+        }
+        .step-subtitle {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1rem;
+        }
+        .zone-type-picker {
+          display: flex;
+          gap: 0.6rem;
+          margin-bottom: 1.1rem;
+        }
+        .zone-type-btn {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.3rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.7rem 0.5rem;
+          color: var(--muted);
+          font-size: 0.78rem;
+          cursor: pointer;
+          transition: border-color 0.15s ease, color 0.15s ease;
+        }
+        .zone-type-btn.active {
+          border-color: var(--accent);
+          color: var(--text);
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .zone-icon {
+          font-size: 1.2rem;
+        }
+        .size-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.6rem;
+        }
+        .size-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.15rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.7rem 0.8rem;
+          cursor: pointer;
+          text-align: left;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .size-btn.active {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .size-icon {
+          font-size: 1.1rem;
+        }
+        .size-label {
+          color: var(--text);
+          font-weight: 600;
+          font-size: 0.84rem;
+        }
+        .size-desc {
+          color: var(--muted);
+          font-size: 0.72rem;
+        }
+        .quick-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          margin-top: 0.8rem;
+        }
+        .chip {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.35rem 0.7rem;
+          font-size: 0.76rem;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .chip:hover {
+          border-color: var(--accent);
+          color: var(--text);
+        }
+        .recap {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem 1rem;
+          margin-top: 1rem;
+          font-size: 0.82rem;
+        }
+        .recap-title {
+          font-weight: 600;
+          margin: 0 0 0.5rem;
+          font-size: 0.78rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--accent);
+        }
+        .recap p {
+          margin: 0.25rem 0;
+          color: var(--text);
         }
         label {
           display: flex;
@@ -410,7 +697,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         }
         .actions {
           display: flex;
-          justify-content: flex-end;
+          justify-content: space-between;
           gap: 0.6rem;
           margin-top: 1.2rem;
         }
@@ -422,6 +709,10 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .btn-secondary {
           background: transparent;
