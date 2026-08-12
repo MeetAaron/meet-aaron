@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
     zone_type,
     zone_codes,
     sector_keywords,
+    company_sizes,
     target_count,
   } = body;
 
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
       zone_type,
       zone_codes,
       sector_keywords,
+      company_sizes: Array.isArray(company_sizes) ? company_sizes : [],
       target_count: target_count || 20,
       status: 'en_attente',
     })
