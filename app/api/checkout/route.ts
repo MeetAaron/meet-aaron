@@ -6,7 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 
-const PRICE_ID_AARON_PROSPECT = 'price_1U28xj7srPu7DrXAy07EdRs7';
+// Configurable via Vercel (STRIPE_PRICE_ID_AARON_PROSPECT) pour basculer test/live
+// ou changer de tarif sans redéploiement de code — la valeur actuelle reste le
+// fallback pour ne rien casser tant que la variable n'est pas définie.
+const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'price_1U28xj7srPu7DrXAy07EdRs7';
 
 export async function POST(request: NextRequest) {
   const { auth_user_id, email, first_name, full_name, company_name, country } = await request.json();
