@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   const { user_id } = await request.json();
@@ -11,6 +12,10 @@ export async function POST(request: NextRequest) {
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== user_id) return forbiddenResponse();
 
   const { data: user } = await supabaseAdmin.from('users').select('email').eq('id', user_id).single();
   if (!user) {
