@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
-    const { auth_user_id, email, full_name, company_name, country } = session.metadata;
+    const { auth_user_id, email, first_name, full_name, company_name, country } = session.metadata;
 
     // Adresse de facturation complète collectée par Stripe Checkout
     // (billing_address_collection: 'required' dans /api/checkout) — stockée
@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
         await supabaseAdmin.from('users').insert({
           auth_user_id,
           email,
+          first_name: first_name || null,
           full_name,
           role: 'patron',
           company_id: company.id,
