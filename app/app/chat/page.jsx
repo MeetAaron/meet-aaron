@@ -108,9 +108,13 @@ export default function ChatPage() {
       {
         role: 'assistant',
         content:
-          `Bienvenue sur Meet Aaron${firstName ? ', ' + firstName : ''} ! Je suis Aaron, ton copilote commercial IA. ` +
-          "Avant de me lancer sur le terrain pour toi, j'ai besoin d'apprendre à connaître ton métier — quelques " +
-          "questions rapides, ça prend 2 minutes.\n\n" +
+          `Bonjour${firstName ? ' ' + firstName : ''}, je suis Aaron, ton copilote commercial IA. Voici ce que je fais pour toi :\n\n` +
+          "• je pars chercher, un par un, des prospects qui correspondent vraiment à ton profil client (zone, secteur, taille d'entreprise) ;\n" +
+          "• je leur écris et je relance en ton nom, depuis ta propre boîte mail, en adaptant chaque message à la personne et à ce qu'elle répond ;\n" +
+          "• je repère les signaux d'intérêt, je propose des créneaux et je remplis ta fiche prospect au fil de l'échange.\n\n" +
+          "Ce que je ne fais pas : pas d'emailing de masse ni de listes achetées — ici, tout est fait un par un, de façon personnalisée et clé en main. " +
+          "Et je ne prends aucune décision finale à ta place (devis, tarifs, engagements) : ça reste toujours toi qui conclus.\n\n" +
+          "Avant de me lancer sur le terrain, j'ai besoin d'apprendre à connaître ton métier — quelques questions rapides, ça prend 2 minutes.\n\n" +
           ONBOARDING_QUESTIONS[0],
       },
     ]);
