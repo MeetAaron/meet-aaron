@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
   const { user_id, day_of_week, start_time, end_time, appointment_type } = await request.json();
@@ -10,6 +11,10 @@ export async function POST(request: NextRequest) {
   if (user_id === undefined || day_of_week === undefined || !start_time || !end_time) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== user_id) return forbiddenResponse();
 
   if (day_of_week < 0 || day_of_week > 6) {
     return NextResponse.json({ error: 'day_of_week doit être compris entre 0 (dimanche) et 6 (samedi)' }, { status: 400 });
