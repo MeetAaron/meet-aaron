@@ -25,11 +25,17 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const connectionId = request.nextUrl.searchParams.get('connection_id');
-  if (!connectionId) {
-    return NextResponse.json({ error: 'connection_id manquant' }, { status: 400 });
+  const userId = request.nextUrl.searchParams.get('user_id');
+  if (!connectionId || !userId) {
+    return NextResponse.json({ error: 'connection_id et user_id requis' }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from('oauth_connections').delete().eq('id', connectionId);
+  // Empêche de déconnecter la boîte mail d'un autre commercial en devinant un connection_id.
+  const { error } = await supabaseAdmin
+    .from('oauth_connections')
+    .delete()
+    .eq('id', connectionId)
+    .eq('user_id', userId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
