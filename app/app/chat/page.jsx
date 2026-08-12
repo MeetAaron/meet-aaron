@@ -55,6 +55,7 @@ function useAuthedUser() {
 const ONBOARDING_QUESTIONS = [
   "Pour commencer : comment décrirais-tu tes clients type ? (secteur d'activité, taille, profil...)",
   "Combien de profils de clients différents vois-tu chez toi ? Une seule famille bien homogène, ou plusieurs bien distinctes ?",
+  "Et question un peu plus perso : comment décrirais-tu le comportement ou le caractère de tes clients en général (pressés, méfiants, bavards, factuels...) ? Pas besoin d'être précis, écris comme ça te vient.",
   "Quel est ton produit ou service phare, celui que tu proposes le plus souvent ?",
   "Quel est l'argument qui fait mouche le plus souvent auprès de tes prospects ?",
   "Quelle est l'objection ou l'hésitation que tu entends le plus fréquemment ?",
