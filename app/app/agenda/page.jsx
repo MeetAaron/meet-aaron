@@ -55,6 +55,12 @@ const TYPE_LABELS = {
   visio: 'Visio',
 };
 
+const TYPE_ICONS = {
+  telephonique: '📞',
+  physique: '🤝',
+  visio: '💻',
+};
+
 const STATUS_META = {
   'proposé': { label: 'À valider', color: '#F0914E' },
   'validé': { label: 'Validé', color: '#3DD68C' },
@@ -188,7 +194,8 @@ export default function AgendaPage() {
                       <strong>{a.prospects?.full_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
                       <div className="meta">
-                        {TYPE_LABELS[a.type]} · {new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                        {' · '}{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                       </div>
                     </div>
                     <div className="row-actions">
@@ -231,7 +238,8 @@ export default function AgendaPage() {
                       <strong>{a.prospects?.full_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
                       <div className="meta">
-                        {TYPE_LABELS[a.type]} · {new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                        {' · '}{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                       </div>
                       {a.meet_link && (
                         <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link">
@@ -299,6 +307,28 @@ export default function AgendaPage() {
           font-size: 0.78rem;
           color: var(--muted);
           margin-top: 0.25rem;
+        }
+        .type-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.1rem 0.55rem;
+          font-weight: 600;
+          color: var(--text);
+        }
+        .type-badge.type-visio {
+          border-color: #4b9ef0;
+          color: #4b9ef0;
+        }
+        .type-badge.type-physique {
+          border-color: #3dd68c;
+          color: #3dd68c;
+        }
+        .type-badge.type-telephonique {
+          border-color: #f0914e;
+          color: #f0914e;
         }
         .meet-link {
           display: inline-block;
