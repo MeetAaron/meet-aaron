@@ -6,9 +6,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email, full_name, invite_code } = await request.json();
+  const { auth_user_id, email, first_name, full_name, invite_code } = await request.json();
 
-  if (!auth_user_id || !email || !full_name || !invite_code) {
+  if (!auth_user_id || !email || !first_name || !full_name || !invite_code) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
 
@@ -37,11 +37,12 @@ export async function POST(request: NextRequest) {
     .insert({
       auth_user_id,
       email,
+      first_name,
       full_name,
       role: 'commercial',
       company_id: company.id,
     })
-    .select('id, company_id, full_name, role')
+    .select('id, company_id, first_name, full_name, role')
     .single();
 
   if (error) {
