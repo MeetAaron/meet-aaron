@@ -49,6 +49,18 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
+// Questions de découverte posées par Aaron une par une lors du premier accueil,
+// pour construire un vrai profil commercial "clé en main" plutôt qu'un simple
+// pavé de texte libre. Les réponses alimentent /api/business-summary.
+const ONBOARDING_QUESTIONS = [
+  "Pour commencer : comment décrirais-tu tes clients type ? (secteur d'activité, taille, profil...)",
+  "Combien de profils de clients différents vois-tu chez toi ? Une seule famille bien homogène, ou plusieurs bien distinctes ?",
+  "Quel est ton produit ou service phare, celui que tu proposes le plus souvent ?",
+  "Quel est l'argument qui fait mouche le plus souvent auprès de tes prospects ?",
+  "Quelle est l'objection ou l'hésitation que tu entends le plus fréquemment ?",
+  "Et l'idéal pour toi après un premier contact : obtenir un rendez-vous, envoyer un devis, proposer un essai gratuit, ou autre chose ?",
+];
+
 export default function ChatPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [messages, setMessages] = useState([]);
@@ -61,6 +73,9 @@ export default function ChatPage() {
   const [isWelcome, setIsWelcome] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryDone, setSummaryDone] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
+  const [onboardingStep, setOnboardingStep] = useState(-1); // -1 = pas en cours de questionnaire
+  const [onboardingAnswers, setOnboardingAnswers] = useState([]);
   const bottomRef = useRef(null);
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
@@ -72,21 +87,35 @@ export default function ChatPage() {
     }
   }, []);
 
+  // Charge les infos de l'utilisateur (dont son prénom) pour qu'Aaron l'utilise
+  // dans son message d'accueil et tout au long de la conversation.
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.user) setUserInfo(res.user);
+      })
+      .catch(() => {});
+  }, [userId]);
+
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
+    // On attend d'avoir le prénom pour un accueil personnalisé plutôt que générique.
+    if (!userInfo) return;
+    const firstName = userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '';
     setMessages([
       {
         role: 'assistant',
         content:
-          "Bienvenue sur Meet Aaron ! Je suis Aaron, ton copilote commercial IA. Avant de me lancer sur le " +
-          "terrain pour toi, j'ai besoin de mieux comprendre ton métier.\n\n" +
-          "Direction \"Mes documents\" pour m'envoyer ce que tu as sous la main (devis type, plaquette, liste de " +
-          "tarifs), puis reviens ici et raconte-moi en quelques phrases ce que fait ton entreprise et à qui tu " +
-          "vends. Dès que j'ai de quoi travailler, clique sur \"Générer mon résumé\" ci-dessous et je te dirai ce " +
-          "que j'ai compris.",
+          `Bienvenue sur Meet Aaron${firstName ? ', ' + firstName : ''} ! Je suis Aaron, ton copilote commercial IA. ` +
+          "Avant de me lancer sur le terrain pour toi, j'ai besoin d'apprendre à connaître ton métier — quelques " +
+          "questions rapides, ça prend 2 minutes.\n\n" +
+          ONBOARDING_QUESTIONS[0],
       },
     ]);
-  }, [isWelcome, messages.length]);
+    setOnboardingStep(0);
+  }, [isWelcome, messages.length, userInfo]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -96,6 +125,10 @@ export default function ChatPage() {
     if (summarizing) return;
     setSummarizing(true);
 
+    // Si le questionnaire guidé a été répondu, on envoie les paires question/réponse
+    // structurées (bien plus exploitables pour Aaron qu'un pavé de texte libre).
+    // Sinon (questionnaire sauté ou messages libres), on retombe sur l'ancien
+    // comportement : tous les messages de l'utilisateur concaténés.
     const description = messages
       .filter((m) => m.role === 'user')
       .map((m) => m.content)
@@ -104,7 +137,7 @@ export default function ChatPage() {
     const res = await fetch('/api/business-summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, description }),
+      body: JSON.stringify({ user_id: userId, description, qa: onboardingAnswers }),
     });
     const data = await res.json();
     setSummarizing(false);
@@ -138,6 +171,38 @@ export default function ChatPage() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
+
+    // Questionnaire de découverte guidé : on avance localement, question par
+    // question, sans appeler le modèle général — la séquence reste prévisible
+    // et instantanée, comme un vrai petit onboarding "clé en main".
+    if (onboardingStep >= 0 && onboardingStep < ONBOARDING_QUESTIONS.length) {
+      const updatedAnswers = [
+        ...onboardingAnswers,
+        { question: ONBOARDING_QUESTIONS[onboardingStep], answer: userMessage.content },
+      ];
+      setOnboardingAnswers(updatedAnswers);
+
+      const nextStep = onboardingStep + 1;
+      if (nextStep < ONBOARDING_QUESTIONS.length) {
+        setOnboardingStep(nextStep);
+        setMessages([...newMessages, { role: 'assistant', content: ONBOARDING_QUESTIONS[nextStep] }]);
+      } else {
+        setOnboardingStep(-1);
+        setMessages([
+          ...newMessages,
+          {
+            role: 'assistant',
+            content:
+              "Parfait, merci ! Si tu as un devis type, une plaquette ou une liste de tarifs sous la main, direction " +
+              "\"Mes documents\" pour me les envoyer — ça m'aide encore plus à te représenter auprès des prospects. " +
+              "Sinon, clique directement sur \"Générer mon résumé\" ci-dessous et je te dis ce que j'ai compris de " +
+              "ton activité.",
+          },
+        ]);
+      }
+      return;
+    }
+
     setSending(true);
 
     const res = await fetch('/api/chat', {
@@ -240,7 +305,11 @@ export default function ChatPage() {
         <div className="messages">
           {messages.length === 0 && (
             <div className="intro">
-              <p>Salut ! Pose-moi une question sur tes prospects, tes campagnes, ou demande-moi un conseil commercial.</p>
+              <p>
+                {isWelcome
+                  ? 'Chargement…'
+                  : 'Salut ! Pose-moi une question sur tes prospects, tes campagnes, ou demande-moi un conseil commercial.'}
+              </p>
             </div>
           )}
           {messages.map((m, i) => (
