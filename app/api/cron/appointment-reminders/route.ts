@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
-// import { sendPushNotification } from '@/lib/push'; // à implémenter selon le fournisseur choisi (ex: OneSignal, FCM)
+import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -77,10 +77,16 @@ export async function GET(request: NextRequest) {
         channel: 'push',
         type: 'appointment_reminder',
       });
-      if (logError && logError.code !== '23505') {
+      if (logError) {
+        if (logError.code === '23505') continue; // déjà notifié par une exécution concurrente
         console.error('Erreur log notification (push):', logError.message);
+      } else {
+        await sendPushNotification(appt.users.id, {
+          title: 'Rappel de rendez-vous',
+          body: message,
+          url: `/app/agenda?user_id=${appt.users.id}`,
+        });
       }
-      // await sendPushNotification(appt.users.id, message); // à brancher sur le service push choisi
     }
 
     notified.push(appt.id);
