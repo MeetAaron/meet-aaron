@@ -1,0 +1,213 @@
+// app/app/agenda/rdv/[id]/bilan/page.jsx
+// Page ouverte depuis la notification "Comment s'est passé le RDV ?"
+// (voir app/api/cron/appointment-feedback-prompts). Le commercial choisit une
+// des 4 réponses, Aaron enregistre le bilan et réagit (lib/appointment-outcome.ts).
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
+
+function useAuthedUser() {
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        const body = await res.json();
+        setAuthError(body.error || 'Accès refusé');
+      }
+      setReady(true);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { ready, authError };
+}
+
+const CHOICES = [
+  { value: 'client', label: 'Client signé !', emoji: '🎉' },
+  { value: 'bien_passe', label: 'Plutôt bien passé', emoji: '🙂' },
+  { value: 'moyen', label: 'Moyennement, à relancer', emoji: '😐' },
+  { value: 'perdu', label: 'Perdu', emoji: '😕' },
+];
+
+export default function BilanRdvPage({ params }) {
+  const { ready, authError } = useAuthedUser();
+  const [appointment, setAppointment] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [note, setNote] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!ready || authError) return;
+
+    fetch(`/api/appointments/${params.id}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (body.error) {
+          setError(body.error);
+        } else {
+          setAppointment(body);
+          if (body.outcome) setNote(body.outcome_note);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [ready, authError, params.id]);
+
+  async function handleChoice(value) {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/appointments/${params.id}/outcome`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outcome: value }),
+      });
+      const body = await res.json();
+
+      if (!res.ok) {
+        setError(body.error || 'Erreur');
+      } else {
+        setNote(body.note);
+        setAppointment((prev) => (prev ? { ...prev, outcome: value } : prev));
+      }
+    } catch (err) {
+      setError('Erreur réseau — réessaie.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!ready || loading) {
+    return <div style={styles.page}><p style={styles.muted}>Chargement...</p></div>;
+  }
+
+  if (authError || error && !appointment) {
+    return <div style={styles.page}><p style={styles.muted}>{authError || error}</p></div>;
+  }
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.card}>
+        <h1 style={styles.title}>
+          {appointment?.prospect_full_name
+            ? `Comment s'est passé le RDV avec ${appointment.prospect_full_name} ?`
+            : "Comment s'est passé ce RDV ?"}
+        </h1>
+
+        {!appointment?.outcome && (
+          <div style={styles.choices}>
+            {CHOICES.map((choice) => (
+              <button
+                key={choice.value}
+                onClick={() => handleChoice(choice.value)}
+                disabled={submitting}
+                style={styles.choiceButton}
+              >
+                <span style={{ marginRight: 8 }}>{choice.emoji}</span>
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {error && <p style={styles.errorText}>{error}</p>}
+
+        {note && (
+          <div style={styles.noteBox}>
+            <p style={styles.noteLabel}>Aaron :</p>
+            <p style={styles.noteText}>{note}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  page: {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#0F1117',
+    padding: 24,
+  },
+  card: {
+    maxWidth: 480,
+    width: '100%',
+    background: '#171A23',
+    borderRadius: 16,
+    padding: 28,
+  },
+  title: {
+    color: '#fff',
+    fontSize: 20,
+    marginBottom: 20,
+    lineHeight: 1.4,
+  },
+  choices: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
+  choiceButton: {
+    padding: '14px 16px',
+    borderRadius: 10,
+    border: '1px solid #2A2E3B',
+    background: '#1E212C',
+    color: '#fff',
+    fontSize: 15,
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  noteBox: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 10,
+    background: '#1E212C',
+  },
+  noteLabel: {
+    color: '#8B90A8',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  noteText: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 1.5,
+  },
+  muted: {
+    color: '#8B90A8',
+  },
+  errorText: {
+    color: '#E5484D',
+    marginTop: 12,
+  },
+};
