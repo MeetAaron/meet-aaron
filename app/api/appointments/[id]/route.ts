@@ -11,6 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 // Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
 //  - une indisponibilité ponctuelle déclarée (availability_blocks)
@@ -73,6 +74,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   const userId = appointment.prospects.assigned_user_id;
+
+  // Empêche d'agir sur le RDV d'un autre commercial en devinant/connaissant son id.
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   if (action === 'valider') {
     const { data: connections } = await supabaseAdmin
