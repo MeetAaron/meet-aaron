@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
+Adresse-toi à lui par son prénom de temps en temps (pas à chaque message, ça sonnerait faux) pour garder un ton personnel et chaleureux.
 Tu peux répondre à ses questions sur ses prospects, campagnes, RDV, ou lui donner des conseils commerciaux généraux.
 Réponds toujours en français, de façon concise et utile — pas de blabla inutile.
 Si le commercial exprime une suggestion, une remarque ou une idée d'amélioration sur l'outil, le produit ou l'organisation,
@@ -68,9 +69,11 @@ export async function POST(request: NextRequest) {
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('full_name, company_id')
+    .select('first_name, full_name, company_id')
     .eq('id', user_id)
     .single();
+
+  const displayFirstName = user?.first_name || (user?.full_name || '').split(' ')[0] || null;
 
   let businessContext = '';
   if (user?.company_id) {
@@ -103,7 +106,7 @@ export async function POST(request: NextRequest) {
         system: [
           {
             type: 'text',
-            text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'}.${businessContext}`,
+            text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
             cache_control: { type: 'ephemeral' },
           },
         ],
