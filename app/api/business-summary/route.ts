@@ -15,11 +15,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
 
-  const { data: user } = await supabaseAdmin
+  const { data: user, error: userError } = await supabaseAdmin
     .from('users')
     .select('company_id')
     .eq('id', user_id)
     .single();
+
+  if (userError) {
+    console.error('Erreur récupération utilisateur (business-summary):', userError.message);
+  }
 
   if (!user?.company_id) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
