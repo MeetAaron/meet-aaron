@@ -8,7 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('id, company_id, full_name, email, role')
+    .select('id, company_id, first_name, full_name, email, role')
     .eq('id', params.id)
     .single();
 
