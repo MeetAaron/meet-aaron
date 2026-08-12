@@ -210,9 +210,12 @@ export default function ProspectsPage() {
           userId={userId}
           companyId={companyId}
           onClose={() => setShowAddForm(false)}
-          onCreated={() => {
+          onCreated={(emailWarning) => {
             setShowAddForm(false);
             loadProspects();
+            if (emailWarning) {
+              window.alert(emailWarning);
+            }
           }}
         />
       )}
@@ -378,13 +381,14 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
 
     setSubmitting(false);
 
+    const body = await res.json();
+
     if (!res.ok) {
-      const body = await res.json();
       setError(body.error || 'Erreur lors de la création');
       return;
     }
 
-    onCreated();
+    onCreated(body.emailWarning || null);
   }
 
   return (
