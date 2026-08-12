@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
@@ -18,16 +19,13 @@ c'est déjà fait automatiquement de ton côté.`;
 // fondateur (à propos de l'outil, du produit, de l'organisation...), pour la relayer
 // automatiquement dans feedback_messages — sans que le commercial ait à écrire un email
 // ou à utiliser le bouton "Signaler à l'équipe" manuel.
-async function detectFounderSuggestion(message: string): Promise<{ isSuggestion: boolean; summary: string | null }> {
+async function detectFounderSuggestion(
+  message: string,
+  companyId: string | null
+): Promise<{ isSuggestion: boolean; summary: string | null }> {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
+    const data = await callClaude(
+      {
         model: 'claude-sonnet-4-6',
         max_tokens: 200,
         messages: [
@@ -42,12 +40,10 @@ async function detectFounderSuggestion(message: string): Promise<{ isSuggestion:
               `{"is_suggestion": true|false, "summary": "résumé en une phrase si true, sinon null"}`,
           },
         ],
-      }),
-    });
+      },
+      companyId
+    );
 
-    if (!response.ok) return { isSuggestion: false, summary: null };
-
-    const data = await response.json();
     const textBlock = data.content.find((b: any) => b.type === 'text');
     if (!textBlock) return { isSuggestion: false, summary: null };
 
@@ -55,8 +51,8 @@ async function detectFounderSuggestion(message: string): Promise<{ isSuggestion:
     const parsed = JSON.parse(cleaned);
     return { isSuggestion: !!parsed.is_suggestion, summary: parsed.summary || null };
   } catch (err) {
-    // On ne bloque jamais la réponse du chat pour un souci de détection —
-    // dans le doute, on ne relaie rien.
+    // On ne bloque jamais la réponse du chat pour un souci de détection (y
+    // compris un plafond de dépense atteint) — dans le doute, on ne relaie rien.
     return { isSuggestion: false, summary: null };
   }
 }
@@ -101,33 +97,35 @@ export async function POST(request: NextRequest) {
     { role: 'user', content: message },
   ];
 
-  const [response, suggestion] = await Promise.all([
-    fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: [
-          {
-            type: 'text',
-            text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
-            cache_control: { type: 'ephemeral' },
-          },
-        ],
-        messages,
-      }),
-    }),
-    detectFounderSuggestion(message),
-  ]);
-
-  if (!response.ok) {
-    const err = await response.text();
-    return NextResponse.json({ error: err }, { status: 500 });
+  let data;
+  let suggestion;
+  try {
+    [data, suggestion] = await Promise.all([
+      callClaude(
+        {
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: [
+            {
+              type: 'text',
+              text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+          messages,
+        },
+        user?.company_id || null
+      ),
+      detectFounderSuggestion(message, user?.company_id || null),
+    ]);
+  } catch (err: any) {
+    if (err instanceof MonthlyCapExceededError) {
+      return NextResponse.json(
+        { error: "Le plafond de dépense API mensuel de votre société est atteint — contactez votre administrateur." },
+        { status: 429 }
+      );
+    }
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 
   if (suggestion.isSuggestion && user?.company_id) {
@@ -140,7 +138,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const data = await response.json();
   const textBlock = data.content.find((b: any) => b.type === 'text');
 
   return NextResponse.json({ reply: textBlock?.text || '' });
