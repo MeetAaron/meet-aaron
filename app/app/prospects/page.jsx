@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -322,42 +338,6 @@ export default function ProspectsPage() {
               <button type="button" className="btn-primary" onClick={handleConfirmWon}>Confirmer, c'est gagné !</button>
             </div>
           </div>
-          <style jsx>{`
-            .overlay {
-              position: fixed;
-              inset: 0;
-              background: rgba(0, 0, 0, 0.6);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              z-index: 50;
-              padding: 1rem;
-            }
-            .won-modal {
-              background: var(--surface);
-              border: 1px solid var(--accent-green);
-              border-radius: 16px;
-              padding: 1.8rem;
-              width: 420px;
-              max-width: 100%;
-            }
-            .won-title {
-              font-family: var(--font-display);
-              font-size: 1.3rem;
-              margin: 0 0 0.8rem;
-            }
-            .won-body {
-              color: var(--text);
-              font-size: 0.9rem;
-              line-height: 1.5;
-              margin: 0 0 1.4rem;
-            }
-            .won-actions {
-              display: flex;
-              justify-content: flex-end;
-              gap: 0.6rem;
-            }
-          `}</style>
         </div>
       )}
 
@@ -558,6 +538,40 @@ export default function ProspectsPage() {
         .action-btn.delete {
           color: #e5484d;
         }
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .won-modal {
+          background: var(--surface);
+          border: 1px solid var(--accent-green);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        .won-title {
+          font-family: var(--font-display);
+          font-size: 1.3rem;
+          margin: 0 0 0.8rem;
+        }
+        .won-body {
+          color: var(--text);
+          font-size: 0.9rem;
+          line-height: 1.5;
+          margin: 0 0 1.4rem;
+        }
+        .won-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+        }
       `}</style>
     </Shell>
   );
@@ -569,6 +583,8 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [jobTitle, setJobTitle] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -589,6 +605,8 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         email,
         phone: phone || null,
         job_title: jobTitle || null,
+        company_name: companyName || null,
+        linkedin_url: linkedinUrl || null,
       }),
     });
 
@@ -638,6 +656,16 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         <label>
           Poste (optionnel)
           <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ex: Directrice des achats" />
+        </label>
+
+        <label>
+          Société (optionnel)
+          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Dupont SAS" />
+        </label>
+
+        <label>
+          LinkedIn (optionnel)
+          <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="ex: linkedin.com/in/marie-dupont" />
         </label>
 
         {error && <p className="error">{error}</p>}
