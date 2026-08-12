@@ -86,31 +86,53 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
 
-  // Demande à Aaron de générer le premier message
-  const aaronOutput = await generateAaronResponse(prospect.id);
+  // Le prospect est créé à ce stade quoi qu'il arrive : si la génération du
+  // premier message ou l'envoi d'email échoue (ex: le commercial n'a pas
+  // encore connecté sa boîte mail dans "Connexions"), on ne casse pas la
+  // création du prospect — on le renvoie avec un avertissement exploitable
+  // par le frontend plutôt qu'une 500 sans rollback.
+  let aaronOutput = null;
+  let emailWarning = null;
 
-  // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
-  await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+  try {
+    // Récupère l'email réel du commercial pour l'enregistrer comme expéditeur
+    const { data: sender } = await supabaseAdmin
+      .from('users')
+      .select('email')
+      .eq('id', assigned_user_id)
+      .single();
 
-  // Enregistre le message envoyé
-  await supabaseAdmin.from('messages').insert({
-    conversation_id: conversation!.id,
-    direction: 'outbound',
-    sender_email: full_name, // remplacé par l'email réel du commercial côté frontend/logique complète
-    recipient_email: email,
-    body: aaronOutput.email_draft.body,
-  });
+    aaronOutput = await generateAaronResponse(prospect.id);
 
-  // Met à jour le statut/personnalité détectés
-  await supabaseAdmin
-    .from('prospects')
-    .update({
-      status: aaronOutput.prospect_status,
-      personality_type: aaronOutput.personality_type,
-      personality_notes: aaronOutput.personality_notes,
-      aaron_advice: aaronOutput.aaron_advice,
-    })
-    .eq('id', prospect.id);
+    // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
+    await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
 
-  return NextResponse.json({ prospect, aaronOutput });
+    // Enregistre le message envoyé
+    await supabaseAdmin.from('messages').insert({
+      conversation_id: conversation!.id,
+      direction: 'outbound',
+      sender_email: sender?.email || null,
+      recipient_email: email,
+      body: aaronOutput.email_draft.body,
+    });
+
+    // Met à jour le statut/personnalité détectés
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        status: aaronOutput.prospect_status,
+        personality_type: aaronOutput.personality_type,
+        personality_notes: aaronOutput.personality_notes,
+        aaron_advice: aaronOutput.aaron_advice,
+      })
+      .eq('id', prospect.id);
+  } catch (err: any) {
+    console.error('Erreur génération/envoi du premier message prospect:', err.message);
+    emailWarning =
+      err.message?.includes('Aucune boîte mail connectée')
+        ? "Prospect ajouté, mais aucun email n'a été envoyé : connectez votre boîte mail dans \"Connexions\"."
+        : "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+  }
+
+  return NextResponse.json({ prospect, aaronOutput, emailWarning });
 }
