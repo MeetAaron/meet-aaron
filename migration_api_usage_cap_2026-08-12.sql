@@ -1,5 +1,8 @@
 -- migration_api_usage_cap_2026-08-12.sql
--- Garde-fou de dépense API mensuelle par société (lib/anthropic-client.ts).
+-- Garde-fou de dépense API par société (lib/anthropic-client.ts) : un plafond
+-- MENSUEL (companies.monthly_api_cap_usd, 20 € par défaut) ET un plafond
+-- QUOTIDIEN dérivé (mensuel / 15, calculé en code) pour éviter qu'un pic
+-- d'usage un seul jour ne consomme tout le budget du mois d'un coup.
 -- Toute société créée après cette migration démarre à 20 € par défaut (DEFAULT
 -- de la colonne). Pour désactiver le plafond sur une société précise (ex:
 -- compte interne Open X), mettre sa ligne à NULL explicitement — c'est le seul
@@ -17,6 +20,14 @@ create table if not exists api_usage_monthly (
   cost_usd numeric not null default 0,
   updated_at timestamptz not null default now(),
   primary key (company_id, year_month)
+);
+
+create table if not exists api_usage_daily (
+  company_id uuid not null references companies(id) on delete cascade,
+  date text not null, -- format 'YYYY-MM-DD' (calculé en UTC)
+  cost_usd numeric not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (company_id, date)
 );
 
 update companies set monthly_api_cap_usd = 20 where monthly_api_cap_usd is null;
