@@ -82,6 +82,20 @@ export default function ConnexionsPage() {
     load();
   }
 
+  // /api/auth/google et /api/auth/microsoft sont atteintes par navigation complète
+  // (window.location.href), pas par fetch() — l'intercepteur global qui ajoute le
+  // token d'auth ne s'applique donc pas ici. On récupère le token de session et on
+  // le passe explicitement en paramètre, pour que le serveur dérive l'identité du
+  // token vérifié plutôt que de faire confiance à un user_id dans l'URL.
+  async function connectProvider(provider) {
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (!session) {
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/${provider}?token=${encodeURIComponent(session.access_token)}`;
+  }
+
   if (authLoading) {
     return (
       <div className="auth-loading">
@@ -141,14 +155,14 @@ export default function ConnexionsPage() {
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
             connection={googleConnection}
-            onConnect={() => (window.location.href = `/api/auth/google?user_id=${userId}`)}
+            onConnect={() => connectProvider('google')}
             onDisconnect={() => handleDisconnect(googleConnection.id)}
           />
           <ConnectionCard
             title={PROVIDER_META.microsoft.name}
             desc={PROVIDER_META.microsoft.desc}
             connection={microsoftConnection}
-            onConnect={() => (window.location.href = `/api/auth/microsoft?user_id=${userId}`)}
+            onConnect={() => connectProvider('microsoft')}
             onDisconnect={() => handleDisconnect(microsoftConnection.id)}
           />
         </div>
