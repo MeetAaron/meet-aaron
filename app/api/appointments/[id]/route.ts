@@ -59,6 +59,38 @@ async function detectSchedulingConflicts(userId: string, startISO: string, endIS
   return reasons;
 }
 
+// GET -> détails minimaux d'un RDV, utilisé par la page de bilan post-RDV
+// (app/app/agenda/rdv/[id]/bilan) pour afficher le nom du prospect et savoir
+// si un bilan a déjà été enregistré.
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const { data: appointment, error } = await supabaseAdmin
+    .from('appointments')
+    .select('id, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
+    .eq('id', params.id)
+    .single();
+
+  if (error || !appointment) {
+    return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+  }
+
+  const prospect = (appointment as any).prospects;
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
+    return forbiddenResponse();
+  }
+
+  return NextResponse.json({
+    id: appointment.id,
+    proposed_at: appointment.proposed_at,
+    type: appointment.type,
+    outcome: appointment.outcome,
+    outcome_note: appointment.outcome_note,
+    prospect_full_name: prospect?.full_name || null,
+  });
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const { action, force } = await request.json();
   const appointmentId = params.id;
