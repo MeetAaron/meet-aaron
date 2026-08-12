@@ -3,6 +3,7 @@
 // et parse la réponse structurée en JSON pour que le reste du backend l'exploite.
 
 import { supabaseAdmin } from './supabase-admin';
+import { callClaude } from './anthropic-client';
 import { readFileSync } from 'fs';
 import path from 'path';
 
@@ -81,6 +82,7 @@ async function buildContext(prospectId: string) {
     .maybeSingle();
 
   return {
+    company_id: prospect.company_id,
     commercial: {
       nom: prospect.users.full_name,
       email: prospect.users.email,
@@ -104,16 +106,10 @@ async function buildContext(prospectId: string) {
 }
 
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
-  const context = await buildContext(prospectId);
+  const { company_id: companyId, ...context } = await buildContext(prospectId);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  const data = await callClaude(
+    {
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
       // Prompt caching : ce system prompt est identique à chaque appel (un par
@@ -126,15 +122,10 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
           content: `Voici le contexte complet de la situation, y compris un extrait des documents de l'entreprise si disponibles, et l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
         },
       ],
-    }),
-  });
+    },
+    companyId
+  );
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Erreur API Anthropic: ${err}`);
-  }
-
-  const data = await response.json();
   const textBlock = data.content.find((block: any) => block.type === 'text');
 
   if (!textBlock) {

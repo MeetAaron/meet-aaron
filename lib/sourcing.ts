@@ -3,6 +3,7 @@
 // en utilisant la recherche web en temps réel (outil web_search de l'API Anthropic).
 
 import { supabaseAdmin } from './supabase-admin';
+import { callClaude } from './anthropic-client';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -32,6 +33,7 @@ interface FoundContact {
 }
 
 async function searchCompaniesInZone(
+  companyId: string,
   sectorKeywords: string[],
   zoneLabel: string,
   companySizeKeys: string[],
@@ -60,26 +62,16 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
   }
 ]`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  const data = await callClaude(
+    {
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+    },
+    companyId
+  );
 
-  if (!response.ok) {
-    throw new Error(`Erreur recherche entreprises: ${await response.text()}`);
-  }
-
-  const data = await response.json();
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
   if (!textBlock) return [];
 
@@ -92,7 +84,11 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
   }
 }
 
-async function searchContactAtCompany(company: FoundCompany, sectorKeywords: string[]): Promise<FoundContact | null> {
+async function searchContactAtCompany(
+  companyId: string,
+  company: FoundCompany,
+  sectorKeywords: string[]
+): Promise<FoundContact | null> {
   const prompt = `Tu cherches un contact décisionnaire pertinent (dirigeant, gérant, responsable achats/commercial) au sein de cette entreprise, pour une prospection B2B dans le secteur : ${sectorKeywords.join(', ')}.
 
 Entreprise : ${company.name}
@@ -112,26 +108,16 @@ Réponds UNIQUEMENT avec un objet JSON (sans texte avant/après, sans balises ma
 
 Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null plutôt que d'inventer une information.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  const data = await callClaude(
+    {
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+    },
+    companyId
+  );
 
-  if (!response.ok) {
-    throw new Error(`Erreur recherche contact: ${await response.text()}`);
-  }
-
-  const data = await response.json();
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
   if (!textBlock) return null;
 
@@ -161,6 +147,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   const excludeDomains = (existingCompanies || []).map((c) => c.domain).filter(Boolean) as string[];
 
   const foundCompanies = await searchCompaniesInZone(
+    campaign.company_id,
     campaign.sector_keywords,
     campaign.zone_label,
     campaign.company_sizes || [],
@@ -201,7 +188,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
     if (existingProspect) continue;
 
-    const contact = await searchContactAtCompany(company, campaign.sector_keywords);
+    const contact = await searchContactAtCompany(campaign.company_id, company, campaign.sector_keywords);
 
     if (!contact || !contact.email) continue;
 
@@ -213,6 +200,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       email: contact.email,
       phone: contact.phone,
       job_title: contact.job_title,
+      linkedin_url: contact.linkedin_url,
       status: 'jaune',
     });
 
