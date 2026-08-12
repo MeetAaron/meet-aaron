@@ -42,10 +42,18 @@ export default function ResultatsPage() {
     );
   }
 
+  const TYPE_LABELS = { telephonique: 'Téléphonique', physique: 'Physique', visio: 'Visio' };
+
   const totalProspects = prospects.length;
-  const rdvObtenus = appointments.filter((a) => a.status === 'validé' || a.status === 'terminé').length;
+  const rdvConfirmes = appointments.filter((a) => a.status === 'validé' || a.status === 'terminé');
+  const rdvObtenus = rdvConfirmes.length;
   const rdvEnAttente = appointments.filter((a) => a.status === 'proposé').length;
   const tauxRdv = totalProspects > 0 ? Math.round((rdvObtenus / totalProspects) * 100) : 0;
+  const rdvParType = Object.keys(TYPE_LABELS).map((type) => ({
+    type,
+    label: TYPE_LABELS[type],
+    count: rdvConfirmes.filter((a) => a.type === type).length,
+  }));
   const contactsSources = campaigns.reduce((sum, c) => sum + (c.contacts_found || 0), 0);
   const entreprisesAnalysees = campaigns.reduce((sum, c) => sum + (c.companies_found || 0), 0);
   const tauxContact = entreprisesAnalysees > 0 ? Math.round((contactsSources / entreprisesAnalysees) * 100) : 0;
@@ -63,7 +71,12 @@ export default function ResultatsPage() {
         <>
           <section className="stat-grid">
             <StatCard label="Prospects contactés" value={totalProspects} />
-            <StatCard label="RDV obtenus" value={rdvObtenus} accent />
+            <StatCard
+              label="RDV obtenus"
+              value={rdvObtenus}
+              accent
+              hint={rdvObtenus > 0 ? rdvParType.filter((t) => t.count > 0).map((t) => `${t.count} ${t.label.toLowerCase()}`).join(' · ') : undefined}
+            />
             <StatCard label="RDV en attente de validation" value={rdvEnAttente} />
             <StatCard label="Taux de transformation" value={`${tauxRdv}%`} hint="prospects → RDV" />
           </section>
