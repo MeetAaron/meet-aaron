@@ -11,7 +11,8 @@ export default function OnboardingPage() {
   const [session, setSession] = useState(null);
   const [role, setRole] = useState(null); // null | 'patron' | 'commercial'
   const [companyName, setCompanyName] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [country, setCountry] = useState('');
   const [attested, setAttested] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
@@ -28,7 +29,11 @@ export default function OnboardingPage() {
       }
 
       setSession(session);
-      setFullName(session.user.user_metadata?.full_name || '');
+      // Pré-remplissage best-effort depuis les infos OAuth (Google/Microsoft) si dispo.
+      const metaFullName = session.user.user_metadata?.full_name || '';
+      const [metaFirst, ...metaRest] = metaFullName.split(' ').filter(Boolean);
+      setFirstName(metaFirst || '');
+      setLastName(metaRest.join(' '));
 
       const res = await fetch('/api/auth/link', {
         method: 'POST',
@@ -62,7 +67,8 @@ export default function OnboardingPage() {
       body: JSON.stringify({
         auth_user_id: session.user.id,
         email: session.user.email,
-        full_name: fullName,
+        first_name: firstName.trim(),
+        full_name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         company_name: companyName,
         country,
       }),
@@ -90,7 +96,8 @@ export default function OnboardingPage() {
       body: JSON.stringify({
         auth_user_id: session.user.id,
         email: session.user.email,
-        full_name: fullName,
+        first_name: firstName.trim(),
+        full_name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         invite_code: inviteCode,
       }),
     });
@@ -213,10 +220,16 @@ export default function OnboardingPage() {
           <h1>Créez votre espace Meet Aaron</h1>
           <p className="subtitle">Quelques infos, puis direction le paiement pour activer votre compte.</p>
 
-          <label>
-            Votre nom complet
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-          </label>
+          <div className="name-row">
+            <label>
+              Prénom
+              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Aaron" required />
+            </label>
+            <label>
+              Nom
+              <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Martin" required />
+            </label>
+          </div>
 
           <label>
             Nom de votre société
@@ -254,10 +267,16 @@ export default function OnboardingPage() {
           <h1>Rejoignez votre équipe</h1>
           <p className="subtitle">Entrez le code d'invitation transmis par votre dirigeant(e).</p>
 
-          <label>
-            Votre nom complet
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-          </label>
+          <div className="name-row">
+            <label>
+              Prénom
+              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Aaron" required />
+            </label>
+            <label>
+              Nom
+              <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Martin" required />
+            </label>
+          </div>
 
           <label>
             Code d'invitation
@@ -325,6 +344,14 @@ export default function OnboardingPage() {
           font-size: 0.82rem;
           color: #8b90a8;
           margin-bottom: 1rem;
+        }
+        .name-row {
+          display: flex;
+          gap: 0.7rem;
+        }
+        .name-row label {
+          flex: 1;
+          min-width: 0;
         }
         input[type='text'], input:not([type]) {
           background: #0b0e1a;
