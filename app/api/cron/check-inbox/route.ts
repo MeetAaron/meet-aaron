@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
     }
 
     for (const msg of newMessages) {
+      try {
       const { fromEmail, bodyText } = msg;
       if (!fromEmail) continue;
 
@@ -195,6 +196,12 @@ export async function GET(request: NextRequest) {
       }
 
       results.push({ prospect_id: prospect.id, new_status: aaronOutput.prospect_status });
+      } catch (err: any) {
+        // Un échec sur UN message (ex: token révoqué en cours de route, boîte mail
+        // déconnectée entre deux messages) ne doit pas interrompre le traitement
+        // des autres messages/commerciaux de ce cycle.
+        console.error(`Erreur traitement message pour ${connection.user_id}:`, err.message);
+      }
     }
   }
 
