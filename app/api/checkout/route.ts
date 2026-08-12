@@ -9,9 +9,9 @@ import { stripe } from '@/lib/stripe';
 const PRICE_ID_AARON_PROSPECT = 'price_1U28xj7srPu7DrXAy07EdRs7';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email, full_name, company_name, country } = await request.json();
+  const { auth_user_id, email, first_name, full_name, company_name, country } = await request.json();
 
-  if (!auth_user_id || !email || !full_name || !company_name || !country) {
+  if (!auth_user_id || !email || !first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
 
@@ -31,6 +31,7 @@ try {
       metadata: {
         auth_user_id,
         email,
+        first_name,
         full_name,
         company_name,
         country,
