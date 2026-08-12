@@ -4,12 +4,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   const { data: connections, error } = await supabaseAdmin
     .from('oauth_connections')
@@ -29,6 +34,10 @@ export async function DELETE(request: NextRequest) {
   if (!connectionId || !userId) {
     return NextResponse.json({ error: 'connection_id et user_id requis' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   // Empêche de déconnecter la boîte mail d'un autre commercial en devinant un connection_id.
   const { error } = await supabaseAdmin
