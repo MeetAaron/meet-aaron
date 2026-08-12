@@ -64,6 +64,29 @@ const PERSONALITY_LABELS = {
   consciencieux: 'Consciencieux',
 };
 
+function exportProspectsToCsv(prospects) {
+  const headers = ['Statut', 'Nom', 'Société', 'Email', 'Téléphone', 'Personnalité ressentie', "Conseils d'Aaron"];
+  const rows = prospects.map((p) => [
+    STATUS_META[p.status]?.label || p.status,
+    p.full_name,
+    p.prospect_companies?.name || '',
+    p.email,
+    p.phone || '',
+    PERSONALITY_LABELS[p.personality_type] || '',
+    p.aaron_advice || '',
+  ]);
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `prospects-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ProspectsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [prospects, setProspects] = useState([]);
@@ -72,6 +95,8 @@ export default function ProspectsPage() {
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [linkedinProspect, setLinkedinProspect] = useState(null);
+  const [wonProspect, setWonProspect] = useState(null);
+  const [actingOn, setActingOn] = useState(null);
 
   async function loadProspects() {
     setLoading(true);
@@ -89,6 +114,42 @@ export default function ProspectsPage() {
         if (res.user) setCompanyId(res.user.company_id);
       });
   }, [userId]);
+
+  async function handleDelete(prospect) {
+    if (!window.confirm(`Tu es certain de vouloir supprimer "${prospect.full_name}" ? Cette action est définitive (échanges et RDV liés seront aussi supprimés).`)) {
+      return;
+    }
+    setActingOn(prospect.id);
+    await fetch(`/api/prospects/${prospect.id}`, { method: 'DELETE' });
+    setActingOn(null);
+    loadProspects();
+  }
+
+  async function handleMarkLost(prospect) {
+    if (!window.confirm(`Passer "${prospect.full_name}" en perdu ? Aaron arrêtera de le recontacter et tu pourras le gérer toi-même.`)) {
+      return;
+    }
+    setActingOn(prospect.id);
+    await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'marquer_perdu' }),
+    });
+    setActingOn(null);
+    loadProspects();
+  }
+
+  async function handleConfirmWon() {
+    setActingOn(wonProspect.id);
+    await fetch(`/api/prospects/${wonProspect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'marquer_gagne' }),
+    });
+    setActingOn(null);
+    setWonProspect(null);
+    loadProspects();
+  }
 
   const filtered = statusFilter === 'tous' ? prospects : prospects.filter((p) => p.status === statusFilter);
 
@@ -128,9 +189,16 @@ export default function ProspectsPage() {
           <p className="eyebrow">Pipeline</p>
           <h1>Vos prospects</h1>
         </div>
-        <button className="btn-primary" onClick={() => setShowAddForm(true)}>
-          + Ajouter un prospect
-        </button>
+        <div className="header-actions">
+          {prospects.length > 0 && (
+            <button className="btn-secondary" onClick={() => exportProspectsToCsv(filtered)}>
+              Télécharger en CSV
+            </button>
+          )}
+          <button className="btn-primary" onClick={() => setShowAddForm(true)}>
+            + Ajouter un prospect
+          </button>
+        </div>
       </header>
 
       <div className="filters">
@@ -170,6 +238,7 @@ export default function ProspectsPage() {
                 <th>Personnalité ressentie</th>
                 <th>Conseils d'Aaron</th>
                 <th>Contact</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -201,6 +270,32 @@ export default function ProspectsPage() {
                         Message LinkedIn
                       </button>
                     </td>
+                    <td className="row-actions-cell">
+                      <button
+                        type="button"
+                        className="action-btn won"
+                        disabled={actingOn === p.id}
+                        onClick={() => setWonProspect(p)}
+                      >
+                        🏆 Gagné
+                      </button>
+                      <button
+                        type="button"
+                        className="action-btn lost"
+                        disabled={actingOn === p.id}
+                        onClick={() => handleMarkLost(p)}
+                      >
+                        Perdu
+                      </button>
+                      <button
+                        type="button"
+                        className="action-btn delete"
+                        disabled={actingOn === p.id}
+                        onClick={() => handleDelete(p)}
+                      >
+                        🗑
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -211,6 +306,59 @@ export default function ProspectsPage() {
 
       {linkedinProspect && (
         <LinkedInDraftModal prospect={linkedinProspect} onClose={() => setLinkedinProspect(null)} />
+      )}
+
+      {wonProspect && (
+        <div className="overlay" onClick={() => setWonProspect(null)}>
+          <div className="won-modal" onClick={(e) => e.stopPropagation()}>
+            <p className="won-title">Félicitations ! 🎉</p>
+            <p className="won-body">
+              Aaron : « Comment as-tu réussi ton coup avec {wonProspect.full_name} ? »
+              <br />
+              {wonProspect.full_name} va passer dans tes clients gagnés et sortir de ton pipeline prospects.
+            </p>
+            <div className="won-actions">
+              <button type="button" className="btn-secondary" onClick={() => setWonProspect(null)}>Annuler</button>
+              <button type="button" className="btn-primary" onClick={handleConfirmWon}>Confirmer, c'est gagné !</button>
+            </div>
+          </div>
+          <style jsx>{`
+            .overlay {
+              position: fixed;
+              inset: 0;
+              background: rgba(0, 0, 0, 0.6);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              z-index: 50;
+              padding: 1rem;
+            }
+            .won-modal {
+              background: var(--surface);
+              border: 1px solid var(--accent-green);
+              border-radius: 16px;
+              padding: 1.8rem;
+              width: 420px;
+              max-width: 100%;
+            }
+            .won-title {
+              font-family: var(--font-display);
+              font-size: 1.3rem;
+              margin: 0 0 0.8rem;
+            }
+            .won-body {
+              color: var(--text);
+              font-size: 0.9rem;
+              line-height: 1.5;
+              margin: 0 0 1.4rem;
+            }
+            .won-actions {
+              display: flex;
+              justify-content: flex-end;
+              gap: 0.6rem;
+            }
+          `}</style>
+        </div>
       )}
 
       {showAddForm && (
@@ -234,6 +382,19 @@ export default function ProspectsPage() {
           justify-content: space-between;
           align-items: flex-start;
           margin-bottom: 1.5rem;
+        }
+        .header-actions {
+          display: flex;
+          gap: 0.6rem;
+        }
+        .btn-secondary {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 10px;
+          padding: 0.7rem 1.1rem;
+          font-size: 0.86rem;
+          cursor: pointer;
         }
         .eyebrow {
           text-transform: uppercase;
@@ -368,13 +529,43 @@ export default function ProspectsPage() {
           cursor: pointer;
           white-space: nowrap;
         }
+        .row-actions-cell {
+          white-space: nowrap;
+        }
+        .action-btn {
+          display: inline-block;
+          margin: 0 0.3rem 0.3rem 0;
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 0.3rem 0.55rem;
+          font-size: 0.74rem;
+          cursor: pointer;
+          color: var(--text);
+        }
+        .action-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .action-btn.won {
+          border-color: var(--accent-green);
+          color: var(--accent-green);
+        }
+        .action-btn.lost {
+          border-color: #e5484d;
+          color: #e5484d;
+        }
+        .action-btn.delete {
+          color: #e5484d;
+        }
       `}</style>
     </Shell>
   );
 }
 
 function AddProspectModal({ userId, companyId, onClose, onCreated }) {
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [jobTitle, setJobTitle] = useState('');
@@ -385,6 +576,8 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
 
     const res = await fetch('/api/prospects', {
       method: 'POST',
@@ -415,12 +608,22 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
     <div className="overlay" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <h2>Ajouter un prospect</h2>
-        <p className="hint">Renseignez juste l'essentiel — comme sur une carte de visite. Aaron démarrera la conversation dès l'enregistrement, et complètera la fiche au fil des échanges.</p>
+        <p className="hint">
+          Renseignez juste l'essentiel — comme sur une carte de visite, le reste n'est pas obligatoire.
+          Dès l'enregistrement, Aaron envoie le premier email (généralement dans les minutes qui suivent,
+          selon le temps de génération de la réponse) et complètera la fiche au fil des échanges.
+        </p>
 
-        <label>
-          Nom complet
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ex: Marie Dupont" required />
-        </label>
+        <div className="name-row">
+          <label>
+            Prénom
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Marie" required />
+          </label>
+          <label>
+            Nom
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Dupont" required />
+          </label>
+        </div>
 
         <label>
           Email
@@ -483,6 +686,13 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           font-size: 0.82rem;
           color: var(--muted);
           margin-bottom: 1rem;
+        }
+        .name-row {
+          display: flex;
+          gap: 0.8rem;
+        }
+        .name-row label {
+          flex: 1;
         }
         input {
           background: var(--bg);
