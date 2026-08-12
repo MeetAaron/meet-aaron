@@ -169,9 +169,11 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   );
 
   let newContactsCount = 0;
+  let usableCompaniesCount = 0;
 
   for (const company of foundCompanies) {
     if (!company.domain) continue;
+    usableCompaniesCount++;
 
     const { data: prospectCompany, error: companyError } = await supabaseAdmin
       .from('prospect_companies')
@@ -223,7 +225,10 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   await supabaseAdmin
     .from('prospecting_campaigns')
     .update({
-      companies_found: campaign.companies_found + foundCompanies.length,
+      // Ne compte que les entreprises réellement exploitables (avec domaine identifié) —
+      // sinon le stat "entreprises analysées" affiché à l'écran grossit même quand
+      // certaines trouvailles sont ignorées faute de domaine.
+      companies_found: campaign.companies_found + usableCompaniesCount,
       contacts_found: totalContacts,
       status: isComplete ? 'terminee' : 'en_cours',
     })
