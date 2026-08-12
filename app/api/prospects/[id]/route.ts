@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -16,6 +17,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
   if (error || !prospect) {
     return NextResponse.json({ error: 'Prospect introuvable' }, { status: 404 });
+  }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== prospect.assigned_user_id && authedUser.company_id !== prospect.company_id) {
+    return forbiddenResponse();
   }
 
   const { data: conversation } = await supabaseAdmin
