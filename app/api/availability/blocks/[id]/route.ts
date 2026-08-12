@@ -4,12 +4,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const userId = request.nextUrl.searchParams.get('user_id');
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
 
   const { data: block } = await supabaseAdmin
     .from('availability_blocks')
