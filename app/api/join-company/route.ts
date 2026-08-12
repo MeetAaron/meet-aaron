@@ -4,13 +4,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email, first_name, full_name, invite_code } = await request.json();
+  const { first_name, full_name, invite_code } = await request.json();
 
-  if (!auth_user_id || !email || !first_name || !full_name || !invite_code) {
+  if (!first_name || !full_name || !invite_code) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
+
+  // auth_user_id et email proviennent du token vérifié, jamais du corps de la
+  // requête — sinon n'importe qui connaissant l'UUID Supabase Auth d'une autre
+  // personne pourrait rattacher SON compte à une société via un simple code
+  // d'invitation (même faille que /api/auth/link avant correctif).
+  const identity = await getAuthedIdentity(request);
+  if (!identity) return unauthorizedResponse();
+  const { auth_user_id, email } = identity;
 
   const { data: existing } = await supabaseAdmin
     .from('users')
