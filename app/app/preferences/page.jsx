@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import PushNotificationManager from '@/components/PushNotificationManager';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -187,6 +188,9 @@ export default function PreferencesPage() {
                 </button>
               ))}
             </div>
+            {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
+              <PushNotificationManager />
+            )}
           </div>
 
           <div className="field">
