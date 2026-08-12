@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 
 export async function POST(request: NextRequest) {
   const { user_id, description, qa } = await request.json();
@@ -72,26 +73,15 @@ export async function POST(request: NextRequest) {
     `préambule ni titre.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
+    const data = await callClaude(
+      {
         model: 'claude-sonnet-4-6',
         max_tokens: 400,
         messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+      },
+      user.company_id
+    );
 
-    if (!response.ok) {
-      const err = await response.text();
-      return NextResponse.json({ error: err }, { status: 502 });
-    }
-
-    const data = await response.json();
     const textBlock = data.content.find((b: any) => b.type === 'text');
     const summary = textBlock?.text?.trim() || null;
 
@@ -103,6 +93,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ summary });
   } catch (err: any) {
+    if (err instanceof MonthlyCapExceededError) {
+      return NextResponse.json(
+        { error: "Le plafond de dépense API mensuel de votre société est atteint — contactez votre administrateur." },
+        { status: 429 }
+      );
+    }
     return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
   }
 }
