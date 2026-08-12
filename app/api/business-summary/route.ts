@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
-  const { user_id, description } = await request.json();
+  const { user_id, description, qa } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -37,7 +37,13 @@ export async function POST(request: NextRequest) {
     .map((d) => `- ${d.name} : ${d.summary}`)
     .join('\n');
 
-  if (!documentSummaries && !description) {
+  // Réponses structurées au questionnaire de découverte guidé (voir app/app/chat/page.jsx) —
+  // bien plus exploitables pour le modèle qu'un unique pavé de texte libre.
+  const qaText = Array.isArray(qa) && qa.length
+    ? qa.map((item: any) => `Q: ${item.question || '(réponse libre)'}\nR: ${item.answer}`).join('\n\n')
+    : '';
+
+  if (!documentSummaries && !description && !qaText) {
     return NextResponse.json(
       { error: "Pas encore assez d'informations — ajoutez au moins un document ou une description." },
       { status: 400 }
@@ -48,10 +54,13 @@ export async function POST(request: NextRequest) {
     `Tu es Aaron, copilote commercial IA. Voici ce qu'un commercial vient de te fournir pour que tu comprennes ` +
     `mieux son métier :\n\n` +
     (documentSummaries ? `Documents fournis (déjà résumés) :\n${documentSummaries}\n\n` : '') +
-    (description ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
-    `Rédige un résumé clair et structuré de l'activité de cette société en 4 à 6 phrases : ce qu'elle vend, ` +
-    `à quel type de client, et 1-2 arguments de vente clés à retenir. Réponds uniquement avec ce résumé, en ` +
-    `français, sans préambule ni titre.`;
+    (qaText ? `Réponses du commercial à un questionnaire de découverte :\n${qaText}\n\n` : '') +
+    (description && !qaText ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
+    `Rédige un résumé clair et structuré de l'activité de cette société en 5 à 8 phrases : ce qu'elle vend, ` +
+    `les différents profils/types de clients (s'il y en a plusieurs), le produit ou service phare, l'argument de ` +
+    `vente qui fait le plus mouche, l'objection la plus fréquente et comment la lever, et le type de conclusion à ` +
+    `viser après un premier contact (RDV, devis, essai...). Réponds uniquement avec ce résumé, en français, sans ` +
+    `préambule ni titre.`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
