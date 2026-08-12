@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
   const { data: alreadyLinked } = await supabaseAdmin
     .from('users')
-    .select('id, company_id, full_name, role')
+    .select('id, company_id, first_name, full_name, role')
     .eq('auth_user_id', auth_user_id)
     .maybeSingle();
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
   const { data: byEmail } = await supabaseAdmin
     .from('users')
-    .select('id, company_id, full_name, role, auth_user_id')
+    .select('id, company_id, first_name, full_name, role, auth_user_id')
     .eq('email', email)
     .maybeSingle();
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .update({ auth_user_id })
       .eq('id', byEmail.id)
-      .select('id, company_id, full_name, role')
+      .select('id, company_id, first_name, full_name, role')
       .single();
 
     if (error) {
