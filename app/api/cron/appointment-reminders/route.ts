@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
   const notified = [];
 
   for (const appt of appointments || []) {
+   try {
     const reminderMinutes = appt.users.notify_before_appointment_minutes;
     const reminderTime = new Date(new Date(appt.proposed_at).getTime() - reminderMinutes * 60 * 1000);
 
@@ -51,26 +52,43 @@ export async function GET(request: NextRequest) {
     const message = `Rappel : RDV avec ${appt.prospects.full_name} dans ${reminderMinutes} minutes.`;
 
     if (channel === 'email' || channel === 'both') {
-      await sendEmailForUser(appt.users.id, appt.users.email, 'Rappel de rendez-vous', message);
-      await supabaseAdmin.from('notifications_log').insert({
+      // La contrainte unique (appointment_id, type, channel) sur notifications_log (voir
+      // migration_notifications_unique_2026-08-12.sql) fait qu'un doublon lève une
+      // erreur d'insertion plutôt que de créer une 2e ligne — on l'ignore silencieusement
+      // pour ne pas renvoyer un 2e email si deux exécutions du cron se chevauchent.
+      const { error: logError } = await supabaseAdmin.from('notifications_log').insert({
         user_id: appt.users.id,
         appointment_id: appt.id,
         channel: 'email',
         type: 'appointment_reminder',
       });
+      if (logError) {
+        if (logError.code === '23505') continue; // déjà notifié par une exécution concurrente
+        console.error('Erreur log notification (email):', logError.message);
+      } else {
+        await sendEmailForUser(appt.users.id, appt.users.email, 'Rappel de rendez-vous', message);
+      }
     }
 
     if (channel === 'push' || channel === 'both') {
-      // await sendPushNotification(appt.users.id, message); // à brancher sur le service push choisi
-      await supabaseAdmin.from('notifications_log').insert({
+      const { error: logError } = await supabaseAdmin.from('notifications_log').insert({
         user_id: appt.users.id,
         appointment_id: appt.id,
         channel: 'push',
         type: 'appointment_reminder',
       });
+      if (logError && logError.code !== '23505') {
+        console.error('Erreur log notification (push):', logError.message);
+      }
+      // await sendPushNotification(appt.users.id, message); // à brancher sur le service push choisi
     }
 
     notified.push(appt.id);
+   } catch (err: any) {
+     // Un échec sur UN rappel (mailbox déconnectée, etc.) ne doit pas empêcher
+     // les rappels des autres commerciaux dans ce même cycle.
+     console.error(`Erreur envoi rappel RDV ${appt.id}:`, err.message);
+   }
   }
 
   return NextResponse.json({ notified: notified.length });
