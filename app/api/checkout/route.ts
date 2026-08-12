@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
+import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 
 // Configurable via Vercel (STRIPE_PRICE_ID_AARON_PROSPECT) pour basculer test/live
 // ou changer de tarif sans redéploiement de code — la valeur actuelle reste le
@@ -12,11 +13,19 @@ import { stripe } from '@/lib/stripe';
 const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'price_1U28xj7srPu7DrXAy07EdRs7';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email, first_name, full_name, company_name, country } = await request.json();
+  const { first_name, full_name, company_name, country } = await request.json();
 
-  if (!auth_user_id || !email || !first_name || !full_name || !company_name || !country) {
+  if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
   }
+
+  // auth_user_id et email proviennent du token vérifié : sinon, quelqu'un pourrait
+  // payer un abonnement en indiquant l'UUID Supabase Auth d'une autre personne dans
+  // les metadata, et le webhook Stripe créerait alors un compte "patron" au nom de
+  // cette victime sans son consentement (même faille que /api/auth/link).
+  const identity = await getAuthedIdentity(request);
+  if (!identity) return unauthorizedResponse();
+  const { auth_user_id, email } = identity;
 
   const origin = request.nextUrl.origin;
 
