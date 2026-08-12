@@ -1,33 +1,51 @@
 // lib/anthropic-client.ts
 // Point d'entrée UNIQUE pour appeler l'API Anthropic (Claude), à la place des
 // fetch() directs qui étaient dispersés dans lib/aaron.ts, lib/sourcing.ts et
-// plusieurs routes API. Deux raisons de centraliser :
+// plusieurs routes API. Raisons de centraliser :
 //
-// 1. Garde-fou de dépense : chaque société a un plafond mensuel (par défaut
-//    20 €, configurable via companies.monthly_api_cap_usd) au-delà duquel les
-//    appels Claude pour CETTE société sont bloqués plutôt que de continuer à
-//    consommer de l'API sans limite (ex: une campagne de prospection en
-//    boucle, ou un compte compromis qui spammerait le chat).
-// 2. Fiabilité de la mesure : si on enregistrait l'usage à chaque site
-//    d'appel séparément, il suffirait d'en oublier un pour que le plafond
-//    devienne inexact silencieusement.
+// 1. Garde-fou de dépense : chaque société a un plafond MENSUEL (par défaut
+//    20 €, configurable via companies.monthly_api_cap_usd).
+// 2. Lissage : un plafond mensuel seul ne "dose" pas — une grosse campagne de
+//    prospection ou un pic d'usage pourrait consommer tout le budget du mois
+//    en une seule journée. On ajoute donc un plafond QUOTIDIEN dérivé
+//    (mensuel / DAILY_CAP_DIVISOR) : même si le mois entier n'est pas encore
+//    consommé, on bloque pour la société si SA journée en cours dépasse cette
+//    part. Ça garantit que le budget mensuel tient au moins DAILY_CAP_DIVISOR
+//    jours d'usage intensif, même en cas de pic un jour donné.
+//    Contrepartie assumée : un jour où le plafond quotidien est atteint,
+//    Aaron peut cesser de répondre aux prospects pour CETTE société jusqu'au
+//    lendemain (minuit UTC) — c'est le prix du lissage. Si ce compromis pose
+//    problème, augmenter DAILY_CAP_DIVISOR (plafond quotidien plus généreux,
+//    mais moins de protection contre un pic) ou le réduire (plus prudent).
+// 3. Fiabilité de la mesure : si on enregistrait l'usage à chaque site
+//    d'appel séparément, il suffirait d'en oublier un pour que les plafonds
+//    deviennent inexacts silencieusement.
 //
 // Important : ceci reste une ESTIMATION de coût basée sur les tarifs publics
-// de Claude Sonnet et sur les tokens renvoyés par l'API — ce n'est pas une
-// facturation exacte. La source de vérité pour la facturation réelle reste
-// console.anthropic.com (Anthropic peut avoir des tarifs différents selon le
-// contrat). Ce garde-fou sert à éviter un dérapage, pas à facturer le client.
+// de Claude Sonnet (en dollars) et sur les tokens renvoyés par l'API — pas une
+// facturation exacte, et le plafond est configuré en euros alors que le coût
+// réel est en dollars (écart de change ignoré, de l'ordre de quelques %). La
+// source de vérité pour la facturation réelle reste console.anthropic.com. Ce
+// garde-fou sert à éviter un dérapage, pas à facturer le client au centime.
 
 import { supabaseAdmin } from './supabase-admin';
 
 const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
 const DEFAULT_MONTHLY_CAP_USD = 20;
+const DAILY_CAP_DIVISOR = 15; // le budget mensuel doit tenir au moins 15 jours d'usage intensif
 
 export class MonthlyCapExceededError extends Error {
-  constructor(companyId: string) {
-    super(`Plafond de dépense API mensuel atteint pour la société ${companyId}.`);
+  reason: 'monthly' | 'daily';
+
+  constructor(companyId: string, reason: 'monthly' | 'daily' = 'monthly') {
+    super(
+      reason === 'daily'
+        ? `Plafond de dépense API QUOTIDIEN atteint pour la société ${companyId} (protection anti-pic — le plafond mensuel, lui, n'est pas encore atteint). Réessayez demain, ou augmentez la part quotidienne dans lib/anthropic-client.ts.`
+        : `Plafond de dépense API mensuel atteint pour la société ${companyId}.`
+    );
     this.name = 'MonthlyCapExceededError';
+    this.reason = reason;
   }
 }
 
@@ -36,8 +54,14 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-// Un cap à `null` en base désactive volontairement le plafond pour cette
-// société (ex: compte interne Open X) — distinct de "colonne absente/0".
+function currentDateUTC(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Un cap à `null` en base désactive volontairement le plafond (mensuel ET
+// quotidien) pour cette société (ex: compte interne Open X) — distinct de
+// "colonne absente/0".
 async function getMonthlyCapUsd(companyId: string): Promise<number | null> {
   const { data: company } = await supabaseAdmin
     .from('companies')
@@ -60,38 +84,69 @@ async function getCurrentMonthSpendUsd(companyId: string): Promise<number> {
   return data?.cost_usd || 0;
 }
 
-export async function isOverMonthlyCap(companyId: string): Promise<boolean> {
-  const cap = await getMonthlyCapUsd(companyId);
-  if (cap === null) return false; // plafond désactivé pour cette société
-  const spend = await getCurrentMonthSpendUsd(companyId);
-  return spend >= cap;
+async function getCurrentDaySpendUsd(companyId: string): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from('api_usage_daily')
+    .select('cost_usd')
+    .eq('company_id', companyId)
+    .eq('date', currentDateUTC())
+    .maybeSingle();
+
+  return data?.cost_usd || 0;
+}
+
+async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; reason?: 'monthly' | 'daily' }> {
+  const monthlyCap = await getMonthlyCapUsd(companyId);
+  if (monthlyCap === null) return { exceeded: false }; // plafond désactivé pour cette société
+
+  const monthSpend = await getCurrentMonthSpendUsd(companyId);
+  if (monthSpend >= monthlyCap) return { exceeded: true, reason: 'monthly' };
+
+  const dailyCap = monthlyCap / DAILY_CAP_DIVISOR;
+  const daySpend = await getCurrentDaySpendUsd(companyId);
+  if (daySpend >= dailyCap) return { exceeded: true, reason: 'daily' };
+
+  return { exceeded: false };
 }
 
 async function recordUsage(companyId: string, inputTokens: number, outputTokens: number) {
   const costUsd =
     (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD + (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD;
-  const yearMonth = currentYearMonth();
-  const currentSpend = await getCurrentMonthSpendUsd(companyId);
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
-  // du coût pourrait ne pas être comptée. Acceptable pour un garde-fou de
-  // sécurité, pas pour une facturation exacte.
-  await supabaseAdmin.from('api_usage_monthly').upsert(
-    { company_id: companyId, year_month: yearMonth, cost_usd: currentSpend + costUsd },
-    { onConflict: 'company_id,year_month' }
-  );
+  // du coût pourrait ne pas être comptée sur l'une des deux tables (ou les
+  // deux). Acceptable pour un garde-fou de sécurité, pas pour une facturation
+  // exacte.
+  const [currentMonthSpend, currentDaySpend] = await Promise.all([
+    getCurrentMonthSpendUsd(companyId),
+    getCurrentDaySpendUsd(companyId),
+  ]);
+
+  await Promise.all([
+    supabaseAdmin.from('api_usage_monthly').upsert(
+      { company_id: companyId, year_month: currentYearMonth(), cost_usd: currentMonthSpend + costUsd },
+      { onConflict: 'company_id,year_month' }
+    ),
+    supabaseAdmin.from('api_usage_daily').upsert(
+      { company_id: companyId, date: currentDateUTC(), cost_usd: currentDaySpend + costUsd },
+      { onConflict: 'company_id,date' }
+    ),
+  ]);
 }
 
 // Remplace fetch('https://api.anthropic.com/v1/messages', ...) partout dans le
 // code. `companyId` peut être null pour un appel qui n'est rattachable à
 // aucune société (ne devrait normalement pas arriver côté produit) — dans ce
-// cas, ni le plafond ni l'enregistrement d'usage ne s'appliquent : on
+// cas, ni les plafonds ni l'enregistrement d'usage ne s'appliquent : on
 // préfère laisser passer l'appel plutôt que de bloquer une fonctionnalité par
 // excès de prudence sur un cas qui ne devrait pas exister.
 export async function callClaude(body: Record<string, any>, companyId: string | null): Promise<any> {
-  if (companyId && (await isOverMonthlyCap(companyId))) {
-    throw new MonthlyCapExceededError(companyId);
+  if (companyId) {
+    const status = await getBudgetStatus(companyId);
+    if (status.exceeded) {
+      throw new MonthlyCapExceededError(companyId, status.reason);
+    }
   }
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
