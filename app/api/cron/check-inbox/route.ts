@@ -9,6 +9,7 @@ import { listNewGmailMessages, getGmailMessage } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
+import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, is_won')
+        .select('id, full_name, is_won')
         .eq('email', fromEmail)
         .eq('assigned_user_id', connection.user_id)
         .single();
@@ -136,6 +137,15 @@ export async function GET(request: NextRequest) {
             rescue_proposal_pending: true,
           })
           .eq('id', prospect.id);
+
+        // Une tentative de sauvetage attend une validation manuelle — pas de
+        // notification "email" possible ici (rien n'est encore envoyé), donc
+        // le push est le seul moyen de prévenir le commercial en temps réel.
+        await sendPushNotification(connection.user_id, {
+          title: 'Prospect en risque de perte',
+          body: `${prospect.full_name} a répondu. Aaron propose une tentative de sauvetage à valider.`,
+          url: `/app/prospects?user_id=${connection.user_id}`,
+        });
 
         results.push({ prospect_id: prospect.id, new_status: aaronOutput.prospect_status, rescue_pending: true });
         continue;
@@ -192,6 +202,12 @@ export async function GET(request: NextRequest) {
           type: aaronOutput.appointment_proposal.type,
           proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
           status: 'proposé',
+        });
+
+        await sendPushNotification(connection.user_id, {
+          title: 'Nouveau rendez-vous à valider',
+          body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
+          url: `/app/agenda?user_id=${connection.user_id}`,
         });
       }
 
