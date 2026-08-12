@@ -67,11 +67,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'user_id ou message manquant' }, { status: 400 });
   }
 
-  const { data: user } = await supabaseAdmin
+  const { data: user, error: userError } = await supabaseAdmin
     .from('users')
     .select('first_name, full_name, company_id')
     .eq('id', user_id)
     .single();
+
+  if (userError) {
+    console.error('Erreur récupération utilisateur (chat):', userError.message);
+  }
 
   const displayFirstName = user?.first_name || (user?.full_name || '').split(' ')[0] || null;
 
