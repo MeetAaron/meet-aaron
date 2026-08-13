@@ -326,7 +326,6 @@ function Shell({ children, active, userId }) {
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
-    { label: 'Clients gagnés', slug: 'clients-gagnes', icon: '🏆' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
