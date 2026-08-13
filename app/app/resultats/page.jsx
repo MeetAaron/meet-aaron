@@ -3,22 +3,99 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
 
-function useCurrentUserId() {
+function useAuthedUser() {
+  const router = useRouter();
   const [userId, setUserId] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setUserId(params.get('user_id'));
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
   }, []);
-  return userId;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+      const body = await res.json();
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        setAuthError(body.error || 'Accès refusé');
+        setAuthLoading(false);
+        return;
+      }
+
+      setUserId(body.user.id);
+      setAuthLoading(false);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { userId, authLoading, authError };
+}
+
+function exportWonClientsToCsv(clients) {
+  const headers = ['Nom', 'Société', 'Email', 'Téléphone', 'Client depuis'];
+  const rows = clients.map((c) => [
+    c.full_name,
+    c.prospect_companies?.name || '',
+    c.email,
+    c.phone || '',
+    c.won_at ? new Date(c.won_at).toLocaleDateString('fr-FR') : '',
+  ]);
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `clients-gagnes-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function ResultatsPage() {
-  const userId = useCurrentUserId();
+  const { userId, authLoading, authError } = useAuthedUser();
   const [prospects, setProspects] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [wonClients, setWonClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -26,19 +103,55 @@ export default function ResultatsPage() {
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
-    ]).then(([pRes, aRes, cRes]) => {
+      fetch(`/api/won-clients?user_id=${userId}`).then((r) => r.json()),
+    ]).then(([pRes, aRes, cRes, wRes]) => {
       setProspects(pRes.prospects || []);
       setAppointments(aRes.appointments || []);
       setCampaigns(cRes.campaigns || []);
+      setWonClients(wRes.wonClients || []);
       setLoading(false);
     });
   }, [userId]);
 
-  if (!userId) {
+  async function handleEmailExport() {
+    setEmailing(true);
+    await fetch('/api/won-clients/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    setEmailing(false);
+    setShowExportMenu(false);
+    setEmailSent(true);
+    setTimeout(() => setEmailSent(false), 3000);
+  }
+
+  if (authLoading) {
     return (
-      <Shell active="Résultats" userId={userId}>
-        <EmptyState title="Aucun identifiant commercial" body="Ouvrez cette page avec ?user_id=... dans l'URL." />
-      </Shell>
+      <div className="auth-loading">
+        <p>Connexion…</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="auth-loading">
+        <p>{authError}</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
+          }
+        `}</style>
+      </div>
     );
   }
 
@@ -129,6 +242,63 @@ export default function ResultatsPage() {
               </table>
             )}
           </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h2>🏆 Clients gagnés</h2>
+              {wonClients.length > 0 && (
+                <div className="export-wrap">
+                  <button className="btn-export" onClick={() => setShowExportMenu(!showExportMenu)}>
+                    Extraire ▾
+                  </button>
+                  {showExportMenu && (
+                    <div className="export-menu">
+                      <button onClick={() => { exportWonClientsToCsv(wonClients); setShowExportMenu(false); }}>
+                        Télécharger en CSV
+                      </button>
+                      <button onClick={handleEmailExport} disabled={emailing}>
+                        {emailing ? 'Envoi…' : 'Recevoir par email'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {emailSent && <p className="email-sent">Le fichier a été envoyé à ton adresse email !</p>}
+
+            {wonClients.length === 0 ? (
+              <p className="muted">Pas encore de client gagné — dès qu'un prospect confirme une commande ou un devis après un rendez-vous, il apparaîtra ici.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Société</th>
+                      <th>Contact</th>
+                      <th>Client depuis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wonClients.map((c) => (
+                      <tr key={c.id}>
+                        <td className="strong">{c.full_name}</td>
+                        <td className="muted">{c.prospect_companies?.name || '—'}</td>
+                        <td>
+                          <div>{c.email}</div>
+                          {c.phone && <div className="muted">{c.phone}</div>}
+                        </td>
+                        <td className="muted">
+                          {c.won_at ? new Date(c.won_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' }) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -167,6 +337,14 @@ export default function ResultatsPage() {
           font-size: 1.05rem;
           margin: 0 0 1rem;
         }
+        .panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        }
+        .panel-header h2 {
+          margin: 0;
+        }
         .sourcing-row {
           display: flex;
           gap: 2.5rem;
@@ -201,6 +379,62 @@ export default function ResultatsPage() {
         }
         tbody tr:last-child td {
           border-bottom: none;
+        }
+        .strong {
+          font-weight: 600;
+        }
+        .export-wrap {
+          position: relative;
+        }
+        .btn-export {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 10px;
+          padding: 0.5rem 0.9rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .export-menu {
+          position: absolute;
+          top: 110%;
+          right: 0;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          overflow: hidden;
+          min-width: 190px;
+          z-index: 10;
+        }
+        .export-menu button {
+          display: block;
+          width: 100%;
+          text-align: left;
+          background: none;
+          border: none;
+          color: var(--text);
+          padding: 0.7rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .export-menu button:hover {
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .export-menu button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .email-sent {
+          background: rgba(61, 214, 140, 0.12);
+          border: 1px solid rgba(61, 214, 140, 0.4);
+          color: #3dd68c;
+          padding: 0.7rem 1rem;
+          border-radius: 10px;
+          font-size: 0.85rem;
+          margin-bottom: 1rem;
+        }
+        .table-wrap {
+          overflow: hidden;
         }
         @media (max-width: 900px) {
           .stat-grid {
@@ -247,33 +481,6 @@ function StatCard({ label, value, hint, accent }) {
   );
 }
 
-function EmptyState({ title, body }) {
-  return (
-    <div className="empty">
-      <p className="empty-title">{title}</p>
-      <p className="empty-body">{body}</p>
-      <style jsx>{`
-        .empty {
-          text-align: center;
-          padding: 4rem 1rem;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 14px;
-        }
-        .empty-title {
-          font-weight: 600;
-          margin: 0 0 0.35rem;
-        }
-        .empty-body {
-          color: var(--muted);
-          font-size: 0.88rem;
-          margin: 0;
-        }
-      `}</style>
-    </div>
-  );
-}
-
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const NAV_ITEMS = [
@@ -282,7 +489,6 @@ function Shell({ children, active, userId }) {
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
-    { label: 'Clients gagnés', slug: 'clients-gagnes', icon: '🏆' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
