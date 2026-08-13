@@ -99,6 +99,14 @@ export default function SalesPage() {
   const [debriefError, setDebriefError] = useState(null);
   const [sendingEmail, setSendingEmail] = useState(false);
 
+  const [devis, setDevis] = useState(null);
+  const [devisLoading, setDevisLoading] = useState(false);
+  const [devisError, setDevisError] = useState(null);
+  const [sendingDevis, setSendingDevis] = useState(false);
+
+  const [signatureInput, setSignatureInput] = useState('');
+  const [signatureSaving, setSignatureSaving] = useState(false);
+
   async function load() {
     const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
     setDeals(res.deals || []);
@@ -117,6 +125,9 @@ export default function SalesPage() {
     setBriefError(null);
     setDebriefNotes('');
     setDebriefError(null);
+    setDevis(null);
+    setDevisError(null);
+    setSignatureInput('');
   }, [selectedId]);
 
   const selectedDeal = deals.find((d) => d.id === selectedId) || null;
@@ -175,6 +186,57 @@ export default function SalesPage() {
       setDebriefError(body.error || "Impossible d'envoyer l'email.");
       return;
     }
+    await load();
+  }
+
+  async function handleLoadDevis(dealId) {
+    setDevisLoading(true);
+    setDevisError(null);
+    const res = await fetch(`/api/prospects/${dealId}/devis`);
+    const body = await res.json();
+    setDevisLoading(false);
+    if (!res.ok) {
+      setDevisError(body.error || 'Impossible de générer le devis.');
+      return;
+    }
+    setDevis(body);
+  }
+
+  async function handleSendDevis(dealId) {
+    setSendingDevis(true);
+    setDevisError(null);
+    const res = await fetch(`/api/prospects/${dealId}/devis`, { method: 'POST' });
+    const body = await res.json();
+    setSendingDevis(false);
+    if (!res.ok) {
+      setDevisError(body.error || "Impossible d'envoyer le devis.");
+      return;
+    }
+    await load();
+    await handleLoadDevis(dealId);
+  }
+
+  async function handleSetSignatureLink(dealId) {
+    if (!signatureInput.trim()) return;
+    setSignatureSaving(true);
+    await fetch(`/api/prospects/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_signature_link', signature_link: signatureInput.trim() }),
+    });
+    setSignatureSaving(false);
+    setSignatureInput('');
+    await load();
+  }
+
+  async function handleClearSignatureLink(dealId) {
+    setSignatureSaving(true);
+    await fetch(`/api/prospects/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'clear_signature_link' }),
+    });
+    setSignatureSaving(false);
     await load();
   }
 
@@ -362,6 +424,74 @@ export default function SalesPage() {
                 ) : (
                   <p className="muted">Aucun RDV enregistré pour cette affaire.</p>
                 )}
+
+                <section className="block">
+                  <h3>Devis</h3>
+                  {selectedDeal.devis_sent_at ? (
+                    <p className="sent-note">✓ Devis envoyé</p>
+                  ) : devis ? (
+                    <div className="email-preview">
+                      <p className="email-subject">{devis.objet}</p>
+                      <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
+                      {devis.recapitulatif?.length > 0 && (
+                        <>
+                          <p className="recap-note">⚠️ Prix non renseignés — à compléter avant envoi (Aaron ne connaît pas vos tarifs) :</p>
+                          <ul>
+                            {devis.recapitulatif.map((r, i) => (
+                              <li key={i}><strong>{r.poste}</strong> — {r.description}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                      {devisError && <p className="error">{devisError}</p>}
+                      <button className="btn-secondary" onClick={() => handleLoadDevis(selectedDeal.id)} disabled={devisLoading}>
+                        {devisLoading ? 'Régénération…' : 'Régénérer'}
+                      </button>
+                      <button className="btn-primary" onClick={() => handleSendDevis(selectedDeal.id)} disabled={sendingDevis}>
+                        {sendingDevis ? 'Envoi…' : "Envoyer le devis au prospect"}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="muted">Aaron prépare l'email et le récapitulatif — les prix restent à ta charge, Aaron ne les invente jamais.</p>
+                      <button className="btn-secondary" onClick={() => handleLoadDevis(selectedDeal.id)} disabled={devisLoading}>
+                        {devisLoading ? 'Génération…' : 'Générer le devis'}
+                      </button>
+                      {devisError && <p className="error">{devisError}</p>}
+                    </>
+                  )}
+                </section>
+
+                <section className="block">
+                  <h3>Signature électronique</h3>
+                  <p className="muted">Aaron n'est pas encore connecté à un outil de signature — colle ici le lien externe (Yousign, etc.) une fois envoyé, pour le suivre depuis le pipeline.</p>
+                  {selectedDeal.signature_external_link ? (
+                    <div className="email-preview">
+                      <p className="email-body">
+                        <a href={selectedDeal.signature_external_link} target="_blank" rel="noopener noreferrer">{selectedDeal.signature_external_link}</a>
+                      </p>
+                      {selectedDeal.signature_requested_at && (
+                        <p className="sent-note">Demandé le {new Date(selectedDeal.signature_requested_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</p>
+                      )}
+                      <button className="btn-secondary" onClick={() => handleClearSignatureLink(selectedDeal.id)} disabled={signatureSaving}>
+                        Retirer
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="stage-row">
+                      <input
+                        type="text"
+                        value={signatureInput}
+                        onChange={(e) => setSignatureInput(e.target.value)}
+                        placeholder="https://..."
+                        className="signature-input"
+                      />
+                      <button className="btn-secondary" onClick={() => handleSetSignatureLink(selectedDeal.id)} disabled={signatureSaving || !signatureInput.trim()}>
+                        {signatureSaving ? 'Sauvegarde…' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  )}
+                </section>
               </>
             )}
           </aside>
@@ -596,6 +726,21 @@ export default function SalesPage() {
           color: #3dd68c;
           font-size: 0.8rem;
           margin: 0.6rem 0 0;
+        }
+        .recap-note {
+          color: #f0914e;
+          font-size: 0.78rem;
+          margin: 0.6rem 0 0.4rem;
+        }
+        .signature-input {
+          flex: 1;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.45rem 0.6rem;
+          font-size: 0.82rem;
+          font-family: inherit;
         }
         @media (max-width: 1100px) {
           .board-layout {
