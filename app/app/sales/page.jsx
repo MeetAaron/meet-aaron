@@ -1,0 +1,815 @@
+// app/app/sales/page.jsx
+// Aaron Sales — pipeline de vente : liste les affaires (prospects ayant
+// dépassé le premier RDV) groupées par étape, avec pour l'affaire
+// sélectionnée : le brief pré-RDV généré par Aaron, et le compte-rendu +
+// email de relance post-RDV. Voir lib/aaron-sales.ts, app/api/sales/pipeline,
+// app/api/appointments/[id]/brief, app/api/appointments/[id]/debrief(/send).
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser } from '@/lib/supabase-browser';
+
+function useAuthedUser() {
+  const router = useRouter();
+  const [userId, setUserId] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/auth/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: session.user.id, email: session.user.email }),
+      });
+      const body = await res.json();
+
+      if (cancelled) return;
+
+      if (!res.ok) {
+        setAuthError(body.error || 'Accès refusé');
+        setAuthLoading(false);
+        return;
+      }
+
+      setUserId(body.user.id);
+      setAuthLoading(false);
+    }
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return { userId, authLoading, authError };
+}
+
+const STAGE_ORDER = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe', 'perdu'];
+const NON_TERMINAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
+// Doit rester cohérent avec STALE_DAYS dans app/api/cron/stale-deals-alert/route.ts
+const STALE_DAYS = 5;
+
+const STAGE_META = {
+  rdv_fait: { label: 'RDV fait', color: '#4B9EF0' },
+  devis_envoye: { label: 'Devis envoyé', color: '#F0914E' },
+  en_negociation: { label: 'En négociation', color: '#F0C94E' },
+  signe: { label: 'Signé', color: '#3DD68C' },
+  perdu: { label: 'Perdu', color: '#E5484D' },
+};
+
+const TYPE_LABELS = { telephonique: 'Téléphonique', physique: 'Physique', visio: 'Visio' };
+
+function daysSince(iso) {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
+}
+
+export default function SalesPage() {
+  const { userId, authLoading, authError } = useAuthedUser();
+  const [deals, setDeals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState(null);
+  const [changingStage, setChangingStage] = useState(false);
+
+  const [brief, setBrief] = useState(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState(null);
+
+  const [debriefNotes, setDebriefNotes] = useState('');
+  const [debriefLoading, setDebriefLoading] = useState(false);
+  const [debriefError, setDebriefError] = useState(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  async function load() {
+    const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
+    setDeals(res.deals || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    load();
+  }, [userId]);
+
+  // Réinitialise les états liés au brief/debrief à chaque changement de
+  // sélection — ils sont propres au RDV de l'affaire affichée.
+  useEffect(() => {
+    setBrief(null);
+    setBriefError(null);
+    setDebriefNotes('');
+    setDebriefError(null);
+  }, [selectedId]);
+
+  const selectedDeal = deals.find((d) => d.id === selectedId) || null;
+
+  async function handleStageChange(dealId, stage) {
+    setChangingStage(true);
+    await fetch(`/api/prospects/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_deal_stage', deal_stage: stage }),
+    });
+    await load();
+    setChangingStage(false);
+  }
+
+  async function handleLoadBrief(appointmentId) {
+    setBriefLoading(true);
+    setBriefError(null);
+    const res = await fetch(`/api/appointments/${appointmentId}/brief`);
+    const body = await res.json();
+    setBriefLoading(false);
+    if (!res.ok) {
+      setBriefError(body.error || "Impossible de générer le brief.");
+      return;
+    }
+    setBrief(body.brief);
+  }
+
+  async function handleGenerateDebrief(appointmentId) {
+    if (!debriefNotes.trim()) {
+      setDebriefError("Écris quelques lignes sur comment ça s'est passé.");
+      return;
+    }
+    setDebriefLoading(true);
+    setDebriefError(null);
+    const res = await fetch(`/api/appointments/${appointmentId}/debrief`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: debriefNotes }),
+    });
+    const body = await res.json();
+    setDebriefLoading(false);
+    if (!res.ok) {
+      setDebriefError(body.error || 'Impossible de générer le compte-rendu.');
+      return;
+    }
+    await load();
+  }
+
+  async function handleSendDebriefEmail(appointmentId) {
+    setSendingEmail(true);
+    const res = await fetch(`/api/appointments/${appointmentId}/debrief/send`, { method: 'POST' });
+    const body = await res.json();
+    setSendingEmail(false);
+    if (!res.ok) {
+      setDebriefError(body.error || "Impossible d'envoyer l'email.");
+      return;
+    }
+    await load();
+  }
+
+  if (authLoading) {
+    return (
+      <div className="auth-loading">
+        <p>Connexion…</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="auth-loading">
+        <p>{authError}</p>
+        <style jsx>{`
+          .auth-loading {
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            text-align: center; padding: 2rem;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  return (
+    <Shell active="Aaron Sales" userId={userId}>
+      <header className="header">
+        <p className="eyebrow">Cycle de vente</p>
+        <h1>Aaron Sales</h1>
+        <p className="subtitle">
+          Dès qu'un premier RDV est obtenu, Aaron prépare le terrain (brief, coaching) et prend le relais après
+          (compte-rendu, relance) — l'étape de chaque affaire se met à jour automatiquement selon le bilan de RDV.
+        </p>
+      </header>
+
+      {loading ? (
+        <p className="muted">Chargement…</p>
+      ) : deals.length === 0 ? (
+        <p className="muted">
+          Aucune affaire en cours pour le moment — dès qu'un RDV obtenu par Aaron Prospect aura eu lieu, l'affaire
+          apparaîtra ici.
+        </p>
+      ) : (
+        <div className="board-layout">
+          <div className="board">
+            {STAGE_ORDER.map((stage) => {
+              const stageDeals = deals.filter((d) => d.deal_stage === stage);
+              return (
+                <div className="column" key={stage}>
+                  <div className="column-header">
+                    <span className="dot" style={{ background: STAGE_META[stage].color }} />
+                    <span>{STAGE_META[stage].label}</span>
+                    <span className="count">{stageDeals.length}</span>
+                  </div>
+                  <div className="column-body">
+                    {stageDeals.length === 0 && <p className="empty-col">—</p>}
+                    {stageDeals.map((deal) => {
+                      const stale = NON_TERMINAL_STAGES.includes(deal.deal_stage) && daysSince(deal.deal_stage_updated_at) >= STALE_DAYS;
+                      return (
+                        <button
+                          key={deal.id}
+                          type="button"
+                          className={`deal-card ${selectedId === deal.id ? 'selected' : ''}`}
+                          onClick={() => setSelectedId(deal.id)}
+                        >
+                          <span className="deal-name">{deal.full_name}</span>
+                          {deal.prospect_companies?.name && <span className="deal-company">{deal.prospect_companies.name}</span>}
+                          <span className="deal-meta">
+                            {daysSince(deal.deal_stage_updated_at)} j
+                            {stale && <span className="stale-badge">⚠️ stagnant</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <aside className="detail">
+            {!selectedDeal ? (
+              <p className="muted">Sélectionne une affaire pour voir son brief et son suivi.</p>
+            ) : (
+              <>
+                <h2>{selectedDeal.full_name}</h2>
+                {selectedDeal.prospect_companies?.name && <p className="muted">{selectedDeal.prospect_companies.name}{selectedDeal.job_title ? ` — ${selectedDeal.job_title}` : ''}</p>}
+
+                <div className="stage-row">
+                  <label htmlFor="stage-select">Étape :</label>
+                  <select
+                    id="stage-select"
+                    value={selectedDeal.deal_stage}
+                    disabled={changingStage}
+                    onChange={(e) => handleStageChange(selectedDeal.id, e.target.value)}
+                  >
+                    {STAGE_ORDER.map((s) => (
+                      <option key={s} value={s}>{STAGE_META[s].label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedDeal.latest_appointment ? (
+                  <>
+                    <section className="block">
+                      <h3>RDV le plus récent</h3>
+                      <p className="muted">
+                        {new Date(selectedDeal.latest_appointment.proposed_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}
+                        {' — '}
+                        {TYPE_LABELS[selectedDeal.latest_appointment.type] || selectedDeal.latest_appointment.type}
+                      </p>
+
+                      {!brief && (
+                        <button className="btn-secondary" onClick={() => handleLoadBrief(selectedDeal.latest_appointment.id)} disabled={briefLoading}>
+                          {briefLoading ? 'Génération…' : 'Voir le brief pré-RDV'}
+                        </button>
+                      )}
+                      {briefError && <p className="error">{briefError}</p>}
+
+                      {brief && (
+                        <div className="brief-box">
+                          <p><strong>Résumé :</strong> {brief.resume_historique}</p>
+                          {brief.profil_personnalite && <p><strong>Personnalité :</strong> {brief.profil_personnalite}</p>}
+                          {brief.objections_deja_soulevees?.length > 0 && (
+                            <p><strong>Objections déjà soulevées :</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+                          )}
+                          {brief.info_entreprise && <p><strong>Entreprise :</strong> {brief.info_entreprise}</p>}
+                          <p><strong>Angle suggéré :</strong> {brief.angle_approche_suggere}</p>
+                          {brief.points_attention?.length > 0 && (
+                            <ul>
+                              {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="block">
+                      <h3>Compte-rendu & relance</h3>
+
+                      {selectedDeal.latest_appointment.debrief_summary ? (
+                        <>
+                          <div className="brief-box">
+                            <p style={{ whiteSpace: 'pre-line' }}>{selectedDeal.latest_appointment.debrief_summary}</p>
+                          </div>
+                          {selectedDeal.latest_appointment.debrief_email_subject && (
+                            <div className="email-preview">
+                              <p className="email-subject">{selectedDeal.latest_appointment.debrief_email_subject}</p>
+                              <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedDeal.latest_appointment.debrief_email_body}</p>
+                              {selectedDeal.latest_appointment.debrief_email_sent_at ? (
+                                <p className="sent-note">✓ Envoyé le {new Date(selectedDeal.latest_appointment.debrief_email_sent_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</p>
+                              ) : (
+                                <button className="btn-primary" onClick={() => handleSendDebriefEmail(selectedDeal.latest_appointment.id)} disabled={sendingEmail}>
+                                  {sendingEmail ? 'Envoi…' : "Envoyer cet email au prospect"}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <p className="muted">Note en 3 lignes comment ça s'est passé — Aaron rédige le compte-rendu et l'email de relance.</p>
+                          <textarea
+                            value={debriefNotes}
+                            onChange={(e) => setDebriefNotes(e.target.value)}
+                            placeholder="Ex : bon contact, budget confirmé, attend une proposition avant fin de mois, principal frein = délai de mise en place..."
+                            rows={4}
+                          />
+                          <button className="btn-secondary" onClick={() => handleGenerateDebrief(selectedDeal.latest_appointment.id)} disabled={debriefLoading}>
+                            {debriefLoading ? 'Génération…' : 'Générer le compte-rendu et l\'email'}
+                          </button>
+                          {debriefError && <p className="error">{debriefError}</p>}
+                        </>
+                      )}
+                    </section>
+                  </>
+                ) : (
+                  <p className="muted">Aucun RDV enregistré pour cette affaire.</p>
+                )}
+              </>
+            )}
+          </aside>
+        </div>
+      )}
+
+      <style jsx>{`
+        .header {
+          margin-bottom: 1.8rem;
+        }
+        .eyebrow {
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 0.72rem;
+          color: var(--accent);
+          font-weight: 600;
+          margin: 0 0 0.4rem;
+        }
+        h1 {
+          font-family: var(--font-display);
+          font-size: 1.9rem;
+          margin: 0 0 0.5rem;
+        }
+        .subtitle {
+          color: var(--muted);
+          font-size: 0.88rem;
+          max-width: 720px;
+          margin: 0;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .board-layout {
+          display: grid;
+          grid-template-columns: 1fr 360px;
+          gap: 1.5rem;
+          align-items: start;
+        }
+        .board {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 0.8rem;
+        }
+        .column {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 0.9rem;
+          min-height: 200px;
+        }
+        .column-header {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          margin-bottom: 0.8rem;
+        }
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .count {
+          margin-left: auto;
+          color: var(--muted);
+          font-family: var(--font-mono);
+          font-weight: 400;
+        }
+        .column-body {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .empty-col {
+          color: var(--muted);
+          font-size: 0.8rem;
+          opacity: 0.6;
+          margin: 0;
+        }
+        .deal-card {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.6rem 0.7rem;
+          cursor: pointer;
+          color: var(--text);
+          font-family: inherit;
+        }
+        .deal-card.selected {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .deal-name {
+          font-size: 0.86rem;
+          font-weight: 600;
+        }
+        .deal-company {
+          font-size: 0.76rem;
+          color: var(--muted);
+        }
+        .deal-meta {
+          font-size: 0.7rem;
+          color: var(--muted);
+          margin-top: 0.2rem;
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+        }
+        .stale-badge {
+          color: #f0914e;
+        }
+        .detail {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.2rem;
+          position: sticky;
+          top: 1.5rem;
+          max-height: calc(100vh - 3rem);
+          overflow-y: auto;
+        }
+        .detail h2 {
+          font-family: var(--font-display);
+          font-size: 1.15rem;
+          margin: 0 0 0.2rem;
+        }
+        .stage-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 1rem 0;
+        }
+        .stage-row label {
+          font-size: 0.8rem;
+          color: var(--muted);
+        }
+        .stage-row select {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.4rem 0.6rem;
+          font-size: 0.84rem;
+        }
+        .block {
+          margin-top: 1.4rem;
+          padding-top: 1.2rem;
+          border-top: 1px solid var(--border);
+        }
+        .block h3 {
+          font-size: 0.9rem;
+          margin: 0 0 0.6rem;
+        }
+        .btn-secondary, .btn-primary {
+          border-radius: 10px;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+          border: 1px solid var(--border);
+        }
+        .btn-secondary {
+          background: var(--bg);
+          color: var(--text);
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
+          margin-top: 0.6rem;
+        }
+        .btn-secondary:disabled, .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.8rem;
+          margin-top: 0.5rem;
+        }
+        .brief-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem;
+          margin-top: 0.8rem;
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+        .brief-box p {
+          margin: 0 0 0.5rem;
+        }
+        .brief-box ul {
+          margin: 0.4rem 0 0;
+          padding-left: 1.1rem;
+        }
+        textarea {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 10px;
+          padding: 0.6rem 0.7rem;
+          font-size: 0.84rem;
+          font-family: inherit;
+          margin-bottom: 0.6rem;
+          resize: vertical;
+        }
+        .email-preview {
+          margin-top: 0.8rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem;
+        }
+        .email-subject {
+          font-weight: 600;
+          font-size: 0.84rem;
+          margin: 0 0 0.5rem;
+        }
+        .email-body {
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin: 0;
+        }
+        .sent-note {
+          color: #3dd68c;
+          font-size: 0.8rem;
+          margin: 0.6rem 0 0;
+        }
+        @media (max-width: 1100px) {
+          .board-layout {
+            grid-template-columns: 1fr;
+          }
+          .board {
+            grid-template-columns: repeat(2, 1fr);
+          }
+          .detail {
+            position: static;
+            max-height: none;
+          }
+        }
+        @media (max-width: 600px) {
+          .board {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </Shell>
+  );
+}
+
+function Shell({ children, active, userId }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const NAV_ITEMS = [
+    { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
+    { label: 'Prospects', slug: 'prospects', icon: '🎯' },
+    { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
+    { label: 'Agenda', slug: 'agenda', icon: '📅' },
+    { label: 'Aaron Sales', slug: 'sales', icon: '🤝' },
+    { label: 'Résultats', slug: 'resultats', icon: '📈' },
+    { label: 'Mes documents', slug: 'documents', icon: '📁' },
+    { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
+    { label: 'Connexions', slug: 'connexions', icon: '🔗' },
+    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
+    { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
+    { label: 'Mon équipe', slug: 'team', icon: '👥' },
+    { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
+  ];
+  return (
+    <div className="shell">
+      <button
+        type="button"
+        className="mobile-menu-btn"
+        aria-label="Ouvrir le menu"
+        onClick={() => setMobileOpen(true)}
+      >
+        <span className="bar" />
+        <span className="bar" />
+        <span className="bar" />
+      </button>
+      {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
+      <nav className={`sidebar${mobileOpen ? ' open' : ''}`}>
+        <div className="brand">
+          <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
+          <span>Meet Aaron</span>
+        </div>
+        <ul className="nav-list">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.label}
+              href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
+              className="nav-link"
+              onClick={() => setMobileOpen(false)}
+            >
+              <li className={item.label === active ? 'active' : ''}><span className="nav-icon">{item.icon}</span>{item.label}</li>
+            </Link>
+          ))}
+        </ul>
+      </nav>
+      <main className="content">{children}</main>
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+        :root {
+          --bg: #0b0e1a;
+          --surface: #131629;
+          --border: #232744;
+          --accent: #4b39ef;
+          --accent-green: #3dd68c;
+          --text: #f4f1ea;
+          --muted: #8b90a8;
+          --font-display: 'Space Grotesk', sans-serif;
+          --font-body: 'Inter', sans-serif;
+          --font-mono: 'IBM Plex Mono', monospace;
+        }
+        body {
+          background: var(--bg);
+          color: var(--text);
+          font-family: var(--font-body);
+        }
+      `}</style>
+      <style jsx>{`
+        .shell {
+          display: grid;
+          grid-template-columns: 240px 1fr;
+          min-height: 100vh;
+        }
+        .sidebar {
+          background: var(--surface);
+          border-right: 1px solid var(--border);
+          padding: 1.5rem 1.2rem;
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          font-family: var(--font-display);
+          font-weight: 600;
+          margin-bottom: 2rem;
+        }
+        .brand-mark {
+          width: 30px;
+          height: 30px;
+          border-radius: 8px;
+        }
+        .nav-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+        }
+        .nav-link {
+          text-decoration: none;
+        }
+        .nav-list li {
+          padding: 0.6rem 0.7rem;
+          border-radius: 8px;
+          font-size: 0.88rem;
+          color: var(--muted);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .nav-icon {
+          font-size: 0.95rem;
+          width: 1.1em;
+          text-align: center;
+          flex-shrink: 0;
+        }
+        .nav-list li.active {
+          background: rgba(75, 57, 239, 0.18);
+          color: var(--text);
+          font-weight: 500;
+        }
+        .content {
+          padding: 2.5rem 3rem;
+        }
+        .mobile-menu-btn {
+          display: none;
+        }
+        .sidebar-overlay {
+          display: none;
+        }
+        @media (max-width: 900px) {
+          .shell {
+            grid-template-columns: 1fr;
+          }
+          .mobile-menu-btn {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 4px;
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 60;
+            width: 38px;
+            height: 38px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            padding: 0;
+          }
+          .mobile-menu-btn .bar {
+            display: block;
+            width: 18px;
+            height: 2px;
+            margin: 0 auto;
+            background: var(--text);
+            border-radius: 1px;
+          }
+          .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 240px;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            z-index: 70;
+            overflow-y: auto;
+          }
+          .sidebar.open {
+            transform: translateX(0);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+          }
+          .sidebar-overlay {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 65;
+          }
+          .content {
+            padding: 1.5rem;
+            padding-top: 4.5rem;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
