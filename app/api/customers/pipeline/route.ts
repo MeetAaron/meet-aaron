@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
        welcome_email_subject, welcome_email_body, welcome_email_sent_at,
        customer_health_score, customer_health_label, customer_health_updated_at, churn_risk,
        last_checkin_sent_at, last_checkin_response_at,
+       contract_renewal_date, renewal_reminder_sent_at,
+       renewal_email_subject, renewal_email_body, renewal_email_sent_at,
+       upsell_suggestion, upsell_suggested_at, upsell_dismissed_at,
+       testimonial_email_subject, testimonial_email_body, testimonial_email_sent_at,
        prospect_companies (name, domain)`
     )
     .eq('assigned_user_id', userId)
