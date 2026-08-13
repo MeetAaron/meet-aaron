@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { company_id, assigned_user_id, full_name, email, phone, job_title } = body;
+  const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
 
   if (!company_id || !assigned_user_id || !full_name || !email) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
 
   const domain = email.split('@')[1];
+  const cleanCompanyName = company_name?.trim() || null;
 
   // Cherche ou crée la prospect_company associée à ce domaine
   let { data: prospectCompany } = await supabaseAdmin
     .from('prospect_companies')
-    .select('id')
+    .select('id, name')
     .eq('company_id', company_id)
     .eq('domain', domain)
     .single();
@@ -58,14 +59,18 @@ export async function POST(request: NextRequest) {
   if (!prospectCompany) {
     const { data: newCompany, error: companyError } = await supabaseAdmin
       .from('prospect_companies')
-      .insert({ company_id, domain })
-      .select('id')
+      .insert({ company_id, domain, name: cleanCompanyName })
+      .select('id, name')
       .single();
 
     if (companyError) {
       return NextResponse.json({ error: companyError.message }, { status: 500 });
     }
     prospectCompany = newCompany;
+  } else if (cleanCompanyName && !prospectCompany.name) {
+    // La société existait déjà (autre prospect sur le même domaine) mais sans nom connu :
+    // on complète avec ce que le commercial vient de renseigner.
+    await supabaseAdmin.from('prospect_companies').update({ name: cleanCompanyName }).eq('id', prospectCompany.id);
   }
 
   // Crée le prospect
@@ -79,6 +84,7 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       job_title,
+      linkedin_url: linkedin_url?.trim() || null,
       status: 'jaune',
     })
     .select()
