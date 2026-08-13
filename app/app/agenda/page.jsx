@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -75,6 +91,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState(null);
   const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
+  const [showAddModal, setShowAddModal] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -153,9 +170,25 @@ export default function AgendaPage() {
   return (
     <Shell active="Agenda" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Rendez-vous</p>
-        <h1>Votre agenda</h1>
+        <div>
+          <p className="eyebrow">Rendez-vous</p>
+          <h1>Votre agenda</h1>
+        </div>
+        <button type="button" className="btn-primary" onClick={() => setShowAddModal(true)}>
+          + Ajouter
+        </button>
       </header>
+
+      {showAddModal && (
+        <AddEntryModal
+          userId={userId}
+          onClose={() => setShowAddModal(false)}
+          onCreated={() => {
+            setShowAddModal(false);
+            load();
+          }}
+        />
+      )}
 
       {conflict && (
         <div className="conflict-overlay" onClick={() => setConflict(null)}>
@@ -235,11 +268,16 @@ export default function AgendaPage() {
                 return (
                   <div className="row" key={a.id}>
                     <div className="row-info">
-                      <strong>{a.prospects?.full_name}</strong>
-                      <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
+                      <strong>{a.prospects?.full_name || a.contact_name}</strong>
+                      {a.prospects ? (
+                        <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
+                      ) : (
+                        <span className="muted"> — contact personnel</span>
+                      )}
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
                         {' · '}{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {a.source === 'manuel' && ' · ajouté manuellement'}
                       </div>
                       {a.meet_link && (
                         <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link">
@@ -261,6 +299,21 @@ export default function AgendaPage() {
       <style jsx>{`
         .header {
           margin-bottom: 1.8rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 1rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 10px;
+          padding: 0.7rem 1.1rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+          flex-shrink: 0;
         }
         .eyebrow {
           text-transform: uppercase;
@@ -415,6 +468,337 @@ export default function AgendaPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+const ENTRY_KINDS = [
+  { key: 'indisponibilite', label: 'Indisponibilité', icon: '🚫' },
+  { key: 'telephonique', label: 'RDV téléphonique', icon: '📞' },
+  { key: 'visio', label: 'RDV visio', icon: '💻' },
+  { key: 'physique', label: 'RDV physique', icon: '🤝' },
+];
+
+function AddEntryModal({ userId, onClose, onCreated }) {
+  const [kind, setKind] = useState(null);
+  const [prospectSource, setProspectSource] = useState('aaron'); // 'aaron' | 'perso'
+  const [prospects, setProspects] = useState([]);
+  const [prospectId, setProspectId] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (kind && kind !== 'indisponibilite' && prospectSource === 'aaron' && prospects.length === 0) {
+      fetch(`/api/prospects?user_id=${userId}`)
+        .then((r) => r.json())
+        .then((res) => setProspects(res.prospects || []));
+    }
+  }, [kind, prospectSource, userId, prospects.length]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+
+    if (kind === 'indisponibilite') {
+      if (!date || !time || !endDate || !endTime) {
+        setError('Merci de renseigner le début et la fin de l\'indisponibilité.');
+        return;
+      }
+      setSubmitting(true);
+      const res = await fetch('/api/availability/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          start_at: new Date(`${date}T${time}`).toISOString(),
+          end_at: new Date(`${endDate}T${endTime}`).toISOString(),
+          reason: reason || null,
+        }),
+      });
+      setSubmitting(false);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'Erreur lors de la création');
+        return;
+      }
+      onCreated();
+      return;
+    }
+
+    if (!date || !time) {
+      setError('Merci de renseigner la date et l\'heure du rendez-vous.');
+      return;
+    }
+    if (prospectSource === 'aaron' && !prospectId) {
+      setError('Choisissez un prospect suivi par Aaron.');
+      return;
+    }
+    if (prospectSource === 'perso' && !contactName.trim()) {
+      setError('Indiquez le nom du contact.');
+      return;
+    }
+
+    setSubmitting(true);
+    const res = await fetch('/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        type: kind,
+        proposed_at: new Date(`${date}T${time}`).toISOString(),
+        prospect_id: prospectSource === 'aaron' ? prospectId : null,
+        contact_name: prospectSource === 'perso' ? contactName.trim() : null,
+      }),
+    });
+    setSubmitting(false);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error || 'Erreur lors de la création');
+      return;
+    }
+    onCreated();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <h2>Ajouter dans l'agenda</h2>
+
+        {!kind ? (
+          <div className="kind-grid">
+            {ENTRY_KINDS.map((k) => (
+              <button type="button" key={k.key} className="kind-btn" onClick={() => setKind(k.key)}>
+                <span className="kind-icon">{k.icon}</span>
+                {k.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <p className="hint">{ENTRY_KINDS.find((k) => k.key === kind)?.label}</p>
+
+            {kind !== 'indisponibilite' && (
+              <div className="source-row">
+                <button
+                  type="button"
+                  className={prospectSource === 'aaron' ? 'chip active' : 'chip'}
+                  onClick={() => setProspectSource('aaron')}
+                >
+                  Prospect d'Aaron
+                </button>
+                <button
+                  type="button"
+                  className={prospectSource === 'perso' ? 'chip active' : 'chip'}
+                  onClick={() => setProspectSource('perso')}
+                >
+                  Mon propre prospect
+                </button>
+              </div>
+            )}
+
+            {kind !== 'indisponibilite' && prospectSource === 'aaron' && (
+              <label>
+                Prospect
+                <select value={prospectId} onChange={(e) => setProspectId(e.target.value)} required>
+                  <option value="">— Sélectionner —</option>
+                  {prospects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.full_name}{p.prospect_companies?.name ? ` — ${p.prospect_companies.name}` : ''}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {kind !== 'indisponibilite' && prospectSource === 'perso' && (
+              <label>
+                Nom du contact
+                <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="ex: Jean Martin" required />
+              </label>
+            )}
+
+            <div className="date-row">
+              <label>
+                {kind === 'indisponibilite' ? 'Début' : 'Date'}
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              </label>
+              <label>
+                Heure
+                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
+              </label>
+            </div>
+
+            {kind === 'indisponibilite' && (
+              <div className="date-row">
+                <label>
+                  Fin
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+                </label>
+                <label>
+                  Heure
+                  <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+                </label>
+              </div>
+            )}
+
+            {kind === 'indisponibilite' && (
+              <label>
+                Motif (optionnel)
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ex: congés, RDV personnel…" />
+              </label>
+            )}
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="actions">
+              <button type="button" className="btn-secondary" onClick={() => setKind(null)}>Retour</button>
+              <button type="submit" className="btn-valid" disabled={submitting}>
+                {submitting ? 'Enregistrement…' : 'Ajouter'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {!kind && (
+          <div className="actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          </div>
+        )}
+      </form>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 440px;
+          max-width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0 0 1rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0 0 1rem;
+        }
+        .kind-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.6rem;
+          margin-bottom: 1rem;
+        }
+        .kind-btn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.4rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 1rem 0.6rem;
+          color: var(--text);
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .kind-icon {
+          font-size: 1.3rem;
+        }
+        .source-row {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        .chip {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.4rem 0.85rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+        }
+        .chip.active {
+          border-color: var(--accent);
+          color: var(--text);
+          background: rgba(75, 57, 239, 0.14);
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 0.9rem;
+        }
+        .date-row {
+          display: flex;
+          gap: 0.7rem;
+        }
+        .date-row label {
+          flex: 1;
+        }
+        input, select {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.7rem;
+          color: var(--text);
+          font-size: 0.88rem;
+          font-family: inherit;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.82rem;
+          margin: 0 0 0.8rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 0.4rem;
+        }
+        .btn-secondary {
+          background: var(--border);
+          color: var(--text);
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-valid {
+          background: var(--accent-green);
+          color: #08130d;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
   );
 }
 
