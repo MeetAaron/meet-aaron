@@ -94,7 +94,7 @@ async function extractText(buffer: Buffer, mimeType: string): Promise<string | n
       const result = await pdfParse(buffer);
       return result.text.slice(0, MAX_EXTRACTED_CHARS);
     }
-    if (mimeType === 'text/plain') {
+    if (mimeType === 'text/plain' || mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
       return buffer.toString('utf-8').slice(0, MAX_EXTRACTED_CHARS);
     }
     return null;
