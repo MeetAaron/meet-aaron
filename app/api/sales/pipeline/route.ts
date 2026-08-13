@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
 
   const { data: deals, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, full_name, job_title, email, deal_stage, deal_stage_updated_at, is_won, won_at, is_lost, lost_at, prospect_companies(name, domain)')
+    .select(
+      `id, full_name, job_title, email, deal_stage, deal_stage_updated_at, is_won, won_at, is_lost, lost_at,
+       devis_generated_at, devis_sent_at, signature_external_link, signature_requested_at,
+       prospect_companies(name, domain)`
+    )
     .eq('assigned_user_id', userId)
     .not('deal_stage', 'is', null)
     .order('deal_stage_updated_at', { ascending: true });
