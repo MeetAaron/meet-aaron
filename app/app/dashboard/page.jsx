@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
