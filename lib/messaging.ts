@@ -21,14 +21,20 @@ async function getConnectedProviders(userId: string): Promise<Set<string>> {
 // Envoie un email depuis la boîte du commercial, en choisissant automatiquement
 // Gmail ou Outlook selon ce qu'il a connecté. Si les deux sont connectés,
 // Google reste prioritaire (comportement historique inchangé pour ces comptes).
+// Ajoute automatiquement la signature du commercial en bas du message si elle
+// est enregistrée (voir app/api/signature, app/app/preferences/page.jsx) —
+// les brouillons générés par Aaron n'en contiennent pas eux-mêmes.
 export async function sendEmailForUser(userId: string, to: string, subject: string, body: string) {
   const providers = await getConnectedProviders(userId);
 
+  const { data: user } = await supabaseAdmin.from('users').select('email_signature').eq('id', userId).maybeSingle();
+  const fullBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
+
   if (providers.has('google')) {
-    return sendGmailEmail(userId, to, subject, body);
+    return sendGmailEmail(userId, to, subject, fullBody);
   }
   if (providers.has('microsoft')) {
-    return sendOutlookEmail(userId, to, subject, body);
+    return sendOutlookEmail(userId, to, subject, fullBody);
   }
   throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
 }
