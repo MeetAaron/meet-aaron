@@ -93,7 +93,7 @@ const CRM_PROVIDERS = [
 const OFFERS = [
   { value: 'AP', label: 'Aaron Prospect', desc: 'Prospection, relances et prise de rendez-vous.', available: true },
   { value: 'AS', label: 'Aaron Sales', desc: 'Négociation, devis, gestion des objections.', available: true },
-  { value: 'AC', label: 'Aaron Customer', desc: 'Fidélisation et relation client post-vente.', available: false },
+  { value: 'AC', label: 'Aaron Customer', desc: 'Fidélisation et relation client post-vente.', available: true },
 ];
 
 export default function PreferencesPage() {
@@ -746,6 +746,7 @@ function Shell({ children, active, userId }) {
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
     { label: 'Aaron Sales', slug: 'sales', icon: '🤝' },
+    { label: 'Aaron Customer', slug: 'customer', icon: '🌟' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
