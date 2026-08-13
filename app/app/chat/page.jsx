@@ -93,6 +93,7 @@ export default function ChatPage() {
   const [userInfo, setUserInfo] = useState(null);
   const [onboardingStep, setOnboardingStep] = useState(-1); // -1 = pas en cours de questionnaire
   const [onboardingAnswers, setOnboardingAnswers] = useState([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef(null);
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
@@ -116,12 +117,34 @@ export default function ChatPage() {
       .catch(() => {});
   }, [userId]);
 
+  // Rapatrie l'historique déjà persisté (voir migration_chat_history_2026-08-13.sql
+  // et app/api/chat-history/route.ts) avant toute décision d'afficher l'accueil —
+  // sans ça, revenir sur cette page après être parti ailleurs (ex: "Mes documents")
+  // en plein questionnaire d'onboarding faisait tout recommencer à zéro.
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/chat-history?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (Array.isArray(res.messages) && res.messages.length > 0) {
+          setMessages(res.messages);
+          setOnboardingStep(typeof res.onboarding_step === 'number' ? res.onboarding_step : -1);
+          setOnboardingAnswers(Array.isArray(res.onboarding_answers) ? res.onboarding_answers : []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoaded(true));
+  }, [userId]);
+
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
     // On attend d'avoir le prénom pour un accueil personnalisé plutôt que générique.
     if (!userInfo) return;
+    // On attend de savoir si un historique existe déjà en base avant de semer
+    // l'accueil, pour ne pas écraser une conversation/un questionnaire en cours.
+    if (!historyLoaded) return;
     const firstName = userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '';
-    setMessages([
+    const welcomeMessages = [
       {
         role: 'assistant',
         content:
@@ -137,9 +160,23 @@ export default function ChatPage() {
         role: 'assistant',
         content: ONBOARDING_QUESTIONS[0],
       },
-    ]);
+    ];
+    setMessages(welcomeMessages);
     setOnboardingStep(0);
-  }, [isWelcome, messages.length, userInfo]);
+
+    // Persiste tout de suite l'accueil + le démarrage du questionnaire : si la
+    // page est quittée avant même la première réponse, on ne repart plus de zéro.
+    fetch('/api/chat-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        messages: welcomeMessages,
+        onboarding_step: 0,
+        onboarding_answers: [],
+      }),
+    }).catch(() => {});
+  }, [isWelcome, messages.length, userInfo, historyLoaded, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -207,23 +244,40 @@ export default function ChatPage() {
       setOnboardingAnswers(updatedAnswers);
 
       const nextStep = onboardingStep + 1;
+      let assistantMessage;
+      let newOnboardingStep;
       if (nextStep < ONBOARDING_QUESTIONS.length) {
+        newOnboardingStep = nextStep;
+        assistantMessage = { role: 'assistant', content: ONBOARDING_QUESTIONS[nextStep] };
         setOnboardingStep(nextStep);
-        setMessages([...newMessages, { role: 'assistant', content: ONBOARDING_QUESTIONS[nextStep] }]);
+        setMessages([...newMessages, assistantMessage]);
       } else {
+        newOnboardingStep = -1;
+        assistantMessage = {
+          role: 'assistant',
+          content:
+            "Parfait, merci ! Si tu as un devis type, une plaquette ou une liste de tarifs sous la main, direction " +
+            "\"Mes documents\" pour me les envoyer — ça m'aide encore plus à te représenter auprès des prospects. " +
+            "Sinon, clique directement sur \"Générer mon résumé\" ci-dessous et je te dis ce que j'ai compris de " +
+            "ton activité.",
+        };
         setOnboardingStep(-1);
-        setMessages([
-          ...newMessages,
-          {
-            role: 'assistant',
-            content:
-              "Parfait, merci ! Si tu as un devis type, une plaquette ou une liste de tarifs sous la main, direction " +
-              "\"Mes documents\" pour me les envoyer — ça m'aide encore plus à te représenter auprès des prospects. " +
-              "Sinon, clique directement sur \"Générer mon résumé\" ci-dessous et je te dis ce que j'ai compris de " +
-              "ton activité.",
-          },
-        ]);
+        setMessages([...newMessages, assistantMessage]);
       }
+
+      // Persiste ce tour de questionnaire (question + réponse) et la nouvelle
+      // progression, pour ne pas la reperdre si la page est quittée avant la fin.
+      fetch('/api/chat-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          messages: [userMessage, assistantMessage],
+          onboarding_step: newOnboardingStep,
+          onboarding_answers: updatedAnswers,
+        }),
+      }).catch(() => {});
+
       return;
     }
 
@@ -555,7 +609,6 @@ function Shell({ children, active, userId }) {
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
-    { label: 'Clients gagnés', slug: 'clients-gagnes', icon: '🏆' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
