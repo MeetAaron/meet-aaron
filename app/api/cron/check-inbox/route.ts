@@ -9,7 +9,7 @@ import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/go
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
-import { parseCheckinResponse } from '@/lib/aaron-customer';
+import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -70,8 +70,12 @@ async function fetchNewMessagesForConnection(connection: {
 // au flux de prospection, Aaron ne répond JAMAIS automatiquement à un client
 // (pas de generateAaronResponse ici) — on se contente de : 1) archiver le
 // message dans l'historique de conversation existant, 2) si un check-in
-// satisfaction/NPS envoyé par app/api/cron/customer-checkins attend encore
-// une réponse, essayer d'en extraire la note et le commentaire.
+// satisfaction/NPS attend une réponse ET que le message en contient une note
+// claire, l'enregistrer (et si c'est une note promoteur, déclencher une
+// demande de témoignage) ; 3) sinon (pas de check-in en attente, ou message
+// sans note claire), traiter le message comme une vraie demande potentielle
+// et proposer une suggestion de réponse au commercial (triage support
+// niveau 1, voir lib/aaron-customer.ts -> generateSupportReply).
 async function handleWonCustomerMessage(
   prospect: { id: string; full_name: string; company_id: string | null },
   userId: string,
@@ -104,35 +108,75 @@ async function handleWonCustomerMessage(
     .limit(1)
     .maybeSingle();
 
-  if (!pendingCheckin) return;
+  if (pendingCheckin) {
+    try {
+      const parsed = await parseCheckinResponse(bodyText, prospect.company_id);
+
+      if (parsed.score !== null) {
+        const now = new Date().toISOString();
+
+        await supabaseAdmin
+          .from('customer_checkins')
+          .update({ responded_at: now, response_score: parsed.score, response_comment: parsed.comment })
+          .eq('id', pendingCheckin.id);
+
+        await supabaseAdmin.from('prospects').update({ last_checkin_response_at: now }).eq('id', prospect.id);
+
+        // Note basse (0-6/10) : signal fort qu'il vaut mieux prévenir le
+        // commercial tout de suite plutôt que d'attendre le prochain calcul du
+        // score de santé (une fois par jour, voir app/api/cron/customer-health).
+        if (parsed.score <= 6) {
+          await sendPushNotification(userId, {
+            title: 'Client insatisfait',
+            body: `${prospect.full_name} a répondu avec une note de ${parsed.score}/10 à un check-in. Un contact personnel peut aider.`,
+            url: `/app/customer?user_id=${userId}`,
+          });
+        }
+
+        // Note promoteur (>= 9/10) : bon moment pour solliciter un témoignage
+        // pendant que le client est enthousiaste — voir
+        // lib/aaron-customer.ts -> generateTestimonialRequest.
+        if (parsed.score >= 9) {
+          try {
+            await generateTestimonialRequest(prospect.id);
+            await sendPushNotification(userId, {
+              title: 'Client promoteur — demande de témoignage prête',
+              body: `${prospect.full_name} a mis ${parsed.score}/10. Un email de demande de témoignage est prêt à valider dans Aaron Customer.`,
+              url: `/app/customer?user_id=${userId}`,
+            });
+          } catch (err: any) {
+            console.error(`Erreur génération demande de témoignage pour prospect ${prospect.id}:`, err.message);
+          }
+        }
+
+        return;
+      }
+    } catch (err: any) {
+      console.error(`Erreur traitement réponse check-in pour prospect ${prospect.id}:`, err.message);
+      // On retombe sur le triage support ci-dessous plutôt que d'abandonner
+      // le message : mieux vaut proposer une suggestion de réponse qu'ignorer
+      // silencieusement un email dont on n'a pas réussi à extraire de note.
+    }
+  }
 
   try {
-    const parsed = await parseCheckinResponse(bodyText, prospect.company_id);
-    const now = new Date().toISOString();
+    const draft = await generateSupportReply(prospect.id, bodyText);
+    if (!draft.is_support_request || !draft.suggested_subject || !draft.suggested_body) return;
 
-    await supabaseAdmin
-      .from('customer_checkins')
-      .update({
-        responded_at: now,
-        response_score: parsed.score,
-        response_comment: parsed.comment,
-      })
-      .eq('id', pendingCheckin.id);
+    await supabaseAdmin.from('customer_support_drafts').insert({
+      prospect_id: prospect.id,
+      inbound_excerpt: bodyText.slice(0, 500),
+      suggested_subject: draft.suggested_subject,
+      suggested_body: draft.suggested_body,
+    });
 
-    await supabaseAdmin.from('prospects').update({ last_checkin_response_at: now }).eq('id', prospect.id);
-
-    // Note basse (0-6/10) : signal fort qu'il vaut mieux prévenir le
-    // commercial tout de suite plutôt que d'attendre le prochain calcul du
-    // score de santé (une fois par jour, voir app/api/cron/customer-health).
-    if (parsed.score !== null && parsed.score <= 6) {
-      await sendPushNotification(userId, {
-        title: 'Client insatisfait',
-        body: `${prospect.full_name} a répondu avec une note de ${parsed.score}/10 à un check-in. Un contact personnel peut aider.`,
-        url: `/app/customer?user_id=${userId}`,
-      });
-    }
+    await sendPushNotification(userId, {
+      title: 'Nouveau message client',
+      body: `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
+      url: `/app/customer?user_id=${userId}`,
+    });
   } catch (err: any) {
-    console.error(`Erreur traitement réponse check-in pour prospect ${prospect.id}:`, err.message);
+    console.error(`Erreur triage support pour prospect ${prospect.id}:`, err.message);
   }
 }
 
