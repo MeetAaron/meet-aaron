@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /$
+Allow: /landing.html
+Allow: /login
+Allow: /privacy
+Disallow: /app/
+Disallow: /api/
+Disallow: /onboarding
+Disallow: /unsubscribe
+
+Sitemap: https://meetaaron.app/sitemap.xml
