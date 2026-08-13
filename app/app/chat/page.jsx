@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -53,8 +69,8 @@ function useAuthedUser() {
 // pour construire un vrai profil commercial "clé en main" plutôt qu'un simple
 // pavé de texte libre. Les réponses alimentent /api/business-summary.
 const ONBOARDING_QUESTIONS = [
-  "Pour commencer : comment décrirais-tu tes clients type ? (secteur d'activité, taille, profil...)",
-  "Combien de profils de clients différents vois-tu chez toi ? Une seule famille bien homogène, ou plusieurs bien distinctes ?",
+  "Pour commencer : dans quel secteur d'activité et pour quelle taille d'entreprise travailles-tu le plus souvent ?",
+  "Est-ce que tu as une seule famille de clients bien homogène, ou plusieurs profils bien distincts ?",
   "Et question un peu plus perso : comment décrirais-tu le comportement ou le caractère de tes clients en général (pressés, méfiants, bavards, factuels...) ? Pas besoin d'être précis, écris comme ça te vient.",
   "Quel est ton produit ou service phare, celui que tu proposes le plus souvent ?",
   "Quel est l'argument qui fait mouche le plus souvent auprès de tes prospects ?",
@@ -110,13 +126,16 @@ export default function ChatPage() {
         role: 'assistant',
         content:
           `Bonjour${firstName ? ' ' + firstName : ''}, je suis Aaron, ton copilote commercial IA. Voici ce que je fais pour toi :\n\n` +
-          "• je pars chercher, un par un, des prospects qui correspondent vraiment à ton profil client (zone, secteur, taille d'entreprise) ;\n" +
+          "• pendant que tu roules, que tu déjeunes ou que tu dors, moi je prospecte : je pars chercher, un par un, des prospects qui correspondent vraiment à ton profil client (zone, secteur, taille d'entreprise) ;\n" +
           "• je leur écris et je relance en ton nom, depuis ta propre boîte mail, en adaptant chaque message à la personne et à ce qu'elle répond ;\n" +
-          "• je repère les signaux d'intérêt, je propose des créneaux et je remplis ta fiche prospect au fil de l'échange.\n\n" +
+          "• je repère les signaux d'intérêt, je remplis ta fiche prospect au fil de l'échange, et surtout : ce que je te garantis, ce sont des rendez-vous — par téléphone, en physique ou en visio, directement dans ton agenda.\n\n" +
           "Ce que je ne fais pas : pas d'emailing de masse ni de listes achetées — ici, tout est fait un par un, de façon personnalisée et clé en main. " +
           "Et je ne prends aucune décision finale à ta place (devis, tarifs, engagements) : ça reste toujours toi qui conclus.\n\n" +
-          "Avant de me lancer sur le terrain, j'ai besoin d'apprendre à connaître ton métier — quelques questions rapides, ça prend 2 minutes.\n\n" +
-          ONBOARDING_QUESTIONS[0],
+          "Avant de me lancer sur le terrain, j'ai besoin d'apprendre à connaître ton métier — quelques questions rapides, une par une, ça prend 2 minutes en tout.",
+      },
+      {
+        role: 'assistant',
+        content: ONBOARDING_QUESTIONS[0],
       },
     ]);
     setOnboardingStep(0);
