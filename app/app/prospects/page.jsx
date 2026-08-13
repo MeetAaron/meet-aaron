@@ -81,11 +81,12 @@ const PERSONALITY_LABELS = {
 };
 
 function exportProspectsToCsv(prospects) {
-  const headers = ['Statut', 'Nom', 'Société', 'Email', 'Téléphone', 'Personnalité ressentie', "Conseils d'Aaron"];
+  const headers = ['Statut', 'Nom', 'Société', 'Poste', 'Email', 'Téléphone', 'Personnalité ressentie', "Conseils d'Aaron"];
   const rows = prospects.map((p) => [
     STATUS_META[p.status]?.label || p.status,
     p.full_name,
     p.prospect_companies?.name || '',
+    p.job_title || '',
     p.email,
     p.phone || '',
     PERSONALITY_LABELS[p.personality_type] || '',
@@ -113,6 +114,8 @@ export default function ProspectsPage() {
   const [linkedinProspect, setLinkedinProspect] = useState(null);
   const [wonProspect, setWonProspect] = useState(null);
   const [actingOn, setActingOn] = useState(null);
+  const [search, setSearch] = useState('');
+  const [detailed, setDetailed] = useState(false);
 
   async function loadProspects() {
     setLoading(true);
@@ -167,7 +170,32 @@ export default function ProspectsPage() {
     loadProspects();
   }
 
-  const filtered = statusFilter === 'tous' ? prospects : prospects.filter((p) => p.status === statusFilter);
+  const statusFiltered = statusFilter === 'tous' ? prospects : prospects.filter((p) => p.status === statusFilter);
+  const searchTerm = search.trim().toLowerCase();
+  const filtered = searchTerm
+    ? statusFiltered.filter((p) => {
+        const haystack = [
+          p.full_name,
+          p.email,
+          p.phone,
+          p.job_title,
+          p.prospect_companies?.name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(searchTerm);
+      })
+    : statusFiltered;
+
+  // Compte, sur l'ensemble des prospects (pas seulement ceux affichés), combien
+  // de contacts existent par société — pour repérer d'un coup d'œil les sociétés
+  // où plusieurs interlocuteurs sont déjà en pipeline.
+  const contactsPerCompany = {};
+  for (const p of prospects) {
+    if (!p.prospect_company_id) continue;
+    contactsPerCompany[p.prospect_company_id] = (contactsPerCompany[p.prospect_company_id] || 0) + 1;
+  }
 
   if (authLoading) {
     return (
@@ -207,6 +235,14 @@ export default function ProspectsPage() {
         </div>
         <div className="header-actions">
           {prospects.length > 0 && (
+            <button
+              className={detailed ? 'btn-secondary active' : 'btn-secondary'}
+              onClick={() => setDetailed((d) => !d)}
+            >
+              {detailed ? 'Vue simple' : 'Vue détaillée'}
+            </button>
+          )}
+          {prospects.length > 0 && (
             <button className="btn-secondary" onClick={() => exportProspectsToCsv(filtered)}>
               Télécharger en CSV
             </button>
@@ -216,6 +252,23 @@ export default function ProspectsPage() {
           </button>
         </div>
       </header>
+
+      {prospects.length > 0 && (
+        <div className="search-row">
+          <input
+            type="search"
+            className="search-input"
+            placeholder="Rechercher un prospect (nom, société, email, téléphone, poste)…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button type="button" className="search-clear" onClick={() => setSearch('')}>
+              Effacer
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="filters">
         <button className={statusFilter === 'tous' ? 'chip active' : 'chip'} onClick={() => setStatusFilter('tous')}>
@@ -236,12 +289,24 @@ export default function ProspectsPage() {
         })}
       </div>
 
+      {searchTerm && (
+        <p className="search-result-count muted">
+          {filtered.length} résultat{filtered.length !== 1 ? 's' : ''} pour « {search.trim()} »
+        </p>
+      )}
+
       {loading ? (
         <p className="muted">Chargement…</p>
       ) : filtered.length === 0 ? (
         <EmptyState
           title="Aucun prospect ici"
-          body={prospects.length === 0 ? "Lancez une campagne ou ajoutez un prospect manuellement." : "Aucun prospect ne correspond à ce filtre."}
+          body={
+            prospects.length === 0
+              ? "Lancez une campagne ou ajoutez un prospect manuellement."
+              : searchTerm
+              ? "Aucun prospect ne correspond à cette recherche."
+              : "Aucun prospect ne correspond à ce filtre."
+          }
         />
       ) : (
         <div className="table-wrap">
@@ -251,6 +316,7 @@ export default function ProspectsPage() {
                 <th>Statut</th>
                 <th>Nom</th>
                 <th>Société</th>
+                {detailed && <th>Poste</th>}
                 <th>Personnalité ressentie</th>
                 <th>Conseils d'Aaron</th>
                 <th>Contact</th>
@@ -260,6 +326,7 @@ export default function ProspectsPage() {
             <tbody>
               {filtered.map((p) => {
                 const meta = STATUS_META[p.status] || STATUS_META.jaune;
+                const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
                 return (
                   <tr key={p.id}>
                     <td>
@@ -269,7 +336,20 @@ export default function ProspectsPage() {
                       </span>
                     </td>
                     <td className="strong">{p.full_name}</td>
-                    <td className="muted">{p.prospect_companies?.name || '—'}</td>
+                    <td className="muted">
+                      {p.prospect_companies?.name || '—'}
+                      {otherContacts > 0 && (
+                        <button
+                          type="button"
+                          className="company-badge"
+                          title={`${otherContacts} autre${otherContacts > 1 ? 's' : ''} contact${otherContacts > 1 ? 's' : ''} chez cette société — clique pour les voir`}
+                          onClick={() => setSearch(p.prospect_companies?.name || '')}
+                        >
+                          +{otherContacts}
+                        </button>
+                      )}
+                    </td>
+                    {detailed && <td className="muted">{p.job_title || '—'}</td>}
                     <td>
                       {p.personality_type ? (
                         <span className="tag">{PERSONALITY_LABELS[p.personality_type] || p.personality_type}</span>
@@ -292,6 +372,7 @@ export default function ProspectsPage() {
                         className="action-btn won"
                         disabled={actingOn === p.id}
                         onClick={() => setWonProspect(p)}
+                        title="Le prospect devient client : il sera déplacé vers Résultats > Clients gagnés"
                       >
                         🏆 Gagné
                       </button>
@@ -300,6 +381,7 @@ export default function ProspectsPage() {
                         className="action-btn lost"
                         disabled={actingOn === p.id}
                         onClick={() => handleMarkLost(p)}
+                        title="Le prospect ne deviendra pas client : Aaron arrête de le relancer"
                       >
                         Perdu
                       </button>
@@ -374,6 +456,58 @@ export default function ProspectsPage() {
           border-radius: 10px;
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
+          cursor: pointer;
+        }
+        .btn-secondary.active {
+          border-color: var(--accent);
+          color: var(--accent);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .search-row {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin-bottom: 1rem;
+        }
+        .search-input {
+          flex: 1;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.65rem 1rem;
+          color: var(--text);
+          font-size: 0.86rem;
+        }
+        .search-input::placeholder {
+          color: var(--muted);
+        }
+        .search-clear {
+          background: none;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 10px;
+          padding: 0.6rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .search-result-count {
+          font-size: 0.8rem;
+          margin: -0.6rem 0 1rem;
+        }
+        .company-badge {
+          display: inline-block;
+          margin-left: 0.4rem;
+          background: rgba(75, 57, 239, 0.16);
+          color: var(--text);
+          border: none;
+          border-radius: 999px;
+          padding: 0.1rem 0.5rem;
+          font-size: 0.7rem;
+          font-family: var(--font-mono);
           cursor: pointer;
         }
         .eyebrow {
@@ -721,8 +855,11 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         }
         .name-row label {
           flex: 1;
+          min-width: 0;
         }
         input {
+          width: 100%;
+          box-sizing: border-box;
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: 8px;
@@ -975,7 +1112,6 @@ function Shell({ children, active, userId }) {
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
-    { label: 'Clients gagnés', slug: 'clients-gagnes', icon: '🏆' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
