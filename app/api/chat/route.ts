@@ -10,10 +10,160 @@ const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
 Adresse-toi à lui par son prénom de temps en temps (pas à chaque message, ça sonnerait faux) pour garder un ton personnel et chaleureux.
 Tu peux répondre à ses questions sur ses prospects, campagnes, RDV, ou lui donner des conseils commerciaux généraux.
+Tu as accès à des outils pour consulter les vraies données du commercial (recherche_prospects, apercu_campagnes,
+prochains_rdv) — utilise-les systématiquement dès qu'une question porte sur SES prospects, clients, campagnes ou RDV
+réels (nom, téléphone, statut, avancement...), plutôt que de répondre dans le vague ou de dire que tu n'as pas accès
+à l'info. Si le commercial écrit un message approximatif, mal orthographié ou elliptique mais que l'intention est
+claire (ex: "donne moi le numero de ce client", "ou g en est ma campagne"), déduis ce qu'il veut et utilise l'outil
+adapté directement, sans lui demander de reformuler. Si une recherche de prospect ne renvoie rien ou plusieurs
+résultats ambigus, dis-le clairement et demande une précision (nom de société, par exemple).
 Réponds toujours en français, de façon concise et utile — pas de blabla inutile.
 Si le commercial exprime une suggestion, une remarque ou une idée d'amélioration sur l'outil, le produit ou l'organisation,
 dis-lui simplement que tu transmets l'info au fondateur — tu n'as pas besoin de lui demander de le faire lui-même par email,
 c'est déjà fait automatiquement de ton côté.`;
+
+const STATUS_LABELS: Record<string, string> = {
+  vert: 'en bonne voie',
+  jaune: 'en cours',
+  orange: 'risque de perdre',
+  rouge: 'perdu',
+  bleu: 'RDV obtenu',
+};
+
+// Outils mis à disposition d'Aaron dans le chat direct — tous en lecture seule et
+// strictement scopés au commercial authentifié (aucun paramètre d'entrée ne permet
+// de cibler les données d'un autre commercial ou d'une autre société). Les actions
+// d'écriture (ex: accélérer une campagne réelle, qui envoie de vrais emails à de
+// vrais prospects) sont volontairement laissées de côté pour l'instant — à traiter
+// dans une passe dédiée, avec plus de garde-fous, plutôt qu'exposées telles quelles
+// à un modèle de langage.
+const CHAT_TOOLS = [
+  {
+    name: 'recherche_prospects',
+    description:
+      "Recherche parmi TOUS les prospects et clients gagnés du commercial (par nom, société, email ou téléphone — " +
+      'recherche partielle, insensible à la casse et aux accents). Renvoie les fiches contact correspondantes ' +
+      "(nom, société, poste, téléphone, email, statut). À utiliser dès que le commercial demande une info sur une " +
+      'personne ou une société précise (ex: son numéro, son email, où en est ce prospect).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Terme de recherche : nom, société, email ou téléphone.' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apercu_campagnes',
+    description:
+      'Renvoie la liste des campagnes de prospection du commercial avec leur statut et avancement (entreprises ' +
+      'analysées, contacts trouvés, objectif). À utiliser pour toute question sur "où en est" une campagne ou la ' +
+      'prospection en général.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'prochains_rdv',
+    description:
+      "Renvoie les prochains rendez-vous à venir du commercial (date, type, prospect concerné). À utiliser pour " +
+      'toute question sur son agenda ou son prochain RDV.',
+    input_schema: { type: 'object', properties: {} },
+  },
+];
+
+async function runRechercheProspects(userId: string, query: string) {
+  const { data: prospects, error } = await supabaseAdmin
+    .from('prospects')
+    .select('full_name, email, phone, job_title, status, is_won, prospect_companies(name)')
+    .eq('assigned_user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(500);
+
+  if (error) return { error: error.message };
+
+  const q = (query || '').toLowerCase().trim();
+  const matches = (prospects || [])
+    .filter((p: any) => {
+      const haystack = [p.full_name, p.email, p.phone, p.job_title, p.prospect_companies?.name]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return q ? haystack.includes(q) : false;
+    })
+    .slice(0, 10);
+
+  return {
+    nombre_de_resultats: matches.length,
+    resultats: matches.map((p: any) => ({
+      nom: p.full_name,
+      societe: p.prospect_companies?.name || null,
+      poste: p.job_title || null,
+      email: p.email,
+      telephone: p.phone || null,
+      statut: p.is_won ? 'client gagné' : STATUS_LABELS[p.status] || p.status,
+    })),
+  };
+}
+
+async function runApercuCampagnes(userId: string) {
+  const { data: campaigns, error } = await supabaseAdmin
+    .from('prospecting_campaigns')
+    .select('zone_label, sector_keywords, status, companies_found, contacts_found, target_count, created_at')
+    .eq('assigned_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (error) return { error: error.message };
+
+  return {
+    campagnes: (campaigns || []).map((c: any) => ({
+      zone: c.zone_label,
+      secteur: (c.sector_keywords || []).join(', '),
+      statut: c.status,
+      entreprises_analysees: c.companies_found,
+      contacts_trouves: c.contacts_found,
+      objectif: c.target_count,
+    })),
+  };
+}
+
+async function runProchainsRdv(userId: string) {
+  const { data: appointments, error } = await supabaseAdmin
+    .from('appointments')
+    .select('proposed_at, type, status, prospects(full_name, prospect_companies(name))')
+    .eq('user_id', userId)
+    .gte('proposed_at', new Date().toISOString())
+    .order('proposed_at', { ascending: true })
+    .limit(10);
+
+  if (error) return { error: error.message };
+
+  return {
+    rdv: (appointments || []).map((a: any) => ({
+      date: a.proposed_at,
+      type: a.type,
+      statut: a.status,
+      prospect: a.prospects?.full_name || null,
+      societe: a.prospects?.prospect_companies?.name || null,
+    })),
+  };
+}
+
+async function executeTool(toolName: string, toolInput: any, userId: string) {
+  switch (toolName) {
+    case 'recherche_prospects':
+      return runRechercheProspects(userId, toolInput?.query || '');
+    case 'apercu_campagnes':
+      return runApercuCampagnes(userId);
+    case 'prochains_rdv':
+      return runProchainsRdv(userId);
+    default:
+      return { error: `Outil inconnu : ${toolName}` };
+  }
+}
+
+// Nombre maximum d'allers-retours outil ↔ modèle pour une seule question — borne
+// le coût/latence même si le modèle s'entête à enchaîner les appels d'outils.
+const MAX_TOOL_ROUNDS = 4;
 
 // Détecte si le message du commercial contient une suggestion/remarque destinée au
 // fondateur (à propos de l'outil, du produit, de l'organisation...), pour la relayer
@@ -92,9 +242,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const messages = [
+  const messages: any[] = [
     ...(history || []).map((h: any) => ({ role: h.role, content: h.content })),
     { role: 'user', content: message },
+  ];
+
+  const systemBlocks = [
+    {
+      type: 'text',
+      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
+      cache_control: { type: 'ephemeral' },
+    },
   ];
 
   let data;
@@ -105,19 +263,50 @@ export async function POST(request: NextRequest) {
         {
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
-          system: [
-            {
-              type: 'text',
-              text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
-              cache_control: { type: 'ephemeral' },
-            },
-          ],
+          system: systemBlocks,
+          tools: CHAT_TOOLS,
           messages,
         },
         user?.company_id || null
       ),
       detectFounderSuggestion(message, user?.company_id || null),
     ]);
+
+    // Boucle outil ↔ modèle : tant qu'Aaron demande à utiliser un outil, on
+    // l'exécute (lecture seule, scopée à user_id) et on renvoie le résultat au
+    // modèle, jusqu'à ce qu'il produise une réponse finale (ou jusqu'à la limite
+    // de tours, pour ne jamais laisser une boucle s'emballer en coût/latence).
+    let round = 0;
+    while (data.stop_reason === 'tool_use' && round < MAX_TOOL_ROUNDS) {
+      round += 1;
+      const toolUseBlocks = data.content.filter((b: any) => b.type === 'tool_use');
+
+      messages.push({ role: 'assistant', content: data.content });
+
+      const toolResults = await Promise.all(
+        toolUseBlocks.map(async (block: any) => {
+          const result = await executeTool(block.name, block.input, user_id);
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          };
+        })
+      );
+
+      messages.push({ role: 'user', content: toolResults });
+
+      data = await callClaude(
+        {
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: systemBlocks,
+          tools: CHAT_TOOLS,
+          messages,
+        },
+        user?.company_id || null
+      );
+    }
   } catch (err: any) {
     if (err instanceof MonthlyCapExceededError) {
       return NextResponse.json(
@@ -144,6 +333,23 @@ export async function POST(request: NextRequest) {
   }
 
   const textBlock = data.content.find((b: any) => b.type === 'text');
+  // Filet de sécurité : si la limite de tours d'outils a été atteinte sans que le
+  // modèle ait produit de texte final, on répond quand même quelque chose de
+  // sensé plutôt qu'une bulle vide dans le chat.
+  const reply = textBlock?.text || (data.stop_reason === 'tool_use' ? "Je n'ai pas réussi à finaliser ma réponse — peux-tu reformuler ta question ?" : '');
 
-  return NextResponse.json({ reply: textBlock?.text || '' });
+  // Persiste l'échange (voir migration_chat_history_2026-08-13.sql) pour que
+  // app/app/chat/page.jsx puisse le retrouver après un remount (navigation vers
+  // une autre page, fermeture d'onglet...) au lieu de repartir d'une conversation
+  // vide. Attendu (pas fire-and-forget) : sur une plateforme serverless, le
+  // travail lancé après la réponse HTTP n'est pas garanti de s'exécuter jusqu'au
+  // bout. Ne bloque jamais la réponse au commercial si cette écriture échoue.
+  const rowsToInsert: { user_id: string; role: string; content: string }[] = [
+    { user_id, role: 'user', content: message },
+  ];
+  if (reply) rowsToInsert.push({ user_id, role: 'assistant', content: reply });
+  const { error: historyError } = await supabaseAdmin.from('chat_messages').insert(rowsToInsert);
+  if (historyError) console.error('Erreur persistance chat_messages:', historyError.message);
+
+  return NextResponse.json({ reply });
 }
