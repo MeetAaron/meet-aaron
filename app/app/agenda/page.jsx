@@ -836,6 +836,7 @@ function Shell({ children, active, userId }) {
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
+    { label: 'Aaron Sales', slug: 'sales', icon: '🤝' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
