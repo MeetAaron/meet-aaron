@@ -2,6 +2,13 @@
 // Enregistre le bilan d'un RDV une fois que le commercial a répondu à la
 // question d'Aaron ("comment ça s'est passé ?"), et fait réagir Aaron :
 // courte note d'encouragement/conseil + mise à jour du statut du prospect.
+//
+// Aaron Sales (2026-08-13) : ce bilan est aussi le déclencheur de la mise à
+// jour AUTOMATIQUE du pipeline de vente (prospects.deal_stage), sans
+// ressaisie manuelle du commercial — voir migration_aaron_sales_2026-08-13.sql
+// et app/app/sales/page.jsx. Avant ce changement, un RDV "client" ne faisait
+// jamais passer is_won à true nulle part dans le code (seul un passage
+// manuel via l'action "marquer_gagne" le faisait) : ce trou est comblé ici.
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
@@ -37,7 +44,7 @@ const FALLBACK_NOTES: Record<AppointmentOutcome, string> = {
 export async function recordAppointmentOutcome(appointmentId: string, outcome: AppointmentOutcome) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, prospect_id, prospects(id, full_name, company_id)')
+    .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage)')
     .eq('id', appointmentId)
     .single();
 
@@ -89,10 +96,35 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
     .eq('id', appointmentId);
 
   if (prospect?.id) {
-    await supabaseAdmin
-      .from('prospects')
-      .update({ status: OUTCOME_TO_PROSPECT_STATUS[outcome] })
-      .eq('id', prospect.id);
+    const now = new Date().toISOString();
+    const prospectUpdate: Record<string, any> = { status: OUTCOME_TO_PROSPECT_STATUS[outcome] };
+
+    if (outcome === 'client') {
+      // Affaire signée : referme le pipeline et fait passer le prospect en
+      // "client gagné" (jusqu'ici uniquement possible via l'action manuelle
+      // "marquer_gagne" — voir app/api/prospects/[id]/route.ts).
+      prospectUpdate.deal_stage = 'signe';
+      prospectUpdate.deal_stage_updated_at = now;
+      prospectUpdate.is_won = true;
+      prospectUpdate.won_at = now;
+      prospectUpdate.is_lost = false;
+    } else if (outcome === 'perdu') {
+      prospectUpdate.deal_stage = 'perdu';
+      prospectUpdate.deal_stage_updated_at = now;
+      prospectUpdate.is_lost = true;
+      prospectUpdate.lost_at = now;
+    } else {
+      // bien_passe / moyen : le prospect vient de passer un RDV, donc au
+      // moins "rdv_fait" — sans écraser une étape déjà plus avancée (devis
+      // envoyé, en négociation) si un RDV de suivi a lieu plus tard dans le
+      // cycle.
+      if (!prospect.deal_stage) {
+        prospectUpdate.deal_stage = 'rdv_fait';
+      }
+      prospectUpdate.deal_stage_updated_at = now;
+    }
+
+    await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
   }
 
   return { note };
