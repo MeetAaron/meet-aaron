@@ -29,6 +29,22 @@ export interface CheckinResponseParsed {
   comment: string | null;
 }
 
+export interface RenewalOutreach {
+  subject: string;
+  body: string;
+}
+
+export interface TestimonialRequest {
+  subject: string;
+  body: string;
+}
+
+export interface SupportReplyDraft {
+  is_support_request: boolean;
+  suggested_subject: string | null;
+  suggested_body: string | null;
+}
+
 async function loadWonProspect(prospectId: string) {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
@@ -228,5 +244,205 @@ export async function parseCheckinResponse(replyText: string, companyId: string 
       console.error('Erreur analyse réponse de check-in:', err.message);
     }
     return { score: null, comment: null };
+  }
+}
+
+const FALLBACK_RENEWAL: RenewalOutreach = {
+  subject: 'Votre renouvellement approche',
+  body:
+    "Bonjour,\n\nVotre contrat arrive bientôt à échéance et j'aimerais qu'on échange sur la suite.\n\n" +
+    "Avez-vous quelques minutes cette semaine pour en discuter ensemble ?\n\nAu plaisir d'échanger,",
+};
+
+// Aaron Customer v2 — génère (et met en cache sur prospects.renewal_email_*)
+// un email de relance de renouvellement, déclenché par le cron
+// app/api/cron/renewal-reminders quand contract_renewal_date approche.
+// Best-effort : repli sur un template générique si l'appel Claude échoue,
+// pour ne jamais bloquer l'alerte au commercial.
+export async function generateRenewalOutreach(prospectId: string): Promise<RenewalOutreach> {
+  const prospect = await loadWonProspect(prospectId);
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 300,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Le contrat du client "${prospect.full_name}" arrive bientôt à ` +
+              `échéance. Rédige un email court pour amorcer la discussion de renouvellement, ton chaleureux et ` +
+              `professionnel, qui ouvre la porte à un échange plutôt que de présumer la réponse.\n` +
+              `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, en français, sans balises HTML"}`,
+          },
+        ],
+      },
+      prospect.company_id
+    );
+    return parseJsonResponse<RenewalOutreach>(data, 'Email de renouvellement');
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération email de renouvellement (repli sur template):', err.message);
+    }
+    return FALLBACK_RENEWAL;
+  }
+}
+
+// Aaron Customer v2 — suggère une piste d'upsell pour un client en bonne
+// santé (voir app/api/cron/upsell-signals). Best-effort, retourne null si
+// l'appel échoue plutôt qu'un texte inventé — pas de repli générique ici car
+// une suggestion vague ne rendrait pas service au commercial.
+export async function generateUpsellSuggestion(prospectId: string): Promise<string | null> {
+  const prospect = await loadWonProspect(prospectId);
+  const societe = (prospect as any).prospect_companies?.name;
+
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('business_summary')
+    .eq('id', prospect.company_id)
+    .maybeSingle();
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Le client "${prospect.full_name}"${societe ? ` (${societe})` : ''} ` +
+              `est en très bonne santé (satisfait, onboarding terminé, ancien) — bon candidat pour une offre ` +
+              `complémentaire ou une montée en gamme.\n` +
+              (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
+              `Suggère en 1-2 phrases courtes et concrètes une piste d'upsell ou de cross-sell pour ce client, ` +
+              `que le commercial pourra explorer lors d'un prochain échange. Réponds uniquement avec cette suggestion, ` +
+              `en français, sans préambule.`,
+          },
+        ],
+      },
+      prospect.company_id
+    );
+    const textBlock = data.content.find((b: any) => b.type === 'text');
+    return textBlock?.text?.trim() || null;
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération suggestion upsell:', err.message);
+    }
+    return null;
+  }
+}
+
+const FALLBACK_TESTIMONIAL: TestimonialRequest = {
+  subject: 'Votre avis compte beaucoup pour nous',
+  body:
+    "Bonjour,\n\nJe suis ravi que ça se passe bien de votre côté !\n\n" +
+    "Accepteriez-vous de partager un court témoignage ou un avis sur votre expérience avec nous ? " +
+    "Ça nous aiderait énormément.\n\nMerci d'avance,",
+};
+
+// Aaron Customer v2 — déclenché automatiquement quand un client répond à un
+// check-in avec une note promoteur (>= 9/10, voir
+// app/api/cron/check-inbox -> handleWonCustomerMessage). Génère un email
+// demandant un témoignage/avis, mis en cache sur prospects.testimonial_email_*,
+// à valider et envoyer par le commercial (jamais d'envoi automatique).
+export async function generateTestimonialRequest(prospectId: string): Promise<TestimonialRequest> {
+  const prospect = await loadWonProspect(prospectId);
+  const fallback = FALLBACK_TESTIMONIAL;
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 250,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Le client "${prospect.full_name}" vient de donner une excellente ` +
+              `note de satisfaction/recommandation. Rédige un email court demandant s'il accepterait de laisser un ` +
+              `témoignage ou un avis sur son expérience, ton chaleureux et reconnaissant, sans être insistant.\n` +
+              `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, en français, sans balises HTML"}`,
+          },
+        ],
+      },
+      prospect.company_id
+    );
+    const result = parseJsonResponse<TestimonialRequest>(data, 'Demande de témoignage');
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        testimonial_email_subject: result.subject,
+        testimonial_email_body: result.body,
+        testimonial_requested_at: new Date().toISOString(),
+      })
+      .eq('id', prospectId);
+
+    return result;
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération demande de témoignage (repli sur template):', err.message);
+    }
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        testimonial_email_subject: fallback.subject,
+        testimonial_email_body: fallback.body,
+        testimonial_requested_at: new Date().toISOString(),
+      })
+      .eq('id', prospectId);
+    return fallback;
+  }
+}
+
+// Aaron Customer v2 — triage support niveau 1. Appelé par
+// app/api/cron/check-inbox (handleWonCustomerMessage) sur un email reçu d'un
+// client qui n'est PAS une réponse claire à un check-in. Classifie si c'est
+// une vraie demande (question, problème, besoin d'aide) et, si oui, rédige
+// une suggestion de réponse — jamais envoyée automatiquement, seulement
+// proposée au commercial (voir customer_support_drafts et
+// app/app/customer/page.jsx).
+export async function generateSupportReply(prospectId: string, messageBody: string): Promise<SupportReplyDraft> {
+  const trimmed = messageBody.trim();
+  if (!trimmed) return { is_support_request: false, suggested_subject: null, suggested_body: null };
+
+  const prospect = await loadWonProspect(prospectId);
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 500,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Voici un email reçu d'un client déjà signé, "${prospect.full_name}" :\n` +
+              `"""${trimmed}"""\n\n` +
+              `Détermine si c'est une vraie demande nécessitant une réponse (question, problème, besoin d'aide, ` +
+              `demande d'info) ou juste un message informatif/social ne nécessitant pas de suggestion (accusé de ` +
+              `réception, remerciement simple, hors-sujet...).\n` +
+              `Si c'est une vraie demande, rédige une suggestion de réponse professionnelle et utile — mais SANS ` +
+              `inventer d'information technique ou de politique que tu ne connais pas ; si tu ne peux pas répondre ` +
+              `sur le fond, propose une réponse qui accuse réception et indique que le commercial revient vers lui ` +
+              `rapidement avec les détails.\n` +
+              `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+              `{"is_support_request": true ou false, "suggested_subject": "objet de la réponse, ou null si is_support_request est false", ` +
+              `"suggested_body": "corps de la réponse suggérée, ou null si is_support_request est false"}`,
+          },
+        ],
+      },
+      prospect.company_id
+    );
+    return parseJsonResponse<SupportReplyDraft>(data, 'Suggestion de réponse support');
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération suggestion de réponse support:', err.message);
+    }
+    return { is_support_request: false, suggested_subject: null, suggested_body: null };
   }
 }

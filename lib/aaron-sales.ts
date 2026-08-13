@@ -29,6 +29,12 @@ export interface AppointmentDebrief {
   email_relance: { subject: string; body: string };
 }
 
+export interface Devis {
+  objet: string;
+  corps_email: string;
+  recapitulatif: { poste: string; description: string }[];
+}
+
 async function loadAppointmentWithProspect(appointmentId: string) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
@@ -203,4 +209,72 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
     .eq('id', appointmentId);
 
   return debrief;
+}
+
+// Aaron Sales v2 — génère (et met en cache sur prospects.devis_*) l'email
+// d'accompagnement d'un devis + un récapitulatif de l'offre par postes, à
+// partir de l'historique des échanges et du résumé métier de la société
+// (companies.business_summary, voir app/api/business-summary). Aaron ne
+// connaît pas les tarifs exacts pratiqués par la société : le récapitulatif
+// ne contient volontairement AUCUN prix — c'est au commercial de les
+// compléter avant d'envoyer (instruction explicite donnée au modèle).
+export async function generateDevis(prospectId: string): Promise<Devis> {
+  const { data: prospect, error } = await supabaseAdmin
+    .from('prospects')
+    .select('id, full_name, job_title, company_id, prospect_company_id, prospect_companies (name, domain)')
+    .eq('id', prospectId)
+    .single();
+
+  if (error || !prospect) throw new Error('Prospect introuvable');
+
+  const companyId = prospect.company_id;
+  const societe = (prospect as any).prospect_companies?.name;
+
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('business_summary')
+    .eq('id', companyId)
+    .maybeSingle();
+
+  const messages = await loadConversationMessages(prospectId);
+
+  const data = await callClaude(
+    {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1200,
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Tu es Aaron, copilote commercial IA. Le commercial doit envoyer un devis/proposition au prospect ` +
+            `"${prospect.full_name}"${societe ? ` (${societe})` : ''} suite aux échanges ci-dessous.\n` +
+            (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
+            `Historique des échanges avec ce prospect :\n${JSON.stringify(messages, null, 2)}\n\n` +
+            `Rédige :\n1) un email d'accompagnement du devis, professionnel et chaleureux, qui rappelle le contexte ` +
+            `et la valeur pour ce prospect précis, en français, sans balises HTML.\n` +
+            `2) un récapitulatif de l'offre sous forme de postes (nom du poste + description courte). ` +
+            `IMPORTANT : n'invente ET n'écris AUCUN prix ni chiffre — tu ne connais pas les tarifs pratiqués par la ` +
+            `société, c'est au commercial de les ajouter lui-même avant l'envoi.\n` +
+            `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+            `{"objet": "objet de l'email", "corps_email": "corps de l'email", ` +
+            `"recapitulatif": [{"poste": "nom du poste", "description": "1 phrase, sans prix"}]}`,
+        },
+      ],
+    },
+    companyId
+  );
+
+  const devis = parseJsonResponse<Devis>(data, 'Devis');
+
+  await supabaseAdmin
+    .from('prospects')
+    .update({
+      devis_subject: devis.objet,
+      devis_body: devis.corps_email,
+      devis_recap: devis.recapitulatif,
+      devis_generated_at: new Date().toISOString(),
+    })
+    .eq('id', prospectId);
+
+  return devis;
 }
