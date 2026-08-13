@@ -13,6 +13,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -65,6 +81,15 @@ const COLLABORATION_LEVELS = [
   { value: 3, label: 'Niveau 3', desc: 'Synchronisation automatique horaire, intégration complète.' },
 ];
 
+const CRM_PROVIDERS = [
+  { value: '', label: '— Sélectionner —' },
+  { value: 'divalto', label: 'Divalto' },
+  { value: 'salesforce', label: 'Salesforce' },
+  { value: 'hubspot', label: 'HubSpot' },
+  { value: 'pipedrive', label: 'Pipedrive' },
+  { value: 'autre', label: 'Autre' },
+];
+
 const OFFERS = [
   { value: 'AP', label: 'Aaron Prospect', desc: 'Prospection, relances et prise de rendez-vous.', available: true },
   { value: 'AS', label: 'Aaron Sales', desc: 'Négociation, devis, gestion des objections.', available: false },
@@ -78,6 +103,20 @@ export default function PreferencesPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [offerError, setOfferError] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadDone, setUploadDone] = useState(false);
+  const [businessSummary, setBusinessSummary] = useState('');
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [summarySaved, setSummarySaved] = useState(false);
+  const [signature, setSignature] = useState('');
+  const [signatureLoaded, setSignatureLoaded] = useState(false);
+  const [detectingSignature, setDetectingSignature] = useState(false);
+  const [signatureError, setSignatureError] = useState(null);
+  const [savingSignature, setSavingSignature] = useState(false);
+  const [signatureSaved, setSignatureSaved] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -87,7 +126,87 @@ export default function PreferencesPage() {
         setPrefs(res.preferences);
         setLoading(false);
       });
+    fetch(`/api/api-usage?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => setUsage(res))
+      .catch(() => {});
+    fetch(`/api/business-summary?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setBusinessSummary(res.summary || '');
+        setSummaryLoaded(true);
+      })
+      .catch(() => setSummaryLoaded(true));
+    fetch(`/api/signature?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setSignature(res.signature || '');
+        setSignatureLoaded(true);
+      })
+      .catch(() => setSignatureLoaded(true));
   }, [userId]);
+
+  async function handleDetectSignature() {
+    setDetectingSignature(true);
+    setSignatureError(null);
+    const res = await fetch('/api/signature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const body = await res.json();
+    setDetectingSignature(false);
+    if (!res.ok || !body.signature) {
+      setSignatureError(body.error || "Aucune signature détectée — saisissez-la manuellement.");
+      return;
+    }
+    setSignature(body.signature);
+  }
+
+  async function handleSaveSignature() {
+    setSavingSignature(true);
+    setSignatureSaved(false);
+    const res = await fetch('/api/signature', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, signature }),
+    });
+    setSavingSignature(false);
+    if (res.ok) {
+      setSignatureSaved(true);
+      setTimeout(() => setSignatureSaved(false), 2500);
+    }
+  }
+
+  async function handleSaveSummary() {
+    setSavingSummary(true);
+    setSummarySaved(false);
+    const res = await fetch('/api/business-summary', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, summary: businessSummary }),
+    });
+    setSavingSummary(false);
+    if (res.ok) {
+      setSummarySaved(true);
+      setTimeout(() => setSummarySaved(false), 2500);
+    }
+  }
+
+  async function handleUpload() {
+    if (!uploadFile) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('user_id', userId);
+    formData.append('description', 'Historique clients gagnés/perdus (niveau 1 CRM)');
+    const res = await fetch('/api/documents', { method: 'POST', body: formData });
+    setUploading(false);
+    if (res.ok) {
+      setUploadDone(true);
+      setUploadFile(null);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -102,6 +221,8 @@ export default function PreferencesPage() {
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
         collaboration_level: prefs.collaboration_level,
         offer: prefs.offer,
+        crm_provider: prefs.crm_provider,
+        crm_connection_notes: prefs.crm_connection_notes,
       }),
     });
     setSaving(false);
@@ -154,6 +275,49 @@ export default function PreferencesPage() {
         <p className="muted">Chargement…</p>
       ) : (
         <div className="panel">
+          {summaryLoaded && (
+            <div className="field">
+              <label>Ton profil business (ce qu'Aaron a compris de ton métier)</label>
+              <textarea
+                rows={6}
+                value={businessSummary}
+                onChange={(e) => setBusinessSummary(e.target.value)}
+                placeholder="Pas encore de résumé — réponds au questionnaire dans « Chat avec Aaron » pour en générer un, ou écris-le toi-même ici."
+              />
+              <div className="actions">
+                <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
+                  {savingSummary ? 'Enregistrement…' : 'Enregistrer ce résumé'}
+                </button>
+                {summarySaved && <span className="saved-msg">Résumé mis à jour ✓</span>}
+              </div>
+            </div>
+          )}
+
+          {signatureLoaded && (
+            <div className="field">
+              <label>Ta signature email (ajoutée automatiquement aux emails qu'Aaron envoie pour toi)</label>
+              <textarea
+                rows={4}
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                placeholder="ex: Marie Dupont — Responsable commerciale — 06 12 34 56 78"
+              />
+              {signatureError && <p className="error">{signatureError}</p>}
+              <div className="actions">
+                <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
+                  {detectingSignature ? 'Détection…' : 'Détecter depuis mon dernier email envoyé'}
+                </button>
+                <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
+                  {savingSignature ? 'Enregistrement…' : 'Enregistrer la signature'}
+                </button>
+                {signatureSaved && <span className="saved-msg">Signature enregistrée ✓</span>}
+              </div>
+              <p className="collab-extra-hint">
+                La détection automatique est une estimation à partir de ton dernier email envoyé (Gmail uniquement pour l'instant) — relis-la avant d'enregistrer.
+              </p>
+            </div>
+          )}
+
           <div className="field">
             <label>Votre abonnement</label>
             <div className="offer-options">
@@ -222,6 +386,43 @@ export default function PreferencesPage() {
                 </button>
               ))}
             </div>
+
+            {prefs.collaboration_level === 1 && (
+              <div className="collab-extra">
+                <p className="collab-extra-hint">
+                  Envoyez-nous un fichier (xls, csv, pdf ou txt) de vos clients gagnés et perdus : Aaron s'en sert pour mieux cibler ses prospects.
+                </p>
+                <div className="upload-row">
+                  <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                  <button type="button" className="btn-secondary" onClick={handleUpload} disabled={!uploadFile || uploading}>
+                    {uploading ? 'Envoi…' : 'Envoyer'}
+                  </button>
+                </div>
+                {uploadDone && <p className="saved-msg">Fichier envoyé — retrouvable dans "Mes documents" ✓</p>}
+              </div>
+            )}
+
+            {(prefs.collaboration_level === 2 || prefs.collaboration_level === 3) && (
+              <div className="collab-extra">
+                <label className="sub-label">Quel CRM utilisez-vous ?</label>
+                <select
+                  value={prefs.crm_provider || ''}
+                  onChange={(e) => setPrefs({ ...prefs, crm_provider: e.target.value || null })}
+                >
+                  {CRM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+                <label className="sub-label">Précisions (contact IT, nom exact de l'instance…)</label>
+                <textarea
+                  rows={3}
+                  value={prefs.crm_connection_notes || ''}
+                  onChange={(e) => setPrefs({ ...prefs, crm_connection_notes: e.target.value })}
+                  placeholder="ex: instance Salesforce hébergée par notre service IT, contact : jean@..."
+                />
+                <p className="collab-extra-hint">
+                  La connexion technique à votre CRM se met en place avec l'équipe Open X une fois ces informations reçues.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="actions">
@@ -230,6 +431,38 @@ export default function PreferencesPage() {
             </button>
             {saved && <span className="saved-msg">Préférences enregistrées ✓</span>}
           </div>
+
+          {usage && (
+            <div className="field usage-field">
+              <label>Suivi des coûts API (estimation)</label>
+              <div className="usage-box">
+                <div className="usage-row">
+                  <span>Ce mois-ci</span>
+                  <strong>
+                    {usage.month_cost_usd.toFixed(2)} $
+                    {usage.monthly_cap_usd !== null && ` / ${usage.monthly_cap_usd} $ plafond`}
+                  </strong>
+                </div>
+                <div className="usage-row">
+                  <span>Aujourd'hui</span>
+                  <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
+                </div>
+                <div className="usage-bars">
+                  {usage.last_7_days.map((d) => (
+                    <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${d.cost_usd.toFixed(2)} $`}>
+                      <div
+                        className="usage-bar"
+                        style={{ height: `${Math.min(100, (d.cost_usd / (usage.daily_cap_usd || 1)) * 100)}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="usage-hint">
+                  Estimation basée sur les tarifs Claude — la facturation exacte reste consultable sur console.anthropic.com.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -367,6 +600,83 @@ export default function PreferencesPage() {
           font-size: 0.76rem;
           color: var(--muted);
           line-height: 1.35;
+        }
+        .collab-extra {
+          margin-top: 0.9rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem 1rem;
+        }
+        .collab-extra-hint {
+          font-size: 0.8rem;
+          color: var(--muted);
+          margin: 0 0 0.7rem;
+          line-height: 1.4;
+        }
+        .sub-label {
+          display: block;
+          font-size: 0.8rem;
+          color: var(--muted);
+          margin: 0.6rem 0 0.35rem;
+        }
+        .upload-row {
+          display: flex;
+          gap: 0.6rem;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        select, textarea {
+          width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+        }
+        .usage-field {
+          margin-top: 0.5rem;
+        }
+        .usage-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 1rem;
+        }
+        .usage-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.86rem;
+          margin-bottom: 0.5rem;
+        }
+        .usage-bars {
+          display: flex;
+          align-items: flex-end;
+          gap: 0.4rem;
+          height: 48px;
+          margin: 0.8rem 0 0.4rem;
+        }
+        .usage-bar-wrap {
+          flex: 1;
+          height: 100%;
+          display: flex;
+          align-items: flex-end;
+          background: var(--surface);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+        .usage-bar {
+          width: 100%;
+          background: var(--accent);
+          min-height: 2px;
+        }
+        .usage-hint {
+          font-size: 0.74rem;
+          color: var(--muted);
+          margin: 0;
+          line-height: 1.4;
         }
         .error {
           color: #e5484d;
