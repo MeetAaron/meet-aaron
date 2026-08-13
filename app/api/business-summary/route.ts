@@ -10,6 +10,63 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 
+// GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
+// retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
+// juste après l'onboarding).
+export async function GET(request: NextRequest) {
+  const userId = request.nextUrl.searchParams.get('user_id');
+  if (!userId) {
+    return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
+  }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
+
+  const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).single();
+  if (!user?.company_id) {
+    return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
+  }
+
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('business_summary')
+    .eq('id', user.company_id)
+    .single();
+
+  return NextResponse.json({ summary: company?.business_summary || null });
+}
+
+// PATCH -> permet au commercial de corriger/étoffer le résumé à la main,
+// sans repasser par une régénération via Claude.
+export async function PATCH(request: NextRequest) {
+  const { user_id, summary } = await request.json();
+
+  if (!user_id || typeof summary !== 'string') {
+    return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
+  }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== user_id) return forbiddenResponse();
+
+  const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', user_id).single();
+  if (!user?.company_id) {
+    return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('companies')
+    .update({ business_summary: summary.trim() })
+    .eq('id', user.company_id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
 export async function POST(request: NextRequest) {
   const { user_id, description, qa } = await request.json();
 
