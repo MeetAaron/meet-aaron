@@ -9,6 +9,7 @@ import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/go
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
+import { parseCheckinResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -65,6 +66,76 @@ async function fetchNewMessagesForConnection(connection: {
   return detailed;
 }
 
+// Traite un email reçu d'un client déjà gagné (is_won = true). Contrairement
+// au flux de prospection, Aaron ne répond JAMAIS automatiquement à un client
+// (pas de generateAaronResponse ici) — on se contente de : 1) archiver le
+// message dans l'historique de conversation existant, 2) si un check-in
+// satisfaction/NPS envoyé par app/api/cron/customer-checkins attend encore
+// une réponse, essayer d'en extraire la note et le commentaire.
+async function handleWonCustomerMessage(
+  prospect: { id: string; full_name: string; company_id: string | null },
+  userId: string,
+  fromEmail: string,
+  bodyText: string
+) {
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('prospect_id', prospect.id)
+    .eq('channel', 'email')
+    .single();
+
+  if (conversation) {
+    await supabaseAdmin.from('messages').insert({
+      conversation_id: conversation.id,
+      direction: 'inbound',
+      sender_email: fromEmail,
+      recipient_email: '',
+      body: bodyText,
+    });
+  }
+
+  const { data: pendingCheckin } = await supabaseAdmin
+    .from('customer_checkins')
+    .select('id')
+    .eq('prospect_id', prospect.id)
+    .is('responded_at', null)
+    .order('sent_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!pendingCheckin) return;
+
+  try {
+    const parsed = await parseCheckinResponse(bodyText, prospect.company_id);
+    const now = new Date().toISOString();
+
+    await supabaseAdmin
+      .from('customer_checkins')
+      .update({
+        responded_at: now,
+        response_score: parsed.score,
+        response_comment: parsed.comment,
+      })
+      .eq('id', pendingCheckin.id);
+
+    await supabaseAdmin.from('prospects').update({ last_checkin_response_at: now }).eq('id', prospect.id);
+
+    // Note basse (0-6/10) : signal fort qu'il vaut mieux prévenir le
+    // commercial tout de suite plutôt que d'attendre le prochain calcul du
+    // score de santé (une fois par jour, voir app/api/cron/customer-health).
+    if (parsed.score !== null && parsed.score <= 6) {
+      await sendPushNotification(userId, {
+        title: 'Client insatisfait',
+        body: `${prospect.full_name} a répondu avec une note de ${parsed.score}/10 à un check-in. Un contact personnel peut aider.`,
+        url: `/app/customer?user_id=${userId}`,
+      });
+    }
+  } catch (err: any) {
+    console.error(`Erreur traitement réponse check-in pour prospect ${prospect.id}:`, err.message);
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -106,16 +177,25 @@ export async function GET(request: NextRequest) {
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, full_name, is_won, is_lost')
+        .select('id, full_name, is_won, is_lost, company_id')
         .eq('email', fromEmail)
         .eq('assigned_user_id', connection.user_id)
         .single();
 
-      // is_won : le prospect est déjà client, ce fil ne concerne plus la
-      // prospection. is_lost : marqué manuellement comme perdu par le
-      // commercial (via "Marquer comme perdu" dans Prospects) — Aaron doit
-      // arrêter de le recontacter, même s'il répond après coup.
-      if (!prospect || prospect.is_won || prospect.is_lost) continue;
+      // is_lost : marqué manuellement comme perdu par le commercial (via
+      // "Marquer comme perdu" dans Prospects) — Aaron doit arrêter de le
+      // recontacter, même s'il répond après coup.
+      if (!prospect || prospect.is_lost) continue;
+
+      // is_won : le prospect est déjà client — Aaron Prospect (relance de
+      // prospection automatique) ne s'applique plus, mais Aaron Customer
+      // capte quand même le message pour l'historique et, si un check-in
+      // satisfaction/NPS est en attente de réponse, en extrait la note.
+      // Voir lib/aaron-customer.ts et migration_aaron_customer_2026-08-13.sql.
+      if (prospect.is_won) {
+        await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText);
+        continue;
+      }
 
       const { data: conversation } = await supabaseAdmin
         .from('conversations')
