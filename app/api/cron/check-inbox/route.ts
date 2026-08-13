@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/google';
-import { listNewOutlookMessages, getOutlookMessage } from '@/lib/microsoft';
+import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { sendPushNotification } from '@/lib/push';
@@ -92,11 +92,16 @@ export async function GET(request: NextRequest) {
       const { fromEmail, bodyText, threadId } = msg;
       if (!fromEmail) continue;
 
-      // Marque le fil comme "géré par Aaron" dès la réception, avant même de
-      // générer la réponse — si la génération échoue plus bas, le commercial
-      // sait quand même qu'il ne doit pas répondre lui-même en attendant.
+      // Marque le message comme "géré par Aaron" dès la réception, avant même
+      // de générer la réponse — si la génération échoue plus bas, le
+      // commercial sait quand même qu'il ne doit pas répondre lui-même en
+      // attendant. Gmail : label posé sur tout le fil. Outlook : catégorie
+      // posée sur ce message précis (voir applyAaronCategory dans
+      // lib/microsoft.ts — Outlook catégorise message par message, pas par fil).
       if (connection.provider === 'google') {
         applyAaronLabel(connection.user_id, threadId).catch(() => {});
+      } else if (connection.provider === 'microsoft') {
+        applyAaronCategory(connection.user_id, msg.id).catch(() => {});
       }
 
       const { data: prospect } = await supabaseAdmin
