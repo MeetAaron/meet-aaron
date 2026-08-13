@@ -45,8 +45,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json({ prospect, messages });
 }
 
+const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe', 'perdu'];
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action } = await request.json();
+  const { action, deal_stage } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -154,6 +156,41 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true, status: 'gagne' });
+  }
+
+  // Aaron Sales — changement manuel d'étape du pipeline de vente depuis
+  // app/app/sales/page.jsx (ex: le commercial coche "devis envoyé" lui-même
+  // plutôt que d'attendre la mise à jour automatique via le bilan de RDV,
+  // voir lib/appointment-outcome.ts).
+  if (action === 'set_deal_stage') {
+    if (!VALID_DEAL_STAGES.includes(deal_stage)) {
+      return NextResponse.json({ error: 'Étape de pipeline invalide' }, { status: 400 });
+    }
+
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    const now = new Date().toISOString();
+    const update: Record<string, any> = { deal_stage, deal_stage_updated_at: now };
+
+    // Garde is_won/is_lost cohérents avec l'étape choisie manuellement, comme
+    // le fait déjà la mise à jour automatique depuis le bilan de RDV.
+    if (deal_stage === 'signe') {
+      update.is_won = true;
+      update.won_at = now;
+      update.is_lost = false;
+    } else if (deal_stage === 'perdu') {
+      update.is_lost = true;
+      update.lost_at = now;
+    } else {
+      update.is_won = false;
+      update.is_lost = false;
+    }
+
+    await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
+
+    return NextResponse.json({ success: true, deal_stage });
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
