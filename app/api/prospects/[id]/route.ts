@@ -49,7 +49,7 @@ const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe'
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage, onboarding_status } = await request.json();
+  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -217,6 +217,80 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true, onboarding_status });
+  }
+
+  // Aaron Sales v2 — le commercial colle ici le lien de la procédure de
+  // signature externe (Yousign ou autre) une fois le devis envoyé, en
+  // attendant une éventuelle intégration API directe (nécessite une clé
+  // Yousign fournie par Alex — voir migration_aaron_v2_2026-08-13.sql).
+  if (action === 'set_signature_link') {
+    if (typeof signature_link !== 'string' || !signature_link.trim()) {
+      return NextResponse.json({ error: 'Lien de signature manquant' }, { status: 400 });
+    }
+
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ signature_external_link: signature_link.trim(), signature_requested_at: new Date().toISOString() })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === 'clear_signature_link') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ signature_external_link: null, signature_requested_at: null })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true });
+  }
+
+  // Aaron Customer v2 — date de renouvellement saisie manuellement par le
+  // commercial (Aaron n'a aucun moyen de la connaître seul). Réinitialise
+  // renewal_reminder_sent_at pour que le cron app/api/cron/renewal-reminders
+  // reparte sur un nouveau cycle d'alerte si la date change.
+  if (action === 'set_renewal_date') {
+    if (contract_renewal_date !== null && typeof contract_renewal_date !== 'string') {
+      return NextResponse.json({ error: 'Date de renouvellement invalide' }, { status: 400 });
+    }
+
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.is_won) {
+      return NextResponse.json({ error: "Ce prospect n'est pas (encore) un client gagné" }, { status: 400 });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ contract_renewal_date, renewal_reminder_sent_at: null })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, contract_renewal_date });
+  }
+
+  // Aaron Customer v2 — écarte une suggestion d'upsell du tableau de bord
+  // sans la traiter (voir app/api/cron/upsell-signals).
+  if (action === 'dismiss_upsell') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ upsell_dismissed_at: new Date().toISOString() })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true });
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
