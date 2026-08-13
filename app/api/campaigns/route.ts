@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     sector_keywords,
     company_sizes,
     target_count,
+    context_notes,
   } = body;
 
   if (!company_id || !assigned_user_id || !zone_label || !zone_type || !zone_codes || !sector_keywords) {
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
       sector_keywords,
       company_sizes: Array.isArray(company_sizes) ? company_sizes : [],
       target_count: target_count || 20,
+      context_notes: context_notes || null,
       status: 'en_attente',
     })
     .select()
