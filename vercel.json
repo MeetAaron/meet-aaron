@@ -23,6 +23,14 @@
     {
       "path": "/api/cron/stale-deals-alert",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/customer-health",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/customer-checkins",
+      "schedule": "0 9 * * *"
     }
   ]
 }
