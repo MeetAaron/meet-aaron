@@ -94,20 +94,46 @@ export default function CustomerPage() {
   const [onboardingError, setOnboardingError] = useState(null);
   const [sendingWelcome, setSendingWelcome] = useState(false);
 
+  const [renewalDateInput, setRenewalDateInput] = useState('');
+  const [renewalSaving, setRenewalSaving] = useState(false);
+  const [renewalLoading, setRenewalLoading] = useState(false);
+  const [renewalError, setRenewalError] = useState(null);
+  const [sendingRenewal, setSendingRenewal] = useState(false);
+
+  const [testimonialLoading, setTestimonialLoading] = useState(false);
+  const [testimonialError, setTestimonialError] = useState(null);
+  const [sendingTestimonial, setSendingTestimonial] = useState(false);
+
+  const [supportDrafts, setSupportDrafts] = useState([]);
+  const [supportDraftsLoading, setSupportDraftsLoading] = useState(true);
+  const [supportActionId, setSupportActionId] = useState(null);
+
   async function load() {
     const res = await fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json());
     setCustomers(res.customers || []);
     setLoading(false);
   }
 
+  async function loadSupportDrafts() {
+    setSupportDraftsLoading(true);
+    const res = await fetch(`/api/support-drafts?user_id=${userId}`).then((r) => r.json());
+    setSupportDrafts(res.drafts || []);
+    setSupportDraftsLoading(false);
+  }
+
   useEffect(() => {
     if (!userId) return;
     load();
+    loadSupportDrafts();
   }, [userId]);
 
   useEffect(() => {
     setOnboarding(null);
     setOnboardingError(null);
+    setRenewalError(null);
+    setTestimonialError(null);
+    const customer = customers.find((c) => c.id === selectedId);
+    setRenewalDateInput(customer?.contract_renewal_date || '');
   }, [selectedId]);
 
   const selectedCustomer = customers.find((c) => c.id === selectedId) || null;
@@ -146,6 +172,89 @@ export default function CustomerPage() {
       return;
     }
     await load();
+  }
+
+  async function handleSetRenewalDate(customerId) {
+    setRenewalSaving(true);
+    await fetch(`/api/prospects/${customerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_renewal_date', contract_renewal_date: renewalDateInput || null }),
+    });
+    setRenewalSaving(false);
+    await load();
+  }
+
+  async function handleGenerateRenewal(customerId, regenerate) {
+    setRenewalLoading(true);
+    setRenewalError(null);
+    const res = await fetch(`/api/prospects/${customerId}/renewal${regenerate ? '?regenerate=1' : ''}`);
+    const body = await res.json();
+    setRenewalLoading(false);
+    if (!res.ok) {
+      setRenewalError(body.error || "Impossible de générer l'email de renouvellement.");
+      return;
+    }
+    await load();
+  }
+
+  async function handleSendRenewal(customerId) {
+    setSendingRenewal(true);
+    setRenewalError(null);
+    const res = await fetch(`/api/prospects/${customerId}/renewal`, { method: 'POST' });
+    const body = await res.json();
+    setSendingRenewal(false);
+    if (!res.ok) {
+      setRenewalError(body.error || "Impossible d'envoyer l'email.");
+      return;
+    }
+    await load();
+  }
+
+  async function handleDismissUpsell(customerId) {
+    await fetch(`/api/prospects/${customerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'dismiss_upsell' }),
+    });
+    await load();
+  }
+
+  async function handleGenerateTestimonial(customerId, regenerate) {
+    setTestimonialLoading(true);
+    setTestimonialError(null);
+    const res = await fetch(`/api/prospects/${customerId}/testimonial${regenerate ? '?regenerate=1' : ''}`);
+    const body = await res.json();
+    setTestimonialLoading(false);
+    if (!res.ok) {
+      setTestimonialError(body.error || 'Impossible de générer la demande.');
+      return;
+    }
+    await load();
+  }
+
+  async function handleSendTestimonial(customerId) {
+    setSendingTestimonial(true);
+    setTestimonialError(null);
+    const res = await fetch(`/api/prospects/${customerId}/testimonial`, { method: 'POST' });
+    const body = await res.json();
+    setSendingTestimonial(false);
+    if (!res.ok) {
+      setTestimonialError(body.error || "Impossible d'envoyer la demande.");
+      return;
+    }
+    await load();
+  }
+
+  async function handleSupportDraftAction(draftId, action) {
+    setSupportActionId(draftId);
+    await fetch(`/api/support-drafts/${draftId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    setSupportActionId(null);
+    await loadSupportDrafts();
   }
 
   if (authLoading) {
@@ -187,6 +296,41 @@ export default function CustomerPage() {
           son avis (check-ins satisfaction/NPS) et calcule un score de santé pour repérer tôt un risque de désabonnement.
         </p>
       </header>
+
+      {!supportDraftsLoading && supportDrafts.length > 0 && (
+        <section className="support-inbox">
+          <h3>Suggestions de réponse support ({supportDrafts.length})</h3>
+          <p className="muted">Aaron a repéré ces messages clients comme nécessitant une réponse — relis et valide avant envoi.</p>
+          <div className="support-list">
+            {supportDrafts.map((draft) => (
+              <div className="support-card" key={draft.id}>
+                <p className="support-from"><strong>{draft.prospect_full_name}</strong></p>
+                {draft.inbound_excerpt && <p className="support-excerpt">« {draft.inbound_excerpt} »</p>}
+                <div className="email-preview">
+                  <p className="email-subject">{draft.suggested_subject}</p>
+                  <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{draft.suggested_body}</p>
+                </div>
+                <div className="support-actions">
+                  <button
+                    className="btn-secondary"
+                    onClick={() => handleSupportDraftAction(draft.id, 'ecarter')}
+                    disabled={supportActionId === draft.id}
+                  >
+                    Écarter
+                  </button>
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleSupportDraftAction(draft.id, 'envoyer')}
+                    disabled={supportActionId === draft.id}
+                  >
+                    {supportActionId === draft.id ? 'Envoi…' : 'Envoyer'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {loading ? (
         <p className="muted">Chargement…</p>
@@ -325,6 +469,89 @@ export default function CustomerPage() {
                         <p className="muted">En attente de réponse.</p>
                       )}
                     </div>
+                  )}
+                </section>
+
+                {selectedCustomer.upsell_suggestion && !selectedCustomer.upsell_dismissed_at && (
+                  <section className="block">
+                    <h3>Piste d'upsell</h3>
+                    <div className="brief-box">
+                      <p>{selectedCustomer.upsell_suggestion}</p>
+                    </div>
+                    <button className="btn-secondary" onClick={() => handleDismissUpsell(selectedCustomer.id)}>
+                      Écarter
+                    </button>
+                  </section>
+                )}
+
+                <section className="block">
+                  <h3>Renouvellement</h3>
+                  <div className="stage-row">
+                    <label htmlFor="renewal-date">Date de renouvellement :</label>
+                    <input
+                      id="renewal-date"
+                      type="date"
+                      value={renewalDateInput || ''}
+                      onChange={(e) => setRenewalDateInput(e.target.value)}
+                      className="date-input"
+                    />
+                    <button className="btn-secondary" onClick={() => handleSetRenewalDate(selectedCustomer.id)} disabled={renewalSaving}>
+                      {renewalSaving ? '…' : 'Enregistrer'}
+                    </button>
+                  </div>
+
+                  {selectedCustomer.contract_renewal_date && (
+                    <>
+                      {selectedCustomer.renewal_email_sent_at ? (
+                        <p className="sent-note">✓ Email de renouvellement envoyé</p>
+                      ) : selectedCustomer.renewal_email_subject ? (
+                        <div className="email-preview">
+                          <p className="email-subject">{selectedCustomer.renewal_email_subject}</p>
+                          <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.renewal_email_body}</p>
+                          {renewalError && <p className="error">{renewalError}</p>}
+                          <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, true)} disabled={renewalLoading}>
+                            {renewalLoading ? 'Régénération…' : 'Régénérer'}
+                          </button>
+                          <button className="btn-primary" onClick={() => handleSendRenewal(selectedCustomer.id)} disabled={sendingRenewal}>
+                            {sendingRenewal ? 'Envoi…' : "Envoyer au client"}
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, false)} disabled={renewalLoading}>
+                            {renewalLoading ? 'Génération…' : "Générer l'email de relance"}
+                          </button>
+                          {renewalError && <p className="error">{renewalError}</p>}
+                        </>
+                      )}
+                    </>
+                  )}
+                </section>
+
+                <section className="block">
+                  <h3>Demande de témoignage</h3>
+                  {selectedCustomer.testimonial_email_sent_at ? (
+                    <p className="sent-note">✓ Demande envoyée</p>
+                  ) : selectedCustomer.testimonial_email_subject ? (
+                    <div className="email-preview">
+                      <p className="email-subject">{selectedCustomer.testimonial_email_subject}</p>
+                      <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.testimonial_email_body}</p>
+                      {testimonialError && <p className="error">{testimonialError}</p>}
+                      <button className="btn-secondary" onClick={() => handleGenerateTestimonial(selectedCustomer.id, true)} disabled={testimonialLoading}>
+                        {testimonialLoading ? 'Régénération…' : 'Régénérer'}
+                      </button>
+                      <button className="btn-primary" onClick={() => handleSendTestimonial(selectedCustomer.id)} disabled={sendingTestimonial}>
+                        {sendingTestimonial ? 'Envoi…' : 'Envoyer au client'}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="muted">Générée automatiquement quand un client répond très positivement à un check-in — ou génère-la ici manuellement.</p>
+                      <button className="btn-secondary" onClick={() => handleGenerateTestimonial(selectedCustomer.id, false)} disabled={testimonialLoading}>
+                        {testimonialLoading ? 'Génération…' : 'Générer la demande'}
+                      </button>
+                      {testimonialError && <p className="error">{testimonialError}</p>}
+                    </>
                   )}
                 </section>
               </>
@@ -540,6 +767,53 @@ export default function CustomerPage() {
           font-size: 0.8rem;
           margin: 0.6rem 0 0;
         }
+        .date-input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.4rem 0.6rem;
+          font-size: 0.82rem;
+          font-family: inherit;
+        }
+        .support-inbox {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.2rem 1.4rem;
+          margin-bottom: 1.8rem;
+        }
+        .support-inbox h3 {
+          font-size: 0.95rem;
+          margin: 0 0 0.3rem;
+        }
+        .support-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 0.8rem;
+          margin-top: 0.9rem;
+        }
+        .support-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem;
+        }
+        .support-from {
+          font-size: 0.84rem;
+          margin: 0 0 0.4rem;
+        }
+        .support-excerpt {
+          font-size: 0.78rem;
+          color: var(--muted);
+          font-style: italic;
+          margin: 0 0 0.6rem;
+        }
+        .support-actions {
+          display: flex;
+          gap: 0.5rem;
+          margin-top: 0.8rem;
+        }
         @media (max-width: 1100px) {
           .board-layout {
             grid-template-columns: 1fr;
@@ -547,6 +821,9 @@ export default function CustomerPage() {
           .detail {
             position: static;
             max-height: none;
+          }
+          .support-list {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
