@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -78,6 +94,7 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [companyId, setCompanyId] = useState(null);
 
   async function loadCampaigns() {
@@ -144,7 +161,7 @@ export default function CampaignsPage() {
           <p className="eyebrow">Prospection</p>
           <h1>Vos campagnes</h1>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>
+        <button className="btn-primary" onClick={() => setShowChat(true)}>
           + Nouvelle campagne
         </button>
       </header>
@@ -169,6 +186,7 @@ export default function CampaignsPage() {
                         {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
                       </p>
                     )}
+                    {c.context_notes && <p className="context-notes">💬 {c.context_notes}</p>}
                   </div>
                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
                     {status.label}
@@ -185,6 +203,22 @@ export default function CampaignsPage() {
             );
           })}
         </div>
+      )}
+
+      {showChat && (
+        <ChatCampaignModal
+          userId={userId}
+          companyId={companyId}
+          onClose={() => setShowChat(false)}
+          onSwitchToForm={() => {
+            setShowChat(false);
+            setShowForm(true);
+          }}
+          onCreated={() => {
+            setShowChat(false);
+            loadCampaigns();
+          }}
+        />
       )}
 
       {showForm && (
@@ -275,11 +309,348 @@ export default function CampaignsPage() {
           justify-content: space-between;
           font-size: 0.78rem;
         }
+        .context-notes {
+          font-size: 0.78rem;
+          color: var(--muted);
+          margin: 0.4rem 0 0;
+          line-height: 1.35;
+        }
         .muted {
           color: var(--muted);
         }
       `}</style>
     </Shell>
+  );
+}
+
+const ZONE_SUGGESTIONS = [
+  { flag: '🇫🇷', label: 'France' },
+  { flag: '🇧🇪', label: 'Belgique' },
+  { flag: '🇨🇭', label: 'Suisse' },
+  { flag: '🇩🇪', label: 'Allemagne' },
+  { flag: '🇬🇧', label: 'Royaume-Uni' },
+  { flag: '🇪🇸', label: 'Espagne' },
+  { flag: '🇺🇸', label: 'États-Unis' },
+  { flag: '🌍', label: 'Autre / plusieurs pays' },
+];
+
+function extractCampaignJson(text) {
+  const match = text.match(/```campaign_json\s*([\s\S]*?)```/);
+  if (!match) return { displayText: text, recap: null };
+  const displayText = text.slice(0, match.index).trim();
+  try {
+    const recap = JSON.parse(match[1].trim());
+    return { displayText, recap };
+  } catch {
+    return { displayText, recap: null };
+  }
+}
+
+function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreated }) {
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content:
+        "Discutons de ta prochaine campagne. Pas besoin de tout dire d'un coup, on avance question par question, et à la fin je te propose un récapitulatif que tu pourras valider ou corriger.\n\n" +
+        "Pour commencer : quel type d'entreprise ou de client recherches-tu pour cette campagne (secteur d'activité, profil) ?",
+    },
+  ]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [recap, setRecap] = useState(null);
+  const [error, setError] = useState(null);
+  const [launching, setLaunching] = useState(false);
+
+  async function sendMessage(text) {
+    if (!text.trim() || sending) return;
+    const history = messages;
+    const userMessage = { role: 'user', content: text };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setSending(true);
+    setError(null);
+
+    const res = await fetch('/api/campaigns/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, message: text, history }),
+    });
+    const body = await res.json();
+    setSending(false);
+
+    if (!res.ok) {
+      setError(body.error || "Erreur, réessaie.");
+      return;
+    }
+
+    const { displayText, recap: newRecap } = extractCampaignJson(body.reply);
+    setMessages((prev) => [...prev, { role: 'assistant', content: displayText }]);
+    setRecap(newRecap);
+  }
+
+  function handleSend(e) {
+    e.preventDefault();
+    sendMessage(input);
+  }
+
+  function addChip(text) {
+    setInput((prev) => (prev.trim() ? `${prev.trim()}, ${text}` : text));
+  }
+
+  async function handleLaunch() {
+    if (!recap) return;
+    setLaunching(true);
+    setError(null);
+    const res = await fetch('/api/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        assigned_user_id: userId,
+        zone_label: recap.zone_label || 'Zone non précisée',
+        zone_type: 'zone',
+        zone_codes: [recap.zone_label || 'Zone non précisée'],
+        sector_keywords: Array.isArray(recap.sector_keywords) && recap.sector_keywords.length ? recap.sector_keywords : ['tous secteurs'],
+        company_sizes: Array.isArray(recap.company_sizes) ? recap.company_sizes : [],
+        target_count: Number(recap.target_count) || 20,
+        context_notes: recap.context_notes || null,
+      }),
+    });
+    setLaunching(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error || 'Erreur lors de la création');
+      return;
+    }
+    onCreated();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="chat-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="chat-header">
+          <h2>Nouvelle campagne — avec Aaron</h2>
+          <button type="button" className="close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="chat-messages">
+          {messages.map((m, i) => (
+            <div key={i} className={`bubble ${m.role}`}>
+              {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
+            </div>
+          ))}
+          {sending && <div className="bubble assistant"><p className="typing">Aaron réfléchit…</p></div>}
+        </div>
+
+        {messages.length <= 2 && (
+          <div className="chip-row">
+            {ZONE_SUGGESTIONS.map((z) => (
+              <button type="button" key={z.label} className="chip" onClick={() => addChip(z.label)}>
+                {z.flag} {z.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {recap && (
+          <div className="recap-box">
+            <p className="recap-title">Récapitulatif proposé</p>
+            <p><strong>Zone :</strong> {recap.zone_label || '—'}</p>
+            <p><strong>Secteur(s) :</strong> {(recap.sector_keywords || []).join(', ') || '—'}</p>
+            <p><strong>Taille(s) :</strong> {(recap.company_sizes || []).length ? recap.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ') : 'Toutes'}</p>
+            <p><strong>Objectif :</strong> {recap.target_count || 20} contacts</p>
+            {recap.context_notes && <p><strong>Notes :</strong> {recap.context_notes}</p>}
+            <p className="recap-hint">Tu peux répondre ci-dessous pour corriger, ou lancer directement.</p>
+            <button type="button" className="btn-primary" onClick={handleLaunch} disabled={launching}>
+              {launching ? 'Lancement…' : 'Lancer la campagne 🚀'}
+            </button>
+          </div>
+        )}
+
+        {error && <p className="error">{error}</p>}
+
+        <form className="chat-input-row" onSubmit={handleSend}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Écris ta réponse…"
+            disabled={sending}
+          />
+          <button type="submit" className="btn-secondary" disabled={sending || !input.trim()}>Envoyer</button>
+        </form>
+
+        <p className="switch-link" onClick={onSwitchToForm}>Préférer le formulaire classique ?</p>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .chat-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem;
+          width: 560px;
+          max-width: 100%;
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+        }
+        .chat-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.8rem;
+        }
+        .chat-header h2 {
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+          margin: 0;
+        }
+        .close-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .chat-messages {
+          overflow-y: auto;
+          flex: 1;
+          min-height: 200px;
+          max-height: 40vh;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          margin-bottom: 0.8rem;
+        }
+        .bubble {
+          border-radius: 12px;
+          padding: 0.6rem 0.85rem;
+          font-size: 0.86rem;
+          line-height: 1.45;
+          max-width: 88%;
+        }
+        .bubble p {
+          margin: 0;
+        }
+        .bubble p + p {
+          margin-top: 0.4rem;
+        }
+        .bubble.assistant {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          align-self: flex-start;
+        }
+        .bubble.user {
+          background: rgba(75, 57, 239, 0.18);
+          align-self: flex-end;
+        }
+        .typing {
+          color: var(--muted);
+          font-style: italic;
+        }
+        .chip-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          margin-bottom: 0.8rem;
+        }
+        .chip {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.35rem 0.7rem;
+          font-size: 0.78rem;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .chip:hover {
+          border-color: var(--accent);
+          color: var(--text);
+        }
+        .recap-box {
+          background: var(--bg);
+          border: 1px solid var(--accent);
+          border-radius: 10px;
+          padding: 0.9rem 1rem;
+          margin-bottom: 0.8rem;
+          font-size: 0.84rem;
+        }
+        .recap-title {
+          font-weight: 600;
+          margin: 0 0 0.5rem;
+          font-size: 0.76rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--accent);
+        }
+        .recap-box p {
+          margin: 0.25rem 0;
+          color: var(--text);
+        }
+        .recap-hint {
+          color: var(--muted) !important;
+          font-size: 0.78rem;
+          margin: 0.5rem 0 0.7rem !important;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.82rem;
+          margin: 0 0 0.6rem;
+        }
+        .chat-input-row {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .chat-input-row input {
+          flex: 1;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.88rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+        .switch-link {
+          text-align: center;
+          font-size: 0.76rem;
+          color: var(--muted);
+          text-decoration: underline;
+          cursor: pointer;
+          margin: 0.8rem 0 0;
+        }
+      `}</style>
+    </div>
   );
 }
 
