@@ -60,36 +60,129 @@ async function getValidAccessToken(userId: string): Promise<string> {
   return newTokens.access_token;
 }
 
+const AARON_CATEGORY_NAME = '🤖 Géré par Aaron';
+
+// Équivalent Outlook du label Gmail "🤖 Géré par Aaron" (voir AARON_LABEL_NAME /
+// applyAaronLabel dans lib/google.ts) : Outlook n'a pas de labels mais des
+// "catégories". Il faut d'abord la déclarer dans la liste de catégories
+// maîtresse du compte (sinon Outlook la pose sans nom/couleur lisible côté
+// commercial), puis la réutiliser. On liste d'abord plutôt que de se fier à un
+// cache, pour la même raison que côté Gmail (le commercial pourrait la
+// supprimer lui-même).
+async function ensureAaronCategoryExists(userId: string): Promise<void> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+
+    const listRes = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (listRes.ok) {
+      const { value } = await listRes.json();
+      const exists = value?.some((c: any) => c.displayName === AARON_CATEGORY_NAME);
+      if (exists) return;
+    }
+
+    await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      // "preset9" = violet dans la palette standard Outlook — couleur arbitraire,
+      // choisie juste pour que la catégorie soit visuellement identifiable.
+      body: JSON.stringify({ displayName: AARON_CATEGORY_NAME, color: 'preset9' }),
+    });
+  } catch (err: any) {
+    console.error('Erreur création catégorie Outlook Aaron:', err.message);
+  }
+}
+
+// Pose la catégorie "🤖 Géré par Aaron" sur un message Outlook (équivalent de
+// applyAaronLabel côté Gmail). Contrairement à Gmail où un label se pose sur
+// tout le FIL (thread) d'un coup, Outlook catégorise message par message : on
+// l'applique donc à chaque message qu'Aaron envoie et à chaque message reçu
+// qu'Aaron traite (voir sendOutlookEmail et app/api/cron/check-inbox) — les
+// messages pertinents du fil (côté commercial) portent alors la catégorie,
+// visible dans la liste sans avoir à ouvrir la conversation. On lit d'abord
+// les catégories déjà présentes pour ne jamais écraser un tri que le
+// commercial aurait posé lui-même. Échec silencieux : un souci de
+// catégorisation ne doit jamais empêcher l'envoi/la lecture d'un email.
+export async function applyAaronCategory(userId: string, messageId: string | undefined | null) {
+  if (!messageId) return;
+  try {
+    await ensureAaronCategoryExists(userId);
+    const accessToken = await getValidAccessToken(userId);
+
+    const getRes = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=categories`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const existingCategories: string[] = getRes.ok ? (await getRes.json()).categories || [] : [];
+    if (existingCategories.includes(AARON_CATEGORY_NAME)) return;
+
+    await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ categories: [...existingCategories, AARON_CATEGORY_NAME] }),
+    });
+  } catch (err: any) {
+    console.error('Erreur pose de la catégorie Outlook Aaron:', err.message);
+  }
+}
+
 // Envoie un email via Microsoft Graph (boîte Outlook du commercial), pour que
 // Outlook soit un vrai second fournisseur au même titre que Gmail (prospection,
 // relances, annulations...) et pas seulement pour la création de RDV.
+//
+// On passe par "créer un brouillon puis l'envoyer" plutôt que par l'action
+// POST /me/sendMail (plus directe) car /sendMail répond 202 sans jamais
+// renvoyer l'id du message envoyé — impossible de lui poser ensuite la
+// catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
+// récupère l'id du brouillon dès sa création, qui reste valable une fois le
+// message envoyé (déplacé de Brouillons vers Éléments envoyés).
 export async function sendOutlookEmail(userId: string, to: string, subject: string, body: string) {
   const accessToken = await getValidAccessToken(userId);
 
-  const response = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+  const createRes = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      message: {
-        subject,
-        body: { contentType: 'Text', content: body },
-        toRecipients: [{ emailAddress: { address: to } }],
-      },
-      saveToSentItems: true,
+      subject,
+      body: { contentType: 'Text', content: body },
+      toRecipients: [{ emailAddress: { address: to } }],
     }),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
+  if (!createRes.ok) {
+    const err = await createRes.text();
+    throw new Error(`Erreur création du brouillon Outlook: ${err}`);
+  }
+  const draft = await createRes.json();
+
+  const sendRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!sendRes.ok) {
+    const err = await sendRes.text();
     throw new Error(`Erreur envoi Outlook: ${err}`);
   }
 
-  // /sendMail répond 202 sans corps — on renvoie un objet simple pour rester
-  // cohérent avec la forme de retour de sendGmailEmail côté appelant.
-  return { sent: true };
+  // Best-effort : marque le message comme "géré par Aaron" une fois envoyé
+  // (voir applyAaronCategory) — ne doit jamais faire échouer l'envoi lui-même.
+  applyAaronCategory(userId, draft.id).catch(() => {});
+
+  // On garde { sent: true } pour rester compatible avec l'appelant existant
+  // (sendEmailForUser dans lib/messaging.ts n'utilisait jusqu'ici que ce
+  // champ), et on ajoute l'id au cas où un futur appelant en aurait besoin.
+  return { sent: true, id: draft.id };
 }
 
 // Créneaux occupés du calendrier Outlook du commercial sur la plage demandée
