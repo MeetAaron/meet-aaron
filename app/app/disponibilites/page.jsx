@@ -12,6 +12,22 @@ function useAuthedUser() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
+  // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+  // navigation de l'app, voir Shell) pour ne pas attendre la résolution complète
+  // (session + /api/auth/link) avant de lancer le chargement des données de la
+  // page — gain net sur le temps de chargement perçu à chaque changement de
+  // rubrique. La résolution complète continue en tâche de fond juste après,
+  // pour rediriger vers /login si la session n'est plus valide et corriger
+  // l'identifiant si l'URL était absente/erronée (les appels API restent de
+  // toute façon vérifiés côté serveur via le token, quel que soit ce user_id).
+  useEffect(() => {
+    const urlUserId = new URLSearchParams(window.location.search).get('user_id');
+    if (urlUserId) {
+      setUserId(urlUserId);
+      setAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -82,6 +98,17 @@ export default function DisponibilitesPage() {
 
   const [newBlock, setNewBlock] = useState({ start_at: '', end_at: '', reason: '' });
   const [savingBlock, setSavingBlock] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  function pickDay(day) {
+    const y = day.getFullYear();
+    const m = String(day.getMonth() + 1).padStart(2, '0');
+    const d = String(day.getDate()).padStart(2, '0');
+    setNewBlock({ ...newBlock, start_at: `${y}-${m}-${d}T09:00`, end_at: `${y}-${m}-${d}T18:00` });
+  }
 
   function loadAvailability() {
     if (!userId) return;
@@ -234,6 +261,9 @@ export default function DisponibilitesPage() {
               </ul>
             )}
 
+            <p className="calendar-hint">Clique un jour dans le calendrier pour le pré-remplir plus rapidement :</p>
+            <MiniCalendar month={calendarMonth} onChangeMonth={setCalendarMonth} onPickDay={pickDay} blocks={blocks} />
+
             <form className="block-form" onSubmit={handleAddBlock}>
               <input type="datetime-local" value={newBlock.start_at} onChange={(e) => setNewBlock({ ...newBlock, start_at: e.target.value })} required />
               <span className="sep">à</span>
@@ -288,6 +318,11 @@ export default function DisponibilitesPage() {
         }
         .small {
           font-size: 0.84rem;
+        }
+        .calendar-hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 0.6rem;
         }
         .rule-list, .block-list {
           list-style: none;
@@ -381,6 +416,132 @@ export default function DisponibilitesPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+const MONTH_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+function MiniCalendar({ month, onChangeMonth, onPickDay, blocks }) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  // getDay() = 0 (dimanche) .. 6 (samedi) -> on veut un offset lundi-first
+  const startOffset = (firstOfMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+  const blockedDates = new Set(
+    (blocks || []).map((b) => new Date(b.start_at).toDateString())
+  );
+
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, monthIndex, d));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return (
+    <div className="mini-calendar">
+      <div className="cal-header">
+        <button type="button" onClick={() => onChangeMonth(new Date(year, monthIndex - 1, 1))}>‹</button>
+        <span>{MONTH_LABELS[monthIndex]} {year}</span>
+        <button type="button" onClick={() => onChangeMonth(new Date(year, monthIndex + 1, 1))}>›</button>
+      </div>
+      <div className="cal-grid cal-weekdays">
+        {WEEKDAY_LABELS.map((w, i) => <span key={i}>{w}</span>)}
+      </div>
+      <div className="cal-grid">
+        {cells.map((day, i) => {
+          if (!day) return <span key={i} className="cal-cell empty" />;
+          const isPast = day < today;
+          const isBlocked = blockedDates.has(day.toDateString());
+          const isToday = day.toDateString() === today.toDateString();
+          return (
+            <button
+              type="button"
+              key={i}
+              className={`cal-cell${isPast ? ' past' : ''}${isBlocked ? ' blocked' : ''}${isToday ? ' today' : ''}`}
+              disabled={isPast}
+              onClick={() => onPickDay(day)}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+
+      <style jsx>{`
+        .mini-calendar {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem;
+          max-width: 320px;
+          margin-bottom: 1rem;
+        }
+        .cal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.84rem;
+          font-weight: 600;
+          margin-bottom: 0.6rem;
+        }
+        .cal-header button {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 6px;
+          width: 24px;
+          height: 24px;
+          cursor: pointer;
+        }
+        .cal-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 0.2rem;
+        }
+        .cal-weekdays {
+          margin-bottom: 0.3rem;
+          font-size: 0.7rem;
+          color: var(--muted);
+          text-align: center;
+        }
+        .cal-cell {
+          aspect-ratio: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          color: var(--text);
+          font-size: 0.76rem;
+          cursor: pointer;
+        }
+        .cal-cell.empty {
+          background: transparent;
+          border: none;
+          cursor: default;
+        }
+        .cal-cell.past {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
+        .cal-cell.blocked {
+          border-color: #e5484d;
+          color: #e5484d;
+        }
+        .cal-cell.today {
+          border-color: var(--accent);
+        }
+        .cal-cell:not(.empty):not(.past):hover {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.14);
+        }
+      `}</style>
+    </div>
   );
 }
 
