@@ -80,13 +80,7 @@ const SLIDES = [
     slug: 'resultats',
     icon: '📈',
     title: 'Résultats',
-    text: "Tes statistiques de conversion et l'efficacité de chaque campagne, pour savoir ce qui marche vraiment.",
-  },
-  {
-    slug: 'clients-gagnes',
-    icon: '🏆',
-    title: 'Clients gagnés',
-    text: "Les prospects devenus clients. Exportables en CSV d'un clic pour les faire remonter dans ton propre CRM.",
+    text: "Tes statistiques de conversion, l'efficacité de chaque campagne, et tes clients gagnés (exportables en CSV d'un clic pour les faire remonter dans ton propre CRM) — pour savoir ce qui marche vraiment.",
   },
   {
     slug: 'documents',
