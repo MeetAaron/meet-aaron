@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level, offer')
+    .select('collaboration_level, offer, crm_provider, crm_connection_notes')
     .eq('id', user.company_id)
     .single();
 
@@ -37,12 +37,14 @@ export async function GET(request: NextRequest) {
       ...user,
       collaboration_level: company?.collaboration_level ?? 0,
       offer: company?.offer ?? 'AP',
+      crm_provider: company?.crm_provider ?? null,
+      crm_connection_notes: company?.crm_connection_notes ?? null,
     },
   });
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, notify_channel, notify_before_appointment_minutes, collaboration_level, offer } = await request.json();
+  const { user_id, notify_channel, notify_before_appointment_minutes, collaboration_level, offer, crm_provider, crm_connection_notes } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -63,7 +65,7 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  if (collaboration_level !== undefined || offer !== undefined) {
+  if (collaboration_level !== undefined || offer !== undefined || crm_provider !== undefined || crm_connection_notes !== undefined) {
     if (offer !== undefined && offer !== 'AP') {
       return NextResponse.json({ error: 'Cette offre est bientôt disponible' }, { status: 400 });
     }
@@ -73,6 +75,8 @@ export async function PATCH(request: NextRequest) {
       const companyUpdates: Record<string, unknown> = {};
       if (collaboration_level !== undefined) companyUpdates.collaboration_level = collaboration_level;
       if (offer !== undefined) companyUpdates.offer = offer;
+      if (crm_provider !== undefined) companyUpdates.crm_provider = crm_provider;
+      if (crm_connection_notes !== undefined) companyUpdates.crm_connection_notes = crm_connection_notes;
 
       await supabaseAdmin
         .from('companies')
