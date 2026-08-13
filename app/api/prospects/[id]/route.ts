@@ -46,9 +46,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe', 'perdu'];
+const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage } = await request.json();
+  const { action, deal_stage, onboarding_status } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -191,6 +192,31 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
     return NextResponse.json({ success: true, deal_stage });
+  }
+
+  // Aaron Customer — changement manuel du statut d'onboarding depuis
+  // app/app/customer/page.jsx (ex: le commercial coche "onboarding terminé"
+  // une fois le client bien démarré — pas de déclenchement automatique pour
+  // cette étape, contrairement au pipeline Aaron Sales).
+  if (action === 'set_onboarding_status') {
+    if (!VALID_ONBOARDING_STATUSES.includes(onboarding_status)) {
+      return NextResponse.json({ error: "Statut d'onboarding invalide" }, { status: 400 });
+    }
+
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.is_won) {
+      return NextResponse.json({ error: "Ce prospect n'est pas (encore) un client gagné" }, { status: 400 });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ onboarding_status, onboarding_status_updated_at: new Date().toISOString() })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, onboarding_status });
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
