@@ -150,24 +150,29 @@ export default function BilanRdvPage({ params }) {
   );
 }
 
+// Couleurs alignées sur les variables CSS utilisées partout ailleurs dans
+// l'app (--bg, --surface, --text, --muted, --border) — avant, cette page
+// (atteinte depuis une notification de rappel de bilan post-RDV) utilisait
+// des teintes légèrement différentes, ce qui créait un changement de fond
+// perceptible en y arrivant depuis le reste de l'app.
 const styles = {
   page: {
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#0F1117',
+    background: '#0b0e1a',
     padding: 24,
   },
   card: {
     maxWidth: 480,
     width: '100%',
-    background: '#171A23',
+    background: '#131629',
     borderRadius: 16,
     padding: 28,
   },
   title: {
-    color: '#fff',
+    color: '#f4f1ea',
     fontSize: 20,
     marginBottom: 20,
     lineHeight: 1.4,
@@ -180,9 +185,9 @@ const styles = {
   choiceButton: {
     padding: '14px 16px',
     borderRadius: 10,
-    border: '1px solid #2A2E3B',
-    background: '#1E212C',
-    color: '#fff',
+    border: '1px solid #232744',
+    background: '#1a1e35',
+    color: '#f4f1ea',
     fontSize: 15,
     textAlign: 'left',
     cursor: 'pointer',
@@ -191,23 +196,23 @@ const styles = {
     marginTop: 20,
     padding: 16,
     borderRadius: 10,
-    background: '#1E212C',
+    background: '#1a1e35',
   },
   noteLabel: {
-    color: '#8B90A8',
+    color: '#8b90a8',
     fontSize: 12,
     marginBottom: 4,
   },
   noteText: {
-    color: '#fff',
+    color: '#f4f1ea',
     fontSize: 15,
     lineHeight: 1.5,
   },
   muted: {
-    color: '#8B90A8',
+    color: '#8b90a8',
   },
   errorText: {
-    color: '#E5484D',
+    color: '#e5484d',
     marginTop: 12,
   },
 };
