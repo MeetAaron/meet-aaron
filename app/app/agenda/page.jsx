@@ -92,6 +92,7 @@ export default function AgendaPage() {
   const [actingOn, setActingOn] = useState(null);
   const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
   const [showAddModal, setShowAddModal] = useState(false);
+  const [detailAppointment, setDetailAppointment] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -190,6 +191,13 @@ export default function AgendaPage() {
         />
       )}
 
+      {detailAppointment && (
+        <AppointmentDetailModal
+          appointment={detailAppointment}
+          onClose={() => setDetailAppointment(null)}
+        />
+      )}
+
       {conflict && (
         <div className="conflict-overlay" onClick={() => setConflict(null)}>
           <div className="conflict-box" onClick={(e) => e.stopPropagation()}>
@@ -223,7 +231,10 @@ export default function AgendaPage() {
               <div className="list">
                 {pending.map((a) => (
                   <div className="row" key={a.id}>
-                    <div className="row-info">
+                    <div
+                      className={a.prospect_id ? 'row-info clickable' : 'row-info'}
+                      onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
+                    >
                       <strong>{a.prospects?.full_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
                       <div className="meta">
@@ -267,7 +278,10 @@ export default function AgendaPage() {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
                 return (
                   <div className="row" key={a.id}>
-                    <div className="row-info">
+                    <div
+                      className={a.prospect_id ? 'row-info clickable' : 'row-info'}
+                      onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
+                    >
                       <strong>{a.prospects?.full_name || a.contact_name}</strong>
                       {a.prospects ? (
                         <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
@@ -355,6 +369,16 @@ export default function AgendaPage() {
         }
         .row-info {
           font-size: 0.9rem;
+        }
+        .row-info.clickable {
+          cursor: pointer;
+          border-radius: 8px;
+          margin: -0.3rem;
+          padding: 0.3rem;
+          transition: background 0.15s ease;
+        }
+        .row-info.clickable:hover {
+          background: rgba(75, 57, 239, 0.1);
         }
         .meta {
           font-size: 0.78rem;
@@ -468,6 +492,230 @@ export default function AgendaPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+// Panneau ouvert au clic sur un RDV lié à un prospect suivi par Aaron :
+// regroupe l'avis d'Aaron (profil DISC détecté, angle d'approche, objections
+// déjà soulevées — voir lib/aaron-sales.ts -> generateAppointmentBrief) et
+// l'historique brut des échanges (GET /api/prospects/[id]), pour que le
+// commercial ait tout sous la main avant/après le RDV sans repasser par
+// Aaron Sales ou Prospects.
+function AppointmentDetailModal({ appointment, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [brief, setBrief] = useState(null);
+  const [briefLoading, setBriefLoading] = useState(true);
+  const [briefError, setBriefError] = useState(null);
+
+  async function loadBrief(regenerate) {
+    setBriefLoading(true);
+    setBriefError(null);
+    const res = await fetch(`/api/appointments/${appointment.id}/brief${regenerate ? '?regenerate=1' : ''}`);
+    const body = await res.json();
+    setBriefLoading(false);
+    if (!res.ok) {
+      setBriefError(body.error || 'Impossible de générer le brief.');
+      return;
+    }
+    setBrief(body.brief);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const res = await fetch(`/api/prospects/${appointment.prospect_id}`);
+      const body = await res.json();
+      if (!cancelled) {
+        setMessages(body.messages || []);
+        setMessagesLoading(false);
+      }
+    })();
+
+    loadBrief(false);
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointment.id, appointment.prospect_id]);
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2>{appointment.prospects?.full_name}</h2>
+            {appointment.prospects?.prospect_companies?.name && (
+              <p className="hint">{appointment.prospects.prospect_companies.name}</p>
+            )}
+          </div>
+          <button type="button" className="btn-secondary" onClick={onClose}>Fermer</button>
+        </div>
+
+        <section className="detail-block">
+          <h3>Avis d'Aaron — comment aborder ce prospect</h3>
+          {briefLoading ? (
+            <p className="muted">Génération…</p>
+          ) : briefError ? (
+            <p className="error">{briefError}</p>
+          ) : brief ? (
+            <div className="brief-box">
+              <p><strong>Résumé :</strong> {brief.resume_historique}</p>
+              {brief.profil_personnalite && <p><strong>Profil (DISC) :</strong> {brief.profil_personnalite}</p>}
+              {brief.objections_deja_soulevees?.length > 0 && (
+                <p><strong>Objections déjà soulevées :</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+              )}
+              {brief.info_entreprise && <p><strong>Entreprise :</strong> {brief.info_entreprise}</p>}
+              <p><strong>Angle suggéré :</strong> {brief.angle_approche_suggere}</p>
+              {brief.points_attention?.length > 0 && (
+                <ul>
+                  {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
+                </ul>
+              )}
+              <button type="button" className="btn-secondary regen-btn" onClick={() => loadBrief(true)}>
+                Régénérer (nouveaux échanges depuis)
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="detail-block">
+          <h3>Historique des échanges</h3>
+          {messagesLoading ? (
+            <p className="muted">Chargement…</p>
+          ) : messages.length === 0 ? (
+            <p className="muted">Aucun échange pour le moment.</p>
+          ) : (
+            <div className="thread">
+              {messages.map((m, i) => (
+                <div className={`msg msg-${m.direction}`} key={i}>
+                  <p className="msg-meta">
+                    {m.direction === 'outbound' ? 'Envoyé' : 'Reçu'}
+                    {' — '}
+                    {new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </p>
+                  <p className="msg-body">{m.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 600px;
+          max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+        }
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 1rem;
+          margin-bottom: 0.5rem;
+        }
+        h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0.2rem 0 0;
+        }
+        .btn-secondary {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.45rem 0.8rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.84rem;
+        }
+        .detail-block {
+          margin-top: 1.3rem;
+          padding-top: 1.1rem;
+          border-top: 1px solid var(--border);
+        }
+        .detail-block h3 {
+          font-size: 0.9rem;
+          margin: 0 0 0.6rem;
+        }
+        .brief-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.9rem;
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+        .brief-box p {
+          margin: 0 0 0.5rem;
+        }
+        .brief-box ul {
+          margin: 0.4rem 0 0.6rem;
+          padding-left: 1.1rem;
+        }
+        .regen-btn {
+          margin-top: 0.3rem;
+        }
+        .thread {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          max-height: 320px;
+          overflow-y: auto;
+        }
+        .msg {
+          border-radius: 10px;
+          padding: 0.7rem 0.9rem;
+          font-size: 0.82rem;
+          border: 1px solid var(--border);
+        }
+        .msg-outbound {
+          background: rgba(75, 57, 239, 0.1);
+          margin-left: 1.5rem;
+        }
+        .msg-inbound {
+          background: var(--bg);
+          margin-right: 1.5rem;
+        }
+        .msg-meta {
+          color: var(--muted);
+          font-size: 0.72rem;
+          margin: 0 0 0.35rem;
+        }
+        .msg-body {
+          margin: 0;
+          white-space: pre-line;
+        }
+      `}</style>
+    </div>
   );
 }
 
