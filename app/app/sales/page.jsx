@@ -435,12 +435,24 @@ export default function SalesPage() {
                       <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
                       {devis.recapitulatif?.length > 0 && (
                         <>
-                          <p className="recap-note">⚠️ Prix non renseignés — à compléter avant envoi (Aaron ne connaît pas vos tarifs) :</p>
-                          <ul>
+                          {devis.a_des_postes_sans_prix && (
+                            <p className="recap-note">⚠️ Certains postes n'ont pas de prix — <Link href={`/app/products?user_id=${userId}`}>complétez votre catalogue produits</Link> pour qu'Aaron les chiffre automatiquement la prochaine fois, ou ajoutez le prix vous-même avant l'envoi.</p>
+                          )}
+                          <ul className="recap-list">
                             {devis.recapitulatif.map((r, i) => (
-                              <li key={i}><strong>{r.poste}</strong> — {r.description}</li>
+                              <li key={i}>
+                                <div className="recap-label">
+                                  <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
+                                </div>
+                                <div className="recap-price">
+                                  {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">prix à définir</span>}
+                                </div>
+                              </li>
                             ))}
                           </ul>
+                          {devis.total_eur != null && (
+                            <p className="recap-total">Total{devis.a_des_postes_sans_prix ? ' (partiel, hors postes non chiffrés)' : ''} : {devis.total_eur.toFixed(2)} €</p>
+                          )}
                         </>
                       )}
                       {devisError && <p className="error">{devisError}</p>}
@@ -453,7 +465,7 @@ export default function SalesPage() {
                     </div>
                   ) : (
                     <>
-                      <p className="muted">Aaron prépare l'email et le récapitulatif — les prix restent à ta charge, Aaron ne les invente jamais.</p>
+                      <p className="muted">Aaron prépare l'email et le récapitulatif, chiffré automatiquement avec ton <Link href={`/app/products?user_id=${userId}`}>catalogue produits</Link> quand une correspondance est trouvée — jamais de prix inventé pour le reste.</p>
                       <button className="btn-secondary" onClick={() => handleLoadDevis(selectedDeal.id)} disabled={devisLoading}>
                         {devisLoading ? 'Génération…' : 'Générer le devis'}
                       </button>
@@ -732,6 +744,44 @@ export default function SalesPage() {
           font-size: 0.78rem;
           margin: 0.6rem 0 0.4rem;
         }
+        .recap-note :global(a) {
+          color: inherit;
+          text-decoration: underline;
+        }
+        .recap-list {
+          list-style: none;
+          margin: 0 0 0.5rem;
+          padding: 0;
+        }
+        .recap-list li {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 0.8rem;
+          padding: 0.4rem 0;
+          border-bottom: 1px solid var(--border);
+          font-size: 0.82rem;
+        }
+        .recap-list li:last-child {
+          border-bottom: none;
+        }
+        .recap-label {
+          color: var(--muted);
+        }
+        .recap-label strong {
+          color: var(--text);
+        }
+        .recap-price {
+          flex-shrink: 0;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .recap-total {
+          text-align: right;
+          font-weight: 600;
+          font-size: 0.86rem;
+          margin: 0.4rem 0 0.6rem;
+        }
         .signature-input {
           flex: 1;
           background: var(--bg);
@@ -792,6 +842,7 @@ function Shell({ children, active, userId }) {
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
     { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Produits', slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
