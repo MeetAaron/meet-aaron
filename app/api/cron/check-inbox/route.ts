@@ -345,6 +345,18 @@ export async function GET(request: NextRequest) {
             .from('appointments')
             .update({ status: 'annulé', cancelled_by: 'client' })
             .eq('id', cancelledAppointment.id);
+
+          // C'est le seul cas où le commercial doit être averti d'un RDV déjà
+          // validé qui bouge : le client annule. Si le client propose une
+          // nouvelle date dans le même message, le bloc appointment_proposal
+          // juste en dessous crée/actualise la nouvelle ligne "proposé" —
+          // sinon la réponse d'Aaron au client (email_draft) relance pour en
+          // fixer une.
+          await sendPushNotification(connection.user_id, {
+            title: 'Rendez-vous annulé par le prospect',
+            body: `${prospect.full_name} a annulé le rendez-vous. Aaron lui propose une nouvelle date.`,
+            url: `/app/agenda?user_id=${connection.user_id}`,
+          });
         }
       }
 
