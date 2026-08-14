@@ -178,15 +178,30 @@ export default function ProspectsPage() {
     loadProspects();
   }
 
-  async function handleConfirmWon() {
+  // firstOrderConfirmed = false : le prospect reste visible ici sous "🏆
+  // Gagné — en attente de 1ère commande" jusqu'à confirmation ultérieure
+  // (voir migration_first_order_confirmed_2026-08-14.sql). true : bascule
+  // directement en client (Résultats > Clients gagnés, Aaron Customer).
+  async function handleConfirmWon(firstOrderConfirmed) {
     setActingOn(wonProspect.id);
     await fetch(`/api/prospects/${wonProspect.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'marquer_gagne' }),
+      body: JSON.stringify({ action: 'marquer_gagne', first_order_confirmed: firstOrderConfirmed }),
     });
     setActingOn(null);
     setWonProspect(null);
+    loadProspects();
+  }
+
+  async function handleConfirmFirstOrder(prospect) {
+    setActingOn(prospect.id);
+    await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'confirmer_premiere_commande' }),
+    });
+    setActingOn(null);
     loadProspects();
   }
 
@@ -347,13 +362,21 @@ export default function ProspectsPage() {
               {filtered.map((p) => {
                 const meta = STATUS_META[p.status] || STATUS_META.jaune;
                 const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
+                const wonUnconfirmed = p.is_won && !p.first_order_confirmed_at;
                 return (
                   <tr key={p.id}>
                     <td>
-                      <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
-                        <span className="dot" style={{ background: meta.color }} />
-                        {meta.label}
-                      </span>
+                      {wonUnconfirmed ? (
+                        <span className="status-pill" style={{ color: '#D4A017', borderColor: '#D4A017' }} title="Le prospect a été marqué gagné, en attente de confirmation de la 1ère commande">
+                          <span className="dot" style={{ background: '#D4A017' }} />
+                          🏆 Gagné — en attente
+                        </span>
+                      ) : (
+                        <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
+                          <span className="dot" style={{ background: meta.color }} />
+                          {meta.label}
+                        </span>
+                      )}
                     </td>
                     <td className="strong">{p.full_name}</td>
                     <td className="muted">
@@ -395,24 +418,38 @@ export default function ProspectsPage() {
                       >
                         💬 Conversation
                       </button>
-                      <button
-                        type="button"
-                        className="action-btn won"
-                        disabled={actingOn === p.id}
-                        onClick={() => setWonProspect(p)}
-                        title="Le prospect devient client : il sera déplacé vers Résultats > Clients gagnés"
-                      >
-                        🏆 Gagné
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn lost"
-                        disabled={actingOn === p.id}
-                        onClick={() => handleMarkLost(p)}
-                        title="Le prospect ne deviendra pas client : Aaron arrête de le relancer"
-                      >
-                        Perdu
-                      </button>
+                      {wonUnconfirmed ? (
+                        <button
+                          type="button"
+                          className="action-btn won"
+                          disabled={actingOn === p.id}
+                          onClick={() => handleConfirmFirstOrder(p)}
+                          title="Confirmer que la 1ère commande a bien été passée : le prospect bascule dans Clients gagnés"
+                        >
+                          ✅ Confirmer la commande
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="action-btn won"
+                            disabled={actingOn === p.id}
+                            onClick={() => setWonProspect(p)}
+                            title="Le prospect devient client : il sera déplacé vers Résultats > Clients gagnés"
+                          >
+                            🏆 Gagné
+                          </button>
+                          <button
+                            type="button"
+                            className="action-btn lost"
+                            disabled={actingOn === p.id}
+                            onClick={() => handleMarkLost(p)}
+                            title="Le prospect ne deviendra pas client : Aaron arrête de le relancer"
+                          >
+                            Perdu
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="action-btn delete"
@@ -445,11 +482,16 @@ export default function ProspectsPage() {
             <p className="won-body">
               Aaron : « Comment as-tu réussi ton coup avec {wonProspect.full_name} ? »
               <br />
-              {wonProspect.full_name} va passer dans tes clients gagnés et sortir de ton pipeline prospects.
+              Une première commande a-t-elle déjà été passée ?
+            </p>
+            <p className="won-hint">
+              Oui → {wonProspect.full_name} bascule directement en client (Résultats › Clients gagnés, Aaron Client).<br />
+              Pas encore → il reste dans Prospects sous « 🏆 Gagné — en attente de 1ère commande » jusqu'à ce que tu confirmes la commande.
             </p>
             <div className="won-actions">
               <button type="button" className="btn-secondary" onClick={() => setWonProspect(null)}>Annuler</button>
-              <button type="button" className="btn-primary" onClick={handleConfirmWon}>Confirmer, c'est gagné !</button>
+              <button type="button" className="btn-secondary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(false)}>Pas encore de commande</button>
+              <button type="button" className="btn-primary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(true)}>Oui, commande passée !</button>
             </div>
           </div>
         </div>
@@ -736,10 +778,17 @@ export default function ProspectsPage() {
           color: var(--text);
           font-size: 0.9rem;
           line-height: 1.5;
+          margin: 0 0 0.6rem;
+        }
+        .won-hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          line-height: 1.5;
           margin: 0 0 1.4rem;
         }
         .won-actions {
           display: flex;
+          flex-wrap: wrap;
           justify-content: flex-end;
           gap: 0.6rem;
         }
