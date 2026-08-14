@@ -27,8 +27,16 @@
 // réel est en dollars (écart de change ignoré, de l'ordre de quelques %). La
 // source de vérité pour la facturation réelle reste console.anthropic.com. Ce
 // garde-fou sert à éviter un dérapage, pas à facturer le client au centime.
+//
+// Crédits ("boost", décision produit du 14/08/2026 — voir lib/credits.ts) :
+// une fois le plafond mensuel/quotidien inclus dans l'abonnement atteint, on
+// ne bloque plus automatiquement une société qui a acheté des crédits — on
+// laisse l'appel passer et on débite le coût réel de CET appel de son solde
+// de crédits. Le blocage (MonthlyCapExceededError) n'intervient que si le
+// solde de crédits est également épuisé.
 
 import { supabaseAdmin } from './supabase-admin';
+import { getCreditBalance, spendCredits } from './credits';
 
 const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
@@ -36,12 +44,14 @@ const DEFAULT_MONTHLY_CAP_USD = 20;
 const DAILY_CAP_DIVISOR = 15; // le budget mensuel doit tenir au moins 15 jours d'usage intensif
 
 export class MonthlyCapExceededError extends Error {
-  reason: 'monthly' | 'daily';
+  reason: 'monthly' | 'daily' | 'credits_exhausted';
 
-  constructor(companyId: string, reason: 'monthly' | 'daily' = 'monthly') {
+  constructor(companyId: string, reason: 'monthly' | 'daily' | 'credits_exhausted' = 'monthly') {
     super(
       reason === 'daily'
         ? `Plafond de dépense API QUOTIDIEN atteint pour la société ${companyId} (protection anti-pic — le plafond mensuel, lui, n'est pas encore atteint). Réessayez demain, ou augmentez la part quotidienne dans lib/anthropic-client.ts.`
+        : reason === 'credits_exhausted'
+        ? `Plafond de dépense API atteint pour la société ${companyId}, et le solde de crédits achetés est épuisé (ou nul).`
         : `Plafond de dépense API mensuel atteint pour la société ${companyId}.`
     );
     this.name = 'MonthlyCapExceededError';
@@ -109,9 +119,12 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
   return { exceeded: false };
 }
 
+function computeCostUsd(inputTokens: number, outputTokens: number): number {
+  return (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD + (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD;
+}
+
 async function recordUsage(companyId: string, inputTokens: number, outputTokens: number) {
-  const costUsd =
-    (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD + (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD;
+  const costUsd = computeCostUsd(inputTokens, outputTokens);
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
@@ -142,10 +155,20 @@ async function recordUsage(companyId: string, inputTokens: number, outputTokens:
 // préfère laisser passer l'appel plutôt que de bloquer une fonctionnalité par
 // excès de prudence sur un cas qui ne devrait pas exister.
 export async function callClaude(body: Record<string, any>, companyId: string | null): Promise<any> {
+  let usingCredits = false;
+
   if (companyId) {
     const status = await getBudgetStatus(companyId);
     if (status.exceeded) {
-      throw new MonthlyCapExceededError(companyId, status.reason);
+      // Plafond inclus dans l'abonnement atteint : on continue quand même SI
+      // la société a un solde de crédits ("boost", voir lib/credits.ts), en
+      // débitant le coût réel de CET appel de ce solde. Sinon on bloque comme
+      // avant.
+      const creditBalance = await getCreditBalance(companyId);
+      if (creditBalance <= 0) {
+        throw new MonthlyCapExceededError(companyId, 'credits_exhausted');
+      }
+      usingCredits = true;
     }
   }
 
@@ -167,7 +190,18 @@ export async function callClaude(body: Record<string, any>, companyId: string | 
   const data = await response.json();
 
   if (companyId && data.usage) {
-    await recordUsage(companyId, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
+    const inputTokens = data.usage.input_tokens || 0;
+    const outputTokens = data.usage.output_tokens || 0;
+
+    await recordUsage(companyId, inputTokens, outputTokens);
+
+    if (usingCredits) {
+      // Écart de change ignoré (coût calculé en $, crédits en €), comme
+      // documenté plus haut pour le plafond mensuel — tolérance acceptée pour
+      // un garde-fou, pas pour une facturation exacte.
+      const costUsd = computeCostUsd(inputTokens, outputTokens);
+      await spendCredits(companyId, costUsd, 'Appel API au-delà du plafond inclus dans l’abonnement');
+    }
   }
 
   return data;
