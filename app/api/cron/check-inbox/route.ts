@@ -9,6 +9,7 @@ import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/go
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
+import { generateDevis } from '@/lib/aaron-sales';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
@@ -329,6 +330,25 @@ export async function GET(request: NextRequest) {
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
+
+      // Demande de devis détectée par Aaron dans le message reçu : on prépare
+      // automatiquement une proposition chiffrée (catalogue produits +
+      // historique des devis déjà envoyés à ce prospect, voir
+      // lib/aaron-sales.ts) mais on ne l'envoie JAMAIS automatiquement — le
+      // commercial la relit et valide dans Aaron Vente. Best-effort : un
+      // échec ici ne doit pas empêcher le reste du traitement du message.
+      if (aaronOutput.quote_requested) {
+        try {
+          await generateDevis(prospect.id);
+          await sendPushNotification(connection.user_id, {
+            title: 'Devis prêt à valider',
+            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une proposition à relire dans Aaron Vente.`,
+            url: `/app/sales?user_id=${connection.user_id}`,
+          });
+        } catch (err: any) {
+          console.error(`Erreur génération devis automatique pour prospect ${prospect.id}:`, err.message);
+        }
+      }
 
       if (aaronOutput.appointment_cancelled) {
         const { data: cancelledAppointment } = await supabaseAdmin
