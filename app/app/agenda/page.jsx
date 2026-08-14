@@ -180,6 +180,11 @@ export default function AgendaPage() {
         </button>
       </header>
 
+      <nav className="subnav">
+        <span className="subnav-link active">📅 Rendez-vous</span>
+        <Link href={`/app/disponibilites?user_id=${userId}`} className="subnav-link">🕒 Disponibilités</Link>
+      </nav>
+
       {showAddModal && (
         <AddEntryModal
           userId={userId}
@@ -312,11 +317,32 @@ export default function AgendaPage() {
 
       <style jsx>{`
         .header {
-          margin-bottom: 1.8rem;
+          margin-bottom: 1.2rem;
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
           gap: 1rem;
+        }
+        .subnav {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1.8rem;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 0;
+        }
+        .subnav-link {
+          display: inline-block;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          color: var(--muted);
+          text-decoration: none;
+          border-bottom: 2px solid transparent;
+          cursor: pointer;
+        }
+        .subnav-link.active {
+          color: var(--text);
+          border-bottom-color: var(--accent);
         }
         .btn-primary {
           background: var(--accent);
@@ -614,7 +640,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .modal {
@@ -939,7 +965,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .modal {
@@ -1125,7 +1151,6 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
     { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
