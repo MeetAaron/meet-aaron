@@ -23,7 +23,12 @@ export async function GET(request: NextRequest) {
     .from('prospects')
     .select('*, prospect_companies(name, domain)')
     .eq('assigned_user_id', userId)
-    .eq('is_won', false)
+    // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
+    // prospect "gagné" (is_won=true) mais sans commande confirmée reste donc
+    // ici sous le badge "🏆 Gagné — en attente de 1ère commande" au lieu de
+    // disparaître immédiatement vers Clients (voir
+    // migration_first_order_confirmed_2026-08-14.sql).
+    .is('first_order_confirmed_at', null)
     .order('updated_at', { ascending: false });
 
   if (error) {
