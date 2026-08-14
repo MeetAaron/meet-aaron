@@ -1,0 +1,26 @@
+-- migration_first_order_confirmed_2026-08-14.sql
+-- Ajoute un état intermédiaire "gagné, en attente de 1ère commande" entre
+-- prospect et client. Avant : is_won = true faisait basculer IMMÉDIATEMENT
+-- et irréversiblement un prospect en "client" partout dans l'app (Aaron
+-- Customer, check-ins satisfaction, alertes de renouvellement, upsell...),
+-- même quand le commercial clique juste "🏆 Gagné" sur un prospect bien
+-- engagé mais qui n'a pas encore réellement passé commande.
+--
+-- Avec cette colonne :
+--   - is_won = true  -> Aaron arrête de le démarcher comme prospect (déjà le
+--     comportement existant, inchangé).
+--   - first_order_confirmed_at IS NULL -> il reste visible dans Prospects
+--     sous un badge "🏆 Gagné — en attente de 1ère commande", mais n'entre
+--     PAS encore dans Aaron Customer (pas de check-in satisfaction, pas
+--     d'alerte de renouvellement, pas de suggestion d'upsell — prématuré
+--     tant qu'il n'y a pas de commande réelle).
+--   - first_order_confirmed_at renseigné -> bascule en client à part entière
+--     (Résultats > Clients gagnés, Aaron Customer, stats d'équipe).
+--
+-- Se renseigne automatiquement quand le commercial signale "Client signé"
+-- au bilan d'un RDV, ou quand le pipeline Aaron Sales passe à l'étape
+-- "signé" (les deux impliquent déjà une commande/contrat signé) ; sinon
+-- manuellement via le nouveau bouton "Confirmer la 1ère commande" dans
+-- Prospects.
+
+alter table prospects add column if not exists first_order_confirmed_at timestamptz;
