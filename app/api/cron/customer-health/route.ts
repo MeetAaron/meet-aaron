@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
       `id, full_name, won_at, onboarding_status, assigned_user_id,
        users (id, full_name, email, notify_channel), prospect_companies (name)`
     )
-    .eq('is_won', true);
+    // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
