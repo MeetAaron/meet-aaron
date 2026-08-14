@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { getCreditBalance } from '@/lib/credits';
 
 const DEFAULT_MONTHLY_CAP_USD = 20;
 const DAILY_CAP_DIVISOR = 15;
@@ -71,11 +72,14 @@ export async function GET(request: NextRequest) {
   const todayDate = last7Dates[0]; // lastNDatesUTC(7)[0] est aujourd'hui
   const last7Days = [...last7Dates].reverse().map((date) => ({ date, cost_usd: byDate[date] || 0 })); // plus ancien -> plus récent
 
+  const creditBalanceEur = await getCreditBalance(user.company_id);
+
   return NextResponse.json({
     month_cost_usd: monthRow?.cost_usd || 0,
     monthly_cap_usd: monthlyCapUsd,
     daily_cap_usd: dailyCapUsd,
     today_cost_usd: byDate[todayDate] || 0,
     last_7_days: last7Days,
+    credit_balance_eur: creditBalanceEur,
   });
 }
