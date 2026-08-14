@@ -76,26 +76,33 @@ async function runOneCampaign(campaignId: string) {
     try {
       const aaronOutput = await generateAaronResponse(prospect.id);
 
-      await sendEmailForUser(
-        prospect.assigned_user_id,
-        prospect.email,
-        aaronOutput.email_draft.subject,
-        aaronOutput.email_draft.body
-      );
+      // Garde-fou : ne pas envoyer/archiver un email vide si Aaron n'a rien
+      // proposé (voir même correctif dans check-inbox).
+      const hasEmailToSend =
+        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
-      const { data: senderUser } = await supabaseAdmin
-        .from('users')
-        .select('email')
-        .eq('id', prospect.assigned_user_id)
-        .single();
+      if (hasEmailToSend) {
+        await sendEmailForUser(
+          prospect.assigned_user_id,
+          prospect.email,
+          aaronOutput.email_draft.subject,
+          aaronOutput.email_draft.body
+        );
 
-      await supabaseAdmin.from('messages').insert({
-        conversation_id: conversationId,
-        direction: 'outbound',
-        sender_email: senderUser?.email || '',
-        recipient_email: prospect.email,
-        body: aaronOutput.email_draft.body,
-      });
+        const { data: senderUser } = await supabaseAdmin
+          .from('users')
+          .select('email')
+          .eq('id', prospect.assigned_user_id)
+          .single();
+
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversationId,
+          direction: 'outbound',
+          sender_email: senderUser?.email || '',
+          recipient_email: prospect.email,
+          body: aaronOutput.email_draft.body,
+        });
+      }
 
       await supabaseAdmin
         .from('prospects')
