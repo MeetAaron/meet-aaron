@@ -4,6 +4,17 @@
 // tous les comptes étant traités en parallèle (design validé pour le scaling :
 // un commercial ne doit jamais attendre que la campagne d'un autre commercial
 // soit passée avant que la sienne n'avance).
+//
+// IMPORTANT (corrigé le 14/08) : la sélection des "nouveaux" prospects à
+// contacter utilisait `personality_type IS NULL`. C'est FAUX : Aaron ne
+// détecte un profil de personnalité qu'APRÈS une réponse du prospect — sur
+// un prospect déjà contacté mais qui n'a pas encore répondu, personality_type
+// reste légitimement null. Résultat réel : tant qu'une campagne restait
+// "en_cours", ce cron réenvoyait un message toutes les 10 minutes à tous ses
+// prospects déjà contactés mais pas encore répondus (spam constaté en
+// production). Le bon critère de "jamais contacté" est l'absence de tout
+// message sortant dans sa conversation — c'est ce que ce cron vérifie
+// désormais.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -32,16 +43,25 @@ async function runOneCampaign(campaignId: string) {
 
   const companyIds = (newProspectCompanies || []).map((c) => c.id);
 
-  const { data: newProspects } = await supabaseAdmin
+  const { data: candidateProspects } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, assigned_user_id, conversations(id)')
-    .in('prospect_company_id', companyIds.length > 0 ? companyIds : ['00000000-0000-0000-0000-000000000000'])
-    .is('personality_type', null);
+    .select('id, email, assigned_user_id, conversations(id, messages(id))')
+    .in('prospect_company_id', companyIds.length > 0 ? companyIds : ['00000000-0000-0000-0000-000000000000']);
+
+  // Vraiment "jamais contacté" = aucun message dans aucune de ses
+  // conversations — voir la note en tête de fichier.
+  const newProspects = (candidateProspects || []).filter((p: any) => {
+    const totalMessages = (p.conversations || []).reduce(
+      (sum: number, c: any) => sum + (c.messages?.length || 0),
+      0
+    );
+    return totalMessages === 0;
+  });
 
   // Reste séquentiel PAR campagne (donc par commercial) pour ne pas déclencher
   // trop d'envois Gmail d'un coup depuis un même compte — seul le traitement
   // ENTRE campagnes de commerciaux différents est parallélisé (voir GET ci-dessous).
-  for (const prospect of newProspects || []) {
+  for (const prospect of newProspects) {
     let conversationId = (prospect as any).conversations?.[0]?.id;
     if (!conversationId) {
       const { data: conv } = await supabaseAdmin
@@ -92,7 +112,7 @@ async function runOneCampaign(campaignId: string) {
     }
   }
 
-  return { campaign_id: campaignId, batch_result: result, first_contacts_sent: (newProspects || []).length };
+  return { campaign_id: campaignId, batch_result: result, first_contacts_sent: newProspects.length };
 }
 
 export async function GET(request: NextRequest) {
