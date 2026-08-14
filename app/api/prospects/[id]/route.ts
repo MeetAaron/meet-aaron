@@ -49,7 +49,7 @@ const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe'
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date } = await request.json();
+  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -139,24 +139,53 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true, status: 'perdu' });
   }
 
-  // Passage manuel en client gagné (jusqu'ici uniquement pensé pour un
-  // process automatique post-RDV, jamais câblé) : le commercial peut
-  // déclarer lui-même un prospect gagné, avec ou sans passage par un RDV.
+  // Passage manuel en gagné : le commercial peut déclarer lui-même un
+  // prospect gagné, avec ou sans passage par un RDV. is_won=true arrête
+  // immédiatement la prospection automatique (comportement inchangé) — mais
+  // le prospect ne bascule en "client" à part entière (Aaron Customer,
+  // Résultats > Clients gagnés) que si `first_order_confirmed` est vrai,
+  // c-à-d qu'une commande a déjà été réellement passée. Sinon, il reste
+  // visible dans Prospects sous "🏆 Gagné — en attente de 1ère commande"
+  // jusqu'à confirmation ultérieure (voir action confirmer_premiere_commande
+  // ci-dessous et migration_first_order_confirmed_2026-08-14.sql).
   if (action === 'marquer_gagne') {
     const authedUser = await getAuthedUser(request);
     if (!authedUser) return unauthorizedResponse();
     if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
 
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        is_won: true,
-        won_at: new Date().toISOString(),
-        is_lost: false,
-      })
-      .eq('id', prospectId);
+    const now = new Date().toISOString();
+    const update: Record<string, any> = {
+      is_won: true,
+      won_at: now,
+      is_lost: false,
+    };
+    if (first_order_confirmed) {
+      update.first_order_confirmed_at = now;
+    }
+
+    await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
     return NextResponse.json({ success: true, status: 'gagne' });
+  }
+
+  // Confirme la 1ère commande d'un prospect déjà "gagné" mais pas encore
+  // vraiment client (voir marquer_gagne ci-dessus) — le fait basculer en
+  // client à part entière.
+  if (action === 'confirmer_premiere_commande') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.is_won) {
+      return NextResponse.json({ error: "Ce prospect n'est pas encore marqué comme gagné" }, { status: 400 });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ first_order_confirmed_at: new Date().toISOString() })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, status: 'premiere_commande_confirmee' });
   }
 
   // Aaron Sales — changement manuel d'étape du pipeline de vente depuis
@@ -176,11 +205,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const update: Record<string, any> = { deal_stage, deal_stage_updated_at: now };
 
     // Garde is_won/is_lost cohérents avec l'étape choisie manuellement, comme
-    // le fait déjà la mise à jour automatique depuis le bilan de RDV.
+    // le fait déjà la mise à jour automatique depuis le bilan de RDV. "Signé"
+    // implique déjà une commande/un contrat réel, donc on confirme aussi
+    // directement la 1ère commande (voir migration_first_order_confirmed_2026-08-14.sql).
     if (deal_stage === 'signe') {
       update.is_won = true;
       update.won_at = now;
       update.is_lost = false;
+      update.first_order_confirmed_at = now;
     } else if (deal_stage === 'perdu') {
       update.is_lost = true;
       update.lost_at = now;
