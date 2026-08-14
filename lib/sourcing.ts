@@ -15,6 +15,14 @@ const COMPANY_SIZE_LABELS: Record<string, string> = {
   grand_compte: 'Grand compte (5000 salariés et plus)',
 };
 
+// Doit rester synchronisé avec ROLE_OPTIONS dans app/app/campaigns/page.jsx.
+const TARGET_ROLE_LABELS: Record<string, string> = {
+  fondateur_dirigeant: 'le fondateur ou dirigeant de l\'entreprise',
+  responsable_commercial: 'le responsable commercial ou des ventes',
+  responsable_achats: 'le responsable achats',
+  rh: 'le responsable RH ou recrutement',
+};
+
 interface FoundCompany {
   name: string;
   domain: string | null;
@@ -87,9 +95,24 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
 async function searchContactAtCompany(
   companyId: string,
   company: FoundCompany,
-  sectorKeywords: string[]
+  sectorKeywords: string[],
+  targetRole?: string | null,
+  companySizeKeys?: string[]
 ): Promise<FoundContact | null> {
-  const prompt = `Tu cherches un contact décisionnaire pertinent (dirigeant, gérant, responsable achats/commercial) au sein de cette entreprise, pour une prospection B2B dans le secteur : ${sectorKeywords.join(', ')}.
+  // Priorité : rôle explicitement demandé par le commercial > défaut logique
+  // pour les toutes petites structures (chez un artisan/TPE/auto-entrepreneur,
+  // c'est quasi toujours le fondateur lui-même qui décide, il n'y a souvent
+  // personne d'autre à cibler) > défaut générique.
+  const isSmallStructureOnly =
+    Array.isArray(companySizeKeys) && companySizeKeys.length === 1 && companySizeKeys[0] === 'artisan_tpe';
+
+  const roleInstruction =
+    (targetRole && TARGET_ROLE_LABELS[targetRole]) ||
+    (isSmallStructureOnly
+      ? "le fondateur, gérant ou dirigeant (chez une structure de cette taille, c'est presque toujours la personne qui décide)"
+      : 'un décisionnaire pertinent (dirigeant, gérant, responsable achats ou commercial selon ce qui est trouvable)');
+
+  const prompt = `Tu cherches ${roleInstruction} au sein de cette entreprise, pour une prospection B2B dans le secteur : ${sectorKeywords.join(', ')}.
 
 Entreprise : ${company.name}
 Site web : ${company.website || 'inconnu'}
@@ -188,7 +211,13 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
     if (existingProspect) continue;
 
-    const contact = await searchContactAtCompany(campaign.company_id, company, campaign.sector_keywords);
+    const contact = await searchContactAtCompany(
+      campaign.company_id,
+      company,
+      campaign.sector_keywords,
+      campaign.target_role,
+      campaign.company_sizes
+    );
 
     if (!contact || !contact.email) continue;
 
