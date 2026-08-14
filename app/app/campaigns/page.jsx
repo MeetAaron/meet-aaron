@@ -184,6 +184,7 @@ export default function CampaignsPage() {
                     {c.company_sizes?.length > 0 && (
                       <p className="muted">
                         {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
+                        {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
                       </p>
                     )}
                     {c.context_notes && <p className="context-notes">💬 {c.context_notes}</p>}
@@ -199,6 +200,13 @@ export default function CampaignsPage() {
                   <span>{c.contacts_found} / {c.target_count} contacts trouvés</span>
                   <span className="muted">{c.companies_found} entreprises analysées</span>
                 </div>
+                {(c.stats?.won > 0 || c.stats?.lost > 0 || c.stats?.active > 0) && (
+                  <div className="campaign-outcome">
+                    <span className="outcome-won">🏆 {c.stats.won} gagné{c.stats.won > 1 ? 's' : ''}</span>
+                    <span className="outcome-lost">❌ {c.stats.lost} perdu{c.stats.lost > 1 ? 's' : ''}</span>
+                    <span className="outcome-active muted">🎯 {c.stats.active} en cours</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -318,6 +326,21 @@ export default function CampaignsPage() {
         .muted {
           color: var(--muted);
         }
+        .campaign-outcome {
+          display: flex;
+          gap: 0.7rem;
+          flex-wrap: wrap;
+          margin-top: 0.6rem;
+          padding-top: 0.6rem;
+          border-top: 1px solid var(--border);
+          font-size: 0.76rem;
+        }
+        .outcome-won {
+          color: var(--accent-green);
+        }
+        .outcome-lost {
+          color: #e5484d;
+        }
       `}</style>
     </Shell>
   );
@@ -334,15 +357,44 @@ const ZONE_SUGGESTIONS = [
   { flag: '🌍', label: 'Autre / plusieurs pays' },
 ];
 
+// Doit rester synchronisé avec TARGET_ROLE_LABELS dans lib/sourcing.ts — la clé
+// "peu_importe" n'est volontairement pas une valeur JSON (elle insère juste du
+// texte libre : Aaron comprend qu'aucun rôle précis n'est demandé).
+const ROLE_SUGGESTIONS = [
+  { key: 'fondateur_dirigeant', label: 'Fondateur / dirigeant' },
+  { key: 'responsable_commercial', label: 'Responsable commercial' },
+  { key: 'responsable_achats', label: 'Responsable achats' },
+  { key: 'rh', label: 'RH / recrutement' },
+  { key: 'peu_importe', label: 'Peu importe, un décisionnaire' },
+];
+
+const COMMUNICATION_SUGGESTIONS = [
+  'Plutôt directs et pressés',
+  'Plutôt factuels et techniques',
+  'Plutôt chaleureux et bavards',
+  'Ont souvent besoin d\'être rassurés',
+];
+
+const OBJECTIVE_SUGGESTIONS = ['10 contacts', '20 contacts', '50 contacts', '100 contacts'];
+
+// Extrait la ligne cachée <!--topic:XXX--> (voir system prompt côté API) qui
+// indique le sujet de la question en cours, pour afficher les bonnes chips.
+function extractTopic(text) {
+  const match = text.match(/<!--topic:(\w+)-->/);
+  return match ? match[1] : null;
+}
+
 function extractCampaignJson(text) {
-  const match = text.match(/```campaign_json\s*([\s\S]*?)```/);
-  if (!match) return { displayText: text, recap: null };
-  const displayText = text.slice(0, match.index).trim();
+  const withoutTopic = text.replace(/<!--topic:\w+-->/, '').trim();
+  const topic = extractTopic(text);
+  const match = withoutTopic.match(/```campaign_json\s*([\s\S]*?)```/);
+  if (!match) return { displayText: withoutTopic, recap: null, topic };
+  const displayText = withoutTopic.slice(0, match.index).trim();
   try {
     const recap = JSON.parse(match[1].trim());
-    return { displayText, recap };
+    return { displayText, recap, topic: null };
   } catch {
-    return { displayText, recap: null };
+    return { displayText, recap: null, topic };
   }
 }
 
@@ -350,6 +402,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
+      topic: 'secteur',
       content:
         "Discutons de ta prochaine campagne. Pas besoin de tout dire d'un coup, on avance question par question, et à la fin je te propose un récapitulatif que tu pourras valider ou corriger.\n\n" +
         "Pour commencer : quel type d'entreprise ou de client recherches-tu pour cette campagne (secteur d'activité, profil) ?",
@@ -383,8 +436,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
       return;
     }
 
-    const { displayText, recap: newRecap } = extractCampaignJson(body.reply);
-    setMessages((prev) => [...prev, { role: 'assistant', content: displayText }]);
+    const { displayText, recap: newRecap, topic } = extractCampaignJson(body.reply);
+    setMessages((prev) => [...prev, { role: 'assistant', content: displayText, topic }]);
     setRecap(newRecap);
   }
 
@@ -396,6 +449,11 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   function addChip(text) {
     setInput((prev) => (prev.trim() ? `${prev.trim()}, ${text}` : text));
   }
+
+  // Sujet de la dernière question posée par Aaron — détermine les suggestions
+  // cliquables affichées (voir le marqueur <!--topic:...--> côté system prompt).
+  const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
+  const currentTopic = recap ? null : lastAssistantMessage?.topic || null;
 
   async function handleLaunch() {
     if (!recap) return;
@@ -414,6 +472,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         company_sizes: Array.isArray(recap.company_sizes) ? recap.company_sizes : [],
         target_count: Number(recap.target_count) || 20,
         context_notes: recap.context_notes || null,
+        target_role: recap.target_role || null,
       }),
     });
     setLaunching(false);
@@ -442,12 +501,54 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           {sending && <div className="bubble assistant"><p className="typing">Aaron réfléchit…</p></div>}
         </div>
 
-        {messages.length <= 2 && (
+        {currentTopic === 'secteur' && (
+          <div className="chip-row">
+            {QUICK_SECTORS.map((s) => (
+              <button type="button" key={s} className="chip" onClick={() => addChip(s)}>+ {s}</button>
+            ))}
+          </div>
+        )}
+
+        {currentTopic === 'zone' && (
           <div className="chip-row">
             {ZONE_SUGGESTIONS.map((z) => (
               <button type="button" key={z.label} className="chip" onClick={() => addChip(z.label)}>
                 {z.flag} {z.label}
               </button>
+            ))}
+          </div>
+        )}
+
+        {currentTopic === 'taille' && (
+          <div className="chip-row">
+            {COMPANY_SIZE_OPTIONS.map((o) => (
+              <button type="button" key={o.key} className="chip" onClick={() => addChip(o.label)}>
+                {o.icon} {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {currentTopic === 'role' && (
+          <div className="chip-row">
+            {ROLE_SUGGESTIONS.map((r) => (
+              <button type="button" key={r.key} className="chip" onClick={() => addChip(r.label)}>{r.label}</button>
+            ))}
+          </div>
+        )}
+
+        {currentTopic === 'communication' && (
+          <div className="chip-row">
+            {COMMUNICATION_SUGGESTIONS.map((c) => (
+              <button type="button" key={c} className="chip" onClick={() => addChip(c)}>{c}</button>
+            ))}
+          </div>
+        )}
+
+        {currentTopic === 'objectif' && (
+          <div className="chip-row">
+            {OBJECTIVE_SUGGESTIONS.map((o) => (
+              <button type="button" key={o} className="chip" onClick={() => addChip(o)}>{o}</button>
             ))}
           </div>
         )}
@@ -458,6 +559,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
             <p><strong>Zone :</strong> {recap.zone_label || '—'}</p>
             <p><strong>Secteur(s) :</strong> {(recap.sector_keywords || []).join(', ') || '—'}</p>
             <p><strong>Taille(s) :</strong> {(recap.company_sizes || []).length ? recap.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ') : 'Toutes'}</p>
+            <p><strong>Cible :</strong> {recap.target_role ? (ROLE_SUGGESTIONS.find((r) => r.key === recap.target_role)?.label || recap.target_role) : 'Peu importe, un décisionnaire'}</p>
             <p><strong>Objectif :</strong> {recap.target_count || 20} contacts</p>
             {recap.context_notes && <p><strong>Notes :</strong> {recap.context_notes}</p>}
             <p className="recap-hint">Tu peux répondre ci-dessous pour corriger, ou lancer directement.</p>
