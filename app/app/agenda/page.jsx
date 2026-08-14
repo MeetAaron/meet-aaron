@@ -590,7 +590,11 @@ function AppointmentDetailModal({ appointment, onClose }) {
               {messages.map((m, i) => (
                 <div className={`msg msg-${m.direction}`} key={i}>
                   <p className="msg-meta">
-                    {m.direction === 'outbound' ? 'Envoyé' : 'Reçu'}
+                    {m.direction === 'outbound' ? (
+                      <span className="ai-badge" title="Rédigé et envoyé automatiquement par Aaron">🤖 Généré par Aaron</span>
+                    ) : (
+                      'Réponse du prospect'
+                    )}
                     {' — '}
                     {new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                   </p>
@@ -709,6 +713,15 @@ function AppointmentDetailModal({ appointment, onClose }) {
           color: var(--muted);
           font-size: 0.72rem;
           margin: 0 0 0.35rem;
+        }
+        .ai-badge {
+          display: inline-block;
+          background: rgba(75, 57, 239, 0.16);
+          color: var(--text);
+          border-radius: 999px;
+          padding: 0.1rem 0.5rem;
+          font-size: 0.7rem;
+          font-weight: 600;
         }
         .msg-body {
           margin: 0;
