@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
        prospect_companies (name, domain)`
     )
     .eq('assigned_user_id', userId)
-    .eq('is_won', true)
+    // Aaron Customer ne traite que les clients à part entière — 1ère commande
+    // confirmée, pas juste "gagné" (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null)
     .order('won_at', { ascending: false });
 
   if (error) {
