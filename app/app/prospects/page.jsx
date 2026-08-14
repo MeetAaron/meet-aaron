@@ -80,6 +80,25 @@ const PERSONALITY_LABELS = {
   consciencieux: 'Consciencieux',
 };
 
+// Couleurs DISC standard (méthode des 4 couleurs) — reprises pour que le
+// profil de personnalité ressentie se reconnaisse visuellement d'un coup
+// d'œil, sans avoir à lire le libellé : Dominant = rouge, Influent = jaune,
+// Stable = vert, Consciencieux = bleu.
+const PERSONALITY_COLORS = {
+  dominant: '#E5484D',
+  influent: '#E5B93A',
+  stable: '#3DA35D',
+  consciencieux: '#4B9EF0',
+};
+
+function personalityTagStyle(type) {
+  const color = PERSONALITY_COLORS[type];
+  if (!color) return undefined;
+  return { border: `1px solid ${color}`, color };
+}
+
+const PERSONALITY_COLOR_LEGEND = 'Couleurs DISC — Dominant : rouge · Influent : jaune · Stable : vert · Consciencieux : bleu';
+
 function exportProspectsToCsv(prospects) {
   const headers = ['Statut', 'Nom', 'Société', 'Poste', 'Email', 'Téléphone', 'Personnalité ressentie', "Conseils d'Aaron"];
   const rows = prospects.map((p) => [
@@ -353,7 +372,7 @@ export default function ProspectsPage() {
                     {detailed && <td className="muted">{p.job_title || '—'}</td>}
                     <td>
                       {p.personality_type ? (
-                        <span className="tag">{PERSONALITY_LABELS[p.personality_type] || p.personality_type}</span>
+                        <span className="tag" style={personalityTagStyle(p.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[p.personality_type] || p.personality_type}</span>
                       ) : (
                         <span className="muted">Pas encore détectée</span>
                       )}
@@ -967,7 +986,7 @@ function ConversationModal({ prospect, onClose }) {
           <h3>Avis d'Aaron sur ce prospect</h3>
           {prospect.personality_type ? (
             <p className="advice-line">
-              <span className="tag">{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
+              <span className="tag" style={personalityTagStyle(prospect.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
               {prospect.personality_notes && <span> — {prospect.personality_notes}</span>}
             </p>
           ) : (
