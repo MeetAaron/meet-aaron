@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/retry-uncontacted-prospects",
       "schedule": "*/20 * * * *"
+    },
+    {
+      "path": "/api/cron/send-prospect-followups",
+      "schedule": "30 8 * * *"
     }
   ]
 }
