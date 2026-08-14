@@ -116,6 +116,7 @@ export default function ProspectsPage() {
   const [actingOn, setActingOn] = useState(null);
   const [search, setSearch] = useState('');
   const [detailed, setDetailed] = useState(false);
+  const [threadProspect, setThreadProspect] = useState(null);
 
   async function loadProspects() {
     setLoading(true);
@@ -369,6 +370,14 @@ export default function ProspectsPage() {
                     <td className="row-actions-cell">
                       <button
                         type="button"
+                        className="action-btn thread"
+                        onClick={() => setThreadProspect(p)}
+                        title="Voir l'historique des échanges et l'avis d'Aaron"
+                      >
+                        💬 Conversation
+                      </button>
+                      <button
+                        type="button"
                         className="action-btn won"
                         disabled={actingOn === p.id}
                         onClick={() => setWonProspect(p)}
@@ -404,6 +413,10 @@ export default function ProspectsPage() {
 
       {linkedinProspect && (
         <LinkedInDraftModal prospect={linkedinProspect} onClose={() => setLinkedinProspect(null)} />
+      )}
+
+      {threadProspect && (
+        <ConversationModal prospect={threadProspect} onClose={() => setThreadProspect(null)} />
       )}
 
       {wonProspect && (
@@ -669,6 +682,10 @@ export default function ProspectsPage() {
           border-color: #e5484d;
           color: #e5484d;
         }
+        .action-btn.thread {
+          border-color: var(--accent);
+          color: var(--accent);
+        }
         .action-btn.delete {
           color: #e5484d;
         }
@@ -904,6 +921,210 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
 // propre compte LinkedIn (voir lib/linkedin-assist.ts pour le pourquoi — aucune
 // automatisation LinkedIn n'est faite ou prévue, ça violerait les CGU LinkedIn
 // et risquerait de faire bannir le compte du commercial).
+// Historique des échanges + fiche de personnalité pour un prospect, vus par
+// le commercial. Chaque message sortant est marqué "🤖 Généré par Aaron" pour
+// que le commercial distingue clairement ce qui a été écrit/envoyé
+// automatiquement (tout l'outbound, dans ce produit) des réponses du prospect.
+function ConversationModal({ prospect, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/prospects/${prospect.id}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Erreur de chargement');
+        if (!cancelled) setMessages(body.messages || []);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [prospect.id]);
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2>{prospect.full_name}</h2>
+            <p className="hint">{prospect.prospect_companies?.name || prospect.email}</p>
+          </div>
+          <button type="button" className="btn-secondary" onClick={onClose}>Fermer</button>
+        </div>
+
+        <section className="detail-block">
+          <h3>Avis d'Aaron sur ce prospect</h3>
+          {prospect.personality_type ? (
+            <p className="advice-line">
+              <span className="tag">{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
+              {prospect.personality_notes && <span> — {prospect.personality_notes}</span>}
+            </p>
+          ) : (
+            <p className="muted">Profil pas encore détecté (se précise après une première réponse du prospect).</p>
+          )}
+          {prospect.aaron_advice && <p className="advice-line">{prospect.aaron_advice}</p>}
+        </section>
+
+        <section className="detail-block">
+          <h3>Historique des échanges</h3>
+          {loading ? (
+            <p className="muted">Chargement…</p>
+          ) : error ? (
+            <p className="error">{error}</p>
+          ) : messages.length === 0 ? (
+            <p className="muted">Aucun échange pour le moment.</p>
+          ) : (
+            <div className="thread">
+              {messages.map((m, i) => (
+                <div className={`msg msg-${m.direction}`} key={i}>
+                  <p className="msg-meta">
+                    {m.direction === 'outbound' ? (
+                      <span className="ai-badge" title="Rédigé et envoyé automatiquement par Aaron">🤖 Généré par Aaron</span>
+                    ) : (
+                      'Réponse du prospect'
+                    )}
+                    {' — '}
+                    {new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </p>
+                  <p className="msg-body">{m.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 600px;
+          max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+        }
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 1rem;
+          margin-bottom: 0.5rem;
+        }
+        h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0.2rem 0 0;
+        }
+        .btn-secondary {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.45rem 0.8rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.84rem;
+        }
+        .detail-block {
+          margin-top: 1.3rem;
+          padding-top: 1.1rem;
+          border-top: 1px solid var(--border);
+        }
+        .detail-block h3 {
+          font-size: 0.9rem;
+          margin: 0 0 0.6rem;
+        }
+        .advice-line {
+          font-size: 0.85rem;
+          line-height: 1.5;
+          margin: 0 0 0.5rem;
+        }
+        .tag {
+          background: rgba(75, 57, 239, 0.16);
+          color: var(--text);
+          padding: 0.2rem 0.6rem;
+          border-radius: 6px;
+          font-size: 0.78rem;
+        }
+        .thread {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          max-height: 320px;
+          overflow-y: auto;
+        }
+        .msg {
+          border-radius: 10px;
+          padding: 0.7rem 0.9rem;
+          font-size: 0.82rem;
+          border: 1px solid var(--border);
+        }
+        .msg-outbound {
+          background: rgba(75, 57, 239, 0.1);
+          margin-left: 1.5rem;
+        }
+        .msg-inbound {
+          background: var(--bg);
+          margin-right: 1.5rem;
+        }
+        .msg-meta {
+          color: var(--muted);
+          font-size: 0.72rem;
+          margin: 0 0 0.35rem;
+        }
+        .ai-badge {
+          display: inline-block;
+          background: rgba(75, 57, 239, 0.16);
+          color: var(--text);
+          border-radius: 999px;
+          padding: 0.1rem 0.5rem;
+          font-size: 0.7rem;
+          font-weight: 600;
+        }
+        .msg-body {
+          margin: 0;
+          white-space: pre-line;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function LinkedInDraftModal({ prospect, onClose }) {
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(true);
