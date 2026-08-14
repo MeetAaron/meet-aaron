@@ -102,12 +102,16 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
     if (outcome === 'client') {
       // Affaire signée : referme le pipeline et fait passer le prospect en
       // "client gagné" (jusqu'ici uniquement possible via l'action manuelle
-      // "marquer_gagne" — voir app/api/prospects/[id]/route.ts).
+      // "marquer_gagne" — voir app/api/prospects/[id]/route.ts). "Client
+      // signé" implique déjà une commande/un contrat réel, donc on confirme
+      // directement la 1ère commande (pas besoin de repasser par l'étape
+      // manuelle de confirmation — voir migration_first_order_confirmed_2026-08-14.sql).
       prospectUpdate.deal_stage = 'signe';
       prospectUpdate.deal_stage_updated_at = now;
       prospectUpdate.is_won = true;
       prospectUpdate.won_at = now;
       prospectUpdate.is_lost = false;
+      prospectUpdate.first_order_confirmed_at = now;
     } else if (outcome === 'perdu') {
       prospectUpdate.deal_stage = 'perdu';
       prospectUpdate.deal_stage_updated_at = now;
