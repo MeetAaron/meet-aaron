@@ -137,20 +137,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: 'Aucune campagne active' });
   }
 
-  // Une seule campagne retenue par commercial pour ce tick (la plus ancienne
-  // active), pour ne pas surcharger un même compte Gmail en un seul passage.
-  const oneCampaignPerUser = new Map<string, string>();
+  // TOUTES les campagnes actives d'un commercial avancent désormais (plus
+  // seulement la plus ancienne) — un commercial peut lancer plusieurs
+  // campagnes en même temps (ex: plusieurs zones géographiques) et les voir
+  // progresser en parallèle plutôt qu'en file d'attente. On garde en
+  // revanche le traitement SÉQUENTIEL des campagnes D'UN MÊME commercial
+  // (boucle for, pas Promise.all) pour ne pas envoyer trop d'emails Gmail
+  // d'un coup depuis un même compte — seul le traitement ENTRE commerciaux
+  // différents reste parallélisé.
+  const campaignIdsByUser = new Map<string, string[]>();
   for (const c of activeCampaigns) {
-    if (!oneCampaignPerUser.has(c.assigned_user_id)) {
-      oneCampaignPerUser.set(c.assigned_user_id, c.id);
-    }
+    const list = campaignIdsByUser.get(c.assigned_user_id) || [];
+    list.push(c.id);
+    campaignIdsByUser.set(c.assigned_user_id, list);
   }
 
   const results = await Promise.all(
-    Array.from(oneCampaignPerUser.values()).map((campaignId) =>
-      runOneCampaign(campaignId).catch((err) => ({ campaign_id: campaignId, error: err.message }))
-    )
+    Array.from(campaignIdsByUser.values()).map(async (campaignIds) => {
+      const userResults = [];
+      for (const campaignId of campaignIds) {
+        try {
+          userResults.push(await runOneCampaign(campaignId));
+        } catch (err: any) {
+          userResults.push({ campaign_id: campaignId, error: err.message });
+        }
+      }
+      return userResults;
+    })
   );
 
-  return NextResponse.json({ campaigns_processed: results.length, results });
+  const flatResults = results.flat();
+  return NextResponse.json({ campaigns_processed: flatResults.length, results: flatResults });
 }
