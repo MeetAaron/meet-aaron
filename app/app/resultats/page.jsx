@@ -218,28 +218,30 @@ export default function ResultatsPage() {
             {campaigns.length === 0 ? (
               <p className="muted">Aucune campagne lancée pour le moment.</p>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Zone</th>
-                    <th>Secteur</th>
-                    <th>Entreprises analysées</th>
-                    <th>Contacts trouvés</th>
-                    <th>Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {campaigns.map((c) => (
-                    <tr key={c.id}>
-                      <td>{c.zone_label}</td>
-                      <td className="muted">{c.sector_keywords?.join(', ')}</td>
-                      <td>{c.companies_found}</td>
-                      <td>{c.contacts_found} / {c.target_count}</td>
-                      <td className="muted">{c.status.replace('_', ' ')}</td>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Zone</th>
+                      <th>Secteur</th>
+                      <th>Entreprises analysées</th>
+                      <th>Contacts trouvés</th>
+                      <th>Statut</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {campaigns.map((c) => (
+                      <tr key={c.id}>
+                        <td>{c.zone_label}</td>
+                        <td className="muted">{c.sector_keywords?.join(', ')}</td>
+                        <td>{c.companies_found}</td>
+                        <td>{c.contacts_found} / {c.target_count}</td>
+                        <td className="muted">{(c.status || '').replace('_', ' ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
 
@@ -434,7 +436,8 @@ export default function ResultatsPage() {
           margin-bottom: 1rem;
         }
         .table-wrap {
-          overflow: hidden;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
         @media (max-width: 900px) {
           .stat-grid {
@@ -516,7 +519,6 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
     { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
