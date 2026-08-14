@@ -7,14 +7,15 @@
 //         si l'affaire n'est pas déjà plus avancée (signé/perdu/négociation).
 // Voir lib/aaron-sales.ts (generateDevis) et app/app/sales/page.jsx.
 //
-// Le récapitulatif (devis_recap) ne contient volontairement aucun prix —
-// Aaron ne connaît pas les tarifs pratiqués, c'est au commercial de les
-// ajouter avant l'envoi (voir la note affichée côté UI).
+// Le récapitulatif (devis_recap) est chiffré poste par poste UNIQUEMENT
+// quand une correspondance fiable a été trouvée dans le catalogue produits
+// de la société (table `products`) — sinon le prix reste à null, à
+// compléter par le commercial avant l'envoi (voir la note affichée côté UI).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { generateDevis } from '@/lib/aaron-sales';
+import { generateDevis, summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
 import { sendEmailForUser } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
@@ -41,10 +42,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 
   if (!forceRegenerate && prospect.devis_subject) {
+    const recapitulatif = (prospect.devis_recap || []) as DevisLineItem[];
+    const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
     return NextResponse.json({
       objet: prospect.devis_subject,
       corps_email: prospect.devis_body,
-      recapitulatif: prospect.devis_recap,
+      recapitulatif,
+      total_eur,
+      a_des_postes_sans_prix,
       generated_at: prospect.devis_generated_at,
       cached: true,
     });
@@ -87,9 +92,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: 'Ce devis a déjà été envoyé.' }, { status: 400 });
   }
 
-  const recap = (prospect.devis_recap || []) as { poste: string; description: string }[];
+  const recap = (prospect.devis_recap || []) as DevisLineItem[];
+  const formatRecapLine = (r: DevisLineItem) => {
+    const quantitySuffix = r.quantite && r.quantite !== 1 ? ` × ${r.quantite}` : '';
+    const priceSuffix = r.total_ligne_eur != null ? ` — ${r.total_ligne_eur.toFixed(2)} €` : '';
+    return `- ${r.poste}${quantitySuffix} : ${r.description}${priceSuffix}`;
+  };
+  const { total_eur: recapTotalEur } = summarizeDevisRecap(recap);
+  const totalLine = recapTotalEur != null ? `\nTotal : ${recapTotalEur.toFixed(2)} €` : '';
   const recapText = recap.length
-    ? '\n\n---\nRécapitulatif :\n' + recap.map((r) => `- ${r.poste} : ${r.description}`).join('\n')
+    ? '\n\n---\nRécapitulatif :\n' + recap.map(formatRecapLine).join('\n') + totalLine
     : '';
 
   try {
