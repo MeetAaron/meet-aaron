@@ -50,6 +50,10 @@ export async function POST(request: NextRequest) {
       full_name,
       role: 'commercial',
       company_id: company.id,
+      // Par défaut, un nouveau compte reçoit les notifications par email ET
+      // push (RDV proposé par un client, RDV annulé, etc.) — modifiable
+      // ensuite dans Préférences.
+      notify_channel: 'both',
     })
     .select('id, company_id, first_name, full_name, role')
     .single();
