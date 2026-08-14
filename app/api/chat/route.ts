@@ -43,8 +43,11 @@ const CHAT_TOOLS = [
     description:
       "Recherche parmi TOUS les prospects et clients gagnés du commercial (par nom, société, email ou téléphone — " +
       'recherche partielle, insensible à la casse et aux accents). Renvoie les fiches contact correspondantes ' +
-      "(nom, société, poste, téléphone, email, statut). À utiliser dès que le commercial demande une info sur une " +
-      'personne ou une société précise (ex: son numéro, son email, où en est ce prospect).',
+      "(nom, société, poste, téléphone, email, statut, ET l'analyse déjà faite par Aaron sur ce contact : profil " +
+      "de personnalité DISC détecté, notes de personnalité, et son conseil pour l'aborder). À utiliser dès qu'une " +
+      "question porte sur une personne ou une société précise — y compris \"comment je l'aborde\", \"c'est quel " +
+      "profil\", \"des conseils pour ce RDV\" : ne réponds JAMAIS de façon générique à ce type de question sans " +
+      "avoir d'abord consulté cet outil, Aaron a déjà analysé la plupart des prospects contactés.",
     input_schema: {
       type: 'object',
       properties: {
@@ -73,7 +76,11 @@ const CHAT_TOOLS = [
 async function runRechercheProspects(userId: string, query: string) {
   const { data: prospects, error } = await supabaseAdmin
     .from('prospects')
-    .select('full_name, email, phone, job_title, status, is_won, prospect_companies(name)')
+    .select(
+      `full_name, email, phone, job_title, status, is_won, is_lost,
+       personality_type, personality_notes, aaron_advice, deal_stage,
+       prospect_companies(name)`
+    )
     .eq('assigned_user_id', userId)
     .order('updated_at', { ascending: false })
     .limit(500);
@@ -99,7 +106,13 @@ async function runRechercheProspects(userId: string, query: string) {
       poste: p.job_title || null,
       email: p.email,
       telephone: p.phone || null,
-      statut: p.is_won ? 'client gagné' : STATUS_LABELS[p.status] || p.status,
+      statut: p.is_lost ? 'perdu' : p.is_won ? 'client gagné' : STATUS_LABELS[p.status] || p.status,
+      etape_pipeline: p.deal_stage || null,
+      // Analyse déjà faite par Aaron (voir lib/aaron.ts) — null tant que le
+      // prospect n'a pas encore été contacté avec succès.
+      profil_disc_detecte: p.personality_type || null,
+      notes_personnalite: p.personality_notes || null,
+      conseil_aaron_pour_l_aborder: p.aaron_advice || null,
     })),
   };
 }
