@@ -199,12 +199,17 @@ export default function DisponibilitesPage() {
   }
 
   return (
-    <Shell active="Disponibilités" userId={userId}>
+    <Shell active="Agenda" userId={userId}>
       <header className="header">
         <p className="eyebrow">Agenda</p>
         <h1>Mes disponibilités</h1>
         <p className="subtitle">Aaron ne proposera de créneaux aux prospects que dans ces plages, et jamais pendant vos indisponibilités.</p>
       </header>
+
+      <nav className="subnav">
+        <Link href={`/app/agenda?user_id=${userId}`} className="subnav-link">📅 Rendez-vous</Link>
+        <span className="subnav-link active">🕒 Disponibilités</span>
+      </nav>
 
       {loading ? (
         <p className="muted">Chargement…</p>
@@ -279,7 +284,28 @@ export default function DisponibilitesPage() {
 
       <style jsx>{`
         .header {
+          margin-bottom: 1.2rem;
+        }
+        .subnav {
+          display: flex;
+          gap: 0.5rem;
           margin-bottom: 1.8rem;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 0;
+        }
+        .subnav-link {
+          display: inline-block;
+          padding: 0.55rem 0.9rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          color: var(--muted);
+          text-decoration: none;
+          border-bottom: 2px solid transparent;
+          cursor: pointer;
+        }
+        .subnav-link.active {
+          color: var(--text);
+          border-bottom-color: var(--accent);
         }
         .eyebrow {
           text-transform: uppercase;
@@ -580,7 +606,6 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
     { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
