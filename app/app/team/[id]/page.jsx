@@ -267,7 +267,8 @@ export default function TeamMemberDetailPage() {
           margin: 0 0 1rem;
         }
         .table-wrap {
-          overflow: hidden;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
         table {
           width: 100%;
@@ -353,7 +354,6 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
     { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
