@@ -597,7 +597,8 @@ export default function ProspectsPage() {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 14px;
-          overflow: hidden;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
         }
         table {
           width: 100%;
@@ -715,7 +716,7 @@ export default function ProspectsPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .won-modal {
@@ -856,7 +857,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .modal {
@@ -1032,7 +1033,7 @@ function ConversationModal({ prospect, onClose }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .modal {
@@ -1231,7 +1232,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 50;
+          z-index: 100;
           padding: 1rem;
         }
         .modal {
@@ -1379,7 +1380,6 @@ function Shell({ children, active, userId }) {
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
     { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Disponibilités', slug: 'disponibilites', icon: '🕒' },
     { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
     { label: 'Mon équipe', slug: 'team', icon: '👥' },
     { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
