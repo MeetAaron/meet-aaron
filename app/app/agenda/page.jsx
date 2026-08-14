@@ -1092,13 +1092,35 @@ function EmptyState({ title, body }) {
 
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
+
+  // Un module (Aaron Vente / Aaron Client) est grisé dans la navigation tant
+  // que l'offre souscrite par la société (companies.offer, voir Préférences)
+  // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
+  // toujours accessible : c'est l'offre de base incluse à la souscription.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(`/api/preferences?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((body) => {
+        if (cancelled) return;
+        const offer = body.preferences?.offer || 'AP';
+        setLockedModules({ sales: offer !== 'AS', customer: offer !== 'AC' });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
+    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
-    { label: 'Aaron Sales', slug: 'sales', icon: '🤝' },
-    { label: 'Aaron Customer', slug: 'customer', icon: '🌟' },
     { label: 'Résultats', slug: 'resultats', icon: '📈' },
     { label: 'Mes documents', slug: 'documents', icon: '📁' },
     { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
@@ -1134,7 +1156,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={item.label === active ? 'active' : ''}><span className="nav-icon">{item.icon}</span>{item.label}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title="Non inclus dans votre abonnement actuel">🔒</span>}</li>
             </Link>
           ))}
         </ul>
@@ -1215,6 +1237,13 @@ function Shell({ children, active, userId }) {
           background: rgba(75, 57, 239, 0.18);
           color: var(--text);
           font-weight: 500;
+        }
+        .nav-list li.locked {
+          opacity: 0.45;
+        }
+        .lock-badge {
+          margin-left: auto;
+          font-size: 0.72rem;
         }
         .content {
           padding: 2.5rem 3rem;
