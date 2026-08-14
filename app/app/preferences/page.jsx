@@ -117,6 +117,8 @@ export default function PreferencesPage() {
   const [signatureError, setSignatureError] = useState(null);
   const [savingSignature, setSavingSignature] = useState(false);
   const [signatureSaved, setSignatureSaved] = useState(false);
+  const [buyingCredits, setBuyingCredits] = useState(null);
+  const [creditsError, setCreditsError] = useState(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -233,6 +235,28 @@ export default function PreferencesPage() {
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  }
+
+  async function handleBuyCredits(amountEur) {
+    setBuyingCredits(amountEur);
+    setCreditsError(null);
+    try {
+      const res = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_eur: amountEur }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.url) {
+        setCreditsError(body.error || 'Une erreur est survenue');
+        setBuyingCredits(null);
+        return;
+      }
+      window.location.href = body.url;
+    } catch (err) {
+      setCreditsError('Une erreur est survenue');
+      setBuyingCredits(null);
+    }
   }
 
   if (authLoading) {
@@ -463,6 +487,40 @@ export default function PreferencesPage() {
               </div>
             </div>
           )}
+
+          {usage && (
+            <div className="field credits-field">
+              <label>Crédits</label>
+              <div className="usage-box">
+                <div className="usage-row">
+                  <span>Solde actuel</span>
+                  <strong>{Number(usage.credit_balance_eur || 0).toFixed(2)} €</strong>
+                </div>
+                <p className="usage-hint">
+                  Une fois le plafond mensuel inclus dans l'abonnement atteint, Aaron continue à travailler pour vous
+                  tant qu'il reste des crédits — sinon il s'arrête jusqu'au mois suivant. 1 crédit = 1 €.
+                </p>
+                {prefs.role === 'patron' ? (
+                  <div className="credits-buy-row">
+                    {[20, 40, 100].map((amount) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        className="btn-secondary"
+                        disabled={buyingCredits !== null}
+                        onClick={() => handleBuyCredits(amount)}
+                      >
+                        {buyingCredits === amount ? '…' : `+${amount} €`}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="usage-hint">Seul le fondateur/patron de la société peut acheter des crédits.</p>
+                )}
+                {creditsError && <p className="error">{creditsError}</p>}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -677,6 +735,15 @@ export default function PreferencesPage() {
           color: var(--muted);
           margin: 0;
           line-height: 1.4;
+        }
+        .credits-field {
+          margin-top: 1rem;
+        }
+        .credits-buy-row {
+          display: flex;
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+          flex-wrap: wrap;
         }
         .error {
           color: #e5484d;
