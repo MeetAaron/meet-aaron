@@ -73,7 +73,8 @@ export async function GET(request: NextRequest) {
           .from('prospects')
           .select('id', { count: 'exact' })
           .eq('assigned_user_id', member.id)
-          .eq('is_won', true),
+          // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
+          .not('first_order_confirmed_at', 'is', null),
       ]);
 
       return {
