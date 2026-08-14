@@ -36,11 +36,39 @@ interface AaronOutput {
 async function buildContext(prospectId: string) {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('*, users(full_name, email), prospect_companies(name, domain, is_won_client)')
+    .select('*, users(full_name, email), prospect_companies(name, domain, is_won_client, found_by_campaign_id)')
     .eq('id', prospectId)
     .single();
 
   if (!prospect) throw new Error('Prospect introuvable');
+
+  // Ce qu'Aaron vend réellement — INDISPENSABLE pour écrire un premier
+  // message et des relances qui parlent de la bonne offre plutôt que de
+  // rester vague. Renseigné par le commercial dans Préférences (voir
+  // app/api/business-summary).
+  const { data: sellerCompany } = await supabaseAdmin
+    .from('companies')
+    .select('name, business_summary')
+    .eq('id', prospect.company_id)
+    .maybeSingle();
+
+  // Si ce prospect a été trouvé par une campagne de prospection, récupère les
+  // notes de contexte laissées par le commercial lors de la création de la
+  // campagne (ex: "mes clients habituels sont pressés et vont droit au but")
+  // pour qu'Aaron adapte réellement le ton — jusqu'ici ces notes étaient
+  // capturées mais jamais transmises à la génération des messages.
+  let campaignContext: { zone_label: string | null; context_notes: string | null } | null = null;
+  const foundByCampaignId = (prospect as any).prospect_companies?.found_by_campaign_id;
+  if (foundByCampaignId) {
+    const { data: campaign } = await supabaseAdmin
+      .from('prospecting_campaigns')
+      .select('zone_label, context_notes')
+      .eq('id', foundByCampaignId)
+      .maybeSingle();
+    if (campaign && (campaign.zone_label || campaign.context_notes)) {
+      campaignContext = { zone_label: campaign.zone_label || null, context_notes: campaign.context_notes || null };
+    }
+  }
 
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
@@ -86,6 +114,8 @@ async function buildContext(prospectId: string) {
     commercial: {
       nom: prospect.users.full_name,
       email: prospect.users.email,
+      societe: sellerCompany?.name || null,
+      offre_vendue: sellerCompany?.business_summary || null,
     },
     prospect: {
       nom: prospect.full_name,
@@ -102,6 +132,7 @@ async function buildContext(prospectId: string) {
     rdv_valide_existant: validatedAppointment
       ? { date: validatedAppointment.proposed_at, type: validatedAppointment.type }
       : null,
+    contexte_campagne_origine: campaignContext,
   };
 }
 
