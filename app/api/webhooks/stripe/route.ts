@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateInviteCode } from '@/lib/invite-code';
+import { addCredits } from '@/lib/credits';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -40,6 +41,25 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
+
+    // Achat de crédits ("boost") : paiement unique, pas une création de
+    // société/compte — traité à part de l'onboarding ci-dessous. addCredits
+    // est idempotent sur session.id (voir lib/credits.ts) : un retry Stripe
+    // du même événement ne crédite pas deux fois.
+    if (session.metadata?.purpose === 'credits_purchase') {
+      const { company_id, amount_eur } = session.metadata;
+      const result = await addCredits(
+        company_id,
+        parseFloat(amount_eur),
+        `Achat de ${amount_eur} crédits (Stripe)`,
+        session.id
+      );
+      if (!result.added) {
+        console.log(`Achat de crédits déjà traité pour la session Stripe ${session.id}, ignoré.`);
+      }
+      return NextResponse.json({ received: true });
+    }
+
     const { auth_user_id, email, first_name, full_name, company_name, country } = session.metadata;
 
     // Adresse de facturation complète collectée par Stripe Checkout
