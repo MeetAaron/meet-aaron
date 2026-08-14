@@ -11,10 +11,17 @@
 // ni avoir sa fiche remplie par Aaron (personality_type/notes/advice ne sont
 // renseignés qu'après un premier contact réussi).
 //
-// Ce cron repère tout prospect encore jamais contacté avec succès
-// (personality_type toujours null — même critère que lib/sourcing.ts pour
-// détecter un "nouveau" prospect) dont le commercial assigné a désormais une
-// boîte mail connectée, et retente l'envoi du premier message.
+// IMPORTANT (corrigé le 14/08) : la première version de ce cron détectait un
+// prospect "jamais contacté" via `personality_type IS NULL`. C'est FAUX :
+// Aaron ne détecte un profil de personnalité qu'après une RÉPONSE du
+// prospect (voir lib/aaron_system_prompt.md, section DISC) — sur un premier
+// message envoyé sans réponse, personality_type reste légitimement null.
+// Résultat : ce cron retentait un "premier contact" toutes les 20 minutes
+// pour un prospect déjà contacté avec succès mais qui n'avait pas encore
+// répondu, générant un nouveau message à chaque passage (spam constaté :
+// 3 emails en 40 minutes sur un même prospect). Le bon critère de "jamais
+// contacté" est l'absence de tout message sortant dans sa conversation —
+// c'est ce que ce cron vérifie désormais.
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
@@ -36,10 +43,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  const { data: stuckProspects, error } = await supabaseAdmin
+  const { data: candidateProspects, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, assigned_user_id, conversations(id)')
-    .is('personality_type', null)
+    .select('id, email, assigned_user_id, conversations(id, messages(id))')
     .eq('is_won', false)
     .eq('is_lost', false);
 
@@ -47,7 +53,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (!stuckProspects || stuckProspects.length === 0) {
+  // Vraiment "jamais contacté" = aucun message (sortant ou entrant) dans
+  // aucune de ses conversations — voir la note en tête de fichier sur
+  // pourquoi personality_type seul n'est pas un critère fiable.
+  const stuckProspects = (candidateProspects || []).filter((p: any) => {
+    const totalMessages = (p.conversations || []).reduce(
+      (sum: number, c: any) => sum + (c.messages?.length || 0),
+      0
+    );
+    return totalMessages === 0;
+  });
+
+  if (stuckProspects.length === 0) {
     return NextResponse.json({ contacted: 0 });
   }
 
