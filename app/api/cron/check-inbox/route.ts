@@ -291,20 +291,33 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      await sendEmailForUser(
-        connection.user_id,
-        fromEmail,
-        aaronOutput.email_draft.subject,
-        aaronOutput.email_draft.body
-      );
+      // Garde-fou : Aaron peut légitimement n'avoir "rien à répondre" (ex: un
+      // accusé de réception automatique, un message hors-sujet/spam détecté
+      // dans la boîte mail) — dans ce cas email_draft.subject/body est vide.
+      // Avant, on envoyait quand même un email vide au prospect (et on en
+      // gardait une trace vide côté commercial, source de confusion). On
+      // met à jour le statut/la personnalité du prospect dans tous les cas,
+      // mais on n'envoie et n'archive un message que s'il y a vraiment
+      // quelque chose à envoyer.
+      const hasEmailToSend =
+        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
-      await supabaseAdmin.from('messages').insert({
-        conversation_id: conversation.id,
-        direction: 'outbound',
-        sender_email: connection.provider_account_email,
-        recipient_email: fromEmail,
-        body: aaronOutput.email_draft.body,
-      });
+      if (hasEmailToSend) {
+        await sendEmailForUser(
+          connection.user_id,
+          fromEmail,
+          aaronOutput.email_draft.subject,
+          aaronOutput.email_draft.body
+        );
+
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversation.id,
+          direction: 'outbound',
+          sender_email: connection.provider_account_email,
+          recipient_email: fromEmail,
+          body: aaronOutput.email_draft.body,
+        });
+      }
 
       await supabaseAdmin
         .from('prospects')
@@ -336,19 +349,65 @@ export async function GET(request: NextRequest) {
       }
 
       if (aaronOutput.appointment_proposal?.detected) {
-        await supabaseAdmin.from('appointments').insert({
-          prospect_id: prospect.id,
-          user_id: connection.user_id,
-          type: aaronOutput.appointment_proposal.type,
-          proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
-          status: 'proposé',
-        });
+        // Anti-doublon : avant, on insérait systématiquement une NOUVELLE ligne
+        // à chaque détection, y compris quand le prospect précisait/changeait
+        // simplement la date d'un rendez-vous déjà en cours de discussion (ou
+        // déjà validé) — résultat : plusieurs lignes "à valider" pour un seul
+        // et même rendez-vous. On regarde d'abord s'il existe déjà une ligne
+        // en cours pour ce prospect (proposé = en discussion, validé = déjà
+        // confirmé côté commercial) et on l'utilise/la met à jour au lieu d'en
+        // recréer une.
+        const { data: existingAppointment } = await supabaseAdmin
+          .from('appointments')
+          .select('id, status, proposed_at')
+          .eq('prospect_id', prospect.id)
+          .in('status', ['proposé', 'validé'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-        await sendPushNotification(connection.user_id, {
-          title: 'Nouveau rendez-vous à valider',
-          body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
-          url: `/app/agenda?user_id=${connection.user_id}`,
-        });
+        const sameDate =
+          existingAppointment &&
+          new Date(existingAppointment.proposed_at).getTime() ===
+            new Date(aaronOutput.appointment_proposal.proposed_datetime).getTime();
+
+        if (existingAppointment && existingAppointment.status === 'validé' && sameDate) {
+          // Le client reconfirme simplement une date déjà validée par le
+          // commercial : rien à faire, on évite de recréer une ligne "à valider".
+        } else if (existingAppointment && existingAppointment.status === 'proposé') {
+          // Un rendez-vous est déjà en cours de discussion pour ce prospect :
+          // on met à jour la date/le type au lieu d'ajouter une deuxième ligne.
+          await supabaseAdmin
+            .from('appointments')
+            .update({
+              type: aaronOutput.appointment_proposal.type,
+              proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+            })
+            .eq('id', existingAppointment.id);
+
+          await sendPushNotification(connection.user_id, {
+            title: 'Nouveau rendez-vous à valider',
+            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
+            url: `/app/agenda?user_id=${connection.user_id}`,
+          });
+        } else {
+          // Aucune ligne en cours (ou date différente d'un rendez-vous déjà
+          // validé, ex: le client redemande à changer un RDV déjà confirmé) :
+          // nouvelle ligne.
+          await supabaseAdmin.from('appointments').insert({
+            prospect_id: prospect.id,
+            user_id: connection.user_id,
+            type: aaronOutput.appointment_proposal.type,
+            proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+            status: 'proposé',
+          });
+
+          await sendPushNotification(connection.user_id, {
+            title: 'Nouveau rendez-vous à valider',
+            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
+            url: `/app/agenda?user_id=${connection.user_id}`,
+          });
+        }
       }
 
       results.push({ prospect_id: prospect.id, new_status: aaronOutput.prospect_status });
