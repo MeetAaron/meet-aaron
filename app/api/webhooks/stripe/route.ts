@@ -104,6 +104,10 @@ export async function POST(request: NextRequest) {
       full_name,
       role: 'patron',
       company_id: companyId,
+      // Par défaut, un nouveau compte reçoit les notifications par email ET
+      // push (RDV proposé par un client, RDV annulé, etc.) — modifiable
+      // ensuite dans Préférences.
+      notify_channel: 'both',
     });
 
     if (userError) {
