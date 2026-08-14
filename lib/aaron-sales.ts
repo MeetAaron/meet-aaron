@@ -29,10 +29,42 @@ export interface AppointmentDebrief {
   email_relance: { subject: string; body: string };
 }
 
+export interface DevisLineItem {
+  poste: string;
+  description: string;
+  produit_id: string | null;
+  prix_unitaire_eur: number | null;
+  quantite: number;
+  total_ligne_eur: number | null;
+}
+
 export interface Devis {
   objet: string;
   corps_email: string;
-  recapitulatif: { poste: string; description: string }[];
+  recapitulatif: DevisLineItem[];
+  total_eur: number | null;
+  a_des_postes_sans_prix: boolean;
+}
+
+interface CatalogProduct {
+  id: string;
+  reference: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  unit: string;
+  unit_price_eur: number;
+}
+
+// Somme des lignes chiffrées d'un récapitulatif + indicateur "reste des
+// postes à chiffrer" — factorisé pour être utilisé aussi bien à la
+// génération (ci-dessous) qu'à la relecture d'un devis déjà en cache
+// (voir app/api/prospects/[id]/devis/route.ts).
+export function summarizeDevisRecap(recapitulatif: DevisLineItem[]): { total_eur: number | null; a_des_postes_sans_prix: boolean } {
+  const priced = recapitulatif.filter((r) => r.total_ligne_eur !== null && r.total_ligne_eur !== undefined);
+  const total_eur = priced.length > 0 ? Math.round(priced.reduce((sum, r) => sum + (r.total_ligne_eur as number), 0) * 100) / 100 : null;
+  const a_des_postes_sans_prix = recapitulatif.some((r) => r.total_ligne_eur === null || r.total_ligne_eur === undefined);
+  return { total_eur, a_des_postes_sans_prix };
 }
 
 async function loadAppointmentWithProspect(appointmentId: string) {
@@ -211,13 +243,55 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
   return debrief;
 }
 
-// Aaron Sales v2 — génère (et met en cache sur prospects.devis_*) l'email
+async function loadActiveCatalog(companyId: string): Promise<CatalogProduct[]> {
+  const { data } = await supabaseAdmin
+    .from('products')
+    .select('id, reference, name, description, category, unit, unit_price_eur')
+    .eq('company_id', companyId)
+    .eq('is_active', true)
+    .order('name', { ascending: true })
+    .limit(300);
+
+  return (data || []) as CatalogProduct[];
+}
+
+// Les 3 derniers devis déjà envoyés/générés pour CE prospect précis — donné
+// à Aaron comme contexte pour rester cohérent avec ce qui a déjà été
+// proposé (ex: mêmes prix pour un même poste), voir demande Alex "aaron
+// doit s'appuyer sur l'historique de devis déjà envoyé à ce client".
+async function loadRecentQuotesForProspect(prospectId: string) {
+  const { data: quotes } = await supabaseAdmin
+    .from('quotes')
+    .select('created_at, total_eur, quote_line_items (label, quantity, unit_price_eur)')
+    .eq('prospect_id', prospectId)
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  return (quotes || []).map((q: any) => ({
+    date: q.created_at,
+    total_eur: q.total_eur,
+    postes: (q.quote_line_items || []).map((li: any) => ({
+      libelle: li.label,
+      quantite: li.quantity,
+      prix_unitaire_eur: li.unit_price_eur,
+    })),
+  }));
+}
+
+// Aaron Sales v2 — génère (et met en cache sur prospects.devis_*, + un
+// enregistrement historisé dans quotes/quote_line_items) l'email
 // d'accompagnement d'un devis + un récapitulatif de l'offre par postes, à
 // partir de l'historique des échanges et du résumé métier de la société
-// (companies.business_summary, voir app/api/business-summary). Aaron ne
-// connaît pas les tarifs exacts pratiqués par la société : le récapitulatif
-// ne contient volontairement AUCUN prix — c'est au commercial de les
-// compléter avant d'envoyer (instruction explicite donnée au modèle).
+// (companies.business_summary, voir app/api/business-summary).
+//
+// Si la société a rempli son catalogue produits (table `products`, voir
+// app/api/products), Aaron chiffre directement les postes qu'il reconnaît
+// avec CONFIANCE dans ce catalogue — en reprenant le prix exact, jamais en
+// l'inventant ni en le modifiant (vérifié après coup côté serveur, voir le
+// garde-fou `catalogById` ci-dessous : on ne fait confiance qu'à un prix
+// qui correspond réellement à un produit_id existant du catalogue). Les
+// postes non reconnus (ou si le catalogue est vide) restent sans prix,
+// exactement comme avant — c'est toujours au commercial de les compléter.
 export async function generateDevis(prospectId: string): Promise<Devis> {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
@@ -237,11 +311,14 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
     .maybeSingle();
 
   const messages = await loadConversationMessages(prospectId);
+  const catalog = await loadActiveCatalog(companyId);
+  const previousQuotes = await loadRecentQuotesForProspect(prospectId);
+  const hasCatalog = catalog.length > 0;
 
   const data = await callClaude(
     {
       model: 'claude-sonnet-4-6',
-      max_tokens: 1200,
+      max_tokens: 1500,
       messages: [
         {
           role: 'user',
@@ -250,21 +327,76 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
             `"${prospect.full_name}"${societe ? ` (${societe})` : ''} suite aux échanges ci-dessous.\n` +
             (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
             `Historique des échanges avec ce prospect :\n${JSON.stringify(messages, null, 2)}\n\n` +
+            (previousQuotes.length
+              ? `Devis déjà proposés précédemment à ce même prospect (reste cohérent, notamment sur les prix déjà annoncés pour un même poste) :\n${JSON.stringify(previousQuotes, null, 2)}\n\n`
+              : '') +
+            (hasCatalog
+              ? `Catalogue des produits/prestations et tarifs RÉELS de la société (chaque entrée a un "id") :\n${JSON.stringify(catalog, null, 2)}\n\n` +
+                `Pour chaque poste du récapitulatif, si tu identifies AVEC CONFIANCE une correspondance dans ce catalogue ` +
+                `(même nom ou description clairement équivalente à ce que le prospect a demandé), renseigne "produit_id" ` +
+                `(l'id EXACT du catalogue) et "quantite" (déduite des échanges si une quantité est mentionnée, sinon 1). ` +
+                `Si un poste ne correspond à AUCUN produit du catalogue, ou si le doute est réel, laisse "produit_id" à ` +
+                `null et "quantite" à 1 — n'invente JAMAIS un prix, le backend s'occupe de reprendre le prix exact du ` +
+                `catalogue à partir du "produit_id" que tu fournis, tu n'as toi-même aucun prix à écrire.\n\n`
+              : `Cette société n'a pas encore renseigné de catalogue de produits/tarifs — laisse "produit_id" à null et ` +
+                `"quantite" à 1 pour chaque poste, tu ne connais aucun prix.\n\n`) +
             `Rédige :\n1) un email d'accompagnement du devis, professionnel et chaleureux, qui rappelle le contexte ` +
             `et la valeur pour ce prospect précis, en français, sans balises HTML.\n` +
-            `2) un récapitulatif de l'offre sous forme de postes (nom du poste + description courte). ` +
-            `IMPORTANT : n'invente ET n'écris AUCUN prix ni chiffre — tu ne connais pas les tarifs pratiqués par la ` +
-            `société, c'est au commercial de les ajouter lui-même avant l'envoi.\n` +
+            `2) un récapitulatif de l'offre sous forme de postes.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"objet": "objet de l'email", "corps_email": "corps de l'email", ` +
-            `"recapitulatif": [{"poste": "nom du poste", "description": "1 phrase, sans prix"}]}`,
+            `"recapitulatif": [{"poste": "nom du poste", "description": "1 phrase", "produit_id": "id du catalogue ou null", "quantite": 1}]}`,
         },
       ],
     },
     companyId
   );
 
-  const devis = parseJsonResponse<Devis>(data, 'Devis');
+  const raw = parseJsonResponse<{
+    objet: string;
+    corps_email: string;
+    recapitulatif: { poste: string; description: string; produit_id: string | null; quantite: number }[];
+  }>(data, 'Devis');
+
+  // Garde-fou : le prix ne vient JAMAIS du texte généré par le modèle, mais
+  // uniquement d'une correspondance vérifiée avec un produit_id réel du
+  // catalogue chargé côté serveur — protège contre un prix halluciné ou
+  // altéré malgré la consigne du prompt.
+  const catalogById = new Map(catalog.map((p) => [p.id, p]));
+  const recapitulatif: DevisLineItem[] = raw.recapitulatif.map((item) => {
+    const matched = item.produit_id ? catalogById.get(item.produit_id) : null;
+    const quantite = Number(item.quantite) > 0 ? Number(item.quantite) : 1;
+
+    if (!matched) {
+      return {
+        poste: item.poste,
+        description: item.description,
+        produit_id: null,
+        prix_unitaire_eur: null,
+        quantite,
+        total_ligne_eur: null,
+      };
+    }
+
+    return {
+      poste: item.poste,
+      description: item.description,
+      produit_id: matched.id,
+      prix_unitaire_eur: matched.unit_price_eur,
+      quantite,
+      total_ligne_eur: Math.round(matched.unit_price_eur * quantite * 100) / 100,
+    };
+  });
+
+  const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
+
+  const devis: Devis = {
+    objet: raw.objet,
+    corps_email: raw.corps_email,
+    recapitulatif,
+    total_eur,
+    a_des_postes_sans_prix,
+  };
 
   await supabaseAdmin
     .from('prospects')
@@ -275,6 +407,40 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
       devis_generated_at: new Date().toISOString(),
     })
     .eq('id', prospectId);
+
+  // Historique structuré : une NOUVELLE ligne à chaque génération (jamais un
+  // écrasement) — sert de base à loadRecentQuotesForProspect ci-dessus, et
+  // prépare le futur export Excel/PDF (colonnes storage_path, vides pour
+  // l'instant). Best-effort : ne doit jamais faire échouer la génération du
+  // devis lui-même si l'écriture de l'historique échoue.
+  try {
+    const { data: quoteRow } = await supabaseAdmin
+      .from('quotes')
+      .insert({
+        company_id: companyId,
+        prospect_id: prospectId,
+        status: 'brouillon',
+        total_eur,
+        has_unpriced_items: a_des_postes_sans_prix,
+      })
+      .select('id')
+      .single();
+
+    if (quoteRow?.id && recapitulatif.length > 0) {
+      await supabaseAdmin.from('quote_line_items').insert(
+        recapitulatif.map((item) => ({
+          quote_id: quoteRow.id,
+          product_id: item.produit_id,
+          label: item.poste,
+          quantity: item.quantite,
+          unit_price_eur: item.prix_unitaire_eur,
+          line_total_eur: item.total_ligne_eur,
+        }))
+      );
+    }
+  } catch (err: any) {
+    console.error('Erreur enregistrement historique devis:', err.message);
+  }
 
   return devis;
 }

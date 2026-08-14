@@ -31,6 +31,7 @@ interface AaronOutput {
     requires_sales_validation: boolean;
   } | null;
   action_required_from_sales: string | null;
+  quote_requested: boolean;
 }
 
 async function buildContext(prospectId: string) {
