@@ -13,6 +13,20 @@ import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
+// Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
+// le calendrier et pour la vérification de conflit. Avant, une durée fixe de
+// 30 min était utilisée pour TOUS les types, y compris les RDV physiques
+// (largement sous-estimés en pratique).
+const APPOINTMENT_DURATION_MINUTES: Record<string, number> = {
+  telephonique: 30,
+  visio: 60,
+  physique: 120,
+};
+
+function durationMinutesForType(type: string): number {
+  return APPOINTMENT_DURATION_MINUTES[type] || 30;
+}
+
 // Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
 //  - une indisponibilité ponctuelle déclarée (availability_blocks)
 //  - les créneaux récurrents déclarés (availability_rules), s'il y en a
@@ -122,7 +136,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const hasMicrosoft = connections?.some((c) => c.provider === 'microsoft');
 
     const startISO = appointment.proposed_at;
-    const endISO = new Date(new Date(startISO).getTime() + 30 * 60 * 1000).toISOString();
+    const endISO = new Date(
+      new Date(startISO).getTime() + durationMinutesForType(appointment.type) * 60 * 1000
+    ).toISOString();
 
     if (!force) {
       const conflicts = await detectSchedulingConflicts(userId, startISO, endISO);
@@ -137,7 +153,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (hasGoogle) {
       calendarEvent = await createGoogleCalendarEvent(userId, {
         title: `RDV avec ${appointment.prospects.full_name}`,
-        description: `Rendez-vous ${appointment.type} pris via Meet Aaron.`,
+        description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
         startISO,
         endISO,
         attendeeEmail: appointment.prospects.email,
@@ -147,7 +163,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     } else if (hasMicrosoft) {
       calendarEvent = await createOutlookCalendarEvent(userId, {
         title: `RDV avec ${appointment.prospects.full_name}`,
-        description: `Rendez-vous ${appointment.type} pris via Meet Aaron.`,
+        description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
         startISO,
         endISO,
         attendeeEmail: appointment.prospects.email,
