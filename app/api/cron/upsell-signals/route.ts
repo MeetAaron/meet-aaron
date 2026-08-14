@@ -31,7 +31,9 @@ export async function GET(request: NextRequest) {
   const { data: candidates, error } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, assigned_user_id, won_at, customer_health_score, users(id, full_name, email, notify_channel), prospect_companies(name)')
-    .eq('is_won', true)
+    // Client à part entière seulement — pas un prospect juste "gagné" en
+    // attente de 1ère commande (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null)
     .gte('customer_health_score', MIN_HEALTH_SCORE)
     .lte('won_at', tenureCutoff)
     .is('upsell_suggested_at', null)
