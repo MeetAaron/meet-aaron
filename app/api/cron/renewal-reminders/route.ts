@@ -31,7 +31,8 @@ export async function GET(request: NextRequest) {
   const { data: dueForRenewal, error } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, contract_renewal_date, assigned_user_id, users(id, full_name, email, notify_channel), prospect_companies(name)')
-    .eq('is_won', true)
+    // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null)
     .not('contract_renewal_date', 'is', null)
     .is('renewal_reminder_sent_at', null)
     .lte('contract_renewal_date', windowEnd);
