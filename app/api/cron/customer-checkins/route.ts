@@ -37,14 +37,16 @@ export async function GET(request: NextRequest) {
   const { data: firstTimeCustomers, error: error1 } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, email, assigned_user_id, last_checkin_sent_at')
-    .eq('is_won', true)
+    // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null)
     .is('last_checkin_sent_at', null)
     .lt('won_at', firstCheckinBefore);
 
   const { data: dueForNextCheckin, error: error2 } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, email, assigned_user_id, last_checkin_sent_at')
-    .eq('is_won', true)
+    // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
+    .not('first_order_confirmed_at', 'is', null)
     .not('last_checkin_sent_at', 'is', null)
     .lt('last_checkin_sent_at', nextCheckinBefore);
 
