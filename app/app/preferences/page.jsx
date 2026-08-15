@@ -75,6 +75,11 @@ const CHANNEL_OPTIONS = [
 
 const DELAY_OPTIONS = [15, 30, 60];
 
+const FIRST_EMAIL_OPTIONS = [
+  { value: false, label: 'Envoi automatique (par défaut)' },
+  { value: true, label: 'Je valide avant envoi' },
+];
+
 const COLLABORATION_LEVELS = [
   { value: 0, label: 'Niveau 0', desc: 'Aucun lien CRM — Aaron travaille avec sa propre base de données.' },
   { value: 1, label: 'Niveau 1', desc: 'Connexion CRM basique, synchronisation manuelle ponctuelle.' },
@@ -224,6 +229,7 @@ export default function PreferencesPage() {
         user_id: userId,
         notify_channel: prefs.notify_channel,
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
+        require_first_email_approval: prefs.require_first_email_approval,
         collaboration_level: prefs.collaboration_level,
         offer: prefs.offer,
         crm_provider: prefs.crm_provider,
@@ -418,6 +424,26 @@ export default function PreferencesPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="field">
+            <label>Premier email envoyé à un nouveau prospect</label>
+            <div className="options">
+              {FIRST_EMAIL_OPTIONS.map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  className={prefs.require_first_email_approval === opt.value ? 'option active' : 'option'}
+                  onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="collab-extra-hint">
+              Par défaut, Aaron envoie directement le tout premier email à un nouveau prospect. Active la validation
+              pour relire (et modifier si besoin) chaque premier email avant qu'il ne parte — les relances suivantes
+              restent automatiques dans les deux cas.
+            </p>
           </div>
 
           <div className="field">
