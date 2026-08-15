@@ -1,4 +1,9 @@
 // app/app/documents/page.jsx
+// CHANGEMENTS A FAIRE #89 : ajoute un bouton supprimer, une annotation "pris
+// en compte par Aaron" (toggle, sans supprimer le fichier), un bouton "avis
+// d'Aaron" par document, et un rattachement à une catégorie (Général /
+// Prospects / Opportunités / Clients) qui détermine à quel(s) module(s)
+// d'Aaron le document est exposé (voir migration_documents_2026-08-16.sql).
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -72,6 +77,20 @@ function formatSize(bytes, locale) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('documents.sizeMb', locale)}`;
 }
 
+// Catégories de rattachement (#89) — NULL/'general' = exposé à tous les
+// modules d'Aaron, sinon réservé au module correspondant (voir
+// lib/aaron.ts / lib/aaron-sales.ts / lib/aaron-customer.ts).
+const CATEGORIES = ['general', 'prospects', 'opportunites', 'clients'];
+
+function categoryLabelsFor(locale) {
+  return {
+    general: t('documents.categoryGeneral', locale),
+    prospects: t('documents.categoryProspects', locale),
+    opportunites: t('documents.categoryOpportunities', locale),
+    clients: t('documents.categoryClients', locale),
+  };
+}
+
 export default function DocumentsPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
@@ -79,8 +98,16 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [description, setDescription] = useState('');
+  const [uploadCategory, setUploadCategory] = useState('general');
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState(null);
+  const [rowError, setRowError] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
+  const [categoryUpdatingId, setCategoryUpdatingId] = useState(null);
+  const [generatingAdviceId, setGeneratingAdviceId] = useState(null);
+  const [adviceModalDoc, setAdviceModalDoc] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -104,6 +131,7 @@ export default function DocumentsPage() {
     formData.append('file', selectedFile);
     formData.append('user_id', userId);
     formData.append('description', description);
+    formData.append('linked_category', uploadCategory);
 
     const res = await fetch('/api/documents', { method: 'POST', body: formData });
     setUploading(false);
@@ -116,6 +144,64 @@ export default function DocumentsPage() {
 
     setSelectedFile(null);
     setDescription('');
+    setUploadCategory('general');
+    load();
+  }
+
+  async function handleToggleAaronContext(doc) {
+    setTogglingId(doc.id);
+    setRowError(null);
+    const res = await fetch(`/api/documents/${doc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ included_in_aaron_context: !doc.included_in_aaron_context }),
+    });
+    setTogglingId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
+    load();
+  }
+
+  async function handleCategoryChange(doc, newCategory) {
+    setCategoryUpdatingId(doc.id);
+    setRowError(null);
+    const res = await fetch(`/api/documents/${doc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linked_category: newCategory === 'general' ? null : newCategory }),
+    });
+    setCategoryUpdatingId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
+    load();
+  }
+
+  async function handleGenerateAdvice(doc) {
+    setGeneratingAdviceId(doc.id);
+    const res = await fetch(`/api/documents/${doc.id}/advice`, { method: 'POST' });
+    const body = await res.json();
+    setGeneratingAdviceId(null);
+    if (!res.ok) {
+      setAdviceModalDoc({ ...doc, advice: body.error || t('documents.deleteError', locale) });
+      return;
+    }
+    setAdviceModalDoc({ ...doc, advice: body.advice, advice_generated_at: body.advice_generated_at });
+    load();
+  }
+
+  async function handleDelete(documentId) {
+    setDeletingId(documentId);
+    const res = await fetch(`/api/documents/${documentId}`, { method: 'DELETE' });
+    setDeletingId(null);
+    setConfirmDeleteId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
     load();
   }
 
@@ -180,11 +266,22 @@ export default function DocumentsPage() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+        <select
+          className="category-select"
+          value={uploadCategory}
+          onChange={(e) => setUploadCategory(e.target.value)}
+          aria-label={t('documents.colCategory', locale)}
+        >
+          {CATEGORIES.map((cat) => (
+            <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
+          ))}
+        </select>
         <button type="submit" className="btn-primary" disabled={!selectedFile || uploading}>
           {uploading ? t('documents.uploading', locale) : t('documents.uploadButton', locale)}
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+      {rowError && <p className="error">{rowError}</p>}
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
@@ -198,6 +295,8 @@ export default function DocumentsPage() {
                 <th>{t('documents.colFile', locale)}</th>
                 <th>{t('documents.colDescription', locale)}</th>
                 <th>{t('documents.colSummary', locale)}</th>
+                <th>{t('documents.colCategory', locale)}</th>
+                <th>{t('documents.colAaron', locale)}</th>
                 <th>{t('documents.colSize', locale)}</th>
                 <th>{t('documents.colAddedAt', locale)}</th>
                 <th></th>
@@ -209,19 +308,94 @@ export default function DocumentsPage() {
                   <td className="strong">{d.file_name}</td>
                   <td className="muted">{d.description || '—'}</td>
                   <td className="muted summary-cell">{d.summary || '—'}</td>
+                  <td>
+                    <select
+                      className="category-select-inline"
+                      value={d.linked_category || 'general'}
+                      disabled={categoryUpdatingId === d.id}
+                      onChange={(e) => handleCategoryChange(d, e.target.value)}
+                    >
+                      {CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className={`aaron-toggle${d.included_in_aaron_context ? ' on' : ' off'}`}
+                      disabled={togglingId === d.id}
+                      onClick={() => handleToggleAaronContext(d)}
+                    >
+                      {d.included_in_aaron_context ? `✅ ${t('documents.aaronContextOn', locale)}` : `🚫 ${t('documents.aaronContextOff', locale)}`}
+                    </button>
+                  </td>
                   <td className="muted">{formatSize(d.file_size_bytes, locale)}</td>
                   <td className="muted">{new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</td>
                   <td>
-                    {d.download_url && (
-                      <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
-                        {t('documents.download', locale)}
-                      </a>
-                    )}
+                    <div className="row-actions">
+                      {d.download_url && (
+                        <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
+                          {t('documents.download', locale)}
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="link-btn"
+                        disabled={generatingAdviceId === d.id}
+                        onClick={() => (d.advice ? setAdviceModalDoc(d) : handleGenerateAdvice(d))}
+                      >
+                        {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
+                      </button>
+                      <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
+                        {t('documents.deleteButton', locale)}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {adviceModalDoc && (
+        <div className="overlay" onClick={() => setAdviceModalDoc(null)}>
+          <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close-btn" onClick={() => setAdviceModalDoc(null)}>✕</button>
+            <h2>{t('documents.adviceModalTitle', locale)} — {adviceModalDoc.file_name}</h2>
+            <p className="advice-modal-text">{adviceModalDoc.advice}</p>
+            <button
+              type="button"
+              className="btn-secondary regenerate-btn"
+              disabled={generatingAdviceId === adviceModalDoc.id}
+              onClick={() => handleGenerateAdvice(adviceModalDoc)}
+            >
+              {generatingAdviceId === adviceModalDoc.id ? t('documents.adviceGenerating', locale) : t('documents.adviceRegenerate', locale)}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteId && (
+        <div className="overlay" onClick={() => setConfirmDeleteId(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{t('documents.deleteConfirmTitle', locale)}</h2>
+            <p>{t('documents.deleteConfirmBody', locale)}</p>
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmDeleteId(null)}>
+                {t('common.cancel', locale)}
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={deletingId === confirmDeleteId}
+                onClick={() => handleDelete(confirmDeleteId)}
+              >
+                {t('common.confirm', locale)}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -335,6 +509,161 @@ export default function DocumentsPage() {
           color: var(--accent);
           text-decoration: none;
           font-weight: 500;
+        }
+        .category-select {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.55rem 0.6rem;
+          color: var(--text);
+          font-size: 0.82rem;
+          font-family: inherit;
+        }
+        .category-select-inline {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 0.3rem 0.4rem;
+          color: var(--text);
+          font-size: 0.78rem;
+          font-family: inherit;
+          max-width: 130px;
+        }
+        .aaron-toggle {
+          border-radius: 999px;
+          padding: 0.35rem 0.7rem;
+          font-size: 0.76rem;
+          font-weight: 500;
+          cursor: pointer;
+          white-space: nowrap;
+          border: 1px solid var(--border);
+          background: var(--bg);
+        }
+        .aaron-toggle.on {
+          color: #3dd68c;
+          border-color: rgba(61, 214, 140, 0.4);
+        }
+        .aaron-toggle.off {
+          color: var(--muted);
+        }
+        .aaron-toggle:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .row-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          flex-wrap: wrap;
+        }
+        .link-btn {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-weight: 500;
+          font-size: 0.82rem;
+          cursor: pointer;
+          padding: 0;
+        }
+        .link-btn.danger {
+          color: #e5484d;
+        }
+        .link-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .advice-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem;
+          width: 520px;
+          max-width: 100%;
+          max-height: 80vh;
+          overflow-y: auto;
+          position: relative;
+        }
+        .advice-modal h2 {
+          font-family: var(--font-display);
+          font-size: 1.05rem;
+          margin: 0 0 0.8rem;
+          padding-right: 1.5rem;
+        }
+        .advice-modal .close-btn {
+          position: absolute;
+          top: 1rem;
+          right: 1.2rem;
+        }
+        .close-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .advice-modal-text {
+          font-size: 0.88rem;
+          line-height: 1.55;
+          color: var(--text);
+          white-space: pre-line;
+        }
+        .regenerate-btn {
+          margin-top: 0.6rem;
+        }
+        .confirm-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        .confirm-modal h2 {
+          font-family: var(--font-display);
+          font-size: 1.05rem;
+          margin: 0 0 0.6rem;
+        }
+        .confirm-modal p {
+          font-size: 0.86rem;
+          color: var(--muted);
+          line-height: 1.45;
+          margin: 0 0 1rem;
+        }
+        .confirm-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: #e5484d;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-danger:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
       `}</style>
     </Shell>
