@@ -68,6 +68,15 @@ function useAuthedUser() {
 
 // Couleurs par statut — les libellés sont traduits via t('status.<clé>', locale)
 // (voir lib/i18n.js) plutôt que codés en dur ici.
+//
+// CHANGEMENTS A FAIRE #4 (2026-08-15) : dans la rangée de stats du tableau de
+// bord, "RDV obtenu" (bleu) n'est plus un simple comptage du statut prospect
+// (qui ne redescend jamais tout seul, donc grossirait indéfiniment) — c'est
+// désormais une carte dédiée calculée sur une fenêtre glissante de 24h (voir
+// rdvObtenus24h plus bas) et affichée juste à côté de "en bonne voie"
+// (#4/#11). 'bleu' reste dans STATUS_COLORS/STATUS_META (utilisé par
+// ActionCardModal pour la pastille de statut d'un prospect) — la rangée de
+// stats se contente simplement de ne pas boucler dessus (voir plus bas).
 const STATUS_COLORS = {
   vert: '#3DD68C',
   jaune: '#8B90A8',
@@ -82,28 +91,128 @@ function statusMetaFor(locale) {
   );
 }
 
+// Catégorie "Opportunités" du tableau de bord (#7) — mêmes codes couleur que
+// le pipeline prospects, réutilisés sur les étapes deal_stage (voir
+// STAGE_ORDER/STAGE_COLORS dans app/app/sales/page.jsx) :
+//  - perdu -> Perdu (rouge)
+//  - signe -> Devis signé (bleu — le gain final, distinct du bleu "RDV obtenu")
+//  - en_negociation, non en retard -> En bonne voie (vert)
+//  - rdv_fait / devis_envoye, non en retard -> En cours (gris/jaune)
+//  - n'importe quelle étape non close, sans mise à jour depuis STALE_DEAL_DAYS
+//    jours -> Risque de perdre (orange) — même seuil que le rappel automatique
+//    d'affaires qui stagnent (voir STALE_DAYS dans app/app/sales/page.jsx et
+//    app/api/cron/stale-deals-alert/route.ts).
+const STALE_DEAL_DAYS = 5;
+
+const OPPORTUNITY_BUCKET_COLORS = {
+  signe: '#4B9EF0',
+  bonneVoie: '#3DD68C',
+  enCours: '#8B90A8',
+  risque: '#F0914E',
+  perdu: '#E5484D',
+};
+
+function opportunityBucketMetaFor(locale) {
+  return {
+    signe: { label: t('dash.devisSigne', locale), color: OPPORTUNITY_BUCKET_COLORS.signe },
+    bonneVoie: { label: t('status.vert', locale), color: OPPORTUNITY_BUCKET_COLORS.bonneVoie },
+    enCours: { label: t('status.jaune', locale), color: OPPORTUNITY_BUCKET_COLORS.enCours },
+    risque: { label: t('status.orange', locale), color: OPPORTUNITY_BUCKET_COLORS.risque },
+    perdu: { label: t('status.rouge', locale), color: OPPORTUNITY_BUCKET_COLORS.perdu },
+  };
+}
+
+function opportunityBucketFor(deal) {
+  if (deal.deal_stage === 'perdu') return 'perdu';
+  if (deal.deal_stage === 'signe') return 'signe';
+  const days = deal.deal_stage_updated_at
+    ? (Date.now() - new Date(deal.deal_stage_updated_at).getTime()) / (24 * 60 * 60 * 1000)
+    : null;
+  if (days !== null && days >= STALE_DEAL_DAYS) return 'risque';
+  if (deal.deal_stage === 'en_negociation') return 'bonneVoie';
+  return 'enCours';
+}
+
+// Catégorie "Clients" du tableau de bord (#8) — basée sur le score de santé
+// client déjà calculé pour Aaron Customer (customer_health_label, voir
+// app/app/customer/page.jsx / app/api/customers/pipeline).
+const HEALTH_BUCKET_COLORS = {
+  saine: '#3DD68C',
+  non_evalue: '#8B90A8',
+  a_surveiller: '#F0C94E',
+  a_risque: '#E5484D',
+};
+
+function healthBucketMetaFor(locale) {
+  return {
+    saine: { label: t('customer.healthGood', locale), color: HEALTH_BUCKET_COLORS.saine },
+    non_evalue: { label: t('dash.healthUnknown', locale), color: HEALTH_BUCKET_COLORS.non_evalue },
+    a_surveiller: { label: t('customer.healthWatch', locale), color: HEALTH_BUCKET_COLORS.a_surveiller },
+    a_risque: { label: t('customer.healthAtRisk', locale), color: HEALTH_BUCKET_COLORS.a_risque },
+  };
+}
+
+function healthBucketFor(customer) {
+  return customer.customer_health_label || 'non_evalue';
+}
+
+// Regroupe une liste de RDV (triée par date croissante) sous des en-têtes de
+// date façon agenda iPhone (#5) : Aujourd'hui, Demain, puis jour de semaine +
+// date pour les suivants.
+function groupAppointmentsByDay(list, locale) {
+  const todayKey = new Date().toDateString();
+  const tomorrowKey = new Date(Date.now() + 24 * 60 * 60 * 1000).toDateString();
+  const groups = [];
+  const byKey = {};
+
+  for (const a of list) {
+    const d = new Date(a.proposed_at);
+    const key = d.toDateString();
+    if (!byKey[key]) {
+      let label;
+      if (key === todayKey) label = t('common.today', locale);
+      else if (key === tomorrowKey) label = t('common.tomorrow', locale);
+      else label = d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+      byKey[key] = { key, label, items: [] };
+      groups.push(byKey[key]);
+    }
+    byKey[key].items.push(a);
+  }
+
+  return groups;
+}
+
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
   const STATUS_META = statusMetaFor(locale);
+  const OPPORTUNITY_META = opportunityBucketMetaFor(locale);
+  const HEALTH_META = healthBucketMetaFor(locale);
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [deals, setDeals] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(true);
  const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [selectedRescue, setSelectedRescue] = useState(null);
+  const [acknowledging, setAcknowledging] = useState(null);
 
   async function loadAll() {
     setLoading(true);
-    const [pRes, cRes, aRes] = await Promise.all([
+    const [pRes, cRes, aRes, dRes, cuRes] = await Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
     ]);
     setProspects(pRes.prospects || []);
     setCampaigns(cRes.campaigns || []);
     setAppointments(aRes.appointments || []);
+    setDeals(dRes.deals || []);
+    setCustomers(cuRes.customers || []);
     setLoading(false);
   }
 
@@ -112,21 +221,78 @@ export default function DashboardPage() {
     loadAll();
   }, [userId]);
 
+  async function acknowledgeMissed(appointmentId) {
+    setAcknowledging(appointmentId);
+    await fetch(`/api/appointments/${appointmentId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'acquitter_manque' }),
+    });
+    setAcknowledging(null);
+    loadAll();
+  }
+
   const statusCounts = Object.keys(STATUS_META).reduce((acc, key) => {
     acc[key] = prospects.filter((p) => p.status === key).length;
     return acc;
   }, {});
 
   const activeCampaigns = campaigns.filter((c) => c.status === 'en_cours' || c.status === 'en_attente');
+
+  const now = new Date();
+
+  // #5 — au moins les 20 prochains RDV validés, regroupés par jour.
   const upcomingAppointments = appointments
-    .filter((a) => a.status === 'validé' && new Date(a.proposed_at) > new Date())
-    .slice(0, 5);
-  const pendingAppointments = appointments.filter((a) => a.status === 'proposé');
-const cancelledByClient = appointments.filter(
-    (a) => a.status === 'annulé' && a.cancelled_by === 'client' && !a.client_cancel_acknowledged
+    .filter((a) => a.status === 'validé' && new Date(a.proposed_at) > now)
+    .slice(0, 20);
+  const upcomingGroups = groupAppointmentsByDay(upcomingAppointments, locale);
+
+  // #2 — RDV jamais validés dont la date est dépassée -> bandeau rouge dédié,
+  // au lieu de rester noyés (sans distinction visuelle) dans les actions
+  // requises classiques. C'est exactement le bug remonté sur le compte test.
+  const missedAppointments = appointments.filter(
+    (a) => a.status === 'proposé' && new Date(a.proposed_at) < now && !a.missed_action_acknowledged
+  );
+  // Actions requises "classiques" : uniquement celles encore d'actualité.
+  const pendingAppointments = appointments.filter((a) => a.status === 'proposé' && new Date(a.proposed_at) >= now);
+  // #3 — annulation client dont le RDV est de toute façon déjà passé : plus
+  // la peine de relancer, la notif disparaît d'elle-même (pas d'action requise).
+  const cancelledByClient = appointments.filter(
+    (a) =>
+      a.status === 'annulé' &&
+      a.cancelled_by === 'client' &&
+      !a.client_cancel_acknowledged &&
+      new Date(a.proposed_at) >= now
   );
   const rescueProspects = prospects.filter((p) => p.rescue_proposal_pending);
   const totalActions = pendingAppointments.length + cancelledByClient.length + rescueProspects.length;
+
+  // #4/#9A — "RDV obtenu" : compteur glissant sur 24h des RDV obtenus par
+  // Aaron pendant l'absence du commercial (source Aaron, RDV pris
+  // manuellement exclus — voir migration_manual_appointments_2026-08-12.sql),
+  // plutôt qu'un total de statut prospect qui ne redescend jamais.
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const rdvObtenus24h = appointments.filter(
+    (a) => a.source !== 'manuel' && a.created_at && new Date(a.created_at) >= oneDayAgo
+  );
+  // #9B — détail par type de RDV.
+  const rdvObtenusByType = {
+    visio: rdvObtenus24h.filter((a) => a.type === 'visio').length,
+    telephonique: rdvObtenus24h.filter((a) => a.type === 'telephonique').length,
+    physique: rdvObtenus24h.filter((a) => a.type === 'physique').length,
+  };
+
+  // #7 — catégorie Opportunités : réparties par code couleur pipeline.
+  const opportunityCounts = Object.keys(OPPORTUNITY_META).reduce((acc, key) => {
+    acc[key] = deals.filter((d) => opportunityBucketFor(d) === key).length;
+    return acc;
+  }, {});
+
+  // #8 — catégorie Clients : réparties par santé client.
+  const healthCounts = Object.keys(HEALTH_META).reduce((acc, key) => {
+    acc[key] = customers.filter((c) => healthBucketFor(c) === key).length;
+    return acc;
+  }, {});
 
   if (authLoading) {
     return (
@@ -171,6 +337,39 @@ const cancelledByClient = appointments.filter(
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
+          {missedAppointments.length > 0 && (
+            <section className="missed-panel">
+              <p className="missed-title">
+                <span className="dot" style={{ background: '#E5484D' }} />
+                {t('dash.missedActions', locale)} <span className="badge">{missedAppointments.length}</span>
+              </p>
+              <div className="missed-list">
+                {missedAppointments.map((a) => (
+                  <div key={a.id} className="missed-row">
+                    <span className="missed-label">
+                      {t('dash.missedApptLabel', locale).replace('{name}', a.prospects?.full_name || '')}
+                    </span>
+                    <div className="missed-actions">
+                      <button
+                        className="missed-open"
+                        onClick={() => setSelectedAppointment({ ...a, actionType: 'valider' })}
+                      >
+                        {t('modal.validate', locale)}
+                      </button>
+                      <button
+                        className="missed-ack"
+                        disabled={acknowledging === a.id}
+                        onClick={() => acknowledgeMissed(a.id)}
+                      >
+                        {t('dash.acknowledgeMissed', locale)}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
          <section className="actions-panel">
             <button className="actions-toggle" onClick={() => setActionsOpen(!actionsOpen)}>
               <span>
@@ -212,32 +411,56 @@ const cancelledByClient = appointments.filter(
           </section>
 
           <section className="stat-row">
-            {Object.entries(STATUS_META).map(([key, meta]) => (
+            <div className="stat-card">
+              <span className="dot" style={{ background: STATUS_META.vert.color }} />
+              <span className="stat-number">{statusCounts.vert || 0}</span>
+              <span className="stat-label">{STATUS_META.vert.label}</span>
+            </div>
+            <div className="stat-card rdv-obtenu-card">
+              <span className="dot" style={{ background: '#4B9EF0' }} />
+              <span className="stat-number">{rdvObtenus24h.length}</span>
+              <span className="stat-label">{t('status.bleu', locale)}</span>
+              <span className="stat-sublabel">
+                {t('dash.rdvObtenuBreakdown', locale)
+                  .replace('{visio}', rdvObtenusByType.visio)
+                  .replace('{tel}', rdvObtenusByType.telephonique)
+                  .replace('{phys}', rdvObtenusByType.physique)}
+              </span>
+            </div>
+            {['jaune', 'orange', 'rouge'].map((key) => (
               <div className="stat-card" key={key}>
-                <span className="dot" style={{ background: meta.color }} />
+                <span className="dot" style={{ background: STATUS_META[key].color }} />
                 <span className="stat-number">{statusCounts[key] || 0}</span>
-                <span className="stat-label">{meta.label}</span>
+                <span className="stat-label">{STATUS_META[key].label}</span>
               </div>
             ))}
           </section>
+          <p className="period-note">{t('dash.periodNote', locale)}</p>
 
           <section className="grid-two">
             <div className="panel">
               <h2>{t('dash.upcomingAppointments', locale)}</h2>
-              {upcomingAppointments.length === 0 ? (
+              {upcomingGroups.length === 0 ? (
                 <EmptyState title={t('dash.emptyNothingPlanned', locale)} body={t('dash.emptyNoConfirmedAppt', locale)} compact />
               ) : (
-                <ul className="list">
-                  {upcomingAppointments.map((a) => (
-                    <li key={a.id} className="list-item">
-                      <div>
-                        <strong>{a.prospects?.full_name}</strong>
-                        <span className="muted"> — {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}</span>
-                      </div>
-                      <span className="pill">{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                    </li>
+                <div className="day-groups">
+                  {upcomingGroups.map((group) => (
+                    <div key={group.key} className="day-group">
+                      <p className="day-heading">{group.label}</p>
+                      <ul className="list">
+                        {group.items.map((a) => (
+                          <li key={a.id} className="list-item">
+                            <div>
+                              <strong>{a.prospects?.full_name}</strong>
+                              <span className="muted"> — {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}</span>
+                            </div>
+                            <span className="pill">{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
 
@@ -259,6 +482,40 @@ const cancelledByClient = appointments.filter(
                 </ul>
               )}
             </div>
+          </section>
+
+          <section className="panel category-panel">
+            <h2>{t('dash.opportunitiesTitle', locale)}</h2>
+            {deals.length === 0 ? (
+              <EmptyState title={t('dash.noOpportunitiesYet', locale)} body={t('pipeline.emptyOpportunities', locale)} compact />
+            ) : (
+              <div className="category-row">
+                {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
+                  <div className="stat-card" key={key}>
+                    <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
+                    <span className="stat-number">{opportunityCounts[key] || 0}</span>
+                    <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="panel category-panel">
+            <h2>{t('dash.clientsTitle', locale)}</h2>
+            {customers.length === 0 ? (
+              <EmptyState title={t('dash.noClientsYet', locale)} body={t('dash.noClientsYet', locale)} compact />
+            ) : (
+              <div className="category-row">
+                {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
+                  <div className="stat-card" key={key}>
+                    <span className="dot" style={{ background: HEALTH_META[key].color }} />
+                    <span className="stat-number">{healthCounts[key] || 0}</span>
+                    <span className="stat-label">{HEALTH_META[key].label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </>
       )}
@@ -306,6 +563,71 @@ const cancelledByClient = appointments.filter(
           margin: 0;
           max-width: 26ch;
           line-height: 1.2;
+        }
+        .missed-panel {
+          background: rgba(229, 72, 77, 0.08);
+          border: 1px solid #e5484d;
+          border-radius: 14px;
+          margin-bottom: 1.2rem;
+          overflow: hidden;
+        }
+        .missed-title {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 0;
+          padding: 1rem 1.3rem;
+          font-size: 0.92rem;
+          font-weight: 700;
+          color: #ff8086;
+        }
+        .missed-title .badge {
+          background: #e5484d;
+          color: #fff;
+        }
+        .missed-list {
+          border-top: 1px solid rgba(229, 72, 77, 0.35);
+        }
+        .missed-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+          padding: 0.8rem 1.3rem;
+          border-bottom: 1px solid rgba(229, 72, 77, 0.2);
+          flex-wrap: wrap;
+        }
+        .missed-row:last-child {
+          border-bottom: none;
+        }
+        .missed-label {
+          font-size: 0.86rem;
+          color: var(--text);
+          flex: 1;
+          min-width: 200px;
+        }
+        .missed-actions {
+          display: flex;
+          gap: 0.5rem;
+          flex-shrink: 0;
+        }
+        .missed-open,
+        .missed-ack {
+          border-radius: 8px;
+          padding: 0.4rem 0.8rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .missed-open {
+          background: var(--accent);
+          border: none;
+          color: #fff;
+        }
+        .missed-ack {
+          background: none;
+          border: 1px solid var(--border);
+          color: var(--muted);
         }
         .actions-panel {
           background: var(--surface);
@@ -407,6 +729,43 @@ const cancelledByClient = appointments.filter(
         .stat-label {
           font-size: 0.78rem;
           color: var(--muted);
+        }
+        .stat-sublabel {
+          font-size: 0.68rem;
+          color: var(--muted);
+          font-family: var(--font-mono);
+        }
+        .rdv-obtenu-card {
+          border-color: rgba(75, 158, 240, 0.5);
+        }
+        .period-note {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: -1.3rem 0 2rem;
+        }
+        .day-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 1.1rem;
+        }
+        .day-group:last-child .list-item:last-child {
+          border-bottom: none;
+        }
+        .day-heading {
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: var(--accent);
+          margin: 0 0 0.5rem;
+        }
+        .category-panel {
+          margin-top: 1.25rem;
+        }
+        .category-row {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 0.75rem;
         }
         .grid-two {
           display: grid;
