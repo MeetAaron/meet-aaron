@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser, setRememberMe } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
@@ -33,6 +34,7 @@ export default function LoginPage() {
     setMessage(null);
 
     if (mode === 'signin') {
+      setRememberMe(remember);
       const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
       if (error) {
         setError(error.message);
@@ -113,6 +115,16 @@ export default function LoginPage() {
             required
             minLength={6}
           />
+          {mode === 'signin' && (
+            <label className="remember-row">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              {t('auth.rememberMe', locale)}
+            </label>
+          )}
           <button type="submit" className="btn-primary" disabled={loading}>
             {loading ? t('common.loading', locale) : mode === 'signin' ? t('auth.signIn', locale) : t('auth.signUp', locale)}
           </button>
@@ -196,6 +208,22 @@ export default function LoginPage() {
           padding: 0.65rem 0.9rem;
           color: #f4f1ea;
           font-size: 0.88rem;
+        }
+        .remember-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          color: #8b90a8;
+          font-size: 0.82rem;
+          cursor: pointer;
+          text-align: left;
+          padding: 0.1rem 0.1rem 0.2rem;
+        }
+        .remember-row input {
+          width: 15px;
+          height: 15px;
+          accent-color: #4b39ef;
+          cursor: pointer;
         }
         .btn-primary {
           width: 100%;
