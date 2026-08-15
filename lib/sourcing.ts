@@ -74,7 +74,13 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
     {
       model: 'claude-sonnet-4-6',
       max_tokens: 4000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      // max_uses borne le nombre de recherches web que le modèle peut lancer
+      // pour CET appel — sans cette limite, un seul prompt peut déclencher un
+      // nombre de recherches non borné (facturées en plus des tokens), ce qui
+      // était identifié comme le principal poste de coût API non maîtrisé
+      // (voir statut projet, "vitesse & coût API"). Ne change ni le format de
+      // réponse attendu ni la qualité : borne juste le pire cas.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
       messages: [{ role: 'user', content: prompt }],
     },
     companyId
@@ -135,7 +141,10 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null 
     {
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      // Même borne que searchCompaniesInZone ci-dessus, avec un plafond plus
+      // bas puisqu'il s'agit de chercher UN contact dans UNE entreprise déjà
+      // identifiée (moins de recherches nécessaires qu'une découverte de zone).
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
       messages: [{ role: 'user', content: prompt }],
     },
     companyId
