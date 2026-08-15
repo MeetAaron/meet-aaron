@@ -76,20 +76,25 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const STATUS_META = {
-  vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#8B90A8' },
-  orange: { label: 'Risque de perdre', color: '#F0914E' },
-  rouge: { label: 'Perdu', color: '#E5484D' },
-  bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
+const STATUS_COLORS = {
+  vert: '#3DD68C',
+  jaune: '#8B90A8',
+  orange: '#F0914E',
+  rouge: '#E5484D',
+  bleu: '#4B9EF0',
 };
 
-const PERSONALITY_LABELS = {
-  dominant: 'Dominant',
-  influent: 'Influent',
-  stable: 'Stable',
-  consciencieux: 'Consciencieux',
-};
+function statusMetaFor(locale) {
+  return Object.fromEntries(
+    Object.entries(STATUS_COLORS).map(([key, color]) => [key, { label: t(`status.${key}`, locale), color }])
+  );
+}
+
+const PERSONALITY_KEYS = ['dominant', 'influent', 'stable', 'consciencieux'];
+
+function personalityLabelsFor(locale) {
+  return Object.fromEntries(PERSONALITY_KEYS.map((key) => [key, t(`personality.${key}`, locale)]));
+}
 
 // Couleurs DISC standard (méthode des 4 couleurs) — reprises pour que le
 // profil de personnalité ressentie se reconnaisse visuellement d'un coup
@@ -108,18 +113,31 @@ function personalityTagStyle(type) {
   return { border: `1px solid ${color}`, color };
 }
 
-const PERSONALITY_COLOR_LEGEND = 'Couleurs DISC — Dominant : rouge · Influent : jaune · Stable : vert · Consciencieux : bleu';
+function personalityColorLegendFor(locale) {
+  return t('prospects.personalityColorLegend', locale);
+}
 
-function exportProspectsToCsv(prospects) {
-  const headers = ['Statut', 'Nom', 'Société', 'Poste', 'Email', 'Téléphone', 'Personnalité ressentie', "Conseils d'Aaron"];
+function exportProspectsToCsv(prospects, locale) {
+  const statusMeta = statusMetaFor(locale);
+  const personalityLabels = personalityLabelsFor(locale);
+  const headers = [
+    t('prospects.colStatus', locale),
+    t('prospects.colName', locale),
+    t('prospects.colCompany', locale),
+    t('prospects.colJobTitle', locale),
+    t('modal.email', locale),
+    t('modal.phone', locale),
+    t('prospects.colPersonality', locale),
+    t('modal.aaronAdvice', locale),
+  ];
   const rows = prospects.map((p) => [
-    STATUS_META[p.status]?.label || p.status,
+    statusMeta[p.status]?.label || p.status,
     p.full_name,
     p.prospect_companies?.name || '',
     p.job_title || '',
     p.email,
     p.phone || '',
-    PERSONALITY_LABELS[p.personality_type] || '',
+    personalityLabels[p.personality_type] || '',
     p.aaron_advice || '',
   ]);
   const csvContent = [headers, ...rows]
@@ -136,6 +154,10 @@ function exportProspectsToCsv(prospects) {
 
 export default function ProspectsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const STATUS_META = statusMetaFor(locale);
+  const PERSONALITY_LABELS = personalityLabelsFor(locale);
+  const PERSONALITY_COLOR_LEGEND = personalityColorLegendFor(locale);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('tous');
@@ -168,7 +190,7 @@ export default function ProspectsPage() {
   }, [userId]);
 
   async function handleDelete(prospect) {
-    if (!window.confirm(`Tu es certain de vouloir supprimer "${prospect.full_name}" ? Cette action est définitive (échanges et RDV liés seront aussi supprimés).`)) {
+    if (!window.confirm(t('prospects.confirmDeleteProspect', locale).replace('{name}', prospect.full_name))) {
       return;
     }
     setActingOn(prospect.id);
@@ -178,7 +200,7 @@ export default function ProspectsPage() {
   }
 
   async function handleMarkLost(prospect) {
-    if (!window.confirm(`Passer "${prospect.full_name}" en perdu ? Aaron arrêtera de le recontacter et tu pourras le gérer toi-même.`)) {
+    if (!window.confirm(t('prospects.confirmMarkLost', locale).replace('{name}', prospect.full_name))) {
       return;
     }
     setActingOn(prospect.id);
@@ -280,8 +302,8 @@ export default function ProspectsPage() {
     <Shell active="Prospects" userId={userId}>
       <header className="header">
         <div>
-          <p className="eyebrow">Pipeline</p>
-          <h1>Vos prospects</h1>
+          <p className="eyebrow">{t('prospects.eyebrow', locale)}</p>
+          <h1>{t('prospects.title', locale)}</h1>
         </div>
         <div className="header-actions">
           {prospects.length > 0 && (
@@ -289,25 +311,25 @@ export default function ProspectsPage() {
               className={detailed ? 'btn-secondary active' : 'btn-secondary'}
               onClick={() => setDetailed((d) => !d)}
             >
-              {detailed ? 'Vue simple' : 'Vue détaillée'}
+              {detailed ? t('prospects.viewSimple', locale) : t('prospects.viewDetailed', locale)}
             </button>
           )}
           {prospects.length > 0 && (
-            <button className="btn-secondary" onClick={() => exportProspectsToCsv(filtered)}>
-              Télécharger en CSV
+            <button className="btn-secondary" onClick={() => exportProspectsToCsv(filtered, locale)}>
+              {t('prospects.exportCsv', locale)}
             </button>
           )}
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
-            + Ajouter un prospect
+            {t('prospects.addButton', locale)}
           </button>
         </div>
       </header>
 
       {pendingFirstEmails.length > 0 && (
         <div className="pending-banner">
-          ✉️ {pendingFirstEmails.length} premier{pendingFirstEmails.length > 1 ? 's' : ''} email{pendingFirstEmails.length > 1 ? 's' : ''} en attente de validation avant envoi.
+          {t('prospects.pendingEmailsBanner', locale).replace('{count}', pendingFirstEmails.length)}
           <button type="button" className="pending-banner-btn" onClick={() => setPendingEmailProspect(pendingFirstEmails[0])}>
-            Relire maintenant
+            {t('prospects.reviewNow', locale)}
           </button>
         </div>
       )}
@@ -317,13 +339,13 @@ export default function ProspectsPage() {
           <input
             type="search"
             className="search-input"
-            placeholder="Rechercher un prospect (nom, société, email, téléphone, poste)…"
+            placeholder={t('prospects.searchPlaceholder', locale)}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           {search && (
             <button type="button" className="search-clear" onClick={() => setSearch('')}>
-              Effacer
+              {t('prospects.clear', locale)}
             </button>
           )}
         </div>
@@ -331,7 +353,7 @@ export default function ProspectsPage() {
 
       <div className="filters">
         <button className={statusFilter === 'tous' ? 'chip active' : 'chip'} onClick={() => setStatusFilter('tous')}>
-          Tous ({prospects.length})
+          {t('prospects.allFilter', locale).replace('{count}', prospects.length)}
         </button>
         {Object.entries(STATUS_META).map(([key, meta]) => {
           const count = prospects.filter((p) => p.status === key).length;
@@ -350,21 +372,21 @@ export default function ProspectsPage() {
 
       {searchTerm && (
         <p className="search-result-count muted">
-          {filtered.length} résultat{filtered.length !== 1 ? 's' : ''} pour « {search.trim()} »
+          {t('prospects.searchResultCount', locale).replace('{count}', filtered.length).replace('{query}', search.trim())}
         </p>
       )}
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : filtered.length === 0 ? (
         <EmptyState
-          title="Aucun prospect ici"
+          title={t('prospects.emptyTitle', locale)}
           body={
             prospects.length === 0
-              ? "Lancez une campagne ou ajoutez un prospect manuellement."
+              ? t('prospects.emptyBodyNoProspects', locale)
               : searchTerm
-              ? "Aucun prospect ne correspond à cette recherche."
-              : "Aucun prospect ne correspond à ce filtre."
+              ? t('prospects.emptyBodySearchNoMatch', locale)
+              : t('prospects.emptyBodyFilterNoMatch', locale)
           }
         />
       ) : (
@@ -372,14 +394,14 @@ export default function ProspectsPage() {
           <table>
             <thead>
               <tr>
-                <th>Statut</th>
-                <th>Nom</th>
-                <th>Société</th>
-                {detailed && <th>Poste</th>}
-                <th>Personnalité ressentie</th>
-                <th>Conseils d'Aaron</th>
-                <th>Contact</th>
-                <th>Actions</th>
+                <th>{t('prospects.colStatus', locale)}</th>
+                <th>{t('prospects.colName', locale)}</th>
+                <th>{t('prospects.colCompany', locale)}</th>
+                {detailed && <th>{t('prospects.colJobTitle', locale)}</th>}
+                <th>{t('prospects.colPersonality', locale)}</th>
+                <th>{t('modal.aaronAdvice', locale)}</th>
+                <th>{t('prospects.colContact', locale)}</th>
+                <th>{t('prospects.colActions', locale)}</th>
               </tr>
             </thead>
             <tbody>
@@ -391,9 +413,9 @@ export default function ProspectsPage() {
                   <tr key={p.id}>
                     <td>
                       {wonUnconfirmed ? (
-                        <span className="status-pill" style={{ color: '#D4A017', borderColor: '#D4A017' }} title="Le prospect a été marqué gagné, en attente de confirmation de la 1ère commande">
+                        <span className="status-pill" style={{ color: '#D4A017', borderColor: '#D4A017' }} title={t('prospects.wonPendingTitle', locale)}>
                           <span className="dot" style={{ background: '#D4A017' }} />
-                          🏆 Gagné — en attente
+                          {t('prospects.wonPendingLabel', locale)}
                         </span>
                       ) : (
                         <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
@@ -409,7 +431,7 @@ export default function ProspectsPage() {
                         <button
                           type="button"
                           className="company-badge"
-                          title={`${otherContacts} autre${otherContacts > 1 ? 's' : ''} contact${otherContacts > 1 ? 's' : ''} chez cette société — clique pour les voir`}
+                          title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
                           onClick={() => setSearch(p.prospect_companies?.name || '')}
                         >
                           +{otherContacts}
@@ -421,7 +443,7 @@ export default function ProspectsPage() {
                       {p.personality_type ? (
                         <span className="tag" style={personalityTagStyle(p.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[p.personality_type] || p.personality_type}</span>
                       ) : (
-                        <span className="muted">Pas encore détectée</span>
+                        <span className="muted">{t('personality.notDetected', locale)}</span>
                       )}
                       {p.personality_notes && <p className="notes">{p.personality_notes}</p>}
                     </td>
@@ -430,7 +452,7 @@ export default function ProspectsPage() {
                       <div>{p.email}</div>
                       {p.phone && <div className="muted">{p.phone}</div>}
                       <button type="button" className="li-btn" onClick={() => setLinkedinProspect(p)}>
-                        Message LinkedIn
+                        {t('prospects.linkedinMessageButton', locale)}
                       </button>
                     </td>
                     <td className="row-actions-cell">
@@ -439,18 +461,18 @@ export default function ProspectsPage() {
                           type="button"
                           className="action-btn pending-email"
                           onClick={() => setPendingEmailProspect(p)}
-                          title="Aaron a préparé le premier email — à relire avant envoi"
+                          title={t('prospects.validateFirstEmailTitle', locale)}
                         >
-                          ✉️ Valider le 1er email
+                          {t('prospects.validateFirstEmailButton', locale)}
                         </button>
                       )}
                       <button
                         type="button"
                         className="action-btn thread"
                         onClick={() => setThreadProspect(p)}
-                        title="Voir l'historique des échanges et l'avis d'Aaron"
+                        title={t('prospects.conversationTitle', locale)}
                       >
-                        💬 Conversation
+                        {t('prospects.conversationButton', locale)}
                       </button>
                       {wonUnconfirmed ? (
                         <button
@@ -458,9 +480,9 @@ export default function ProspectsPage() {
                           className="action-btn won"
                           disabled={actingOn === p.id}
                           onClick={() => handleConfirmFirstOrder(p)}
-                          title="Confirmer que la 1ère commande a bien été passée : le prospect bascule dans Clients gagnés"
+                          title={t('prospects.confirmOrderTitle', locale)}
                         >
-                          ✅ Confirmer la commande
+                          {t('prospects.confirmOrderButton', locale)}
                         </button>
                       ) : (
                         <>
@@ -469,18 +491,18 @@ export default function ProspectsPage() {
                             className="action-btn won"
                             disabled={actingOn === p.id}
                             onClick={() => setWonProspect(p)}
-                            title="Le prospect devient client : il sera déplacé vers Résultats > Clients gagnés"
+                            title={t('prospects.wonButtonTitle', locale)}
                           >
-                            🏆 Gagné
+                            {t('prospects.wonButtonLabel', locale)}
                           </button>
                           <button
                             type="button"
                             className="action-btn lost"
                             disabled={actingOn === p.id}
                             onClick={() => handleMarkLost(p)}
-                            title="Le prospect ne deviendra pas client : Aaron arrête de le relancer"
+                            title={t('prospects.lostButtonTitle', locale)}
                           >
-                            Perdu
+                            {t('status.rouge', locale)}
                           </button>
                         </>
                       )}
@@ -523,20 +545,20 @@ export default function ProspectsPage() {
       {wonProspect && (
         <div className="overlay" onClick={() => setWonProspect(null)}>
           <div className="won-modal" onClick={(e) => e.stopPropagation()}>
-            <p className="won-title">Félicitations ! 🎉</p>
+            <p className="won-title">{t('prospects.wonModalTitle', locale)}</p>
             <p className="won-body">
-              Aaron : « Comment as-tu réussi ton coup avec {wonProspect.full_name} ? »
+              {t('prospects.wonModalBodyLine1', locale).replace('{name}', wonProspect.full_name)}
               <br />
-              Une première commande a-t-elle déjà été passée ?
+              {t('prospects.wonModalBodyLine2', locale)}
             </p>
             <p className="won-hint">
-              Oui → {wonProspect.full_name} bascule directement en client (Résultats › Clients gagnés, Aaron Client).<br />
-              Pas encore → il reste dans Prospects sous « 🏆 Gagné — en attente de 1ère commande » jusqu'à ce que tu confirmes la commande.
+              {t('prospects.wonModalHintLine1', locale).replace('{name}', wonProspect.full_name)}<br />
+              {t('prospects.wonModalHintLine2', locale)}
             </p>
             <div className="won-actions">
-              <button type="button" className="btn-secondary" onClick={() => setWonProspect(null)}>Annuler</button>
-              <button type="button" className="btn-secondary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(false)}>Pas encore de commande</button>
-              <button type="button" className="btn-primary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(true)}>Oui, commande passée !</button>
+              <button type="button" className="btn-secondary" onClick={() => setWonProspect(null)}>{t('common.cancel', locale)}</button>
+              <button type="button" className="btn-secondary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(false)}>{t('prospects.wonModalNotYet', locale)}</button>
+              <button type="button" className="btn-primary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(true)}>{t('prospects.wonModalConfirmed', locale)}</button>
             </div>
           </div>
         </div>
@@ -872,6 +894,7 @@ export default function ProspectsPage() {
 }
 
 function AddProspectModal({ userId, companyId, onClose, onCreated }) {
+  const [locale] = useLocale();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -909,7 +932,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
     const body = await res.json();
 
     if (!res.ok) {
-      setError(body.error || 'Erreur lors de la création');
+      setError(body.error || t('prospects.createErrorFallback', locale));
       return;
     }
 
@@ -919,56 +942,53 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
   return (
     <div className="overlay" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-        <h2>Ajouter un prospect</h2>
+        <h2>{t('prospects.addModalTitle', locale)}</h2>
         <p className="hint">
-          Renseignez juste l'essentiel — comme sur une carte de visite, le reste n'est pas obligatoire.
-          Dès l'enregistrement, Aaron prépare le premier email (envoyé automatiquement dans les minutes qui
-          suivent, ou proposé à ta validation si tu as activé cette option dans Préférences) et complètera la
-          fiche au fil des échanges.
+          {t('prospects.addModalHint', locale)}
         </p>
 
         <div className="name-row">
           <label>
-            Prénom
-            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Marie" required />
+            {t('prospects.firstNameLabel', locale)}
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder={t('prospects.firstNamePlaceholder', locale)} required />
           </label>
           <label>
-            Nom
-            <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Dupont" required />
+            {t('prospects.lastNameLabel', locale)}
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder={t('prospects.lastNamePlaceholder', locale)} required />
           </label>
         </div>
 
         <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ex: marie.dupont@societe.fr" required />
+          {t('modal.email', locale)}
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('prospects.emailPlaceholder', locale)} required />
         </label>
 
         <label>
-          Téléphone (optionnel)
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="ex: 06 12 34 56 78" />
+          {t('modal.phone', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t('prospects.phonePlaceholder', locale)} />
         </label>
 
         <label>
-          Poste (optionnel)
-          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="ex: Directrice des achats" />
+          {t('prospects.colJobTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder={t('prospects.jobTitlePlaceholder', locale)} />
         </label>
 
         <label>
-          Société (optionnel)
-          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Dupont SAS" />
+          {t('prospects.colCompany', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder={t('prospects.companyPlaceholder', locale)} />
         </label>
 
         <label>
-          LinkedIn (optionnel)
-          <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="ex: linkedin.com/in/marie-dupont" />
+          LinkedIn {t('prospects.optionalSuffix', locale)}
+          <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder={t('prospects.linkedinPlaceholder', locale)} />
         </label>
 
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', locale)}</button>
           <button type="submit" className="btn-primary" disabled={submitting}>
-            {submitting ? 'Création…' : 'Ajouter et démarrer'}
+            {submitting ? t('prospects.addModalSubmitting', locale) : t('prospects.addModalSubmit', locale)}
           </button>
         </div>
       </form>
@@ -1070,6 +1090,9 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
 // que le commercial distingue clairement ce qui a été écrit/envoyé
 // automatiquement (tout l'outbound, dans ce produit) des réponses du prospect.
 function ConversationModal({ prospect, onClose }) {
+  const [locale] = useLocale();
+  const PERSONALITY_LABELS = personalityLabelsFor(locale);
+  const PERSONALITY_COLOR_LEGEND = personalityColorLegendFor(locale);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1082,7 +1105,7 @@ function ConversationModal({ prospect, onClose }) {
       try {
         const res = await fetch(`/api/prospects/${prospect.id}`);
         const body = await res.json();
-        if (!res.ok) throw new Error(body.error || 'Erreur de chargement');
+        if (!res.ok) throw new Error(body.error || t('prospects.loadErrorFallback', locale));
         if (!cancelled) setMessages(body.messages || []);
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -1104,42 +1127,42 @@ function ConversationModal({ prospect, onClose }) {
             <h2>{prospect.full_name}</h2>
             <p className="hint">{prospect.prospect_companies?.name || prospect.email}</p>
           </div>
-          <button type="button" className="btn-secondary" onClick={onClose}>Fermer</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
         </div>
 
         <section className="detail-block">
-          <h3>Avis d'Aaron sur ce prospect</h3>
+          <h3>{t('prospects.aaronOpinionTitle', locale)}</h3>
           {prospect.personality_type ? (
             <p className="advice-line">
               <span className="tag" style={personalityTagStyle(prospect.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
               {prospect.personality_notes && <span> — {prospect.personality_notes}</span>}
             </p>
           ) : (
-            <p className="muted">Profil pas encore détecté (se précise après une première réponse du prospect).</p>
+            <p className="muted">{t('prospects.personalityNotYetDetected', locale)}</p>
           )}
           {prospect.aaron_advice && <p className="advice-line">{prospect.aaron_advice}</p>}
         </section>
 
         <section className="detail-block">
-          <h3>Historique des échanges</h3>
+          <h3>{t('modal.historyTab', locale)}</h3>
           {loading ? (
-            <p className="muted">Chargement…</p>
+            <p className="muted">{t('common.loading', locale)}</p>
           ) : error ? (
             <p className="error">{error}</p>
           ) : messages.length === 0 ? (
-            <p className="muted">Aucun échange pour le moment.</p>
+            <p className="muted">{t('modal.noExchangeYet', locale)}</p>
           ) : (
             <div className="thread">
               {messages.map((m, i) => (
                 <div className={`msg msg-${m.direction}`} key={i}>
                   <p className="msg-meta">
                     {m.direction === 'outbound' ? (
-                      <span className="ai-badge" title="Rédigé et envoyé automatiquement par Aaron">🤖 Généré par Aaron</span>
+                      <span className="ai-badge" title={t('prospects.outboundBadgeTitle', locale)}>{t('prospects.outboundBadge', locale)}</span>
                     ) : (
-                      'Réponse du prospect'
+                      t('prospects.inboundLabel', locale)
                     )}
                     {' — '}
-                    {new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {new Date(m.sent_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                   </p>
                   <p className="msg-body">{m.body}</p>
                 </div>
@@ -1279,6 +1302,7 @@ function ConversationModal({ prospect, onClose }) {
 // l'approbation telle quelle, ici l'édition est utile car c'est le tout
 // premier contact avec le prospect.
 function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
+  const [locale] = useLocale();
   const [subject, setSubject] = useState(prospect.pending_first_email_subject || '');
   const [body, setBody] = useState(prospect.pending_first_email_body || '');
   const [sending, setSending] = useState(false);
@@ -1300,14 +1324,14 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
     setSending(false);
     if (!res.ok) {
       const b = await res.json().catch(() => ({}));
-      setError(b.error || "Erreur lors de l'envoi");
+      setError(b.error || t('prospects.sendErrorFallback', locale));
       return;
     }
     onDone();
   }
 
   async function handleReject() {
-    if (!window.confirm(`Ne pas envoyer ce premier email à ${prospect.full_name} ? Le prospect restera dans ta liste sans avoir été contacté.`)) {
+    if (!window.confirm(t('prospects.confirmRejectFirstEmail', locale).replace('{name}', prospect.full_name))) {
       return;
     }
     setRejecting(true);
@@ -1320,7 +1344,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
     setRejecting(false);
     if (!res.ok) {
       const b = await res.json().catch(() => ({}));
-      setError(b.error || 'Erreur');
+      setError(b.error || t('common.error', locale));
       return;
     }
     onDone();
@@ -1329,19 +1353,18 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Premier email pour {prospect.full_name}</h2>
+        <h2>{t('prospects.firstEmailModalTitle', locale).replace('{name}', prospect.full_name)}</h2>
         <p className="hint">
-          Aaron a préparé ce premier email — relis-le, modifie-le si besoin, puis envoie-le. Les relances suivantes
-          restent automatiques (tu peux changer ce réglage dans Préférences).
+          {t('prospects.firstEmailModalHint', locale)}
         </p>
 
         <label>
-          Objet
+          {t('prospects.subjectLabel', locale)}
           <input value={subject} onChange={(e) => setSubject(e.target.value)} />
         </label>
 
         <label>
-          Message
+          {t('prospects.messageLabel', locale)}
           <textarea rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
         </label>
 
@@ -1349,13 +1372,13 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
 
         <div className="actions">
           <button type="button" className="btn-secondary" onClick={onClose} disabled={sending || rejecting}>
-            Plus tard
+            {t('prospects.laterButton', locale)}
           </button>
           <button type="button" className="btn-secondary reject" onClick={handleReject} disabled={sending || rejecting}>
-            {rejecting ? '…' : 'Ne pas envoyer'}
+            {rejecting ? '…' : t('prospects.rejectButton', locale)}
           </button>
           <button type="button" className="btn-primary" onClick={handleSend} disabled={sending || rejecting || !subject.trim() || !body.trim()}>
-            {sending ? 'Envoi…' : 'Envoyer maintenant'}
+            {sending ? t('prospects.sendingButton', locale) : t('prospects.sendNowButton', locale)}
           </button>
         </div>
       </div>
@@ -1458,6 +1481,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
 }
 
 function LinkedInDraftModal({ prospect, onClose }) {
+  const [locale] = useLocale();
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1470,7 +1494,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
         const body = await r.json();
         if (cancelled) return;
         if (!r.ok) {
-          setError(body.error || 'Erreur');
+          setError(body.error || t('common.error', locale));
         } else {
           setDraft(body.draft);
         }
@@ -1478,7 +1502,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
       })
       .catch(() => {
         if (!cancelled) {
-          setError('Erreur réseau');
+          setError(t('prospects.networkError', locale));
           setLoading(false);
         }
       });
@@ -1494,45 +1518,44 @@ function LinkedInDraftModal({ prospect, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Message LinkedIn pour {prospect.full_name}</h2>
+        <h2>{t('prospects.linkedinModalTitle', locale).replace('{name}', prospect.full_name)}</h2>
         <p className="hint">
-          Aaron propose ce texte — c'est à toi de le coller et de l'envoyer depuis ton propre compte LinkedIn
-          (rien n'est envoyé automatiquement).
+          {t('prospects.linkedinModalHint', locale)}
         </p>
 
-        {loading && <p className="muted">Rédaction en cours…</p>}
+        {loading && <p className="muted">{t('prospects.draftingInProgress', locale)}</p>}
         {error && <p className="error">{error}</p>}
 
         {draft && (
           <>
             {draft.linkedin_url ? (
               <a href={draft.linkedin_url} target="_blank" rel="noreferrer" className="li-profile-link">
-                Ouvrir le profil LinkedIn ↗
+                {t('prospects.openLinkedinProfile', locale)}
               </a>
             ) : (
-              <p className="muted small">Profil LinkedIn non identifié — cherche {prospect.full_name} manuellement sur LinkedIn.</p>
+              <p className="muted small">{t('prospects.linkedinProfileNotFound', locale).replace('{name}', prospect.full_name)}</p>
             )}
 
             <label>
-              Note de demande de connexion
+              {t('prospects.connectionNoteLabel', locale)}
               <textarea readOnly value={draft.connection_note} rows={3} />
             </label>
             <button type="button" className="btn-secondary" onClick={() => copy(draft.connection_note, 'note')}>
-              {copied === 'note' ? 'Copié ✓' : 'Copier la note'}
+              {copied === 'note' ? t('prospects.copiedLabel', locale) : t('prospects.copyNoteButton', locale)}
             </button>
 
             <label style={{ marginTop: '1rem' }}>
-              Premier message (une fois connecté)
+              {t('prospects.firstMessageLabel', locale)}
               <textarea readOnly value={draft.first_message} rows={4} />
             </label>
             <button type="button" className="btn-secondary" onClick={() => copy(draft.first_message, 'message')}>
-              {copied === 'message' ? 'Copié ✓' : 'Copier le message'}
+              {copied === 'message' ? t('prospects.copiedLabel', locale) : t('prospects.copyMessageButton', locale)}
             </button>
           </>
         )}
 
         <div className="actions">
-          <button type="button" className="btn-primary" onClick={onClose}>Fermer</button>
+          <button type="button" className="btn-primary" onClick={onClose}>{t('common.close', locale)}</button>
         </div>
       </div>
 
@@ -1703,7 +1726,7 @@ function Shell({ children, active, userId }) {
       <button
         type="button"
         className="mobile-menu-btn"
-        aria-label="Ouvrir le menu"
+        aria-label={t('shell.openMenu', locale)}
         onClick={() => setMobileOpen(true)}
       >
         <span className="bar" />
@@ -1734,7 +1757,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title="Non inclus dans votre abonnement actuel">🔒</span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}>🔒</span>}</li>
             </Link>
           ))}
         </ul>
