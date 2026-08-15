@@ -278,7 +278,7 @@ export default function SalesPage() {
   }
 
   return (
-    <Shell active="Aaron Opportunité" userId={userId}>
+    <Shell active={t('nav.opportunity', locale)} userId={userId}>
       <header className="header">
         <p className="eyebrow">{t('sales.eyebrow', locale)}</p>
         <h1>{t('nav.opportunity', locale)}</h1>
@@ -847,7 +847,6 @@ function Shell({ children, active, userId }) {
 
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
-    { label: t('nav.pipeline', locale), slug: 'pipeline', icon: '🧭' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
