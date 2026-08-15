@@ -66,28 +66,43 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const TYPE_LABELS = {
-  telephonique: 'Téléphonique',
-  physique: 'Physique',
-  visio: 'Visio',
-};
-
 const TYPE_ICONS = {
   telephonique: '📞',
   physique: '🤝',
   visio: '💻',
 };
 
-const STATUS_META = {
-  'proposé': { label: 'À valider', color: '#F0914E' },
-  'validé': { label: 'Validé', color: '#3DD68C' },
-  'reporté': { label: 'Reporté', color: '#8B90A8' },
-  'annulé': { label: 'Annulé', color: '#E5484D' },
-  'terminé': { label: 'Terminé', color: '#4B9EF0' },
+function typeLabelsFor(locale) {
+  return {
+    telephonique: t('apptType.telephonique', locale),
+    physique: t('apptType.physique', locale),
+    visio: t('apptType.visio', locale),
+  };
+}
+
+const STATUS_COLORS = {
+  'proposé': '#F0914E',
+  'validé': '#3DD68C',
+  'reporté': '#8B90A8',
+  'annulé': '#E5484D',
+  'terminé': '#4B9EF0',
 };
+
+function statusMetaFor(locale) {
+  return {
+    'proposé': { label: t('agenda.statusProposed', locale), color: STATUS_COLORS['proposé'] },
+    'validé': { label: t('agenda.statusValidated', locale), color: STATUS_COLORS['validé'] },
+    'reporté': { label: t('agenda.statusPostponed', locale), color: STATUS_COLORS['reporté'] },
+    'annulé': { label: t('agenda.statusCancelled', locale), color: STATUS_COLORS['annulé'] },
+    'terminé': { label: t('agenda.statusCompleted', locale), color: STATUS_COLORS['terminé'] },
+  };
+}
 
 export default function AgendaPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const TYPE_LABELS = typeLabelsFor(locale);
+  const STATUS_META = statusMetaFor(locale);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState(null);
@@ -173,17 +188,17 @@ export default function AgendaPage() {
     <Shell active="Agenda" userId={userId}>
       <header className="header">
         <div>
-          <p className="eyebrow">Rendez-vous</p>
-          <h1>Votre agenda</h1>
+          <p className="eyebrow">{t('agenda.eyebrow', locale)}</p>
+          <h1>{t('agenda.title', locale)}</h1>
         </div>
         <button type="button" className="btn-primary" onClick={() => setShowAddModal(true)}>
-          + Ajouter
+          + {t('common.add', locale)}
         </button>
       </header>
 
       <nav className="subnav">
-        <span className="subnav-link active">📅 Rendez-vous</span>
-        <Link href={`/app/disponibilites?user_id=${userId}`} className="subnav-link">🕒 Disponibilités</Link>
+        <span className="subnav-link active">{t('agenda.subnavAppointments', locale)}</span>
+        <Link href={`/app/disponibilites?user_id=${userId}`} className="subnav-link">{t('agenda.subnavAvailability', locale)}</Link>
       </nav>
 
       {showAddModal && (
@@ -207,18 +222,18 @@ export default function AgendaPage() {
       {conflict && (
         <div className="conflict-overlay" onClick={() => setConflict(null)}>
           <div className="conflict-box" onClick={(e) => e.stopPropagation()}>
-            <p className="conflict-title">Ce créneau semble poser problème</p>
+            <p className="conflict-title">{t('agenda.conflictTitle', locale)}</p>
             <ul className="conflict-reasons">
               {conflict.reasons.map((r, i) => <li key={i}>{r}</li>)}
             </ul>
-            <p className="conflict-hint">Voulez-vous confirmer ce rendez-vous malgré tout ?</p>
+            <p className="conflict-hint">{t('agenda.conflictHint', locale)}</p>
             <div className="conflict-actions">
-              <button className="btn-neutral" onClick={() => setConflict(null)}>Annuler</button>
+              <button className="btn-neutral" onClick={() => setConflict(null)}>{t('common.cancel', locale)}</button>
               <button
                 className="btn-valid"
                 onClick={() => handleAction(conflict.appointmentId, conflict.action, true)}
               >
-                Confirmer quand même
+                {t('agenda.conflictConfirmAnyway', locale)}
               </button>
             </div>
           </div>
@@ -226,14 +241,14 @@ export default function AgendaPage() {
       )}
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : appointments.length === 0 ? (
-        <EmptyState title="Aucun rendez-vous" body="Aaron n'a pas encore proposé de créneau." />
+        <EmptyState title={t('agenda.emptyTitle', locale)} body={t('agenda.emptyBody', locale)} />
       ) : (
         <>
           {pending.length > 0 && (
             <section className="block">
-              <h2>À valider ({pending.length})</h2>
+              <h2>{t('agenda.statusProposed', locale)} ({pending.length})</h2>
               <div className="list">
                 {pending.map((a) => (
                   <div className="row" key={a.id}>
@@ -242,10 +257,10 @@ export default function AgendaPage() {
                       onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
                     >
                       <strong>{a.prospects?.full_name}</strong>
-                      <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
+                      <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
-                        {' · '}{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                       </div>
                     </div>
                     <div className="row-actions">
@@ -254,21 +269,21 @@ export default function AgendaPage() {
                         disabled={actingOn === a.id}
                         onClick={() => handleAction(a.id, 'valider')}
                       >
-                        Valider
+                        {t('agenda.actionValidate', locale)}
                       </button>
                       <button
                         className="btn-neutral"
                         disabled={actingOn === a.id}
                         onClick={() => handleAction(a.id, 'reporter')}
                       >
-                        Reporter
+                        {t('agenda.actionPostpone', locale)}
                       </button>
                       <button
                         className="btn-danger"
                         disabled={actingOn === a.id}
                         onClick={() => handleAction(a.id, 'annuler')}
                       >
-                        Annuler
+                        {t('common.cancel', locale)}
                       </button>
                     </div>
                   </div>
@@ -278,7 +293,7 @@ export default function AgendaPage() {
           )}
 
           <section className="block">
-            <h2>Tous les rendez-vous</h2>
+            <h2>{t('agenda.sectionAll', locale)}</h2>
             <div className="list">
               {rest.map((a) => {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
@@ -290,18 +305,18 @@ export default function AgendaPage() {
                     >
                       <strong>{a.prospects?.full_name || a.contact_name}</strong>
                       {a.prospects ? (
-                        <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
+                        <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       ) : (
-                        <span className="muted"> — contact personnel</span>
+                        <span className="muted"> — {t('agenda.personalContact', locale)}</span>
                       )}
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
-                        {' · '}{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
-                        {a.source === 'manuel' && ' · ajouté manuellement'}
+                        {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                        {a.source === 'manuel' && ` · ${t('agenda.addedManually', locale)}`}
                       </div>
                       {a.meet_link && (
                         <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link">
-                          🎥 Lien Google Meet
+                          {t('agenda.meetLink', locale)}
                         </a>
                       )}
                     </div>
@@ -529,6 +544,7 @@ export default function AgendaPage() {
 // commercial ait tout sous la main avant/après le RDV sans repasser par
 // Aaron Sales ou Prospects.
 function AppointmentDetailModal({ appointment, onClose }) {
+  const [locale] = useLocale();
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [brief, setBrief] = useState(null);
@@ -542,7 +558,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
     const body = await res.json();
     setBriefLoading(false);
     if (!res.ok) {
-      setBriefError(body.error || 'Impossible de générer le brief.');
+      setBriefError(body.error || t('agenda.briefErrorFallback', locale));
       return;
     }
     setBrief(body.brief);
@@ -576,54 +592,54 @@ function AppointmentDetailModal({ appointment, onClose }) {
               <p className="hint">{appointment.prospects.prospect_companies.name}</p>
             )}
           </div>
-          <button type="button" className="btn-secondary" onClick={onClose}>Fermer</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
         </div>
 
         <section className="detail-block">
-          <h3>Avis d'Aaron — comment aborder ce prospect</h3>
+          <h3>{t('agenda.aaronAdviceTitle', locale)}</h3>
           {briefLoading ? (
-            <p className="muted">Génération…</p>
+            <p className="muted">{t('agenda.briefGenerating', locale)}</p>
           ) : briefError ? (
             <p className="error">{briefError}</p>
           ) : brief ? (
             <div className="brief-box">
-              <p><strong>Résumé :</strong> {brief.resume_historique}</p>
-              {brief.profil_personnalite && <p><strong>Profil (DISC) :</strong> {brief.profil_personnalite}</p>}
+              <p><strong>{t('agenda.briefSummaryLabel', locale)}</strong> {brief.resume_historique}</p>
+              {brief.profil_personnalite && <p><strong>{t('agenda.briefPersonalityLabel', locale)}</strong> {brief.profil_personnalite}</p>}
               {brief.objections_deja_soulevees?.length > 0 && (
-                <p><strong>Objections déjà soulevées :</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+                <p><strong>{t('agenda.briefObjectionsLabel', locale)}</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
               )}
-              {brief.info_entreprise && <p><strong>Entreprise :</strong> {brief.info_entreprise}</p>}
-              <p><strong>Angle suggéré :</strong> {brief.angle_approche_suggere}</p>
+              {brief.info_entreprise && <p><strong>{t('agenda.briefCompanyLabel', locale)}</strong> {brief.info_entreprise}</p>}
+              <p><strong>{t('agenda.briefApproachLabel', locale)}</strong> {brief.angle_approche_suggere}</p>
               {brief.points_attention?.length > 0 && (
                 <ul>
                   {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
                 </ul>
               )}
               <button type="button" className="btn-secondary regen-btn" onClick={() => loadBrief(true)}>
-                Régénérer (nouveaux échanges depuis)
+                {t('agenda.regenerateBrief', locale)}
               </button>
             </div>
           ) : null}
         </section>
 
         <section className="detail-block">
-          <h3>Historique des échanges</h3>
+          <h3>{t('agenda.historyTitle', locale)}</h3>
           {messagesLoading ? (
-            <p className="muted">Chargement…</p>
+            <p className="muted">{t('common.loading', locale)}</p>
           ) : messages.length === 0 ? (
-            <p className="muted">Aucun échange pour le moment.</p>
+            <p className="muted">{t('agenda.noMessages', locale)}</p>
           ) : (
             <div className="thread">
               {messages.map((m, i) => (
                 <div className={`msg msg-${m.direction}`} key={i}>
                   <p className="msg-meta">
                     {m.direction === 'outbound' ? (
-                      <span className="ai-badge" title="Rédigé et envoyé automatiquement par Aaron">🤖 Généré par Aaron</span>
+                      <span className="ai-badge" title={t('agenda.aiGeneratedTitle', locale)}>{t('agenda.aiGeneratedBadge', locale)}</span>
                     ) : (
-                      'Réponse du prospect'
+                      t('agenda.prospectReply', locale)
                     )}
                     {' — '}
-                    {new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {new Date(m.sent_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                   </p>
                   <p className="msg-body">{m.body}</p>
                 </div>
@@ -760,14 +776,18 @@ function AppointmentDetailModal({ appointment, onClose }) {
   );
 }
 
-const ENTRY_KINDS = [
-  { key: 'indisponibilite', label: 'Indisponibilité', icon: '🚫' },
-  { key: 'telephonique', label: 'RDV téléphonique', icon: '📞' },
-  { key: 'visio', label: 'RDV visio', icon: '💻' },
-  { key: 'physique', label: 'RDV physique', icon: '🤝' },
-];
+function entryKindsFor(locale) {
+  return [
+    { key: 'indisponibilite', label: t('agenda.kindUnavailability', locale), icon: '🚫' },
+    { key: 'telephonique', label: t('agenda.kindPhone', locale), icon: '📞' },
+    { key: 'visio', label: t('agenda.kindVideo', locale), icon: '💻' },
+    { key: 'physique', label: t('agenda.kindInPerson', locale), icon: '🤝' },
+  ];
+}
 
 function AddEntryModal({ userId, onClose, onCreated }) {
+  const [locale] = useLocale();
+  const ENTRY_KINDS = entryKindsFor(locale);
   const [kind, setKind] = useState(null);
   const [prospectSource, setProspectSource] = useState('aaron'); // 'aaron' | 'perso'
   const [prospects, setProspects] = useState([]);
@@ -795,7 +815,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
 
     if (kind === 'indisponibilite') {
       if (!date || !time || !endDate || !endTime) {
-        setError('Merci de renseigner le début et la fin de l\'indisponibilité.');
+        setError(t('agenda.errUnavailabilityRange', locale));
         return;
       }
       setSubmitting(true);
@@ -812,7 +832,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
       setSubmitting(false);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error || 'Erreur lors de la création');
+        setError(body.error || t('agenda.errCreateGeneric', locale));
         return;
       }
       onCreated();
@@ -820,15 +840,15 @@ function AddEntryModal({ userId, onClose, onCreated }) {
     }
 
     if (!date || !time) {
-      setError('Merci de renseigner la date et l\'heure du rendez-vous.');
+      setError(t('agenda.errApptDateTime', locale));
       return;
     }
     if (prospectSource === 'aaron' && !prospectId) {
-      setError('Choisissez un prospect suivi par Aaron.');
+      setError(t('agenda.errChooseProspect', locale));
       return;
     }
     if (prospectSource === 'perso' && !contactName.trim()) {
-      setError('Indiquez le nom du contact.');
+      setError(t('agenda.errContactName', locale));
       return;
     }
 
@@ -848,7 +868,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error || 'Erreur lors de la création');
+      setError(body.error || t('agenda.errCreateGeneric', locale));
       return;
     }
     onCreated();
@@ -857,7 +877,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
   return (
     <div className="overlay" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-        <h2>Ajouter dans l'agenda</h2>
+        <h2>{t('agenda.addModalTitle', locale)}</h2>
 
         {!kind ? (
           <div className="kind-grid">
@@ -879,23 +899,23 @@ function AddEntryModal({ userId, onClose, onCreated }) {
                   className={prospectSource === 'aaron' ? 'chip active' : 'chip'}
                   onClick={() => setProspectSource('aaron')}
                 >
-                  Prospect d'Aaron
+                  {t('agenda.sourceAaron', locale)}
                 </button>
                 <button
                   type="button"
                   className={prospectSource === 'perso' ? 'chip active' : 'chip'}
                   onClick={() => setProspectSource('perso')}
                 >
-                  Mon propre prospect
+                  {t('agenda.sourcePerso', locale)}
                 </button>
               </div>
             )}
 
             {kind !== 'indisponibilite' && prospectSource === 'aaron' && (
               <label>
-                Prospect
+                {t('agenda.prospectLabel', locale)}
                 <select value={prospectId} onChange={(e) => setProspectId(e.target.value)} required>
-                  <option value="">— Sélectionner —</option>
+                  <option value="">{t('agenda.selectPlaceholder', locale)}</option>
                   {prospects.map((p) => (
                     <option key={p.id} value={p.id}>{p.full_name}{p.prospect_companies?.name ? ` — ${p.prospect_companies.name}` : ''}</option>
                   ))}
@@ -905,18 +925,18 @@ function AddEntryModal({ userId, onClose, onCreated }) {
 
             {kind !== 'indisponibilite' && prospectSource === 'perso' && (
               <label>
-                Nom du contact
-                <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="ex: Jean Martin" required />
+                {t('agenda.contactNameLabel', locale)}
+                <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder={t('agenda.contactNamePlaceholder', locale)} required />
               </label>
             )}
 
             <div className="date-row">
               <label>
-                {kind === 'indisponibilite' ? 'Début' : 'Date'}
+                {kind === 'indisponibilite' ? t('agenda.startLabel', locale) : t('agenda.dateLabel', locale)}
                 <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
               </label>
               <label>
-                Heure
+                {t('agenda.timeLabel', locale)}
                 <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
               </label>
             </div>
@@ -924,11 +944,11 @@ function AddEntryModal({ userId, onClose, onCreated }) {
             {kind === 'indisponibilite' && (
               <div className="date-row">
                 <label>
-                  Fin
+                  {t('agenda.endLabel', locale)}
                   <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
                 </label>
                 <label>
-                  Heure
+                  {t('agenda.timeLabel', locale)}
                   <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
                 </label>
               </div>
@@ -936,17 +956,17 @@ function AddEntryModal({ userId, onClose, onCreated }) {
 
             {kind === 'indisponibilite' && (
               <label>
-                Motif (optionnel)
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ex: congés, RDV personnel…" />
+                {t('agenda.reasonLabel', locale)}
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('agenda.reasonPlaceholder', locale)} />
               </label>
             )}
 
             {error && <p className="error">{error}</p>}
 
             <div className="actions">
-              <button type="button" className="btn-secondary" onClick={() => setKind(null)}>Retour</button>
+              <button type="button" className="btn-secondary" onClick={() => setKind(null)}>{t('common.back', locale)}</button>
               <button type="submit" className="btn-valid" disabled={submitting}>
-                {submitting ? 'Enregistrement…' : 'Ajouter'}
+                {submitting ? t('agenda.saving', locale) : t('common.add', locale)}
               </button>
             </div>
           </>
@@ -954,7 +974,7 @@ function AddEntryModal({ userId, onClose, onCreated }) {
 
         {!kind && (
           <div className="actions">
-            <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+            <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', locale)}</button>
           </div>
         )}
       </form>
