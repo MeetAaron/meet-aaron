@@ -103,12 +103,6 @@ function slidesFor(locale) {
       text: t('tour.slide.connexions.text', locale),
     },
     {
-      slug: 'disponibilites',
-      icon: '🕒',
-      title: t('tour.slide.disponibilites.title', locale),
-      text: t('tour.slide.disponibilites.text', locale),
-    },
-    {
       slug: 'preferences',
       icon: '⚙️',
       title: t('tour.slide.preferences.title', locale),
