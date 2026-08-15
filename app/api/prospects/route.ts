@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
 import { sendEmailForUser } from '@/lib/messaging';
+import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest) {
@@ -115,26 +116,55 @@ export async function POST(request: NextRequest) {
   let emailWarning = null;
 
   try {
-    // Récupère l'email réel du commercial pour l'enregistrer comme expéditeur
+    // Récupère l'email réel du commercial pour l'enregistrer comme expéditeur,
+    // ainsi que sa préférence de validation du 1er email (voir
+    // migration_first_email_approval_2026-08-15.sql, désactivée par défaut —
+    // même logique que app/api/cron/run-campaigns/route.ts pour rester cohérent
+    // que le prospect vienne d'une campagne ou d'un ajout manuel).
     const { data: sender } = await supabaseAdmin
       .from('users')
-      .select('email')
+      .select('email, require_first_email_approval')
       .eq('id', assigned_user_id)
       .single();
 
     aaronOutput = await generateAaronResponse(prospect.id);
 
-    // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
-    await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+    const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
-    // Enregistre le message envoyé
-    await supabaseAdmin.from('messages').insert({
-      conversation_id: conversation!.id,
-      direction: 'outbound',
-      sender_email: sender?.email || null,
-      recipient_email: email,
-      body: aaronOutput.email_draft.body,
-    });
+    if (hasEmailToSend && sender?.require_first_email_approval) {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          pending_first_email_subject: aaronOutput.email_draft.subject,
+          pending_first_email_body: aaronOutput.email_draft.body,
+          pending_first_email_generated_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+
+      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+
+      try {
+        await sendPushNotification(assigned_user_id, {
+          title: 'Premier email prêt à valider',
+          body: `Aaron a préparé le premier email pour ${email}. À relire avant envoi.`,
+          url: `/app/prospects?user_id=${assigned_user_id}`,
+        });
+      } catch (pushErr) {
+        console.error('Erreur envoi notification push (premier email à valider):', pushErr);
+      }
+    } else if (hasEmailToSend) {
+      // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
+      await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+
+      // Enregistre le message envoyé
+      await supabaseAdmin.from('messages').insert({
+        conversation_id: conversation!.id,
+        direction: 'outbound',
+        sender_email: sender?.email || null,
+        recipient_email: email,
+        body: aaronOutput.email_draft.body,
+      });
+    }
 
     // Met à jour le statut/personnalité détectés
     await supabaseAdmin
