@@ -197,9 +197,6 @@ export default function ResultatsPage() {
             />
             <StatCard label="RDV en attente de validation" value={rdvEnAttente} />
             <StatCard label="Taux de transformation" value={`${tauxRdv}%`} hint="prospects → RDV" />
-          </section>
-
-          <section className="stat-grid stat-grid-secondary">
             <StatCard
               label="Taux de réponse"
               value={replyRate !== null ? `${replyRate}%` : '—'}
@@ -335,12 +332,9 @@ export default function ResultatsPage() {
         }
         .stat-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
           gap: 0.9rem;
           margin-bottom: 1.5rem;
-        }
-        .stat-grid-secondary {
-          grid-template-columns: repeat(4, 1fr);
         }
         .panel {
           background: var(--surface);
