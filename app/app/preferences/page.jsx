@@ -92,8 +92,8 @@ const CRM_PROVIDERS = [
 
 const OFFERS = [
   { value: 'AP', label: 'Aaron Prospect', desc: 'Prospection, relances et prise de rendez-vous.', available: true },
-  { value: 'AS', label: 'Aaron Sales', desc: 'Négociation, devis, gestion des objections.', available: true },
-  { value: 'AC', label: 'Aaron Customer', desc: 'Fidélisation et relation client post-vente.', available: true },
+  { value: 'AS', label: 'Aaron Opportunité', desc: 'Négociation, devis, gestion des objections.', available: true },
+  { value: 'AC', label: 'Aaron Client', desc: 'Fidélisation et relation client post-vente.', available: true },
 ];
 
 export default function PreferencesPage() {
@@ -809,7 +809,7 @@ function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
 
-  // Un module (Aaron Vente / Aaron Client) est grisé dans la navigation tant
+  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
   // que l'offre souscrite par la société (companies.offer, voir Préférences)
   // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
   // toujours accessible : c'est l'offre de base incluse à la souscription.
@@ -832,7 +832,7 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
