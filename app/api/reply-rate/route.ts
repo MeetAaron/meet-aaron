@@ -5,6 +5,13 @@
 // montrait que des comptages et le taux prospects→RDV) — le taux de réponse
 // est l'une des métriques les plus demandées sur les outils de prospection
 // IA (mesure la qualité de l'accroche, pas juste le volume envoyé).
+//
+// CHANGEMENTS A FAIRE #88 (2026-08-15) : accepte désormais un paramètre
+// optionnel `since` (date ISO) pour rendre le taux de réponse sensible au
+// sélecteur de période de la page Résultats — seuls les messages envoyés/
+// reçus depuis cette date comptent alors dans le calcul (un prospect
+// contacté puis relancé pendant la période choisie compte, mais un vieil
+// échange antérieur à la période n'est plus pris en compte).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -15,6 +22,7 @@ export async function GET(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+  const since = request.nextUrl.searchParams.get('since'); // date ISO, optionnel
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -27,7 +35,7 @@ export async function GET(request: NextRequest) {
   // une estimation représentative du taux de réponse actuel.
   const { data: prospects, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, conversations(messages(direction))')
+    .select('id, conversations(messages(direction, created_at))')
     .eq('assigned_user_id', userId)
     .order('updated_at', { ascending: false })
     .limit(2000);
@@ -36,11 +44,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const sinceDate = since ? new Date(since) : null;
+
   let contacted = 0;
   let replied = 0;
 
   for (const p of prospects || []) {
-    const allMessages = ((p as any).conversations || []).flatMap((c: any) => c.messages || []);
+    let allMessages = ((p as any).conversations || []).flatMap((c: any) => c.messages || []);
+    if (sinceDate) {
+      allMessages = allMessages.filter((m: any) => m.created_at && new Date(m.created_at) >= sinceDate);
+    }
     const hasOutbound = allMessages.some((m: any) => m.direction === 'outbound');
     if (!hasOutbound) continue;
     contacted += 1;
