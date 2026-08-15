@@ -4,9 +4,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { useLocale } from '@/lib/i18n';
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const [locale] = useLocale();
   const [checking, setChecking] = useState(true);
   const [session, setSession] = useState(null);
   const [role, setRole] = useState(null); // null | 'patron' | 'commercial'
@@ -71,6 +73,7 @@ export default function OnboardingPage() {
         full_name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         company_name: companyName,
         country,
+        locale,
       }),
     });
 
