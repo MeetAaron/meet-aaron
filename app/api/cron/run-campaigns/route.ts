@@ -21,18 +21,31 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
 import { generateAaronResponse } from '@/lib/aaron';
 import { sendEmailForUser } from '@/lib/messaging';
+import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-async function runOneCampaign(campaignId: string) {
+async function runOneCampaign(campaignId: string, assignedUserId: string) {
   await supabaseAdmin
     .from('prospecting_campaigns')
     .update({ status: 'en_cours' })
     .eq('id', campaignId)
     .eq('status', 'en_attente');
+
+  // Option opt-in (voir migration_first_email_approval_2026-08-15.sql,
+  // désactivée par défaut) : si le commercial veut relire le tout premier
+  // email avant envoi plutôt que de laisser Aaron l'envoyer directement.
+  // Une seule requête par campagne (pas par prospect) puisqu'une campagne
+  // appartient toujours à un seul commercial.
+  const { data: campaignOwner } = await supabaseAdmin
+    .from('users')
+    .select('require_first_email_approval')
+    .eq('id', assignedUserId)
+    .single();
+  const requireApproval = campaignOwner?.require_first_email_approval === true;
 
   const result = await processCampaignBatch(campaignId, 5);
 
@@ -81,7 +94,30 @@ async function runOneCampaign(campaignId: string) {
       const hasEmailToSend =
         aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
-      if (hasEmailToSend) {
+      if (hasEmailToSend && requireApproval) {
+        // Ne pas envoyer : on garde l'email généré en attente de relecture
+        // par le commercial (voir app/app/prospects/page.jsx, badge "1er
+        // email à valider") et on le notifie. Aucun message n'est inséré
+        // dans la conversation tant que l'envoi n'est pas confirmé.
+        await supabaseAdmin
+          .from('prospects')
+          .update({
+            pending_first_email_subject: aaronOutput.email_draft.subject,
+            pending_first_email_body: aaronOutput.email_draft.body,
+            pending_first_email_generated_at: new Date().toISOString(),
+          })
+          .eq('id', prospect.id);
+
+        try {
+          await sendPushNotification(prospect.assigned_user_id, {
+            title: 'Premier email prêt à valider',
+            body: `Aaron a préparé le premier email pour ${prospect.email}. À relire avant envoi.`,
+            url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
+          });
+        } catch (pushErr) {
+          console.error('Erreur envoi notification push (premier email à valider):', pushErr);
+        }
+      } else if (hasEmailToSend) {
         await sendEmailForUser(
           prospect.assigned_user_id,
           prospect.email,
@@ -153,11 +189,11 @@ export async function GET(request: NextRequest) {
   }
 
   const results = await Promise.all(
-    Array.from(campaignIdsByUser.values()).map(async (campaignIds) => {
+    Array.from(campaignIdsByUser.entries()).map(async ([assignedUserId, campaignIds]) => {
       const userResults = [];
       for (const campaignId of campaignIds) {
         try {
-          userResults.push(await runOneCampaign(campaignId));
+          userResults.push(await runOneCampaign(campaignId, assignedUserId));
         } catch (err: any) {
           userResults.push({ campaign_id: campaignId, error: err.message });
         }
