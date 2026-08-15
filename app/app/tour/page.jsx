@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { t, useLocale } from '@/lib/i18n';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -51,89 +52,92 @@ function useAuthedUser() {
   return { userId, role, authLoading, authError };
 }
 
-const SLIDES = [
-  {
-    slug: 'dashboard',
-    icon: '📊',
-    title: 'Tableau de bord',
-    text: "Ta vue d'ensemble : prospects chauds, prochains RDV, et le bloc \"Actions requises\" où tu valides ce qu'Aaron a préparé pour toi.",
-  },
-  {
-    slug: 'prospects',
-    icon: '🎯',
-    title: 'Prospects',
-    text: "Le pipeline complet, avec une couleur par statut : vert (en bonne voie), jaune (en cours), orange (risque de perdre), rouge (perdu), bleu (RDV obtenu).",
-  },
-  {
-    slug: 'campaigns',
-    icon: '🚀',
-    title: 'Campagnes',
-    text: "Lance une prospection sur une zone géographique — Aaron cherche, contacte et négocie un RDV pour toi, sans que tu aies à écrire un seul email.",
-  },
-  {
-    slug: 'agenda',
-    icon: '📅',
-    title: 'Agenda',
-    text: "Tous tes RDV proposés par Aaron. Tu valides, reportes ou annules en un clic — Aaron gère ton calendrier Google et évite les conflits automatiquement.",
-  },
-  {
-    slug: 'resultats',
-    icon: '📈',
-    title: 'Résultats',
-    text: "Tes statistiques de conversion, l'efficacité de chaque campagne, et tes clients gagnés (exportables en CSV d'un clic pour les faire remonter dans ton propre CRM) — pour savoir ce qui marche vraiment.",
-  },
-  {
-    slug: 'documents',
-    icon: '📁',
-    title: 'Mes documents',
-    text: "Dépose un devis type, une plaquette, une liste de tarifs — Aaron les lit, les résume, et s'en sert pour mieux te représenter auprès des prospects.",
-  },
-  {
-    slug: 'chat',
-    icon: '💬',
-    title: 'Chat avec Aaron',
-    text: "Pose tes questions, demande un conseil commercial. Toute suggestion sur l'outil est automatiquement relayée au fondateur, sans email à écrire.",
-  },
-  {
-    slug: 'connexions',
-    icon: '🔗',
-    title: 'Connexions',
-    text: "Relie ton compte Google (email + calendrier) pour qu'Aaron envoie depuis ta propre adresse et respecte ton vrai emploi du temps.",
-  },
-  {
-    slug: 'disponibilites',
-    icon: '🕒',
-    title: 'Disponibilités',
-    text: "Déclare tes créneaux habituels et tes indisponibilités ponctuelles — Aaron ne proposera jamais un RDV en dehors.",
-  },
-  {
-    slug: 'preferences',
-    icon: '⚙️',
-    title: 'Préférences',
-    text: "Réglages des notifications, délai d'alerte avant un RDV, et niveau de collaboration avec ton CRM si tu veux aller plus loin.",
-  },
-  {
-    slug: 'team',
-    icon: '👥',
-    title: 'Mon équipe',
-    text: "Vue d'ensemble de chaque commercial : leurs statistiques et leur activité, en un coup d'œil.",
-    role: 'patron',
-  },
-  {
-    slug: 'suggestions',
-    icon: '💡',
-    title: 'Suggestions',
-    text: "Les retours de ton équipe, qu'ils soient signalés manuellement ou détectés automatiquement par Aaron dans une conversation.",
-    role: 'patron',
-  },
-];
+function slidesFor(locale) {
+  return [
+    {
+      slug: 'dashboard',
+      icon: '📊',
+      title: t('tour.slide.dashboard.title', locale),
+      text: t('tour.slide.dashboard.text', locale),
+    },
+    {
+      slug: 'prospects',
+      icon: '🎯',
+      title: t('tour.slide.prospects.title', locale),
+      text: t('tour.slide.prospects.text', locale),
+    },
+    {
+      slug: 'campaigns',
+      icon: '🚀',
+      title: t('tour.slide.campaigns.title', locale),
+      text: t('tour.slide.campaigns.text', locale),
+    },
+    {
+      slug: 'agenda',
+      icon: '📅',
+      title: t('tour.slide.agenda.title', locale),
+      text: t('tour.slide.agenda.text', locale),
+    },
+    {
+      slug: 'resultats',
+      icon: '📈',
+      title: t('tour.slide.resultats.title', locale),
+      text: t('tour.slide.resultats.text', locale),
+    },
+    {
+      slug: 'documents',
+      icon: '📁',
+      title: t('tour.slide.documents.title', locale),
+      text: t('tour.slide.documents.text', locale),
+    },
+    {
+      slug: 'chat',
+      icon: '💬',
+      title: t('tour.slide.chat.title', locale),
+      text: t('tour.slide.chat.text', locale),
+    },
+    {
+      slug: 'connexions',
+      icon: '🔗',
+      title: t('tour.slide.connexions.title', locale),
+      text: t('tour.slide.connexions.text', locale),
+    },
+    {
+      slug: 'disponibilites',
+      icon: '🕒',
+      title: t('tour.slide.disponibilites.title', locale),
+      text: t('tour.slide.disponibilites.text', locale),
+    },
+    {
+      slug: 'preferences',
+      icon: '⚙️',
+      title: t('tour.slide.preferences.title', locale),
+      text: t('tour.slide.preferences.text', locale),
+    },
+    {
+      slug: 'team',
+      icon: '👥',
+      title: t('tour.slide.team.title', locale),
+      text: t('tour.slide.team.text', locale),
+      role: 'patron',
+    },
+    {
+      slug: 'suggestions',
+      icon: '💡',
+      title: t('tour.slide.suggestions.title', locale),
+      text: t('tour.slide.suggestions.text', locale),
+      role: 'patron',
+    },
+  ];
+}
 
 export default function TourPage() {
+  const [locale] = useLocale();
   const { userId, role, authLoading, authError } = useAuthedUser();
   const [step, setStep] = useState(0);
   const [markedSeen, setMarkedSeen] = useState(false);
 
-  const slides = SLIDES.filter((s) => !s.role || s.role === role);
+  const slides = slidesFor(locale).filter((s) => !s.role || s.role === role);
   const current = slides[step];
 
   useEffect(() => {
@@ -187,21 +191,21 @@ export default function TourPage() {
 
         <div className="tour-actions">
           {step > 0 ? (
-            <button className="btn-secondary" onClick={() => setStep(step - 1)}>← Précédent</button>
+            <button className="btn-secondary" onClick={() => setStep(step - 1)}>← {t('tour.previous', locale)}</button>
           ) : (
             <span />
           )}
           {isLast ? (
             <Link href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
-              C'est parti !
+              {t('tour.finish', locale)}
             </Link>
           ) : (
-            <button className="btn-primary" onClick={() => setStep(step + 1)}>Suivant →</button>
+            <button className="btn-primary" onClick={() => setStep(step + 1)}>{t('tour.next', locale)} →</button>
           )}
         </div>
 
         <Link href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="skip">
-          Passer la visite
+          {t('tour.skip', locale)}
         </Link>
       </div>
 
