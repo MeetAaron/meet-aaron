@@ -66,29 +66,26 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const STATUS_META = {
-  vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#8B90A8' },
-  orange: { label: 'Risque de perdre', color: '#F0914E' },
-  rouge: { label: 'Perdu', color: '#E5484D' },
-  bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
+// Couleurs par statut — les libellés sont traduits via t('status.<clé>', locale)
+// (voir lib/i18n.js) plutôt que codés en dur ici.
+const STATUS_COLORS = {
+  vert: '#3DD68C',
+  jaune: '#8B90A8',
+  orange: '#F0914E',
+  rouge: '#E5484D',
+  bleu: '#4B9EF0',
 };
 
-const PERSONALITY_LABELS = {
-  dominant: 'Dominant',
-  influent: 'Influent',
-  stable: 'Stable',
-  consciencieux: 'Consciencieux',
-};
-
-const TYPE_LABELS = {
-  telephonique: 'Téléphonique',
-  physique: 'Physique',
-  visio: 'Visio',
-};
+function statusMetaFor(locale) {
+  return Object.fromEntries(
+    Object.entries(STATUS_COLORS).map(([key, color]) => [key, { label: t(`status.${key}`, locale), color }])
+  );
+}
 
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const STATUS_META = statusMetaFor(locale);
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -164,47 +161,47 @@ const cancelledByClient = appointments.filter(
     <Shell active="Tableau de bord" userId={userId}>
       <header className="header">
         <div>
-          <p className="eyebrow">Tableau de bord</p>
-          <h1>Ce qu'Aaron a fait pendant votre absence</h1>
+          <p className="eyebrow">{t('nav.dashboard', locale)}</p>
+          <h1>{t('dash.title', locale)}</h1>
         </div>
         <AaronPulse active={activeCampaigns.length > 0} />
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
          <section className="actions-panel">
             <button className="actions-toggle" onClick={() => setActionsOpen(!actionsOpen)}>
               <span>
-                Actions requises {totalActions > 0 && <span className="badge">{totalActions}</span>}
+                {t('dash.actionsRequired', locale)} {totalActions > 0 && <span className="badge">{totalActions}</span>}
               </span>
               <span className="chevron">{actionsOpen ? '▲' : '▼'}</span>
             </button>
             {actionsOpen && (
               <div className="actions-list">
                 {totalActions === 0 ? (
-                  <p className="empty-actions">Rien à traiter pour le moment.</p>
+                  <p className="empty-actions">{t('dash.nothingToProcess', locale)}</p>
                 ) : (
                   <>
                     {pendingAppointments.map((a) => (
                       <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'valider' })}>
                         <span className="dot" style={{ background: '#F0914E' }} />
-                        <span className="action-label">RDV à valider — {a.prospects?.full_name}</span>
+                        <span className="action-label">{t('dash.apptToValidate', locale).replace('{name}', a.prospects?.full_name || '')}</span>
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
 {cancelledByClient.map((a) => (
                       <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
                         <span className="dot" style={{ background: '#E5484D' }} />
-                        <span className="action-label">RDV annulé par le client — {a.prospects?.full_name}</span>
+                        <span className="action-label">{t('dash.apptCancelledByClient', locale).replace('{name}', a.prospects?.full_name || '')}</span>
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
                     {rescueProspects.map((p) => (
                       <button key={p.id} className="action-row" onClick={() => setSelectedRescue(p)}>
                         <span className="dot" style={{ background: '#8B90A8' }} />
-                        <span className="action-label">Prospect perdu — tentative de sauvetage pour {p.full_name}</span>
+                        <span className="action-label">{t('dash.prospectLostRescue', locale).replace('{name}', p.full_name || '')}</span>
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
@@ -226,18 +223,18 @@ const cancelledByClient = appointments.filter(
 
           <section className="grid-two">
             <div className="panel">
-              <h2>Prochains rendez-vous</h2>
+              <h2>{t('dash.upcomingAppointments', locale)}</h2>
               {upcomingAppointments.length === 0 ? (
-                <EmptyState title="Rien de prévu" body="Aaron n'a pas encore décroché de rendez-vous confirmé." compact />
+                <EmptyState title={t('dash.emptyNothingPlanned', locale)} body={t('dash.emptyNoConfirmedAppt', locale)} compact />
               ) : (
                 <ul className="list">
                   {upcomingAppointments.map((a) => (
                     <li key={a.id} className="list-item">
                       <div>
                         <strong>{a.prospects?.full_name}</strong>
-                        <span className="muted"> — {a.prospects?.prospect_companies?.name || 'société inconnue'}</span>
+                        <span className="muted"> — {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}</span>
                       </div>
-                      <span className="pill">{new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                      <span className="pill">{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                     </li>
                   ))}
                 </ul>
@@ -245,9 +242,9 @@ const cancelledByClient = appointments.filter(
             </div>
 
             <div className="panel">
-              <h2>Campagnes en cours</h2>
+              <h2>{t('dash.ongoingCampaigns', locale)}</h2>
               {activeCampaigns.length === 0 ? (
-                <EmptyState title="Aucune campagne active" body="Lancez une campagne pour qu'Aaron commence à prospecter." compact />
+                <EmptyState title={t('dash.emptyNoActiveCampaign', locale)} body={t('dash.emptyLaunchCampaign', locale)} compact />
               ) : (
                 <ul className="list">
                   {activeCampaigns.map((c) => (
@@ -474,6 +471,7 @@ const cancelledByClient = appointments.filter(
 }
 
 function ActionCardModal({ appointment, onClose, onDone }) {
+  const [locale] = useLocale();
   const [view, setView] = useState('main'); // 'main' | 'historique' | 'fiche'
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -499,6 +497,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
     onDone();
   }
 
+  const STATUS_META = statusMetaFor(locale);
   const prospect = detail?.prospect;
   const meta = prospect ? (STATUS_META[prospect.status] || STATUS_META.jaune) : null;
 
@@ -508,13 +507,13 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         <button className="close-btn" onClick={onClose}>✕</button>
 
         {loading ? (
-          <p className="muted center">Chargement…</p>
+          <p className="muted center">{t('common.loading', locale)}</p>
         ) : (
           <>
             <div className="prospect-center">
               <div className="avatar">{prospect?.full_name?.[0] || '?'}</div>
               <h2>{prospect?.full_name}</h2>
-              <p className="company muted">{prospect?.prospect_companies?.name || 'société inconnue'}</p>
+              <p className="company muted">{prospect?.prospect_companies?.name || t('dash.unknownCompany', locale)}</p>
               {meta && (
                 <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
                   {meta.label}
@@ -525,22 +524,22 @@ function ActionCardModal({ appointment, onClose, onDone }) {
             {view === 'main' && (
               <div className="rdv-info">
                 {appointment.actionType === 'annule' && (
-                  <p className="cancel-label">RDV annulé par le client</p>
+                  <p className="cancel-label">{t('dash.apptCancelledByClient', locale).replace(' — {name}', '')}</p>
                 )}
-                <p><strong>{TYPE_LABELS[appointment.type]}</strong></p>
-                <p className="muted">{new Date(appointment.proposed_at).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}</p>
+                <p><strong>{t(`apptType.${appointment.type}`, locale)}</strong></p>
+                <p className="muted">{new Date(appointment.proposed_at).toLocaleString(locale, { dateStyle: 'full', timeStyle: 'short' })}</p>
               </div>
             )}
 
             {view === 'historique' && (
               <div className="scroll-section">
                 {(detail.messages || []).length === 0 ? (
-                  <p className="muted center">Aucun échange pour le moment.</p>
+                  <p className="muted center">{t('modal.noExchangeYet', locale)}</p>
                 ) : (
                   detail.messages.map((m, i) => (
                     <div key={i} className={`msg ${m.direction}`}>
                       <p>{m.body}</p>
-                      <span className="msg-date">{new Date(m.sent_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                      <span className="msg-date">{new Date(m.sent_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}</span>
                     </div>
                   ))
                 )}
@@ -550,27 +549,27 @@ function ActionCardModal({ appointment, onClose, onDone }) {
             {view === 'fiche' && (
               <div className="scroll-section fiche">
                 <div className="fiche-row">
-                  <span className="fiche-label">Email</span>
+                  <span className="fiche-label">{t('modal.email', locale)}</span>
                   <span>{prospect?.email}</span>
                 </div>
                 {prospect?.phone && (
                   <div className="fiche-row">
-                    <span className="fiche-label">Téléphone</span>
+                    <span className="fiche-label">{t('modal.phone', locale)}</span>
                     <span>{prospect.phone}</span>
                   </div>
                 )}
                 <div className="fiche-row">
-                  <span className="fiche-label">Personnalité</span>
-                  <span>{prospect?.personality_type ? PERSONALITY_LABELS[prospect.personality_type] : 'Pas encore détectée'}</span>
+                  <span className="fiche-label">{t('modal.personality', locale)}</span>
+                  <span>{prospect?.personality_type ? t(`personality.${prospect.personality_type}`, locale) : t('personality.notDetected', locale)}</span>
                 </div>
                 {prospect?.personality_notes && (
                   <div className="fiche-row">
-                    <span className="fiche-label">Notes</span>
+                    <span className="fiche-label">{t('modal.notes', locale)}</span>
                     <span>{prospect.personality_notes}</span>
                   </div>
                 )}
                 <div className="fiche-row">
-                  <span className="fiche-label">Conseil d'Aaron</span>
+                  <span className="fiche-label">{t('modal.aaronAdvice', locale)}</span>
                   <span>{prospect?.aaron_advice || '—'}</span>
                 </div>
               </div>
@@ -578,24 +577,24 @@ function ActionCardModal({ appointment, onClose, onDone }) {
 
             <div className="toggle-row">
               <button className={view === 'historique' ? 'toggle-btn active' : 'toggle-btn'} onClick={() => setView(view === 'historique' ? 'main' : 'historique')}>
-                Historique des échanges
+                {t('modal.historyTab', locale)}
               </button>
               <button className={view === 'fiche' ? 'toggle-btn active' : 'toggle-btn'} onClick={() => setView(view === 'fiche' ? 'main' : 'fiche')}>
-                Fiche client
+                {t('modal.fileTab', locale)}
               </button>
             </div>
 
             <div className="actions-row">
               {appointment.actionType === 'annule' ? (
                 <>
-                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('relancer')}>Relancer le prospect</button>
-                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('traiter')}>Marquer comme traité</button>
+                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('relancer')}>{t('modal.followUpProspect', locale)}</button>
+                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('traiter')}>{t('modal.markProcessed', locale)}</button>
                 </>
               ) : (
                 <>
-                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('valider')}>Valider</button>
-                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('reporter')}>Reporter</button>
-                  <button className="btn-danger" disabled={acting} onClick={() => handleAction('annuler')}>Annuler</button>
+                  <button className="btn-valid" disabled={acting} onClick={() => handleAction('valider')}>{t('modal.validate', locale)}</button>
+                  <button className="btn-neutral" disabled={acting} onClick={() => handleAction('reporter')}>{t('modal.postpone', locale)}</button>
+                  <button className="btn-danger" disabled={acting} onClick={() => handleAction('annuler')}>{t('common.cancel', locale)}</button>
                 </>
               )}
             </div>
@@ -784,6 +783,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
 }
 
 function RescueModal({ prospect, onClose, onDone }) {
+  const [locale] = useLocale();
   const [acting, setActing] = useState(false);
 
   async function handleAction(action) {
@@ -805,9 +805,9 @@ function RescueModal({ prospect, onClose, onDone }) {
         <div className="prospect-center">
           <div className="avatar">{prospect.full_name?.[0] || '?'}</div>
           <h2>{prospect.full_name}</h2>
-          <p className="company muted">{prospect.prospect_companies?.name || 'société inconnue'}</p>
+          <p className="company muted">{prospect.prospect_companies?.name || t('dash.unknownCompany', locale)}</p>
           <span className="status-pill" style={{ color: '#8B90A8', borderColor: '#8B90A8' }}>
-            Sur le point d'être perdu
+            {t('rescue.title', locale)}
           </span>
         </div>
 
@@ -818,10 +818,10 @@ function RescueModal({ prospect, onClose, onDone }) {
 
         <div className="actions-row">
           <button className="btn-valid" disabled={acting} onClick={() => handleAction('approuver_sauvetage')}>
-            Envoyer cette tentative
+            {t('rescue.sendAttempt', locale)}
           </button>
           <button className="btn-danger" disabled={acting} onClick={() => handleAction('rejeter_sauvetage')}>
-            Abandonner ce prospect
+            {t('rescue.abandon', locale)}
           </button>
         </div>
       </div>
@@ -942,10 +942,11 @@ function RescueModal({ prospect, onClose, onDone }) {
 }
 
 function AaronPulse({ active }) {
+  const [locale] = useLocale();
   return (
-    <div className="pulse-wrap" title={active ? 'Aaron prospecte activement' : 'Aaron est en veille'}>
+    <div className="pulse-wrap" title={active ? t('pulse.activeTitle', locale) : t('pulse.idleTitle', locale)}>
       <span className={`pulse-dot ${active ? 'is-active' : ''}`} />
-      <span className="pulse-label">{active ? 'Aaron travaille' : 'En veille'}</span>
+      <span className="pulse-label">{active ? t('pulse.activeLabel', locale) : t('pulse.idleLabel', locale)}</span>
       <style jsx>{`
         .pulse-wrap {
           display: flex;
@@ -1060,7 +1061,7 @@ function Shell({ children, active, userId }) {
       <button
         type="button"
         className="mobile-menu-btn"
-        aria-label="Ouvrir le menu"
+        aria-label={t('shell.openMenu', locale)}
         onClick={() => setMobileOpen(true)}
       >
         <span className="bar" />
@@ -1091,7 +1092,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title="Non inclus dans votre abonnement actuel">🔒</span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}>🔒</span>}</li>
             </Link>
           ))}
         </ul>
