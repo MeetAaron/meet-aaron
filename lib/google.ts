@@ -93,6 +93,10 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
         name: AARON_LABEL_NAME,
         labelListVisibility: 'labelShow',
         messageListVisibility: 'show',
+        // Couleur violette (palette imposée par l'API Gmail — pas de hex libre),
+        // alignée avec le preset9 utilisé côté Outlook (lib/microsoft.ts) pour que
+        // le marqueur soit visuellement cohérent quel que soit le fournisseur.
+        color: { backgroundColor: '#a479e2', textColor: '#ffffff' },
       }),
     });
     if (!createRes.ok) return null;
