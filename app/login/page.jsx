@@ -3,8 +3,10 @@
 
 import { useEffect, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 export default function LoginPage() {
+  const [locale, setLocale] = useLocale();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,10 +19,11 @@ export default function LoginPage() {
   useEffect(() => {
     const verified = new URLSearchParams(window.location.search).get('verified');
     if (verified === '1') {
-      setMessage('Adresse email confirmée ! Vous pouvez vous connecter.');
+      setMessage(t('auth.verifiedMessage', locale));
     } else if (verified === 'error') {
-      setError("Le lien de confirmation est invalide ou a expiré. Réessayez de créer un compte, ou contactez-nous.");
+      setError(t('auth.verifyError', locale));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleEmailSubmit(e) {
@@ -54,11 +57,11 @@ export default function LoginPage() {
           body: JSON.stringify({ auth_user_id: data.user.id, email }),
         });
         if (!res.ok) {
-          setMessage("Compte créé, mais l'envoi de l'email de confirmation a échoué — vous pouvez tout de même vous connecter dès maintenant.");
+          setMessage(t('auth.signupPartialError', locale));
           return;
         }
       }
-      setMessage('Compte créé ! Vérifiez votre boîte mail pour confirmer votre adresse (vous pouvez déjà vous connecter en attendant).');
+      setMessage(t('auth.signupSuccess', locale));
     }
   }
 
@@ -78,44 +81,54 @@ export default function LoginPage() {
   return (
     <div className="wrap">
       <div className="card">
+        <select
+          className="lang-switcher"
+          value={locale}
+          onChange={(e) => setLocale(e.target.value)}
+          aria-label={t('common.language', locale)}
+        >
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+          ))}
+        </select>
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
         <h1>Meet Aaron</h1>
         <p className="subtitle">
-          {mode === 'signin' ? 'Connectez-vous à votre espace commercial.' : 'Créez votre compte.'}
+          {mode === 'signin' ? t('auth.taglineSignin', locale) : t('auth.taglineSignup', locale)}
         </p>
 
         <form onSubmit={handleEmailSubmit} className="form">
           <input
             type="email"
-            placeholder="Adresse email"
+            placeholder={t('auth.emailLabel', locale)}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
           <input
             type="password"
-            placeholder="Mot de passe"
+            placeholder={t('auth.passwordLabel', locale)}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
           />
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Chargement…' : mode === 'signin' ? 'Se connecter' : 'Créer un compte'}
+            {loading ? t('common.loading', locale) : mode === 'signin' ? t('auth.signIn', locale) : t('auth.signUp', locale)}
           </button>
         </form>
 
         <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); }}>
-          {mode === 'signin' ? "Pas encore de compte ? Créer un compte" : 'Déjà un compte ? Se connecter'}
+          {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
         </button>
 
-        <div className="divider"><span>ou</span></div>
+        <div className="divider"><span>{t('auth.or', locale)}</span></div>
 
         <button className="btn-oauth" onClick={() => handleOAuth('google')} disabled={loading}>
-          Continuer avec Google
+          {t('auth.continueWithGoogle', locale)}
         </button>
         <button className="btn-oauth" onClick={() => handleOAuth('azure')} disabled={loading}>
-          Continuer avec Microsoft
+          {t('auth.continueWithMicrosoft', locale)}
         </button>
 
         {error && <p className="error">{error}</p>}
@@ -141,6 +154,17 @@ export default function LoginPage() {
           width: 380px;
           max-width: 100%;
           text-align: center;
+        }
+        .lang-switcher {
+          background: #0b0e1a;
+          border: 1px solid #232744;
+          color: #8b90a8;
+          border-radius: 8px;
+          padding: 0.35rem 0.5rem;
+          font-size: 0.76rem;
+          font-family: inherit;
+          margin-bottom: 1rem;
+          cursor: pointer;
         }
         .logo {
           width: 44px;
