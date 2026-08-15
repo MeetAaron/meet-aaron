@@ -539,6 +539,7 @@ export default function ChatPage() {
           font-size: 0.9rem;
           line-height: 1.45;
           white-space: pre-wrap;
+          overflow-wrap: break-word;
         }
         .bubble.user {
           align-self: flex-end;
