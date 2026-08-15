@@ -64,6 +64,7 @@ function useAuthedUser() {
 const EMPTY_FORM = { reference: '', name: '', description: '', category: '', unit: 'unité', unit_price_eur: '' };
 
 export default function ProductsPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +102,7 @@ export default function ProductsPage() {
 
     if (!res.ok) {
       const body = await res.json();
-      setError(body.error || "Erreur lors de l'ajout");
+      setError(body.error || t('products.errorAdd', locale));
       return;
     }
 
@@ -133,7 +134,7 @@ export default function ProductsPage() {
     setSaving(false);
     if (!res.ok) {
       const body = await res.json();
-      setError(body.error || 'Erreur lors de la modification');
+      setError(body.error || t('products.errorEdit', locale));
       return;
     }
     setEditingId(null);
@@ -176,49 +177,49 @@ export default function ProductsPage() {
   return (
     <Shell active="Produits" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Aaron Opportunité</p>
-        <h1>Catalogue produits & tarifs</h1>
+        <p className="eyebrow">{t('nav.opportunity', locale)}</p>
+        <h1>{t('products.title', locale)}</h1>
         <p className="subtitle">
-          Renseignez vos produits/prestations et leurs prix réels : Aaron s'en sert pour chiffrer directement les devis qu'il prépare, sans jamais inventer un prix qui n'y figure pas. Sans catalogue, Aaron continue de rédiger des devis sans prix, à compléter vous-même.
+          {t('products.subtitle', locale)}
         </p>
       </header>
 
       <form className="add-box" onSubmit={handleAdd}>
-        <input type="text" placeholder="Référence (optionnel)" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />
-        <input type="text" placeholder="Nom du produit/prestation *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        <input type="text" placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <input type="text" placeholder="Catégorie" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-        <input type="text" placeholder="Unité (ex: heure, jour, unité)" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-        <input type="number" step="0.01" min="0" placeholder="Prix unitaire € *" value={form.unit_price_eur} onChange={(e) => setForm({ ...form, unit_price_eur: e.target.value })} required />
+        <input type="text" placeholder={t('products.placeholderReference', locale)} value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />
+        <input type="text" placeholder={t('products.placeholderName', locale)} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+        <input type="text" placeholder={t('products.placeholderDescription', locale)} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <input type="text" placeholder={t('products.placeholderCategory', locale)} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+        <input type="text" placeholder={t('products.placeholderUnit', locale)} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+        <input type="number" step="0.01" min="0" placeholder={t('products.placeholderPrice', locale)} value={form.unit_price_eur} onChange={(e) => setForm({ ...form, unit_price_eur: e.target.value })} required />
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Ajout…' : 'Ajouter au catalogue'}
+          {saving ? t('products.adding', locale) : t('products.addButton', locale)}
         </button>
       </form>
       {error && <p className="error">{error}</p>}
 
       <label className="toggle-inactive">
         <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-        Afficher les produits désactivés
+        {t('products.showInactive', locale)}
       </label>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : visibleProducts.length === 0 ? (
         <div className="empty">
-          <p className="empty-title">Catalogue vide</p>
-          <p className="empty-body">Ajoutez votre premier produit ci-dessus.</p>
+          <p className="empty-title">{t('products.emptyTitle', locale)}</p>
+          <p className="empty-body">{t('products.emptyBody', locale)}</p>
         </div>
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Référence</th>
-                <th>Nom</th>
-                <th>Description</th>
-                <th>Catégorie</th>
-                <th>Unité</th>
-                <th>Prix unitaire</th>
+                <th>{t('products.colReference', locale)}</th>
+                <th>{t('products.colName', locale)}</th>
+                <th>{t('products.colDescription', locale)}</th>
+                <th>{t('products.colCategory', locale)}</th>
+                <th>{t('products.colUnit', locale)}</th>
+                <th>{t('products.colPrice', locale)}</th>
                 <th></th>
               </tr>
             </thead>
@@ -233,8 +234,8 @@ export default function ProductsPage() {
                     <td><input value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} /></td>
                     <td><input type="number" step="0.01" min="0" value={editForm.unit_price_eur} onChange={(e) => setEditForm({ ...editForm, unit_price_eur: e.target.value })} /></td>
                     <td className="actions">
-                      <button className="link" onClick={() => saveEdit(p.id)} disabled={saving}>Enregistrer</button>
-                      <button className="link muted" onClick={() => setEditingId(null)}>Annuler</button>
+                      <button className="link" onClick={() => saveEdit(p.id)} disabled={saving}>{t('common.save', locale)}</button>
+                      <button className="link muted" onClick={() => setEditingId(null)}>{t('common.cancel', locale)}</button>
                     </td>
                   </tr>
                 ) : (
@@ -246,8 +247,8 @@ export default function ProductsPage() {
                     <td className="muted">{p.unit}</td>
                     <td>{Number(p.unit_price_eur).toFixed(2)} €</td>
                     <td className="actions">
-                      <button className="link" onClick={() => startEdit(p)}>Modifier</button>
-                      <button className="link muted" onClick={() => toggleActive(p)}>{p.is_active ? 'Désactiver' : 'Réactiver'}</button>
+                      <button className="link" onClick={() => startEdit(p)}>{t('common.edit', locale)}</button>
+                      <button className="link muted" onClick={() => toggleActive(p)}>{p.is_active ? t('products.deactivate', locale) : t('products.reactivate', locale)}</button>
                     </td>
                   </tr>
                 )
