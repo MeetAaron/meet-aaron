@@ -25,7 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
 
   const now = Date.now();
   const perUserCount: Record<string, number> = {};
+  // Voir même cache dans retry-uncontacted-prospects/route.ts : évite de revérifier
+  // le plafond quotidien (lib/messaging.ts) à chaque prospect du même commercial.
+  const cappedUsers = new Map<string, boolean>();
   let followedUp = 0;
   let rescuePending = 0;
 
@@ -90,6 +93,11 @@ export async function GET(request: NextRequest) {
     const firstOutbound = outbound[0];
     const daysSinceFirstContact = (now - new Date(firstOutbound.sent_at).getTime()) / 86_400_000;
     if (daysSinceFirstContact < dueDay) continue; // pas encore le moment
+
+    if (!cappedUsers.has(prospect.assigned_user_id)) {
+      cappedUsers.set(prospect.assigned_user_id, await hasReachedProspectingCap(prospect.assigned_user_id));
+    }
+    if (cappedUsers.get(prospect.assigned_user_id)) continue;
 
     perUserCount[prospect.assigned_user_id] = (perUserCount[prospect.assigned_user_id] || 0) + 1;
     if (perUserCount[prospect.assigned_user_id] > MAX_PER_USER_PER_RUN) continue;
@@ -134,7 +142,8 @@ export async function GET(request: NextRequest) {
           prospect.assigned_user_id,
           prospect.email,
           aaronOutput.email_draft.subject,
-          aaronOutput.email_draft.body
+          aaronOutput.email_draft.body,
+          { emailType: 'prospecting' }
         );
 
         const { data: senderUser } = await supabaseAdmin
@@ -165,7 +174,7 @@ export async function GET(request: NextRequest) {
 
       followedUp++;
     } catch (err: any) {
-      if (!(err instanceof MonthlyCapExceededError)) {
+      if (!(err instanceof MonthlyCapExceededError) && !(err instanceof DailySendCapExceededError)) {
         console.error(`Erreur relance programmée pour prospect ${prospect.id}:`, err.message);
       }
     }
