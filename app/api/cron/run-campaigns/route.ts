@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -79,6 +79,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
     return totalMessages === 0;
   });
 
+  // Protection délivrabilité (voir lib/messaging.ts) : une campagne appartient
+  // à un seul commercial, donc si son plafond quotidien de prospection est déjà
+  // atteint, aucun des nouveaux prospects de cette campagne ne pourra être
+  // contacté aujourd'hui — sauter tout le lot ici évite de dépenser un appel
+  // Claude par prospect pour rien (l'envoi échouerait de toute façon).
+  if (newProspects.length > 0 && (await hasReachedProspectingCap(assignedUserId))) {
+    return { campaign_id: campaignId, batch_result: result, first_contacts_sent: 0, skipped_daily_cap: true };
+  }
+
   // Reste séquentiel PAR campagne (donc par commercial) pour ne pas déclencher
   // trop d'envois Gmail d'un coup depuis un même compte — seul le traitement
   // ENTRE campagnes de commerciaux différents est parallélisé (voir GET ci-dessous).
@@ -130,7 +139,8 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
           prospect.assigned_user_id,
           prospect.email,
           aaronOutput.email_draft.subject,
-          aaronOutput.email_draft.body
+          aaronOutput.email_draft.body,
+          { emailType: 'prospecting' }
         );
 
         const { data: senderUser } = await supabaseAdmin
