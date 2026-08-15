@@ -122,7 +122,7 @@ export default function TeamMemberDetailPage() {
   const statusMeta = statusMetaFor(locale);
 
   return (
-    <Shell active="Mon équipe" userId={userId}>
+    <Shell active={t('nav.team', locale)} userId={userId}>
       <Link href={`/app/team?user_id=${userId}`} className="back-link">← {t('teamDetail.backToTeam', locale)}</Link>
 
       <header className="header">
@@ -351,7 +351,6 @@ function Shell({ children, active, userId }) {
 
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
-    { label: t('nav.pipeline', locale), slug: 'pipeline', icon: '🧭' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
