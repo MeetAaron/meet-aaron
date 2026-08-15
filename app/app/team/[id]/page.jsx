@@ -51,15 +51,18 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const STATUS_META = {
-  vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#8B90A8' },
-  orange: { label: 'Risque de perdre', color: '#F0914E' },
-  rouge: { label: 'Perdu', color: '#E5484D' },
-  bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
-};
+function statusMetaFor(locale) {
+  return {
+    vert: { label: t('status.vert', locale), color: '#3DD68C' },
+    jaune: { label: t('status.jaune', locale), color: '#8B90A8' },
+    orange: { label: t('status.orange', locale), color: '#F0914E' },
+    rouge: { label: t('status.rouge', locale), color: '#E5484D' },
+    bleu: { label: t('status.bleu', locale), color: '#4B9EF0' },
+  };
+}
 
 export default function TeamMemberDetailPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const params = useParams();
   const memberId = params.id;
@@ -116,53 +119,54 @@ export default function TeamMemberDetailPage() {
   }
 
   const upcomingAppointments = appointments.filter((a) => a.status === 'validé');
+  const statusMeta = statusMetaFor(locale);
 
   return (
     <Shell active="Mon équipe" userId={userId}>
-      <Link href={`/app/team?user_id=${userId}`} className="back-link">← Retour à l'équipe</Link>
+      <Link href={`/app/team?user_id=${userId}`} className="back-link">← {t('teamDetail.backToTeam', locale)}</Link>
 
       <header className="header">
-        <p className="eyebrow">Détail commercial</p>
-        <h1>{memberInfo?.full_name || 'Chargement…'}</h1>
+        <p className="eyebrow">{t('teamDetail.eyebrow', locale)}</p>
+        <h1>{memberInfo?.full_name || t('common.loading', locale)}</h1>
         {memberInfo && <p className="sub">{memberInfo.email}</p>}
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
           <section className="stat-row">
             <div className="stat-card">
               <span className="stat-number">{prospects.length}</span>
-              <span className="stat-label">Prospects actifs</span>
+              <span className="stat-label">{t('teamDetail.statActiveProspects', locale)}</span>
             </div>
             <div className="stat-card">
               <span className="stat-number">{upcomingAppointments.length}</span>
-              <span className="stat-label">RDV validés</span>
+              <span className="stat-label">{t('teamDetail.statValidatedAppointments', locale)}</span>
             </div>
             <div className="stat-card">
               <span className="stat-number">{campaigns.length}</span>
-              <span className="stat-label">Campagnes lancées</span>
+              <span className="stat-label">{t('teamDetail.statCampaignsLaunched', locale)}</span>
             </div>
           </section>
 
           <section className="panel">
-            <h2>Prospects en cours</h2>
+            <h2>{t('teamDetail.prospectsInProgress', locale)}</h2>
             {prospects.length === 0 ? (
-              <p className="muted">Aucun prospect actif.</p>
+              <p className="muted">{t('teamDetail.noActiveProspect', locale)}</p>
             ) : (
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Statut</th>
-                      <th>Nom</th>
-                      <th>Société</th>
+                      <th>{t('results.colStatus', locale)}</th>
+                      <th>{t('results.colName', locale)}</th>
+                      <th>{t('results.colCompany', locale)}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {prospects.map((p) => {
-                      const meta = STATUS_META[p.status] || STATUS_META.jaune;
+                      const meta = statusMeta[p.status] || statusMeta.jaune;
                       return (
                         <tr key={p.id}>
                           <td>
@@ -182,15 +186,15 @@ export default function TeamMemberDetailPage() {
           </section>
 
           <section className="panel">
-            <h2>Rendez-vous validés</h2>
+            <h2>{t('teamDetail.validatedAppointmentsTitle', locale)}</h2>
             {upcomingAppointments.length === 0 ? (
-              <p className="muted">Aucun rendez-vous validé.</p>
+              <p className="muted">{t('teamDetail.noValidatedAppointment', locale)}</p>
             ) : (
               <ul className="list">
                 {upcomingAppointments.map((a) => (
                   <li key={a.id} className="list-item">
                     <strong>{a.prospects?.full_name}</strong>
-                    <span className="muted"> — {new Date(a.proposed_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <span className="muted"> — {new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                   </li>
                 ))}
               </ul>
