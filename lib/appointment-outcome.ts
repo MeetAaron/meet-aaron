@@ -6,39 +6,55 @@
 // Aaron Sales (2026-08-13) : ce bilan est aussi le déclencheur de la mise à
 // jour AUTOMATIQUE du pipeline de vente (prospects.deal_stage), sans
 // ressaisie manuelle du commercial — voir migration_aaron_sales_2026-08-13.sql
-// et app/app/sales/page.jsx. Avant ce changement, un RDV "client" ne faisait
-// jamais passer is_won à true nulle part dans le code (seul un passage
-// manuel via l'action "marquer_gagne" le faisait) : ce trou est comblé ici.
-
-import { supabaseAdmin } from './supabase-admin';
-import { callClaude, MonthlyCapExceededError } from './anthropic-client';
-
-export type AppointmentOutcome = 'client' | 'bien_passe' | 'moyen' | 'perdu';
+// et app/app/sales/page.jsx.
+//
+// CHANGEMENTS A FAIRE #6 (2026-08-15) : les 4 choix proposés au commercial ont
+// été revus. Avant : client / bien_passe / moyen / perdu (avec "client" =
+// signature immédiate). Maintenant : a_continuer / opportunite / devis / perdu.
+// "opportunite" et "demande de devis" déclenchent la MÊME réaction d'Aaron
+// (félicitations, prospect déplacé dans le tableau des Opportunités — voir
+// app/app/sales/page.jsx / VALID_DEAL_STAGES dans app/api/prospects/[id]/route.ts) ;
+// la signature immédiate ("client") n'est plus un choix du bilan — une fois
+// l'opportunité créée, le passage à "Signé" se fait depuis la page Opportunités
+// (action "set_deal_stage"), qui déclenche déjà is_won/first_order_confirmed_at.
+export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
 
 const OUTCOME_LABELS: Record<AppointmentOutcome, string> = {
-  client: 'Client signé',
-  bien_passe: 'Plutôt bien passé',
-  moyen: 'Moyennement, à relancer',
+  a_continuer: 'Bon rdv, à continuer',
+  opportunite: 'Opportunité',
+  devis: 'Demande de devis',
   perdu: 'Perdu',
 };
 
 // Statut du prospect (voir la légende dans app/app/prospects/page.jsx :
 // vert = en bonne voie, jaune = en cours, orange = risque de perdre,
-// rouge = perdu, bleu = RDV obtenu). Un "client" gagné est le meilleur cas
-// possible : on le range en 'vert', faute d'une couleur dédiée "gagné" dans
-// le pipeline actuel.
+// rouge = perdu, bleu = RDV obtenu/opportunité). Une opportunité ou une
+// demande de devis fait basculer le prospect en 'bleu', au même titre qu'un
+// RDV tout juste validé — c'est désormais un prospect "actif dans le pipeline
+// des opportunités", suivi depuis la page Opportunités plutôt que Prospects.
 const OUTCOME_TO_PROSPECT_STATUS: Record<AppointmentOutcome, string> = {
-  client: 'vert',
-  bien_passe: 'vert',
-  moyen: 'orange',
+  a_continuer: 'vert',
+  opportunite: 'bleu',
+  devis: 'bleu',
   perdu: 'rouge',
 };
 
 const FALLBACK_NOTES: Record<AppointmentOutcome, string> = {
-  client: "Bravo, un client de plus ! Pense à lancer l'onboarding/le contrat sans trop tarder pendant que c'est chaud.",
-  bien_passe: "Top, garde le momentum : une relance courte dans les prochains jours pour caler la suite peut faire la différence.",
-  moyen: "Pas de souci, ça arrive — une relance dans une semaine avec un angle différent (étude de cas, offre limitée...) peut relancer l'intérêt.",
+  a_continuer: "Top, garde le momentum : une relance courte dans les prochains jours pour caler la suite peut faire la différence.",
+  opportunite: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités. Place à la vente, il doit désormais commander et devenir client !",
+  devis: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités, avec un devis en cours. Place à la vente, il doit désormais commander et devenir client !",
   perdu: "Dommage pour celui-là. Si tu as une minute, note pourquoi (prix, timing, concurrent...) — ça aide à mieux cibler les prochains.",
+};
+
+// Ordre des étapes du pipeline (voir STAGE_ORDER dans app/app/sales/page.jsx)
+// — sert à ne jamais faire reculer une affaire déjà plus avancée quand le
+// bilan d'un nouveau RDV (ex: RDV de suivi) est enregistré.
+const STAGE_RANK: Record<string, number> = {
+  rdv_fait: 0,
+  devis_envoye: 1,
+  en_negociation: 2,
+  signe: 3,
+  perdu: -1,
 };
 
 export async function recordAppointmentOutcome(appointmentId: string, outcome: AppointmentOutcome) {
@@ -57,36 +73,42 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
 
   let note = FALLBACK_NOTES[outcome];
 
-  // La note personnalisée d'Aaron est un "bonus" — si le plafond API est
-  // atteint ou que l'appel échoue pour une autre raison, on retombe
-  // silencieusement sur une note générique plutôt que de bloquer
-  // l'enregistrement du bilan (l'essentiel : le statut du prospect est à jour).
-  try {
-    const data = await callClaude(
-      {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 150,
-        messages: [
-          {
-            role: 'user',
-            content:
-              `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
-              `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
-              `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
-              `Réponds uniquement avec ce message, en français, sans préambule ni titre.`,
-          },
-        ],
-      },
-      companyId
-    );
+  // Pour "opportunite" / "devis", le message doit garantir un contenu précis
+  // (féliciter + confirmer le déplacement dans le tableau des Opportunités —
+  // voir CHANGEMENTS A FAIRE #6) : on utilise directement le texte fixe plutôt
+  // que de laisser Claude reformuler et risquer de perdre cette information.
+  // Pour les 2 autres issues, la note personnalisée d'Aaron reste un "bonus" —
+  // si le plafond API est atteint ou que l'appel échoue, on retombe
+  // silencieusement sur la note générique plutôt que de bloquer l'enregistrement
+  // du bilan (l'essentiel : le statut du prospect est à jour).
+  if (outcome !== 'opportunite' && outcome !== 'devis') {
+    try {
+      const data = await callClaude(
+        {
+          model: 'claude-sonnet-4-6',
+          max_tokens: 150,
+          messages: [
+            {
+              role: 'user',
+              content:
+                `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
+                `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
+                `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
+                `Réponds uniquement avec ce message, en français, sans préambule ni titre.`,
+            },
+          ],
+        },
+        companyId
+      );
 
-    const textBlock = data.content.find((b: any) => b.type === 'text');
-    if (textBlock?.text?.trim()) {
-      note = textBlock.text.trim();
-    }
-  } catch (err: any) {
-    if (!(err instanceof MonthlyCapExceededError)) {
-      console.error('Erreur génération note de bilan RDV:', err.message);
+      const textBlock = data.content.find((b: any) => b.type === 'text');
+      if (textBlock?.text?.trim()) {
+        note = textBlock.text.trim();
+      }
+    } catch (err: any) {
+      if (!(err instanceof MonthlyCapExceededError)) {
+        console.error('Erreur génération note de bilan RDV:', err.message);
+      }
     }
   }
 
@@ -99,34 +121,28 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
     const now = new Date().toISOString();
     const prospectUpdate: Record<string, any> = { status: OUTCOME_TO_PROSPECT_STATUS[outcome] };
 
-    if (outcome === 'client') {
-      // Affaire signée : referme le pipeline et fait passer le prospect en
-      // "client gagné" (jusqu'ici uniquement possible via l'action manuelle
-      // "marquer_gagne" — voir app/api/prospects/[id]/route.ts). "Client
-      // signé" implique déjà une commande/un contrat réel, donc on confirme
-      // directement la 1ère commande (pas besoin de repasser par l'étape
-      // manuelle de confirmation — voir migration_first_order_confirmed_2026-08-14.sql).
-      prospectUpdate.deal_stage = 'signe';
-      prospectUpdate.deal_stage_updated_at = now;
-      prospectUpdate.is_won = true;
-      prospectUpdate.won_at = now;
-      prospectUpdate.is_lost = false;
-      prospectUpdate.first_order_confirmed_at = now;
+    if (outcome === 'opportunite' || outcome === 'devis') {
+      // Nouvelle opportunité (ou demande de devis) : déplace le prospect dans
+      // le tableau des Opportunités (app/app/sales/page.jsx, alimenté par tout
+      // prospect avec deal_stage renseigné — voir app/api/sales/pipeline).
+      // "devis" démarre directement à l'étape "devis envoyé" (plus avancée
+      // qu'un simple "rdv_fait"), "opportunite" à l'étape de départ — sans
+      // jamais faire reculer une affaire déjà plus avancée (ex: RDV de suivi
+      // sur une négociation en cours).
+      const targetStage = outcome === 'devis' ? 'devis_envoye' : 'rdv_fait';
+      const currentRank = prospect.deal_stage ? STAGE_RANK[prospect.deal_stage] ?? -1 : -1;
+      if (currentRank < STAGE_RANK[targetStage]) {
+        prospectUpdate.deal_stage = targetStage;
+        prospectUpdate.deal_stage_updated_at = now;
+      }
     } else if (outcome === 'perdu') {
       prospectUpdate.deal_stage = 'perdu';
       prospectUpdate.deal_stage_updated_at = now;
       prospectUpdate.is_lost = true;
       prospectUpdate.lost_at = now;
-    } else {
-      // bien_passe / moyen : le prospect vient de passer un RDV, donc au
-      // moins "rdv_fait" — sans écraser une étape déjà plus avancée (devis
-      // envoyé, en négociation) si un RDV de suivi a lieu plus tard dans le
-      // cycle.
-      if (!prospect.deal_stage) {
-        prospectUpdate.deal_stage = 'rdv_fait';
-      }
-      prospectUpdate.deal_stage_updated_at = now;
     }
+    // "a_continuer" : bon RDV mais pas encore une opportunité formelle — on ne
+    // touche pas au deal_stage, le prospect reste suivi depuis la page Prospects.
 
     await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
   }
