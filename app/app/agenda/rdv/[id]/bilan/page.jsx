@@ -48,11 +48,14 @@ function useAuthedUser() {
   return { ready, authError };
 }
 
+// CHANGEMENTS A FAIRE #6 (2026-08-15) : "opportunité" et "demande de devis"
+// amènent la même réaction d'Aaron (voir lib/appointment-outcome.ts) — deux
+// choix distincts car ils ne démarrent pas à la même étape du pipeline.
 function choicesFor(locale) {
   return [
-    { value: 'client', label: t('bilanRdv.choiceClient', locale), emoji: '🎉' },
-    { value: 'bien_passe', label: t('bilanRdv.choiceBienPasse', locale), emoji: '🙂' },
-    { value: 'moyen', label: t('bilanRdv.choiceMoyen', locale), emoji: '😐' },
+    { value: 'a_continuer', label: t('bilanRdv.choiceContinuer', locale), emoji: '🙂' },
+    { value: 'opportunite', label: t('bilanRdv.choiceOpportunite', locale), emoji: '🎉' },
+    { value: 'devis', label: t('bilanRdv.choiceDevis', locale), emoji: '📄' },
     { value: 'perdu', label: t('bilanRdv.choicePerdu', locale), emoji: '😕' },
   ];
 }
