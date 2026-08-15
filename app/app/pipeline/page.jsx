@@ -75,21 +75,34 @@ function useAuthedUser() {
 // app/app/sales/page.jsx (STAGE_META, NON_TERMINAL_STAGES) — trois systèmes
 // de statut indépendants (voir statut projet), qu'on ne fusionne pas en base
 // ici (aucune migration ajoutée), on se contente de les lire côte à côte.
-const STATUS_META = {
-  vert: { label: 'En bonne voie', color: '#3DD68C' },
-  jaune: { label: 'En cours', color: '#8B90A8' },
-  orange: { label: 'Risque de perdre', color: '#F0914E' },
-  rouge: { label: 'Perdu', color: '#E5484D' },
-  bleu: { label: 'RDV obtenu', color: '#4B9EF0' },
+// Libellés traduits via t('status.<clé>'/'dealStage.<clé>', locale) (voir lib/i18n.js).
+const STATUS_COLORS = {
+  vert: '#3DD68C',
+  jaune: '#8B90A8',
+  orange: '#F0914E',
+  rouge: '#E5484D',
+  bleu: '#4B9EF0',
 };
 
-const STAGE_META = {
-  rdv_fait: { label: 'RDV fait', color: '#4B9EF0' },
-  devis_envoye: { label: 'Devis envoyé', color: '#F0914E' },
-  en_negociation: { label: 'En négociation', color: '#F0C94E' },
-  signe: { label: 'Signé', color: '#3DD68C' },
-  perdu: { label: 'Perdu', color: '#E5484D' },
+const STAGE_COLORS = {
+  rdv_fait: '#4B9EF0',
+  devis_envoye: '#F0914E',
+  en_negociation: '#F0C94E',
+  signe: '#3DD68C',
+  perdu: '#E5484D',
 };
+
+function statusMetaFor(locale) {
+  return Object.fromEntries(
+    Object.entries(STATUS_COLORS).map(([key, color]) => [key, { label: t(`status.${key}`, locale), color }])
+  );
+}
+
+function stageMetaFor(locale) {
+  return Object.fromEntries(
+    Object.entries(STAGE_COLORS).map(([key, color]) => [key, { label: t(`dealStage.${key}`, locale), color }])
+  );
+}
 
 const NON_TERMINAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
 const TERMINAL_STAGES = ['signe', 'perdu'];
@@ -100,6 +113,7 @@ function companyLabel(row) {
 
 export default function PipelinePage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
   const [tab, setTab] = useState('prospects');
   const [loading, setLoading] = useState(true);
   const [prospects, setProspects] = useState([]);
@@ -138,9 +152,9 @@ export default function PipelinePage() {
     .sort((a, b) => new Date(b.deal_stage_updated_at || b.won_at || b.lost_at || 0) - new Date(a.deal_stage_updated_at || a.won_at || a.lost_at || 0));
 
   const TABS = [
-    { key: 'prospects', label: 'Prospects actifs', count: activeProspects.length },
-    { key: 'opportunities', label: 'Opportunités en cours', count: openDeals.length },
-    { key: 'history', label: 'Historique', count: closedDeals.length },
+    { key: 'prospects', label: t('pipeline.tabProspects', locale), count: activeProspects.length },
+    { key: 'opportunities', label: t('pipeline.tabOpportunities', locale), count: openDeals.length },
+    { key: 'history', label: t('pipeline.tabHistory', locale), count: closedDeals.length },
   ];
 
   if (authLoading) {
@@ -168,25 +182,19 @@ export default function PipelinePage() {
   return (
     <Shell active="Pipeline" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Vue d'ensemble</p>
-        <h1>Pipeline</h1>
-        <p className="subtitle">
-          L'état de votre entonnoir commercial en un coup d'œil. Cliquez sur une ligne pour l'ouvrir et agir dans
-          Prospects ou Aaron Opportunité.
-        </p>
+        <p className="eyebrow">{t('pipeline.eyebrow', locale)}</p>
+        <h1>{t('nav.pipeline', locale)}</h1>
+        <p className="subtitle">{t('pipeline.subtitle', locale)}</p>
       </header>
 
       {salesLocked && (
         <div className="upsell-banner">
           <div className="upsell-text">
-            <p className="upsell-title">🚀 Suivez vos négociations et devis directement ici</p>
-            <p className="upsell-desc">
-              Aaron Opportunité ajoute le suivi des RDV, devis et négociations une fois un prospect chaud — inclus dans
-              l'abonnement Aaron Opportunité.
-            </p>
+            <p className="upsell-title">{t('pipeline.upsellTitle', locale)}</p>
+            <p className="upsell-desc">{t('pipeline.upsellDesc', locale)}</p>
           </div>
           <Link href={`/app/preferences${userId ? `?user_id=${userId}` : ''}`} className="upsell-btn">
-            Activer Aaron Opportunité
+            {t('pipeline.upsellCta', locale)}
           </Link>
         </div>
       )}
@@ -205,7 +213,7 @@ export default function PipelinePage() {
       </div>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
           {tab === 'prospects' && (
@@ -308,7 +316,9 @@ function EmptyRow({ children }) {
 }
 
 function ProspectsTab({ rows, userId }) {
-  if (rows.length === 0) return <EmptyRow>Aucun prospect actif pour l'instant.</EmptyRow>;
+  const [locale] = useLocale();
+  const STATUS_META = statusMetaFor(locale);
+  if (rows.length === 0) return <EmptyRow>{t('pipeline.emptyProspects', locale)}</EmptyRow>;
   return (
     <div className="list">
       {rows.map((p) => {
@@ -328,14 +338,17 @@ function ProspectsTab({ rows, userId }) {
 }
 
 function OpportunitiesTab({ rows, userId, locked }) {
+  const [locale] = useLocale();
+  const STAGE_META = stageMetaFor(locale);
   if (locked) {
     return (
-      <EmptyRow>
-        Ce module n'est pas encore activé sur votre abonnement — voir la bannière ci-dessus pour l'activer.
-      </EmptyRow>
+      <EmptyRow>{t('pipeline.moduleLocked', locale)}</EmptyRow>
     );
   }
-  if (rows.length === 0) return <EmptyRow>Aucune opportunité en cours (RDV fait, devis envoyé, en négociation).</EmptyRow>;
+  if (rows.length === 0) {
+    const stages = [t('dealStage.rdv_fait', locale), t('dealStage.devis_envoye', locale), t('dealStage.en_negociation', locale)].join(', ');
+    return <EmptyRow>{`${t('pipeline.emptyOpportunities', locale)} (${stages}).`}</EmptyRow>;
+  }
   return (
     <div className="list">
       {rows.map((d) => {
@@ -355,14 +368,14 @@ function OpportunitiesTab({ rows, userId, locked }) {
 }
 
 function HistoryTab({ rows, userId, locked }) {
+  const [locale] = useLocale();
+  const STAGE_META = stageMetaFor(locale);
   if (locked) {
     return (
-      <EmptyRow>
-        Ce module n'est pas encore activé sur votre abonnement — voir la bannière ci-dessus pour l'activer.
-      </EmptyRow>
+      <EmptyRow>{t('pipeline.moduleLocked', locale)}</EmptyRow>
     );
   }
-  if (rows.length === 0) return <EmptyRow>Aucune opportunité clôturée pour l'instant.</EmptyRow>;
+  if (rows.length === 0) return <EmptyRow>{t('pipeline.emptyHistory', locale)}</EmptyRow>;
   return (
     <div className="list">
       {rows.map((d) => {
@@ -373,7 +386,7 @@ function HistoryTab({ rows, userId, locked }) {
             <span className="dot" style={{ background: meta.color }} />
             <span className="name">{d.full_name || d.email}</span>
             <span className="company">{companyLabel(d)}</span>
-            <span className="status-label" style={{ color: meta.color }}>{won ? 'Gagné' : 'Perdu'}</span>
+            <span className="status-label" style={{ color: meta.color }}>{won ? t('pipeline.won', locale) : t('dealStage.perdu', locale)}</span>
           </Link>
         );
       })}
@@ -477,7 +490,7 @@ function Shell({ children, active, userId }) {
       <button
         type="button"
         className="mobile-menu-btn"
-        aria-label="Ouvrir le menu"
+        aria-label={t('shell.openMenu', locale)}
         onClick={() => setMobileOpen(true)}
       >
         <span className="bar" />
@@ -508,7 +521,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title="Non inclus dans votre abonnement actuel">🔒</span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}>🔒</span>}</li>
             </Link>
           ))}
         </ul>
