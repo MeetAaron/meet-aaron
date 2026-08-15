@@ -12,8 +12,29 @@ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 // fallback pour ne rien casser tant que la variable n'est pas définie.
 const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'price_1U28xj7srPu7DrXAy07EdRs7';
 
+// Marchés visés pour l'expansion internationale (voir statut projet) :
+// Portugal, Espagne, France, Belgique, Pays-Bas, Allemagne, Italie, UK,
+// Australie, USA. Stripe Checkout gère déjà nativement la TVA UE/UK, la GST
+// australienne et la sales tax américaine via Stripe Tax (automatic_tax
+// ci-dessous) — à condition que Stripe Tax soit activé et qu'un
+// enregistrement fiscal (tax registration) existe pour chaque pays où on
+// veut réellement collecter la taxe. Je ne crée PAS ces enregistrements
+// depuis le code : c'est une décision fiscale/légale par pays qui doit
+// rester entre les mains d'Alex (et de son comptable), pas quelque chose
+// qu'Aaron décide unilatéralement même si l'API Stripe le permettrait
+// techniquement (stripe.tax.registrations.create). Voir la note dans le
+// statut projet pour la marche à suivre côté Dashboard Stripe.
+
+// Correspondance locale interne (lib/i18n.js) -> code de langue Stripe
+// Checkout (liste officielle Stripe, sous-ensemble pertinent ici). 'auto'
+// : Stripe détecte la langue du navigateur si aucune valeur reconnue n'est
+// fournie.
+const STRIPE_LOCALE_MAP: Record<string, string> = {
+  fr: 'fr', en: 'en', de: 'de', it: 'it', es: 'es', pt: 'pt', nl: 'nl',
+};
+
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country } = await request.json();
+  const { first_name, full_name, company_name, country, locale } = await request.json();
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -38,6 +59,21 @@ try {
       // Adresse de facturation complète (rue, ville, code postal) requise pour
       // pouvoir générer une vraie facture — avant, seul le pays était demandé.
       billing_address_collection: 'required',
+      // Calcule automatiquement la TVA/GST/sales tax selon le pays de
+      // facturation renseigné par le client (UE, UK, Australie, USA...).
+      // Nécessite Stripe Tax activé + un enregistrement fiscal pour le pays
+      // concerné côté Dashboard Stripe (voir note ci-dessus) — sans ça,
+      // Stripe ignore simplement ce paramètre et ne facture aucune taxe,
+      // donc pas de risque de casser le paiement en attendant.
+      automatic_tax: { enabled: true },
+      // Permet à un client professionnel de renseigner son numéro de TVA
+      // intracommunautaire (autoliquidation en B2B UE) directement dans le
+      // Checkout, sur la facture générée automatiquement par Stripe.
+      tax_id_collection: { enabled: true },
+      // Langue du Checkout alignée sur la langue choisie dans l'app (voir
+      // lib/i18n.js) quand elle est reconnue par Stripe, sinon détection
+      // automatique du navigateur.
+      locale: (STRIPE_LOCALE_MAP[locale] as any) || 'auto',
       success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/onboarding`,
       metadata: {
