@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendEmailForUser } from '@/lib/messaging';
+import { sendEmailForUser, DailySendCapExceededError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -67,12 +67,23 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Aucune tentative de sauvetage en attente' }, { status: 400 });
     }
 
-    await sendEmailForUser(
-      prospect.assigned_user_id,
-      prospect.email,
-      prospect.rescue_proposal_subject,
-      prospect.rescue_proposal_body
-    );
+    try {
+      await sendEmailForUser(
+        prospect.assigned_user_id,
+        prospect.email,
+        prospect.rescue_proposal_subject,
+        prospect.rescue_proposal_body,
+        { emailType: 'prospecting' }
+      );
+    } catch (err: any) {
+      if (err instanceof DailySendCapExceededError) {
+        return NextResponse.json(
+          { error: `Plafond quotidien d'emails de prospection atteint (${err.cap}/jour) — réessayez demain, ou augmentez le plafond dans Préférences.` },
+          { status: 429 }
+        );
+      }
+      throw err;
+    }
 
     const { data: conversation } = await supabaseAdmin
       .from('conversations')
@@ -136,6 +147,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const finalSubject = (typeof first_email_subject === 'string' && first_email_subject.trim()) || prospect.pending_first_email_subject;
     const finalBody = (typeof first_email_body === 'string' && first_email_body.trim()) || prospect.pending_first_email_body;
 
+    // Vérifié AVANT la réclamation ci-dessous (pas après) : la réclamation efface
+    // le brouillon en attente, donc si on l'effaçait puis échouait à l'envoi faute
+    // de plafond disponible, le brouillon serait perdu sans jamais avoir été
+    // envoyé. En vérifiant avant, un plafond atteint laisse le brouillon intact
+    // pour une nouvelle tentative demain.
+    if (await hasReachedProspectingCap(prospect.assigned_user_id)) {
+      const { data: capUser } = await supabaseAdmin
+        .from('users')
+        .select('daily_prospecting_email_cap')
+        .eq('id', prospect.assigned_user_id)
+        .maybeSingle();
+      const cap = capUser?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP;
+      return NextResponse.json(
+        { error: `Plafond quotidien d'emails de prospection atteint (${cap}/jour) — le brouillon reste en attente, réessayez demain.` },
+        { status: 429 }
+      );
+    }
+
     // Réclamation atomique AVANT l'envoi : le WHERE (pending_first_email_subject
     // non nul) est réévalué par Postgres au moment de l'UPDATE, donc si deux
     // requêtes concurrentes arrivent en même temps (double clic, retry réseau,
@@ -158,7 +187,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Ce premier email a déjà été envoyé ou traité' }, { status: 409 });
     }
 
-    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody);
+    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody, { emailType: 'prospecting' });
 
     const { data: conversation } = await supabaseAdmin
       .from('conversations')
