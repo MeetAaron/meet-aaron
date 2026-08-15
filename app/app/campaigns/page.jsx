@@ -641,6 +641,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           font-size: 0.86rem;
           line-height: 1.45;
           max-width: 88%;
+          overflow-wrap: break-word;
         }
         .bubble p {
           margin: 0;
