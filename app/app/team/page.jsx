@@ -67,6 +67,7 @@ function useAuthedUser() {
 }
 
 export default function TeamPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [members, setMembers] = useState([]);
   const [inviteCode, setInviteCode] = useState(null);
@@ -140,42 +141,42 @@ export default function TeamPage() {
   return (
     <Shell active="Mon équipe" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Équipe</p>
-        <h1>Mon équipe</h1>
+        <p className="eyebrow">{t('team.eyebrow', locale)}</p>
+        <h1>{t('team.title', locale)}</h1>
       </header>
 
       {!loading && inviteCode && (
         <div className="invite-box">
           <div>
-            <p className="invite-label">Code d'invitation de votre société</p>
-            <p className="invite-hint">Communiquez ce code à un commercial : il pourra rejoindre votre société lors de son inscription, sans repasser par le paiement.</p>
+            <p className="invite-label">{t('team.inviteLabel', locale)}</p>
+            <p className="invite-hint">{t('team.inviteHint', locale)}</p>
           </div>
           <div className="invite-code-row">
             <code className="invite-code">{inviteCode}</code>
             <button type="button" className="btn-copy" onClick={copyInviteCode}>
-              {copied ? 'Copié !' : 'Copier'}
+              {copied ? t('team.copied', locale) : t('team.copy', locale)}
             </button>
           </div>
         </div>
       )}
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : teamError ? (
-        <EmptyState title="Accès non autorisé" body={teamError} />
+        <EmptyState title={t('team.accessDenied', locale)} body={teamError} />
       ) : members.length === 0 ? (
-        <EmptyState title="Aucun commercial" body="Aucun commercial n'est encore rattaché à votre société." />
+        <EmptyState title={t('team.noMembersTitle', locale)} body={t('team.noMembersBody', locale)} />
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Email</th>
-                <th>Rôle</th>
-                <th>Prospects actifs</th>
-                <th>RDV validés</th>
-                <th>Clients gagnés</th>
+                <th>{t('team.colName', locale)}</th>
+                <th>{t('modal.email', locale)}</th>
+                <th>{t('team.colRole', locale)}</th>
+                <th>{t('team.colActiveProspects', locale)}</th>
+                <th>{t('team.colValidatedAppts', locale)}</th>
+                <th>{t('team.colWonClients', locale)}</th>
               </tr>
             </thead>
             <tbody>
@@ -187,7 +188,7 @@ export default function TeamPage() {
                     </Link>
                   </td>
                   <td className="muted">{m.email}</td>
-                  <td className="muted">{m.role === 'patron' ? 'Fondateur' : 'Commercial'}</td>
+                  <td className="muted">{m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}</td>
                   <td>{m.prospects_actifs}</td>
                   <td>{m.rdv_valides}</td>
                   <td>{m.clients_gagnes}</td>
