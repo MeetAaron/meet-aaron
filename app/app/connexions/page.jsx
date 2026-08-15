@@ -66,13 +66,17 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const PROVIDER_META = {
-  google: { name: 'Google', desc: 'Gmail (envoi/lecture) + Google Calendar' },
-  microsoft: { name: 'Microsoft', desc: 'Outlook (envoi/lecture) + Calendrier Outlook' },
-};
+function providerMetaFor(locale) {
+  return {
+    google: { name: 'Google', desc: t('connexions.googleDesc', locale) },
+    microsoft: { name: 'Microsoft', desc: t('connexions.microsoftDesc', locale) },
+  };
+}
 
 export default function ConnexionsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const PROVIDER_META = providerMetaFor(locale);
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +107,7 @@ export default function ConnexionsPage() {
   }, [userId]);
 
   async function handleDisconnect(connectionId) {
-    if (!confirm('Déconnecter ce compte ? Aaron ne pourra plus envoyer/lire les emails ou gérer le calendrier associé.')) return;
+    if (!confirm(t('connexions.disconnectConfirm', locale))) return;
     await fetch(`/api/oauth-connections?connection_id=${connectionId}&user_id=${userId}`, { method: 'DELETE' });
     load();
   }
@@ -166,15 +170,15 @@ export default function ConnexionsPage() {
   const microsoftConnection = connections.find((c) => c.provider === 'microsoft');
 
   return (
-    <Shell active="Connexions" userId={userId}>
+    <Shell active={t('nav.connections', locale)} userId={userId}>
       <header className="header">
-        <p className="eyebrow">Comptes liés</p>
-        <h1>Connexions</h1>
-        <p className="subtitle">Aaron a besoin de ces accès pour envoyer des emails et gérer votre calendrier en votre nom.</p>
+        <p className="eyebrow">{t('connexions.eyebrow', locale)}</p>
+        <h1>{t('nav.connections', locale)}</h1>
+        <p className="subtitle">{t('connexions.subtitle', locale)}</p>
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <div className="cards">
           <ConnectionCard
@@ -233,6 +237,7 @@ export default function ConnexionsPage() {
 }
 
 function ConnectionCard({ title, desc, connection, health, onConnect, onDisconnect }) {
+  const [locale] = useLocale();
   const isConnected = !!connection;
   return (
     <div className="card">
@@ -246,7 +251,7 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
           <p className="account">{connection.provider_account_email}</p>
           {health && !health.consumer_domain && health.health && (
             <div className="health">
-              <p className="health-title">Délivrabilité du domaine {health.domain}</p>
+              <p className="health-title">{t('connexions.domainHealthPrefix', locale)} {health.domain}</p>
               <div className="health-badges">
                 <span className={`badge ${health.health.spf.found ? 'ok' : 'warn'}`}>
                   {health.health.spf.found ? '✓' : '⚠️'} SPF
@@ -254,21 +259,21 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
                 <span className={`badge ${health.health.dmarc.found ? 'ok' : 'warn'}`}>
                   {health.health.dmarc.found ? '✓' : '⚠️'} DMARC
                 </span>
-                <span className="badge info" title="Le sélecteur DKIM dépend de votre fournisseur (Google Workspace, Microsoft 365...) — vérifiez-le dans son panneau d'administration.">
-                  ℹ️ DKIM (à vérifier chez votre fournisseur)
+                <span className="badge info" title={t('connexions.dkimTooltip', locale)}>
+                  {t('connexions.dkimBadge', locale)}
                 </span>
               </div>
               {(!health.health.spf.found || !health.health.dmarc.found) && (
                 <p className="health-hint">
-                  Un enregistrement manquant augmente le risque que vos emails de prospection finissent en spam. À ajouter dans la zone DNS de {health.domain} (souvent chez votre hébergeur de nom de domaine ou Google Workspace / Microsoft 365).
+                  {t('connexions.healthHintPrefix', locale)} {health.domain} {t('connexions.healthHintSuffix', locale)}
                 </p>
               )}
             </div>
           )}
-          <button className="btn-danger" onClick={onDisconnect}>Déconnecter</button>
+          <button className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
         </>
       ) : (
-        <button className="btn-primary" onClick={onConnect}>Connecter {title}</button>
+        <button className="btn-primary" onClick={onConnect}>{t('connexions.connectButtonPrefix', locale)} {title}</button>
       )}
       <style jsx>{`
         .health {
