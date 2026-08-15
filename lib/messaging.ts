@@ -18,25 +18,122 @@ async function getConnectedProviders(userId: string): Promise<Set<string>> {
   return new Set((data || []).map((c) => c.provider));
 }
 
+// Protection délivrabilité (ajoutée le 15/08, voir migration
+// migration_email_deliverability_2026-08-15.sql) : plafond quotidien d'emails
+// DE PROSPECTION (premiers contacts, relances automatiques, tentatives de
+// sauvetage) par commercial, tous points d'entrée confondus (campagnes,
+// ajout manuel, relances programmées, filet de rattrapage). Recommandation
+// issue de la recherche marché — les taux de réponse chutent nettement à mesure
+// que le volume d'envois automatisés grimpe sans plafond, et un domaine qui
+// envoie trop d'un coup risque le spam plutôt que la boîte de réception.
+// Les emails "transactionnels" (rappels de RDV, debriefs, confirmations à un
+// client déjà engagé) ne sont PAS comptés ici : seul le volume de démarchage
+// à froid menace la réputation du domaine, un rappel de RDV à quelqu'un qui a
+// déjà répondu ne présente pas ce risque et ne doit jamais être bloqué par ce
+// plafond.
+export const DEFAULT_DAILY_PROSPECTING_CAP = 40;
+
+export class DailySendCapExceededError extends Error {
+  cap: number;
+  constructor(userId: string, cap: number) {
+    super(`Plafond quotidien d'emails de prospection atteint (${cap}/jour) pour l'utilisateur ${userId}`);
+    this.name = 'DailySendCapExceededError';
+    this.cap = cap;
+  }
+}
+
+function todayISODate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Lecture seule, sans écrire — permet aux crons de sauter tôt un commercial
+// déjà au plafond, AVANT de dépenser un appel Claude pour générer un email qui
+// ne sera de toute façon pas envoyé. sendEmailForUser revérifie de toute façon
+// au moment de l'envoi (protection même en cas d'appel direct hors cron, ou de
+// concurrence entre deux crons pour le même commercial).
+export async function hasReachedProspectingCap(userId: string): Promise<boolean> {
+  const { data: user } = await supabaseAdmin
+    .from('users')
+    .select('daily_prospecting_email_cap')
+    .eq('id', userId)
+    .maybeSingle();
+  const cap = user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP;
+
+  const { data: counter } = await supabaseAdmin
+    .from('email_send_counters')
+    .select('count')
+    .eq('user_id', userId)
+    .eq('day', todayISODate())
+    .maybeSingle();
+
+  return (counter?.count || 0) >= cap;
+}
+
+async function incrementProspectingCounter(userId: string): Promise<void> {
+  const day = todayISODate();
+  const { data: existing } = await supabaseAdmin
+    .from('email_send_counters')
+    .select('id, count')
+    .eq('user_id', userId)
+    .eq('day', day)
+    .maybeSingle();
+
+  if (existing) {
+    await supabaseAdmin.from('email_send_counters').update({ count: existing.count + 1 }).eq('id', existing.id);
+  } else {
+    await supabaseAdmin.from('email_send_counters').insert({ user_id: userId, day, count: 1 });
+  }
+}
+
 // Envoie un email depuis la boîte du commercial, en choisissant automatiquement
 // Gmail ou Outlook selon ce qu'il a connecté. Si les deux sont connectés,
 // Google reste prioritaire (comportement historique inchangé pour ces comptes).
 // Ajoute automatiquement la signature du commercial en bas du message si elle
 // est enregistrée (voir app/api/signature, app/app/preferences/page.jsx) —
 // les brouillons générés par Aaron n'en contiennent pas eux-mêmes.
-export async function sendEmailForUser(userId: string, to: string, subject: string, body: string) {
+//
+// opts.emailType : 'prospecting' (défaut 'transactional') soumet cet envoi au
+// plafond quotidien de démarchage à froid — voir commentaire au-dessus de
+// DEFAULT_DAILY_PROSPECTING_CAP. Ne marquer 'prospecting' que les envois de
+// démarchage à froid (premier contact, relance automatique, sauvetage) —
+// jamais les emails transactionnels vers un contact déjà engagé.
+export async function sendEmailForUser(
+  userId: string,
+  to: string,
+  subject: string,
+  body: string,
+  opts?: { emailType?: 'prospecting' | 'transactional' }
+) {
+  const emailType = opts?.emailType || 'transactional';
+
+  if (emailType === 'prospecting' && (await hasReachedProspectingCap(userId))) {
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('daily_prospecting_email_cap')
+      .eq('id', userId)
+      .maybeSingle();
+    throw new DailySendCapExceededError(userId, user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP);
+  }
+
   const providers = await getConnectedProviders(userId);
 
   const { data: user } = await supabaseAdmin.from('users').select('email_signature').eq('id', userId).maybeSingle();
   const fullBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
 
+  let result;
   if (providers.has('google')) {
-    return sendGmailEmail(userId, to, subject, fullBody);
+    result = await sendGmailEmail(userId, to, subject, fullBody);
+  } else if (providers.has('microsoft')) {
+    result = await sendOutlookEmail(userId, to, subject, fullBody);
+  } else {
+    throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }
-  if (providers.has('microsoft')) {
-    return sendOutlookEmail(userId, to, subject, fullBody);
+
+  if (emailType === 'prospecting') {
+    await incrementProspectingCounter(userId);
   }
-  throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
+
+  return result;
 }
 
 // Renvoie les créneaux occupés du commercial, en combinant Google ET Microsoft
