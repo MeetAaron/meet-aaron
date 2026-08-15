@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
           user.id,
           user.email,
           title,
-          `${body}\n\nVoir le suivi client Aaron Customer : ${process.env.APP_URL || ''}${url}`
+          `${body}\n\nVoir le suivi client Aaron Client : ${process.env.APP_URL || ''}${url}`
         );
       }
       if (channel === 'push' || channel === 'both') {
