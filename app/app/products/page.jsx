@@ -175,7 +175,7 @@ export default function ProductsPage() {
   return (
     <Shell active="Produits" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Aaron Vente</p>
+        <p className="eyebrow">Aaron Opportunité</p>
         <h1>Catalogue produits & tarifs</h1>
         <p className="subtitle">
           Renseignez vos produits/prestations et leurs prix réels : Aaron s'en sert pour chiffrer directement les devis qu'il prépare, sans jamais inventer un prix qui n'y figure pas. Sans catalogue, Aaron continue de rédiger des devis sans prix, à compléter vous-même.
@@ -312,7 +312,7 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: 'Produits', slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
