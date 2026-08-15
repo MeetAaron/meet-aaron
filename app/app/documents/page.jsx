@@ -66,13 +66,14 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-function formatSize(bytes) {
+function formatSize(bytes, locale) {
   if (!bytes) return '';
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ${t('documents.sizeKb', locale)}`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('documents.sizeMb', locale)}`;
 }
 
 export default function DocumentsPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +110,7 @@ export default function DocumentsPage() {
 
     if (!res.ok) {
       const body = await res.json();
-      setError(body.error || "Erreur lors de l'envoi");
+      setError(body.error || t('documents.uploadError', locale));
       return;
     }
 
@@ -159,12 +160,12 @@ export default function DocumentsPage() {
   }
 
   return (
-    <Shell active="Mes documents" userId={userId}>
+    <Shell active={t('nav.documents', locale)} userId={userId}>
       <header className="header">
-        <p className="eyebrow">Ressources</p>
-        <h1>Mes documents</h1>
+        <p className="eyebrow">{t('documents.eyebrow', locale)}</p>
+        <h1>{t('documents.pageTitle', locale)}</h1>
         <p className="subtitle">
-          Devis types, tarifs, brochures — Aaron s'appuie sur ces documents pour mieux comprendre votre métier et prospecter plus finement.
+          {t('documents.subtitle', locale)}
         </p>
       </header>
 
@@ -175,30 +176,30 @@ export default function DocumentsPage() {
         />
         <input
           type="text"
-          placeholder="Description (ex: Tarifs 2026)"
+          placeholder={t('documents.descriptionPlaceholder', locale)}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
         <button type="submit" className="btn-primary" disabled={!selectedFile || uploading}>
-          {uploading ? 'Envoi…' : 'Ajouter le document'}
+          {uploading ? t('documents.uploading', locale) : t('documents.uploadButton', locale)}
         </button>
       </form>
       {error && <p className="error">{error}</p>}
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : documents.length === 0 ? (
-        <EmptyState title="Aucun document" body="Ajoutez votre premier document ci-dessus." />
+        <EmptyState title={t('documents.emptyTitle', locale)} body={t('documents.emptyBody', locale)} />
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Fichier</th>
-                <th>Description</th>
-                <th>Synthèse (Aaron)</th>
-                <th>Taille</th>
-                <th>Ajouté le</th>
+                <th>{t('documents.colFile', locale)}</th>
+                <th>{t('documents.colDescription', locale)}</th>
+                <th>{t('documents.colSummary', locale)}</th>
+                <th>{t('documents.colSize', locale)}</th>
+                <th>{t('documents.colAddedAt', locale)}</th>
                 <th></th>
               </tr>
             </thead>
@@ -208,12 +209,12 @@ export default function DocumentsPage() {
                   <td className="strong">{d.file_name}</td>
                   <td className="muted">{d.description || '—'}</td>
                   <td className="muted summary-cell">{d.summary || '—'}</td>
-                  <td className="muted">{formatSize(d.file_size_bytes)}</td>
-                  <td className="muted">{new Date(d.created_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</td>
+                  <td className="muted">{formatSize(d.file_size_bytes, locale)}</td>
+                  <td className="muted">{new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</td>
                   <td>
                     {d.download_url && (
                       <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
-                        Télécharger
+                        {t('documents.download', locale)}
                       </a>
                     )}
                   </td>
