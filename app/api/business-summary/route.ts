@@ -92,16 +92,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
+  // CHANGEMENTS A FAIRE #89 (2026-08-16) : corrige une requête qui sélectionnait
+  // une colonne "name" inexistante sur company_documents (la colonne s'appelle
+  // file_name) — Supabase renvoyait une erreur silencieusement absorbée par le
+  // `data` undefined, si bien que ce résumé n'incluait jamais aucun document.
+  // Filtre aussi désormais sur included_in_aaron_context (voir
+  // migration_documents_2026-08-16.sql), comme les autres endroits où Aaron
+  // s'appuie sur les documents de la société.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
-    .select('name, summary')
+    .select('file_name, summary')
     .eq('company_id', user.company_id)
+    .eq('included_in_aaron_context', true)
     .order('created_at', { ascending: false })
     .limit(8);
 
   const documentSummaries = (documents || [])
     .filter((d) => d.summary)
-    .map((d) => `- ${d.name} : ${d.summary}`)
+    .map((d) => `- ${d.file_name} : ${d.summary}`)
     .join('\n');
 
   // Réponses structurées au questionnaire de découverte guidé (voir app/app/chat/page.jsx) —
