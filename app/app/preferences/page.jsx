@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import PushNotificationManager from '@/components/PushNotificationManager';
 
 function useAuthedUser() {
@@ -808,6 +809,7 @@ export default function PreferencesPage() {
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
+  const [locale, setLocale] = useLocale();
 
   // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
   // que l'offre souscrite par la société (companies.offer, voir Préférences)
@@ -830,19 +832,19 @@ function Shell({ children, active, userId }) {
   }, [userId]);
 
   const NAV_ITEMS = [
-    { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
-    { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
-    { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
-    { label: 'Agenda', slug: 'agenda', icon: '📅' },
-    { label: 'Résultats', slug: 'resultats', icon: '📈' },
-    { label: 'Mes documents', slug: 'documents', icon: '📁' },
-    { label: 'Chat avec Aaron', slug: 'chat', icon: '💬' },
-    { label: 'Connexions', slug: 'connexions', icon: '🔗' },
-    { label: 'Préférences', slug: 'preferences', icon: '⚙️' },
-    { label: 'Mon équipe', slug: 'team', icon: '👥' },
-    { label: 'Suggestions', slug: 'suggestions', icon: '💡' },
+    { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
+    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
+    { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
+    { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀' },
+    { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+    { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
+    { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+    { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
+    { label: t('nav.preferences', locale), slug: 'preferences', icon: '⚙️' },
+    { label: t('nav.team', locale), slug: 'team', icon: '👥' },
+    { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -862,6 +864,16 @@ function Shell({ children, active, userId }) {
           <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
           <span>Meet Aaron</span>
         </div>
+        <select
+          className="lang-switcher"
+          value={locale}
+          onChange={(e) => setLocale(e.target.value)}
+          aria-label={t('common.language', locale)}
+        >
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+          ))}
+        </select>
         <ul className="nav-list">
           {NAV_ITEMS.map((item) => (
             <Link
@@ -919,6 +931,18 @@ function Shell({ children, active, userId }) {
           width: 30px;
           height: 30px;
           border-radius: 8px;
+        }
+        .lang-switcher {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.4rem 0.5rem;
+          font-size: 0.76rem;
+          font-family: inherit;
+          margin-bottom: 1.2rem;
+          cursor: pointer;
         }
         .nav-list {
           list-style: none;
