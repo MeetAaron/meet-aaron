@@ -127,6 +127,17 @@ export default function PreferencesPage() {
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
   const [billingPortalError, setBillingPortalError] = useState(null);
+  const [crmConnections, setCrmConnections] = useState([]);
+  const [crmSyncing, setCrmSyncing] = useState(false);
+  const [crmSyncResult, setCrmSyncResult] = useState(null);
+  const [crmError, setCrmError] = useState(null);
+
+  function loadCrmConnections() {
+    fetch('/api/crm-connections')
+      .then((r) => r.json())
+      .then((res) => setCrmConnections(res.connections || []))
+      .catch(() => {});
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -136,6 +147,13 @@ export default function PreferencesPage() {
         setPrefs(res.preferences);
         setLoading(false);
       });
+    loadCrmConnections();
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get('crm_oauth_error');
+    if (oauthError) setCrmError(`Connexion HubSpot échouée (${oauthError}) — réessayez.`);
+    if (oauthError || params.get('crm_oauth_success')) {
+      window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
+    }
     fetch(`/api/api-usage?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => setUsage(res))
@@ -287,6 +305,46 @@ export default function PreferencesPage() {
     } catch (err) {
       setBillingPortalError('Une erreur est survenue');
       setOpeningBillingPortal(false);
+    }
+  }
+
+  // Connexion CRM réelle (HubSpot pour l'instant) — socle de synchronisation,
+  // voir lib/crm-sync.ts. Navigation complète (pas fetch) vers /api/auth/hubspot
+  // avec le token en paramètre : même schéma que connectProvider dans
+  // app/app/connexions/page.jsx, nécessaire car l'appel qui suit est une
+  // redirection OAuth externe, pas un simple appel API.
+  async function handleConnectHubspot() {
+    setCrmError(null);
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (!session) {
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/hubspot?token=${encodeURIComponent(session.access_token)}`;
+  }
+
+  async function handleDisconnectHubspot() {
+    if (!confirm('Déconnecter HubSpot ? La synchronisation des prospects gagnés sera interrompue.')) return;
+    await fetch('/api/crm-connections?provider=hubspot', { method: 'DELETE' });
+    loadCrmConnections();
+  }
+
+  async function handleSyncHubspot() {
+    setCrmSyncing(true);
+    setCrmSyncResult(null);
+    setCrmError(null);
+    try {
+      const res = await fetch('/api/crm-connections/sync', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setCrmError(body.error || 'Une erreur est survenue');
+        return;
+      }
+      setCrmSyncResult(body);
+    } catch (err) {
+      setCrmError('Une erreur est survenue');
+    } finally {
+      setCrmSyncing(false);
     }
   }
 
@@ -514,6 +572,42 @@ export default function PreferencesPage() {
                 <p className="collab-extra-hint">
                   La connexion technique à votre CRM se met en place avec l'équipe Open X une fois ces informations reçues.
                 </p>
+
+                {prefs.crm_provider === 'hubspot' && prefs.role === 'patron' && (
+                  <div className="crm-connect">
+                    {crmError && <p className="error">{crmError}</p>}
+                    {crmConnections.some((c) => c.provider === 'hubspot') ? (
+                      <>
+                        <p className="saved-msg">HubSpot connecté ✓</p>
+                        <div className="actions">
+                          <button type="button" className="btn-secondary" onClick={handleSyncHubspot} disabled={crmSyncing}>
+                            {crmSyncing ? 'Synchronisation…' : 'Synchroniser les prospects gagnés maintenant'}
+                          </button>
+                          <button type="button" className="btn-secondary" onClick={handleDisconnectHubspot}>
+                            Déconnecter
+                          </button>
+                        </div>
+                        {crmSyncResult && (
+                          <p className="collab-extra-hint">
+                            {crmSyncResult.synced} prospect(s) synchronisé(s) vers HubSpot.
+                            {crmSyncResult.failed?.length > 0 && ` ${crmSyncResult.failed.length} échec(s) — voir logs serveur.`}
+                            {crmSyncResult.remaining_candidates && ' D\'autres prospects restent à synchroniser — relancez pour continuer.'}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="btn-primary" onClick={handleConnectHubspot}>
+                          Connecter HubSpot maintenant (bêta)
+                        </button>
+                        <p className="collab-extra-hint">
+                          Alternative à la mise en relation manuelle ci-dessus : connexion directe, puis synchronisation à la demande de vos
+                          prospects gagnés (contact + affaire) vers HubSpot.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -851,6 +945,12 @@ export default function PreferencesPage() {
           color: #e5484d;
           font-size: 0.8rem;
           margin-top: 0.5rem;
+          overflow-wrap: break-word;
+        }
+        .crm-connect {
+          margin-top: 0.9rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border);
         }
         .actions {
           display: flex;
