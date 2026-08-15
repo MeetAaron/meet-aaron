@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { t, useLocale } from '@/lib/i18n';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -47,15 +48,19 @@ function useAuthedUser() {
   return { ready, authError };
 }
 
-const CHOICES = [
-  { value: 'client', label: 'Client signé !', emoji: '🎉' },
-  { value: 'bien_passe', label: 'Plutôt bien passé', emoji: '🙂' },
-  { value: 'moyen', label: 'Moyennement, à relancer', emoji: '😐' },
-  { value: 'perdu', label: 'Perdu', emoji: '😕' },
-];
+function choicesFor(locale) {
+  return [
+    { value: 'client', label: t('bilanRdv.choiceClient', locale), emoji: '🎉' },
+    { value: 'bien_passe', label: t('bilanRdv.choiceBienPasse', locale), emoji: '🙂' },
+    { value: 'moyen', label: t('bilanRdv.choiceMoyen', locale), emoji: '😐' },
+    { value: 'perdu', label: t('bilanRdv.choicePerdu', locale), emoji: '😕' },
+  ];
+}
 
 export default function BilanRdvPage({ params }) {
+  const [locale] = useLocale();
   const { ready, authError } = useAuthedUser();
+  const CHOICES = choicesFor(locale);
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -92,20 +97,20 @@ export default function BilanRdvPage({ params }) {
       const body = await res.json();
 
       if (!res.ok) {
-        setError(body.error || 'Erreur');
+        setError(body.error || t('bilanRdv.genericError', locale));
       } else {
         setNote(body.note);
         setAppointment((prev) => (prev ? { ...prev, outcome: value } : prev));
       }
     } catch (err) {
-      setError('Erreur réseau — réessaie.');
+      setError(t('bilanRdv.networkError', locale));
     } finally {
       setSubmitting(false);
     }
   }
 
   if (!ready || loading) {
-    return <div style={styles.page}><p style={styles.muted}>Chargement...</p></div>;
+    return <div style={styles.page}><p style={styles.muted}>{t('common.loading', locale)}</p></div>;
   }
 
   if (authError || error && !appointment) {
@@ -117,8 +122,8 @@ export default function BilanRdvPage({ params }) {
       <div style={styles.card}>
         <h1 style={styles.title}>
           {appointment?.prospect_full_name
-            ? `Comment s'est passé le RDV avec ${appointment.prospect_full_name} ?`
-            : "Comment s'est passé ce RDV ?"}
+            ? t('bilanRdv.titleWithName', locale).replace('{name}', appointment.prospect_full_name)
+            : t('bilanRdv.titleGeneric', locale)}
         </h1>
 
         {!appointment?.outcome && (
@@ -141,7 +146,7 @@ export default function BilanRdvPage({ params }) {
 
         {note && (
           <div style={styles.noteBox}>
-            <p style={styles.noteLabel}>Aaron :</p>
+            <p style={styles.noteLabel}>{t('bilanRdv.aaronLabel', locale)}</p>
             <p style={styles.noteText}>{note}</p>
           </div>
         )}
