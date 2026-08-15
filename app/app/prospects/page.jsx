@@ -6,6 +6,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 
+// Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
+// app/app/sales/page.jsx) considérées "en cours de traitement" : un
+// prospect qui y entre est désormais suivi dans Aaron Opportunité et ne
+// doit plus apparaître dans la liste brute des prospects, pour éviter le
+// doublon d'affichage entre les deux pages. Les étapes terminales (signé /
+// perdu) restent visibles ici, cohérent avec le badge "🏆 Gagné" existant
+// et avec le traitement des prospects perdus depuis cette page elle-même
+// (action marquer_perdu, qui ne touche pas deal_stage).
+const NON_TERMINAL_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -140,7 +150,8 @@ export default function ProspectsPage() {
   async function loadProspects() {
     setLoading(true);
     const res = await fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json());
-    setProspects(res.prospects || []);
+    const all = res.prospects || [];
+    setProspects(all.filter((p) => !NON_TERMINAL_DEAL_STAGES.includes(p.deal_stage)));
     setLoading(false);
   }
 
