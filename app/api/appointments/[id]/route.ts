@@ -5,6 +5,9 @@
 //   - "annuler"  -> annule côté commercial, prévient le prospect
 //   - "relancer" -> (RDV annulé par le client) envoie un email de relance pour reprogrammer
 //   - "traiter"  -> (RDV annulé par le client) marque l'annulation comme prise en compte, sans email
+//   - "acquitter_manque" -> (RDV manqué, date dépassée sans validation) le commercial "prend
+//     connaissance" du message du bandeau "actions manquées" du tableau de bord, SANS déclencher
+//     de validation/annulation — voir CHANGEMENTS A FAIRE #2 et migration_dashboard_missed_actions_2026-08-15.sql
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -236,6 +239,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', appointmentId);
 
     return NextResponse.json({ success: true, status: 'traite' });
+  }
+
+  if (action === 'acquitter_manque') {
+    await supabaseAdmin
+      .from('appointments')
+      .update({ missed_action_acknowledged: true })
+      .eq('id', appointmentId);
+
+    return NextResponse.json({ success: true, status: 'manque_acquitte' });
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
