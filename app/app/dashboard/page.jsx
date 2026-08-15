@@ -699,6 +699,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         .msg p {
           margin: 0 0 0.2rem;
           white-space: pre-wrap;
+          overflow-wrap: break-word;
         }
         .msg.inbound p {
           color: var(--text);
@@ -907,6 +908,7 @@ function RescueModal({ prospect, onClose, onDone }) {
           margin: 0;
           font-size: 0.86rem;
           white-space: pre-wrap;
+          overflow-wrap: break-word;
           color: var(--muted);
         }
         .actions-row {
