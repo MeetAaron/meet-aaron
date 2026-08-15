@@ -74,6 +74,7 @@ const PROVIDER_META = {
 export default function ConnexionsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [connections, setConnections] = useState([]);
+  const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
@@ -81,6 +82,14 @@ export default function ConnexionsPage() {
     const res = await fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json());
     setConnections(res.connections || []);
     setLoading(false);
+
+    // Diagnostic délivrabilité (SPF/DMARC) chargé séparément et sans bloquer
+    // l'affichage des connexions : c'est une information secondaire, et une
+    // requête DNS lente ne doit jamais retarder l'écran principal.
+    fetch(`/api/email-health?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((body) => setEmailHealth(body.results || []))
+      .catch(() => {});
   }
 
   useEffect(() => {
@@ -172,6 +181,7 @@ export default function ConnexionsPage() {
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
             connection={googleConnection}
+            health={emailHealth.find((h) => h.provider === 'google')}
             onConnect={() => connectProvider('google')}
             onDisconnect={() => handleDisconnect(googleConnection.id)}
           />
@@ -179,6 +189,7 @@ export default function ConnexionsPage() {
             title={PROVIDER_META.microsoft.name}
             desc={PROVIDER_META.microsoft.desc}
             connection={microsoftConnection}
+            health={emailHealth.find((h) => h.provider === 'microsoft')}
             onConnect={() => connectProvider('microsoft')}
             onDisconnect={() => handleDisconnect(microsoftConnection.id)}
           />
@@ -221,7 +232,7 @@ export default function ConnexionsPage() {
   );
 }
 
-function ConnectionCard({ title, desc, connection, onConnect, onDisconnect }) {
+function ConnectionCard({ title, desc, connection, health, onConnect, onDisconnect }) {
   const isConnected = !!connection;
   return (
     <div className="card">
@@ -233,11 +244,79 @@ function ConnectionCard({ title, desc, connection, onConnect, onDisconnect }) {
       {isConnected ? (
         <>
           <p className="account">{connection.provider_account_email}</p>
+          {health && !health.consumer_domain && health.health && (
+            <div className="health">
+              <p className="health-title">Délivrabilité du domaine {health.domain}</p>
+              <div className="health-badges">
+                <span className={`badge ${health.health.spf.found ? 'ok' : 'warn'}`}>
+                  {health.health.spf.found ? '✓' : '⚠️'} SPF
+                </span>
+                <span className={`badge ${health.health.dmarc.found ? 'ok' : 'warn'}`}>
+                  {health.health.dmarc.found ? '✓' : '⚠️'} DMARC
+                </span>
+                <span className="badge info" title="Le sélecteur DKIM dépend de votre fournisseur (Google Workspace, Microsoft 365...) — vérifiez-le dans son panneau d'administration.">
+                  ℹ️ DKIM (à vérifier chez votre fournisseur)
+                </span>
+              </div>
+              {(!health.health.spf.found || !health.health.dmarc.found) && (
+                <p className="health-hint">
+                  Un enregistrement manquant augmente le risque que vos emails de prospection finissent en spam. À ajouter dans la zone DNS de {health.domain} (souvent chez votre hébergeur de nom de domaine ou Google Workspace / Microsoft 365).
+                </p>
+              )}
+            </div>
+          )}
           <button className="btn-danger" onClick={onDisconnect}>Déconnecter</button>
         </>
       ) : (
         <button className="btn-primary" onClick={onConnect}>Connecter {title}</button>
       )}
+      <style jsx>{`
+        .health {
+          background: rgba(75, 57, 239, 0.08);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.7rem 0.8rem;
+          margin: 0 0 1rem;
+        }
+        .health-title {
+          margin: 0 0 0.5rem;
+          font-size: 0.76rem;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .health-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+        .badge {
+          font-size: 0.78rem;
+          padding: 0.25rem 0.55rem;
+          border-radius: 999px;
+          white-space: nowrap;
+          overflow-wrap: break-word;
+        }
+        .badge.ok {
+          background: rgba(61, 214, 140, 0.15);
+          color: var(--accent-green);
+        }
+        .badge.warn {
+          background: rgba(229, 72, 77, 0.15);
+          color: #e5484d;
+        }
+        .badge.info {
+          background: rgba(139, 144, 168, 0.15);
+          color: var(--muted);
+          cursor: help;
+        }
+        .health-hint {
+          margin: 0.5rem 0 0;
+          font-size: 0.76rem;
+          color: var(--muted);
+          overflow-wrap: break-word;
+        }
+      `}</style>
       <style jsx>{`
         .card {
           background: var(--surface);
