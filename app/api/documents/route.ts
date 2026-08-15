@@ -2,6 +2,12 @@
 // GET  -> liste les documents de la société du commercial, avec un lien de téléchargement temporaire
 // POST -> upload un nouveau document (multipart/form-data) dans Supabase Storage,
 //         et extrait automatiquement son texte (PDF / .txt) pour qu'Aaron puisse s'en servir.
+//
+// CHANGEMENTS A FAIRE #89 : POST accepte désormais une catégorie de
+// rattachement optionnelle (linked_category — voir
+// migration_documents_2026-08-16.sql) choisie à l'upload, modifiable ensuite
+// via PATCH /api/documents/[id]. Les actions supprimer/annoter "pris en
+// compte par Aaron"/avis d'Aaron vivent dans app/api/documents/[id]/.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -109,6 +115,8 @@ export async function POST(request: NextRequest) {
   const file = formData.get('file') as File | null;
   const userId = formData.get('user_id') as string | null;
   const description = (formData.get('description') as string | null) || null;
+  const rawCategory = (formData.get('linked_category') as string | null) || null;
+  const linkedCategory = ['prospects', 'opportunites', 'clients'].includes(rawCategory || '') ? rawCategory : null;
 
   if (!file || !userId) {
     return NextResponse.json({ error: 'Fichier ou user_id manquant' }, { status: 400 });
@@ -150,6 +158,7 @@ export async function POST(request: NextRequest) {
       description,
       extracted_text: extractedText,
       summary,
+      linked_category: linkedCategory,
     })
     .select()
     .single();
