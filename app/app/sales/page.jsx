@@ -69,15 +69,20 @@ const NON_TERMINAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
 // Doit rester cohérent avec STALE_DAYS dans app/api/cron/stale-deals-alert/route.ts
 const STALE_DAYS = 5;
 
-const STAGE_META = {
-  rdv_fait: { label: 'RDV fait', color: '#4B9EF0' },
-  devis_envoye: { label: 'Devis envoyé', color: '#F0914E' },
-  en_negociation: { label: 'En négociation', color: '#F0C94E' },
-  signe: { label: 'Signé', color: '#3DD68C' },
-  perdu: { label: 'Perdu', color: '#E5484D' },
+const STAGE_COLORS = {
+  rdv_fait: '#4B9EF0',
+  devis_envoye: '#F0914E',
+  en_negociation: '#F0C94E',
+  signe: '#3DD68C',
+  perdu: '#E5484D',
 };
 
-const TYPE_LABELS = { telephonique: 'Téléphonique', physique: 'Physique', visio: 'Visio' };
+// Libellés traduits via t(`dealStage.<clé>`, locale) — voir stageMetaFor ci-dessous.
+function stageMetaFor(locale) {
+  return Object.fromEntries(
+    Object.entries(STAGE_COLORS).map(([key, color]) => [key, { label: t(`dealStage.${key}`, locale), color }])
+  );
+}
 
 function daysSince(iso) {
   if (!iso) return null;
@@ -86,6 +91,8 @@ function daysSince(iso) {
 
 export default function SalesPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const STAGE_META = stageMetaFor(locale);
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -151,7 +158,7 @@ export default function SalesPage() {
     const body = await res.json();
     setBriefLoading(false);
     if (!res.ok) {
-      setBriefError(body.error || "Impossible de générer le brief.");
+      setBriefError(body.error || t('sales.briefError', locale));
       return;
     }
     setBrief(body.brief);
@@ -159,7 +166,7 @@ export default function SalesPage() {
 
   async function handleGenerateDebrief(appointmentId) {
     if (!debriefNotes.trim()) {
-      setDebriefError("Écris quelques lignes sur comment ça s'est passé.");
+      setDebriefError(t('sales.debriefNotesRequired', locale));
       return;
     }
     setDebriefLoading(true);
@@ -172,7 +179,7 @@ export default function SalesPage() {
     const body = await res.json();
     setDebriefLoading(false);
     if (!res.ok) {
-      setDebriefError(body.error || 'Impossible de générer le compte-rendu.');
+      setDebriefError(body.error || t('sales.debriefGenError', locale));
       return;
     }
     await load();
@@ -184,7 +191,7 @@ export default function SalesPage() {
     const body = await res.json();
     setSendingEmail(false);
     if (!res.ok) {
-      setDebriefError(body.error || "Impossible d'envoyer l'email.");
+      setDebriefError(body.error || t('sales.debriefSendError', locale));
       return;
     }
     await load();
@@ -197,7 +204,7 @@ export default function SalesPage() {
     const body = await res.json();
     setDevisLoading(false);
     if (!res.ok) {
-      setDevisError(body.error || 'Impossible de générer le devis.');
+      setDevisError(body.error || t('sales.quoteGenError', locale));
       return;
     }
     setDevis(body);
@@ -210,7 +217,7 @@ export default function SalesPage() {
     const body = await res.json();
     setSendingDevis(false);
     if (!res.ok) {
-      setDevisError(body.error || "Impossible d'envoyer le devis.");
+      setDevisError(body.error || t('sales.quoteSendError', locale));
       return;
     }
     await load();
@@ -273,20 +280,18 @@ export default function SalesPage() {
   return (
     <Shell active="Aaron Opportunité" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Cycle de vente</p>
-        <h1>Aaron Opportunité</h1>
+        <p className="eyebrow">{t('sales.eyebrow', locale)}</p>
+        <h1>{t('nav.opportunity', locale)}</h1>
         <p className="subtitle">
-          Dès qu'un premier RDV est obtenu, Aaron prépare le terrain (brief, coaching) et prend le relais après
-          (compte-rendu, relance) — l'étape de chaque affaire se met à jour automatiquement selon le bilan de RDV.
+          {t('sales.subtitle', locale)}
         </p>
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : deals.length === 0 ? (
         <p className="muted">
-          Aucune affaire en cours pour le moment — dès qu'un RDV obtenu par Aaron Prospect aura eu lieu, l'affaire
-          apparaîtra ici.
+          {t('sales.emptyBody', locale)}
         </p>
       ) : (
         <div className="board-layout">
@@ -314,8 +319,8 @@ export default function SalesPage() {
                           <span className="deal-name">{deal.full_name}</span>
                           {deal.prospect_companies?.name && <span className="deal-company">{deal.prospect_companies.name}</span>}
                           <span className="deal-meta">
-                            {daysSince(deal.deal_stage_updated_at)} j
-                            {stale && <span className="stale-badge">⚠️ stagnant</span>}
+                            {daysSince(deal.deal_stage_updated_at)} {t('sales.daysSuffix', locale)}
+                            {stale && <span className="stale-badge">{t('sales.staleBadge', locale)}</span>}
                           </span>
                         </button>
                       );
@@ -328,14 +333,14 @@ export default function SalesPage() {
 
           <aside className="detail">
             {!selectedDeal ? (
-              <p className="muted">Sélectionne une affaire pour voir son brief et son suivi.</p>
+              <p className="muted">{t('sales.selectDealPrompt', locale)}</p>
             ) : (
               <>
                 <h2>{selectedDeal.full_name}</h2>
                 {selectedDeal.prospect_companies?.name && <p className="muted">{selectedDeal.prospect_companies.name}{selectedDeal.job_title ? ` — ${selectedDeal.job_title}` : ''}</p>}
 
                 <div className="stage-row">
-                  <label htmlFor="stage-select">Étape :</label>
+                  <label htmlFor="stage-select">{t('sales.stageLabel', locale)}</label>
                   <select
                     id="stage-select"
                     value={selectedDeal.deal_stage}
@@ -351,29 +356,29 @@ export default function SalesPage() {
                 {selectedDeal.latest_appointment ? (
                   <>
                     <section className="block">
-                      <h3>RDV le plus récent</h3>
+                      <h3>{t('sales.latestApptTitle', locale)}</h3>
                       <p className="muted">
-                        {new Date(selectedDeal.latest_appointment.proposed_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}
+                        {new Date(selectedDeal.latest_appointment.proposed_at).toLocaleDateString(locale, { dateStyle: 'medium' })}
                         {' — '}
-                        {TYPE_LABELS[selectedDeal.latest_appointment.type] || selectedDeal.latest_appointment.type}
+                        {t(`apptType.${selectedDeal.latest_appointment.type}`, locale)}
                       </p>
 
                       {!brief && (
                         <button className="btn-secondary" onClick={() => handleLoadBrief(selectedDeal.latest_appointment.id)} disabled={briefLoading}>
-                          {briefLoading ? 'Génération…' : 'Voir le brief pré-RDV'}
+                          {briefLoading ? t('sales.generating', locale) : t('sales.viewBrief', locale)}
                         </button>
                       )}
                       {briefError && <p className="error">{briefError}</p>}
 
                       {brief && (
                         <div className="brief-box">
-                          <p><strong>Résumé :</strong> {brief.resume_historique}</p>
-                          {brief.profil_personnalite && <p><strong>Personnalité :</strong> {brief.profil_personnalite}</p>}
+                          <p><strong>{t('sales.briefSummaryLabel', locale)}</strong> {brief.resume_historique}</p>
+                          {brief.profil_personnalite && <p><strong>{t('sales.briefPersonalityLabel', locale)}</strong> {brief.profil_personnalite}</p>}
                           {brief.objections_deja_soulevees?.length > 0 && (
-                            <p><strong>Objections déjà soulevées :</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+                            <p><strong>{t('sales.briefObjectionsLabel', locale)}</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
                           )}
-                          {brief.info_entreprise && <p><strong>Entreprise :</strong> {brief.info_entreprise}</p>}
-                          <p><strong>Angle suggéré :</strong> {brief.angle_approche_suggere}</p>
+                          {brief.info_entreprise && <p><strong>{t('sales.briefCompanyLabel', locale)}</strong> {brief.info_entreprise}</p>}
+                          <p><strong>{t('sales.briefAngleLabel', locale)}</strong> {brief.angle_approche_suggere}</p>
                           {brief.points_attention?.length > 0 && (
                             <ul>
                               {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
@@ -384,7 +389,7 @@ export default function SalesPage() {
                     </section>
 
                     <section className="block">
-                      <h3>Compte-rendu & relance</h3>
+                      <h3>{t('sales.debriefTitle', locale)}</h3>
 
                       {selectedDeal.latest_appointment.debrief_summary ? (
                         <>
@@ -396,10 +401,10 @@ export default function SalesPage() {
                               <p className="email-subject">{selectedDeal.latest_appointment.debrief_email_subject}</p>
                               <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedDeal.latest_appointment.debrief_email_body}</p>
                               {selectedDeal.latest_appointment.debrief_email_sent_at ? (
-                                <p className="sent-note">✓ Envoyé le {new Date(selectedDeal.latest_appointment.debrief_email_sent_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</p>
+                                <p className="sent-note">{t('sales.sentOn', locale)} {new Date(selectedDeal.latest_appointment.debrief_email_sent_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</p>
                               ) : (
                                 <button className="btn-primary" onClick={() => handleSendDebriefEmail(selectedDeal.latest_appointment.id)} disabled={sendingEmail}>
-                                  {sendingEmail ? 'Envoi…' : "Envoyer cet email au prospect"}
+                                  {sendingEmail ? t('sales.sending', locale) : t('sales.sendEmailToProspect', locale)}
                                 </button>
                               )}
                             </div>
@@ -407,15 +412,15 @@ export default function SalesPage() {
                         </>
                       ) : (
                         <>
-                          <p className="muted">Note en 3 lignes comment ça s'est passé — Aaron rédige le compte-rendu et l'email de relance.</p>
+                          <p className="muted">{t('sales.debriefPrompt', locale)}</p>
                           <textarea
                             value={debriefNotes}
                             onChange={(e) => setDebriefNotes(e.target.value)}
-                            placeholder="Ex : bon contact, budget confirmé, attend une proposition avant fin de mois, principal frein = délai de mise en place..."
+                            placeholder={t('sales.debriefPlaceholder', locale)}
                             rows={4}
                           />
                           <button className="btn-secondary" onClick={() => handleGenerateDebrief(selectedDeal.latest_appointment.id)} disabled={debriefLoading}>
-                            {debriefLoading ? 'Génération…' : 'Générer le compte-rendu et l\'email'}
+                            {debriefLoading ? t('sales.generating', locale) : t('sales.generateDebrief', locale)}
                           </button>
                           {debriefError && <p className="error">{debriefError}</p>}
                         </>
@@ -423,13 +428,13 @@ export default function SalesPage() {
                     </section>
                   </>
                 ) : (
-                  <p className="muted">Aucun RDV enregistré pour cette affaire.</p>
+                  <p className="muted">{t('sales.noApptForDeal', locale)}</p>
                 )}
 
                 <section className="block">
-                  <h3>Devis</h3>
+                  <h3>{t('sales.quoteTitle', locale)}</h3>
                   {selectedDeal.devis_sent_at ? (
-                    <p className="sent-note">✓ Devis envoyé</p>
+                    <p className="sent-note">{t('sales.quoteSentNote', locale)}</p>
                   ) : devis ? (
                     <div className="email-preview">
                       <p className="email-subject">{devis.objet}</p>
@@ -437,7 +442,7 @@ export default function SalesPage() {
                       {devis.recapitulatif?.length > 0 && (
                         <>
                           {devis.a_des_postes_sans_prix && (
-                            <p className="recap-note">⚠️ Certains postes n'ont pas de prix — <Link href={`/app/products?user_id=${userId}`}>complétez votre catalogue produits</Link> pour qu'Aaron les chiffre automatiquement la prochaine fois, ou ajoutez le prix vous-même avant l'envoi.</p>
+                            <p className="recap-note">{t('sales.missingPricesPrefix', locale)} <Link href={`/app/products?user_id=${userId}`}>{t('sales.missingPricesLinkText', locale)}</Link> {t('sales.missingPricesSuffix', locale)}</p>
                           )}
                           <ul className="recap-list">
                             {devis.recapitulatif.map((r, i) => (
@@ -446,29 +451,29 @@ export default function SalesPage() {
                                   <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
                                 </div>
                                 <div className="recap-price">
-                                  {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">prix à définir</span>}
+                                  {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">{t('sales.priceToDefine', locale)}</span>}
                                 </div>
                               </li>
                             ))}
                           </ul>
                           {devis.total_eur != null && (
-                            <p className="recap-total">Total{devis.a_des_postes_sans_prix ? ' (partiel, hors postes non chiffrés)' : ''} : {devis.total_eur.toFixed(2)} €</p>
+                            <p className="recap-total">{t('sales.totalLabel', locale)}{devis.a_des_postes_sans_prix ? ` ${t('sales.totalPartialNote', locale)}` : ''} : {devis.total_eur.toFixed(2)} €</p>
                           )}
                         </>
                       )}
                       {devisError && <p className="error">{devisError}</p>}
                       <button className="btn-secondary" onClick={() => handleLoadDevis(selectedDeal.id)} disabled={devisLoading}>
-                        {devisLoading ? 'Régénération…' : 'Régénérer'}
+                        {devisLoading ? t('sales.regenerating', locale) : t('sales.regenerate', locale)}
                       </button>
                       <button className="btn-primary" onClick={() => handleSendDevis(selectedDeal.id)} disabled={sendingDevis}>
-                        {sendingDevis ? 'Envoi…' : "Envoyer le devis au prospect"}
+                        {sendingDevis ? t('sales.sending', locale) : t('sales.sendQuoteToProspect', locale)}
                       </button>
                     </div>
                   ) : (
                     <>
-                      <p className="muted">Aaron prépare l'email et le récapitulatif, chiffré automatiquement avec ton <Link href={`/app/products?user_id=${userId}`}>catalogue produits</Link> quand une correspondance est trouvée — jamais de prix inventé pour le reste.</p>
+                      <p className="muted">{t('sales.quotePrepPrefix', locale)} <Link href={`/app/products?user_id=${userId}`}>{t('sales.quotePrepLinkText', locale)}</Link> {t('sales.quotePrepSuffix', locale)}</p>
                       <button className="btn-secondary" onClick={() => handleLoadDevis(selectedDeal.id)} disabled={devisLoading}>
-                        {devisLoading ? 'Génération…' : 'Générer le devis'}
+                        {devisLoading ? t('sales.generating', locale) : t('sales.generateQuote', locale)}
                       </button>
                       {devisError && <p className="error">{devisError}</p>}
                     </>
@@ -476,18 +481,18 @@ export default function SalesPage() {
                 </section>
 
                 <section className="block">
-                  <h3>Signature électronique</h3>
-                  <p className="muted">Aaron n'est pas encore connecté à un outil de signature — colle ici le lien externe (Yousign, etc.) une fois envoyé, pour le suivre depuis le pipeline.</p>
+                  <h3>{t('sales.signatureTitle', locale)}</h3>
+                  <p className="muted">{t('sales.signatureIntro', locale)}</p>
                   {selectedDeal.signature_external_link ? (
                     <div className="email-preview">
                       <p className="email-body">
                         <a href={selectedDeal.signature_external_link} target="_blank" rel="noopener noreferrer">{selectedDeal.signature_external_link}</a>
                       </p>
                       {selectedDeal.signature_requested_at && (
-                        <p className="sent-note">Demandé le {new Date(selectedDeal.signature_requested_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</p>
+                        <p className="sent-note">{t('sales.requestedOn', locale)} {new Date(selectedDeal.signature_requested_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</p>
                       )}
                       <button className="btn-secondary" onClick={() => handleClearSignatureLink(selectedDeal.id)} disabled={signatureSaving}>
-                        Retirer
+                        {t('sales.remove', locale)}
                       </button>
                     </div>
                   ) : (
@@ -500,7 +505,7 @@ export default function SalesPage() {
                         className="signature-input"
                       />
                       <button className="btn-secondary" onClick={() => handleSetSignatureLink(selectedDeal.id)} disabled={signatureSaving || !signatureInput.trim()}>
-                        {signatureSaving ? 'Sauvegarde…' : 'Enregistrer'}
+                        {signatureSaving ? t('sales.saving', locale) : t('common.save', locale)}
                       </button>
                     </div>
                   )}
