@@ -49,7 +49,7 @@ const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe'
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed } = await request.json();
+  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed, first_email_subject, first_email_body } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -116,6 +116,77 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true, status: 'abandonne' });
+  }
+
+  // Envoie le tout premier email d'un prospect resté en attente de
+  // validation (voir migration_first_email_approval_2026-08-15.sql,
+  // fonctionnalité opt-in — préférence "require_first_email_approval").
+  // Le commercial peut modifier l'objet/le corps avant envoi (first_email_subject/
+  // first_email_body optionnels) — sinon la version générée par Aaron est
+  // envoyée telle quelle. Même schéma que approuver_sauvetage ci-dessus.
+  if (action === 'envoyer_premier_email') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.pending_first_email_subject || !prospect.pending_first_email_body) {
+      return NextResponse.json({ error: 'Aucun premier email en attente de validation' }, { status: 400 });
+    }
+
+    const finalSubject = (typeof first_email_subject === 'string' && first_email_subject.trim()) || prospect.pending_first_email_subject;
+    const finalBody = (typeof first_email_body === 'string' && first_email_body.trim()) || prospect.pending_first_email_body;
+
+    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody);
+
+    const { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('id')
+      .eq('prospect_id', prospectId)
+      .eq('channel', 'email')
+      .single();
+
+    if (conversation) {
+      const { data: senderUser } = await supabaseAdmin.from('users').select('email').eq('id', prospect.assigned_user_id).single();
+      await supabaseAdmin.from('messages').insert({
+        conversation_id: conversation.id,
+        direction: 'outbound',
+        sender_email: senderUser?.email || '',
+        recipient_email: prospect.email,
+        body: finalBody,
+      });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        pending_first_email_subject: null,
+        pending_first_email_body: null,
+        pending_first_email_generated_at: null,
+      })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, status: 'premier_email_envoye' });
+  }
+
+  // Abandonne le premier email en attente sans l'envoyer (ex: le commercial
+  // juge le prospect finalement non pertinent) — le prospect reste dans la
+  // liste, sans email envoyé ; il peut être relancé plus tard en le
+  // supprimant/recréant, ou laissé tel quel.
+  if (action === 'rejeter_premier_email') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        pending_first_email_subject: null,
+        pending_first_email_body: null,
+        pending_first_email_generated_at: null,
+      })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, status: 'premier_email_rejete' });
   }
 
   // Marque manuellement le prospect comme perdu : Aaron arrête de le
