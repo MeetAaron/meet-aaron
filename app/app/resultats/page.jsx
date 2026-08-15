@@ -93,6 +93,7 @@ export default function ResultatsPage() {
   const [appointments, setAppointments] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [wonClients, setWonClients] = useState([]);
+  const [replyRate, setReplyRate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [emailing, setEmailing] = useState(false);
@@ -105,11 +106,13 @@ export default function ResultatsPage() {
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/won-clients?user_id=${userId}`).then((r) => r.json()),
-    ]).then(([pRes, aRes, cRes, wRes]) => {
+      fetch(`/api/reply-rate?user_id=${userId}`).then((r) => r.json()),
+    ]).then(([pRes, aRes, cRes, wRes, rRes]) => {
       setProspects(pRes.prospects || []);
       setAppointments(aRes.appointments || []);
       setCampaigns(cRes.campaigns || []);
       setWonClients(wRes.wonClients || []);
+      setReplyRate(rRes.reply_rate ?? null);
       setLoading(false);
     });
   }, [userId]);
@@ -194,6 +197,14 @@ export default function ResultatsPage() {
             />
             <StatCard label="RDV en attente de validation" value={rdvEnAttente} />
             <StatCard label="Taux de transformation" value={`${tauxRdv}%`} hint="prospects → RDV" />
+          </section>
+
+          <section className="stat-grid stat-grid-secondary">
+            <StatCard
+              label="Taux de réponse"
+              value={replyRate !== null ? `${replyRate}%` : '—'}
+              hint="prospects ayant répondu / prospects contactés"
+            />
           </section>
 
           <section className="panel">
@@ -327,6 +338,9 @@ export default function ResultatsPage() {
           grid-template-columns: repeat(4, 1fr);
           gap: 0.9rem;
           margin-bottom: 1.5rem;
+        }
+        .stat-grid-secondary {
+          grid-template-columns: repeat(4, 1fr);
         }
         .panel {
           background: var(--surface);
