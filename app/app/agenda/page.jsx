@@ -98,6 +98,66 @@ function statusMetaFor(locale) {
   };
 }
 
+// CHANGEMENTS A FAIRE #86 : Disponibilités n'est plus une page séparée avec
+// onglet — ses réglages (créneaux hebdo récurrents + indisponibilités
+// ponctuelles) vivent maintenant dans deux sections dédiées tout en bas de
+// cette page (voir plus bas dans le JSX). daysFor/apptTypesFor/dayLabel et
+// monthLabelsFor/weekdayLabelsFor sont repris tels quels de l'ancienne page
+// app/app/disponibilites/page.jsx (qui redirige maintenant ici, voir ce fichier).
+function daysFor(locale) {
+  return [
+    { value: 1, label: t('disponibilites.dayMonday', locale) },
+    { value: 2, label: t('disponibilites.dayTuesday', locale) },
+    { value: 3, label: t('disponibilites.dayWednesday', locale) },
+    { value: 4, label: t('disponibilites.dayThursday', locale) },
+    { value: 5, label: t('disponibilites.dayFriday', locale) },
+    { value: 6, label: t('disponibilites.daySaturday', locale) },
+    { value: 0, label: t('disponibilites.daySunday', locale) },
+  ];
+}
+
+function apptTypesFor(locale) {
+  return [
+    { value: '', label: t('disponibilites.allApptTypes', locale) },
+    { value: 'visio', label: t('apptType.visio', locale) },
+    { value: 'tel', label: t('apptType.telephonique', locale) },
+    { value: 'physique', label: t('apptType.physique', locale) },
+  ];
+}
+
+function dayLabel(value, locale) {
+  return daysFor(locale).find((d) => d.value === value)?.label || '';
+}
+
+function monthLabelsFor(locale) {
+  return [
+    t('disponibilites.monthJanuary', locale),
+    t('disponibilites.monthFebruary', locale),
+    t('disponibilites.monthMarch', locale),
+    t('disponibilites.monthApril', locale),
+    t('disponibilites.monthMay', locale),
+    t('disponibilites.monthJune', locale),
+    t('disponibilites.monthJuly', locale),
+    t('disponibilites.monthAugust', locale),
+    t('disponibilites.monthSeptember', locale),
+    t('disponibilites.monthOctober', locale),
+    t('disponibilites.monthNovember', locale),
+    t('disponibilites.monthDecember', locale),
+  ];
+}
+
+function weekdayLabelsFor(locale) {
+  return [
+    t('disponibilites.weekdayInitialMon', locale),
+    t('disponibilites.weekdayInitialTue', locale),
+    t('disponibilites.weekdayInitialWed', locale),
+    t('disponibilites.weekdayInitialThu', locale),
+    t('disponibilites.weekdayInitialFri', locale),
+    t('disponibilites.weekdayInitialSat', locale),
+    t('disponibilites.weekdayInitialSun', locale),
+  ];
+}
+
 export default function AgendaPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -108,7 +168,27 @@ export default function AgendaPage() {
   const [actingOn, setActingOn] = useState(null);
   const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addModalPreset, setAddModalPreset] = useState(null); // { kind, date } quand ouvert depuis le calendrier
   const [detailAppointment, setDetailAppointment] = useState(null);
+
+  // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
+  // hebdomadaires récurrentes + indisponibilités ponctuelles.
+  const [rules, setRules] = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [newRule, setNewRule] = useState({ day_of_week: 1, start_time: '09:00', end_time: '18:00', appointment_type: '' });
+  const [savingRule, setSavingRule] = useState(false);
+  const [newBlock, setNewBlock] = useState({ start_at: '', end_at: '', reason: '' });
+  const [savingBlock, setSavingBlock] = useState(false);
+  const [availError, setAvailError] = useState(null);
+
+  // Calendrier mensuel (#87) — vue type iPhone au-dessus des listes : jours
+  // avec RDV en vert, jours avec indisponibilité en rouge, clic = détail du jour.
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [selectedDay, setSelectedDay] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -117,9 +197,23 @@ export default function AgendaPage() {
     setLoading(false);
   }
 
+  function loadAvailability() {
+    if (!userId) return;
+    setAvailabilityLoading(true);
+    fetch(`/api/availability?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((body) => {
+        setRules(body.rules || []);
+        setBlocks(body.blocks || []);
+        setAvailabilityLoading(false);
+      });
+  }
+
   useEffect(() => {
     if (!userId) return;
     load();
+    loadAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   async function handleAction(appointmentId, action, force = false) {
@@ -139,6 +233,64 @@ export default function AgendaPage() {
 
     setConflict(null);
     load();
+  }
+
+  async function handleAddRule(e) {
+    e.preventDefault();
+    setSavingRule(true);
+    setAvailError(null);
+    const res = await fetch('/api/availability/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, ...newRule }),
+    });
+    const body = await res.json();
+    setSavingRule(false);
+    if (!res.ok) {
+      setAvailError(body.error);
+      return;
+    }
+    setRules((prev) => [...prev, body.rule].sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)));
+  }
+
+  async function handleDeleteRule(id) {
+    await fetch(`/api/availability/rules/${id}?user_id=${userId}`, { method: 'DELETE' });
+    setRules((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  async function handleAddBlock(e) {
+    e.preventDefault();
+    if (!newBlock.start_at || !newBlock.end_at) return;
+    setSavingBlock(true);
+    setAvailError(null);
+    const res = await fetch('/api/availability/blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        start_at: new Date(newBlock.start_at).toISOString(),
+        end_at: new Date(newBlock.end_at).toISOString(),
+        reason: newBlock.reason,
+      }),
+    });
+    const body = await res.json();
+    setSavingBlock(false);
+    if (!res.ok) {
+      setAvailError(body.error);
+      return;
+    }
+    setBlocks((prev) => [...prev, body.block].sort((a, b) => a.start_at.localeCompare(b.start_at)));
+    setNewBlock({ start_at: '', end_at: '', reason: '' });
+  }
+
+  async function handleDeleteBlock(id) {
+    await fetch(`/api/availability/blocks/${id}?user_id=${userId}`, { method: 'DELETE' });
+    setBlocks((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  function openAddForDay(kind) {
+    setAddModalPreset({ kind, date: selectedDay });
+    setShowAddModal(true);
   }
 
   if (authLoading) {
@@ -184,6 +336,21 @@ export default function AgendaPage() {
   const pending = appointments.filter((a) => a.status === 'proposé');
   const rest = appointments.filter((a) => a.status !== 'proposé');
 
+  const selectedDayAppointments = selectedDay
+    ? appointments.filter((a) => new Date(a.proposed_at).toDateString() === selectedDay.toDateString() && a.status !== 'annulé')
+    : [];
+  const selectedDayBlocks = selectedDay
+    ? blocks.filter((b) => {
+        const start = new Date(b.start_at);
+        const end = new Date(b.end_at);
+        const dayStart = new Date(selectedDay);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(selectedDay);
+        dayEnd.setHours(23, 59, 59, 999);
+        return start <= dayEnd && end >= dayStart;
+      })
+    : [];
+
   return (
     <Shell active={t('nav.agenda', locale)} userId={userId}>
       <header className="header">
@@ -191,23 +358,31 @@ export default function AgendaPage() {
           <p className="eyebrow">{t('agenda.eyebrow', locale)}</p>
           <h1>{t('agenda.title', locale)}</h1>
         </div>
-        <button type="button" className="btn-primary" onClick={() => setShowAddModal(true)}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => {
+            setAddModalPreset(null);
+            setShowAddModal(true);
+          }}
+        >
           + {t('common.add', locale)}
         </button>
       </header>
 
-      <nav className="subnav">
-        <span className="subnav-link active">{t('agenda.subnavAppointments', locale)}</span>
-        <Link href={`/app/disponibilites?user_id=${userId}`} className="subnav-link">{t('agenda.subnavAvailability', locale)}</Link>
-      </nav>
-
       {showAddModal && (
         <AddEntryModal
           userId={userId}
-          onClose={() => setShowAddModal(false)}
+          preset={addModalPreset}
+          onClose={() => {
+            setShowAddModal(false);
+            setAddModalPreset(null);
+          }}
           onCreated={() => {
             setShowAddModal(false);
+            setAddModalPreset(null);
             load();
+            loadAvailability();
           }}
         />
       )}
@@ -239,6 +414,73 @@ export default function AgendaPage() {
           </div>
         </div>
       )}
+
+      <section className="block calendar-block">
+        <h2>{t('agenda.calendarTitle', locale)}</h2>
+        <MonthCalendar
+          month={calendarMonth}
+          onChangeMonth={setCalendarMonth}
+          appointments={appointments}
+          blocks={blocks}
+          selectedDay={selectedDay}
+          onSelectDay={(day) => setSelectedDay((prev) => (prev && prev.toDateString() === day.toDateString() ? null : day))}
+        />
+
+        {selectedDay && (
+          <div className="day-detail">
+            <div className="day-detail-header">
+              <strong>{selectedDay.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
+              <button type="button" className="btn-remove" onClick={() => setSelectedDay(null)} aria-label={t('agenda.dayDetailClose', locale)}>✕</button>
+            </div>
+
+            {selectedDayAppointments.length === 0 ? (
+              <p className="muted small">{t('agenda.dayDetailNoAppointments', locale)}</p>
+            ) : (
+              <ul className="day-detail-list">
+                {selectedDayAppointments.map((a) => (
+                  <li key={a.id} className="day-detail-item">
+                    <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                    <span>{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="muted">{a.prospects?.full_name || a.contact_name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {selectedDayBlocks.length === 0 ? (
+              <p className="muted small">{t('agenda.dayDetailNoBlocks', locale)}</p>
+            ) : (
+              <ul className="day-detail-list">
+                {selectedDayBlocks.map((b) => (
+                  <li key={b.id} className="day-detail-item">
+                    <span className="block-dot" />
+                    <span>
+                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
+                      {' → '}
+                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                    {b.reason && <span className="muted">{b.reason}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="day-detail-actions">
+              <button type="button" className="btn-secondary" onClick={() => openAddForDay(null)}>
+                {t('agenda.dayDetailAddAppt', locale)}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => openAddForDay('indisponibilite')}>
+                {t('agenda.dayDetailAddBlock', locale)}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="calendar-legend">
+          <span className="legend-item"><span className="legend-dot appt" /> {t('agenda.calendarLegendAppt', locale)}</span>
+          <span className="legend-item"><span className="legend-dot blocked" /> {t('agenda.calendarLegendBlocked', locale)}</span>
+        </div>
+      </section>
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
@@ -331,6 +573,81 @@ export default function AgendaPage() {
         </>
       )}
 
+      {/* Disponibilités fusionnées ici (#86) — deux sections sous les RDV, plus d'onglet séparé. */}
+      <section className="block">
+        <h2>{t('disponibilites.recurringSlotsTitle', locale)}</h2>
+        {availabilityLoading ? (
+          <p className="muted">{t('common.loading', locale)}</p>
+        ) : (
+          <div className="panel">
+            {rules.length === 0 ? (
+              <p className="muted small">{t('disponibilites.noRulesYet', locale)}</p>
+            ) : (
+              <ul className="rule-list">
+                {rules.map((r) => (
+                  <li key={r.id} className="rule-item">
+                    <span className="rule-day">{dayLabel(r.day_of_week, locale)}</span>
+                    <span className="rule-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
+                    <span className="rule-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
+                    <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)}>✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form className="rule-form" onSubmit={handleAddRule}>
+              <select value={newRule.day_of_week} onChange={(e) => setNewRule({ ...newRule, day_of_week: Number(e.target.value) })}>
+                {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+              <input type="time" value={newRule.start_time} onChange={(e) => setNewRule({ ...newRule, start_time: e.target.value })} required />
+              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+              <input type="time" value={newRule.end_time} onChange={(e) => setNewRule({ ...newRule, end_time: e.target.value })} required />
+              <select value={newRule.appointment_type} onChange={(e) => setNewRule({ ...newRule, appointment_type: e.target.value })}>
+                {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+              </select>
+              <button type="submit" className="btn-primary" disabled={savingRule}>{savingRule ? t('disponibilites.adding', locale) : t('common.add', locale)}</button>
+            </form>
+          </div>
+        )}
+      </section>
+
+      <section className="block">
+        <h2>{t('disponibilites.oneOffUnavailabilityTitle', locale)}</h2>
+        {availabilityLoading ? (
+          <p className="muted">{t('common.loading', locale)}</p>
+        ) : (
+          <div className="panel">
+            {blocks.length === 0 ? (
+              <p className="muted small">{t('disponibilites.noBlocksUpcoming', locale)}</p>
+            ) : (
+              <ul className="block-list">
+                {blocks.map((b) => (
+                  <li key={b.id} className="block-item">
+                    <span className="block-dates">
+                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                      {' → '}
+                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                    {b.reason && <span className="block-reason">{b.reason}</span>}
+                    <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form className="block-form" onSubmit={handleAddBlock}>
+              <input type="datetime-local" value={newBlock.start_at} onChange={(e) => setNewBlock({ ...newBlock, start_at: e.target.value })} required />
+              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+              <input type="datetime-local" value={newBlock.end_at} onChange={(e) => setNewBlock({ ...newBlock, end_at: e.target.value })} required />
+              <input type="text" placeholder={t('disponibilites.reasonPlaceholder', locale)} value={newBlock.reason} onChange={(e) => setNewBlock({ ...newBlock, reason: e.target.value })} />
+              <button type="submit" className="btn-primary" disabled={savingBlock}>{savingBlock ? t('disponibilites.adding', locale) : t('disponibilites.blockSlotButton', locale)}</button>
+            </form>
+
+            {availError && <p className="error">{availError}</p>}
+          </div>
+        )}
+      </section>
+
       <style jsx>{`
         .header {
           margin-bottom: 1.2rem;
@@ -338,27 +655,6 @@ export default function AgendaPage() {
           justify-content: space-between;
           align-items: flex-start;
           gap: 1rem;
-        }
-        .subnav {
-          display: flex;
-          gap: 0.5rem;
-          margin-bottom: 1.8rem;
-          border-bottom: 1px solid var(--border);
-          padding-bottom: 0;
-        }
-        .subnav-link {
-          display: inline-block;
-          padding: 0.55rem 0.9rem;
-          font-size: 0.86rem;
-          font-weight: 600;
-          color: var(--muted);
-          text-decoration: none;
-          border-bottom: 2px solid transparent;
-          cursor: pointer;
-        }
-        .subnav-link.active {
-          color: var(--text);
-          border-bottom-color: var(--accent);
         }
         .btn-primary {
           background: var(--accent);
@@ -459,6 +755,9 @@ export default function AgendaPage() {
         .muted {
           color: var(--muted);
         }
+        .small {
+          font-size: 0.84rem;
+        }
         .row-actions {
           display: flex;
           gap: 0.5rem;
@@ -531,6 +830,176 @@ export default function AgendaPage() {
           display: flex;
           justify-content: flex-end;
           gap: 0.6rem;
+        }
+
+        /* Calendrier mensuel (#87) */
+        .calendar-block {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.4rem;
+        }
+        .calendar-legend {
+          display: flex;
+          gap: 1.2rem;
+          margin-top: 1rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border);
+        }
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.78rem;
+          color: var(--muted);
+        }
+        .legend-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          display: inline-block;
+        }
+        .legend-dot.appt {
+          background: var(--accent-green);
+        }
+        .legend-dot.blocked {
+          background: #e5484d;
+        }
+        .day-detail {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 1rem 1.1rem;
+          margin-top: 1rem;
+        }
+        .day-detail-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.7rem;
+          font-size: 0.9rem;
+          text-transform: capitalize;
+        }
+        .day-detail-list {
+          list-style: none;
+          margin: 0 0 0.6rem;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .day-detail-item {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          font-size: 0.82rem;
+        }
+        .block-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #e5484d;
+          flex-shrink: 0;
+        }
+        .day-detail-actions {
+          display: flex;
+          gap: 0.6rem;
+          margin-top: 0.8rem;
+        }
+
+        /* Disponibilités fusionnées (#86) */
+        .panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.6rem;
+          max-width: 720px;
+        }
+        .rule-list, .block-list {
+          list-style: none;
+          margin: 0 0 1.2rem;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .rule-item, .block-item {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.9rem;
+          font-size: 0.85rem;
+        }
+        .rule-day {
+          font-weight: 600;
+          min-width: 80px;
+        }
+        .rule-time {
+          font-family: var(--font-mono);
+          color: var(--accent-green);
+        }
+        .rule-type {
+          color: var(--muted);
+          margin-left: auto;
+        }
+        .block-dates {
+          font-family: var(--font-mono);
+          font-size: 0.8rem;
+        }
+        .block-reason {
+          color: var(--muted);
+          margin-left: 0.4rem;
+        }
+        .btn-remove {
+          margin-left: auto;
+          background: none;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.9rem;
+          padding: 0.2rem 0.4rem;
+        }
+        .btn-remove:hover {
+          color: #e5484d;
+        }
+        .rule-form, .block-form {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .rule-form select, .rule-form input, .block-form input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.5rem 0.7rem;
+          color: var(--text);
+          font-size: 0.84rem;
+        }
+        .block-form input[type='text'] {
+          flex: 1;
+          min-width: 180px;
+        }
+        .sep {
+          color: var(--muted);
+          font-size: 0.8rem;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.85rem;
+          margin-top: 0.6rem;
+        }
+        .btn-secondary {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.5rem 0.9rem;
+          font-size: 0.8rem;
+          cursor: pointer;
         }
       `}</style>
     </Shell>
@@ -785,29 +1254,64 @@ function entryKindsFor(locale) {
   ];
 }
 
-function AddEntryModal({ userId, onClose, onCreated }) {
+// Formate une Date en 'YYYY-MM-DD' pour préremplir un <input type="date">.
+function toDateInputValue(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// CHANGEMENTS A FAIRE #87 : "ajout d'évènement avec recherche prospect/
+// opportunité/client" — le tunnel Aaron Prospect ne couvre que les prospects
+// et opportunités en cours (voir GET /api/prospects, qui exclut les clients
+// avec 1ère commande confirmée) ; les vrais clients viennent de
+// GET /api/customers/pipeline. On fusionne les deux listes ici avec une
+// étiquette par type, plus un filtre texte, pour que le commercial puisse
+// planifier un RDV avec n'importe lequel des trois sans changer de page.
+function AddEntryModal({ userId, onClose, onCreated, preset }) {
   const [locale] = useLocale();
   const ENTRY_KINDS = entryKindsFor(locale);
-  const [kind, setKind] = useState(null);
+  const [kind, setKind] = useState(preset?.kind || null);
   const [prospectSource, setProspectSource] = useState('aaron'); // 'aaron' | 'perso'
-  const [prospects, setProspects] = useState([]);
+  const [contacts, setContacts] = useState([]); // prospects + opportunités + clients fusionnés
+  const [contactFilter, setContactFilter] = useState('');
   const [prospectId, setProspectId] = useState('');
   const [contactName, setContactName] = useState('');
-  const [date, setDate] = useState('');
+  const presetDate = preset?.date ? toDateInputValue(preset.date) : '';
+  const [date, setDate] = useState(presetDate);
   const [time, setTime] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [endDate, setEndDate] = useState(presetDate);
   const [endTime, setEndTime] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (kind && kind !== 'indisponibilite' && prospectSource === 'aaron' && prospects.length === 0) {
-      fetch(`/api/prospects?user_id=${userId}`)
-        .then((r) => r.json())
-        .then((res) => setProspects(res.prospects || []));
+    if (kind && kind !== 'indisponibilite' && prospectSource === 'aaron' && contacts.length === 0) {
+      Promise.all([
+        fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
+        fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
+      ]).then(([prospectsRes, customersRes]) => {
+        const opportunitiesAndProspects = (prospectsRes.prospects || []).map((p) => ({
+          ...p,
+          kind: p.deal_stage ? 'opportunity' : 'prospect',
+        }));
+        const clients = (customersRes.customers || []).map((c) => ({ ...c, kind: 'client' }));
+        setContacts(
+          [...opportunitiesAndProspects, ...clients].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+        );
+      });
     }
-  }, [kind, prospectSource, userId, prospects.length]);
+  }, [kind, prospectSource, userId, contacts.length]);
+
+  const CONTACT_TAG_LABELS = { prospect: t('agenda.tagProspect', locale), opportunity: t('agenda.tagOpportunity', locale), client: t('agenda.tagClient', locale) };
+  const filteredContacts = contactFilter.trim()
+    ? contacts.filter((c) => {
+        const q = contactFilter.trim().toLowerCase();
+        return c.full_name?.toLowerCase().includes(q) || c.prospect_companies?.name?.toLowerCase().includes(q);
+      })
+    : contacts;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -912,15 +1416,28 @@ function AddEntryModal({ userId, onClose, onCreated }) {
             )}
 
             {kind !== 'indisponibilite' && prospectSource === 'aaron' && (
-              <label>
-                {t('agenda.prospectLabel', locale)}
-                <select value={prospectId} onChange={(e) => setProspectId(e.target.value)} required>
-                  <option value="">{t('agenda.selectPlaceholder', locale)}</option>
-                  {prospects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.full_name}{p.prospect_companies?.name ? ` — ${p.prospect_companies.name}` : ''}</option>
-                  ))}
-                </select>
-              </label>
+              <>
+                <label>
+                  {t('agenda.searchContactPlaceholder', locale)}
+                  <input
+                    type="text"
+                    value={contactFilter}
+                    onChange={(e) => setContactFilter(e.target.value)}
+                    placeholder={t('agenda.searchContactPlaceholder', locale)}
+                  />
+                </label>
+                <label>
+                  {t('agenda.prospectLabel', locale)}
+                  <select value={prospectId} onChange={(e) => setProspectId(e.target.value)} required>
+                    <option value="">{t('agenda.selectPlaceholder', locale)}</option>
+                    {filteredContacts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name}{p.prospect_companies?.name ? ` — ${p.prospect_companies.name}` : ''} · {CONTACT_TAG_LABELS[p.kind]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
             )}
 
             {kind !== 'indisponibilite' && prospectSource === 'perso' && (
@@ -1132,6 +1649,170 @@ function EmptyState({ title, body }) {
           color: var(--muted);
           font-size: 0.88rem;
           margin: 0;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// CHANGEMENTS A FAIRE #87 : calendrier mensuel type iPhone — jours avec RDV
+// en vert, jours avec indisponibilité en rouge, clic = détail du jour
+// (voir day-detail dans AgendaPage). Remplace l'ancien MiniCalendar de
+// app/app/disponibilites/page.jsx (qui ne servait qu'à préremplir une
+// indisponibilité) : celui-ci sert à la fois à la navigation et à l'ajout,
+// pour RDV comme pour indisponibilités.
+function MonthCalendar({ month, onChangeMonth, appointments, blocks, selectedDay, onSelectDay }) {
+  const [locale] = useLocale();
+  const MONTH_LABELS = monthLabelsFor(locale);
+  const WEEKDAY_LABELS = weekdayLabelsFor(locale);
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  // getDay() = 0 (dimanche) .. 6 (samedi) -> on veut un offset lundi-first
+  const startOffset = (firstOfMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+
+  const apptDates = new Set(
+    (appointments || [])
+      .filter((a) => a.status !== 'annulé')
+      .map((a) => new Date(a.proposed_at).toDateString())
+  );
+
+  // Un bloc peut s'étaler sur plusieurs jours — on marque chaque jour couvert
+  // (borné à 60 itérations par bloc pour rester défensif sur des données
+  // aberrantes plutôt que de boucler indéfiniment).
+  const blockedDates = new Set();
+  (blocks || []).forEach((b) => {
+    const start = new Date(b.start_at);
+    const end = new Date(b.end_at);
+    const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    let guard = 0;
+    while (cursor <= end && guard < 60) {
+      blockedDates.add(cursor.toDateString());
+      cursor.setDate(cursor.getDate() + 1);
+      guard += 1;
+    }
+  });
+
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, monthIndex, d));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return (
+    <div className="month-calendar">
+      <div className="cal-header">
+        <button type="button" onClick={() => onChangeMonth(new Date(year, monthIndex - 1, 1))}>‹</button>
+        <span>{MONTH_LABELS[monthIndex]} {year}</span>
+        <button type="button" onClick={() => onChangeMonth(new Date(year, monthIndex + 1, 1))}>›</button>
+      </div>
+      <div className="cal-grid cal-weekdays">
+        {WEEKDAY_LABELS.map((w, i) => <span key={i}>{w}</span>)}
+      </div>
+      <div className="cal-grid">
+        {cells.map((day, i) => {
+          if (!day) return <span key={i} className="cal-cell empty" />;
+          const dateStr = day.toDateString();
+          const hasAppt = apptDates.has(dateStr);
+          const isBlocked = blockedDates.has(dateStr);
+          const isToday = dateStr === today.toDateString();
+          const isSelected = selectedDay && selectedDay.toDateString() === dateStr;
+          return (
+            <button
+              type="button"
+              key={i}
+              className={`cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`}
+              onClick={() => onSelectDay(day)}
+            >
+              {day.getDate()}
+              <span className="cal-dots">
+                {hasAppt && <span className="cal-dot appt" />}
+                {isBlocked && <span className="cal-dot blocked" />}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <style jsx>{`
+        .month-calendar {
+          max-width: 480px;
+        }
+        .cal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.9rem;
+          font-weight: 600;
+          margin-bottom: 0.8rem;
+          text-transform: capitalize;
+        }
+        .cal-header button {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 6px;
+          width: 28px;
+          height: 28px;
+          cursor: pointer;
+        }
+        .cal-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 0.25rem;
+        }
+        .cal-weekdays {
+          margin-bottom: 0.4rem;
+          font-size: 0.72rem;
+          color: var(--muted);
+          text-align: center;
+        }
+        .cal-cell {
+          aspect-ratio: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 0.15rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          color: var(--text);
+          font-size: 0.8rem;
+          cursor: pointer;
+        }
+        .cal-cell.empty {
+          background: transparent;
+          border: none;
+          cursor: default;
+        }
+        .cal-cell.today {
+          border-color: var(--accent);
+        }
+        .cal-cell.selected {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.18);
+        }
+        .cal-cell:not(.empty):hover {
+          border-color: var(--accent);
+        }
+        .cal-dots {
+          display: flex;
+          gap: 3px;
+          height: 6px;
+        }
+        .cal-dot {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+        }
+        .cal-dot.appt {
+          background: var(--accent-green);
+        }
+        .cal-dot.blocked {
+          background: #e5484d;
         }
       `}</style>
     </div>
