@@ -120,6 +120,8 @@ export default function PreferencesPage() {
   const [signatureSaved, setSignatureSaved] = useState(false);
   const [buyingCredits, setBuyingCredits] = useState(null);
   const [creditsError, setCreditsError] = useState(null);
+  const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
+  const [billingPortalError, setBillingPortalError] = useState(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -257,6 +259,27 @@ export default function PreferencesPage() {
     } catch (err) {
       setCreditsError('Une erreur est survenue');
       setBuyingCredits(null);
+    }
+  }
+
+  // Ouvre le portail de facturation Stripe (factures téléchargeables — avec
+  // TVA/GST/sales tax quand Stripe Tax est activé côté Dashboard, moyen de
+  // paiement, résiliation) dans un nouvel onglet, réservé au patron.
+  async function handleOpenBillingPortal() {
+    setOpeningBillingPortal(true);
+    setBillingPortalError(null);
+    try {
+      const res = await fetch('/api/billing-portal', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok || !body.url) {
+        setBillingPortalError(body.error || 'Une erreur est survenue');
+        setOpeningBillingPortal(false);
+        return;
+      }
+      window.location.href = body.url;
+    } catch (err) {
+      setBillingPortalError('Une erreur est survenue');
+      setOpeningBillingPortal(false);
     }
   }
 
@@ -519,6 +542,28 @@ export default function PreferencesPage() {
                   <p className="usage-hint">Seul le fondateur/patron de la société peut acheter des crédits.</p>
                 )}
                 {creditsError && <p className="error">{creditsError}</p>}
+              </div>
+            </div>
+          )}
+
+          {prefs?.role === 'patron' && (
+            <div className="field credits-field">
+              <label>Facturation</label>
+              <div className="usage-box">
+                <p className="usage-hint">
+                  Factures téléchargeables, moyen de paiement et résiliation — tout se gère depuis le portail Stripe.
+                </p>
+                <div className="credits-buy-row">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={openingBillingPortal}
+                    onClick={handleOpenBillingPortal}
+                  >
+                    {openingBillingPortal ? '…' : 'Gérer ma facturation'}
+                  </button>
+                </div>
+                {billingPortalError && <p className="error">{billingPortalError}</p>}
               </div>
             </div>
           )}
