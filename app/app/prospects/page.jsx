@@ -76,12 +76,14 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
+// Ordre volontaire (voir CHANGEMENTS A FAIRE #4/#11) : RDV obtenu (bleu) juste
+// à côté de "en bonne voie" (vert), plutôt qu'en dernier.
 const STATUS_COLORS = {
   vert: '#3DD68C',
+  bleu: '#4B9EF0',
   jaune: '#8B90A8',
   orange: '#F0914E',
   rouge: '#E5484D',
-  bleu: '#4B9EF0',
 };
 
 function statusMetaFor(locale) {
