@@ -1,6 +1,6 @@
 // app/api/cron/stale-deals-alert/route.ts
 // Exécuté une fois par jour via Vercel Cron. Alerte le commercial (push et/ou
-// email selon ses préférences) quand une affaire du pipeline Aaron Sales
+// email selon ses préférences) quand une affaire du pipeline Aaron Opportunité
 // n'a pas bougé depuis STALE_DAYS jours (deal_stage_updated_at), pour les
 // étapes non terminales (rdv_fait, devis_envoye, en_negociation) — jamais
 // pour une affaire déjà signée ou perdue. Dédoublonné via deal_stage_alerts :
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
           user.id,
           user.email,
           title,
-          `${body}\n\nVoir le pipeline Aaron Sales : ${process.env.APP_URL || ''}${url}`
+          `${body}\n\nVoir le pipeline Aaron Opportunité : ${process.env.APP_URL || ''}${url}`
         );
       }
 
