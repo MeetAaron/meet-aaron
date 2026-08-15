@@ -20,10 +20,17 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
+  // Plafond défensif : cette route est appelée à chaque chargement de la page
+  // Résultats (métrique, pas un export exhaustif) — sans limite, un compte
+  // avec un très gros historique ferait une requête de plus en plus lourde
+  // au fil du temps. 2000 prospects les plus récents suffit largement pour
+  // une estimation représentative du taux de réponse actuel.
   const { data: prospects, error } = await supabaseAdmin
     .from('prospects')
     .select('id, conversations(messages(direction))')
-    .eq('assigned_user_id', userId);
+    .eq('assigned_user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(2000);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
