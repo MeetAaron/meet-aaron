@@ -147,6 +147,7 @@ export default function ProspectsPage() {
   const [search, setSearch] = useState('');
   const [detailed, setDetailed] = useState(false);
   const [threadProspect, setThreadProspect] = useState(null);
+  const [pendingEmailProspect, setPendingEmailProspect] = useState(null);
 
   async function loadProspects() {
     setLoading(true);
@@ -216,6 +217,8 @@ export default function ProspectsPage() {
     setActingOn(null);
     loadProspects();
   }
+
+  const pendingFirstEmails = prospects.filter((p) => p.pending_first_email_subject);
 
   const statusFiltered = statusFilter === 'tous' ? prospects : prospects.filter((p) => p.status === statusFilter);
   const searchTerm = search.trim().toLowerCase();
@@ -299,6 +302,15 @@ export default function ProspectsPage() {
           </button>
         </div>
       </header>
+
+      {pendingFirstEmails.length > 0 && (
+        <div className="pending-banner">
+          ✉️ {pendingFirstEmails.length} premier{pendingFirstEmails.length > 1 ? 's' : ''} email{pendingFirstEmails.length > 1 ? 's' : ''} en attente de validation avant envoi.
+          <button type="button" className="pending-banner-btn" onClick={() => setPendingEmailProspect(pendingFirstEmails[0])}>
+            Relire maintenant
+          </button>
+        </div>
+      )}
 
       {prospects.length > 0 && (
         <div className="search-row">
@@ -422,6 +434,16 @@ export default function ProspectsPage() {
                       </button>
                     </td>
                     <td className="row-actions-cell">
+                      {p.pending_first_email_subject && (
+                        <button
+                          type="button"
+                          className="action-btn pending-email"
+                          onClick={() => setPendingEmailProspect(p)}
+                          title="Aaron a préparé le premier email — à relire avant envoi"
+                        >
+                          ✉️ Valider le 1er email
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="action-btn thread"
@@ -485,6 +507,17 @@ export default function ProspectsPage() {
 
       {threadProspect && (
         <ConversationModal prospect={threadProspect} onClose={() => setThreadProspect(null)} />
+      )}
+
+      {pendingEmailProspect && (
+        <FirstEmailApprovalModal
+          prospect={pendingEmailProspect}
+          onClose={() => setPendingEmailProspect(null)}
+          onDone={() => {
+            setPendingEmailProspect(null);
+            loadProspects();
+          }}
+        />
       )}
 
       {wonProspect && (
@@ -760,6 +793,34 @@ export default function ProspectsPage() {
           border-color: var(--accent);
           color: var(--accent);
         }
+        .action-btn.pending-email {
+          border-color: #d4a017;
+          color: #d4a017;
+          font-weight: 600;
+        }
+        .pending-banner {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.8rem;
+          background: rgba(212, 160, 23, 0.12);
+          border: 1px solid #d4a017;
+          color: var(--text);
+          border-radius: 10px;
+          padding: 0.8rem 1.1rem;
+          font-size: 0.86rem;
+          margin-bottom: 1.2rem;
+        }
+        .pending-banner-btn {
+          background: #d4a017;
+          color: #131629;
+          border: none;
+          border-radius: 8px;
+          padding: 0.4rem 0.9rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
         .action-btn.delete {
           color: #e5484d;
         }
@@ -860,8 +921,9 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         <h2>Ajouter un prospect</h2>
         <p className="hint">
           Renseignez juste l'essentiel — comme sur une carte de visite, le reste n'est pas obligatoire.
-          Dès l'enregistrement, Aaron envoie le premier email (généralement dans les minutes qui suivent,
-          selon le temps de génération de la réponse) et complètera la fiche au fil des échanges.
+          Dès l'enregistrement, Aaron prépare le premier email (envoyé automatiquement dans les minutes qui
+          suivent, ou proposé à ta validation si tu as activé cette option dans Préférences) et complètera la
+          fiche au fil des échanges.
         </p>
 
         <div className="name-row">
@@ -1200,6 +1262,192 @@ function ConversationModal({ prospect, onClose }) {
         .msg-body {
           margin: 0;
           white-space: pre-line;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Écran de relecture du tout premier email généré par Aaron, affiché
+// uniquement si le commercial a activé "Je valide avant envoi" dans
+// Préférences (voir migration_first_email_approval_2026-08-15.sql). Le
+// commercial peut modifier l'objet/le corps avant de confirmer l'envoi —
+// contrairement au reste de l'outbound (relances, devis) qui ne propose que
+// l'approbation telle quelle, ici l'édition est utile car c'est le tout
+// premier contact avec le prospect.
+function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
+  const [subject, setSubject] = useState(prospect.pending_first_email_subject || '');
+  const [body, setBody] = useState(prospect.pending_first_email_body || '');
+  const [sending, setSending] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSend() {
+    setSending(true);
+    setError(null);
+    const res = await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'envoyer_premier_email',
+        first_email_subject: subject,
+        first_email_body: body,
+      }),
+    });
+    setSending(false);
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setError(b.error || "Erreur lors de l'envoi");
+      return;
+    }
+    onDone();
+  }
+
+  async function handleReject() {
+    if (!window.confirm(`Ne pas envoyer ce premier email à ${prospect.full_name} ? Le prospect restera dans ta liste sans avoir été contacté.`)) {
+      return;
+    }
+    setRejecting(true);
+    setError(null);
+    const res = await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'rejeter_premier_email' }),
+    });
+    setRejecting(false);
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setError(b.error || 'Erreur');
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Premier email pour {prospect.full_name}</h2>
+        <p className="hint">
+          Aaron a préparé ce premier email — relis-le, modifie-le si besoin, puis envoie-le. Les relances suivantes
+          restent automatiques (tu peux changer ce réglage dans Préférences).
+        </p>
+
+        <label>
+          Objet
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} />
+        </label>
+
+        <label>
+          Message
+          <textarea rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+        </label>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="actions">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={sending || rejecting}>
+            Plus tard
+          </button>
+          <button type="button" className="btn-secondary reject" onClick={handleReject} disabled={sending || rejecting}>
+            {rejecting ? '…' : 'Ne pas envoyer'}
+          </button>
+          <button type="button" className="btn-primary" onClick={handleSend} disabled={sending || rejecting || !subject.trim() || !body.trim()}>
+            {sending ? 'Envoi…' : 'Envoyer maintenant'}
+          </button>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.8rem;
+          width: 600px;
+          max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+        }
+        h2 {
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+          margin: 0 0 0.5rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.82rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.45;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 1rem;
+        }
+        input, textarea {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .error {
+          color: #e5484d;
+          font-size: 0.82rem;
+        }
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 1rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+        .btn-secondary.reject {
+          border-color: #e5484d;
+          color: #e5484d;
+        }
+        .btn-secondary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
       `}</style>
     </div>
