@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser } from '@/lib/messaging';
+import { sendEmailForUser, DailySendCapExceededError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       }
     } else if (hasEmailToSend) {
       // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
-      await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body);
+      await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, { emailType: 'prospecting' });
 
       // Enregistre le message envoyé
       await supabaseAdmin.from('messages').insert({
@@ -179,7 +179,9 @@ export async function POST(request: NextRequest) {
   } catch (err: any) {
     console.error('Erreur génération/envoi du premier message prospect:', err.message);
     emailWarning =
-      err.message?.includes('Aucune boîte mail connectée')
+      err instanceof DailySendCapExceededError
+        ? `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`
+        : err.message?.includes('Aucune boîte mail connectée')
         ? "Prospect ajouté, mais aucun email n'a été envoyé : connectez votre boîte mail dans \"Connexions\"."
         : "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
   }
