@@ -66,14 +66,20 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-function exportWonClientsToCsv(clients) {
-  const headers = ['Nom', 'Société', 'Email', 'Téléphone', 'Client depuis'];
+function exportWonClientsToCsv(clients, locale) {
+  const headers = [
+    t('results.colName', locale),
+    t('results.colCompany', locale),
+    t('results.colEmail', locale),
+    t('results.colPhone', locale),
+    t('results.colCustomerSince', locale),
+  ];
   const rows = clients.map((c) => [
     c.full_name,
     c.prospect_companies?.name || '',
     c.email,
     c.phone || '',
-    c.won_at ? new Date(c.won_at).toLocaleDateString('fr-FR') : '',
+    c.won_at ? new Date(c.won_at).toLocaleDateString(locale) : '',
   ]);
   const csvContent = [headers, ...rows]
     .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
@@ -88,6 +94,7 @@ function exportWonClientsToCsv(clients) {
 }
 
 export default function ResultatsPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [prospects, setProspects] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -159,7 +166,11 @@ export default function ResultatsPage() {
     );
   }
 
-  const TYPE_LABELS = { telephonique: 'Téléphonique', physique: 'Physique', visio: 'Visio' };
+  const TYPE_LABELS = {
+    telephonique: t('results.typePhone', locale),
+    physique: t('results.typeInPerson', locale),
+    visio: t('results.typeVideo', locale),
+  };
   const TYPE_ICONS = { telephonique: '📞', physique: '🤝', visio: '💻' };
 
   const totalProspects = prospects.length;
@@ -179,63 +190,63 @@ export default function ResultatsPage() {
   return (
     <Shell active="Résultats" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Performance</p>
-        <h1>Vos résultats</h1>
+        <p className="eyebrow">{t('results.eyebrow', locale)}</p>
+        <h1>{t('results.title', locale)}</h1>
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
           <section className="stat-grid">
-            <StatCard label="Prospects contactés" value={totalProspects} />
+            <StatCard label={t('results.statContactedProspects', locale)} value={totalProspects} />
             <StatCard
-              label="RDV obtenus"
+              label={t('results.statAppointmentsWon', locale)}
               value={rdvObtenus}
               accent
               hint={rdvObtenus > 0 ? rdvParType.filter((t) => t.count > 0).map((t) => `${TYPE_ICONS[t.type]} ${t.count} ${t.label.toLowerCase()}`).join(' · ') : undefined}
             />
-            <StatCard label="RDV en attente de validation" value={rdvEnAttente} />
-            <StatCard label="Taux de transformation" value={`${tauxRdv}%`} hint="prospects → RDV" />
+            <StatCard label={t('results.statAppointmentsPending', locale)} value={rdvEnAttente} />
+            <StatCard label={t('results.statConversionRate', locale)} value={`${tauxRdv}%`} hint={t('results.statConversionRateHint', locale)} />
             <StatCard
-              label="Taux de réponse"
+              label={t('results.statReplyRate', locale)}
               value={replyRate !== null ? `${replyRate}%` : '—'}
-              hint="prospects ayant répondu / prospects contactés"
+              hint={t('results.statReplyRateHint', locale)}
             />
           </section>
 
           <section className="panel">
-            <h2>Sourcing</h2>
+            <h2>{t('results.sourcingTitle', locale)}</h2>
             <div className="sourcing-row">
               <div>
                 <span className="big-number">{entreprisesAnalysees}</span>
-                <span className="muted"> entreprises analysées par Aaron</span>
+                <span className="muted"> {t('results.sourcingCompaniesAnalyzed', locale)}</span>
               </div>
               <div>
                 <span className="big-number">{contactsSources}</span>
-                <span className="muted"> contacts qualifiés trouvés</span>
+                <span className="muted"> {t('results.sourcingContactsFound', locale)}</span>
               </div>
               <div>
                 <span className="big-number">{tauxContact}%</span>
-                <span className="muted"> taux de contact trouvé</span>
+                <span className="muted"> {t('results.sourcingContactRate', locale)}</span>
               </div>
             </div>
           </section>
 
           <section className="panel">
-            <h2>Détail par campagne</h2>
+            <h2>{t('results.campaignDetailTitle', locale)}</h2>
             {campaigns.length === 0 ? (
-              <p className="muted">Aucune campagne lancée pour le moment.</p>
+              <p className="muted">{t('results.noCampaignsYet', locale)}</p>
             ) : (
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Zone</th>
-                      <th>Secteur</th>
-                      <th>Entreprises analysées</th>
-                      <th>Contacts trouvés</th>
-                      <th>Statut</th>
+                      <th>{t('results.colZone', locale)}</th>
+                      <th>{t('results.colSector', locale)}</th>
+                      <th>{t('results.colCompaniesAnalyzed', locale)}</th>
+                      <th>{t('results.colContactsFound', locale)}</th>
+                      <th>{t('results.colStatus', locale)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -256,19 +267,19 @@ export default function ResultatsPage() {
 
           <section className="panel">
             <div className="panel-header">
-              <h2>🏆 Clients gagnés</h2>
+              <h2>🏆 {t('results.wonClientsTitle', locale)}</h2>
               {wonClients.length > 0 && (
                 <div className="export-wrap">
                   <button className="btn-export" onClick={() => setShowExportMenu(!showExportMenu)}>
-                    Extraire ▾
+                    {t('results.exportButton', locale)} ▾
                   </button>
                   {showExportMenu && (
                     <div className="export-menu">
-                      <button onClick={() => { exportWonClientsToCsv(wonClients); setShowExportMenu(false); }}>
-                        Télécharger en CSV
+                      <button onClick={() => { exportWonClientsToCsv(wonClients, locale); setShowExportMenu(false); }}>
+                        {t('results.exportCsv', locale)}
                       </button>
                       <button onClick={handleEmailExport} disabled={emailing}>
-                        {emailing ? 'Envoi…' : 'Recevoir par email'}
+                        {emailing ? t('results.exportSending', locale) : t('results.exportEmail', locale)}
                       </button>
                     </div>
                   )}
@@ -276,19 +287,19 @@ export default function ResultatsPage() {
               )}
             </div>
 
-            {emailSent && <p className="email-sent">Le fichier a été envoyé à ton adresse email !</p>}
+            {emailSent && <p className="email-sent">{t('results.exportEmailSent', locale)}</p>}
 
             {wonClients.length === 0 ? (
-              <p className="muted">Pas encore de client gagné — dès qu'un prospect confirme une commande ou un devis après un rendez-vous, il apparaîtra ici.</p>
+              <p className="muted">{t('results.noWonClients', locale)}</p>
             ) : (
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Nom</th>
-                      <th>Société</th>
-                      <th>Contact</th>
-                      <th>Client depuis</th>
+                      <th>{t('results.colName', locale)}</th>
+                      <th>{t('results.colCompany', locale)}</th>
+                      <th>{t('results.colContact', locale)}</th>
+                      <th>{t('results.colCustomerSince', locale)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -301,7 +312,7 @@ export default function ResultatsPage() {
                           {c.phone && <div className="muted">{c.phone}</div>}
                         </td>
                         <td className="muted">
-                          {c.won_at ? new Date(c.won_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' }) : '—'}
+                          {c.won_at ? new Date(c.won_at).toLocaleDateString(locale, { dateStyle: 'medium' }) : '—'}
                         </td>
                       </tr>
                     ))}
