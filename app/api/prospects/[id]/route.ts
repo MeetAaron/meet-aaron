@@ -136,6 +136,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const finalSubject = (typeof first_email_subject === 'string' && first_email_subject.trim()) || prospect.pending_first_email_subject;
     const finalBody = (typeof first_email_body === 'string' && first_email_body.trim()) || prospect.pending_first_email_body;
 
+    // Réclamation atomique AVANT l'envoi : le WHERE (pending_first_email_subject
+    // non nul) est réévalué par Postgres au moment de l'UPDATE, donc si deux
+    // requêtes concurrentes arrivent en même temps (double clic, retry réseau,
+    // deux onglets ouverts sur la même fiche), une seule obtient une ligne en
+    // retour — la seconde tombe sur 0 ligne et n'envoie rien. Évite un envoi
+    // en double du même email au prospect.
+    const { data: claimed } = await supabaseAdmin
+      .from('prospects')
+      .update({
+        pending_first_email_subject: null,
+        pending_first_email_body: null,
+        pending_first_email_generated_at: null,
+      })
+      .eq('id', prospectId)
+      .not('pending_first_email_subject', 'is', null)
+      .select('id')
+      .maybeSingle();
+
+    if (!claimed) {
+      return NextResponse.json({ error: 'Ce premier email a déjà été envoyé ou traité' }, { status: 409 });
+    }
+
     await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody);
 
     const { data: conversation } = await supabaseAdmin
@@ -155,15 +177,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         body: finalBody,
       });
     }
-
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        pending_first_email_subject: null,
-        pending_first_email_body: null,
-        pending_first_email_generated_at: null,
-      })
-      .eq('id', prospectId);
 
     return NextResponse.json({ success: true, status: 'premier_email_envoye' });
   }
