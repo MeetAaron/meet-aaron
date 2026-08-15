@@ -131,11 +131,16 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
 
   const messages = await loadConversationMessages(prospect.id);
 
+  // CHANGEMENTS A FAIRE #89 : ne retient que les documents pris en compte
+  // par Aaron et rattachés au module Opportunité — "général" (NULL/'general')
+  // ou explicitement 'opportunites'.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
     .select('file_name, description, extracted_text')
     .eq('company_id', companyId)
+    .eq('included_in_aaron_context', true)
     .not('extracted_text', 'is', null)
+    .or('linked_category.is.null,linked_category.eq.general,linked_category.eq.opportunites')
     .order('created_at', { ascending: false })
     .limit(MAX_DOCS_IN_CONTEXT);
 
