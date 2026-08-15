@@ -335,14 +335,14 @@ export async function GET(request: NextRequest) {
       // automatiquement une proposition chiffrée (catalogue produits +
       // historique des devis déjà envoyés à ce prospect, voir
       // lib/aaron-sales.ts) mais on ne l'envoie JAMAIS automatiquement — le
-      // commercial la relit et valide dans Aaron Vente. Best-effort : un
+      // commercial la relit et valide dans Aaron Opportunité. Best-effort : un
       // échec ici ne doit pas empêcher le reste du traitement du message.
       if (aaronOutput.quote_requested) {
         try {
           await generateDevis(prospect.id);
           await sendPushNotification(connection.user_id, {
             title: 'Devis prêt à valider',
-            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une proposition à relire dans Aaron Vente.`,
+            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une proposition à relire dans Aaron Opportunité.`,
             url: `/app/sales?user_id=${connection.user_id}`,
           });
         } catch (err: any) {
