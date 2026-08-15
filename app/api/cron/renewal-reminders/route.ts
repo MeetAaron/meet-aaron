@@ -5,7 +5,7 @@
 // "set_renewal_date") qui approche à moins de RENEWAL_WINDOW_DAYS jours :
 // génère un email de relance de renouvellement (lib/aaron-customer.ts ->
 // generateRenewalOutreach) et prévient le commercial, sans jamais envoyer
-// automatiquement au client (validation requise dans Aaron Customer).
+// automatiquement au client (validation requise dans Aaron Client).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
       const channel = user.notify_channel || 'email';
 
       if (channel === 'email' || channel === 'both') {
-        await sendEmailForUser(user.id, user.email, title, `${body}\n\nVoir le suivi client Aaron Customer : ${process.env.APP_URL || ''}${url}`);
+        await sendEmailForUser(user.id, user.email, title, `${body}\n\nVoir le suivi client Aaron Client : ${process.env.APP_URL || ''}${url}`);
       }
       if (channel === 'push' || channel === 'both') {
         await sendPushNotification(user.id, { title, body, url });
