@@ -746,6 +746,7 @@ export default function ProspectsPage() {
         .advice {
           max-width: 26ch;
           color: var(--text);
+          overflow-wrap: break-word;
         }
         .contact {
           font-size: 0.82rem;
@@ -1216,6 +1217,7 @@ function ConversationModal({ prospect, onClose }) {
           font-size: 0.85rem;
           line-height: 1.5;
           margin: 0 0 0.5rem;
+          overflow-wrap: break-word;
         }
         .tag {
           background: rgba(75, 57, 239, 0.16);
@@ -1262,6 +1264,7 @@ function ConversationModal({ prospect, onClose }) {
         .msg-body {
           margin: 0;
           white-space: pre-line;
+          overflow-wrap: break-word;
         }
       `}</style>
     </div>
