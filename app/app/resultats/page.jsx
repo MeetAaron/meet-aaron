@@ -488,7 +488,7 @@ function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
 
-  // Un module (Aaron Vente / Aaron Client) est grisé dans la navigation tant
+  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
   // que l'offre souscrite par la société (companies.offer, voir Préférences)
   // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
   // toujours accessible : c'est l'offre de base incluse à la souscription.
@@ -511,7 +511,7 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
