@@ -125,6 +125,10 @@ export default function CampaignsPage() {
   const [showForm, setShowForm] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [companyId, setCompanyId] = useState(null);
+  const [globalAdvice, setGlobalAdvice] = useState(null); // { scope, loading, text, empty, error }
+  const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
+  const [changingStatusFor, setChangingStatusFor] = useState(null);
+  const [confirmEndId, setConfirmEndId] = useState(null);
 
   async function loadCampaigns() {
     setLoading(true);
@@ -142,6 +146,53 @@ export default function CampaignsPage() {
         if (res.user) setCompanyId(res.user.company_id);
       });
   }, [userId]);
+
+  // #14 — avis global (campagnes en cours ou bilan des campagnes passées).
+  async function openGlobalAdvice(scope) {
+    setGlobalAdvice({ scope, loading: true, text: null, empty: false, error: null });
+    try {
+      const res = await fetch('/api/campaigns/advice-global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, scope }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setGlobalAdvice({ scope, loading: false, text: null, empty: false, error: body.error || t('campaigns.chatErrorRetry', locale) });
+        return;
+      }
+      setGlobalAdvice({ scope, loading: false, text: body.advice, empty: !!body.empty, error: null });
+    } catch {
+      setGlobalAdvice({ scope, loading: false, text: null, empty: false, error: t('campaigns.chatErrorRetry', locale) });
+    }
+  }
+
+  // #14 — avis d'Aaron par campagne (générer/régénérer, mis en cache côté serveur).
+  async function generateAdvice(campaignId) {
+    setGeneratingAdviceFor(campaignId);
+    const res = await fetch(`/api/campaigns/${campaignId}/advice`, { method: 'POST' });
+    const body = await res.json();
+    setGeneratingAdviceFor(null);
+    if (!res.ok) return;
+    setCampaigns((prev) =>
+      prev.map((c) => (c.id === campaignId ? { ...c, advice: body.advice, advice_generated_at: body.advice_generated_at } : c))
+    );
+  }
+
+  // #16 — pause/reprise/fin manuelle d'une campagne.
+  async function changeCampaignStatus(campaignId, action) {
+    setChangingStatusFor(campaignId);
+    const res = await fetch(`/api/campaigns/${campaignId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    setChangingStatusFor(null);
+    setConfirmEndId(null);
+    if (!res.ok) return;
+    const body = await res.json();
+    setCampaigns((prev) => prev.map((c) => (c.id === campaignId ? { ...c, status: body.status } : c)));
+  }
 
   if (authLoading) {
     return (
@@ -195,6 +246,17 @@ export default function CampaignsPage() {
         </button>
       </header>
 
+      {!loading && campaigns.length > 0 && (
+        <div className="global-advice-row">
+          <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
+            💡 {t('campaigns.globalAdviceOngoingBtn', locale)}
+          </button>
+          <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('past')}>
+            📊 {t('campaigns.globalAdvicePastBtn', locale)}
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : campaigns.length === 0 ? (
@@ -204,6 +266,7 @@ export default function CampaignsPage() {
           {campaigns.map((c) => {
             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+            const isTerminee = c.status === 'terminee';
             return (
               <div className="card" key={c.id}>
                 <div className="card-top">
@@ -236,9 +299,104 @@ export default function CampaignsPage() {
                     <span className="outcome-active muted">🎯 {c.stats.active} {t('campaigns.outcomeActive', locale)}</span>
                   </div>
                 )}
+
+                <div className="advice-box">
+                  <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
+                  {c.advice ? (
+                    <>
+                      <p className="advice-text">{c.advice}</p>
+                      <button
+                        type="button"
+                        className="link-btn"
+                        disabled={generatingAdviceFor === c.id}
+                        onClick={() => generateAdvice(c.id)}
+                      >
+                        {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={generatingAdviceFor === c.id}
+                      onClick={() => generateAdvice(c.id)}
+                    >
+                      {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
+                    </button>
+                  )}
+                </div>
+
+                {!isTerminee && (
+                  <div className="status-actions">
+                    {c.status === 'en_pause' ? (
+                      <button
+                        type="button"
+                        className="status-btn"
+                        disabled={changingStatusFor === c.id}
+                        onClick={() => changeCampaignStatus(c.id, 'reprendre')}
+                      >
+                        ▶ {t('campaigns.resumeCampaign', locale)}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="status-btn"
+                        disabled={changingStatusFor === c.id}
+                        onClick={() => changeCampaignStatus(c.id, 'pause')}
+                      >
+                        ⏸ {t('campaigns.pauseCampaign', locale)}
+                      </button>
+                    )}
+                    <button type="button" className="status-btn danger" onClick={() => setConfirmEndId(c.id)}>
+                      ⏹ {t('campaigns.endCampaign', locale)}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {globalAdvice && (
+        <div className="overlay" onClick={() => setGlobalAdvice(null)}>
+          <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close-btn" onClick={() => setGlobalAdvice(null)}>✕</button>
+            <h2>{globalAdvice.scope === 'ongoing' ? t('campaigns.globalAdviceOngoingTitle', locale) : t('campaigns.globalAdvicePastTitle', locale)}</h2>
+            {globalAdvice.loading ? (
+              <p className="muted">{t('campaigns.adviceGenerating', locale)}</p>
+            ) : globalAdvice.error ? (
+              <p className="error">{globalAdvice.error}</p>
+            ) : globalAdvice.empty ? (
+              <p className="muted">
+                {globalAdvice.scope === 'ongoing' ? t('campaigns.globalAdviceEmptyOngoing', locale) : t('campaigns.globalAdviceEmptyPast', locale)}
+              </p>
+            ) : (
+              <p className="advice-modal-text">{globalAdvice.text}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirmEndId && (
+        <div className="overlay" onClick={() => setConfirmEndId(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{t('campaigns.endCampaignConfirmTitle', locale)}</h2>
+            <p>{t('campaigns.endCampaignConfirmBody', locale)}</p>
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmEndId(null)}>
+                {t('common.cancel', locale)}
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={changingStatusFor === confirmEndId}
+                onClick={() => changeCampaignStatus(confirmEndId, 'terminer')}
+              >
+                {t('common.confirm', locale)}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -369,6 +527,177 @@ export default function CampaignsPage() {
         }
         .outcome-lost {
           color: #e5484d;
+        }
+        .global-advice-row {
+          display: flex;
+          gap: 0.6rem;
+          margin-bottom: 1.2rem;
+          flex-wrap: wrap;
+        }
+        .btn-ghost {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.45rem 0.9rem;
+          font-size: 0.78rem;
+          cursor: pointer;
+        }
+        .btn-ghost:hover {
+          border-color: var(--accent);
+          color: var(--text);
+        }
+        .advice-box {
+          margin-top: 0.7rem;
+          padding-top: 0.7rem;
+          border-top: 1px solid var(--border);
+        }
+        .advice-label {
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--accent);
+          font-weight: 600;
+          margin: 0 0 0.35rem;
+        }
+        .advice-text {
+          font-size: 0.82rem;
+          line-height: 1.45;
+          color: var(--text);
+          margin: 0 0 0.4rem;
+        }
+        .link-btn {
+          background: transparent;
+          border: none;
+          color: var(--accent);
+          font-size: 0.76rem;
+          padding: 0;
+          cursor: pointer;
+          text-decoration: underline;
+        }
+        .link-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .status-actions {
+          display: flex;
+          gap: 0.5rem;
+          margin-top: 0.8rem;
+          padding-top: 0.8rem;
+          border-top: 1px solid var(--border);
+        }
+        .status-btn {
+          flex: 1;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.5rem 0.7rem;
+          font-size: 0.78rem;
+          cursor: pointer;
+        }
+        .status-btn:hover {
+          border-color: var(--accent);
+        }
+        .status-btn.danger {
+          color: #e5484d;
+        }
+        .status-btn.danger:hover {
+          border-color: #e5484d;
+        }
+        .status-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .advice-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem;
+          width: 520px;
+          max-width: 100%;
+          max-height: 80vh;
+          overflow-y: auto;
+          position: relative;
+        }
+        .advice-modal h2 {
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+          margin: 0 0 0.8rem;
+          padding-right: 1.5rem;
+        }
+        .advice-modal .close-btn {
+          position: absolute;
+          top: 1rem;
+          right: 1.2rem;
+        }
+        .close-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .advice-modal-text {
+          font-size: 0.88rem;
+          line-height: 1.55;
+          color: var(--text);
+          white-space: pre-line;
+        }
+        .confirm-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        .confirm-modal h2 {
+          font-family: var(--font-display);
+          font-size: 1.05rem;
+          margin: 0 0 0.6rem;
+        }
+        .confirm-modal p {
+          font-size: 0.86rem;
+          color: var(--muted);
+          line-height: 1.45;
+          margin: 0 0 1rem;
+        }
+        .confirm-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: #e5484d;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-danger:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
       `}</style>
     </Shell>
@@ -807,6 +1136,7 @@ function wizardStepsFor(locale) {
     t('campaigns.stepZone', locale),
     t('campaigns.stepSize', locale),
     t('campaigns.stepSector', locale),
+    t('campaigns.stepTargeting', locale),
     t('campaigns.stepObjective', locale),
   ];
 }
@@ -817,12 +1147,16 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   const ZONE_TYPE_OPTIONS = zoneTypeOptionsFor(locale);
   const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
   const QUICK_SECTORS = quickSectorsFor(locale);
+  const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
+  const COMMUNICATION_SUGGESTIONS = communicationSuggestionsFor(locale);
   const [step, setStep] = useState(0);
   const [zoneLabel, setZoneLabel] = useState('');
   const [zoneType, setZoneType] = useState('departement');
   const [zoneCodes, setZoneCodes] = useState('');
   const [companySizes, setCompanySizes] = useState([]);
   const [sectors, setSectors] = useState('');
+  const [targetRole, setTargetRole] = useState('');
+  const [contextNotes, setContextNotes] = useState('');
   const [targetCount, setTargetCount] = useState(20);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -832,7 +1166,8 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
     (step === 0 && zoneLabel.trim() && zoneCodes.trim()) ||
     step === 1 ||
     (step === 2 && sectors.trim()) ||
-    (step === 3 && Number(targetCount) > 0);
+    step === 3 ||
+    (step === 4 && Number(targetCount) > 0);
 
   function toggleCompanySize(key) {
     setCompanySizes((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -842,6 +1177,10 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
     const current = sectors.split(',').map((s) => s.trim()).filter(Boolean);
     if (current.some((s) => s.toLowerCase() === sector.toLowerCase())) return;
     setSectors(current.length ? `${sectors}, ${sector}` : sector);
+  }
+
+  function addContextChip(text) {
+    setContextNotes((prev) => (prev.trim() ? `${prev.trim()}, ${text}` : text));
   }
 
   function handleNext() {
@@ -878,6 +1217,8 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         zone_codes: zoneCodes.split(',').map((s) => s.trim()).filter(Boolean),
         sector_keywords: sectors.split(',').map((s) => s.trim()).filter(Boolean),
         company_sizes: companySizes,
+        target_role: targetRole || null,
+        context_notes: contextNotes.trim() || null,
         target_count: Number(targetCount),
       }),
     });
@@ -990,6 +1331,41 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         {step === 3 && (
           <div className="step-body">
+            <p className="step-title">{t('campaigns.stepTargetingTitle', locale)}</p>
+            <label>{t('campaigns.targetRoleLabel', locale)}</label>
+            <div className="role-grid">
+              {ROLE_SUGGESTIONS.map((r) => (
+                <button
+                  type="button"
+                  key={r.key}
+                  className={`role-btn${targetRole === r.key ? ' active' : ''}`}
+                  onClick={() => setTargetRole((prev) => (prev === r.key ? '' : r.key))}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <label>
+              {t('campaigns.contextNotesLabel', locale)}
+              <input
+                value={contextNotes}
+                onChange={(e) => setContextNotes(e.target.value)}
+                placeholder={t('campaigns.contextNotesPlaceholder', locale)}
+              />
+            </label>
+            <div className="quick-chips">
+              {COMMUNICATION_SUGGESTIONS.map((c) => (
+                <button type="button" key={c} className="chip" onClick={() => addContextChip(c)}>
+                  + {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="step-body">
             <p className="step-title">{t('campaigns.stepObjectiveTitle', locale)}</p>
             <label>
               {t('campaigns.targetCountLabel', locale)}
@@ -1000,12 +1376,15 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
                 onChange={(e) => setTargetCount(e.target.value)}
               />
             </label>
+            <p className="hint">{t('campaigns.targetCountHint', locale)}</p>
 
             <div className="recap">
               <p className="recap-title">{t('campaigns.recapTitle', locale)}</p>
               <p><strong>{t('campaigns.recapZone', locale)}</strong> {zoneLabel || '—'} ({selectedZoneType.label.toLowerCase()})</p>
               <p><strong>{t('campaigns.recapSizes', locale)}</strong> {companySizes.length ? companySizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label).join(', ') : t('campaigns.allSizes', locale)}</p>
               <p><strong>{t('campaigns.recapSectors', locale)}</strong> {sectors || '—'}</p>
+              <p><strong>{t('campaigns.recapTarget', locale)}</strong> {targetRole ? (ROLE_SUGGESTIONS.find((r) => r.key === targetRole)?.label || targetRole) : t('campaigns.rolePeuImporte', locale)}</p>
+              {contextNotes.trim() && <p><strong>{t('campaigns.recapNotes', locale)}</strong> {contextNotes}</p>}
             </div>
           </div>
         )}
@@ -1185,6 +1564,33 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         .chip:hover {
           border-color: var(--accent);
           color: var(--text);
+        }
+        .role-grid {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-bottom: 1.1rem;
+        }
+        .role-btn {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.5rem 0.9rem;
+          color: var(--muted);
+          font-size: 0.8rem;
+          cursor: pointer;
+          transition: border-color 0.15s ease, color 0.15s ease;
+        }
+        .role-btn.active {
+          border-color: var(--accent);
+          color: var(--text);
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.76rem;
+          line-height: 1.4;
+          margin: -0.4rem 0 0.8rem;
         }
         .recap {
           background: var(--bg);
