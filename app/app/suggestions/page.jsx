@@ -71,6 +71,7 @@ export default function SuggestionsPage() {
   const [feedback, setFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [locale] = useLocale();
 
   useEffect(() => {
     if (!userId) return;
@@ -111,30 +112,29 @@ export default function SuggestionsPage() {
   return (
     <Shell active="Suggestions" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Retours d'équipe</p>
-        <h1>Suggestions</h1>
+        <p className="eyebrow">{t('suggestions.eyebrow', locale)}</p>
+        <h1>{t('nav.suggestions', locale)}</h1>
         <p className="subtitle">
-          Les remarques signalées manuellement par vos commerciaux, et celles qu'Aaron détecte et relaie tout seul
-          quand elles surgissent dans une conversation de chat — sans qu'ils aient besoin d'envoyer un email.
+          {t('suggestions.subtitle', locale)}
         </p>
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : loadError ? (
-        <EmptyState title="Accès non autorisé" body={loadError} />
+        <EmptyState title={t('suggestions.accessDenied', locale)} body={loadError} />
       ) : feedback.length === 0 ? (
-        <EmptyState title="Aucune suggestion pour l'instant" body="Les remarques de votre équipe apparaîtront ici." />
+        <EmptyState title={t('suggestions.emptyTitle', locale)} body={t('suggestions.emptyBody', locale)} />
       ) : (
         <div className="list">
           {feedback.map((f) => (
             <div className="card" key={f.id}>
               <div className="card-top">
-                <span className="author">{f.users?.full_name || 'Commercial'}</span>
+                <span className="author">{f.users?.full_name || t('suggestions.defaultAuthor', locale)}</span>
                 <span className={`source-badge ${f.source === 'chat_auto' ? 'auto' : 'manual'}`}>
-                  {f.source === 'chat_auto' ? 'Détecté par Aaron dans le chat' : 'Signalement manuel'}
+                  {f.source === 'chat_auto' ? t('suggestions.sourceAuto', locale) : t('suggestions.sourceManual', locale)}
                 </span>
-                <span className="date">{new Date(f.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                <span className="date">{new Date(f.created_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
               </div>
               <p className="message">{f.message}</p>
               {f.context && f.context !== f.message && (
