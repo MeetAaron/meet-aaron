@@ -753,6 +753,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
         .msg-body {
           margin: 0;
           white-space: pre-line;
+          overflow-wrap: break-word;
         }
       `}</style>
     </div>
