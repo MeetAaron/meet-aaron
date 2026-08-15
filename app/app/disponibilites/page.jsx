@@ -66,28 +66,33 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const DAYS = [
-  { value: 1, label: 'Lundi' },
-  { value: 2, label: 'Mardi' },
-  { value: 3, label: 'Mercredi' },
-  { value: 4, label: 'Jeudi' },
-  { value: 5, label: 'Vendredi' },
-  { value: 6, label: 'Samedi' },
-  { value: 0, label: 'Dimanche' },
-];
+function daysFor(locale) {
+  return [
+    { value: 1, label: t('disponibilites.dayMonday', locale) },
+    { value: 2, label: t('disponibilites.dayTuesday', locale) },
+    { value: 3, label: t('disponibilites.dayWednesday', locale) },
+    { value: 4, label: t('disponibilites.dayThursday', locale) },
+    { value: 5, label: t('disponibilites.dayFriday', locale) },
+    { value: 6, label: t('disponibilites.daySaturday', locale) },
+    { value: 0, label: t('disponibilites.daySunday', locale) },
+  ];
+}
 
-const APPOINTMENT_TYPES = [
-  { value: '', label: 'Tous types de RDV' },
-  { value: 'visio', label: 'Visio' },
-  { value: 'tel', label: 'Téléphone' },
-  { value: 'physique', label: 'Physique' },
-];
+function apptTypesFor(locale) {
+  return [
+    { value: '', label: t('disponibilites.allApptTypes', locale) },
+    { value: 'visio', label: t('apptType.visio', locale) },
+    { value: 'tel', label: t('apptType.telephonique', locale) },
+    { value: 'physique', label: t('apptType.physique', locale) },
+  ];
+}
 
-function dayLabel(value) {
-  return DAYS.find((d) => d.value === value)?.label || '';
+function dayLabel(value, locale) {
+  return daysFor(locale).find((d) => d.value === value)?.label || '';
 }
 
 export default function DisponibilitesPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [rules, setRules] = useState([]);
   const [blocks, setBlocks] = useState([]);
@@ -202,32 +207,32 @@ export default function DisponibilitesPage() {
   return (
     <Shell active="Agenda" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Agenda</p>
-        <h1>Mes disponibilités</h1>
-        <p className="subtitle">Aaron ne proposera de créneaux aux prospects que dans ces plages, et jamais pendant vos indisponibilités.</p>
+        <p className="eyebrow">{t('nav.agenda', locale)}</p>
+        <h1>{t('disponibilites.title', locale)}</h1>
+        <p className="subtitle">{t('disponibilites.subtitle', locale)}</p>
       </header>
 
       <nav className="subnav">
-        <Link href={`/app/agenda?user_id=${userId}`} className="subnav-link">📅 Rendez-vous</Link>
-        <span className="subnav-link active">🕒 Disponibilités</span>
+        <Link href={`/app/agenda?user_id=${userId}`} className="subnav-link">{t('agenda.subnavAppointments', locale)}</Link>
+        <span className="subnav-link active">{t('agenda.subnavAvailability', locale)}</span>
       </nav>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
           <section className="panel">
-            <h2>Créneaux récurrents</h2>
+            <h2>{t('disponibilites.recurringSlotsTitle', locale)}</h2>
             {rules.length === 0 ? (
-              <p className="muted small">Aucun créneau défini pour l'instant — Aaron considère que vous êtes disponible en permanence.</p>
+              <p className="muted small">{t('disponibilites.noRulesYet', locale)}</p>
             ) : (
               <ul className="rule-list">
                 {rules.map((r) => (
                   <li key={r.id} className="rule-item">
-                    <span className="rule-day">{dayLabel(r.day_of_week)}</span>
+                    <span className="rule-day">{dayLabel(r.day_of_week, locale)}</span>
                     <span className="rule-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
-                    <span className="rule-type">{APPOINTMENT_TYPES.find((t) => t.value === (r.appointment_type || ''))?.label || 'Tous types de RDV'}</span>
-                    <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label="Supprimer">✕</button>
+                    <span className="rule-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
+                    <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)}>✕</button>
                   </li>
                 ))}
               </ul>
@@ -235,47 +240,47 @@ export default function DisponibilitesPage() {
 
             <form className="rule-form" onSubmit={handleAddRule}>
               <select value={newRule.day_of_week} onChange={(e) => setNewRule({ ...newRule, day_of_week: Number(e.target.value) })}>
-                {DAYS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
               <input type="time" value={newRule.start_time} onChange={(e) => setNewRule({ ...newRule, start_time: e.target.value })} required />
-              <span className="sep">à</span>
+              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
               <input type="time" value={newRule.end_time} onChange={(e) => setNewRule({ ...newRule, end_time: e.target.value })} required />
               <select value={newRule.appointment_type} onChange={(e) => setNewRule({ ...newRule, appointment_type: e.target.value })}>
-                {APPOINTMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
-              <button type="submit" className="btn-primary" disabled={savingRule}>{savingRule ? 'Ajout…' : 'Ajouter'}</button>
+              <button type="submit" className="btn-primary" disabled={savingRule}>{savingRule ? t('disponibilites.adding', locale) : t('common.add', locale)}</button>
             </form>
           </section>
 
           <section className="panel">
-            <h2>Indisponibilités ponctuelles</h2>
+            <h2>{t('disponibilites.oneOffUnavailabilityTitle', locale)}</h2>
             {blocks.length === 0 ? (
-              <p className="muted small">Aucune indisponibilité à venir.</p>
+              <p className="muted small">{t('disponibilites.noBlocksUpcoming', locale)}</p>
             ) : (
               <ul className="block-list">
                 {blocks.map((b) => (
                   <li key={b.id} className="block-item">
                     <span className="block-dates">
-                      {new Date(b.start_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                       {' → '}
-                      {new Date(b.end_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                     </span>
                     {b.reason && <span className="block-reason">{b.reason}</span>}
-                    <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label="Supprimer">✕</button>
+                    <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
                   </li>
                 ))}
               </ul>
             )}
 
-            <p className="calendar-hint">Clique un jour dans le calendrier pour le pré-remplir plus rapidement :</p>
+            <p className="calendar-hint">{t('disponibilites.calendarHint', locale)}</p>
             <MiniCalendar month={calendarMonth} onChangeMonth={setCalendarMonth} onPickDay={pickDay} blocks={blocks} />
 
             <form className="block-form" onSubmit={handleAddBlock}>
               <input type="datetime-local" value={newBlock.start_at} onChange={(e) => setNewBlock({ ...newBlock, start_at: e.target.value })} required />
-              <span className="sep">à</span>
+              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
               <input type="datetime-local" value={newBlock.end_at} onChange={(e) => setNewBlock({ ...newBlock, end_at: e.target.value })} required />
-              <input type="text" placeholder="Motif (optionnel, ex: vacances)" value={newBlock.reason} onChange={(e) => setNewBlock({ ...newBlock, reason: e.target.value })} />
-              <button type="submit" className="btn-primary" disabled={savingBlock}>{savingBlock ? 'Ajout…' : 'Bloquer ce créneau'}</button>
+              <input type="text" placeholder={t('disponibilites.reasonPlaceholder', locale)} value={newBlock.reason} onChange={(e) => setNewBlock({ ...newBlock, reason: e.target.value })} />
+              <button type="submit" className="btn-primary" disabled={savingBlock}>{savingBlock ? t('disponibilites.adding', locale) : t('disponibilites.blockSlotButton', locale)}</button>
             </form>
           </section>
 
@@ -446,10 +451,39 @@ export default function DisponibilitesPage() {
   );
 }
 
-const MONTH_LABELS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+function monthLabelsFor(locale) {
+  return [
+    t('disponibilites.monthJanuary', locale),
+    t('disponibilites.monthFebruary', locale),
+    t('disponibilites.monthMarch', locale),
+    t('disponibilites.monthApril', locale),
+    t('disponibilites.monthMay', locale),
+    t('disponibilites.monthJune', locale),
+    t('disponibilites.monthJuly', locale),
+    t('disponibilites.monthAugust', locale),
+    t('disponibilites.monthSeptember', locale),
+    t('disponibilites.monthOctober', locale),
+    t('disponibilites.monthNovember', locale),
+    t('disponibilites.monthDecember', locale),
+  ];
+}
+
+function weekdayLabelsFor(locale) {
+  return [
+    t('disponibilites.weekdayInitialMon', locale),
+    t('disponibilites.weekdayInitialTue', locale),
+    t('disponibilites.weekdayInitialWed', locale),
+    t('disponibilites.weekdayInitialThu', locale),
+    t('disponibilites.weekdayInitialFri', locale),
+    t('disponibilites.weekdayInitialSat', locale),
+    t('disponibilites.weekdayInitialSun', locale),
+  ];
+}
 
 function MiniCalendar({ month, onChangeMonth, onPickDay, blocks }) {
+  const [locale] = useLocale();
+  const MONTH_LABELS = monthLabelsFor(locale);
+  const WEEKDAY_LABELS = weekdayLabelsFor(locale);
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
   const firstOfMonth = new Date(year, monthIndex, 1);
