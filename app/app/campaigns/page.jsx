@@ -66,32 +66,60 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const STATUS_LABELS = {
-  en_attente: { label: 'En attente', color: '#8B90A8' },
-  en_cours: { label: 'En cours', color: '#4B9EF0' },
-  terminee: { label: 'Terminée', color: '#3DD68C' },
-  en_pause: { label: 'En pause', color: '#F0914E' },
+const STATUS_COLORS = {
+  en_attente: '#8B90A8',
+  en_cours: '#4B9EF0',
+  terminee: '#3DD68C',
+  en_pause: '#F0914E',
 };
 
-const ZONE_TYPE_OPTIONS = [
-  { key: 'ville', label: 'Ville', icon: '🏙️', placeholder: 'ex: Lyon, Marseille', hint: "Ville(s), séparées par des virgules" },
-  { key: 'departement', label: 'Département', icon: '🗺️', placeholder: 'ex: 77, 75', hint: "Numéro(s) de département, séparés par des virgules" },
-  { key: 'region', label: 'Région', icon: '🌍', placeholder: 'ex: Île-de-France', hint: "Nom(s) de région, séparés par des virgules" },
-];
+function statusLabelsFor(locale) {
+  return {
+    en_attente: { label: t('campaigns.statusEnAttente', locale), color: STATUS_COLORS.en_attente },
+    en_cours: { label: t('campaigns.statusEnCours', locale), color: STATUS_COLORS.en_cours },
+    terminee: { label: t('campaigns.statusTerminee', locale), color: STATUS_COLORS.terminee },
+    en_pause: { label: t('campaigns.statusEnPause', locale), color: STATUS_COLORS.en_pause },
+  };
+}
+
+function zoneTypeOptionsFor(locale) {
+  return [
+    { key: 'ville', label: t('campaigns.zoneTypeCity', locale), icon: '🏙️', placeholder: t('campaigns.zoneTypeCityPlaceholder', locale), hint: t('campaigns.zoneTypeCityHint', locale) },
+    { key: 'departement', label: t('campaigns.zoneTypeDepartment', locale), icon: '🗺️', placeholder: t('campaigns.zoneTypeDepartmentPlaceholder', locale), hint: t('campaigns.zoneTypeDepartmentHint', locale) },
+    { key: 'region', label: t('campaigns.zoneTypeRegion', locale), icon: '🌍', placeholder: t('campaigns.zoneTypeRegionPlaceholder', locale), hint: t('campaigns.zoneTypeRegionHint', locale) },
+  ];
+}
 
 // Doit rester synchronisé avec COMPANY_SIZE_LABELS dans lib/sourcing.ts —
 // les clés stockées en base (company_sizes) sont ces mêmes clés courtes.
-const COMPANY_SIZE_OPTIONS = [
-  { key: 'artisan_tpe', label: 'Artisan / TPE', desc: '1 à 9 salariés', icon: '🔨' },
-  { key: 'pme', label: 'PME', desc: '10 à 249 salariés', icon: '🏢' },
-  { key: 'eti', label: 'ETI', desc: '250 à 4 999 salariés', icon: '🏭' },
-  { key: 'grand_compte', label: 'Grand compte', desc: '5 000 salariés et plus', icon: '🏛️' },
-];
+function companySizeOptionsFor(locale) {
+  return [
+    { key: 'artisan_tpe', label: t('campaigns.sizeArtisanTpe', locale), desc: t('campaigns.sizeArtisanTpeDesc', locale), icon: '🔨' },
+    { key: 'pme', label: t('campaigns.sizePme', locale), desc: t('campaigns.sizePmeDesc', locale), icon: '🏢' },
+    { key: 'eti', label: t('campaigns.sizeEti', locale), desc: t('campaigns.sizeEtiDesc', locale), icon: '🏭' },
+    { key: 'grand_compte', label: t('campaigns.sizeGrandCompte', locale), desc: t('campaigns.sizeGrandCompteDesc', locale), icon: '🏛️' },
+  ];
+}
 
-const QUICK_SECTORS = ['Plomberie', 'Chauffagiste', 'Électricité', 'Bâtiment', 'Restauration', 'Coiffure', 'Immobilier', 'Comptabilité'];
+function quickSectorsFor(locale) {
+  return [
+    t('campaigns.sectorPlomberie', locale),
+    t('campaigns.sectorChauffagiste', locale),
+    t('campaigns.sectorElectricite', locale),
+    t('campaigns.sectorBatiment', locale),
+    t('campaigns.sectorRestauration', locale),
+    t('campaigns.sectorCoiffure', locale),
+    t('campaigns.sectorImmobilier', locale),
+    t('campaigns.sectorComptabilite', locale),
+  ];
+}
 
 export default function CampaignsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const STATUS_LABELS = statusLabelsFor(locale);
+  const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
+  const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -159,18 +187,18 @@ export default function CampaignsPage() {
     <Shell active="Campagnes" userId={userId}>
       <header className="header">
         <div>
-          <p className="eyebrow">Prospection</p>
-          <h1>Vos campagnes</h1>
+          <p className="eyebrow">{t('campaigns.eyebrow', locale)}</p>
+          <h1>{t('campaigns.pageTitle', locale)}</h1>
         </div>
         <button className="btn-primary" onClick={() => setShowChat(true)}>
-          + Nouvelle campagne
+          + {t('campaigns.newCampaign', locale)}
         </button>
       </header>
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : campaigns.length === 0 ? (
-        <EmptyState title="Aucune campagne" body="Lancez votre première campagne pour qu'Aaron commence à chercher des prospects." />
+        <EmptyState title={t('campaigns.emptyTitle', locale)} body={t('campaigns.emptyBody', locale)} />
       ) : (
         <div className="cards">
           {campaigns.map((c) => {
@@ -198,14 +226,14 @@ export default function CampaignsPage() {
                   <div className="progress-fill" style={{ width: `${progress}%` }} />
                 </div>
                 <div className="card-bottom">
-                  <span>{c.contacts_found} / {c.target_count} contacts trouvés</span>
-                  <span className="muted">{c.companies_found} entreprises analysées</span>
+                  <span>{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
+                  <span className="muted">{c.companies_found} {t('campaigns.companiesAnalyzedSuffix', locale)}</span>
                 </div>
                 {(c.stats?.won > 0 || c.stats?.lost > 0 || c.stats?.active > 0) && (
                   <div className="campaign-outcome">
-                    <span className="outcome-won">🏆 {c.stats.won} gagné{c.stats.won > 1 ? 's' : ''}</span>
-                    <span className="outcome-lost">❌ {c.stats.lost} perdu{c.stats.lost > 1 ? 's' : ''}</span>
-                    <span className="outcome-active muted">🎯 {c.stats.active} en cours</span>
+                    <span className="outcome-won">🏆 {c.stats.won} {t('campaigns.outcomeWon', locale)}</span>
+                    <span className="outcome-lost">❌ {c.stats.lost} {t('campaigns.outcomeLost', locale)}</span>
+                    <span className="outcome-active muted">🎯 {c.stats.active} {t('campaigns.outcomeActive', locale)}</span>
                   </div>
                 )}
               </div>
@@ -347,36 +375,45 @@ export default function CampaignsPage() {
   );
 }
 
-const ZONE_SUGGESTIONS = [
-  { flag: '🇫🇷', label: 'France' },
-  { flag: '🇧🇪', label: 'Belgique' },
-  { flag: '🇨🇭', label: 'Suisse' },
-  { flag: '🇩🇪', label: 'Allemagne' },
-  { flag: '🇬🇧', label: 'Royaume-Uni' },
-  { flag: '🇪🇸', label: 'Espagne' },
-  { flag: '🇺🇸', label: 'États-Unis' },
-  { flag: '🌍', label: 'Autre / plusieurs pays' },
-];
+function zoneSuggestionsFor(locale) {
+  return [
+    { flag: '🇫🇷', label: t('campaigns.zoneCountryFrance', locale) },
+    { flag: '🇧🇪', label: t('campaigns.zoneCountryBelgium', locale) },
+    { flag: '🇨🇭', label: t('campaigns.zoneCountrySwitzerland', locale) },
+    { flag: '🇩🇪', label: t('campaigns.zoneCountryGermany', locale) },
+    { flag: '🇬🇧', label: t('campaigns.zoneCountryUk', locale) },
+    { flag: '🇪🇸', label: t('campaigns.zoneCountrySpain', locale) },
+    { flag: '🇺🇸', label: t('campaigns.zoneCountryUs', locale) },
+    { flag: '🌍', label: t('campaigns.zoneCountryOther', locale) },
+  ];
+}
 
 // Doit rester synchronisé avec TARGET_ROLE_LABELS dans lib/sourcing.ts — la clé
 // "peu_importe" n'est volontairement pas une valeur JSON (elle insère juste du
 // texte libre : Aaron comprend qu'aucun rôle précis n'est demandé).
-const ROLE_SUGGESTIONS = [
-  { key: 'fondateur_dirigeant', label: 'Fondateur / dirigeant' },
-  { key: 'responsable_commercial', label: 'Responsable commercial' },
-  { key: 'responsable_achats', label: 'Responsable achats' },
-  { key: 'rh', label: 'RH / recrutement' },
-  { key: 'peu_importe', label: 'Peu importe, un décisionnaire' },
-];
+function roleSuggestionsFor(locale) {
+  return [
+    { key: 'fondateur_dirigeant', label: t('campaigns.roleFondateur', locale) },
+    { key: 'responsable_commercial', label: t('campaigns.roleCommercial', locale) },
+    { key: 'responsable_achats', label: t('campaigns.roleAchats', locale) },
+    { key: 'rh', label: t('campaigns.roleRh', locale) },
+    { key: 'peu_importe', label: t('campaigns.rolePeuImporte', locale) },
+  ];
+}
 
-const COMMUNICATION_SUGGESTIONS = [
-  'Plutôt directs et pressés',
-  'Plutôt factuels et techniques',
-  'Plutôt chaleureux et bavards',
-  'Ont souvent besoin d\'être rassurés',
-];
+function communicationSuggestionsFor(locale) {
+  return [
+    t('campaigns.commDirect', locale),
+    t('campaigns.commFactual', locale),
+    t('campaigns.commWarm', locale),
+    t('campaigns.commReassurance', locale),
+  ];
+}
 
-const OBJECTIVE_SUGGESTIONS = ['10 contacts', '20 contacts', '50 contacts', '100 contacts'];
+function objectiveSuggestionsFor(locale) {
+  const unit = t('campaigns.contactsUnit', locale);
+  return [10, 20, 50, 100].map((n) => `${n} ${unit}`);
+}
 
 // Extrait la ligne cachée <!--topic:XXX--> (voir system prompt côté API) qui
 // indique le sujet de la question en cours, pour afficher les bonnes chips.
@@ -400,13 +437,20 @@ function extractCampaignJson(text) {
 }
 
 function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreated }) {
+  const [locale] = useLocale();
+  const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
+  const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
+  const ZONE_SUGGESTIONS = zoneSuggestionsFor(locale);
+  const COMMUNICATION_SUGGESTIONS = communicationSuggestionsFor(locale);
+  const OBJECTIVE_SUGGESTIONS = objectiveSuggestionsFor(locale);
+  const QUICK_SECTORS = quickSectorsFor(locale);
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
       topic: 'secteur',
       content:
-        "Discutons de ta prochaine campagne. Pas besoin de tout dire d'un coup, on avance question par question, et à la fin je te propose un récapitulatif que tu pourras valider ou corriger.\n\n" +
-        "Pour commencer : quel type d'entreprise ou de client recherches-tu pour cette campagne (secteur d'activité, profil) ?",
+        t('campaigns.chatWelcome1', locale) + '\n\n' +
+        t('campaigns.chatWelcome2', locale),
     },
   ]);
   const [input, setInput] = useState('');
@@ -433,7 +477,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     setSending(false);
 
     if (!res.ok) {
-      setError(body.error || "Erreur, réessaie.");
+      setError(body.error || t('campaigns.chatErrorRetry', locale));
       return;
     }
 
@@ -466,10 +510,10 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
       body: JSON.stringify({
         company_id: companyId,
         assigned_user_id: userId,
-        zone_label: recap.zone_label || 'Zone non précisée',
+        zone_label: recap.zone_label || t('campaigns.zoneUnspecified', locale),
         zone_type: 'zone',
-        zone_codes: [recap.zone_label || 'Zone non précisée'],
-        sector_keywords: Array.isArray(recap.sector_keywords) && recap.sector_keywords.length ? recap.sector_keywords : ['tous secteurs'],
+        zone_codes: [recap.zone_label || t('campaigns.zoneUnspecified', locale)],
+        sector_keywords: Array.isArray(recap.sector_keywords) && recap.sector_keywords.length ? recap.sector_keywords : [t('campaigns.allSectorsFallback', locale)],
         company_sizes: Array.isArray(recap.company_sizes) ? recap.company_sizes : [],
         target_count: Number(recap.target_count) || 20,
         context_notes: recap.context_notes || null,
@@ -479,7 +523,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     setLaunching(false);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error || 'Erreur lors de la création');
+      setError(body.error || t('campaigns.createError', locale));
       return;
     }
     onCreated();
@@ -489,7 +533,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     <div className="overlay" onClick={onClose}>
       <div className="chat-modal" onClick={(e) => e.stopPropagation()}>
         <div className="chat-header">
-          <h2>Nouvelle campagne — avec Aaron</h2>
+          <h2>{t('campaigns.chatModalTitle', locale)}</h2>
           <button type="button" className="close-btn" onClick={onClose}>✕</button>
         </div>
 
@@ -499,7 +543,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
               {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
             </div>
           ))}
-          {sending && <div className="bubble assistant"><p className="typing">Aaron réfléchit…</p></div>}
+          {sending && <div className="bubble assistant"><p className="typing">{t('campaigns.aaronThinking', locale)}</p></div>}
         </div>
 
         {currentTopic === 'secteur' && (
@@ -556,16 +600,16 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {recap && (
           <div className="recap-box">
-            <p className="recap-title">Récapitulatif proposé</p>
-            <p><strong>Zone :</strong> {recap.zone_label || '—'}</p>
-            <p><strong>Secteur(s) :</strong> {(recap.sector_keywords || []).join(', ') || '—'}</p>
-            <p><strong>Taille(s) :</strong> {(recap.company_sizes || []).length ? recap.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ') : 'Toutes'}</p>
-            <p><strong>Cible :</strong> {recap.target_role ? (ROLE_SUGGESTIONS.find((r) => r.key === recap.target_role)?.label || recap.target_role) : 'Peu importe, un décisionnaire'}</p>
-            <p><strong>Objectif :</strong> {recap.target_count || 20} contacts</p>
-            {recap.context_notes && <p><strong>Notes :</strong> {recap.context_notes}</p>}
-            <p className="recap-hint">Tu peux répondre ci-dessous pour corriger, ou lancer directement.</p>
+            <p className="recap-title">{t('campaigns.recapTitleChat', locale)}</p>
+            <p><strong>{t('campaigns.recapZone', locale)}</strong> {recap.zone_label || '—'}</p>
+            <p><strong>{t('campaigns.recapSectors', locale)}</strong> {(recap.sector_keywords || []).join(', ') || '—'}</p>
+            <p><strong>{t('campaigns.recapSizes', locale)}</strong> {(recap.company_sizes || []).length ? recap.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ') : t('campaigns.allSizes', locale)}</p>
+            <p><strong>{t('campaigns.recapTarget', locale)}</strong> {recap.target_role ? (ROLE_SUGGESTIONS.find((r) => r.key === recap.target_role)?.label || recap.target_role) : t('campaigns.rolePeuImporte', locale)}</p>
+            <p><strong>{t('campaigns.recapObjective', locale)}</strong> {recap.target_count || 20} {t('campaigns.contactsUnit', locale)}</p>
+            {recap.context_notes && <p><strong>{t('campaigns.recapNotes', locale)}</strong> {recap.context_notes}</p>}
+            <p className="recap-hint">{t('campaigns.recapHint', locale)}</p>
             <button type="button" className="btn-primary" onClick={handleLaunch} disabled={launching}>
-              {launching ? 'Lancement…' : 'Lancer la campagne 🚀'}
+              {launching ? t('campaigns.launching', locale) : t('campaigns.launchCampaign', locale)}
             </button>
           </div>
         )}
@@ -576,13 +620,13 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Écris ta réponse…"
+            placeholder={t('campaigns.chatInputPlaceholder', locale)}
             disabled={sending}
           />
-          <button type="submit" className="btn-secondary" disabled={sending || !input.trim()}>Envoyer</button>
+          <button type="submit" className="btn-secondary" disabled={sending || !input.trim()}>{t('campaigns.send', locale)}</button>
         </form>
 
-        <p className="switch-link" onClick={onSwitchToForm}>Préférer le formulaire classique ?</p>
+        <p className="switch-link" onClick={onSwitchToForm}>{t('campaigns.switchToFormLink', locale)}</p>
       </div>
 
       <style jsx>{`
@@ -758,9 +802,21 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   );
 }
 
-const WIZARD_STEPS = ['Zone géographique', "Taille d'entreprise", "Secteur d'activité", 'Objectif'];
+function wizardStepsFor(locale) {
+  return [
+    t('campaigns.stepZone', locale),
+    t('campaigns.stepSize', locale),
+    t('campaigns.stepSector', locale),
+    t('campaigns.stepObjective', locale),
+  ];
+}
 
 function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
+  const [locale] = useLocale();
+  const WIZARD_STEPS = wizardStepsFor(locale);
+  const ZONE_TYPE_OPTIONS = zoneTypeOptionsFor(locale);
+  const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
+  const QUICK_SECTORS = quickSectorsFor(locale);
   const [step, setStep] = useState(0);
   const [zoneLabel, setZoneLabel] = useState('');
   const [zoneType, setZoneType] = useState('departement');
@@ -828,7 +884,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
     setSubmitting(false);
     if (!res.ok) {
       const body = await res.json();
-      setError(body.error || 'Erreur lors de la création');
+      setError(body.error || t('campaigns.createError', locale));
       return;
     }
     onCreated();
@@ -839,7 +895,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   return (
     <div className="overlay" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
-        <h2>Nouvelle campagne</h2>
+        <h2>{t('campaigns.wizardModalTitle', locale)}</h2>
 
         <div className="steps-track">
           {WIZARD_STEPS.map((label, i) => (
@@ -852,7 +908,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         {step === 0 && (
           <div className="step-body">
-            <p className="step-title">🎯 Où veux-tu prospecter ?</p>
+            <p className="step-title">{t('campaigns.stepZoneTitle', locale)}</p>
             <div className="zone-type-picker">
               {ZONE_TYPE_OPTIONS.map((z) => (
                 <button
@@ -868,11 +924,11 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
             </div>
 
             <label>
-              Nom de la zone (pour t'y retrouver)
+              {t('campaigns.zoneNameLabel', locale)}
               <input
                 value={zoneLabel}
                 onChange={(e) => setZoneLabel(e.target.value)}
-                placeholder="ex: Seine-et-Marne (77)"
+                placeholder={t('campaigns.zoneNamePlaceholder', locale)}
                 required
               />
             </label>
@@ -891,8 +947,8 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         {step === 1 && (
           <div className="step-body">
-            <p className="step-title">🏗️ Quelle taille d'entreprise ?</p>
-            <p className="step-subtitle">Optionnel — laisse tout décoché pour cibler toutes les tailles.</p>
+            <p className="step-title">{t('campaigns.stepSizeTitle', locale)}</p>
+            <p className="step-subtitle">{t('campaigns.stepSizeSubtitle', locale)}</p>
             <div className="size-grid">
               {COMPANY_SIZE_OPTIONS.map((opt) => (
                 <button
@@ -912,13 +968,13 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         {step === 2 && (
           <div className="step-body">
-            <p className="step-title">🔍 Quel secteur d'activité ?</p>
+            <p className="step-title">{t('campaigns.stepSectorTitle', locale)}</p>
             <label>
-              Secteur(s), séparés par des virgules
+              {t('campaigns.sectorsLabel', locale)}
               <input
                 value={sectors}
                 onChange={(e) => setSectors(e.target.value)}
-                placeholder="ex: plomberie, chauffagiste"
+                placeholder={t('campaigns.sectorsPlaceholder', locale)}
                 required
               />
             </label>
@@ -934,9 +990,9 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         {step === 3 && (
           <div className="step-body">
-            <p className="step-title">🚀 Objectif de la campagne</p>
+            <p className="step-title">{t('campaigns.stepObjectiveTitle', locale)}</p>
             <label>
-              Nombre de contacts visés
+              {t('campaigns.targetCountLabel', locale)}
               <input
                 type="number"
                 min="1"
@@ -946,10 +1002,10 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
             </label>
 
             <div className="recap">
-              <p className="recap-title">Récapitulatif</p>
-              <p><strong>Zone :</strong> {zoneLabel || '—'} ({selectedZoneType.label.toLowerCase()})</p>
-              <p><strong>Taille(s) :</strong> {companySizes.length ? companySizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label).join(', ') : 'Toutes'}</p>
-              <p><strong>Secteur(s) :</strong> {sectors || '—'}</p>
+              <p className="recap-title">{t('campaigns.recapTitle', locale)}</p>
+              <p><strong>{t('campaigns.recapZone', locale)}</strong> {zoneLabel || '—'} ({selectedZoneType.label.toLowerCase()})</p>
+              <p><strong>{t('campaigns.recapSizes', locale)}</strong> {companySizes.length ? companySizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label).join(', ') : t('campaigns.allSizes', locale)}</p>
+              <p><strong>{t('campaigns.recapSectors', locale)}</strong> {sectors || '—'}</p>
             </div>
           </div>
         )}
@@ -958,10 +1014,10 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
         <div className="actions">
           <button type="button" className="btn-secondary" onClick={handleBack}>
-            {step === 0 ? 'Annuler' : '← Retour'}
+            {step === 0 ? t('common.cancel', locale) : `← ${t('common.back', locale)}`}
           </button>
           <button type="submit" className="btn-primary" disabled={submitting || !canGoNext}>
-            {submitting ? 'Création…' : isLastStep ? 'Lancer la campagne 🚀' : 'Suivant →'}
+            {submitting ? t('campaigns.creating', locale) : isLastStep ? t('campaigns.launchCampaign', locale) : `${t('campaigns.next', locale)} →`}
           </button>
         </div>
       </form>
