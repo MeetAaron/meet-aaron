@@ -1,5 +1,5 @@
 // app/app/customer/page.jsx
-// Aaron Customer — suivi des clients gagnés : onboarding (plan généré par
+// Aaron Client — suivi des clients gagnés : onboarding (plan généré par
 // Aaron + email de bienvenue), score de santé, historique des check-ins
 // satisfaction/NPS. Voir lib/aaron-customer.ts, lib/customer-health.ts,
 // app/api/customers/pipeline, app/api/customers/[id]/onboarding.
@@ -287,10 +287,10 @@ export default function CustomerPage() {
   }
 
   return (
-    <Shell active="Aaron Customer" userId={userId}>
+    <Shell active="Aaron Client" userId={userId}>
       <header className="header">
         <p className="eyebrow">Après la signature</p>
-        <h1>Aaron Customer</h1>
+        <h1>Aaron Client</h1>
         <p className="subtitle">
           Dès qu'un client est gagné, Aaron prépare l'onboarding (plan + email de bienvenue), sollicite régulièrement
           son avis (check-ins satisfaction/NPS) et calcule un score de santé pour repérer tôt un risque de désabonnement.
@@ -835,7 +835,7 @@ function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
 
-  // Un module (Aaron Vente / Aaron Client) est grisé dans la navigation tant
+  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
   // que l'offre souscrite par la société (companies.offer, voir Préférences)
   // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
   // toujours accessible : c'est l'offre de base incluse à la souscription.
@@ -858,7 +858,7 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
     { label: 'Agenda', slug: 'agenda', icon: '📅' },
