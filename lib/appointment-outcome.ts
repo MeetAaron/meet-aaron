@@ -17,6 +17,10 @@
 // la signature immédiate ("client") n'est plus un choix du bilan — une fois
 // l'opportunité créée, le passage à "Signé" se fait depuis la page Opportunités
 // (action "set_deal_stage"), qui déclenche déjà is_won/first_order_confirmed_at.
+
+import { supabaseAdmin } from './supabase-admin';
+import { callClaude, MonthlyCapExceededError } from './anthropic-client';
+
 export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
 
 const OUTCOME_LABELS: Record<AppointmentOutcome, string> = {
