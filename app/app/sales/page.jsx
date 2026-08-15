@@ -1,5 +1,5 @@
 // app/app/sales/page.jsx
-// Aaron Sales — pipeline de vente : liste les affaires (prospects ayant
+// Aaron Opportunité — pipeline de vente : liste les affaires (prospects ayant
 // dépassé le premier RDV) groupées par étape, avec pour l'affaire
 // sélectionnée : le brief pré-RDV généré par Aaron, et le compte-rendu +
 // email de relance post-RDV. Voir lib/aaron-sales.ts, app/api/sales/pipeline,
@@ -270,10 +270,10 @@ export default function SalesPage() {
   }
 
   return (
-    <Shell active="Aaron Sales" userId={userId}>
+    <Shell active="Aaron Opportunité" userId={userId}>
       <header className="header">
         <p className="eyebrow">Cycle de vente</p>
-        <h1>Aaron Sales</h1>
+        <h1>Aaron Opportunité</h1>
         <p className="subtitle">
           Dès qu'un premier RDV est obtenu, Aaron prépare le terrain (brief, coaching) et prend le relais après
           (compte-rendu, relance) — l'étape de chaque affaire se met à jour automatiquement selon le bilan de RDV.
@@ -818,7 +818,7 @@ function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
 
-  // Un module (Aaron Vente / Aaron Client) est grisé dans la navigation tant
+  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
   // que l'offre souscrite par la société (companies.offer, voir Préférences)
   // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
   // toujours accessible : c'est l'offre de base incluse à la souscription.
@@ -841,7 +841,7 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: 'Tableau de bord', slug: 'dashboard', icon: '📊' },
     { label: 'Prospects', slug: 'prospects', icon: '🎯' },
-    { label: 'Aaron Vente', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
+    { label: 'Aaron Opportunité', slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: 'Produits', slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: 'Aaron Client', slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: 'Campagnes', slug: 'campaigns', icon: '🚀' },
