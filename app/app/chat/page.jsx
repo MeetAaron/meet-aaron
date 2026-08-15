@@ -69,17 +69,22 @@ function useAuthedUser() {
 // Questions de découverte posées par Aaron une par une lors du premier accueil,
 // pour construire un vrai profil commercial "clé en main" plutôt qu'un simple
 // pavé de texte libre. Les réponses alimentent /api/business-summary.
-const ONBOARDING_QUESTIONS = [
-  "Pour commencer : dans quel secteur d'activité et pour quelle taille d'entreprise travailles-tu le plus souvent ?",
-  "Est-ce que tu as une seule famille de clients bien homogène, ou plusieurs profils bien distincts ?",
-  "Et question un peu plus perso : comment décrirais-tu le comportement ou le caractère de tes clients en général (pressés, méfiants, bavards, factuels...) ? Pas besoin d'être précis, écris comme ça te vient.",
-  "Quel est ton produit ou service phare, celui que tu proposes le plus souvent ?",
-  "Quel est l'argument qui fait mouche le plus souvent auprès de tes prospects ?",
-  "Quelle est l'objection ou l'hésitation que tu entends le plus fréquemment ?",
-  "Et l'idéal pour toi après un premier contact : obtenir un rendez-vous, envoyer un devis, proposer un essai gratuit, ou autre chose ?",
+const ONBOARDING_QUESTION_KEYS = [
+  'chat.onboardingQ1',
+  'chat.onboardingQ2',
+  'chat.onboardingQ3',
+  'chat.onboardingQ4',
+  'chat.onboardingQ5',
+  'chat.onboardingQ6',
+  'chat.onboardingQ7',
 ];
 
+function getOnboardingQuestions(locale) {
+  return ONBOARDING_QUESTION_KEYS.map((key) => t(key, locale));
+}
+
 export default function ChatPage() {
+  const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -145,21 +150,21 @@ export default function ChatPage() {
     // l'accueil, pour ne pas écraser une conversation/un questionnaire en cours.
     if (!historyLoaded) return;
     const firstName = userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '';
+    const onboardingQuestions = getOnboardingQuestions(locale);
     const welcomeMessages = [
       {
         role: 'assistant',
         content:
-          `Bonjour${firstName ? ' ' + firstName : ''}, je suis Aaron, ton copilote commercial IA. Voici ce que je fais pour toi :\n\n` +
-          "• pendant que tu roules, que tu déjeunes ou que tu dors, moi je prospecte : je pars chercher, un par un, des prospects qui correspondent vraiment à ton profil client (zone, secteur, taille d'entreprise) ;\n" +
-          "• je leur écris et je relance en ton nom, depuis ta propre boîte mail, en adaptant chaque message à la personne et à ce qu'elle répond ;\n" +
-          "• je repère les signaux d'intérêt, je remplis ta fiche prospect au fil de l'échange, et surtout : ce que je te garantis, ce sont des rendez-vous — par téléphone, en physique ou en visio, directement dans ton agenda.\n\n" +
-          "Ce que je ne fais pas : pas d'emailing de masse ni de listes achetées — ici, tout est fait un par un, de façon personnalisée et clé en main. " +
-          "Et je ne prends aucune décision finale à ta place (devis, tarifs, engagements) : ça reste toujours toi qui conclus.\n\n" +
-          "Avant de me lancer sur le terrain, j'ai besoin d'apprendre à connaître ton métier — quelques questions rapides, une par une, ça prend 2 minutes en tout.",
+          `${t('chat.welcomeGreeting', locale).replace('{firstName}', firstName ? ' ' + firstName : '')}\n\n` +
+          `• ${t('chat.welcomeBullet1', locale)}\n` +
+          `• ${t('chat.welcomeBullet2', locale)}\n` +
+          `• ${t('chat.welcomeBullet3', locale)}\n\n` +
+          `${t('chat.welcomeNotDoing', locale)}\n\n` +
+          t('chat.welcomeBeforeStart', locale),
       },
       {
         role: 'assistant',
-        content: ONBOARDING_QUESTIONS[0],
+        content: onboardingQuestions[0],
       },
     ];
     setMessages(welcomeMessages);
@@ -177,7 +182,7 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [isWelcome, messages.length, userInfo, historyLoaded, userId]);
+  }, [isWelcome, messages.length, userInfo, historyLoaded, userId, locale]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -207,7 +212,7 @@ export default function ChatPage() {
     if (!res.ok) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: data.error || "Je n'ai pas encore assez d'informations pour faire un résumé — ajoute un document ou décris-moi ton métier ici." },
+        { role: 'assistant', content: data.error || t('chat.summaryErrorFallback', locale) },
       ]);
       return;
     }
@@ -218,9 +223,8 @@ export default function ChatPage() {
       {
         role: 'assistant',
         content:
-          `Voici ce que j'ai compris de ton activité :\n\n${data.summary}\n\n` +
-          "On pourra toujours l'ajuster plus tard. Je te propose maintenant une petite visite guidée de l'appli — " +
-          "clique sur \"Voir comment fonctionne l'appli\" ci-dessous.",
+          `${t('chat.summaryIntro', locale)}\n\n${data.summary}\n\n` +
+          t('chat.summaryOutro', locale),
       },
     ]);
   }
@@ -237,30 +241,27 @@ export default function ChatPage() {
     // Questionnaire de découverte guidé : on avance localement, question par
     // question, sans appeler le modèle général — la séquence reste prévisible
     // et instantanée, comme un vrai petit onboarding "clé en main".
-    if (onboardingStep >= 0 && onboardingStep < ONBOARDING_QUESTIONS.length) {
+    const onboardingQuestions = getOnboardingQuestions(locale);
+    if (onboardingStep >= 0 && onboardingStep < onboardingQuestions.length) {
       const updatedAnswers = [
         ...onboardingAnswers,
-        { question: ONBOARDING_QUESTIONS[onboardingStep], answer: userMessage.content },
+        { question: onboardingQuestions[onboardingStep], answer: userMessage.content },
       ];
       setOnboardingAnswers(updatedAnswers);
 
       const nextStep = onboardingStep + 1;
       let assistantMessage;
       let newOnboardingStep;
-      if (nextStep < ONBOARDING_QUESTIONS.length) {
+      if (nextStep < onboardingQuestions.length) {
         newOnboardingStep = nextStep;
-        assistantMessage = { role: 'assistant', content: ONBOARDING_QUESTIONS[nextStep] };
+        assistantMessage = { role: 'assistant', content: onboardingQuestions[nextStep] };
         setOnboardingStep(nextStep);
         setMessages([...newMessages, assistantMessage]);
       } else {
         newOnboardingStep = -1;
         assistantMessage = {
           role: 'assistant',
-          content:
-            "Parfait, merci ! Si tu as un devis type, une plaquette ou une liste de tarifs sous la main, direction " +
-            "\"Mes documents\" pour me les envoyer — ça m'aide encore plus à te représenter auprès des prospects. " +
-            "Sinon, clique directement sur \"Générer mon résumé\" ci-dessous et je te dis ce que j'ai compris de " +
-            "ton activité.",
+          content: t('chat.onboardingCompleteDocs', locale),
         };
         setOnboardingStep(-1);
         setMessages([...newMessages, assistantMessage]);
@@ -353,28 +354,28 @@ export default function ChatPage() {
     <Shell active="Chat avec Aaron" userId={userId}>
       <header className="header">
         <div>
-          <p className="eyebrow">Discussion</p>
-          <h1>Chat avec Aaron</h1>
+          <p className="eyebrow">{t('chat.eyebrow', locale)}</p>
+          <h1>{t('chat.title', locale)}</h1>
         </div>
         <button className="btn-feedback" onClick={() => setShowFeedback(!showFeedback)}>
-          🚩 Signaler à l'équipe
+          {t('chat.feedbackButton', locale)}
         </button>
       </header>
 
-      {feedbackSent && <p className="feedback-sent">Merci, ton message a été transmis à l'équipe !</p>}
+      {feedbackSent && <p className="feedback-sent">{t('chat.feedbackSentBanner', locale)}</p>}
 
       {showFeedback && (
         <form className="feedback-form" onSubmit={handleSendFeedback}>
           <textarea
             value={feedbackText}
             onChange={(e) => setFeedbackText(e.target.value)}
-            placeholder="Une idée, un bug, une suggestion ? Décris-le ici, ça sera transmis directement à l'équipe Meet Aaron."
+            placeholder={t('chat.feedbackPlaceholder', locale)}
             rows={3}
           />
           <div className="feedback-actions">
-            <button type="button" className="btn-secondary" onClick={() => setShowFeedback(false)}>Annuler</button>
+            <button type="button" className="btn-secondary" onClick={() => setShowFeedback(false)}>{t('common.cancel', locale)}</button>
             <button type="submit" className="btn-primary" disabled={feedbackSending || !feedbackText.trim()}>
-              {feedbackSending ? 'Envoi…' : 'Envoyer'}
+              {feedbackSending ? t('chat.sending', locale) : t('chat.send', locale)}
             </button>
           </div>
         </form>
@@ -386,8 +387,8 @@ export default function ChatPage() {
             <div className="intro">
               <p>
                 {isWelcome
-                  ? 'Chargement…'
-                  : 'Salut ! Pose-moi une question sur tes prospects, tes campagnes, ou demande-moi un conseil commercial.'}
+                  ? t('common.loading', locale)
+                  : t('chat.introGreeting', locale)}
               </p>
             </div>
           )}
@@ -396,7 +397,7 @@ export default function ChatPage() {
               {m.content}
             </div>
           ))}
-          {sending && <div className="bubble assistant typing">Aaron réfléchit…</div>}
+          {sending && <div className="bubble assistant typing">{t('chat.aaronThinking', locale)}</div>}
           <div ref={bottomRef} />
         </div>
 
@@ -404,11 +405,11 @@ export default function ChatPage() {
           <div className="welcome-actions">
             {!summaryDone && (
               <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
-                {summarizing ? 'Génération du résumé…' : 'Générer mon résumé'}
+                {summarizing ? t('chat.generatingSummary', locale) : t('chat.generateSummaryButton', locale)}
               </button>
             )}
             <Link href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="btn-primary btn-tour">
-              Voir comment fonctionne l'appli
+              {t('chat.viewTourButton', locale)}
             </Link>
           </div>
         )}
@@ -417,11 +418,11 @@ export default function ChatPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Écris ton message…"
+            placeholder={t('chat.inputPlaceholder', locale)}
             disabled={sending}
           />
           <button type="submit" className="btn-send" disabled={sending || !input.trim()}>
-            Envoyer
+            {t('chat.send', locale)}
           </button>
         </form>
       </div>
