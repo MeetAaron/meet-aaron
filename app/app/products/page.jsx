@@ -314,7 +314,6 @@ function Shell({ children, active, userId }) {
 
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
-    { label: t('nav.pipeline', locale), slug: 'pipeline', icon: '🧭' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
