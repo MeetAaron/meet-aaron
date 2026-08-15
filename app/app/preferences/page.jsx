@@ -67,43 +67,59 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const CHANNEL_OPTIONS = [
-  { value: 'email', label: 'Email uniquement' },
-  { value: 'push', label: 'Notification push uniquement' },
-  { value: 'both', label: 'Email + notification push' },
-];
+function channelOptionsFor(locale) {
+  return [
+    { value: 'email', label: t('preferences.channel.email', locale) },
+    { value: 'push', label: t('preferences.channel.push', locale) },
+    { value: 'both', label: t('preferences.channel.both', locale) },
+  ];
+}
 
 const DELAY_OPTIONS = [15, 30, 60];
 
-const FIRST_EMAIL_OPTIONS = [
-  { value: false, label: 'Envoi automatique (par défaut)' },
-  { value: true, label: 'Je valide avant envoi' },
-];
+function firstEmailOptionsFor(locale) {
+  return [
+    { value: false, label: t('preferences.firstEmail.auto', locale) },
+    { value: true, label: t('preferences.firstEmail.manual', locale) },
+  ];
+}
 
-const COLLABORATION_LEVELS = [
-  { value: 0, label: 'Niveau 0', desc: 'Aucun lien CRM — Aaron travaille avec sa propre base de données.' },
-  { value: 1, label: 'Niveau 1', desc: 'Connexion CRM basique, synchronisation manuelle ponctuelle.' },
-  { value: 2, label: 'Niveau 2', desc: 'Synchronisation automatique quotidienne avec votre CRM.' },
-  { value: 3, label: 'Niveau 3', desc: 'Synchronisation automatique horaire, intégration complète.' },
-];
+function collaborationLevelsFor(locale) {
+  return [
+    { value: 0, label: t('preferences.crm.level0Label', locale), desc: t('preferences.crm.level0Desc', locale) },
+    { value: 1, label: t('preferences.crm.level1Label', locale), desc: t('preferences.crm.level1Desc', locale) },
+    { value: 2, label: t('preferences.crm.level2Label', locale), desc: t('preferences.crm.level2Desc', locale) },
+    { value: 3, label: t('preferences.crm.level3Label', locale), desc: t('preferences.crm.level3Desc', locale) },
+  ];
+}
 
-const CRM_PROVIDERS = [
-  { value: '', label: '— Sélectionner —' },
-  { value: 'divalto', label: 'Divalto' },
-  { value: 'salesforce', label: 'Salesforce' },
-  { value: 'hubspot', label: 'HubSpot' },
-  { value: 'pipedrive', label: 'Pipedrive' },
-  { value: 'autre', label: 'Autre' },
-];
+function crmProvidersFor(locale) {
+  return [
+    { value: '', label: t('preferences.crm.selectPlaceholder', locale) },
+    { value: 'divalto', label: 'Divalto' },
+    { value: 'salesforce', label: 'Salesforce' },
+    { value: 'hubspot', label: 'HubSpot' },
+    { value: 'pipedrive', label: 'Pipedrive' },
+    { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
+  ];
+}
 
-const OFFERS = [
-  { value: 'AP', label: 'Aaron Prospect', desc: 'Prospection, relances et prise de rendez-vous.', available: true },
-  { value: 'AS', label: 'Aaron Opportunité', desc: 'Négociation, devis, gestion des objections.', available: true },
-  { value: 'AC', label: 'Aaron Client', desc: 'Fidélisation et relation client post-vente.', available: true },
-];
+function offersFor(locale) {
+  return [
+    { value: 'AP', label: t('preferences.offers.apLabel', locale), desc: t('preferences.offers.apDesc', locale), available: true },
+    { value: 'AS', label: t('nav.opportunity', locale), desc: t('preferences.offers.asDesc', locale), available: true },
+    { value: 'AC', label: t('nav.client', locale), desc: t('preferences.offers.acDesc', locale), available: true },
+  ];
+}
 
 export default function PreferencesPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const CHANNEL_OPTIONS = channelOptionsFor(locale);
+  const FIRST_EMAIL_OPTIONS = firstEmailOptionsFor(locale);
+  const COLLABORATION_LEVELS = collaborationLevelsFor(locale);
+  const CRM_PROVIDERS = crmProvidersFor(locale);
+  const OFFERS = offersFor(locale);
   const [prefs, setPrefs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -150,7 +166,7 @@ export default function PreferencesPage() {
     loadCrmConnections();
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get('crm_oauth_error');
-    if (oauthError) setCrmError(`Connexion HubSpot échouée (${oauthError}) — réessayez.`);
+    if (oauthError) setCrmError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', oauthError));
     if (oauthError || params.get('crm_oauth_success')) {
       window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
@@ -185,7 +201,7 @@ export default function PreferencesPage() {
     const body = await res.json();
     setDetectingSignature(false);
     if (!res.ok || !body.signature) {
-      setSignatureError(body.error || "Aucune signature détectée — saisissez-la manuellement.");
+      setSignatureError(body.error || t('preferences.signatureNotDetected', locale));
       return;
     }
     setSignature(body.signature);
@@ -276,13 +292,13 @@ export default function PreferencesPage() {
       });
       const body = await res.json();
       if (!res.ok || !body.url) {
-        setCreditsError(body.error || 'Une erreur est survenue');
+        setCreditsError(body.error || t('common.error', locale));
         setBuyingCredits(null);
         return;
       }
       window.location.href = body.url;
     } catch (err) {
-      setCreditsError('Une erreur est survenue');
+      setCreditsError(t('common.error', locale));
       setBuyingCredits(null);
     }
   }
@@ -297,13 +313,13 @@ export default function PreferencesPage() {
       const res = await fetch('/api/billing-portal', { method: 'POST' });
       const body = await res.json();
       if (!res.ok || !body.url) {
-        setBillingPortalError(body.error || 'Une erreur est survenue');
+        setBillingPortalError(body.error || t('common.error', locale));
         setOpeningBillingPortal(false);
         return;
       }
       window.location.href = body.url;
     } catch (err) {
-      setBillingPortalError('Une erreur est survenue');
+      setBillingPortalError(t('common.error', locale));
       setOpeningBillingPortal(false);
     }
   }
@@ -324,7 +340,7 @@ export default function PreferencesPage() {
   }
 
   async function handleDisconnectHubspot() {
-    if (!confirm('Déconnecter HubSpot ? La synchronisation des prospects gagnés sera interrompue.')) return;
+    if (!confirm(t('preferences.crm.disconnectConfirm', locale))) return;
     await fetch('/api/crm-connections?provider=hubspot', { method: 'DELETE' });
     loadCrmConnections();
   }
@@ -337,12 +353,12 @@ export default function PreferencesPage() {
       const res = await fetch('/api/crm-connections/sync', { method: 'POST' });
       const body = await res.json();
       if (!res.ok) {
-        setCrmError(body.error || 'Une erreur est survenue');
+        setCrmError(body.error || t('common.error', locale));
         return;
       }
       setCrmSyncResult(body);
     } catch (err) {
-      setCrmError('Une erreur est survenue');
+      setCrmError(t('common.error', locale));
     } finally {
       setCrmSyncing(false);
     }
@@ -378,61 +394,61 @@ export default function PreferencesPage() {
   }
 
   return (
-    <Shell active="Préférences" userId={userId}>
+    <Shell active={t('nav.preferences', locale)} userId={userId}>
       <header className="header">
-        <p className="eyebrow">Réglages</p>
-        <h1>Préférences</h1>
+        <p className="eyebrow">{t('preferences.eyebrow', locale)}</p>
+        <h1>{t('nav.preferences', locale)}</h1>
       </header>
 
       {loading || !prefs ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <div className="panel">
           {summaryLoaded && (
             <div className="field">
-              <label>Ton profil business (ce qu'Aaron a compris de ton métier)</label>
+              <label>{t('preferences.businessProfileLabel', locale)}</label>
               <textarea
                 rows={6}
                 value={businessSummary}
                 onChange={(e) => setBusinessSummary(e.target.value)}
-                placeholder="Pas encore de résumé — réponds au questionnaire dans « Chat avec Aaron » pour en générer un, ou écris-le toi-même ici."
+                placeholder={t('preferences.businessProfilePlaceholder', locale)}
               />
               <div className="actions">
                 <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
-                  {savingSummary ? 'Enregistrement…' : 'Enregistrer ce résumé'}
+                  {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
                 </button>
-                {summarySaved && <span className="saved-msg">Résumé mis à jour ✓</span>}
+                {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
               </div>
             </div>
           )}
 
           {signatureLoaded && (
             <div className="field">
-              <label>Ta signature email (ajoutée automatiquement aux emails qu'Aaron envoie pour toi)</label>
+              <label>{t('preferences.signatureLabel', locale)}</label>
               <textarea
                 rows={4}
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
-                placeholder="ex: Marie Dupont — Responsable commerciale — 06 12 34 56 78"
+                placeholder={t('preferences.signaturePlaceholder', locale)}
               />
               {signatureError && <p className="error">{signatureError}</p>}
               <div className="actions">
                 <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
-                  {detectingSignature ? 'Détection…' : 'Détecter depuis mon dernier email envoyé'}
+                  {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
                 </button>
                 <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
-                  {savingSignature ? 'Enregistrement…' : 'Enregistrer la signature'}
+                  {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
                 </button>
-                {signatureSaved && <span className="saved-msg">Signature enregistrée ✓</span>}
+                {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
               </div>
               <p className="collab-extra-hint">
-                La détection automatique est une estimation à partir de ton dernier email envoyé (Gmail uniquement pour l'instant) — relis-la avant d'enregistrer.
+                {t('preferences.signatureDetectHint', locale)}
               </p>
             </div>
           )}
 
           <div className="field">
-            <label>Votre abonnement</label>
+            <label>{t('preferences.subscriptionLabel', locale)}</label>
             <div className="offer-options">
               {OFFERS.map((o) => (
                 <button
@@ -443,7 +459,7 @@ export default function PreferencesPage() {
                 >
                   <span className="offer-title">
                     {o.label}
-                    {!o.available && <span className="soon-badge">En développement</span>}
+                    {!o.available && <span className="soon-badge">{t('preferences.inDevelopmentBadge', locale)}</span>}
                   </span>
                   <span className="offer-desc">{o.desc}</span>
                 </button>
@@ -453,7 +469,7 @@ export default function PreferencesPage() {
           </div>
 
           <div className="field">
-            <label>Comment veux-tu être prévenu d'un rendez-vous ?</label>
+            <label>{t('preferences.notifyChannelLabel', locale)}</label>
             <div className="options">
               {CHANNEL_OPTIONS.map((opt) => (
                 <button
@@ -471,7 +487,7 @@ export default function PreferencesPage() {
           </div>
 
           <div className="field">
-            <label>Combien de temps avant le RDV veux-tu être alerté ?</label>
+            <label>{t('preferences.notifyDelayLabel', locale)}</label>
             <div className="options">
               {DELAY_OPTIONS.map((minutes) => (
                 <button
@@ -479,14 +495,14 @@ export default function PreferencesPage() {
                   className={prefs.notify_before_appointment_minutes === minutes ? 'option active' : 'option'}
                   onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
                 >
-                  {minutes} min
+                  {minutes} {t('preferences.minutesUnit', locale)}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="field">
-            <label>Premier email envoyé à un nouveau prospect</label>
+            <label>{t('preferences.firstEmailLabel', locale)}</label>
             <div className="options">
               {FIRST_EMAIL_OPTIONS.map((opt) => (
                 <button
@@ -499,14 +515,12 @@ export default function PreferencesPage() {
               ))}
             </div>
             <p className="collab-extra-hint">
-              Par défaut, Aaron envoie directement le tout premier email à un nouveau prospect. Active la validation
-              pour relire (et modifier si besoin) chaque premier email avant qu'il ne parte — les relances suivantes
-              restent automatiques dans les deux cas.
+              {t('preferences.firstEmailHint', locale)}
             </p>
           </div>
 
           <div className="field">
-            <label>Plafond quotidien d'emails de prospection</label>
+            <label>{t('preferences.dailyCapLabel', locale)}</label>
             <input
               type="number"
               min={1}
@@ -516,15 +530,12 @@ export default function PreferencesPage() {
               onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
             />
             <p className="collab-extra-hint">
-              Protège la réputation de votre boîte mail : au-delà de ce nombre d'envois de prospection par jour
-              (premiers contacts + relances automatiques), Aaron met le reste en attente et reprend le lendemain.
-              40/jour est un plafond prudent pour une boîte déjà en usage normal — baissez-le si votre domaine est
-              récent, ou vérifiez la configuration SPF/DMARC dans Connexions avant de le monter.
+              {t('preferences.dailyCapHint', locale)}
             </p>
           </div>
 
           <div className="field">
-            <label>Niveau de collaboration avec votre CRM</label>
+            <label>{t('preferences.crm.collabLevelLabel', locale)}</label>
             <div className="collab-options">
               {COLLABORATION_LEVELS.map((lvl) => (
                 <button
@@ -541,36 +552,36 @@ export default function PreferencesPage() {
             {prefs.collaboration_level === 1 && (
               <div className="collab-extra">
                 <p className="collab-extra-hint">
-                  Envoyez-nous un fichier (xls, csv, pdf ou txt) de vos clients gagnés et perdus : Aaron s'en sert pour mieux cibler ses prospects.
+                  {t('preferences.crm.uploadHint', locale)}
                 </p>
                 <div className="upload-row">
                   <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
                   <button type="button" className="btn-secondary" onClick={handleUpload} disabled={!uploadFile || uploading}>
-                    {uploading ? 'Envoi…' : 'Envoyer'}
+                    {uploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
                   </button>
                 </div>
-                {uploadDone && <p className="saved-msg">Fichier envoyé — retrouvable dans "Mes documents" ✓</p>}
+                {uploadDone && <p className="saved-msg">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
               </div>
             )}
 
             {(prefs.collaboration_level === 2 || prefs.collaboration_level === 3) && (
               <div className="collab-extra">
-                <label className="sub-label">Quel CRM utilisez-vous ?</label>
+                <label className="sub-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
                 <select
                   value={prefs.crm_provider || ''}
                   onChange={(e) => setPrefs({ ...prefs, crm_provider: e.target.value || null })}
                 >
                   {CRM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
-                <label className="sub-label">Précisions (contact IT, nom exact de l'instance…)</label>
+                <label className="sub-label">{t('preferences.crm.notesLabel', locale)}</label>
                 <textarea
                   rows={3}
                   value={prefs.crm_connection_notes || ''}
                   onChange={(e) => setPrefs({ ...prefs, crm_connection_notes: e.target.value })}
-                  placeholder="ex: instance Salesforce hébergée par notre service IT, contact : jean@..."
+                  placeholder={t('preferences.crm.notesPlaceholder', locale)}
                 />
                 <p className="collab-extra-hint">
-                  La connexion technique à votre CRM se met en place avec l'équipe Open X une fois ces informations reçues.
+                  {t('preferences.crm.setupHint', locale)}
                 </p>
 
                 {prefs.crm_provider === 'hubspot' && prefs.role === 'patron' && (
@@ -578,31 +589,30 @@ export default function PreferencesPage() {
                     {crmError && <p className="error">{crmError}</p>}
                     {crmConnections.some((c) => c.provider === 'hubspot') ? (
                       <>
-                        <p className="saved-msg">HubSpot connecté ✓</p>
+                        <p className="saved-msg">{t('preferences.crm.hubspotConnectedMsg', locale)}</p>
                         <div className="actions">
                           <button type="button" className="btn-secondary" onClick={handleSyncHubspot} disabled={crmSyncing}>
-                            {crmSyncing ? 'Synchronisation…' : 'Synchroniser les prospects gagnés maintenant'}
+                            {crmSyncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
                           </button>
                           <button type="button" className="btn-secondary" onClick={handleDisconnectHubspot}>
-                            Déconnecter
+                            {t('connexions.disconnectButton', locale)}
                           </button>
                         </div>
                         {crmSyncResult && (
                           <p className="collab-extra-hint">
-                            {crmSyncResult.synced} prospect(s) synchronisé(s) vers HubSpot.
-                            {crmSyncResult.failed?.length > 0 && ` ${crmSyncResult.failed.length} échec(s) — voir logs serveur.`}
-                            {crmSyncResult.remaining_candidates && ' D\'autres prospects restent à synchroniser — relancez pour continuer.'}
+                            {t('preferences.crm.syncResultSynced', locale).replace('{count}', crmSyncResult.synced)}
+                            {crmSyncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', crmSyncResult.failed.length)}
+                            {crmSyncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
                           </p>
                         )}
                       </>
                     ) : (
                       <>
                         <button type="button" className="btn-primary" onClick={handleConnectHubspot}>
-                          Connecter HubSpot maintenant (bêta)
+                          {t('preferences.crm.connectHubspotButton', locale)}
                         </button>
                         <p className="collab-extra-hint">
-                          Alternative à la mise en relation manuelle ci-dessus : connexion directe, puis synchronisation à la demande de vos
-                          prospects gagnés (contact + affaire) vers HubSpot.
+                          {t('preferences.crm.connectHubspotHint', locale)}
                         </p>
                       </>
                     )}
@@ -614,24 +624,24 @@ export default function PreferencesPage() {
 
           <div className="actions">
             <button className="btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
+              {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
             </button>
-            {saved && <span className="saved-msg">Préférences enregistrées ✓</span>}
+            {saved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
           </div>
 
           {usage && (
             <div className="field usage-field">
-              <label>Suivi des coûts API (estimation)</label>
+              <label>{t('preferences.usage.apiCostLabel', locale)}</label>
               <div className="usage-box">
                 <div className="usage-row">
-                  <span>Ce mois-ci</span>
+                  <span>{t('preferences.usage.thisMonth', locale)}</span>
                   <strong>
                     {usage.month_cost_usd.toFixed(2)} $
-                    {usage.monthly_cap_usd !== null && ` / ${usage.monthly_cap_usd} $ plafond`}
+                    {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', usage.monthly_cap_usd)}
                   </strong>
                 </div>
                 <div className="usage-row">
-                  <span>Aujourd'hui</span>
+                  <span>{t('preferences.usage.today', locale)}</span>
                   <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
                 </div>
                 <div className="usage-bars">
@@ -645,7 +655,7 @@ export default function PreferencesPage() {
                   ))}
                 </div>
                 <p className="usage-hint">
-                  Estimation basée sur les tarifs Claude — la facturation exacte reste consultable sur console.anthropic.com.
+                  {t('preferences.usage.hint', locale)}
                 </p>
               </div>
             </div>
@@ -653,15 +663,14 @@ export default function PreferencesPage() {
 
           {usage && (
             <div className="field credits-field">
-              <label>Crédits</label>
+              <label>{t('preferences.credits.label', locale)}</label>
               <div className="usage-box">
                 <div className="usage-row">
-                  <span>Solde actuel</span>
+                  <span>{t('preferences.credits.currentBalance', locale)}</span>
                   <strong>{Number(usage.credit_balance_eur || 0).toFixed(2)} €</strong>
                 </div>
                 <p className="usage-hint">
-                  Une fois le plafond mensuel inclus dans l'abonnement atteint, Aaron continue à travailler pour vous
-                  tant qu'il reste des crédits — sinon il s'arrête jusqu'au mois suivant. 1 crédit = 1 €.
+                  {t('preferences.credits.hint', locale)}
                 </p>
                 {prefs.role === 'patron' ? (
                   <div className="credits-buy-row">
@@ -678,7 +687,7 @@ export default function PreferencesPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="usage-hint">Seul le fondateur/patron de la société peut acheter des crédits.</p>
+                  <p className="usage-hint">{t('preferences.credits.ownerOnlyHint', locale)}</p>
                 )}
                 {creditsError && <p className="error">{creditsError}</p>}
               </div>
@@ -687,10 +696,10 @@ export default function PreferencesPage() {
 
           {prefs?.role === 'patron' && (
             <div className="field credits-field">
-              <label>Facturation</label>
+              <label>{t('preferences.billing.label', locale)}</label>
               <div className="usage-box">
                 <p className="usage-hint">
-                  Factures téléchargeables, moyen de paiement et résiliation — tout se gère depuis le portail Stripe.
+                  {t('preferences.billing.hint', locale)}
                 </p>
                 <div className="credits-buy-row">
                   <button
@@ -699,7 +708,7 @@ export default function PreferencesPage() {
                     disabled={openingBillingPortal}
                     onClick={handleOpenBillingPortal}
                   >
-                    {openingBillingPortal ? '…' : 'Gérer ma facturation'}
+                    {openingBillingPortal ? '…' : t('preferences.billing.manageButton', locale)}
                   </button>
                 </div>
                 {billingPortalError && <p className="error">{billingPortalError}</p>}
@@ -710,11 +719,11 @@ export default function PreferencesPage() {
       )}
 
       <footer className="page-footer">
-        <a href={`/app/tour${userId ? `?user_id=${userId}` : ''}`}>Revoir la visite guidée</a>
+        <a href={`/app/tour${userId ? `?user_id=${userId}` : ''}`}>{t('preferences.footer.tourLink', locale)}</a>
         <span className="footer-sep">·</span>
-        <a href="/privacy" target="_blank" rel="noreferrer">Politique de confidentialité</a>
+        <a href="/privacy" target="_blank" rel="noreferrer">{t('preferences.footer.privacyLink', locale)}</a>
         <span className="footer-sep">·</span>
-        <a href="/unsubscribe" className="unsubscribe-link">Se désabonner</a>
+        <a href="/unsubscribe" className="unsubscribe-link">{t('preferences.footer.unsubscribeLink', locale)}</a>
       </footer>
 
       <style jsx>{`
