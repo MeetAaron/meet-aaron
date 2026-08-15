@@ -8,7 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { recordAppointmentOutcome, AppointmentOutcome } from '@/lib/appointment-outcome';
 
-const VALID_OUTCOMES: AppointmentOutcome[] = ['client', 'bien_passe', 'moyen', 'perdu'];
+const VALID_OUTCOMES: AppointmentOutcome[] = ['a_continuer', 'opportunite', 'devis', 'perdu'];
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { outcome } = await request.json();
