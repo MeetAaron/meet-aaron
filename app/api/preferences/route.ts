@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, company_id, role')
+    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role')
     .eq('id', userId)
     .single();
 
@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     preferences: {
       ...user,
       require_first_email_approval: user.require_first_email_approval ?? false,
+      daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
       collaboration_level: company?.collaboration_level ?? 0,
       offer: company?.offer ?? 'AP',
       crm_provider: company?.crm_provider ?? null,
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, notify_channel, notify_before_appointment_minutes, require_first_email_approval, collaboration_level, offer, crm_provider, crm_connection_notes } = await request.json();
+  const { user_id, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, collaboration_level, offer, crm_provider, crm_connection_notes } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -61,6 +62,17 @@ export async function PATCH(request: NextRequest) {
   // Booléen : garde le check "!== undefined" (pas "if (x)") pour pouvoir
   // repasser l'option à false, contrairement aux champs texte ci-dessus.
   if (require_first_email_approval !== undefined) updates.require_first_email_approval = require_first_email_approval;
+  // Plafond quotidien d'emails de prospection (protection délivrabilité, voir
+  // lib/messaging.ts) — bornes larges mais réelles pour éviter une valeur
+  // absurde saisie par erreur (0 bloquerait toute prospection, un nombre
+  // négatif ferait planter le calcul de la limite).
+  if (daily_prospecting_email_cap !== undefined) {
+    const cap = Number(daily_prospecting_email_cap);
+    if (!Number.isFinite(cap) || cap < 1 || cap > 2000) {
+      return NextResponse.json({ error: 'Le plafond quotidien doit être un nombre entre 1 et 2000' }, { status: 400 });
+    }
+    updates.daily_prospecting_email_cap = Math.round(cap);
+  }
 
   if (Object.keys(updates).length > 0) {
     const { error } = await supabaseAdmin.from('users').update(updates).eq('id', user_id);
