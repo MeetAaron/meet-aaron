@@ -64,19 +64,26 @@ function useAuthedUser() {
 }
 
 const ONBOARDING_ORDER = ['a_demarrer', 'en_cours', 'termine'];
-const ONBOARDING_META = {
-  a_demarrer: { label: 'À démarrer', color: '#F0914E' },
-  en_cours: { label: 'En cours', color: '#F0C94E' },
-  termine: { label: 'Terminé', color: '#3DD68C' },
-};
 
-const HEALTH_META = {
-  saine: { label: 'Santé saine', color: '#3DD68C' },
-  a_surveiller: { label: 'À surveiller', color: '#F0C94E' },
-  a_risque: { label: 'À risque', color: '#E5484D' },
-};
+function onboardingMetaFor(locale) {
+  return {
+    a_demarrer: { label: t('customer.onboardingToStart', locale), color: '#F0914E' },
+    en_cours: { label: t('customer.onboardingInProgress', locale), color: '#F0C94E' },
+    termine: { label: t('customer.onboardingDone', locale), color: '#3DD68C' },
+  };
+}
 
-const CHECKIN_TYPE_LABELS = { nps: 'NPS', satisfaction: 'Satisfaction' };
+function healthMetaFor(locale) {
+  return {
+    saine: { label: t('customer.healthGood', locale), color: '#3DD68C' },
+    a_surveiller: { label: t('customer.healthWatch', locale), color: '#F0C94E' },
+    a_risque: { label: t('customer.healthAtRisk', locale), color: '#E5484D' },
+  };
+}
+
+function checkinTypeLabelsFor(locale) {
+  return { nps: 'NPS', satisfaction: t('customer.checkinSatisfaction', locale) };
+}
 
 function daysSince(iso) {
   if (!iso) return null;
@@ -85,6 +92,10 @@ function daysSince(iso) {
 
 export default function CustomerPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  const [locale] = useLocale();
+  const ONBOARDING_META = onboardingMetaFor(locale);
+  const HEALTH_META = healthMetaFor(locale);
+  const CHECKIN_TYPE_LABELS = checkinTypeLabelsFor(locale);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -157,7 +168,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setOnboardingLoading(false);
     if (!res.ok) {
-      setOnboardingError(body.error || "Impossible de générer le plan d'onboarding.");
+      setOnboardingError(body.error || t('customer.onboardingPlanError', locale));
       return;
     }
     setOnboarding(body);
@@ -169,7 +180,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setSendingWelcome(false);
     if (!res.ok) {
-      setOnboardingError(body.error || "Impossible d'envoyer l'email.");
+      setOnboardingError(body.error || t('customer.sendEmailError', locale));
       return;
     }
     await load();
@@ -193,7 +204,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setRenewalLoading(false);
     if (!res.ok) {
-      setRenewalError(body.error || "Impossible de générer l'email de renouvellement.");
+      setRenewalError(body.error || t('customer.renewalEmailError', locale));
       return;
     }
     await load();
@@ -206,7 +217,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setSendingRenewal(false);
     if (!res.ok) {
-      setRenewalError(body.error || "Impossible d'envoyer l'email.");
+      setRenewalError(body.error || t('customer.sendEmailError', locale));
       return;
     }
     await load();
@@ -228,7 +239,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setTestimonialLoading(false);
     if (!res.ok) {
-      setTestimonialError(body.error || 'Impossible de générer la demande.');
+      setTestimonialError(body.error || t('customer.testimonialGenerateError', locale));
       return;
     }
     await load();
@@ -241,7 +252,7 @@ export default function CustomerPage() {
     const body = await res.json();
     setSendingTestimonial(false);
     if (!res.ok) {
-      setTestimonialError(body.error || "Impossible d'envoyer la demande.");
+      setTestimonialError(body.error || t('customer.testimonialSendError', locale));
       return;
     }
     await load();
@@ -290,18 +301,17 @@ export default function CustomerPage() {
   return (
     <Shell active="Aaron Client" userId={userId}>
       <header className="header">
-        <p className="eyebrow">Après la signature</p>
-        <h1>Aaron Client</h1>
+        <p className="eyebrow">{t('customer.eyebrow', locale)}</p>
+        <h1>{t('nav.client', locale)}</h1>
         <p className="subtitle">
-          Dès qu'un client est gagné, Aaron prépare l'onboarding (plan + email de bienvenue), sollicite régulièrement
-          son avis (check-ins satisfaction/NPS) et calcule un score de santé pour repérer tôt un risque de désabonnement.
+          {t('customer.subtitle', locale)}
         </p>
       </header>
 
       {!supportDraftsLoading && supportDrafts.length > 0 && (
         <section className="support-inbox">
-          <h3>Suggestions de réponse support ({supportDrafts.length})</h3>
-          <p className="muted">Aaron a repéré ces messages clients comme nécessitant une réponse — relis et valide avant envoi.</p>
+          <h3>{t('customer.supportInboxTitle', locale).replace('{count}', supportDrafts.length)}</h3>
+          <p className="muted">{t('customer.supportInboxSubtitle', locale)}</p>
           <div className="support-list">
             {supportDrafts.map((draft) => (
               <div className="support-card" key={draft.id}>
@@ -317,14 +327,14 @@ export default function CustomerPage() {
                     onClick={() => handleSupportDraftAction(draft.id, 'ecarter')}
                     disabled={supportActionId === draft.id}
                   >
-                    Écarter
+                    {t('customer.dismiss', locale)}
                   </button>
                   <button
                     className="btn-primary"
                     onClick={() => handleSupportDraftAction(draft.id, 'envoyer')}
                     disabled={supportActionId === draft.id}
                   >
-                    {supportActionId === draft.id ? 'Envoi…' : 'Envoyer'}
+                    {supportActionId === draft.id ? t('customer.sending', locale) : t('customer.send', locale)}
                   </button>
                 </div>
               </div>
@@ -334,10 +344,10 @@ export default function CustomerPage() {
       )}
 
       {loading ? (
-        <p className="muted">Chargement…</p>
+        <p className="muted">{t('common.loading', locale)}</p>
       ) : customers.length === 0 ? (
         <p className="muted">
-          Aucun client gagné pour le moment — dès qu'une affaire du pipeline Aaron Sales sera signée, elle apparaîtra ici.
+          {t('customer.emptyList', locale)}
         </p>
       ) : (
         <div className="board-layout">
@@ -361,7 +371,7 @@ export default function CustomerPage() {
                   </div>
                   {customer.prospect_companies?.name && <span className="customer-company">{customer.prospect_companies.name}</span>}
                   <span className="customer-meta">
-                    Client depuis {daysSince(customer.won_at)} j
+                    {t('customer.clientSince', locale).replace('{days}', daysSince(customer.won_at))}
                     {customer.onboarding_status && (
                       <span className="onboarding-dot" style={{ background: ONBOARDING_META[customer.onboarding_status].color }}>
                         {ONBOARDING_META[customer.onboarding_status].label}
@@ -375,7 +385,7 @@ export default function CustomerPage() {
 
           <aside className="detail">
             {!selectedCustomer ? (
-              <p className="muted">Sélectionne un client pour voir son onboarding et son suivi.</p>
+              <p className="muted">{t('customer.selectPrompt', locale)}</p>
             ) : (
               <>
                 <h2>{selectedCustomer.full_name}</h2>
@@ -395,7 +405,7 @@ export default function CustomerPage() {
                 )}
 
                 <div className="stage-row">
-                  <label htmlFor="onboarding-select">Onboarding :</label>
+                  <label htmlFor="onboarding-select">{t('customer.onboardingLabel', locale)}</label>
                   <select
                     id="onboarding-select"
                     value={selectedCustomer.onboarding_status || 'a_demarrer'}
@@ -409,16 +419,16 @@ export default function CustomerPage() {
                 </div>
 
                 <section className="block">
-                  <h3>Plan d'onboarding & email de bienvenue</h3>
+                  <h3>{t('customer.onboardingPlanTitle', locale)}</h3>
 
                   {!onboarding && !selectedCustomer.onboarding_plan && (
                     <button className="btn-secondary" onClick={() => handleLoadOnboarding(selectedCustomer.id)} disabled={onboardingLoading}>
-                      {onboardingLoading ? 'Génération…' : "Générer le plan d'onboarding"}
+                      {onboardingLoading ? t('customer.generating', locale) : t('customer.generatePlan', locale)}
                     </button>
                   )}
                   {!onboarding && selectedCustomer.onboarding_plan && (
                     <button className="btn-secondary" onClick={() => handleLoadOnboarding(selectedCustomer.id)} disabled={onboardingLoading}>
-                      {onboardingLoading ? 'Chargement…' : 'Voir le plan'}
+                      {onboardingLoading ? t('common.loading', locale) : t('customer.viewPlan', locale)}
                     </button>
                   )}
                   {onboardingError && <p className="error">{onboardingError}</p>}
@@ -438,10 +448,10 @@ export default function CustomerPage() {
                       <p className="email-subject">{onboarding.welcome_email.subject}</p>
                       <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{onboarding.welcome_email.body}</p>
                       {selectedCustomer.welcome_email_sent_at ? (
-                        <p className="sent-note">✓ Envoyé le {new Date(selectedCustomer.welcome_email_sent_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}</p>
+                        <p className="sent-note">{t('customer.sentOn', locale).replace('{date}', new Date(selectedCustomer.welcome_email_sent_at).toLocaleDateString(locale, { dateStyle: 'medium' }))}</p>
                       ) : (
                         <button className="btn-primary" onClick={() => handleSendWelcome(selectedCustomer.id)} disabled={sendingWelcome}>
-                          {sendingWelcome ? 'Envoi…' : "Envoyer l'email de bienvenue au client"}
+                          {sendingWelcome ? t('customer.sending', locale) : t('customer.sendWelcomeEmail', locale)}
                         </button>
                       )}
                     </div>
@@ -449,25 +459,25 @@ export default function CustomerPage() {
                 </section>
 
                 <section className="block">
-                  <h3>Dernier check-in</h3>
+                  <h3>{t('customer.lastCheckinTitle', locale)}</h3>
                   {!selectedCustomer.latest_checkin ? (
-                    <p className="muted">Aucun check-in envoyé pour le moment — le premier part automatiquement ~3 semaines après la signature.</p>
+                    <p className="muted">{t('customer.noCheckinYet', locale)}</p>
                   ) : (
                     <div className="brief-box">
                       <p>
                         <strong>{CHECKIN_TYPE_LABELS[selectedCustomer.latest_checkin.type] || selectedCustomer.latest_checkin.type}</strong>
-                        {' — envoyé le '}
-                        {new Date(selectedCustomer.latest_checkin.sent_at).toLocaleDateString('fr-FR', { dateStyle: 'medium' })}
+                        {t('customer.sentOnSeparator', locale)}
+                        {new Date(selectedCustomer.latest_checkin.sent_at).toLocaleDateString(locale, { dateStyle: 'medium' })}
                       </p>
                       {selectedCustomer.latest_checkin.responded_at ? (
                         <>
-                          <p><strong>Note :</strong> {selectedCustomer.latest_checkin.response_score != null ? `${selectedCustomer.latest_checkin.response_score}/10` : 'non fournie'}</p>
+                          <p><strong>{t('customer.scoreLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_score != null ? `${selectedCustomer.latest_checkin.response_score}/10` : t('customer.notProvided', locale)}</p>
                           {selectedCustomer.latest_checkin.response_comment && (
-                            <p><strong>Commentaire :</strong> {selectedCustomer.latest_checkin.response_comment}</p>
+                            <p><strong>{t('customer.commentLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_comment}</p>
                           )}
                         </>
                       ) : (
-                        <p className="muted">En attente de réponse.</p>
+                        <p className="muted">{t('customer.awaitingResponse', locale)}</p>
                       )}
                     </div>
                   )}
@@ -475,20 +485,20 @@ export default function CustomerPage() {
 
                 {selectedCustomer.upsell_suggestion && !selectedCustomer.upsell_dismissed_at && (
                   <section className="block">
-                    <h3>Piste d'upsell</h3>
+                    <h3>{t('customer.upsellTitle', locale)}</h3>
                     <div className="brief-box">
                       <p>{selectedCustomer.upsell_suggestion}</p>
                     </div>
                     <button className="btn-secondary" onClick={() => handleDismissUpsell(selectedCustomer.id)}>
-                      Écarter
+                      {t('customer.dismiss', locale)}
                     </button>
                   </section>
                 )}
 
                 <section className="block">
-                  <h3>Renouvellement</h3>
+                  <h3>{t('customer.renewalTitle', locale)}</h3>
                   <div className="stage-row">
-                    <label htmlFor="renewal-date">Date de renouvellement :</label>
+                    <label htmlFor="renewal-date">{t('customer.renewalDateLabel', locale)}</label>
                     <input
                       id="renewal-date"
                       type="date"
@@ -497,30 +507,30 @@ export default function CustomerPage() {
                       className="date-input"
                     />
                     <button className="btn-secondary" onClick={() => handleSetRenewalDate(selectedCustomer.id)} disabled={renewalSaving}>
-                      {renewalSaving ? '…' : 'Enregistrer'}
+                      {renewalSaving ? '…' : t('common.save', locale)}
                     </button>
                   </div>
 
                   {selectedCustomer.contract_renewal_date && (
                     <>
                       {selectedCustomer.renewal_email_sent_at ? (
-                        <p className="sent-note">✓ Email de renouvellement envoyé</p>
+                        <p className="sent-note">{t('customer.renewalEmailSent', locale)}</p>
                       ) : selectedCustomer.renewal_email_subject ? (
                         <div className="email-preview">
                           <p className="email-subject">{selectedCustomer.renewal_email_subject}</p>
                           <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.renewal_email_body}</p>
                           {renewalError && <p className="error">{renewalError}</p>}
                           <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, true)} disabled={renewalLoading}>
-                            {renewalLoading ? 'Régénération…' : 'Régénérer'}
+                            {renewalLoading ? t('customer.regenerating', locale) : t('customer.regenerate', locale)}
                           </button>
                           <button className="btn-primary" onClick={() => handleSendRenewal(selectedCustomer.id)} disabled={sendingRenewal}>
-                            {sendingRenewal ? 'Envoi…' : "Envoyer au client"}
+                            {sendingRenewal ? t('customer.sending', locale) : t('customer.sendToCustomer', locale)}
                           </button>
                         </div>
                       ) : (
                         <>
                           <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, false)} disabled={renewalLoading}>
-                            {renewalLoading ? 'Génération…' : "Générer l'email de relance"}
+                            {renewalLoading ? t('customer.generating', locale) : t('customer.generateRenewalEmail', locale)}
                           </button>
                           {renewalError && <p className="error">{renewalError}</p>}
                         </>
@@ -530,26 +540,26 @@ export default function CustomerPage() {
                 </section>
 
                 <section className="block">
-                  <h3>Demande de témoignage</h3>
+                  <h3>{t('customer.testimonialTitle', locale)}</h3>
                   {selectedCustomer.testimonial_email_sent_at ? (
-                    <p className="sent-note">✓ Demande envoyée</p>
+                    <p className="sent-note">{t('customer.testimonialSent', locale)}</p>
                   ) : selectedCustomer.testimonial_email_subject ? (
                     <div className="email-preview">
                       <p className="email-subject">{selectedCustomer.testimonial_email_subject}</p>
                       <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.testimonial_email_body}</p>
                       {testimonialError && <p className="error">{testimonialError}</p>}
                       <button className="btn-secondary" onClick={() => handleGenerateTestimonial(selectedCustomer.id, true)} disabled={testimonialLoading}>
-                        {testimonialLoading ? 'Régénération…' : 'Régénérer'}
+                        {testimonialLoading ? t('customer.regenerating', locale) : t('customer.regenerate', locale)}
                       </button>
                       <button className="btn-primary" onClick={() => handleSendTestimonial(selectedCustomer.id)} disabled={sendingTestimonial}>
-                        {sendingTestimonial ? 'Envoi…' : 'Envoyer au client'}
+                        {sendingTestimonial ? t('customer.sending', locale) : t('customer.sendToCustomer', locale)}
                       </button>
                     </div>
                   ) : (
                     <>
-                      <p className="muted">Générée automatiquement quand un client répond très positivement à un check-in — ou génère-la ici manuellement.</p>
+                      <p className="muted">{t('customer.testimonialAutoInfo', locale)}</p>
                       <button className="btn-secondary" onClick={() => handleGenerateTestimonial(selectedCustomer.id, false)} disabled={testimonialLoading}>
-                        {testimonialLoading ? 'Génération…' : 'Générer la demande'}
+                        {testimonialLoading ? t('customer.generating', locale) : t('customer.generateTestimonialRequest', locale)}
                       </button>
                       {testimonialError && <p className="error">{testimonialError}</p>}
                     </>
