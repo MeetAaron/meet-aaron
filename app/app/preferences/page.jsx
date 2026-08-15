@@ -230,6 +230,7 @@ export default function PreferencesPage() {
         notify_channel: prefs.notify_channel,
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
         require_first_email_approval: prefs.require_first_email_approval,
+        daily_prospecting_email_cap: prefs.daily_prospecting_email_cap,
         collaboration_level: prefs.collaboration_level,
         offer: prefs.offer,
         crm_provider: prefs.crm_provider,
@@ -443,6 +444,24 @@ export default function PreferencesPage() {
               Par défaut, Aaron envoie directement le tout premier email à un nouveau prospect. Active la validation
               pour relire (et modifier si besoin) chaque premier email avant qu'il ne parte — les relances suivantes
               restent automatiques dans les deux cas.
+            </p>
+          </div>
+
+          <div className="field">
+            <label>Plafond quotidien d'emails de prospection</label>
+            <input
+              type="number"
+              min={1}
+              max={2000}
+              className="cap-input"
+              value={prefs.daily_prospecting_email_cap}
+              onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
+            />
+            <p className="collab-extra-hint">
+              Protège la réputation de votre boîte mail : au-delà de ce nombre d'envois de prospection par jour
+              (premiers contacts + relances automatiques), Aaron met le reste en attente et reprend le lendemain.
+              40/jour est un plafond prudent pour une boîte déjà en usage normal — baissez-le si votre domaine est
+              récent, ou vérifiez la configuration SPF/DMARC dans Connexions avant de le monter.
             </p>
           </div>
 
@@ -758,6 +777,17 @@ export default function PreferencesPage() {
         }
         select, textarea {
           width: 100%;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+        }
+        .cap-input {
+          width: 100%;
+          max-width: 140px;
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 8px;
