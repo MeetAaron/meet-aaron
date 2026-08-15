@@ -58,12 +58,20 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
 
   const { data: candidateProspects } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, assigned_user_id, conversations(id, messages(id))')
+    .select('id, email, assigned_user_id, pending_first_email_subject, conversations(id, messages(id))')
     .in('prospect_company_id', companyIds.length > 0 ? companyIds : ['00000000-0000-0000-0000-000000000000']);
 
   // Vraiment "jamais contacté" = aucun message dans aucune de ses
-  // conversations — voir la note en tête de fichier.
+  // conversations — voir la note en tête de fichier. ET pas déjà un premier
+  // email en attente de validation (voir requireApproval ci-dessus) : sans ce
+  // second filtre, un prospect en attente de relecture n'a toujours aucun
+  // message inséré, donc il repasserait "nouveau" à CHAQUE cycle de 10 min —
+  // générant un nouvel appel Claude et une nouvelle notification push à
+  // chaque fois tant que le commercial n'a pas validé (bug trouvé lors de la
+  // relecture de cette fonctionnalité, corrigé avant tout déploiement en
+  // production).
   const newProspects = (candidateProspects || []).filter((p: any) => {
+    if (p.pending_first_email_subject) return false;
     const totalMessages = (p.conversations || []).reduce(
       (sum: number, c: any) => sum + (c.messages?.length || 0),
       0
