@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       const channel = user.notify_channel || 'email';
 
       if (channel === 'email' || channel === 'both') {
-        await sendEmailForUser(user.id, user.email, title, `${body}\n\nVoir le suivi client Aaron Customer : ${process.env.APP_URL || ''}${url}`);
+        await sendEmailForUser(user.id, user.email, title, `${body}\n\nVoir le suivi client Aaron Client : ${process.env.APP_URL || ''}${url}`);
       }
       if (channel === 'push' || channel === 'both') {
         await sendPushNotification(user.id, { title, body, url });
