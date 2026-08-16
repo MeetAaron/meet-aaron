@@ -101,6 +101,7 @@ function crmProvidersFor(locale) {
     { value: 'hubspot', label: 'HubSpot' },
     { value: 'pipedrive', label: 'Pipedrive' },
     { value: 'axonaut', label: 'Axonaut' },
+    { value: 'sellsy', label: 'Sellsy' },
     { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
   ];
 }
@@ -604,7 +605,7 @@ export default function PreferencesPage() {
                       {t('preferences.crm.setupHint', locale)}
                     </p>
 
-                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut'].includes(prefs.crm_provider) && (
+                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy'].includes(prefs.crm_provider) && (
                       // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
                       // elle-même (connecter/déconnecter/synchroniser) se gère
                       // désormais depuis Connexions, nouvelle catégorie "CRMs et
