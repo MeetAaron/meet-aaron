@@ -81,6 +81,18 @@ export default function ConnexionsPage() {
   const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // CHANGEMENTS A FAIRE #90 (2026-08-16) : nouvelle catégorie "CRMs et bases de
+  // données" — la connexion HubSpot (connecter/déconnecter/synchroniser),
+  // auparavant dans Préférences, vit maintenant ici avec les autres connexions
+  // de comptes tiers. Le choix du fournisseur CRM et le niveau de collaboration
+  // restent dans Préférences (voir item #30).
+  const [crmProvider, setCrmProvider] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [crmConnections, setCrmConnections] = useState([]);
+  const [crmSyncing, setCrmSyncing] = useState(false);
+  const [crmSyncResult, setCrmSyncResult] = useState(null);
+  const [crmError, setCrmError] = useState(null);
+
   async function load() {
     setLoading(true);
     const res = await fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json());
@@ -96,13 +108,30 @@ export default function ConnexionsPage() {
       .catch(() => {});
   }
 
+  function loadCrmConnections() {
+    fetch('/api/crm-connections')
+      .then((r) => r.json())
+      .then((res) => setCrmConnections(res.connections || []))
+      .catch(() => {});
+  }
+
   useEffect(() => {
     if (!userId) return;
     load();
+    loadCrmConnections();
+    fetch(`/api/preferences?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setCrmProvider(res.preferences?.crm_provider || null);
+        setUserRole(res.preferences?.role || null);
+      })
+      .catch(() => {});
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get('oauth_success') || params.get('oauth_error')) {
-      window.history.replaceState({}, '', window.location.pathname + window.location.search.split('&')[0]);
+    const crmOauthError = params.get('crm_oauth_error');
+    if (crmOauthError) setCrmError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', crmOauthError));
+    if (params.get('oauth_success') || params.get('oauth_error') || crmOauthError || params.get('crm_oauth_success')) {
+      window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
   }, [userId]);
 
@@ -110,6 +139,43 @@ export default function ConnexionsPage() {
     if (!confirm(t('connexions.disconnectConfirm', locale))) return;
     await fetch(`/api/oauth-connections?connection_id=${connectionId}&user_id=${userId}`, { method: 'DELETE' });
     load();
+  }
+
+  // Même schéma que connectProvider ci-dessous (navigation complète, pas
+  // fetch) — /api/auth/hubspot déclenche une redirection OAuth externe.
+  async function handleConnectHubspot() {
+    setCrmError(null);
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (!session) {
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/hubspot?token=${encodeURIComponent(session.access_token)}`;
+  }
+
+  async function handleDisconnectHubspot() {
+    if (!confirm(t('preferences.crm.disconnectConfirm', locale))) return;
+    await fetch('/api/crm-connections?provider=hubspot', { method: 'DELETE' });
+    loadCrmConnections();
+  }
+
+  async function handleSyncHubspot() {
+    setCrmSyncing(true);
+    setCrmSyncResult(null);
+    setCrmError(null);
+    try {
+      const res = await fetch('/api/crm-connections/sync', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setCrmError(body.error || t('common.error', locale));
+        return;
+      }
+      setCrmSyncResult(body);
+    } catch (err) {
+      setCrmError(t('common.error', locale));
+    } finally {
+      setCrmSyncing(false);
+    }
   }
 
   // /api/auth/google et /api/auth/microsoft sont atteintes par navigation complète
@@ -180,24 +246,49 @@ export default function ConnexionsPage() {
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
-        <div className="cards">
-          <ConnectionCard
-            title={PROVIDER_META.google.name}
-            desc={PROVIDER_META.google.desc}
-            connection={googleConnection}
-            health={emailHealth.find((h) => h.provider === 'google')}
-            onConnect={() => connectProvider('google')}
-            onDisconnect={() => handleDisconnect(googleConnection.id)}
-          />
-          <ConnectionCard
-            title={PROVIDER_META.microsoft.name}
-            desc={PROVIDER_META.microsoft.desc}
-            connection={microsoftConnection}
-            health={emailHealth.find((h) => h.provider === 'microsoft')}
-            onConnect={() => connectProvider('microsoft')}
-            onDisconnect={() => handleDisconnect(microsoftConnection.id)}
-          />
-        </div>
+        <>
+          <div className="cards">
+            <ConnectionCard
+              title={PROVIDER_META.google.name}
+              desc={PROVIDER_META.google.desc}
+              connection={googleConnection}
+              health={emailHealth.find((h) => h.provider === 'google')}
+              onConnect={() => connectProvider('google')}
+              onDisconnect={() => handleDisconnect(googleConnection.id)}
+            />
+            <ConnectionCard
+              title={PROVIDER_META.microsoft.name}
+              desc={PROVIDER_META.microsoft.desc}
+              connection={microsoftConnection}
+              health={emailHealth.find((h) => h.provider === 'microsoft')}
+              onConnect={() => connectProvider('microsoft')}
+              onDisconnect={() => handleDisconnect(microsoftConnection.id)}
+            />
+          </div>
+
+          <h2 className="category-title">{t('connexions.crmCategoryTitle', locale)}</h2>
+          <div className="cards">
+            {crmProvider === 'hubspot' ? (
+              <CrmConnectionCard
+                title="HubSpot"
+                desc={t('connexions.hubspotDesc', locale)}
+                connected={crmConnections.some((c) => c.provider === 'hubspot')}
+                canManage={userRole === 'patron'}
+                onConnect={handleConnectHubspot}
+                onDisconnect={handleDisconnectHubspot}
+                onSync={handleSyncHubspot}
+                syncing={crmSyncing}
+                syncResult={crmSyncResult}
+                error={crmError}
+              />
+            ) : (
+              <EmptyState
+                title={t('connexions.noCrmSelectedTitle', locale)}
+                body={t('connexions.noCrmSelectedBody', locale)}
+              />
+            )}
+          </div>
+        </>
       )}
 
       <style jsx>{`
@@ -228,11 +319,140 @@ export default function ConnexionsPage() {
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           gap: 1rem;
         }
+        .cards + .category-title {
+          margin-top: 2rem;
+        }
+        .category-title {
+          font-family: var(--font-display);
+          font-size: 1.15rem;
+          margin: 2rem 0 1rem;
+        }
         .muted {
           color: var(--muted);
         }
       `}</style>
     </Shell>
+  );
+}
+
+function CrmConnectionCard({ title, desc, connected, canManage, onConnect, onDisconnect, onSync, syncing, syncResult, error }) {
+  const [locale] = useLocale();
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>{title}</h3>
+        <span className={`status-dot ${connected ? 'on' : 'off'}`} />
+      </div>
+      <p className="desc">{desc}</p>
+      {error && <p className="crm-error">{error}</p>}
+      {!canManage ? (
+        <p className="crm-hint">{t('connexions.crmManagerOnlyHint', locale)}</p>
+      ) : connected ? (
+        <>
+          <p className="account">{t('preferences.crm.hubspotConnectedMsg', locale)}</p>
+          <div className="card-actions">
+            <button type="button" className="btn-secondary" onClick={onSync} disabled={syncing}>
+              {syncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
+            </button>
+            <button type="button" className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
+          </div>
+          {syncResult && (
+            <p className="crm-hint">
+              {t('preferences.crm.syncResultSynced', locale).replace('{count}', syncResult.synced)}
+              {syncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', syncResult.failed.length)}
+              {syncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <button type="button" className="btn-primary" onClick={onConnect}>{t('preferences.crm.connectHubspotButton', locale)}</button>
+          <p className="crm-hint">{t('preferences.crm.connectHubspotHint', locale)}</p>
+        </>
+      )}
+      <style jsx>{`
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.3rem;
+        }
+        .card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+        .card-head h3 {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+        }
+        .status-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+        }
+        .status-dot.on {
+          background: var(--accent-green);
+        }
+        .status-dot.off {
+          background: var(--muted);
+        }
+        .desc {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0 0 1rem;
+        }
+        .account {
+          font-size: 0.86rem;
+          margin: 0 0 0.7rem;
+        }
+        .card-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.6rem;
+        }
+        .crm-hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0.7rem 0 0;
+        }
+        .crm-error {
+          color: #e5484d;
+          font-size: 0.82rem;
+          margin: 0 0 0.7rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid #e5484d;
+          color: #e5484d;
+          border-radius: 8px;
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
   );
 }
 
