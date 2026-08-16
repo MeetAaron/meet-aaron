@@ -1463,60 +1463,146 @@ function Shell({ children, active, userId }) {
       </nav>
       <main className="content">{children}</main>
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
         :root {
-          --bg: #0b0e1a;
-          --surface: #131629;
+          --bg: #0a0c17;
+          --bg-elevated: #0f1224;
+          --surface: #12162a;
+          --surface-hover: #171b34;
           --border: #232744;
+          --border-soft: rgba(244, 241, 234, 0.07);
           --accent: #4b39ef;
+          --accent-light: #7c6ef5;
+          --accent-dark: #3627c0;
+          --accent-glow: rgba(75, 57, 239, 0.4);
           --accent-green: #3dd68c;
+          --accent-red: #ef4459;
+          --accent-amber: #f5a623;
           --text: #f4f1ea;
           --muted: #8b90a8;
+          --muted-soft: #666b85;
+          --radius-sm: 8px;
+          --radius-md: 12px;
+          --radius-lg: 16px;
+          --radius-xl: 24px;
+          --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+          --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+          --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+          --shadow-glow: 0 0 0 1px rgba(75, 57, 239, 0.2), 0 8px 32px rgba(75, 57, 239, 0.22);
+          --ease: cubic-bezier(0.4, 0, 0.2, 1);
+          --fast: 0.15s var(--ease);
+          --normal: 0.25s var(--ease);
           --font-display: 'Space Grotesk', sans-serif;
           --font-body: 'Inter', sans-serif;
           --font-mono: 'IBM Plex Mono', monospace;
+        }
+        html {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
         }
         body {
           background: var(--bg);
           color: var(--text);
           font-family: var(--font-body);
+          position: relative;
+        }
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          pointer-events: none;
+          background:
+            radial-gradient(720px circle at 8% -6%, rgba(75, 57, 239, 0.16), transparent 60%),
+            radial-gradient(640px circle at 96% 8%, rgba(61, 214, 140, 0.08), transparent 55%),
+            radial-gradient(900px circle at 50% 118%, rgba(75, 57, 239, 0.1), transparent 60%);
+        }
+        ::selection {
+          background: var(--accent);
+          color: #fff;
+        }
+        ::-webkit-scrollbar {
+          width: 10px;
+          height: 10px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: var(--border);
+          border-radius: 8px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: var(--accent-dark);
+          background-clip: padding-box;
+        }
+        * {
+          scrollbar-color: var(--border) transparent;
+          scrollbar-width: thin;
+        }
+        a:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible,
+        [tabindex]:focus-visible {
+          outline: 2px solid var(--accent-light);
+          outline-offset: 2px;
+          border-radius: var(--radius-sm);
         }
       `}</style>
       <style jsx>{`
         .shell {
           display: grid;
-          grid-template-columns: 240px 1fr;
+          grid-template-columns: 252px 1fr;
           min-height: 100vh;
         }
         .sidebar {
-          background: var(--surface);
-          border-right: 1px solid var(--border);
-          padding: 1.5rem 1.2rem;
+          background: linear-gradient(180deg, var(--surface) 0%, var(--bg-elevated) 100%);
+          border-right: 1px solid var(--border-soft);
+          padding: 1.6rem 1.1rem;
+          box-shadow: 1px 0 0 rgba(0, 0, 0, 0.15);
         }
         .brand {
           display: flex;
           align-items: center;
-          gap: 0.6rem;
+          gap: 0.65rem;
           font-family: var(--font-display);
           font-weight: 600;
-          margin-bottom: 2rem;
+          letter-spacing: 0.01em;
+          margin-bottom: 1.8rem;
+          padding: 0 0.3rem;
+        }
+        .brand span {
+          background: linear-gradient(90deg, var(--text) 20%, var(--accent-light) 120%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
         }
         .brand-mark {
-          width: 30px;
-          height: 30px;
-          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          box-shadow: 0 0 0 1px rgba(244, 241, 234, 0.08), 0 4px 14px rgba(75, 57, 239, 0.35);
         }
         .lang-switcher {
           width: 100%;
-          background: var(--bg);
-          border: 1px solid var(--border);
+          background: var(--bg-elevated);
+          border: 1px solid var(--border-soft);
           color: var(--muted);
-          border-radius: 8px;
-          padding: 0.4rem 0.5rem;
+          border-radius: var(--radius-md);
+          padding: 0.5rem 0.6rem;
           font-size: 0.76rem;
           font-family: inherit;
-          margin-bottom: 1.2rem;
+          margin-bottom: 1.3rem;
           cursor: pointer;
+          transition: border-color var(--fast), color var(--fast);
+        }
+        .lang-switcher:hover {
+          border-color: var(--accent);
+          color: var(--text);
         }
         .nav-list {
           list-style: none;
@@ -1524,34 +1610,66 @@ function Shell({ children, active, userId }) {
           padding: 0;
           display: flex;
           flex-direction: column;
-          gap: 0.15rem;
+          gap: 0.2rem;
         }
         .nav-link {
           text-decoration: none;
         }
         .nav-list li {
-          padding: 0.6rem 0.7rem;
-          border-radius: 8px;
-          font-size: 0.88rem;
+          position: relative;
+          padding: 0.62rem 0.75rem;
+          border-radius: var(--radius-md);
+          font-size: 0.87rem;
           color: var(--muted);
           cursor: pointer;
           display: flex;
           align-items: center;
-          gap: 0.6rem;
+          gap: 0.65rem;
+          transition: background var(--fast), color var(--fast), transform var(--fast);
+        }
+        .nav-list li:hover {
+          background: var(--surface-hover);
+          color: var(--text);
+          transform: translateX(2px);
         }
         .nav-icon {
-          font-size: 0.95rem;
-          width: 1.1em;
-          text-align: center;
+          font-size: 0.92rem;
+          width: 1.75em;
+          height: 1.75em;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: var(--radius-sm);
+          background: rgba(244, 241, 234, 0.04);
           flex-shrink: 0;
+          transition: background var(--fast);
         }
         .nav-list li.active {
-          background: rgba(75, 57, 239, 0.18);
+          background: linear-gradient(90deg, rgba(75, 57, 239, 0.22), rgba(75, 57, 239, 0.08));
           color: var(--text);
           font-weight: 500;
         }
+        .nav-list li.active::before {
+          content: '';
+          position: absolute;
+          left: -1.1rem;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 3px;
+          height: 60%;
+          border-radius: 0 4px 4px 0;
+          background: var(--accent-light);
+          box-shadow: 0 0 10px var(--accent-glow);
+        }
+        .nav-list li.active .nav-icon {
+          background: rgba(124, 110, 245, 0.22);
+        }
         .nav-list li.locked {
-          opacity: 0.45;
+          opacity: 0.4;
+        }
+        .nav-list li.locked:hover {
+          transform: none;
+          background: transparent;
         }
         .lock-badge {
           margin-left: auto;
@@ -1559,6 +1677,17 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          animation: content-in 0.35s var(--ease);
+        }
+        @keyframes content-in {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
         .mobile-menu-btn {
           display: none;
@@ -1579,13 +1708,18 @@ function Shell({ children, active, userId }) {
             top: 1rem;
             left: 1rem;
             z-index: 60;
-            width: 38px;
-            height: 38px;
+            width: 40px;
+            height: 40px;
             background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            border: 1px solid var(--border-soft);
+            border-radius: var(--radius-md);
             cursor: pointer;
             padding: 0;
+            box-shadow: var(--shadow-sm);
+            transition: border-color var(--fast);
+          }
+          .mobile-menu-btn:hover {
+            border-color: var(--accent);
           }
           .mobile-menu-btn .bar {
             display: block;
@@ -1600,21 +1734,22 @@ function Shell({ children, active, userId }) {
             top: 0;
             left: 0;
             bottom: 0;
-            width: 240px;
+            width: 260px;
             transform: translateX(-100%);
-            transition: transform 0.25s ease;
+            transition: transform 0.25s var(--ease);
             z-index: 70;
             overflow-y: auto;
           }
           .sidebar.open {
             transform: translateX(0);
-            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+            box-shadow: 4px 0 32px rgba(0, 0, 0, 0.5);
           }
           .sidebar-overlay {
             display: block;
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(5, 6, 12, 0.6);
+            backdrop-filter: blur(2px);
             z-index: 65;
           }
           .content {
