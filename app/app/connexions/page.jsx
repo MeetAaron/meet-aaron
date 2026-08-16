@@ -73,10 +73,27 @@ function providerMetaFor(locale) {
   };
 }
 
+// CHANGEMENTS A FAIRE (2026-08-16) : CRM à connexion directe (OAuth) — HubSpot
+// existait déjà, ajout de Salesforce et Pipedrive (même flux OAuth générique,
+// voir handleConnectCrm/handleDisconnectCrm/handleSyncCrm ci-dessous). Divalto
+// n'est pas dans cette liste : son architecture n'a pas de connexion OAuth
+// centralisée (chaque client a son propre tenant), il aura une carte dédiée à
+// part (formulaire 4 champs), pas encore construite à ce jour.
+const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive'];
+
+function crmMetaFor(locale) {
+  return {
+    hubspot: { name: 'HubSpot', desc: t('connexions.hubspotDesc', locale) },
+    salesforce: { name: 'Salesforce', desc: t('connexions.salesforceDesc', locale) },
+    pipedrive: { name: 'Pipedrive', desc: t('connexions.pipedriveDesc', locale) },
+  };
+}
+
 export default function ConnexionsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
   const PROVIDER_META = providerMetaFor(locale);
+  const CRM_META = crmMetaFor(locale);
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,29 +159,36 @@ export default function ConnexionsPage() {
   }
 
   // Même schéma que connectProvider ci-dessous (navigation complète, pas
-  // fetch) — /api/auth/hubspot déclenche une redirection OAuth externe.
-  async function handleConnectHubspot() {
+  // fetch) — /api/auth/<provider> déclenche une redirection OAuth externe.
+  // CHANGEMENTS A FAIRE (2026-08-16) : généralisé de handleConnectHubspot à
+  // handleConnectCrm(provider) pour supporter aussi Salesforce et Pipedrive
+  // (même flux OAuth, seule l'URL de démarrage change).
+  async function handleConnectCrm(provider) {
     setCrmError(null);
     const { data: { session } } = await supabaseBrowser.auth.getSession();
     if (!session) {
       window.location.href = '/login';
       return;
     }
-    window.location.href = `/api/auth/hubspot?token=${encodeURIComponent(session.access_token)}`;
+    window.location.href = `/api/auth/${provider}?token=${encodeURIComponent(session.access_token)}`;
   }
 
-  async function handleDisconnectHubspot() {
-    if (!confirm(t('preferences.crm.disconnectConfirm', locale))) return;
-    await fetch('/api/crm-connections?provider=hubspot', { method: 'DELETE' });
+  async function handleDisconnectCrm(provider) {
+    if (!confirm(t('preferences.crm.disconnectConfirmTemplate', locale).replace('{provider}', CRM_META[provider]?.name || provider))) return;
+    await fetch(`/api/crm-connections?provider=${provider}`, { method: 'DELETE' });
     loadCrmConnections();
   }
 
-  async function handleSyncHubspot() {
+  async function handleSyncCrm(provider) {
     setCrmSyncing(true);
     setCrmSyncResult(null);
     setCrmError(null);
     try {
-      const res = await fetch('/api/crm-connections/sync', { method: 'POST' });
+      const res = await fetch('/api/crm-connections/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
       const body = await res.json();
       if (!res.ok) {
         setCrmError(body.error || t('common.error', locale));
@@ -268,15 +292,16 @@ export default function ConnexionsPage() {
 
           <h2 className="category-title">{t('connexions.crmCategoryTitle', locale)}</h2>
           <div className="cards">
-            {crmProvider === 'hubspot' ? (
+            {DIRECT_CRM_PROVIDERS.includes(crmProvider) ? (
               <CrmConnectionCard
-                title="HubSpot"
-                desc={t('connexions.hubspotDesc', locale)}
-                connected={crmConnections.some((c) => c.provider === 'hubspot')}
+                provider={crmProvider}
+                title={CRM_META[crmProvider].name}
+                desc={CRM_META[crmProvider].desc}
+                connected={crmConnections.some((c) => c.provider === crmProvider)}
                 canManage={userRole === 'patron'}
-                onConnect={handleConnectHubspot}
-                onDisconnect={handleDisconnectHubspot}
-                onSync={handleSyncHubspot}
+                onConnect={() => handleConnectCrm(crmProvider)}
+                onDisconnect={() => handleDisconnectCrm(crmProvider)}
+                onSync={() => handleSyncCrm(crmProvider)}
                 syncing={crmSyncing}
                 syncResult={crmSyncResult}
                 error={crmError}
@@ -335,7 +360,7 @@ export default function ConnexionsPage() {
   );
 }
 
-function CrmConnectionCard({ title, desc, connected, canManage, onConnect, onDisconnect, onSync, syncing, syncResult, error }) {
+function CrmConnectionCard({ provider, title, desc, connected, canManage, onConnect, onDisconnect, onSync, syncing, syncResult, error }) {
   const [locale] = useLocale();
   return (
     <div className="card">
@@ -349,7 +374,7 @@ function CrmConnectionCard({ title, desc, connected, canManage, onConnect, onDis
         <p className="crm-hint">{t('connexions.crmManagerOnlyHint', locale)}</p>
       ) : connected ? (
         <>
-          <p className="account">{t('preferences.crm.hubspotConnectedMsg', locale)}</p>
+          <p className="account">{t('preferences.crm.connectedMsgTemplate', locale).replace('{provider}', title)}</p>
           <div className="card-actions">
             <button type="button" className="btn-secondary" onClick={onSync} disabled={syncing}>
               {syncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
@@ -358,7 +383,7 @@ function CrmConnectionCard({ title, desc, connected, canManage, onConnect, onDis
           </div>
           {syncResult && (
             <p className="crm-hint">
-              {t('preferences.crm.syncResultSynced', locale).replace('{count}', syncResult.synced)}
+              {t('preferences.crm.syncResultSyncedTemplate', locale).replace('{count}', syncResult.synced).replace('{provider}', title)}
               {syncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', syncResult.failed.length)}
               {syncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
             </p>
@@ -366,8 +391,8 @@ function CrmConnectionCard({ title, desc, connected, canManage, onConnect, onDis
         </>
       ) : (
         <>
-          <button type="button" className="btn-primary" onClick={onConnect}>{t('preferences.crm.connectHubspotButton', locale)}</button>
-          <p className="crm-hint">{t('preferences.crm.connectHubspotHint', locale)}</p>
+          <button type="button" className="btn-primary" onClick={onConnect}>{t('preferences.crm.connectButtonTemplate', locale).replace('{provider}', title)}</button>
+          <p className="crm-hint">{t('preferences.crm.connectHintTemplate', locale).replace('{provider}', title)}</p>
         </>
       )}
       <style jsx>{`
