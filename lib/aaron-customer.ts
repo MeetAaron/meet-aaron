@@ -13,6 +13,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
+import { localeInstruction, normalizeLocale } from './locale-instruction';
 
 export interface OnboardingPlan {
   plan: { titre: string; description: string }[];
@@ -50,7 +51,7 @@ async function loadWonProspect(prospectId: string) {
     .from('prospects')
     .select(
       `id, full_name, email, job_title, company_id, is_won, assigned_user_id,
-       prospect_company_id, prospect_companies (name, domain)`
+       prospect_company_id, prospect_companies (name, domain), users (locale)`
     )
     .eq('id', prospectId)
     .single();
@@ -59,6 +60,16 @@ async function loadWonProspect(prospectId: string) {
   if (!prospect.is_won) throw new Error("Ce prospect n'est pas (encore) un client gagné");
 
   return prospect;
+}
+
+// Langue du commercial en charge du client — utilisée comme repère par
+// défaut pour tout le contenu généré par Aaron Customer (emails au client,
+// suggestions internes) : le client n'a pas de langue connue côté Meet
+// Aaron (contrairement au prospect, dont on peut détecter la langue dans
+// l'historique de conversation via lib/aaron.ts), donc on retombe sur celle
+// du commercial qui gère la relation. Voir lib/locale-instruction.ts.
+function prospectLocale(prospect: any): string {
+  return normalizeLocale(prospect?.users?.locale);
 }
 
 function parseJsonResponse<T>(data: any, errorLabel: string): T {
@@ -83,6 +94,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
   const prospect = await loadWonProspect(prospectId);
   const companyId = prospect.company_id;
   const societe = (prospect as any).prospect_companies?.name;
+  const locale = prospectLocale(prospect);
 
   // CHANGEMENTS A FAIRE #89 : ne retient que les documents pris en compte
   // par Aaron et rattachés au module Client — "général" (NULL/'general')
@@ -119,10 +131,11 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
           role: 'user',
           content:
             `Tu es Aaron, copilote commercial IA. Le commercial vient de signer un nouveau client : ` +
-            `"${prospect.full_name}"${societe ? ` (${societe})` : ''}. Aide-le à bien démarrer la relation.\n` +
+            `"${prospect.full_name}"${societe ? ` (${societe})` : ''}. Aide-le à bien démarrer la relation. ` +
+            `Rédige tout ce qui suit (plan ET email) ${localeInstruction(locale)}.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"plan": [{"titre": "étape courte (3-5 mots)", "description": "1 phrase expliquant quoi faire concrètement"}], ` +
-            `"welcome_email": {"subject": "objet de l'email de bienvenue", "body": "corps de l'email, ton chaleureux et professionnel, en français, sans balises HTML"}}\n` +
+            `"welcome_email": {"subject": "objet de l'email de bienvenue", "body": "corps de l'email, ton chaleureux et professionnel, ${localeInstruction(locale)}, sans balises HTML"}}\n` +
             `Le plan doit contenir entre 4 et 6 étapes concrètes d'onboarding (ex: envoyer les accès, planifier un call de kickoff, ` +
             `présenter les prochaines étapes, envoyer la documentation). Adapte le contenu au contexte fourni si disponible, ` +
             `sinon reste générique mais concret.\n\n` +
@@ -183,6 +196,7 @@ const FALLBACK_CHECKIN: Record<'nps' | 'satisfaction', CheckinMessage> = {
 export async function generateCheckinMessage(prospectId: string, type: 'nps' | 'satisfaction'): Promise<CheckinMessage> {
   const prospect = await loadWonProspect(prospectId);
   const fallback = FALLBACK_CHECKIN[type];
+  const locale = prospectLocale(prospect);
 
   try {
     const data = await callClaude(
@@ -198,7 +212,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
               `${type === 'nps' ? '(probabilité de recommandation)' : '(satisfaction générale)'} et lui demander de répondre ` +
               `directement à cet email avec sa note et un mot d'explication.\n` +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux, en français, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux, ${localeInstruction(locale)}, sans balises HTML"}`,
           },
         ],
       },
@@ -266,6 +280,7 @@ const FALLBACK_RENEWAL: RenewalOutreach = {
 // pour ne jamais bloquer l'alerte au commercial.
 export async function generateRenewalOutreach(prospectId: string): Promise<RenewalOutreach> {
   const prospect = await loadWonProspect(prospectId);
+  const locale = prospectLocale(prospect);
 
   try {
     const data = await callClaude(
@@ -280,7 +295,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
               `échéance. Rédige un email court pour amorcer la discussion de renouvellement, ton chaleureux et ` +
               `professionnel, qui ouvre la porte à un échange plutôt que de présumer la réponse.\n` +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, en français, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ${localeInstruction(locale)}, sans balises HTML"}`,
           },
         ],
       },
@@ -302,6 +317,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
 export async function generateUpsellSuggestion(prospectId: string): Promise<string | null> {
   const prospect = await loadWonProspect(prospectId);
   const societe = (prospect as any).prospect_companies?.name;
+  const locale = prospectLocale(prospect);
 
   const { data: company } = await supabaseAdmin
     .from('companies')
@@ -324,7 +340,7 @@ export async function generateUpsellSuggestion(prospectId: string): Promise<stri
               (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
               `Suggère en 1-2 phrases courtes et concrètes une piste d'upsell ou de cross-sell pour ce client, ` +
               `que le commercial pourra explorer lors d'un prochain échange. Réponds uniquement avec cette suggestion, ` +
-              `en français, sans préambule.`,
+              `${localeInstruction(locale)}, sans préambule.`,
           },
         ],
       },
@@ -356,6 +372,7 @@ const FALLBACK_TESTIMONIAL: TestimonialRequest = {
 export async function generateTestimonialRequest(prospectId: string): Promise<TestimonialRequest> {
   const prospect = await loadWonProspect(prospectId);
   const fallback = FALLBACK_TESTIMONIAL;
+  const locale = prospectLocale(prospect);
 
   try {
     const data = await callClaude(
@@ -370,7 +387,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
               `note de satisfaction/recommandation. Rédige un email court demandant s'il accepterait de laisser un ` +
               `témoignage ou un avis sur son expérience, ton chaleureux et reconnaissant, sans être insistant.\n` +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, en français, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ${localeInstruction(locale)}, sans balises HTML"}`,
           },
         ],
       },
@@ -416,6 +433,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
   if (!trimmed) return { is_support_request: false, suggested_subject: null, suggested_body: null };
 
   const prospect = await loadWonProspect(prospectId);
+  const locale = prospectLocale(prospect);
 
   try {
     const data = await callClaude(
@@ -431,7 +449,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
               `Détermine si c'est une vraie demande nécessitant une réponse (question, problème, besoin d'aide, ` +
               `demande d'info) ou juste un message informatif/social ne nécessitant pas de suggestion (accusé de ` +
               `réception, remerciement simple, hors-sujet...).\n` +
-              `Si c'est une vraie demande, rédige une suggestion de réponse professionnelle et utile — mais SANS ` +
+              `Si c'est une vraie demande, rédige une suggestion de réponse professionnelle et utile (${localeInstruction(locale)}) — mais SANS ` +
               `inventer d'information technique ou de politique que tu ne connais pas ; si tu ne peux pas répondre ` +
               `sur le fond, propose une réponse qui accuse réception et indique que le commercial revient vers lui ` +
               `rapidement avec les détails.\n` +
