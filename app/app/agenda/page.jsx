@@ -303,8 +303,8 @@ export default function AgendaPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
+            background: var(--bg);
+            color: var(--muted);
             font-family: 'Inter', sans-serif;
           }
         `}</style>
@@ -322,8 +322,8 @@ export default function AgendaPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
+            background: var(--bg);
+            color: var(--accent-red);
             font-family: 'Inter', sans-serif;
             text-align: center;
             padding: 2rem;
@@ -660,7 +660,7 @@ export default function AgendaPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -691,7 +691,7 @@ export default function AgendaPage() {
         .list {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           overflow: hidden;
         }
         .row {
@@ -710,10 +710,10 @@ export default function AgendaPage() {
         }
         .row-info.clickable {
           cursor: pointer;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           margin: -0.3rem;
           padding: 0.3rem;
-          transition: background 0.15s ease;
+          transition: background var(--fast);
         }
         .row-info.clickable:hover {
           background: rgba(75, 57, 239, 0.1);
@@ -738,12 +738,12 @@ export default function AgendaPage() {
           color: #4b9ef0;
         }
         .type-badge.type-physique {
-          border-color: #3dd68c;
-          color: #3dd68c;
+          border-color: var(--accent-green);
+          color: var(--accent-green);
         }
         .type-badge.type-telephonique {
-          border-color: #f0914e;
-          color: #f0914e;
+          border-color: var(--accent-amber);
+          color: var(--accent-amber);
         }
         .meet-link {
           display: inline-block;
@@ -765,7 +765,7 @@ export default function AgendaPage() {
         }
         .btn-valid, .btn-neutral, .btn-danger {
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 0.9rem;
           font-size: 0.8rem;
           font-weight: 600;
@@ -781,8 +781,8 @@ export default function AgendaPage() {
         }
         .btn-danger {
           background: transparent;
-          border: 1px solid #e5484d;
-          color: #e5484d;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
         }
         .status-pill {
           border: 1px solid;
@@ -804,8 +804,8 @@ export default function AgendaPage() {
         }
         .conflict-box {
           background: var(--surface);
-          border: 1px solid #e5484d;
-          border-radius: 14px;
+          border: 1px solid var(--accent-red);
+          border-radius: var(--radius-lg);
           padding: 1.6rem;
           max-width: 420px;
           width: 100%;
@@ -813,7 +813,7 @@ export default function AgendaPage() {
         .conflict-title {
           font-weight: 600;
           margin: 0 0 0.8rem;
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .conflict-reasons {
           margin: 0 0 1rem;
@@ -836,7 +836,7 @@ export default function AgendaPage() {
         .calendar-block {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
         }
         .calendar-legend {
@@ -863,12 +863,12 @@ export default function AgendaPage() {
           background: var(--accent-green);
         }
         .legend-dot.blocked {
-          background: #e5484d;
+          background: var(--accent-red);
         }
         .day-detail {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 1rem 1.1rem;
           margin-top: 1rem;
         }
@@ -898,7 +898,7 @@ export default function AgendaPage() {
           width: 8px;
           height: 8px;
           border-radius: 50%;
-          background: #e5484d;
+          background: var(--accent-red);
           flex-shrink: 0;
         }
         .day-detail-actions {
@@ -911,7 +911,7 @@ export default function AgendaPage() {
         .panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.6rem;
           max-width: 720px;
         }
@@ -929,7 +929,7 @@ export default function AgendaPage() {
           gap: 0.8rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.9rem;
           font-size: 0.85rem;
         }
@@ -963,7 +963,7 @@ export default function AgendaPage() {
           padding: 0.2rem 0.4rem;
         }
         .btn-remove:hover {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .rule-form, .block-form {
           display: flex;
@@ -974,7 +974,7 @@ export default function AgendaPage() {
         .rule-form select, .rule-form input, .block-form input {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 0.7rem;
           color: var(--text);
           font-size: 0.84rem;
@@ -988,7 +988,7 @@ export default function AgendaPage() {
           font-size: 0.8rem;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.85rem;
           margin-top: 0.6rem;
         }
@@ -996,7 +996,7 @@ export default function AgendaPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 0.9rem;
           font-size: 0.8rem;
           cursor: pointer;
@@ -1132,7 +1132,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 600px;
           max-width: 100%;
@@ -1160,7 +1160,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.45rem 0.8rem;
           font-size: 0.8rem;
           cursor: pointer;
@@ -1170,7 +1170,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
           color: var(--muted);
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.84rem;
         }
         .detail-block {
@@ -1185,7 +1185,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
         .brief-box {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem;
           font-size: 0.82rem;
           line-height: 1.5;
@@ -1208,7 +1208,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
           overflow-y: auto;
         }
         .msg {
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 0.9rem;
           font-size: 0.82rem;
           border: 1px solid var(--border);
@@ -1510,7 +1510,7 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 440px;
           max-width: 100%;
@@ -1540,12 +1540,17 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
           gap: 0.4rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 1rem 0.6rem;
           color: var(--text);
           font-size: 0.82rem;
           font-weight: 600;
           cursor: pointer;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .kind-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .kind-icon {
           font-size: 1.3rem;
@@ -1587,14 +1592,14 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
         input, select {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.7rem;
           color: var(--text);
           font-size: 0.88rem;
           font-family: inherit;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
           margin: 0 0 0.8rem;
         }
@@ -1608,7 +1613,7 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
           background: var(--border);
           color: var(--text);
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           cursor: pointer;
@@ -1617,7 +1622,7 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
           background: var(--accent-green);
           color: #08130d;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           font-weight: 600;
@@ -1639,7 +1644,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
@@ -1753,7 +1758,7 @@ function MonthCalendar({ month, onChangeMonth, appointments, blocks, selectedDay
           background: transparent;
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           width: 28px;
           height: 28px;
           cursor: pointer;
@@ -1778,7 +1783,7 @@ function MonthCalendar({ month, onChangeMonth, appointments, blocks, selectedDay
           gap: 0.15rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           color: var(--text);
           font-size: 0.8rem;
           cursor: pointer;
@@ -1812,7 +1817,7 @@ function MonthCalendar({ month, onChangeMonth, appointments, blocks, selectedDay
           background: var(--accent-green);
         }
         .cal-dot.blocked {
-          background: #e5484d;
+          background: var(--accent-red);
         }
       `}</style>
     </div>
