@@ -81,11 +81,21 @@ function providerMetaFor(locale) {
 // part (formulaire 4 champs), pas encore construite à ce jour.
 const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive'];
 
+// Suite 15 (chantier CRM plus large, demandé par Alex — "on va integrer en
+// api tous les crm dont on a parlé") : Axonaut est le 1er CRM ajouté après
+// HubSpot/Salesforce/Pipedrive. Contrairement à ceux-ci, Axonaut n'a pas de
+// flux OAuth centralisé — authentification par clé API statique, une par
+// compte Axonaut (icône clé à molette -> API dans l'interface Axonaut). Carte
+// dédiée à part (ApiKeyCrmConnectionCard, formulaire 1 champ) plutôt que la
+// redirection OAuth de CrmConnectionCard — voir app/api/crm-connections/axonaut.
+const API_KEY_CRM_PROVIDERS = ['axonaut'];
+
 function crmMetaFor(locale) {
   return {
     hubspot: { name: 'HubSpot', desc: t('connexions.hubspotDesc', locale) },
     salesforce: { name: 'Salesforce', desc: t('connexions.salesforceDesc', locale) },
     pipedrive: { name: 'Pipedrive', desc: t('connexions.pipedriveDesc', locale) },
+    axonaut: { name: 'Axonaut', desc: t('connexions.axonautDesc', locale) },
   };
 }
 
@@ -109,6 +119,13 @@ export default function ConnexionsPage() {
   const [crmSyncing, setCrmSyncing] = useState(false);
   const [crmSyncResult, setCrmSyncResult] = useState(null);
   const [crmError, setCrmError] = useState(null);
+
+  // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et,
+  // à terme, les autres CRM sans OAuth centralisé traités selon le même
+  // patron). crmError/crmSyncResult/crmSyncing ci-dessus restent partagés une
+  // fois la connexion établie (déconnexion/synchro identiques à HubSpot & co).
+  const [axonautApiKeyInput, setAxonautApiKeyInput] = useState('');
+  const [axonautConnecting, setAxonautConnecting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -177,6 +194,36 @@ export default function ConnexionsPage() {
     if (!confirm(t('preferences.crm.disconnectConfirmTemplate', locale).replace('{provider}', CRM_META[provider]?.name || provider))) return;
     await fetch(`/api/crm-connections?provider=${provider}`, { method: 'DELETE' });
     loadCrmConnections();
+  }
+
+  // Suite 15 — Axonaut n'a pas de flux OAuth (voir API_KEY_CRM_PROVIDERS plus
+  // haut) : contrairement à handleConnectCrm ci-dessus (redirection externe),
+  // ici on POST directement la clé collée par le patron. AuthFetchInterceptor
+  // (components/AuthFetchInterceptor.jsx, monté globalement dans app/layout.jsx)
+  // ajoute automatiquement le token d'auth à ce fetch(), comme pour tous les
+  // autres appels /api/* de cette page.
+  async function handleConnectAxonaut(provider) {
+    if (!axonautApiKeyInput.trim()) return;
+    setAxonautConnecting(true);
+    setCrmError(null);
+    try {
+      const res = await fetch(`/api/crm-connections/${provider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: axonautApiKeyInput.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setCrmError(body.error || t('common.error', locale));
+        return;
+      }
+      setAxonautApiKeyInput('');
+      loadCrmConnections();
+    } catch (err) {
+      setCrmError(t('common.error', locale));
+    } finally {
+      setAxonautConnecting(false);
+    }
   }
 
   async function handleSyncCrm(provider) {
@@ -300,6 +347,23 @@ export default function ConnexionsPage() {
                 connected={crmConnections.some((c) => c.provider === crmProvider)}
                 canManage={userRole === 'patron'}
                 onConnect={() => handleConnectCrm(crmProvider)}
+                onDisconnect={() => handleDisconnectCrm(crmProvider)}
+                onSync={() => handleSyncCrm(crmProvider)}
+                syncing={crmSyncing}
+                syncResult={crmSyncResult}
+                error={crmError}
+              />
+            ) : API_KEY_CRM_PROVIDERS.includes(crmProvider) ? (
+              <ApiKeyCrmConnectionCard
+                provider={crmProvider}
+                title={CRM_META[crmProvider].name}
+                desc={CRM_META[crmProvider].desc}
+                connected={crmConnections.some((c) => c.provider === crmProvider)}
+                canManage={userRole === 'patron'}
+                apiKeyInput={axonautApiKeyInput}
+                onApiKeyInputChange={setAxonautApiKeyInput}
+                onConnect={() => handleConnectAxonaut(crmProvider)}
+                connecting={axonautConnecting}
                 onDisconnect={() => handleDisconnectCrm(crmProvider)}
                 onSync={() => handleSyncCrm(crmProvider)}
                 syncing={crmSyncing}
@@ -462,6 +526,184 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
           font-weight: 600;
           font-size: 0.84rem;
           cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Suite 15 — carte de connexion pour les CRM sans OAuth centralisé (clé API
+// statique collée par le patron), à commencer par Axonaut. Reprend la même
+// structure visuelle que CrmConnectionCard (statut/desc/actions) mais
+// remplace le bouton "Connecter" (redirection externe) par un petit
+// formulaire clé API + bouton de validation.
+function ApiKeyCrmConnectionCard({
+  provider,
+  title,
+  desc,
+  connected,
+  canManage,
+  apiKeyInput,
+  onApiKeyInputChange,
+  onConnect,
+  connecting,
+  onDisconnect,
+  onSync,
+  syncing,
+  syncResult,
+  error,
+}) {
+  const [locale] = useLocale();
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>{title}</h3>
+        <span className={`status-dot ${connected ? 'on' : 'off'}`} />
+      </div>
+      <p className="desc">{desc}</p>
+      {error && <p className="crm-error">{error}</p>}
+      {!canManage ? (
+        <p className="crm-hint">{t('connexions.crmManagerOnlyHint', locale)}</p>
+      ) : connected ? (
+        <>
+          <p className="account">{t('preferences.crm.connectedMsgTemplate', locale).replace('{provider}', title)}</p>
+          <div className="card-actions">
+            <button type="button" className="btn-secondary" onClick={onSync} disabled={syncing}>
+              {syncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
+            </button>
+            <button type="button" className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
+          </div>
+          {syncResult && (
+            <p className="crm-hint">
+              {t('preferences.crm.syncResultSyncedTemplate', locale).replace('{count}', syncResult.synced).replace('{provider}', title)}
+              {syncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', syncResult.failed.length)}
+              {syncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <label className="api-key-label">{t(`connexions.${provider}ApiKeyLabel`, locale)}</label>
+          <input
+            type="password"
+            className="api-key-input"
+            value={apiKeyInput}
+            onChange={(e) => onApiKeyInputChange(e.target.value)}
+            placeholder={t(`connexions.${provider}ApiKeyPlaceholder`, locale)}
+          />
+          <button type="button" className="btn-primary" onClick={onConnect} disabled={connecting || !apiKeyInput.trim()}>
+            {connecting
+              ? t('preferences.crm.syncingEllipsis', locale)
+              : t('preferences.crm.connectButtonTemplate', locale).replace('{provider}', title)}
+          </button>
+          <p className="crm-hint">{t(`connexions.${provider}ApiKeyHint`, locale)}</p>
+        </>
+      )}
+      <style jsx>{`
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+        .card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+        .card-head h3 {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+        }
+        .status-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+        }
+        .status-dot.on {
+          background: var(--accent-green);
+        }
+        .status-dot.off {
+          background: var(--muted);
+        }
+        .desc {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0 0 1rem;
+        }
+        .account {
+          font-size: 0.86rem;
+          margin: 0 0 0.7rem;
+        }
+        .card-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.6rem;
+        }
+        .api-key-label {
+          display: block;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 0.35rem;
+        }
+        .api-key-input {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.84rem;
+          margin-bottom: 0.7rem;
+          font-family: inherit;
+        }
+        .crm-hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0.7rem 0 0;
+        }
+        .crm-error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+          margin: 0 0 0.7rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
         }
         .btn-secondary {
           background: transparent;
