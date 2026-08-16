@@ -226,8 +226,8 @@ export default function ConnexionsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
+            background: var(--bg);
+            color: var(--muted);
             font-family: 'Inter', sans-serif;
           }
         `}</style>
@@ -245,8 +245,8 @@ export default function ConnexionsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
+            background: var(--bg);
+            color: var(--accent-red);
             font-family: 'Inter', sans-serif;
             text-align: center;
             padding: 2rem;
@@ -399,8 +399,13 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.3rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .card-head {
           display: flex;
@@ -444,7 +449,7 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
           margin: 0.7rem 0 0;
         }
         .crm-error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
           margin: 0 0 0.7rem;
         }
@@ -452,7 +457,7 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           font-size: 0.84rem;
@@ -462,16 +467,16 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
           background: transparent;
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           cursor: pointer;
         }
         .btn-danger {
           background: transparent;
-          border: 1px solid #e5484d;
-          color: #e5484d;
-          border-radius: 8px;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           cursor: pointer;
@@ -524,7 +529,7 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
         .health {
           background: rgba(75, 57, 239, 0.08);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 0.8rem;
           margin: 0 0 1rem;
         }
@@ -553,7 +558,7 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
         }
         .badge.warn {
           background: rgba(229, 72, 77, 0.15);
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .badge.info {
           background: rgba(139, 144, 168, 0.15);
@@ -571,8 +576,13 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.3rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .card-head {
           display: flex;
@@ -609,7 +619,7 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           font-size: 0.84rem;
@@ -617,9 +627,9 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
         }
         .btn-danger {
           background: transparent;
-          border: 1px solid #e5484d;
-          color: #e5484d;
-          border-radius: 8px;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           cursor: pointer;
@@ -640,7 +650,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
