@@ -155,7 +155,15 @@ export default function PreferencesPage() {
   // en bas du panneau), pour ne rien changer au comportement de sauvegarde.
   const [activeTab, setActiveTab] = useState('profile');
   const [customCredits, setCustomCredits] = useState('');
-  useEffect(() => {
+  // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
+  // multi-module — état dédié pour le bouton activer/désactiver de chaque
+  // module (séparé de `saving`, qui reste réservé au bouton "Enregistrer"
+  // générique : activer/désactiver un module a un effet Stripe immédiat, pas
+  // besoin d'attendre le clic sur "Enregistrer").
+  const [moduleBusy, setModuleBusy] = useState(null);
+  const [moduleError, setModuleError] = useState(null);
+
+  function loadPrefs() {
     if (!userId) return;
     fetch(`/api/preferences?user_id=${userId}`)
       .then((r) => r.json())
@@ -163,6 +171,11 @@ export default function PreferencesPage() {
         setPrefs(res.preferences);
         setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    loadPrefs();
     fetch(`/api/api-usage?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => setUsage(res))
@@ -259,7 +272,6 @@ export default function PreferencesPage() {
         require_first_email_approval: prefs.require_first_email_approval,
         daily_prospecting_email_cap: prefs.daily_prospecting_email_cap,
         collaboration_level: prefs.collaboration_level,
-        offer: prefs.offer,
         crm_provider: prefs.crm_provider,
         crm_connection_notes: prefs.crm_connection_notes,
       }),
@@ -272,6 +284,47 @@ export default function PreferencesPage() {
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  }
+
+  // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : active ou
+  // désactive un module d'abonnement (docx : "un bouton à côté de chacun pour
+  // résilier l'abonnement ou activer l'abonnement"). Effet Stripe immédiat
+  // (voir app/api/subscription/modules/route.ts) — recharge les préférences
+  // ensuite pour refléter le nouvel état réel plutôt que de deviner
+  // localement ce que Stripe a fait.
+  async function handleToggleModule(moduleValue, isActive) {
+    if (isActive) {
+      const activeCount = ['AP', 'AS', 'AC'].filter((m) => prefs[`offer_${m.toLowerCase()}_active`]).length;
+      const warningKey = activeCount <= 1
+        ? 'preferences.subscription.confirmDeactivateLastTemplate'
+        : 'preferences.subscription.confirmDeactivateTemplate';
+      const moduleLabel = OFFERS.find((o) => o.value === moduleValue)?.label || moduleValue;
+      if (!confirm(t(warningKey, locale).replace('{module}', moduleLabel))) return;
+    }
+
+    setModuleBusy(moduleValue);
+    setModuleError(null);
+    try {
+      const res = await fetch('/api/subscription/modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module: moduleValue, action: isActive ? 'deactivate' : 'activate' }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setModuleError(body.error || t('common.error', locale));
+        return;
+      }
+      if (body.checkout_url) {
+        window.location.href = body.checkout_url;
+        return;
+      }
+      loadPrefs();
+    } catch (err) {
+      setModuleError(t('common.error', locale));
+    } finally {
+      setModuleBusy(null);
+    }
   }
 
   // CHANGEMENTS A FAIRE #91-93 (item 31) : "booster Aaron" prend désormais un
@@ -574,25 +627,45 @@ export default function PreferencesPage() {
 
           {activeTab === 'subscription' && (
             <>
+              {/* CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) :
+                  l'ancien sélecteur "une seule offre à la fois" est remplacé
+                  par 3 modules indépendamment actifs/inactifs, chacun avec son
+                  propre bouton activer/désactiver — voir handleToggleModule
+                  et app/api/subscription/modules/route.ts. */}
               <div className="field">
                 <label>{t('preferences.subscriptionLabel', locale)}</label>
                 <div className="offer-options">
-                  {OFFERS.map((o) => (
-                    <button
-                      key={o.value}
-                      className={`offer-card ${prefs.offer === o.value ? 'active' : ''} ${!o.available ? 'disabled' : ''}`}
-                      onClick={() => o.available && setPrefs({ ...prefs, offer: o.value })}
-                      disabled={!o.available}
-                    >
-                      <span className="offer-title">
-                        {o.label}
-                        {!o.available && <span className="soon-badge">{t('preferences.inDevelopmentBadge', locale)}</span>}
-                      </span>
-                      <span className="offer-desc">{o.desc}</span>
-                    </button>
-                  ))}
+                  {OFFERS.map((o) => {
+                    const isActive = Boolean(prefs[`offer_${o.value.toLowerCase()}_active`]);
+                    return (
+                      <div key={o.value} className={`offer-card ${isActive ? 'active' : ''}`}>
+                        <span className="offer-title">
+                          {o.label}
+                          <span className={`status-pill ${isActive ? 'on' : 'off'}`}>
+                            {isActive ? t('preferences.subscription.activeLabel', locale) : t('preferences.subscription.inactiveLabel', locale)}
+                          </span>
+                        </span>
+                        <span className="offer-desc">{o.desc}</span>
+                        {prefs.role === 'patron' && (
+                          <button
+                            type="button"
+                            className={isActive ? 'btn-danger' : 'btn-primary'}
+                            disabled={moduleBusy === o.value}
+                            onClick={() => handleToggleModule(o.value, isActive)}
+                          >
+                            {moduleBusy === o.value
+                              ? '…'
+                              : isActive
+                                ? t('preferences.subscription.deactivateButton', locale)
+                                : t('preferences.subscription.activateButton', locale)}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                {offerError && <p className="error">{offerError}</p>}
+                {moduleError && <p className="error">{moduleError}</p>}
+                {!moduleError && offerError && <p className="error">{offerError}</p>}
               </div>
 
               {usage && (
@@ -814,10 +887,10 @@ export default function PreferencesPage() {
           border: 1px solid var(--border);
           border-radius: 10px;
           padding: 0.9rem 1rem;
-          cursor: pointer;
           display: flex;
           flex-direction: column;
           gap: 0.3rem;
+          align-items: flex-start;
         }
         .offer-card.active {
           border-color: var(--accent);
@@ -845,9 +918,28 @@ export default function PreferencesPage() {
           padding: 0.15rem 0.5rem;
           border-radius: 999px;
         }
+        .status-pill {
+          font-size: 0.66rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          padding: 0.15rem 0.5rem;
+          border-radius: 999px;
+        }
+        .status-pill.on {
+          background: rgba(52, 199, 89, 0.16);
+          color: var(--accent-green, #34c759);
+        }
+        .status-pill.off {
+          background: rgba(139, 144, 168, 0.16);
+          color: var(--muted);
+        }
         .offer-desc {
           font-size: 0.8rem;
           color: var(--muted);
+        }
+        .offer-card > button {
+          margin-top: 0.4rem;
         }
         .collab-options {
           display: grid;
@@ -1044,13 +1136,15 @@ export default function PreferencesPage() {
 
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
+  const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   const [locale, setLocale] = useLocale();
 
-  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
-  // que l'offre souscrite par la société (companies.offer, voir Préférences)
-  // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
-  // toujours accessible : c'est l'offre de base incluse à la souscription.
+  // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
+  // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
+  // est maintenant indépendamment actif/inactif (companies.offer_ap_active/
+  // offer_as_active/offer_ac_active), au lieu d'un seul module "offer" avec
+  // Aaron Prospect toujours actif par défaut. Voir lib/subscription.ts et
+  // l'onglet Abonnement dans Préférences.
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -1058,8 +1152,12 @@ function Shell({ children, active, userId }) {
       .then((r) => r.json())
       .then((body) => {
         if (cancelled) return;
-        const offer = body.preferences?.offer || 'AP';
-        setLockedModules({ sales: offer !== 'AS', customer: offer !== 'AC' });
+        const prefs = body.preferences || {};
+        setLockedModules({
+          prospect: prefs.offer_ap_active === false,
+          sales: prefs.offer_as_active !== true,
+          customer: prefs.offer_ac_active !== true,
+        });
       })
       .catch(() => {});
     return () => {
@@ -1069,10 +1167,10 @@ function Shell({ children, active, userId }) {
 
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
+    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
-    { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀' },
+    { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
     { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
