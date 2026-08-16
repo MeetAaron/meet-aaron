@@ -293,7 +293,7 @@ export default function CustomerPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -307,7 +307,7 @@ export default function CustomerPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -657,11 +657,16 @@ export default function CustomerPage() {
           text-align: left;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 0.8rem 1rem;
           cursor: pointer;
           color: var(--text);
           font-family: inherit;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .customer-card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .customer-card.selected {
           border-color: var(--accent);
@@ -693,7 +698,7 @@ export default function CustomerPage() {
           font-size: 0.68rem;
           padding: 0.1rem 0.45rem;
           border-radius: 999px;
-          color: #0b0e1a;
+          color: var(--bg);
           font-weight: 600;
         }
         .health-badge {
@@ -714,7 +719,7 @@ export default function CustomerPage() {
         .detail {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.2rem;
           position: sticky;
           top: 1.5rem;
@@ -740,7 +745,7 @@ export default function CustomerPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.4rem 0.6rem;
           font-size: 0.84rem;
         }
@@ -754,7 +759,7 @@ export default function CustomerPage() {
           margin: 0 0 0.6rem;
         }
         .btn-secondary, .btn-primary {
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.55rem 0.9rem;
           font-size: 0.82rem;
           cursor: pointer;
@@ -775,14 +780,14 @@ export default function CustomerPage() {
           cursor: not-allowed;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.8rem;
           margin-top: 0.5rem;
         }
         .brief-box {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem;
           margin-top: 0.8rem;
           font-size: 0.82rem;
@@ -802,7 +807,7 @@ export default function CustomerPage() {
           margin-top: 0.8rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem;
         }
         .email-subject {
@@ -816,7 +821,7 @@ export default function CustomerPage() {
           margin: 0;
         }
         .sent-note {
-          color: #3dd68c;
+          color: var(--accent-green);
           font-size: 0.8rem;
           margin: 0.6rem 0 0;
         }
@@ -824,7 +829,7 @@ export default function CustomerPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.4rem 0.6rem;
           font-size: 0.82rem;
           font-family: inherit;
@@ -832,7 +837,7 @@ export default function CustomerPage() {
         .support-inbox {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.2rem 1.4rem;
           margin-bottom: 1.8rem;
         }
@@ -849,7 +854,7 @@ export default function CustomerPage() {
         .support-card {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem;
         }
         .support-from {
