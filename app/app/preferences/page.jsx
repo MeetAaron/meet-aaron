@@ -105,6 +105,7 @@ function crmProvidersFor(locale) {
     { value: 'jobber', label: 'Jobber' },
     { value: 'housecallpro', label: 'Housecall Pro' },
     { value: 'capsulecrm', label: 'Capsule CRM' },
+    { value: 'servicem8', label: 'ServiceM8' },
     { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
   ];
 }
@@ -608,7 +609,7 @@ export default function PreferencesPage() {
                       {t('preferences.crm.setupHint', locale)}
                     </p>
 
-                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm'].includes(prefs.crm_provider) && (
+                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm', 'servicem8'].includes(prefs.crm_provider) && (
                       // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
                       // elle-même (connecter/déconnecter/synchroniser) se gère
                       // désormais depuis Connexions, nouvelle catégorie "CRMs et
