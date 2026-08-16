@@ -175,9 +175,9 @@ export default function ProductsPage() {
   const visibleProducts = products.filter((p) => showInactive || p.is_active);
 
   return (
-    <Shell active="Produits" userId={userId}>
+    <Shell active={t('nav.products', locale)} userId={userId}>
       <header className="header">
-        <p className="eyebrow">{t('nav.opportunity', locale)}</p>
+        <p className="eyebrow">{t('nav.products', locale)}</p>
         <h1>{t('products.title', locale)}</h1>
         <p className="subtitle">
           {t('products.subtitle', locale)}
