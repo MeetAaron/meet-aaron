@@ -598,6 +598,181 @@ async function syncWonProspectToAxonaut(companyId: string, prospect: WonProspect
 }
 
 // ---------------------------------------------------------------------------
+// Sellsy
+// ---------------------------------------------------------------------------
+
+// Sellsy utilise OAuth2 "client credentials" (troisième architecture
+// distincte, ni redirection utilisateur comme HubSpot/Salesforce/Pipedrive,
+// ni clé API unique comme Axonaut) : un identifiant client_id + client_secret
+// créé dans Sellsy (Réglages -> Developer Portal -> API V2 -> "Créer un accès
+// API"), échangé contre un jeton d'accès de courte durée à chaque utilisation.
+// Endpoint et grant_type confirmés via la doc d'aide Sellsy et le client PHP
+// open source officieux Hydrat-Agency/Sellsy-Client (source de vérité la plus
+// concrète, la doc Swagger officielle étant en JS non exploitable en fetch
+// direct). On ne met pas en cache le jeton lui-même (pas de colonne dédiée) :
+// client_id et client_secret chiffrés sont stockés dans access_token/
+// refresh_token (réutilisation de ces colonnes, comme Axonaut réutilise
+// access_token pour sa clé statique), et un nouveau jeton est redemandé à
+// chaque synchronisation — un appel de plus par synchronisation manuelle,
+// sans conséquence pratique.
+const SELLSY_TOKEN_URL = 'https://login.sellsy.com/oauth2/access-tokens';
+const SELLSY_API_URL = 'https://api.sellsy.com/v2';
+
+async function getSellsyAccessToken(clientId: string, clientSecret: string): Promise<string> {
+  const response = await fetch(SELLSY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+  if (!response.ok) {
+    const errBody = await response.text();
+    throw new Error(`Erreur authentification Sellsy: ${errBody}`);
+  }
+  const tokens = await response.json();
+  return tokens.access_token;
+}
+
+// Sellsy sépare "société" (companies) et "contact" (contacts), reliés par un
+// lien explicite POST /companies/{id}/contacts/{contactId} plutôt qu'un
+// company_id direct sur le contact — confirmé via deux clients PHP open
+// source indépendants (Hydrat-Agency/Sellsy-Client, bluerocktel/sellsy-
+// client). Pas de recherche serveur documentée par nom/email dans ces deux
+// sources : filtre côté client sur le listing, même approche défensive que
+// pour Axonaut (pas de compte réel disponible pour vérifier un éventuel
+// paramètre de recherche serveur). Pour l'opportunité, aucune des sources
+// consultées ne documente d'identifiant de pipeline/étape "gagné" par défaut
+// — plutôt que de deviner un step_id propre au compte Sellsy d'Alex (risque
+// de la créer dans la mauvaise étape du pipeline), on crée l'opportunité
+// liée à la société sans forcer de statut : elle apparaît dans Sellsy pour
+// être glissée en "Gagné" manuellement, ou l'automatisation complète sera
+// ajoutée dès qu'un compte réel permettra de confirmer le champ exact.
+async function syncWonProspectToSellsy(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const connection = await getConnection(companyId, 'sellsy');
+  const clientId = decryptToken(connection.access_token);
+  const clientSecret = connection.refresh_token ? decryptToken(connection.refresh_token) : null;
+  if (!clientSecret) {
+    throw new Error('Identifiants Sellsy incomplets — reconnexion nécessaire dans Connexions.');
+  }
+  const accessToken = await getSellsyAccessToken(clientId, clientSecret);
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  const sellsyCompanyName = prospect.prospect_companies?.name || prospect.full_name || prospect.email;
+
+  let sellsyCompanyId: number | null = null;
+  const listRes = await fetch(`${SELLSY_API_URL}/companies`, { headers });
+  if (listRes.ok) {
+    const listBody = await listRes.json();
+    const items = Array.isArray(listBody?.data) ? listBody.data : Array.isArray(listBody) ? listBody : [];
+    const match = items.find((c: any) => (c.name || '').toLowerCase() === sellsyCompanyName.toLowerCase());
+    if (match) sellsyCompanyId = match.id;
+  } else {
+    console.error('Erreur listage sociétés Sellsy (on tentera quand même une création):', await listRes.text());
+  }
+
+  if (!sellsyCompanyId) {
+    const createCompanyRes = await fetch(`${SELLSY_API_URL}/companies`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: sellsyCompanyName }),
+    });
+    if (!createCompanyRes.ok) {
+      throw new Error(`Erreur création société Sellsy: ${await createCompanyRes.text()}`);
+    }
+    const createdCompany = await createCompanyRes.json();
+    sellsyCompanyId = createdCompany.id;
+  }
+
+  const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+  const lastName = rest.join(' ');
+
+  let existingContactId: number | null = null;
+  const searchRes = await fetch(`${SELLSY_API_URL}/contacts`, { headers });
+  if (searchRes.ok) {
+    const searchBody = await searchRes.json();
+    const items = Array.isArray(searchBody?.data) ? searchBody.data : Array.isArray(searchBody) ? searchBody : [];
+    const match = items.find((c: any) => (c.email || '').toLowerCase() === prospect.email.toLowerCase());
+    if (match) existingContactId = match.id;
+  }
+
+  const contactFields = {
+    first_name: firstName || prospect.email,
+    last_name: lastName || '',
+    email: prospect.email,
+    position: prospect.job_title || '',
+  };
+
+  let contactId: number;
+  if (existingContactId) {
+    const updateRes = await fetch(`${SELLSY_API_URL}/contacts/${existingContactId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(contactFields),
+    });
+    if (!updateRes.ok) {
+      throw new Error(`Erreur mise à jour contact Sellsy: ${await updateRes.text()}`);
+    }
+    contactId = existingContactId;
+  } else {
+    const createContactRes = await fetch(`${SELLSY_API_URL}/contacts`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(contactFields),
+    });
+    if (!createContactRes.ok) {
+      throw new Error(`Erreur création contact Sellsy: ${await createContactRes.text()}`);
+    }
+    const createdContact = await createContactRes.json();
+    contactId = createdContact.id;
+  }
+
+  // Lien contact <-> société — ressource distincte côté Sellsy (pas de
+  // company_id direct sur le contact), best-effort : un contact non lié
+  // reste utile tel quel.
+  try {
+    const linkRes = await fetch(`${SELLSY_API_URL}/companies/${sellsyCompanyId}/contacts/${contactId}`, {
+      method: 'POST',
+      headers,
+    });
+    if (!linkRes.ok) {
+      console.error('Erreur liaison contact/société Sellsy (contact créé quand même):', await linkRes.text());
+    }
+  } catch (err) {
+    console.error('Erreur liaison contact/société Sellsy (contact créé quand même):', err);
+  }
+
+  // Opportunité — best-effort, sans statut forcé (voir commentaire ci-dessus).
+  let dealId: string | null = null;
+  try {
+    const oppRes = await fetch(`${SELLSY_API_URL}/opportunities`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: `${prospect.full_name || prospect.email} — ${prospect.prospect_companies?.name || 'Meet Aaron'}`,
+        related: [{ id: sellsyCompanyId, type: 'company' }],
+      }),
+    });
+    if (oppRes.ok) {
+      const opp = await oppRes.json();
+      dealId = opp?.id != null ? String(opp.id) : null;
+    } else {
+      console.error('Erreur création opportunité Sellsy (contact synchronisé quand même):', await oppRes.text());
+    }
+  } catch (err) {
+    console.error('Erreur opportunité Sellsy (contact synchronisé quand même):', err);
+  }
+
+  return { contact_id: String(contactId), deal_id: dealId };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -606,6 +781,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   salesforce: syncWonProspectToSalesforce,
   pipedrive: syncWonProspectToPipedrive,
   axonaut: syncWonProspectToAxonaut,
+  sellsy: syncWonProspectToSellsy,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
