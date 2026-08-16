@@ -1,17 +1,28 @@
 // app/api/team/route.ts
 // GET -> pour un fondateur/patron, liste tous les commerciaux de sa société avec leurs stats clés.
 // Refuse l'accès si l'utilisateur demandeur n'a pas le rôle "patron".
+//
+// CHANGEMENTS A FAIRE — Mon équipe (item 1, 2026-08-16) : les 3 anciennes
+// colonnes (prospects actifs / RDV validés / clients gagnés) deviennent 6
+// (prospects actifs, RDVs gagnés, opportunités actives, clients gagnés,
+// clients actifs, clients perdus), calculées par lib/team-stats.ts et
+// sensibles à un sélecteur de période optionnel (?period=all|month|custom
+// &since=ISO). Voir lib/team-stats.ts pour les définitions exactes.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateInviteCode } from '@/lib/invite-code';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { computeStatsForMembers, periodRangeFor } from '@/lib/team-stats';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
+  const periodMode = request.nextUrl.searchParams.get('period') || 'all';
+  const customFrom = request.nextUrl.searchParams.get('since');
+  const customTo = request.nextUrl.searchParams.get('until');
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -55,36 +66,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Calcule les stats clés pour chaque membre de l'équipe
-  const membersWithStats = await Promise.all(
-    (members || []).map(async (member) => {
-      const [prospectsRes, appointmentsRes, wonRes] = await Promise.all([
-        supabaseAdmin
-          .from('prospects')
-          .select('id, status', { count: 'exact' })
-          .eq('assigned_user_id', member.id)
-          .eq('is_won', false),
-        supabaseAdmin
-          .from('appointments')
-          .select('id', { count: 'exact' })
-          .eq('user_id', member.id)
-          .eq('status', 'validé'),
-        supabaseAdmin
-          .from('prospects')
-          .select('id', { count: 'exact' })
-          .eq('assigned_user_id', member.id)
-          // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
-          .not('first_order_confirmed_at', 'is', null),
-      ]);
+  // Calcule les 6 stats clés pour chaque membre de l'équipe, en une seule
+  // passe groupée (lib/team-stats.ts) plutôt qu'un aller-retour DB par
+  // membre — plus rapide pour les équipes à plusieurs commerciaux.
+  const memberIds = (members || []).map((m: any) => m.id);
+  const range = periodRangeFor(periodMode, customFrom, customTo);
+  const statsByMember = await computeStatsForMembers(memberIds, range);
 
-      return {
-        ...member,
-        prospects_actifs: prospectsRes.count || 0,
-        rdv_valides: appointmentsRes.count || 0,
-        clients_gagnes: wonRes.count || 0,
-      };
-    })
-  );
+  const membersWithStats = (members || []).map((member: any) => ({
+    ...member,
+    ...(statsByMember[member.id] || {
+      prospects_actifs: 0,
+      rdv_gagnes: 0,
+      opportunites_actives: 0,
+      clients_gagnes: 0,
+      clients_actifs: 0,
+      clients_perdus: 0,
+    }),
+  }));
 
   return NextResponse.json({ members: membersWithStats, invite_code: inviteCode });
 }
