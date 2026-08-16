@@ -20,8 +20,14 @@ export async function GET(request: NextRequest) {
   const returnedState = searchParams.get('state');
   const error = searchParams.get('error');
 
+  // CHANGEMENTS A FAIRE #90 (2026-08-16) : la gestion de la connexion HubSpot
+  // (bouton connecter/déconnecter/synchroniser) a été déplacée de Préférences
+  // vers Connexions (nouvelle catégorie "CRMs et bases de données") — seul le
+  // choix du fournisseur CRM et le niveau de collaboration restent dans
+  // Préférences. Les redirections post-OAuth pointent donc maintenant vers
+  // /app/connexions.
   if (error) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/preferences?crm_oauth_error=${error}`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?crm_oauth_error=${error}`);
   }
 
   if (!code || !returnedState) {
@@ -32,7 +38,7 @@ export async function GET(request: NextRequest) {
   const [cookieNonce, companyId, userId] = cookieValue?.split(':') || [];
 
   if (!cookieValue || cookieNonce !== returnedState || !companyId) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/preferences?crm_oauth_error=state_mismatch`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?crm_oauth_error=state_mismatch`);
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/hubspot/callback`;
@@ -52,7 +58,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token HubSpot:', errBody);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/preferences?crm_oauth_error=token_exchange_failed`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?crm_oauth_error=token_exchange_failed`);
   }
 
   const tokens = await tokenResponse.json();
@@ -91,7 +97,7 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens HubSpot:', dbError);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/preferences?crm_oauth_error=db_error`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?crm_oauth_error=db_error`);
   }
 
   // Garde companies.crm_provider synchronisé avec la vraie connexion — ce champ
@@ -99,5 +105,5 @@ export async function GET(request: NextRequest) {
   // Préférences), il reflète maintenant une connexion réelle une fois établie.
   await supabaseAdmin.from('companies').update({ crm_provider: 'hubspot' }).eq('id', companyId);
 
-  return redirectClearingCookie(`${process.env.APP_URL}/app/preferences?crm_oauth_success=hubspot`);
+  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?crm_oauth_success=hubspot`);
 }
