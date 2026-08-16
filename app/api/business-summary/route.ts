@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
 // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
     `Rédige un résumé clair et structuré de l'activité de cette société en 5 à 8 phrases : ce qu'elle vend, ` +
     `les différents profils/types de clients (s'il y en a plusieurs), le produit ou service phare, l'argument de ` +
     `vente qui fait le plus mouche, l'objection la plus fréquente et comment la lever, et le type de conclusion à ` +
-    `viser après un premier contact (RDV, devis, essai...). Réponds uniquement avec ce résumé, en français, sans ` +
+    `viser après un premier contact (RDV, devis, essai...). Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
     `préambule ni titre.`;
 
   try {
