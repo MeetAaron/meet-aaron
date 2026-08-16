@@ -79,7 +79,11 @@ function providerMetaFor(locale) {
 // n'est pas dans cette liste : son architecture n'a pas de connexion OAuth
 // centralisée (chaque client a son propre tenant), il aura une carte dédiée à
 // part (formulaire 4 champs), pas encore construite à ce jour.
-const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive'];
+// Jobber ajouté suite 15 (3e CRM du chantier "pas à pas") : OAuth2 classique
+// à redirection utilisateur comme les 3 premiers, malgré une API GraphQL
+// côté serveur (voir lib/crm-sync.ts) — la connexion elle-même suit le même
+// flux, seule la synchronisation change.
+const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'jobber'];
 
 // Suite 15 (chantier CRM plus large, demandé par Alex — "on va integrer en
 // api tous les crm dont on a parlé") : Axonaut est le 1er CRM ajouté après
@@ -105,6 +109,7 @@ function crmMetaFor(locale) {
     pipedrive: { name: 'Pipedrive', desc: t('connexions.pipedriveDesc', locale) },
     axonaut: { name: 'Axonaut', desc: t('connexions.axonautDesc', locale) },
     sellsy: { name: 'Sellsy', desc: t('connexions.sellsyDesc', locale) },
+    jobber: { name: 'Jobber', desc: t('connexions.jobberDesc', locale) },
   };
 }
 
