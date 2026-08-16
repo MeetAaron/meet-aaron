@@ -1142,6 +1142,97 @@ async function syncWonProspectToCapsuleCrm(companyId: string, prospect: WonProsp
 }
 
 // ---------------------------------------------------------------------------
+// ServiceM8
+// ---------------------------------------------------------------------------
+
+// ServiceM8 (Australie), 7e du chantier — authentification par clé API
+// statique (voir app/api/crm-connections/servicem8/route.ts), en-tête
+// `X-Api-Key: <clé>` (différent de `Authorization: Bearer`/`Token` des CRM
+// précédents).
+//
+// Contrairement à Capsule CRM (étapes de pipeline découvertes dynamiquement
+// via /milestones) et à Axonaut (endpoint dédié PATCH .../won), ServiceM8
+// n'a besoin d'AUCUNE découverte ni d'aucun identifiant à deviner pour
+// marquer un "Job" comme gagné : la doc officielle et l'article d'aide
+// ServiceM8 confirment un champ `status` à valeurs fixes et documentées
+// ("Quote" / "Work Order" / "Completed" / "Unsuccessful"), où "Work Order"
+// est explicitement décrit comme l'état atteint "once a client approves the
+// quote" — donc l'équivalent direct de "gagné". Aucun lookup nécessaire,
+// contrairement à Capsule CRM où le jalon "gagné" varie par compte.
+const SERVICEM8_BASE_URL = 'https://api.servicem8.com/api_1.0';
+
+async function syncWonProspectToServiceM8(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const connection = await getConnection(companyId, 'servicem8');
+  const apiKey = decryptToken(connection.access_token);
+  const headers = {
+    'X-Api-Key': apiKey,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  // Pas de recherche serveur par email confirmée dans la doc pour l'objet
+  // Company (seul un filtre générique $filter par des champs comme
+  // create_date est documenté) — filtre côté client sur le listing, même
+  // approche défensive qu'Axonaut/Sellsy pour les recherches non confirmées
+  // côté serveur.
+  let existingCompanyUuid: string | null = null;
+  const listRes = await fetch(`${SERVICEM8_BASE_URL}/company.json`, { headers });
+  if (listRes.ok) {
+    const companies: any[] = await listRes.json();
+    const match = Array.isArray(companies)
+      ? companies.find((c) => typeof c?.email === 'string' && c.email.toLowerCase() === prospect.email.toLowerCase())
+      : null;
+    if (match?.uuid) existingCompanyUuid = String(match.uuid);
+  } else {
+    console.error('Erreur recherche client ServiceM8 (on tentera quand même une création):', await listRes.text());
+  }
+
+  let companyUuid = existingCompanyUuid;
+  if (!companyUuid) {
+    const createRes = await fetch(`${SERVICEM8_BASE_URL}/company.json`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: prospect.prospect_companies?.name || prospect.full_name || prospect.email,
+        email: prospect.email,
+      }),
+    });
+    if (!createRes.ok) {
+      throw new Error(`Erreur création client ServiceM8: ${await createRes.text()}`);
+    }
+    // L'API ServiceM8 confirme la création via l'en-tête x-record-uuid plutôt
+    // qu'un corps JSON contenant l'objet créé (comportement documenté pour
+    // les endpoints POST *.json de ServiceM8).
+    companyUuid = createRes.headers.get('x-record-uuid');
+    if (!companyUuid) {
+      throw new Error('Création client ServiceM8: aucun uuid retourné (en-tête x-record-uuid absent)');
+    }
+  }
+
+  // Job "gagné" best-effort : status directement fixé à "Work Order" (valeur
+  // documentée, pas de lookup ni d'identifiant deviné nécessaire — voir
+  // commentaire d'en-tête).
+  const jobRes = await fetch(`${SERVICEM8_BASE_URL}/job.json`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      company_uuid: companyUuid,
+      status: 'Work Order',
+      job_description: prospect.prospect_companies?.name
+        ? `${prospect.prospect_companies.name} — Meet Aaron`
+        : `${prospect.full_name || prospect.email} — Meet Aaron`,
+    }),
+  });
+  if (!jobRes.ok) {
+    console.error('Erreur création job ServiceM8 (client quand même synchronisé):', await jobRes.text());
+    return { contact_id: companyUuid, deal_id: null };
+  }
+  const jobUuid = jobRes.headers.get('x-record-uuid');
+
+  return { contact_id: companyUuid, deal_id: jobUuid };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -1154,6 +1245,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   jobber: syncWonProspectToJobber,
   housecallpro: syncWonProspectToHousecallPro,
   capsulecrm: syncWonProspectToCapsuleCrm,
+  servicem8: syncWonProspectToServiceM8,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
