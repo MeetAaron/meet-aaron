@@ -19,6 +19,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const campaignId = params.id;
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
 ${pastSummary}
 
-Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resserrer le ciblage (secteur, zone, taille, rôle) pour obtenir de meilleurs résultats la prochaine fois, en te basant sur les campagnes passées les plus performantes ci-dessus si elles apportent une comparaison utile. Sois direct et actionnable, pas générique. Réponds uniquement avec ce texte, en français, sans préambule ni titre.`;
+Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resserrer le ciblage (secteur, zone, taille, rôle) pour obtenir de meilleurs résultats la prochaine fois, en te basant sur les campagnes passées les plus performantes ci-dessus si elles apportent une comparaison utile. Sois direct et actionnable, pas générique. Réponds uniquement avec ce texte, ${localeInstruction(authedUser.locale)}, sans préambule ni titre.`;
 
   let advice: string;
   try {
