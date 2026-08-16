@@ -120,6 +120,11 @@ export default function PreferencesPage() {
   const COLLABORATION_LEVELS = collaborationLevelsFor(locale);
   const CRM_PROVIDERS = crmProvidersFor(locale);
   const OFFERS = offersFor(locale);
+  const TABS = [
+    { key: 'profile', label: t('preferences.tabs.profile', locale) },
+    { key: 'preferences', label: t('preferences.tabs.preferences', locale) },
+    { key: 'subscription', label: t('preferences.tabs.subscription', locale) },
+  ];
   const [prefs, setPrefs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -143,6 +148,13 @@ export default function PreferencesPage() {
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
   const [billingPortalError, setBillingPortalError] = useState(null);
+  // CHANGEMENTS A FAIRE #91-93 (2026-08-16, items 28-32) : page renommée et
+  // restructurée en 3 onglets (Mon profil / Préférences / Abonnement) — voir
+  // tableau TABS plus bas. `handleSave` reste unique et sauvegarde tous les
+  // champs "Préférences" quel que soit l'onglet actif (bouton toujours visible
+  // en bas du panneau), pour ne rien changer au comportement de sauvegarde.
+  const [activeTab, setActiveTab] = useState('profile');
+  const [customCredits, setCustomCredits] = useState('');
   useEffect(() => {
     if (!userId) return;
     fetch(`/api/preferences?user_id=${userId}`)
@@ -262,14 +274,18 @@ export default function PreferencesPage() {
     setTimeout(() => setSaved(false), 2500);
   }
 
-  async function handleBuyCredits(amountEur) {
-    setBuyingCredits(amountEur);
+  // CHANGEMENTS A FAIRE #91-93 (item 31) : "booster Aaron" prend désormais un
+  // nombre de crédits (20/40/60/80/100 ou un montant personnalisé) plutôt
+  // qu'un montant en euros — le tarif (30€ pour 20 crédits, soit 1,50€/crédit)
+  // est calculé côté serveur dans /api/checkout/credits, jamais côté client.
+  async function handleBuyCredits(credits) {
+    setBuyingCredits(credits);
     setCreditsError(null);
     try {
       const res = await fetch('/api/checkout/credits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_eur: amountEur }),
+        body: JSON.stringify({ credits }),
       });
       const body = await res.json();
       if (!res.ok || !body.url) {
@@ -282,6 +298,15 @@ export default function PreferencesPage() {
       setCreditsError(t('common.error', locale));
       setBuyingCredits(null);
     }
+  }
+
+  function handleBuyCustomCredits() {
+    const credits = Number(customCredits);
+    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
+      setCreditsError(t('preferences.credits.invalidCustom', locale));
+      return;
+    }
+    handleBuyCredits(credits);
   }
 
   // Ouvre le portail de facturation Stripe (factures téléchargeables — avec
@@ -345,203 +370,344 @@ export default function PreferencesPage() {
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <div className="panel">
-          {summaryLoaded && (
-            <div className="field">
-              <label>{t('preferences.businessProfileLabel', locale)}</label>
-              <textarea
-                rows={6}
-                value={businessSummary}
-                onChange={(e) => setBusinessSummary(e.target.value)}
-                placeholder={t('preferences.businessProfilePlaceholder', locale)}
-              />
-              <div className="actions">
-                <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
-                  {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
-                </button>
-                {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
-              </div>
-            </div>
-          )}
-
-          {signatureLoaded && (
-            <div className="field">
-              <label>{t('preferences.signatureLabel', locale)}</label>
-              <textarea
-                rows={4}
-                value={signature}
-                onChange={(e) => setSignature(e.target.value)}
-                placeholder={t('preferences.signaturePlaceholder', locale)}
-              />
-              {signatureError && <p className="error">{signatureError}</p>}
-              <div className="actions">
-                <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
-                  {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
-                </button>
-                <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
-                  {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
-                </button>
-                {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
-              </div>
-              <p className="collab-extra-hint">
-                {t('preferences.signatureDetectHint', locale)}
-              </p>
-            </div>
-          )}
-
-          <div className="field">
-            <label>{t('preferences.subscriptionLabel', locale)}</label>
-            <div className="offer-options">
-              {OFFERS.map((o) => (
-                <button
-                  key={o.value}
-                  className={`offer-card ${prefs.offer === o.value ? 'active' : ''} ${!o.available ? 'disabled' : ''}`}
-                  onClick={() => o.available && setPrefs({ ...prefs, offer: o.value })}
-                  disabled={!o.available}
-                >
-                  <span className="offer-title">
-                    {o.label}
-                    {!o.available && <span className="soon-badge">{t('preferences.inDevelopmentBadge', locale)}</span>}
-                  </span>
-                  <span className="offer-desc">{o.desc}</span>
-                </button>
-              ))}
-            </div>
-            {offerError && <p className="error">{offerError}</p>}
+          {/* CHANGEMENTS A FAIRE #91-93 (2026-08-16, items 28-32) : page
+              restructurée en 3 onglets. */}
+          <div className="tabs">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          <div className="field">
-            <label>{t('preferences.notifyChannelLabel', locale)}</label>
-            <div className="options">
-              {CHANNEL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  className={prefs.notify_channel === opt.value ? 'option active' : 'option'}
-                  onClick={() => setPrefs({ ...prefs, notify_channel: opt.value })}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
-              <PushNotificationManager />
-            )}
-          </div>
-
-          <div className="field">
-            <label>{t('preferences.notifyDelayLabel', locale)}</label>
-            <div className="options">
-              {DELAY_OPTIONS.map((minutes) => (
-                <button
-                  key={minutes}
-                  className={prefs.notify_before_appointment_minutes === minutes ? 'option active' : 'option'}
-                  onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
-                >
-                  {minutes} {t('preferences.minutesUnit', locale)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field">
-            <label>{t('preferences.firstEmailLabel', locale)}</label>
-            <div className="options">
-              {FIRST_EMAIL_OPTIONS.map((opt) => (
-                <button
-                  key={String(opt.value)}
-                  className={prefs.require_first_email_approval === opt.value ? 'option active' : 'option'}
-                  onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="collab-extra-hint">
-              {t('preferences.firstEmailHint', locale)}
-            </p>
-          </div>
-
-          <div className="field">
-            <label>{t('preferences.dailyCapLabel', locale)}</label>
-            <input
-              type="number"
-              min={1}
-              max={2000}
-              className="cap-input"
-              value={prefs.daily_prospecting_email_cap}
-              onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
-            />
-            <p className="collab-extra-hint">
-              {t('preferences.dailyCapHint', locale)}
-            </p>
-          </div>
-
-          <div className="field">
-            <label>{t('preferences.crm.collabLevelLabel', locale)}</label>
-            <div className="collab-options">
-              {COLLABORATION_LEVELS.map((lvl) => (
-                <button
-                  key={lvl.value}
-                  className={prefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
-                  onClick={() => setPrefs({ ...prefs, collaboration_level: lvl.value })}
-                >
-                  <span className="collab-title">{lvl.label}</span>
-                  <span className="collab-desc">{lvl.desc}</span>
-                </button>
-              ))}
-            </div>
-
-            {prefs.collaboration_level === 1 && (
-              <div className="collab-extra">
-                <p className="collab-extra-hint">
-                  {t('preferences.crm.uploadHint', locale)}
-                </p>
-                <div className="upload-row">
-                  <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-                  <button type="button" className="btn-secondary" onClick={handleUpload} disabled={!uploadFile || uploading}>
-                    {uploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
-                  </button>
+          {activeTab === 'profile' && (
+            <>
+              {summaryLoaded && (
+                <div className="field">
+                  <label>{t('preferences.businessProfileLabel', locale)}</label>
+                  <textarea
+                    rows={6}
+                    value={businessSummary}
+                    onChange={(e) => setBusinessSummary(e.target.value)}
+                    placeholder={t('preferences.businessProfilePlaceholder', locale)}
+                  />
+                  <div className="actions">
+                    <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
+                      {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
+                    </button>
+                    {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
+                  </div>
                 </div>
-                {uploadDone && <p className="saved-msg">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
-              </div>
-            )}
+              )}
 
-            {(prefs.collaboration_level === 2 || prefs.collaboration_level === 3) && (
-              <div className="collab-extra">
-                <label className="sub-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
-                <select
-                  value={prefs.crm_provider || ''}
-                  onChange={(e) => setPrefs({ ...prefs, crm_provider: e.target.value || null })}
-                >
-                  {CRM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-                <label className="sub-label">{t('preferences.crm.notesLabel', locale)}</label>
-                <textarea
-                  rows={3}
-                  value={prefs.crm_connection_notes || ''}
-                  onChange={(e) => setPrefs({ ...prefs, crm_connection_notes: e.target.value })}
-                  placeholder={t('preferences.crm.notesPlaceholder', locale)}
-                />
-                <p className="collab-extra-hint">
-                  {t('preferences.crm.setupHint', locale)}
-                </p>
-
-                {prefs.crm_provider === 'hubspot' && (
-                  // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
-                  // elle-même (connecter/déconnecter/synchroniser) se gère
-                  // désormais depuis Connexions, nouvelle catégorie "CRMs et
-                  // bases de données" — cette page ne garde que le choix du
-                  // fournisseur et le niveau de collaboration (voir item #30).
+              {signatureLoaded && (
+                <div className="field">
+                  <label>{t('preferences.signatureLabel', locale)}</label>
+                  <textarea
+                    rows={4}
+                    value={signature}
+                    onChange={(e) => setSignature(e.target.value)}
+                    placeholder={t('preferences.signaturePlaceholder', locale)}
+                  />
+                  {signatureError && <p className="error">{signatureError}</p>}
+                  <div className="actions">
+                    <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
+                      {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
+                    </button>
+                    <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
+                      {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
+                    </button>
+                    {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
+                  </div>
                   <p className="collab-extra-hint">
-                    {t('preferences.crm.manageInConnexionsHint', locale)}{' '}
-                    <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
-                      {t('nav.connections', locale)}
-                    </Link>
-                    .
+                    {t('preferences.signatureDetectHint', locale)}
                   </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'preferences' && (
+            <>
+              <div className="field">
+                <label>{t('preferences.notifyChannelLabel', locale)}</label>
+                <div className="options">
+                  {CHANNEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={prefs.notify_channel === opt.value ? 'option active' : 'option'}
+                      onClick={() => setPrefs({ ...prefs, notify_channel: opt.value })}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
+                  <PushNotificationManager />
                 )}
               </div>
-            )}
-          </div>
+
+              <div className="field">
+                <label>{t('preferences.notifyDelayLabel', locale)}</label>
+                <div className="options">
+                  {DELAY_OPTIONS.map((minutes) => (
+                    <button
+                      key={minutes}
+                      className={prefs.notify_before_appointment_minutes === minutes ? 'option active' : 'option'}
+                      onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
+                    >
+                      {minutes} {t('preferences.minutesUnit', locale)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
+                <label>{t('preferences.firstEmailLabel', locale)}</label>
+                <div className="options">
+                  {FIRST_EMAIL_OPTIONS.map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      className={prefs.require_first_email_approval === opt.value ? 'option active' : 'option'}
+                      onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="collab-extra-hint">
+                  {t('preferences.firstEmailHint', locale)}
+                </p>
+              </div>
+
+              <div className="field">
+                <label>{t('preferences.dailyCapLabel', locale)}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={2000}
+                  className="cap-input"
+                  value={prefs.daily_prospecting_email_cap}
+                  onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
+                />
+                <p className="collab-extra-hint">
+                  {t('preferences.dailyCapHint', locale)}
+                </p>
+              </div>
+
+              <div className="field">
+                <label>{t('preferences.crm.collabLevelLabel', locale)}</label>
+                <div className="collab-options">
+                  {COLLABORATION_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl.value}
+                      className={prefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
+                      onClick={() => setPrefs({ ...prefs, collaboration_level: lvl.value })}
+                    >
+                      <span className="collab-title">{lvl.label}</span>
+                      <span className="collab-desc">{lvl.desc}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {prefs.collaboration_level === 1 && (
+                  <div className="collab-extra">
+                    <p className="collab-extra-hint">
+                      {t('preferences.crm.uploadHint', locale)}
+                    </p>
+                    <div className="upload-row">
+                      <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                      <button type="button" className="btn-secondary" onClick={handleUpload} disabled={!uploadFile || uploading}>
+                        {uploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
+                      </button>
+                    </div>
+                    {uploadDone && <p className="saved-msg">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
+                  </div>
+                )}
+
+                {(prefs.collaboration_level === 2 || prefs.collaboration_level === 3) && (
+                  <div className="collab-extra">
+                    <label className="sub-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
+                    <select
+                      value={prefs.crm_provider || ''}
+                      onChange={(e) => setPrefs({ ...prefs, crm_provider: e.target.value || null })}
+                    >
+                      {CRM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                    <label className="sub-label">{t('preferences.crm.notesLabel', locale)}</label>
+                    <textarea
+                      rows={3}
+                      value={prefs.crm_connection_notes || ''}
+                      onChange={(e) => setPrefs({ ...prefs, crm_connection_notes: e.target.value })}
+                      placeholder={t('preferences.crm.notesPlaceholder', locale)}
+                    />
+                    <p className="collab-extra-hint">
+                      {t('preferences.crm.setupHint', locale)}
+                    </p>
+
+                    {prefs.crm_provider === 'hubspot' && (
+                      // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
+                      // elle-même (connecter/déconnecter/synchroniser) se gère
+                      // désormais depuis Connexions, nouvelle catégorie "CRMs et
+                      // bases de données" — cette page ne garde que le choix du
+                      // fournisseur et le niveau de collaboration (voir item #30).
+                      <p className="collab-extra-hint">
+                        {t('preferences.crm.manageInConnexionsHint', locale)}{' '}
+                        <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
+                          {t('nav.connections', locale)}
+                        </Link>
+                        .
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'subscription' && (
+            <>
+              <div className="field">
+                <label>{t('preferences.subscriptionLabel', locale)}</label>
+                <div className="offer-options">
+                  {OFFERS.map((o) => (
+                    <button
+                      key={o.value}
+                      className={`offer-card ${prefs.offer === o.value ? 'active' : ''} ${!o.available ? 'disabled' : ''}`}
+                      onClick={() => o.available && setPrefs({ ...prefs, offer: o.value })}
+                      disabled={!o.available}
+                    >
+                      <span className="offer-title">
+                        {o.label}
+                        {!o.available && <span className="soon-badge">{t('preferences.inDevelopmentBadge', locale)}</span>}
+                      </span>
+                      <span className="offer-desc">{o.desc}</span>
+                    </button>
+                  ))}
+                </div>
+                {offerError && <p className="error">{offerError}</p>}
+              </div>
+
+              {usage && (
+                <div className="field credits-field">
+                  <label>{t('preferences.credits.label', locale)}</label>
+                  <div className="usage-box">
+                    <div className="usage-row">
+                      <span>{t('preferences.credits.currentBalance', locale)}</span>
+                      <strong>{Number(usage.credit_balance_eur || 0).toFixed(2)} €</strong>
+                    </div>
+                    <p className="usage-hint">
+                      {t('preferences.credits.includedHint', locale)}
+                    </p>
+                    <p className="usage-hint">
+                      {t('preferences.credits.sharedPoolHint', locale)}
+                    </p>
+                    {prefs.role === 'patron' ? (
+                      <>
+                        <div className="credits-buy-row">
+                          {[20, 40, 60, 80, 100].map((credits) => (
+                            <button
+                              key={credits}
+                              type="button"
+                              className="btn-secondary"
+                              disabled={buyingCredits !== null}
+                              onClick={() => handleBuyCredits(credits)}
+                            >
+                              {buyingCredits === credits ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="upload-row">
+                          <input
+                            type="number"
+                            min={1}
+                            max={5000}
+                            className="cap-input"
+                            placeholder={t('preferences.credits.customPlaceholder', locale)}
+                            value={customCredits}
+                            onChange={(e) => setCustomCredits(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={buyingCredits !== null || !customCredits}
+                            onClick={handleBuyCustomCredits}
+                          >
+                            {t('preferences.credits.customButton', locale)}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="usage-hint">{t('preferences.credits.ownerOnlyHint', locale)}</p>
+                    )}
+                    {creditsError && <p className="error">{creditsError}</p>}
+                  </div>
+                </div>
+              )}
+
+              {prefs?.role === 'patron' && (
+                <div className="field credits-field">
+                  <label>{t('preferences.billing.label', locale)}</label>
+                  <div className="usage-box">
+                    <p className="usage-hint">
+                      {t('preferences.billing.hint', locale)}
+                    </p>
+                    <div className="credits-buy-row">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={openingBillingPortal}
+                        onClick={handleOpenBillingPortal}
+                      >
+                        {openingBillingPortal ? '…' : t('preferences.billing.manageButton', locale)}
+                      </button>
+                    </div>
+                    {billingPortalError && <p className="error">{billingPortalError}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* CHANGEMENTS A FAIRE #91-93 (item 32) : "Suivi des coûts API"
+                  réservé au compte aaron@meetaaron.app désormais, plus visible
+                  pour les autres sociétés/comptes. */}
+              {usage && prefs.email === 'aaron@meetaaron.app' && (
+                <div className="field usage-field">
+                  <label>{t('preferences.usage.apiCostLabel', locale)}</label>
+                  <div className="usage-box">
+                    <div className="usage-row">
+                      <span>{t('preferences.usage.thisMonth', locale)}</span>
+                      <strong>
+                        {usage.month_cost_usd.toFixed(2)} $
+                        {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', usage.monthly_cap_usd)}
+                      </strong>
+                    </div>
+                    <div className="usage-row">
+                      <span>{t('preferences.usage.today', locale)}</span>
+                      <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
+                    </div>
+                    <div className="usage-bars">
+                      {usage.last_7_days.map((d) => (
+                        <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${d.cost_usd.toFixed(2)} $`}>
+                          <div
+                            className="usage-bar"
+                            style={{ height: `${Math.min(100, (d.cost_usd / (usage.daily_cap_usd || 1)) * 100)}%` }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="usage-hint">
+                      {t('preferences.usage.hint', locale)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           <div className="actions">
             <button className="btn-primary" onClick={handleSave} disabled={saving}>
@@ -549,93 +715,6 @@ export default function PreferencesPage() {
             </button>
             {saved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
           </div>
-
-          {usage && (
-            <div className="field usage-field">
-              <label>{t('preferences.usage.apiCostLabel', locale)}</label>
-              <div className="usage-box">
-                <div className="usage-row">
-                  <span>{t('preferences.usage.thisMonth', locale)}</span>
-                  <strong>
-                    {usage.month_cost_usd.toFixed(2)} $
-                    {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', usage.monthly_cap_usd)}
-                  </strong>
-                </div>
-                <div className="usage-row">
-                  <span>{t('preferences.usage.today', locale)}</span>
-                  <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
-                </div>
-                <div className="usage-bars">
-                  {usage.last_7_days.map((d) => (
-                    <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${d.cost_usd.toFixed(2)} $`}>
-                      <div
-                        className="usage-bar"
-                        style={{ height: `${Math.min(100, (d.cost_usd / (usage.daily_cap_usd || 1)) * 100)}%` }}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <p className="usage-hint">
-                  {t('preferences.usage.hint', locale)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {usage && (
-            <div className="field credits-field">
-              <label>{t('preferences.credits.label', locale)}</label>
-              <div className="usage-box">
-                <div className="usage-row">
-                  <span>{t('preferences.credits.currentBalance', locale)}</span>
-                  <strong>{Number(usage.credit_balance_eur || 0).toFixed(2)} €</strong>
-                </div>
-                <p className="usage-hint">
-                  {t('preferences.credits.hint', locale)}
-                </p>
-                {prefs.role === 'patron' ? (
-                  <div className="credits-buy-row">
-                    {[20, 40, 100].map((amount) => (
-                      <button
-                        key={amount}
-                        type="button"
-                        className="btn-secondary"
-                        disabled={buyingCredits !== null}
-                        onClick={() => handleBuyCredits(amount)}
-                      >
-                        {buyingCredits === amount ? '…' : `+${amount} €`}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="usage-hint">{t('preferences.credits.ownerOnlyHint', locale)}</p>
-                )}
-                {creditsError && <p className="error">{creditsError}</p>}
-              </div>
-            </div>
-          )}
-
-          {prefs?.role === 'patron' && (
-            <div className="field credits-field">
-              <label>{t('preferences.billing.label', locale)}</label>
-              <div className="usage-box">
-                <p className="usage-hint">
-                  {t('preferences.billing.hint', locale)}
-                </p>
-                <div className="credits-buy-row">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={openingBillingPortal}
-                    onClick={handleOpenBillingPortal}
-                  >
-                    {openingBillingPortal ? '…' : t('preferences.billing.manageButton', locale)}
-                  </button>
-                </div>
-                {billingPortalError && <p className="error">{billingPortalError}</p>}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -670,6 +749,30 @@ export default function PreferencesPage() {
           border-radius: 14px;
           padding: 1.6rem;
           max-width: 640px;
+        }
+        .tabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          margin-bottom: 1.8rem;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 1rem;
+        }
+        .tab-btn {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 8px;
+          padding: 0.5rem 0.9rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .tab-btn.active {
+          border-color: var(--accent);
+          color: var(--text);
+          background: rgba(75, 57, 239, 0.14);
         }
         .field {
           margin-bottom: 1.8rem;
