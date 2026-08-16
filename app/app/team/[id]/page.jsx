@@ -96,7 +96,7 @@ export default function TeamMemberDetailPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -110,7 +110,7 @@ export default function TeamMemberDetailPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -244,7 +244,7 @@ export default function TeamMemberDetailPage() {
         .stat-card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.1rem;
           display: flex;
           flex-direction: column;
@@ -262,7 +262,7 @@ export default function TeamMemberDetailPage() {
         .panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           margin-bottom: 1.5rem;
         }
