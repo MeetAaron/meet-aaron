@@ -92,7 +92,10 @@ const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'jobber'];
 // compte Axonaut (icône clé à molette -> API dans l'interface Axonaut). Carte
 // dédiée à part (ApiKeyCrmConnectionCard, formulaire 1 champ) plutôt que la
 // redirection OAuth de CrmConnectionCard — voir app/api/crm-connections/axonaut.
-const API_KEY_CRM_PROVIDERS = ['axonaut'];
+// Housecall Pro (4e CRM, suite 15) réutilise le même patron — également une
+// clé API statique générée par un administrateur (My Apps -> API Key
+// Management), pas d'OAuth accessible pour ce type d'intégration.
+const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro'];
 
 // Suite 15 (2e CRM du chantier, après Axonaut) : Sellsy utilise OAuth2
 // "client credentials" — ni redirection utilisateur (DIRECT_CRM_PROVIDERS),
@@ -110,6 +113,7 @@ function crmMetaFor(locale) {
     axonaut: { name: 'Axonaut', desc: t('connexions.axonautDesc', locale) },
     sellsy: { name: 'Sellsy', desc: t('connexions.sellsyDesc', locale) },
     jobber: { name: 'Jobber', desc: t('connexions.jobberDesc', locale) },
+    housecallpro: { name: 'Housecall Pro', desc: t('connexions.housecallproDesc', locale) },
   };
 }
 
