@@ -204,8 +204,8 @@ export default function CampaignsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
+            background: var(--bg);
+            color: var(--muted);
             font-family: 'Inter', sans-serif;
           }
         `}</style>
@@ -223,8 +223,8 @@ export default function CampaignsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
+            background: var(--bg);
+            color: var(--accent-red);
             font-family: 'Inter', sans-serif;
             text-align: center;
             padding: 2rem;
@@ -452,7 +452,7 @@ export default function CampaignsPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -466,7 +466,7 @@ export default function CampaignsPage() {
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.2rem;
         }
         .card-top {
@@ -526,7 +526,7 @@ export default function CampaignsPage() {
           color: var(--accent-green);
         }
         .outcome-lost {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .global-advice-row {
           display: flex;
@@ -591,7 +591,7 @@ export default function CampaignsPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 0.7rem;
           font-size: 0.78rem;
           cursor: pointer;
@@ -600,10 +600,10 @@ export default function CampaignsPage() {
           border-color: var(--accent);
         }
         .status-btn.danger {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .status-btn.danger:hover {
-          border-color: #e5484d;
+          border-color: var(--accent-red);
         }
         .status-btn:disabled {
           opacity: 0.5;
@@ -622,7 +622,7 @@ export default function CampaignsPage() {
         .advice-modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           width: 520px;
           max-width: 100%;
@@ -657,7 +657,7 @@ export default function CampaignsPage() {
         .confirm-modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           width: 420px;
           max-width: 100%;
@@ -682,15 +682,15 @@ export default function CampaignsPage() {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
         .btn-danger {
-          background: #e5484d;
+          background: var(--accent-red);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -972,7 +972,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         .chat-modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           width: 560px;
           max-width: 100%;
@@ -1009,7 +1009,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           margin-bottom: 0.8rem;
         }
         .bubble {
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 0.6rem 0.85rem;
           font-size: 0.86rem;
           line-height: 1.45;
@@ -1057,7 +1057,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         .recap-box {
           background: var(--bg);
           border: 1px solid var(--accent);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem 1rem;
           margin-bottom: 0.8rem;
           font-size: 0.84rem;
@@ -1080,7 +1080,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           margin: 0.5rem 0 0.7rem !important;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
           margin: 0 0 0.6rem;
         }
@@ -1092,7 +1092,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           flex: 1;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
           font-size: 0.88rem;
@@ -1101,7 +1101,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -1114,7 +1114,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
@@ -1415,7 +1415,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 480px;
           max-width: 100%;
@@ -1497,12 +1497,12 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           gap: 0.3rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 0.5rem;
           color: var(--muted);
           font-size: 0.78rem;
           cursor: pointer;
-          transition: border-color 0.15s ease, color 0.15s ease;
+          transition: border-color var(--fast), color var(--fast);
         }
         .zone-type-btn.active {
           border-color: var(--accent);
@@ -1524,11 +1524,15 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           gap: 0.15rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 0.8rem;
           cursor: pointer;
           text-align: left;
-          transition: border-color 0.15s ease, background 0.15s ease;
+          transition: border-color var(--fast), background var(--fast), transform var(--fast), box-shadow var(--fast);
+        }
+        .size-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .size-btn.active {
           border-color: var(--accent);
@@ -1579,7 +1583,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           color: var(--muted);
           font-size: 0.8rem;
           cursor: pointer;
-          transition: border-color 0.15s ease, color 0.15s ease;
+          transition: border-color var(--fast), color var(--fast);
         }
         .role-btn.active {
           border-color: var(--accent);
@@ -1595,7 +1599,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         .recap {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem 1rem;
           margin-top: 1rem;
           font-size: 0.82rem;
@@ -1623,13 +1627,13 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         input, select {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
           font-size: 0.88rem;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
         }
         .actions {
@@ -1642,7 +1646,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -1655,7 +1659,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
@@ -1675,7 +1679,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
