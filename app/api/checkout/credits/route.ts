@@ -1,11 +1,22 @@
 // app/api/checkout/credits/route.ts
 // POST -> crée une session de paiement Stripe EN UNE FOIS (pas un abonnement)
 // pour l'achat d'un pack de crédits ("boost", voir migration_credits_2026-08-14.sql
-// et lib/credits.ts). 1 crédit = 1 €.
+// et lib/credits.ts).
+//
+// CHANGEMENTS A FAIRE #91-93 (2026-08-16, item 31) : le docx précise
+// explicitement le tarif "booster Aaron" — packs de 20/40/60/80/100 crédits
+// (ou un montant personnalisé), 30€ pour 20 crédits, soit 1,50€/crédit. Ceci
+// remplace le tarif 1 crédit = 1 € décidé le 14/08/2026 (avant que ce tarif
+// précis soit communiqué par écrit) — voir statut projet pour la note sur ce
+// changement de tarif. Le solde stocké (`companies.credit_balance_eur`,
+// lib/credits.ts) reste un solde en EUROS ; c'est uniquement le prix
+// d'achat par crédit affiché/facturé qui change (1,50€ au lieu de 1€), ce qui
+// ne nécessite aucune migration ni changement de lib/credits.ts (spend/solde
+// inchangés).
 //
 // Utilise price_data (tarif défini à la volée) plutôt qu'un Price ID Stripe
-// préexistant : pas besoin de créer les 3 packs dans le dashboard Stripe au
-// préalable, le prix est simplement le montant du pack choisi.
+// préexistant : pas besoin de créer les packs dans le dashboard Stripe au
+// préalable, le prix est calculé à partir du nombre de crédits choisi.
 //
 // Réservé au patron de la société : c'est une dépense engagée pour toute
 // l'équipe, pas une action qu'un commercial devrait pouvoir déclencher seul
@@ -15,15 +26,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
-// Packs disponibles — décision produit du 14/08/2026. Le montant est à la
-// fois le prix en euros ET le nombre de crédits ajoutés (1 crédit = 1 €).
-const ALLOWED_PACKS_EUR = [20, 40, 100];
+// 30€ pour 20 crédits (tarif docx CHANGEMENTS A FAIRE, item 31).
+const CREDIT_PRICE_EUR = 1.5;
+const MIN_CREDITS = 1;
+const MAX_CREDITS = 5000;
 
 export async function POST(request: NextRequest) {
-  const { amount_eur } = await request.json();
+  const { credits } = await request.json();
+  const creditsNum = Number(credits);
 
-  if (!ALLOWED_PACKS_EUR.includes(amount_eur)) {
-    return NextResponse.json({ error: 'Pack de crédits invalide' }, { status: 400 });
+  if (!Number.isInteger(creditsNum) || creditsNum < MIN_CREDITS || creditsNum > MAX_CREDITS) {
+    return NextResponse.json({ error: 'Nombre de crédits invalide' }, { status: 400 });
   }
 
   const authedUser = await getAuthedUser(request);
@@ -34,6 +47,9 @@ export async function POST(request: NextRequest) {
   }
 
   const origin = request.nextUrl.origin;
+  // Arrondi au centime pour éviter les montants Stripe à virgule flottante
+  // imprécise (ex. 0.1 + 0.2 en JS) — unit_amount de Stripe est en centimes.
+  const amountEur = Math.round(creditsNum * CREDIT_PRICE_EUR * 100) / 100;
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -44,10 +60,10 @@ export async function POST(request: NextRequest) {
           price_data: {
             currency: 'eur',
             product_data: {
-              name: `${amount_eur} crédits Aaron`,
+              name: `${creditsNum} crédits Aaron`,
               description: "Crédits pour continuer à utiliser Aaron au-delà du plafond inclus dans l'abonnement",
             },
-            unit_amount: amount_eur * 100,
+            unit_amount: Math.round(amountEur * 100),
           },
           quantity: 1,
         },
@@ -58,7 +74,8 @@ export async function POST(request: NextRequest) {
       metadata: {
         purpose: 'credits_purchase',
         company_id: authedUser.company_id,
-        amount_eur: String(amount_eur),
+        amount_eur: String(amountEur),
+        credits: String(creditsNum),
       },
     });
 
