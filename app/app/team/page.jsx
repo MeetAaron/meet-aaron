@@ -1,4 +1,11 @@
 // app/app/team/page.jsx
+// CHANGEMENTS A FAIRE — Mon équipe (2026-08-16, items 1 à 3) : la page passe
+// de "un seul tableau, 3 colonnes de stats" à 3 onglets — Vue d'ensemble (6
+// colonnes de stats + sélecteur de période), Résultats détaillés (tableau
+// complet prospects/opportunités/clients de la société, exportable CSV/XLS)
+// et Rapport de performances (PDF téléchargeable généré à la demande, voir
+// app/api/team/report/route.ts). Voir lib/team-stats.ts pour les
+// définitions exactes des stats.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -6,6 +13,59 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+
+// Sélecteur de période littéral du docx ("depuis l'ouverture de compte, au
+// mois, de telle à telle date") — volontairement différent des fenêtres
+// 7j/30j/3mois/depuis toujours de Résultats (Lot 5), chaque page suit son
+// propre texte. Partagé par les onglets Vue d'ensemble et Rapport.
+function periodQueryParams(periodMode, customFrom, customTo) {
+  const params = new URLSearchParams();
+  params.set('period', periodMode);
+  if (periodMode === 'custom' && customFrom) params.set('since', new Date(customFrom).toISOString());
+  if (periodMode === 'custom' && customTo) params.set('until', new Date(customTo).toISOString());
+  return params;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(value) {
+  const str = String(value ?? '');
+  if (/[",\n;]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+function exportResultsCsv(rows, headers, keys, filename) {
+  const lines = [headers.map(csvEscape).join(';')];
+  rows.forEach((row) => {
+    lines.push(keys.map((k) => csvEscape(row[k])).join(';'));
+  });
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(blob, filename);
+}
+
+// "XLS" généré côté client sans dépendance : un fichier HTML (table simple)
+// avec l'extension .xls et le type MIME Excel — Excel/LibreOffice l'ouvrent
+// nativement, c'est la technique standard pour un export XLS sans
+// bibliothèque de génération de binaire .xlsx.
+function exportResultsXls(rows, headers, keys, filename) {
+  const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const headRow = `<tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+  const bodyRows = rows
+    .map((row) => `<tr>${keys.map((k) => `<td>${escapeHtml(row[k])}</td>`).join('')}</tr>`)
+    .join('');
+  const html = `<html><head><meta charset="utf-8"></head><body><table>${headRow}${bodyRows}</table></body></html>`;
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+  downloadBlob(blob, filename);
+}
 
 function useAuthedUser() {
   const router = useRouter();
@@ -69,15 +129,33 @@ function useAuthedUser() {
 export default function TeamPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
+  const [activeTab, setActiveTab] = useState('overview');
   const [members, setMembers] = useState([]);
   const [inviteCode, setInviteCode] = useState(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [teamError, setTeamError] = useState(null);
 
-  useEffect(() => {
+  // Sélecteur de période (item 1) — partagé entre l'onglet Vue d'ensemble et
+  // l'onglet Rapport de performances (item 3), qui répondent tous les deux à
+  // "depuis l'ouverture de compte / au mois / de telle à telle date".
+  const [periodMode, setPeriodMode] = useState('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const [resultsRows, setResultsRows] = useState([]);
+  const [resultsLoading, setResultsLoading] = useState(false);
+  const [resultsError, setResultsError] = useState(null);
+  const [resultsLoaded, setResultsLoaded] = useState(false);
+
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportError, setReportError] = useState(null);
+
+  function loadTeam() {
     if (!userId) return;
-    fetch(`/api/team?user_id=${userId}`)
+    setLoading(true);
+    const params = periodQueryParams(periodMode, customFrom, customTo);
+    fetch(`/api/team?user_id=${userId}&${params.toString()}`)
       .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
       .then(({ ok, body }) => {
         if (!ok) {
@@ -88,7 +166,36 @@ export default function TeamPage() {
         }
         setLoading(false);
       });
-  }, [userId]);
+  }
+
+  useEffect(() => {
+    loadTeam();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, periodMode, customFrom, customTo]);
+
+  function loadResults() {
+    if (!userId) return;
+    setResultsLoading(true);
+    setResultsError(null);
+    fetch(`/api/team/results?user_id=${userId}`)
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok) {
+          setResultsError(body.error);
+        } else {
+          setResultsRows(body.rows || []);
+          setResultsLoaded(true);
+        }
+        setResultsLoading(false);
+      });
+  }
+
+  useEffect(() => {
+    if (activeTab === 'results' && !resultsLoaded && userId) {
+      loadResults();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, userId]);
 
   function copyInviteCode() {
     if (!inviteCode) return;
@@ -96,6 +203,63 @@ export default function TeamPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }
+
+  const TYPE_LABELS = {
+    prospect: t('team.typeProspect', locale),
+    opportunite: t('team.typeOpportunity', locale),
+    client: t('team.typeClient', locale),
+  };
+
+  function handleExportCsv() {
+    const headers = [t('team.resultsColType', locale), t('team.resultsColName', locale), t('team.resultsColCompany', locale), t('team.resultsColCommercial', locale), t('team.resultsColStatus', locale), t('team.resultsColDate', locale)];
+    const rows = resultsRows.map((r) => ({
+      type: TYPE_LABELS[r.type] || r.type,
+      name: r.name,
+      company: r.company,
+      commercial: r.commercial,
+      status: r.status,
+      date: r.date ? new Date(r.date).toLocaleDateString('fr-FR') : '',
+    }));
+    exportResultsCsv(rows, headers, ['type', 'name', 'company', 'commercial', 'status', 'date'], `resultats-equipe-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
+  function handleExportXls() {
+    const headers = [t('team.resultsColType', locale), t('team.resultsColName', locale), t('team.resultsColCompany', locale), t('team.resultsColCommercial', locale), t('team.resultsColStatus', locale), t('team.resultsColDate', locale)];
+    const rows = resultsRows.map((r) => ({
+      type: TYPE_LABELS[r.type] || r.type,
+      name: r.name,
+      company: r.company,
+      commercial: r.commercial,
+      status: r.status,
+      date: r.date ? new Date(r.date).toLocaleDateString('fr-FR') : '',
+    }));
+    exportResultsXls(rows, headers, ['type', 'name', 'company', 'commercial', 'status', 'date'], `resultats-equipe-${new Date().toISOString().slice(0, 10)}.xls`);
+  }
+
+  async function handleGenerateReport() {
+    setReportGenerating(true);
+    setReportError(null);
+    const body = { user_id: userId, period: periodMode };
+    if (periodMode === 'custom' && customFrom) body.since = new Date(customFrom).toISOString();
+    if (periodMode === 'custom' && customTo) body.until = new Date(customTo).toISOString();
+
+    const res = await fetch('/api/team/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setReportError(err.error || t('team.reportError', locale));
+      setReportGenerating(false);
+      return;
+    }
+
+    const blob = await res.blob();
+    downloadBlob(blob, `rapport-performances-${new Date().toISOString().slice(0, 10)}.pdf`);
+    setReportGenerating(false);
   }
 
   if (authLoading) {
@@ -160,44 +324,253 @@ export default function TeamPage() {
         </div>
       )}
 
-      {loading ? (
-        <p className="muted">{t('common.loading', locale)}</p>
-      ) : teamError ? (
-        <EmptyState title={t('team.accessDenied', locale)} body={teamError} />
-      ) : members.length === 0 ? (
-        <EmptyState title={t('team.noMembersTitle', locale)} body={t('team.noMembersBody', locale)} />
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{t('team.colName', locale)}</th>
-                <th>{t('modal.email', locale)}</th>
-                <th>{t('team.colRole', locale)}</th>
-                <th>{t('team.colActiveProspects', locale)}</th>
-                <th>{t('team.colValidatedAppts', locale)}</th>
-                <th>{t('team.colWonClients', locale)}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.id}>
-                  <td>
-                    <Link href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
-                      {m.full_name}
-                    </Link>
-                  </td>
-                  <td className="muted">{m.email}</td>
-                  <td className="muted">{m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}</td>
-                  <td>{m.prospects_actifs}</td>
-                  <td>{m.rdv_valides}</td>
-                  <td>{m.clients_gagnes}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="tabs">
+        <button type="button" className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
+          {t('team.tabOverview', locale)}
+        </button>
+        <button type="button" className={`tab-btn ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>
+          {t('team.tabResults', locale)}
+        </button>
+        <button type="button" className={`tab-btn ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
+          {t('team.tabReport', locale)}
+        </button>
+      </div>
+
+      {(activeTab === 'overview' || activeTab === 'report') && (
+        <div className="period-row">
+          <label>
+            <input type="radio" name="period" checked={periodMode === 'all'} onChange={() => setPeriodMode('all')} />
+            {t('team.periodAll', locale)}
+          </label>
+          <label>
+            <input type="radio" name="period" checked={periodMode === 'month'} onChange={() => setPeriodMode('month')} />
+            {t('team.periodMonth', locale)}
+          </label>
+          <label>
+            <input type="radio" name="period" checked={periodMode === 'custom'} onChange={() => setPeriodMode('custom')} />
+            {t('team.periodCustom', locale)}
+          </label>
+          {periodMode === 'custom' && (
+            <div className="period-dates">
+              <span>{t('team.periodFrom', locale)}</span>
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+              <span>{t('team.periodTo', locale)}</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+            </div>
+          )}
         </div>
       )}
+
+      {activeTab === 'overview' && (
+        loading ? (
+          <p className="muted">{t('common.loading', locale)}</p>
+        ) : teamError ? (
+          <EmptyState title={t('team.accessDenied', locale)} body={teamError} />
+        ) : members.length === 0 ? (
+          <EmptyState title={t('team.noMembersTitle', locale)} body={t('team.noMembersBody', locale)} />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('team.colName', locale)}</th>
+                  <th>{t('modal.email', locale)}</th>
+                  <th>{t('team.colRole', locale)}</th>
+                  <th>{t('team.colActiveProspects', locale)}</th>
+                  <th>{t('team.colWonAppointments', locale)}</th>
+                  <th>{t('team.colActiveOpportunities', locale)}</th>
+                  <th>{t('team.colWonClients', locale)}</th>
+                  <th>{t('team.colActiveClients', locale)}</th>
+                  <th>{t('team.colLostClients', locale)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((m) => (
+                  <tr key={m.id}>
+                    <td>
+                      <Link href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
+                        {m.full_name}
+                      </Link>
+                    </td>
+                    <td className="muted">{m.email}</td>
+                    <td className="muted">{m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}</td>
+                    <td>{m.prospects_actifs}</td>
+                    <td>{m.rdv_gagnes}</td>
+                    <td>{m.opportunites_actives}</td>
+                    <td>{m.clients_gagnes}</td>
+                    <td>{m.clients_actifs}</td>
+                    <td>{m.clients_perdus}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {activeTab === 'results' && (
+        <div className="results-panel">
+          <div className="results-toolbar">
+            <p className="muted results-hint">{t('team.resultsHint', locale)}</p>
+            <div className="results-actions">
+              <button type="button" className="btn-copy" disabled={resultsRows.length === 0} onClick={handleExportCsv}>
+                {t('team.downloadCsv', locale)}
+              </button>
+              <button type="button" className="btn-copy" disabled={resultsRows.length === 0} onClick={handleExportXls}>
+                {t('team.downloadXls', locale)}
+              </button>
+            </div>
+          </div>
+
+          {resultsLoading ? (
+            <p className="muted">{t('common.loading', locale)}</p>
+          ) : resultsError ? (
+            <EmptyState title={t('team.accessDenied', locale)} body={resultsError} />
+          ) : resultsRows.length === 0 ? (
+            <EmptyState title={t('team.resultsEmptyTitle', locale)} body={t('team.resultsEmptyBody', locale)} />
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('team.resultsColType', locale)}</th>
+                    <th>{t('team.resultsColName', locale)}</th>
+                    <th>{t('team.resultsColCompany', locale)}</th>
+                    <th>{t('team.resultsColCommercial', locale)}</th>
+                    <th>{t('team.resultsColStatus', locale)}</th>
+                    <th>{t('team.resultsColDate', locale)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultsRows.map((r, i) => (
+                    <tr key={i}>
+                      <td>{TYPE_LABELS[r.type] || r.type}</td>
+                      <td>{r.name}</td>
+                      <td className="muted">{r.company}</td>
+                      <td className="muted">{r.commercial}</td>
+                      <td className="muted">{r.status}</td>
+                      <td className="muted">{r.date ? new Date(r.date).toLocaleDateString('fr-FR') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'report' && (
+        <div className="report-panel">
+          <p className="muted">{t('team.reportDesc', locale)}</p>
+          <button type="button" className="btn-primary" disabled={reportGenerating} onClick={handleGenerateReport}>
+            {reportGenerating ? t('team.reportGenerating', locale) : t('team.reportButton', locale)}
+          </button>
+          {reportError && <p className="report-error">{reportError}</p>}
+        </div>
+      )}
+
+      <style jsx>{`
+        .tabs {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1.2rem;
+          flex-wrap: wrap;
+        }
+        .tab-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 10px;
+          padding: 0.55rem 1rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .tab-btn.active {
+          background: rgba(75, 57, 239, 0.18);
+          color: var(--text);
+          border-color: var(--accent);
+        }
+        .period-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 1.1rem;
+          margin-bottom: 1.4rem;
+          font-size: 0.86rem;
+          color: var(--muted);
+        }
+        .period-row label {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          cursor: pointer;
+        }
+        .period-dates {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .period-dates input[type='date'] {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 8px;
+          padding: 0.35rem 0.5rem;
+          font-size: 0.82rem;
+        }
+        .results-panel, .report-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+        .results-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+        }
+        .results-hint {
+          margin: 0;
+          font-size: 0.82rem;
+          max-width: 480px;
+        }
+        .results-actions {
+          display: flex;
+          gap: 0.6rem;
+        }
+        .report-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 1.6rem;
+          align-items: flex-start;
+        }
+        .report-error {
+          color: #e5484d;
+          font-size: 0.84rem;
+          margin: 0;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0.65rem 1.2rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-copy:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+      `}</style>
 
       <style jsx>{`
         .header {
