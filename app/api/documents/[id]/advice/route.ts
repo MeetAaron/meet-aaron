@@ -8,11 +8,20 @@
 // app/api/documents/route.ts) — si le document n'a pas de texte exploitable
 // (type non supporté, ex. .docx), l'avis l'explique plutôt que d'échouer
 // silencieusement.
+//
+// Langue de l'avis : contrairement à une campagne ou un prospect, ce document
+// n'a pas de "propriétaire" évident — l'avis est mis en cache pour toute
+// l'équipe. Choix pragmatique : on génère dans la langue du commercial qui a
+// cliqué sur "Générer"/"Régénérer" à cet instant (authedUser.locale). Si un
+// collègue dans une autre langue régénère ensuite, l'avis change de langue en
+// même temps — comportement assumé plutôt qu'une vraie notion de langue par
+// document.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const documentId = params.id;
@@ -45,7 +54,7 @@ Contenu extrait (peut être tronqué) :
 ${document.extracted_text.slice(0, 4000)}
 """
 
-Donne un avis concret en 3-4 phrases maximum sur ce document : à quoi il sert concrètement pour un commercial (argumentaire, tarifs, plaquette, etc.), s'il te semble à jour ou incomplet, et un conseil pratique sur comment/quand s'en servir face à un prospect. Sois direct et actionnable, pas générique. Réponds uniquement avec ce texte, en français, sans préambule ni titre.`;
+Donne un avis concret en 3-4 phrases maximum sur ce document : à quoi il sert concrètement pour un commercial (argumentaire, tarifs, plaquette, etc.), s'il te semble à jour ou incomplet, et un conseil pratique sur comment/quand s'en servir face à un prospect. Sois direct et actionnable, pas générique. Réponds uniquement avec ce texte, ${localeInstruction(authedUser.locale)}, sans préambule ni titre.`;
 
   let advice: string;
   try {
