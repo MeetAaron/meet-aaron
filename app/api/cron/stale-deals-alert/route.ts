@@ -13,6 +13,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 const STALE_DAYS = 5;
 const NON_TERMINAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
@@ -32,7 +33,12 @@ function isAuthorized(request: NextRequest) {
 // plafond API est atteint ou l'appel échoue, on retombe sur un message
 // générique plutôt que de bloquer l'alerte (l'essentiel est de prévenir le
 // commercial que l'affaire stagne, pas d'avoir une suggestion parfaite).
-async function suggestRelance(prospectName: string, stageLabel: string, companyId: string | null): Promise<string> {
+async function suggestRelance(
+  prospectName: string,
+  stageLabel: string,
+  companyId: string | null,
+  locale: string
+): Promise<string> {
   const fallback = "Une relance courte, avec un angle différent de la dernière fois, peut débloquer la situation.";
   if (!companyId) return fallback;
 
@@ -47,7 +53,7 @@ async function suggestRelance(prospectName: string, stageLabel: string, companyI
             content:
               `Tu es Aaron, copilote commercial IA. L'affaire avec le prospect "${prospectName}" est bloquée à ` +
               `l'étape "${stageLabel}" depuis plus de ${STALE_DAYS} jours. Suggère en UNE phrase courte et concrète ` +
-              `une action de relance au commercial. Réponds uniquement avec cette phrase, en français, sans préambule.`,
+              `une action de relance au commercial. Réponds uniquement avec cette phrase, ${localeInstruction(locale)}, sans préambule.`,
           },
         ],
       },
@@ -72,7 +78,7 @@ export async function GET(request: NextRequest) {
 
   const { data: staleDeals, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, full_name, deal_stage, deal_stage_updated_at, assigned_user_id, company_id, users(id, full_name, email, notify_channel), prospect_companies(name)')
+    .select('id, full_name, deal_stage, deal_stage_updated_at, assigned_user_id, company_id, users(id, full_name, email, notify_channel, locale), prospect_companies(name)')
     .in('deal_stage', NON_TERMINAL_STAGES)
     .lt('deal_stage_updated_at', staleBefore);
 
@@ -108,7 +114,7 @@ export async function GET(request: NextRequest) {
       const stageLabel = STAGE_LABELS[deal.deal_stage] || deal.deal_stage;
       const daysSince = Math.floor((Date.now() - new Date(deal.deal_stage_updated_at).getTime()) / (24 * 60 * 60 * 1000));
 
-      const suggestion = await suggestRelance(deal.full_name, stageLabel, deal.company_id);
+      const suggestion = await suggestRelance(deal.full_name, stageLabel, deal.company_id, user?.locale);
 
       const title = `Affaire au point mort : ${deal.full_name}`;
       const body =
