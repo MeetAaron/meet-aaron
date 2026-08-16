@@ -390,7 +390,7 @@ export default function PreferencesPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -404,7 +404,7 @@ export default function PreferencesPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -821,7 +821,7 @@ export default function PreferencesPage() {
         .panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.6rem;
           max-width: 640px;
         }
@@ -837,7 +837,7 @@ export default function PreferencesPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 0.9rem;
           font-size: 0.84rem;
           font-weight: 600;
@@ -866,7 +866,7 @@ export default function PreferencesPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.9rem;
           font-size: 0.84rem;
           cursor: pointer;
@@ -885,7 +885,7 @@ export default function PreferencesPage() {
           text-align: left;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem 1rem;
           display: flex;
           flex-direction: column;
@@ -950,12 +950,17 @@ export default function PreferencesPage() {
           text-align: left;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.8rem;
           cursor: pointer;
           display: flex;
           flex-direction: column;
           gap: 0.25rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .collab-card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .collab-card.active {
           border-color: var(--accent);
@@ -975,7 +980,7 @@ export default function PreferencesPage() {
           margin-top: 0.9rem;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.9rem 1rem;
         }
         .collab-extra-hint {
@@ -1000,7 +1005,7 @@ export default function PreferencesPage() {
           width: 100%;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -1011,7 +1016,7 @@ export default function PreferencesPage() {
           max-width: 140px;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -1023,7 +1028,7 @@ export default function PreferencesPage() {
         .usage-box {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 1rem;
         }
         .usage-row {
@@ -1069,7 +1074,7 @@ export default function PreferencesPage() {
           flex-wrap: wrap;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.8rem;
           margin-top: 0.5rem;
           overflow-wrap: break-word;
@@ -1089,7 +1094,7 @@ export default function PreferencesPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.65rem 1.2rem;
           font-weight: 600;
           font-size: 0.86rem;
@@ -1119,7 +1124,7 @@ export default function PreferencesPage() {
           margin: 0 0.4rem;
         }
         .unsubscribe-link {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .muted {
           color: var(--muted);
