@@ -90,12 +90,21 @@ const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive'];
 // redirection OAuth de CrmConnectionCard — voir app/api/crm-connections/axonaut.
 const API_KEY_CRM_PROVIDERS = ['axonaut'];
 
+// Suite 15 (2e CRM du chantier, après Axonaut) : Sellsy utilise OAuth2
+// "client credentials" — ni redirection utilisateur (DIRECT_CRM_PROVIDERS),
+// ni clé API unique (API_KEY_CRM_PROVIDERS), mais deux valeurs (client_id +
+// client_secret) échangées contre un jeton côté serveur — voir
+// app/api/crm-connections/sellsy et lib/crm-sync.ts. Carte dédiée à part
+// (TwoFieldCrmConnectionCard, formulaire 2 champs).
+const TWO_FIELD_CRM_PROVIDERS = ['sellsy'];
+
 function crmMetaFor(locale) {
   return {
     hubspot: { name: 'HubSpot', desc: t('connexions.hubspotDesc', locale) },
     salesforce: { name: 'Salesforce', desc: t('connexions.salesforceDesc', locale) },
     pipedrive: { name: 'Pipedrive', desc: t('connexions.pipedriveDesc', locale) },
     axonaut: { name: 'Axonaut', desc: t('connexions.axonautDesc', locale) },
+    sellsy: { name: 'Sellsy', desc: t('connexions.sellsyDesc', locale) },
   };
 }
 
@@ -126,6 +135,12 @@ export default function ConnexionsPage() {
   // fois la connexion établie (déconnexion/synchro identiques à HubSpot & co).
   const [axonautApiKeyInput, setAxonautApiKeyInput] = useState('');
   const [axonautConnecting, setAxonautConnecting] = useState(false);
+
+  // Suite 15 — Sellsy (client_id + client_secret, voir TWO_FIELD_CRM_PROVIDERS
+  // plus haut).
+  const [sellsyClientIdInput, setSellsyClientIdInput] = useState('');
+  const [sellsyClientSecretInput, setSellsyClientSecretInput] = useState('');
+  const [sellsyConnecting, setSellsyConnecting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -223,6 +238,35 @@ export default function ConnexionsPage() {
       setCrmError(t('common.error', locale));
     } finally {
       setAxonautConnecting(false);
+    }
+  }
+
+  // Suite 15 — même principe que handleConnectAxonaut, mais deux valeurs.
+  async function handleConnectSellsy(provider) {
+    if (!sellsyClientIdInput.trim() || !sellsyClientSecretInput.trim()) return;
+    setSellsyConnecting(true);
+    setCrmError(null);
+    try {
+      const res = await fetch(`/api/crm-connections/${provider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: sellsyClientIdInput.trim(),
+          client_secret: sellsyClientSecretInput.trim(),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setCrmError(body.error || t('common.error', locale));
+        return;
+      }
+      setSellsyClientIdInput('');
+      setSellsyClientSecretInput('');
+      loadCrmConnections();
+    } catch (err) {
+      setCrmError(t('common.error', locale));
+    } finally {
+      setSellsyConnecting(false);
     }
   }
 
@@ -364,6 +408,25 @@ export default function ConnexionsPage() {
                 onApiKeyInputChange={setAxonautApiKeyInput}
                 onConnect={() => handleConnectAxonaut(crmProvider)}
                 connecting={axonautConnecting}
+                onDisconnect={() => handleDisconnectCrm(crmProvider)}
+                onSync={() => handleSyncCrm(crmProvider)}
+                syncing={crmSyncing}
+                syncResult={crmSyncResult}
+                error={crmError}
+              />
+            ) : TWO_FIELD_CRM_PROVIDERS.includes(crmProvider) ? (
+              <TwoFieldCrmConnectionCard
+                provider={crmProvider}
+                title={CRM_META[crmProvider].name}
+                desc={CRM_META[crmProvider].desc}
+                connected={crmConnections.some((c) => c.provider === crmProvider)}
+                canManage={userRole === 'patron'}
+                fieldOneInput={sellsyClientIdInput}
+                onFieldOneInputChange={setSellsyClientIdInput}
+                fieldTwoInput={sellsyClientSecretInput}
+                onFieldTwoInputChange={setSellsyClientSecretInput}
+                onConnect={() => handleConnectSellsy(crmProvider)}
+                connecting={sellsyConnecting}
                 onDisconnect={() => handleDisconnectCrm(crmProvider)}
                 onSync={() => handleSyncCrm(crmProvider)}
                 syncing={crmSyncing}
@@ -615,6 +678,201 @@ function ApiKeyCrmConnectionCard({
               : t('preferences.crm.connectButtonTemplate', locale).replace('{provider}', title)}
           </button>
           <p className="crm-hint">{t(`connexions.${provider}ApiKeyHint`, locale)}</p>
+        </>
+      )}
+      <style jsx>{`
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+        .card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+        .card-head h3 {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+        }
+        .status-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+        }
+        .status-dot.on {
+          background: var(--accent-green);
+        }
+        .status-dot.off {
+          background: var(--muted);
+        }
+        .desc {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: 0 0 1rem;
+        }
+        .account {
+          font-size: 0.86rem;
+          margin: 0 0 0.7rem;
+        }
+        .card-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.6rem;
+        }
+        .api-key-label {
+          display: block;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 0.35rem;
+        }
+        .api-key-input {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.84rem;
+          margin-bottom: 0.7rem;
+          font-family: inherit;
+        }
+        .crm-hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0.7rem 0 0;
+        }
+        .crm-error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+          margin: 0 0 0.7rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Suite 15 (Sellsy) — même patron visuel que ApiKeyCrmConnectionCard, mais
+// deux champs (client_id + client_secret, voir TWO_FIELD_CRM_PROVIDERS plus
+// haut) au lieu d'une clé API unique. Clés i18n génériques
+// (connexions.twoFieldCrm*) plutôt que par provider, contrairement à
+// ApiKeyCrmConnectionCard : à ce jour Sellsy est le seul CRM de ce type, pas
+// besoin de libellés distincts par provider tant qu'un deuxième n'apparaît
+// pas dans ce groupe.
+function TwoFieldCrmConnectionCard({
+  provider,
+  title,
+  desc,
+  connected,
+  canManage,
+  fieldOneInput,
+  onFieldOneInputChange,
+  fieldTwoInput,
+  onFieldTwoInputChange,
+  onConnect,
+  connecting,
+  onDisconnect,
+  onSync,
+  syncing,
+  syncResult,
+  error,
+}) {
+  const [locale] = useLocale();
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>{title}</h3>
+        <span className={`status-dot ${connected ? 'on' : 'off'}`} />
+      </div>
+      <p className="desc">{desc}</p>
+      {error && <p className="crm-error">{error}</p>}
+      {!canManage ? (
+        <p className="crm-hint">{t('connexions.crmManagerOnlyHint', locale)}</p>
+      ) : connected ? (
+        <>
+          <p className="account">{t('preferences.crm.connectedMsgTemplate', locale).replace('{provider}', title)}</p>
+          <div className="card-actions">
+            <button type="button" className="btn-secondary" onClick={onSync} disabled={syncing}>
+              {syncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
+            </button>
+            <button type="button" className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
+          </div>
+          {syncResult && (
+            <p className="crm-hint">
+              {t('preferences.crm.syncResultSyncedTemplate', locale).replace('{count}', syncResult.synced).replace('{provider}', title)}
+              {syncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', syncResult.failed.length)}
+              {syncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <label className="api-key-label">{t(`connexions.${provider}ClientIdLabel`, locale)}</label>
+          <input
+            type="text"
+            className="api-key-input"
+            value={fieldOneInput}
+            onChange={(e) => onFieldOneInputChange(e.target.value)}
+            placeholder={t(`connexions.${provider}ClientIdPlaceholder`, locale)}
+          />
+          <label className="api-key-label">{t(`connexions.${provider}ClientSecretLabel`, locale)}</label>
+          <input
+            type="password"
+            className="api-key-input"
+            value={fieldTwoInput}
+            onChange={(e) => onFieldTwoInputChange(e.target.value)}
+            placeholder={t(`connexions.${provider}ClientSecretPlaceholder`, locale)}
+          />
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={onConnect}
+            disabled={connecting || !fieldOneInput.trim() || !fieldTwoInput.trim()}
+          >
+            {connecting
+              ? t('preferences.crm.syncingEllipsis', locale)
+              : t('preferences.crm.connectButtonTemplate', locale).replace('{provider}', title)}
+          </button>
+          <p className="crm-hint">{t(`connexions.${provider}Hint`, locale)}</p>
         </>
       )}
       <style jsx>{`
