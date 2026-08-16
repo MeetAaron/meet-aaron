@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude } from '@/lib/anthropic-client';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 const BUCKET = 'documents';
 const MAX_EXTRACTED_CHARS = 4000; // on ne garde qu'un extrait, pour limiter les tokens envoyés à Aaron
@@ -58,7 +59,12 @@ export async function GET(request: NextRequest) {
 // aperçu rapide côté équipe (liste des documents). Renvoie null si le texte
 // extrait est vide/absent, ou si l'appel échoue — le document reste utilisable
 // sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
-async function summarizeDocument(fileName: string, extractedText: string, companyId: string): Promise<string | null> {
+async function summarizeDocument(
+  fileName: string,
+  extractedText: string,
+  companyId: string,
+  locale: string
+): Promise<string | null> {
   if (!extractedText || extractedText.trim().length < 50) return null;
 
   try {
@@ -71,7 +77,7 @@ async function summarizeDocument(fileName: string, extractedText: string, compan
             role: 'user',
             content:
               `Voici le contenu extrait du document "${fileName}" (usage commercial : plaquette, argumentaire, tarifs, etc.). ` +
-              `Rédige une synthèse en français de 2 à 4 phrases maximum, utile pour qu'un commercial comprenne en un coup d'œil ` +
+              `Rédige une synthèse ${localeInstruction(locale)} de 2 à 4 phrases maximum, utile pour qu'un commercial comprenne en un coup d'œil ` +
               `à quoi sert ce document et ce qu'il contient. Réponds UNIQUEMENT avec la synthèse, sans titre ni préambule.\n\n` +
               `${extractedText.slice(0, 4000)}`,
           },
@@ -144,7 +150,9 @@ export async function POST(request: NextRequest) {
   }
 
   const extractedText = await extractText(buffer, file.type);
-  const summary = extractedText ? await summarizeDocument(file.name, extractedText, user.company_id) : null;
+  const summary = extractedText
+    ? await summarizeDocument(file.name, extractedText, user.company_id, authedUser.locale)
+    : null;
 
   const { data: doc, error: dbError } = await supabaseAdmin
     .from('company_documents')
