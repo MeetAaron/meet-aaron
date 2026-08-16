@@ -272,8 +272,8 @@ export default function TeamPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
+            background: var(--bg);
+            color: var(--muted);
             font-family: 'Inter', sans-serif;
           }
         `}</style>
@@ -291,8 +291,8 @@ export default function TeamPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
+            background: var(--bg);
+            color: var(--accent-red);
             font-family: 'Inter', sans-serif;
             text-align: center;
             padding: 2rem;
@@ -480,7 +480,7 @@ export default function TeamPage() {
           background: var(--surface);
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.55rem 1rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -515,7 +515,7 @@ export default function TeamPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.35rem 0.5rem;
           font-size: 0.82rem;
         }
@@ -543,12 +543,12 @@ export default function TeamPage() {
         .report-panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.6rem;
           align-items: flex-start;
         }
         .report-error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.84rem;
           margin: 0;
         }
@@ -556,7 +556,7 @@ export default function TeamPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.65rem 1.2rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -592,7 +592,7 @@ export default function TeamPage() {
         .invite-box {
           background: rgba(75, 57, 239, 0.1);
           border: 1px solid var(--accent);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.1rem 1.3rem;
           margin-bottom: 1.6rem;
           display: flex;
@@ -621,7 +621,7 @@ export default function TeamPage() {
           font-family: var(--font-mono);
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.9rem;
           font-size: 0.95rem;
           letter-spacing: 0.04em;
@@ -631,7 +631,7 @@ export default function TeamPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.9rem;
           font-size: 0.82rem;
           font-weight: 600;
@@ -641,7 +641,7 @@ export default function TeamPage() {
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
         }
@@ -693,7 +693,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
