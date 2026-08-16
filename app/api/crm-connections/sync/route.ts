@@ -14,8 +14,10 @@
 // architecture clé API statique plutôt qu'OAuth — voir lib/crm-sync.ts).
 // Sellsy ajouté ensuite (suite 15, 2e CRM du chantier) — troisième
 // architecture, OAuth2 "client credentials" (voir lib/crm-sync.ts). Jobber
-// (3e, OAuth à redirection + API GraphQL) et Housecall Pro (4e, clé API
-// statique comme Axonaut) ajoutés à la suite.
+// (3e, OAuth à redirection + API GraphQL), Housecall Pro (4e, clé API
+// statique comme Axonaut) et Capsule CRM (6e, clé API statique, voir
+// lib/crm-sync.ts pour plancraft/ToolTime écartés faute d'API publique
+// documentée) ajoutés à la suite.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -27,7 +29,7 @@ import { syncWonProspectToCrm } from '@/lib/crm-sync';
 // s'étaient accumulés avant la première connexion CRM.
 const MAX_PER_SYNC = 25;
 
-const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro'];
+const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm'];
 
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
