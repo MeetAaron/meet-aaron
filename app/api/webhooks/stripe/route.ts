@@ -60,6 +60,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
+    // Réactivation d'un abonnement pour une société qui avait désactivé son
+    // DERNIER module (voir app/api/subscription/modules/route.ts) : pas une
+    // création de société/compte, la société existe déjà. On relie le
+    // nouvel abonnement Stripe (un nouvel id, l'ancien avait été annulé) et
+    // on marque le(s) module(s) demandé(s) comme actifs, en retrouvant le
+    // subscription_item créé pour chacun.
+    if (session.metadata?.purpose === 'reactivate_subscription') {
+      const { company_id, modules } = session.metadata;
+      const moduleList = (modules || '').split(',').filter(Boolean);
+
+      try {
+        const subscription = await stripe.subscriptions.retrieve(session.subscription as string, {
+          expand: ['items'],
+        });
+
+        const updates: Record<string, unknown> = { stripe_subscription_id: subscription.id };
+        for (const mod of moduleList) {
+          const priceEnvKey = { AP: 'STRIPE_PRICE_ID_AARON_PROSPECT', AS: 'STRIPE_PRICE_ID_AARON_SALES', AC: 'STRIPE_PRICE_ID_AARON_CUSTOMER' }[mod as 'AP' | 'AS' | 'AC'];
+          const priceId = priceEnvKey ? process.env[priceEnvKey] : null;
+          const matchedItem = subscription.items.data.find((item: any) => item.price.id === priceId);
+          updates[`offer_${mod.toLowerCase()}_active`] = true;
+          if (matchedItem) {
+            updates[`stripe_subscription_item_${mod.toLowerCase()}`] = matchedItem.id;
+          }
+        }
+
+        const { error: reactivateError } = await supabaseAdmin.from('companies').update(updates).eq('id', company_id);
+        if (reactivateError) {
+          console.error('Erreur réactivation abonnement (webhook Stripe):', reactivateError.message, { company_id, modules });
+          return NextResponse.json({ error: 'Erreur réactivation abonnement' }, { status: 500 });
+        }
+      } catch (err: any) {
+        console.error('Erreur réactivation abonnement (webhook Stripe):', err.message, { company_id, modules });
+        return NextResponse.json({ error: 'Erreur réactivation abonnement' }, { status: 500 });
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
     const { auth_user_id, email, first_name, full_name, company_name, country } = session.metadata;
 
     // Adresse de facturation complète collectée par Stripe Checkout
@@ -97,6 +136,11 @@ export async function POST(request: NextRequest) {
           name: company_name,
           country,
           offer: 'AP',
+          // Abonnement multi-module (docx item 31 + section STRIPE) : une
+          // nouvelle société démarre avec seulement Aaron Prospect actif —
+          // Opportunités/Clients s'activent ensuite depuis Préférences &
+          // abonnement (app/api/subscription/modules), voir lib/subscription.ts.
+          offer_ap_active: true,
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
           invite_code: generateInviteCode(company_name),
