@@ -94,8 +94,13 @@ const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'jobber'];
 // redirection OAuth de CrmConnectionCard — voir app/api/crm-connections/axonaut.
 // Housecall Pro (4e CRM, suite 15) réutilise le même patron — également une
 // clé API statique générée par un administrateur (My Apps -> API Key
-// Management), pas d'OAuth accessible pour ce type d'intégration.
-const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro'];
+// Management), pas d'OAuth accessible pour ce type d'intégration. Capsule
+// CRM (6e CRM) réutilise aussi ce patron — jeton d'accès personnel statique
+// (My Preferences -> API Authentication Tokens) plutôt que le flux OAuth
+// qu'expose aussi Capsule (réservé aux apps multi-comptes, hors périmètre
+// ici). plancraft et ToolTime (5e/7e recherchés) n'ont pas d'API publique
+// documentée (beta fermée chez les deux) — non construits, voir statut.
+const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro', 'capsulecrm'];
 
 // Suite 15 (2e CRM du chantier, après Axonaut) : Sellsy utilise OAuth2
 // "client credentials" — ni redirection utilisateur (DIRECT_CRM_PROVIDERS),
@@ -114,6 +119,7 @@ function crmMetaFor(locale) {
     sellsy: { name: 'Sellsy', desc: t('connexions.sellsyDesc', locale) },
     jobber: { name: 'Jobber', desc: t('connexions.jobberDesc', locale) },
     housecallpro: { name: 'Housecall Pro', desc: t('connexions.housecallproDesc', locale) },
+    capsulecrm: { name: 'Capsule CRM', desc: t('connexions.capsulecrmDesc', locale) },
   };
 }
 
