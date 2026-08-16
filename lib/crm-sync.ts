@@ -459,6 +459,145 @@ async function syncWonProspectToPipedrive(companyId: string, prospect: WonProspe
 }
 
 // ---------------------------------------------------------------------------
+// Axonaut
+// ---------------------------------------------------------------------------
+
+// Axonaut n'a pas de flux OAuth : la connexion (app/api/crm-connections/axonaut)
+// stocke directement une clé API statique chiffrée dans access_token, sans
+// refresh_token ni expires_at (voir ce fichier). Header d'authentification et
+// base URL confirmés auprès de la documentation officielle Axonaut (icône clé
+// à molette -> API dans l'interface) et du code source ouvert d'intégrations
+// tierces (paquet R ThinkR-open/axonaut, nœud n8n Axonaut) — pas de sandbox
+// disponible pour tester en conditions réelles, donc chaque appel reste
+// défensif (recherche client-side, best-effort sur l'opportunité).
+const AXONAUT_BASE_URL = 'https://axonaut.com/api/v2';
+
+// Contrairement à HubSpot/Salesforce/Pipedrive, Axonaut modélise une société
+// (companies) et une personne (employees, rattachée à une société via
+// company_id) comme deux ressources distinctes plutôt qu'un simple "contact".
+// Pas d'endpoint de recherche documenté pour les sociétés : on liste puis on
+// filtre côté client (comportement déjà utilisé par le paquet R officieux).
+// Les employés supportent en revanche un filtre serveur par email.
+async function syncWonProspectToAxonaut(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const connection = await getConnection(companyId, 'axonaut');
+  const apiKey = decryptToken(connection.access_token);
+  const headers = {
+    userApiKey: apiKey,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  const axonautCompanyName = prospect.prospect_companies?.name || prospect.full_name || prospect.email;
+
+  let axonautCompanyId: number | null = null;
+  const listRes = await fetch(`${AXONAUT_BASE_URL}/companies`, { headers });
+  if (listRes.ok) {
+    const companies = await listRes.json();
+    const match = Array.isArray(companies)
+      ? companies.find((c: any) => (c.name || '').toLowerCase() === axonautCompanyName.toLowerCase())
+      : null;
+    if (match) axonautCompanyId = match.id;
+  } else {
+    console.error('Erreur listage sociétés Axonaut (on tentera quand même une création):', await listRes.text());
+  }
+
+  if (!axonautCompanyId) {
+    const createCompanyRes = await fetch(`${AXONAUT_BASE_URL}/companies`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: axonautCompanyName }),
+    });
+    if (!createCompanyRes.ok) {
+      throw new Error(`Erreur création société Axonaut: ${await createCompanyRes.text()}`);
+    }
+    const createdCompany = await createCompanyRes.json();
+    axonautCompanyId = createdCompany.id;
+  }
+
+  const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+  const lastName = rest.join(' ');
+
+  const searchRes = await fetch(`${AXONAUT_BASE_URL}/employees?email=${encodeURIComponent(prospect.email)}`, { headers });
+  let existingEmployeeId: number | null = null;
+  if (searchRes.ok) {
+    const found = await searchRes.json();
+    const match = Array.isArray(found)
+      ? found.find((e: any) => (e.email || '').toLowerCase() === prospect.email.toLowerCase())
+      : null;
+    if (match) existingEmployeeId = match.id;
+  }
+
+  const employeeFields = {
+    firstname: firstName || prospect.email,
+    lastname: lastName || '',
+    email: prospect.email,
+    position: prospect.job_title || '',
+    company_id: axonautCompanyId,
+  };
+
+  let employeeId: number;
+  if (existingEmployeeId) {
+    const updateRes = await fetch(`${AXONAUT_BASE_URL}/employees/${existingEmployeeId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(employeeFields),
+    });
+    if (!updateRes.ok) {
+      throw new Error(`Erreur mise à jour contact Axonaut: ${await updateRes.text()}`);
+    }
+    employeeId = existingEmployeeId;
+  } else {
+    const createEmployeeRes = await fetch(`${AXONAUT_BASE_URL}/employees`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(employeeFields),
+    });
+    if (!createEmployeeRes.ok) {
+      throw new Error(`Erreur création contact Axonaut: ${await createEmployeeRes.text()}`);
+    }
+    const createdEmployee = await createEmployeeRes.json();
+    employeeId = createdEmployee.id;
+  }
+
+  // Opportunité "gagnée" — best-effort comme pour les autres CRM. On évite de
+  // deviner un pipe/step spécifique au compte Axonaut d'Alex (propre à chaque
+  // compte, non standardisé) en créant l'opportunité sans étape imposée puis
+  // en la marquant gagnée via l'endpoint dédié PATCH /opportunities/{id}/won
+  // (sans corps), qui gère la transition de pipeline lui-même.
+  let dealId: string | null = null;
+  try {
+    const oppRes = await fetch(`${AXONAUT_BASE_URL}/opportunities`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        company_id: axonautCompanyId,
+        name: `${prospect.full_name || prospect.email} — ${prospect.prospect_companies?.name || 'Meet Aaron'}`,
+      }),
+    });
+    if (oppRes.ok) {
+      const opp = await oppRes.json();
+      dealId = opp?.id != null ? String(opp.id) : null;
+      if (dealId) {
+        const wonRes = await fetch(`${AXONAUT_BASE_URL}/opportunities/${dealId}/won`, {
+          method: 'PATCH',
+          headers,
+          body: '{}',
+        });
+        if (!wonRes.ok) {
+          console.error('Erreur marquage "gagnée" opportunité Axonaut (créée quand même):', await wonRes.text());
+        }
+      }
+    } else {
+      console.error('Erreur création opportunité Axonaut (contact synchronisé quand même):', await oppRes.text());
+    }
+  } catch (err) {
+    console.error('Erreur opportunité Axonaut (contact synchronisé quand même):', err);
+  }
+
+  return { contact_id: String(employeeId), deal_id: dealId };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -466,6 +605,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   hubspot: syncWonProspectToHubspot,
   salesforce: syncWonProspectToSalesforce,
   pipedrive: syncWonProspectToPipedrive,
+  axonaut: syncWonProspectToAxonaut,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
