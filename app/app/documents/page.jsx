@@ -215,8 +215,8 @@ export default function DocumentsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #8b90a8;
+            background: var(--bg);
+            color: var(--muted);
             font-family: 'Inter', sans-serif;
           }
         `}</style>
@@ -234,8 +234,8 @@ export default function DocumentsPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #0b0e1a;
-            color: #e5484d;
+            background: var(--bg);
+            color: var(--accent-red);
             font-family: 'Inter', sans-serif;
             text-align: center;
             padding: 2rem;
@@ -427,7 +427,7 @@ export default function DocumentsPage() {
           gap: 0.6rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.1rem;
           margin: 1.5rem 0 0.6rem;
           flex-wrap: wrap;
@@ -437,7 +437,7 @@ export default function DocumentsPage() {
           min-width: 180px;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.8rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -450,7 +450,7 @@ export default function DocumentsPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 1rem;
           font-weight: 600;
           font-size: 0.86rem;
@@ -461,14 +461,14 @@ export default function DocumentsPage() {
           cursor: not-allowed;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
           margin-bottom: 1rem;
         }
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
           margin-top: 1.5rem;
@@ -513,7 +513,7 @@ export default function DocumentsPage() {
         .category-select {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.55rem 0.6rem;
           color: var(--text);
           font-size: 0.82rem;
@@ -522,7 +522,7 @@ export default function DocumentsPage() {
         .category-select-inline {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           padding: 0.3rem 0.4rem;
           color: var(--text);
           font-size: 0.78rem;
@@ -540,7 +540,7 @@ export default function DocumentsPage() {
           background: var(--bg);
         }
         .aaron-toggle.on {
-          color: #3dd68c;
+          color: var(--accent-green);
           border-color: rgba(61, 214, 140, 0.4);
         }
         .aaron-toggle.off {
@@ -566,7 +566,7 @@ export default function DocumentsPage() {
           padding: 0;
         }
         .link-btn.danger {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .link-btn:disabled {
           opacity: 0.5;
@@ -585,7 +585,7 @@ export default function DocumentsPage() {
         .advice-modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           width: 520px;
           max-width: 100%;
@@ -623,7 +623,7 @@ export default function DocumentsPage() {
         .confirm-modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
           width: 420px;
           max-width: 100%;
@@ -648,15 +648,15 @@ export default function DocumentsPage() {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
         .btn-danger {
-          background: #e5484d;
+          background: var(--accent-red);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -681,7 +681,7 @@ function EmptyState({ title, body }) {
           padding: 3rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
