@@ -17,7 +17,8 @@
 // (3e, OAuth à redirection + API GraphQL), Housecall Pro (4e, clé API
 // statique comme Axonaut) et Capsule CRM (6e, clé API statique, voir
 // lib/crm-sync.ts pour plancraft/ToolTime écartés faute d'API publique
-// documentée) ajoutés à la suite.
+// documentée) ajoutés à la suite. ServiceM8 (7e, clé API statique) ajouté
+// ensuite.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -29,7 +30,7 @@ import { syncWonProspectToCrm } from '@/lib/crm-sync';
 // s'étaient accumulés avant la première connexion CRM.
 const MAX_PER_SYNC = 25;
 
-const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm'];
+const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm', 'servicem8'];
 
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
