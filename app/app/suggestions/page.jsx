@@ -92,7 +92,7 @@ export default function SuggestionsPage() {
       <div className="auth-loading">
         <p>Connexion…</p>
         <style jsx>{`
-          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif; }
+          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif; }
         `}</style>
       </div>
     );
@@ -103,7 +103,7 @@ export default function SuggestionsPage() {
       <div className="auth-loading">
         <p>{authError}</p>
         <style jsx>{`
-          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif; text-align: center; padding: 2rem; }
+          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif; text-align: center; padding: 2rem; }
         `}</style>
       </div>
     );
@@ -180,7 +180,7 @@ export default function SuggestionsPage() {
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 1.1rem 1.3rem;
         }
         .card-top {
@@ -238,7 +238,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
