@@ -161,6 +161,23 @@ export default function CustomerPage() {
     setChangingStatus(false);
   }
 
+  // CHANGEMENTS A FAIRE — Mon équipe (item 1, 2026-08-16) : donne un vrai
+  // sens à la colonne "clients perdus" de Mon équipe (lib/team-stats.ts) —
+  // réutilise le champ is_lost déjà présent sur prospects (voir
+  // marquer_client_perdu/reactiver_client dans app/api/prospects/[id]/route.ts).
+  async function handleToggleClientLost(customerId, currentlyLost) {
+    const action = currentlyLost ? 'reactiver_client' : 'marquer_client_perdu';
+    if (!currentlyLost && !confirm(t('customer.confirmMarkLost', locale))) return;
+    setChangingStatus(true);
+    await fetch(`/api/prospects/${customerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    await load();
+    setChangingStatus(false);
+  }
+
   async function handleLoadOnboarding(customerId) {
     setOnboardingLoading(true);
     setOnboardingError(null);
@@ -363,10 +380,16 @@ export default function CustomerPage() {
                 >
                   <div className="customer-card-top">
                     <span className="customer-name">{customer.full_name}</span>
-                    {health && (
-                      <span className="health-badge" style={{ color: health.color, borderColor: health.color }}>
-                        {health.label}
+                    {customer.is_lost ? (
+                      <span className="health-badge" style={{ color: '#E5484D', borderColor: '#E5484D' }}>
+                        {t('customer.lostBadge', locale)}
                       </span>
+                    ) : (
+                      health && (
+                        <span className="health-badge" style={{ color: health.color, borderColor: health.color }}>
+                          {health.label}
+                        </span>
+                      )
                     )}
                   </div>
                   {customer.prospect_companies?.name && <span className="customer-company">{customer.prospect_companies.name}</span>}
@@ -393,16 +416,35 @@ export default function CustomerPage() {
                   <p className="muted">{selectedCustomer.prospect_companies.name}{selectedCustomer.job_title ? ` — ${selectedCustomer.job_title}` : ''}</p>
                 )}
 
-                {selectedCustomer.customer_health_label && (
+                {selectedCustomer.is_lost ? (
                   <div className="health-row">
-                    <span
-                      className="health-badge large"
-                      style={{ color: HEALTH_META[selectedCustomer.customer_health_label].color, borderColor: HEALTH_META[selectedCustomer.customer_health_label].color }}
-                    >
-                      {HEALTH_META[selectedCustomer.customer_health_label].label} — {selectedCustomer.customer_health_score}/100
+                    <span className="health-badge large" style={{ color: '#E5484D', borderColor: '#E5484D' }}>
+                      {t('customer.lostBadge', locale)}
                     </span>
                   </div>
+                ) : (
+                  selectedCustomer.customer_health_label && (
+                    <div className="health-row">
+                      <span
+                        className="health-badge large"
+                        style={{ color: HEALTH_META[selectedCustomer.customer_health_label].color, borderColor: HEALTH_META[selectedCustomer.customer_health_label].color }}
+                      >
+                        {HEALTH_META[selectedCustomer.customer_health_label].label} — {selectedCustomer.customer_health_score}/100
+                      </span>
+                    </div>
+                  )
                 )}
+
+                <div className="stage-row">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={changingStatus}
+                    onClick={() => handleToggleClientLost(selectedCustomer.id, selectedCustomer.is_lost)}
+                  >
+                    {selectedCustomer.is_lost ? t('customer.reactivate', locale) : t('customer.markLost', locale)}
+                  </button>
+                </div>
 
                 <div className="stage-row">
                   <label htmlFor="onboarding-select">{t('customer.onboardingLabel', locale)}</label>
