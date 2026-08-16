@@ -7,6 +7,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 
+// CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
+// la durée de l'abonnement le client ne pourra plus accéder à rien. Il
+// devra se réabonner avant de se connecter." — vérifié ici, au point d'entrée
+// UNIQUE appelé par toutes les pages de l'app juste après connexion (voir le
+// hook useAuthedUser dupliqué dans les 14 pages), plutôt que dans chacune
+// des 14 pages séparément : un seul endroit à vérifier, comportement garanti
+// partout.
+async function subscriptionInactiveError(companyId: string | null): Promise<string | null> {
+  if (!companyId) return null;
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('offer_ap_active, offer_as_active, offer_ac_active')
+    .eq('id', companyId)
+    .maybeSingle();
+  if (!company) return null;
+  const anyActive = company.offer_ap_active || company.offer_as_active || company.offer_ac_active;
+  if (anyActive) return null;
+  return "Votre compte n'est pas actif : veuillez vous réabonner pour continuer à utiliser Meet Aaron.";
+}
+
 export async function POST(request: NextRequest) {
   // Sécurité : auth_user_id et email sont dérivés du token de session Supabase
   // vérifié côté serveur, JAMAIS du corps de la requête — sinon n'importe qui
@@ -26,6 +46,10 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (alreadyLinked) {
+    const inactiveError = await subscriptionInactiveError(alreadyLinked.company_id);
+    if (inactiveError) {
+      return NextResponse.json({ error: inactiveError }, { status: 403 });
+    }
     return NextResponse.json({ user: alreadyLinked });
   }
 
@@ -48,6 +72,10 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    const inactiveError = await subscriptionInactiveError(updated.company_id);
+    if (inactiveError) {
+      return NextResponse.json({ error: inactiveError }, { status: 403 });
     }
     return NextResponse.json({ user: updated });
   }
