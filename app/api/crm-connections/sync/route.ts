@@ -1,6 +1,6 @@
 // app/api/crm-connections/sync/route.ts
-// POST -> synchronise vers le CRM connecté (HubSpot, Salesforce ou Pipedrive)
-// les prospects gagnés (deal_stage='signe' ou is_won=true) pas encore
+// POST -> synchronise vers le CRM connecté (HubSpot, Salesforce, Pipedrive ou
+// Axonaut) les prospects gagnés (deal_stage='signe' ou is_won=true) pas encore
 // synchronisés (crm_synced_at IS NULL), déclenché à la demande depuis
 // Connexions ("Synchroniser maintenant"). Voir lib/crm-sync.ts pour pourquoi
 // ceci n'est PAS câblé à un déclencheur automatique en cron.
@@ -9,7 +9,9 @@
 // Pipedrive en plus de HubSpot — `provider` est maintenant passé dans le corps
 // de la requête (chaque carte CRM dans Connexions connaît son propre
 // provider), avec repli sur le CRM connecté de la société s'il n'est pas
-// fourni, pour rester compatible avec un éventuel appel existant.
+// fourni, pour rester compatible avec un éventuel appel existant. Axonaut
+// ajouté à la suite 15 (première société d'un chantier CRM plus large,
+// architecture clé API statique plutôt qu'OAuth — voir lib/crm-sync.ts).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -21,7 +23,7 @@ import { syncWonProspectToCrm } from '@/lib/crm-sync';
 // s'étaient accumulés avant la première connexion CRM.
 const MAX_PER_SYNC = 25;
 
-const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive'];
+const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut'];
 
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
