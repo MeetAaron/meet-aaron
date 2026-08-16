@@ -143,18 +143,6 @@ export default function PreferencesPage() {
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
   const [billingPortalError, setBillingPortalError] = useState(null);
-  const [crmConnections, setCrmConnections] = useState([]);
-  const [crmSyncing, setCrmSyncing] = useState(false);
-  const [crmSyncResult, setCrmSyncResult] = useState(null);
-  const [crmError, setCrmError] = useState(null);
-
-  function loadCrmConnections() {
-    fetch('/api/crm-connections')
-      .then((r) => r.json())
-      .then((res) => setCrmConnections(res.connections || []))
-      .catch(() => {});
-  }
-
   useEffect(() => {
     if (!userId) return;
     fetch(`/api/preferences?user_id=${userId}`)
@@ -163,13 +151,6 @@ export default function PreferencesPage() {
         setPrefs(res.preferences);
         setLoading(false);
       });
-    loadCrmConnections();
-    const params = new URLSearchParams(window.location.search);
-    const oauthError = params.get('crm_oauth_error');
-    if (oauthError) setCrmError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', oauthError));
-    if (oauthError || params.get('crm_oauth_success')) {
-      window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
-    }
     fetch(`/api/api-usage?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => setUsage(res))
@@ -321,46 +302,6 @@ export default function PreferencesPage() {
     } catch (err) {
       setBillingPortalError(t('common.error', locale));
       setOpeningBillingPortal(false);
-    }
-  }
-
-  // Connexion CRM réelle (HubSpot pour l'instant) — socle de synchronisation,
-  // voir lib/crm-sync.ts. Navigation complète (pas fetch) vers /api/auth/hubspot
-  // avec le token en paramètre : même schéma que connectProvider dans
-  // app/app/connexions/page.jsx, nécessaire car l'appel qui suit est une
-  // redirection OAuth externe, pas un simple appel API.
-  async function handleConnectHubspot() {
-    setCrmError(null);
-    const { data: { session } } = await supabaseBrowser.auth.getSession();
-    if (!session) {
-      window.location.href = '/login';
-      return;
-    }
-    window.location.href = `/api/auth/hubspot?token=${encodeURIComponent(session.access_token)}`;
-  }
-
-  async function handleDisconnectHubspot() {
-    if (!confirm(t('preferences.crm.disconnectConfirm', locale))) return;
-    await fetch('/api/crm-connections?provider=hubspot', { method: 'DELETE' });
-    loadCrmConnections();
-  }
-
-  async function handleSyncHubspot() {
-    setCrmSyncing(true);
-    setCrmSyncResult(null);
-    setCrmError(null);
-    try {
-      const res = await fetch('/api/crm-connections/sync', { method: 'POST' });
-      const body = await res.json();
-      if (!res.ok) {
-        setCrmError(body.error || t('common.error', locale));
-        return;
-      }
-      setCrmSyncResult(body);
-    } catch (err) {
-      setCrmError(t('common.error', locale));
-    } finally {
-      setCrmSyncing(false);
     }
   }
 
@@ -584,39 +525,19 @@ export default function PreferencesPage() {
                   {t('preferences.crm.setupHint', locale)}
                 </p>
 
-                {prefs.crm_provider === 'hubspot' && prefs.role === 'patron' && (
-                  <div className="crm-connect">
-                    {crmError && <p className="error">{crmError}</p>}
-                    {crmConnections.some((c) => c.provider === 'hubspot') ? (
-                      <>
-                        <p className="saved-msg">{t('preferences.crm.hubspotConnectedMsg', locale)}</p>
-                        <div className="actions">
-                          <button type="button" className="btn-secondary" onClick={handleSyncHubspot} disabled={crmSyncing}>
-                            {crmSyncing ? t('preferences.crm.syncingEllipsis', locale) : t('preferences.crm.syncNowButton', locale)}
-                          </button>
-                          <button type="button" className="btn-secondary" onClick={handleDisconnectHubspot}>
-                            {t('connexions.disconnectButton', locale)}
-                          </button>
-                        </div>
-                        {crmSyncResult && (
-                          <p className="collab-extra-hint">
-                            {t('preferences.crm.syncResultSynced', locale).replace('{count}', crmSyncResult.synced)}
-                            {crmSyncResult.failed?.length > 0 && t('preferences.crm.syncResultFailed', locale).replace('{count}', crmSyncResult.failed.length)}
-                            {crmSyncResult.remaining_candidates && t('preferences.crm.syncResultRemaining', locale)}
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" className="btn-primary" onClick={handleConnectHubspot}>
-                          {t('preferences.crm.connectHubspotButton', locale)}
-                        </button>
-                        <p className="collab-extra-hint">
-                          {t('preferences.crm.connectHubspotHint', locale)}
-                        </p>
-                      </>
-                    )}
-                  </div>
+                {prefs.crm_provider === 'hubspot' && (
+                  // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
+                  // elle-même (connecter/déconnecter/synchroniser) se gère
+                  // désormais depuis Connexions, nouvelle catégorie "CRMs et
+                  // bases de données" — cette page ne garde que le choix du
+                  // fournisseur et le niveau de collaboration (voir item #30).
+                  <p className="collab-extra-hint">
+                    {t('preferences.crm.manageInConnexionsHint', locale)}{' '}
+                    <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
+                      {t('nav.connections', locale)}
+                    </Link>
+                    .
+                  </p>
                 )}
               </div>
             )}
