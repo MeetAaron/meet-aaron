@@ -773,6 +773,166 @@ async function syncWonProspectToSellsy(companyId: string, prospect: WonProspect)
 }
 
 // ---------------------------------------------------------------------------
+// Jobber
+// ---------------------------------------------------------------------------
+
+// Jobber utilise OAuth2 classique à redirection utilisateur (comme HubSpot/
+// Salesforce/Pipedrive — voir app/api/auth/jobber), mais son API est
+// GraphQL, pas REST : une seule URL (POST) pour toutes les opérations,
+// confirmé via la doc officielle developer.getjobber.com. Chaque requête doit
+// inclure l'en-tête `X-JOBBER-GRAPHQL-VERSION` (version figée ci-dessous —
+// à surveiller si Jobber déprécie cette version, voir leur changelog).
+const JOBBER_API_URL = 'https://api.getjobber.com/api/graphql';
+const JOBBER_TOKEN_URL = 'https://api.getjobber.com/api/oauth/token';
+const JOBBER_GRAPHQL_VERSION = '2025-04-16';
+
+async function getValidJobberAccessToken(companyId: string): Promise<string> {
+  const connection = await getConnection(companyId, 'jobber');
+
+  const isExpired = !connection.expires_at || new Date(connection.expires_at).getTime() < Date.now() + 60_000;
+  if (!isExpired) {
+    return decryptToken(connection.access_token);
+  }
+
+  if (!connection.refresh_token) {
+    throw new Error('Token Jobber expiré et aucun refresh_token disponible — reconnexion nécessaire dans Connexions.');
+  }
+
+  const refreshToken = decryptToken(connection.refresh_token);
+  const response = await fetch(JOBBER_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: process.env.JOBBER_CLIENT_ID!,
+      client_secret: process.env.JOBBER_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    throw new Error(`Erreur rafraîchissement token Jobber: ${errBody}`);
+  }
+
+  const tokens = await response.json();
+  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+
+  await supabaseAdmin
+    .from('crm_connections')
+    .update({
+      access_token: encryptToken(tokens.access_token),
+      // Rotation du refresh_token possible côté Jobber ("Refresh Token
+      // Rotation") — si un nouveau refresh_token est renvoyé, on le stocke ;
+      // sinon on garde l'ancien.
+      refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : connection.refresh_token,
+      expires_at: expiresAt,
+    })
+    .eq('id', connection.id);
+
+  return tokens.access_token;
+}
+
+async function jobberGraphql(accessToken: string, query: string, variables: Record<string, any>): Promise<any> {
+  const res = await fetch(JOBBER_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-JOBBER-GRAPHQL-VERSION': JOBBER_GRAPHQL_VERSION,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) {
+    throw new Error(`Erreur requête GraphQL Jobber (HTTP ${res.status}): ${await res.text()}`);
+  }
+  const body = await res.json();
+  if (body.errors?.length) {
+    throw new Error(`Erreur GraphQL Jobber: ${JSON.stringify(body.errors)}`);
+  }
+  return body.data;
+}
+
+// Jobber modélise un "client" (personne + société combinées, pas d'entité
+// séparée), confirmé via la doc officielle (mutation `clientCreate`, champs
+// firstName/lastName/companyName/emails). Pas de champ de recherche serveur
+// par email documenté dans les sources consultées (doc officielle + modèle
+// d'app Rails GetJobber/Jobber-AppTemplate-RailsAPI, qui ne montre qu'une
+// liste paginée sans filtre email) : recherche défensive côté client sur les
+// 100 premiers clients, même approche qu'Axonaut/Sellsy. Si un client
+// existant est trouvé par email, on le réutilise TEL QUEL sans tenter de le
+// mettre à jour — le nom de la mutation de modification n'a pas pu être
+// confirmé avec certitude (probablement `clientEdit`, par analogie avec
+// `clientNoteEdit`/`jobNoteEdit` vus dans le changelog officiel, mais jamais
+// vérifié contre un compte réel) : plutôt que de deviner et risquer un appel
+// qui échoue silencieusement mal, on se contente de réutiliser l'ID trouvé.
+//
+// **Limite assumée** : aucune opportunité/devis n'est créé côté Jobber — le
+// concept le plus proche (`quoteCreate`/`jobCreate`) n'a pas de schéma de
+// champs confirmé dans la documentation publique consultée. Seul le client
+// est synchronisé. À enrichir dès qu'un compte Jobber réel permet de confirmer
+// les mutations Devis/Job exactes.
+async function syncWonProspectToJobber(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const accessToken = await getValidJobberAccessToken(companyId);
+
+  const listQuery = `
+    query {
+      clients(first: 100) {
+        nodes {
+          id
+          emails { address }
+        }
+      }
+    }
+  `;
+  let existingClientId: string | null = null;
+  try {
+    const listData = await jobberGraphql(accessToken, listQuery, {});
+    const match = (listData?.clients?.nodes || []).find((c: any) =>
+      (c.emails || []).some((e: any) => (e.address || '').toLowerCase() === prospect.email.toLowerCase())
+    );
+    if (match) existingClientId = match.id;
+  } catch (err) {
+    console.error('Erreur listage clients Jobber (on tentera quand même une création):', err);
+  }
+
+  if (existingClientId) {
+    return { contact_id: existingClientId, deal_id: null };
+  }
+
+  const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+  const lastName = rest.join(' ') || prospect.email;
+
+  const createMutation = `
+    mutation ClientCreate($input: ClientCreateInput!) {
+      clientCreate(input: $input) {
+        client { id }
+        userErrors { message path }
+      }
+    }
+  `;
+  const createData = await jobberGraphql(accessToken, createMutation, {
+    input: {
+      firstName: firstName || prospect.email,
+      lastName,
+      companyName: prospect.prospect_companies?.name || undefined,
+      emails: [{ description: 'MAIN', primary: true, address: prospect.email }],
+    },
+  });
+
+  if (createData?.clientCreate?.userErrors?.length) {
+    throw new Error(`Erreur création client Jobber: ${JSON.stringify(createData.clientCreate.userErrors)}`);
+  }
+
+  const clientId = createData?.clientCreate?.client?.id;
+  if (!clientId) {
+    throw new Error('Création client Jobber: aucun id retourné');
+  }
+
+  return { contact_id: clientId, deal_id: null };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -782,6 +942,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   pipedrive: syncWonProspectToPipedrive,
   axonaut: syncWonProspectToAxonaut,
   sellsy: syncWonProspectToSellsy,
+  jobber: syncWonProspectToJobber,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
