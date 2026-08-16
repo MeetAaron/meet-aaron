@@ -328,7 +328,7 @@ export default function ChatPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -342,7 +342,7 @@ export default function ChatPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -451,7 +451,7 @@ export default function ChatPage() {
           background: var(--surface);
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.55rem 0.9rem;
           font-size: 0.82rem;
           cursor: pointer;
@@ -459,16 +459,16 @@ export default function ChatPage() {
         .feedback-sent {
           background: rgba(61, 214, 140, 0.12);
           border: 1px solid rgba(61, 214, 140, 0.4);
-          color: #3dd68c;
+          color: var(--accent-green);
           padding: 0.7rem 1rem;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           font-size: 0.85rem;
           margin-bottom: 1rem;
         }
         .feedback-form {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1rem;
           margin-bottom: 1.2rem;
         }
@@ -476,7 +476,7 @@ export default function ChatPage() {
           width: 100%;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.7rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -490,7 +490,7 @@ export default function ChatPage() {
           margin-top: 0.7rem;
         }
         .btn-primary, .btn-secondary {
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem 1rem;
           font-size: 0.82rem;
           cursor: pointer;
@@ -513,7 +513,7 @@ export default function ChatPage() {
         .chat-box {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           display: flex;
           flex-direction: column;
           height: 60vh;
@@ -536,7 +536,7 @@ export default function ChatPage() {
         .bubble {
           max-width: 70%;
           padding: 0.7rem 1rem;
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           font-size: 0.9rem;
           line-height: 1.45;
           white-space: pre-wrap;
@@ -580,7 +580,7 @@ export default function ChatPage() {
           flex: 1;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1rem;
           color: var(--text);
           font-size: 0.9rem;
@@ -589,7 +589,7 @@ export default function ChatPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1.2rem;
           font-weight: 600;
           font-size: 0.86rem;
