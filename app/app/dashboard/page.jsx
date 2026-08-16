@@ -301,7 +301,7 @@ export default function DashboardPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -315,7 +315,7 @@ export default function DashboardPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -566,8 +566,8 @@ export default function DashboardPage() {
         }
         .missed-panel {
           background: rgba(229, 72, 77, 0.08);
-          border: 1px solid #e5484d;
-          border-radius: 14px;
+          border: 1px solid var(--accent-red);
+          border-radius: var(--radius-lg);
           margin-bottom: 1.2rem;
           overflow: hidden;
         }
@@ -579,10 +579,10 @@ export default function DashboardPage() {
           padding: 1rem 1.3rem;
           font-size: 0.92rem;
           font-weight: 700;
-          color: #ff8086;
+          color: var(--accent-red);
         }
         .missed-title .badge {
-          background: #e5484d;
+          background: var(--accent-red);
           color: #fff;
         }
         .missed-list {
@@ -613,7 +613,7 @@ export default function DashboardPage() {
         }
         .missed-open,
         .missed-ack {
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.4rem 0.8rem;
           font-size: 0.78rem;
           font-weight: 600;
@@ -632,7 +632,7 @@ export default function DashboardPage() {
         .actions-panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           margin-bottom: 1.5rem;
           overflow: hidden;
         }
@@ -715,7 +715,7 @@ export default function DashboardPage() {
         .stat-card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 1rem;
           display: flex;
           flex-direction: column;
@@ -775,7 +775,7 @@ export default function DashboardPage() {
         .panel {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           padding: 1.4rem;
         }
         .panel h2 {
@@ -975,7 +975,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 20px;
+          border-radius: var(--radius-xl);
           padding: 2rem;
           width: 420px;
           max-width: 100%;
@@ -1030,7 +1030,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         .rdv-info {
           text-align: center;
           background: var(--bg);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 1rem;
           margin-bottom: 1.2rem;
         }
@@ -1038,7 +1038,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
           margin: 0.2rem 0;
         }
         .cancel-label {
-          color: #e5484d;
+          color: var(--accent-red);
           font-weight: 600;
           font-size: 0.82rem;
         }
@@ -1047,7 +1047,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
           overflow-y: auto;
           margin-bottom: 1.2rem;
           background: var(--bg);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 1rem;
         }
         .msg {
@@ -1095,7 +1095,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.5rem;
           font-size: 0.78rem;
           cursor: pointer;
@@ -1111,7 +1111,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         .btn-valid, .btn-neutral, .btn-danger {
           flex: 1;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -1127,8 +1127,8 @@ function ActionCardModal({ appointment, onClose, onDone }) {
         }
         .btn-danger {
           background: transparent;
-          border: 1px solid #e5484d;
-          color: #e5484d;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
         }
         .muted {
           color: var(--muted);
@@ -1199,7 +1199,7 @@ function RescueModal({ prospect, onClose, onDone }) {
         .card {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 20px;
+          border-radius: var(--radius-xl);
           padding: 2rem;
           width: 420px;
           max-width: 100%;
@@ -1256,7 +1256,7 @@ function RescueModal({ prospect, onClose, onDone }) {
           overflow-y: auto;
           margin-bottom: 1.2rem;
           background: var(--bg);
-          border-radius: 12px;
+          border-radius: var(--radius-md);
           padding: 1rem;
         }
         .rescue-subject {
@@ -1277,7 +1277,7 @@ function RescueModal({ prospect, onClose, onDone }) {
         .btn-valid, .btn-danger {
           flex: 1;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -1289,8 +1289,8 @@ function RescueModal({ prospect, onClose, onDone }) {
         }
         .btn-danger {
           background: transparent;
-          border: 1px solid #e5484d;
-          color: #e5484d;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
         }
         .muted {
           color: var(--muted);
