@@ -155,7 +155,7 @@ export default function ProductsPage() {
       <div className="auth-loading">
         <p>Connexion…</p>
         <style jsx>{`
-          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif; }
+          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif; }
         `}</style>
       </div>
     );
@@ -166,7 +166,7 @@ export default function ProductsPage() {
       <div className="auth-loading">
         <p>{authError}</p>
         <style jsx>{`
-          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif; text-align: center; padding: 2rem; }
+          .auth-loading { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif; text-align: center; padding: 2rem; }
         `}</style>
       </div>
     );
@@ -263,15 +263,15 @@ export default function ProductsPage() {
         .eyebrow { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; color: var(--accent); font-weight: 600; margin: 0 0 0.4rem; }
         h1 { font-family: var(--font-display); font-size: 1.9rem; margin: 0 0 0.5rem; }
         .subtitle { color: var(--muted); font-size: 0.88rem; max-width: 64ch; margin: 0; }
-        .add-box { display: flex; gap: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem; margin: 1.5rem 0 0.8rem; flex-wrap: wrap; }
-        .add-box input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.8rem; color: var(--text); font-size: 0.86rem; }
+        .add-box { display: flex; gap: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.1rem; margin: 1.5rem 0 0.8rem; flex-wrap: wrap; }
+        .add-box input { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.55rem 0.8rem; color: var(--text); font-size: 0.86rem; }
         .add-box input[type='text'] { flex: 1; min-width: 140px; }
         .add-box input[type='number'] { width: 130px; }
-        .btn-primary { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem 1rem; font-weight: 600; font-size: 0.86rem; cursor: pointer; }
+        .btn-primary { background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); padding: 0.55rem 1rem; font-weight: 600; font-size: 0.86rem; cursor: pointer; }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        .error { color: #e5484d; font-size: 0.82rem; margin-bottom: 1rem; }
+        .error { color: var(--accent-red); font-size: 0.82rem; margin-bottom: 1rem; }
         .toggle-inactive { display: flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 1rem; cursor: pointer; }
-        .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; -webkit-overflow-scrolling: touch; }
         table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
         thead th { text-align: left; padding: 0.9rem 1.1rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); }
         tbody td { padding: 0.75rem 1.1rem; border-bottom: 1px solid var(--border); }
@@ -283,7 +283,7 @@ export default function ProductsPage() {
         .link { background: none; border: none; color: var(--accent); text-decoration: none; font-weight: 500; font-size: 0.82rem; cursor: pointer; padding: 0; }
         .link.muted { color: var(--muted); }
         .editing input { width: 100%; }
-        .empty { text-align: center; padding: 3rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+        .empty { text-align: center; padding: 3rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
         .empty-title { font-weight: 600; margin: 0 0 0.35rem; }
         .empty-body { color: var(--muted); font-size: 0.88rem; margin: 0; }
       `}</style>
