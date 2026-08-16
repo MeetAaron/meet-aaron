@@ -11,6 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { getPastCampaignStats } from '@/lib/campaign-insights';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 export async function POST(request: NextRequest) {
   const { user_id, scope } = await request.json();
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
         `- "${c.zone_label}" (${(c.sector_keywords || []).join(', ') || 'secteur non précisé'}, statut ${c.status}) : ${c.contacts_found}/${c.target_count} contacts trouvés, ${c.companies_found} entreprises analysées.`
     );
 
-    prompt = `Tu es Aaron, copilote commercial IA. Voici les campagnes de prospection actuellement EN COURS (ou en pause/en attente) de ce commercial :\n${lines.join('\n')}\n\nDonne un avis global en 3-5 phrases maximum : quelles campagnes semblent bien parties, lesquelles méritent d'être resserrées ou mises en pause, et un conseil global pour la suite. Sois concret et direct. Réponds uniquement avec ce texte, en français, sans préambule ni titre.`;
+    prompt = `Tu es Aaron, copilote commercial IA. Voici les campagnes de prospection actuellement EN COURS (ou en pause/en attente) de ce commercial :\n${lines.join('\n')}\n\nDonne un avis global en 3-5 phrases maximum : quelles campagnes semblent bien parties, lesquelles méritent d'être resserrées ou mises en pause, et un conseil global pour la suite. Sois concret et direct. Réponds uniquement avec ce texte, ${localeInstruction(authedUser.locale)}, sans préambule ni titre.`;
   } else {
     const stats = await getPastCampaignStats(user.company_id);
     const ownStats = await supabaseAdmin
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
         `- "${s.zone_label}" (${s.sector_keywords.join(', ') || 'secteur non précisé'}) : ${s.contacts_found} contacts, ${s.won} gagnés, ${s.lost} perdus, ${s.active} encore actifs — conversion ${(s.conversionRate * 100).toFixed(0)}%.`
     );
 
-    prompt = `Tu es Aaron, copilote commercial IA. Voici le bilan de toutes les campagnes de prospection TERMINÉES de cette société, de la mieux à la moins bien convertie :\n${lines.join('\n')}\n\nFais un bilan en 4-6 phrases maximum : quels secteurs/zones ont le mieux marché et pourquoi selon toi, et 2-3 conseils concrets pour les prochaines campagnes à lancer. Sois direct et actionnable. Réponds uniquement avec ce texte, en français, sans préambule ni titre.`;
+    prompt = `Tu es Aaron, copilote commercial IA. Voici le bilan de toutes les campagnes de prospection TERMINÉES de cette société, de la mieux à la moins bien convertie :\n${lines.join('\n')}\n\nFais un bilan en 4-6 phrases maximum : quels secteurs/zones ont le mieux marché et pourquoi selon toi, et 2-3 conseils concrets pour les prochaines campagnes à lancer. Sois direct et actionnable. Réponds uniquement avec ce texte, ${localeInstruction(authedUser.locale)}, sans préambule ni titre.`;
   }
 
   try {
