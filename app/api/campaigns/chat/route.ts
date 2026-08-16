@@ -16,6 +16,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 const CAMPAIGN_CHAT_SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA — et sur ce chantier précis, le meilleur commercial du monde qui prépare son terrain avant de partir démarcher. Tu discutes ici avec un commercial pour définir ENSEMBLE une nouvelle campagne de prospection, en récoltant le maximum d'informations utiles pour bien réussir. Tutoie-le, sois chaleureux et concret.
 
@@ -45,18 +46,19 @@ Règles impératives :
   - context_notes : 1-2 phrases résumant le profil/comportement des clients habituels, ou null si non précisé.
 
 - Si le commercial réagit à un récapitulatif que tu as déjà proposé (dans les messages précédents) pour le CORRIGER, ne repose pas les questions déjà répondues : ajuste directement et renvoie un nouveau texte + bloc \`\`\`campaign_json\`\`\` mis à jour (pas de ligne \`<!--topic:...-->\` sur un récapitulatif).
-- Le bloc \`\`\`campaign_json\`\`\` ne doit apparaître QUE quand tu proposes/mets à jour un récapitulatif — jamais pendant que tu poses encore des questions.
-- Réponds toujours en français.`;
+- Le bloc \`\`\`campaign_json\`\`\` ne doit apparaître QUE quand tu proposes/mets à jour un récapitulatif — jamais pendant que tu poses encore des questions.`;
 
 // CHANGEMENTS A FAIRE #15 : Aaron doit apprendre des campagnes passées pour
 // mieux conseiller sur les nouvelles — si l'historique de la société contient
 // des campagnes terminées, mentionne-le spontanément une fois (pas à chaque
 // message) quand ça peut aider à orienter le secteur/la zone/la taille visée.
-function buildSystemPrompt(pastCampaignsSummary: string): string {
+function buildSystemPrompt(pastCampaignsSummary: string, locale: string): string {
   return `${CAMPAIGN_CHAT_SYSTEM_PROMPT}
 
 Contexte utile (ne le mentionne QUE si ça aide concrètement à orienter une réponse, pas systématiquement) :
-${pastCampaignsSummary}`;
+${pastCampaignsSummary}
+
+Réponds ${localeInstruction(locale)} — mais garde bien le vocabulaire fixe de la ligne \`<!--topic:XXX-->\` (secteur, zone, taille, role, communication, objectif) exactement tel quel, quelle que soit la langue de la réponse : c'est lu par le code, pas affiché tel quel.`;
 }
 
 export async function POST(request: NextRequest) {
@@ -90,7 +92,7 @@ export async function POST(request: NextRequest) {
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 700,
-        system: buildSystemPrompt(pastCampaignsSummary),
+        system: buildSystemPrompt(pastCampaignsSummary, authedUser.locale),
         messages: conversationMessages,
       },
       user.company_id
