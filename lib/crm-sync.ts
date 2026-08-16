@@ -1014,6 +1014,134 @@ async function syncWonProspectToHousecallPro(companyId: string, prospect: WonPro
 }
 
 // ---------------------------------------------------------------------------
+// Capsule CRM
+// ---------------------------------------------------------------------------
+
+// Capsule CRM (UK), 6e du chantier — 1er CRM depuis Axonaut dont l'API est
+// intégralement et fiablement documentée publiquement (developer.capsulecrm.com/v2).
+// Authentification par jeton statique (voir app/api/crm-connections/capsulecrm/route.ts),
+// en-tête `Authorization: Bearer <jeton>`.
+//
+// Contrairement à Axonaut/Sellsy/Jobber/Housecall Pro, Capsule permet de
+// marquer une opportunité "gagnée" de façon fiable et NON devinée : les
+// étapes de pipeline ("milestones") sont listables via `GET /milestones`
+// (id, name, complete, probability) — on choisit ici le jalon dont
+// `complete === true`, en préférant un nom contenant "won"/"gagn" si
+// plusieurs jalons sont marqués complete (rare mais possible selon le
+// paramétrage du compte). Si AUCUN jalon "complete" n'existe (pipeline resté
+// à sa configuration minimale), l'opportunité n'est pas créée plutôt que de
+// deviner un milestone.id arbitraire — même principe que pour les autres CRM
+// de ce chantier : ne jamais deviner un identifiant pour une action à effet
+// de bord, mais ici la donnée est réellement découvrable, donc on la
+// découvre au lieu de renoncer d'office.
+const CAPSULECRM_BASE_URL = 'https://api.capsulecrm.com/api/v2';
+
+async function findWonMilestoneId(headers: Record<string, string>): Promise<number | null> {
+  const res = await fetch(`${CAPSULECRM_BASE_URL}/milestones`, { headers });
+  if (!res.ok) {
+    console.error('Erreur récupération des milestones Capsule CRM:', await res.text());
+    return null;
+  }
+  const body = await res.json();
+  const milestones: any[] = Array.isArray(body?.milestones) ? body.milestones : [];
+  const completeMilestones = milestones.filter((m) => m?.complete === true);
+  if (completeMilestones.length === 0) return null;
+  const namedWon = completeMilestones.find((m) => /won|gagn/i.test(String(m?.name || '')));
+  return (namedWon || completeMilestones[0])?.id ?? null;
+}
+
+async function syncWonProspectToCapsuleCrm(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const connection = await getConnection(companyId, 'capsulecrm');
+  const apiKey = decryptToken(connection.access_token);
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  // Recherche serveur documentée par filtre structuré (plus fiable que le
+  // filtre côté client utilisé pour Axonaut/Sellsy faute d'équivalent chez
+  // eux) — on filtre les "parties" (contacts) de type personne sur l'email.
+  let existingPartyId: string | null = null;
+  const filterRes = await fetch(`${CAPSULECRM_BASE_URL}/parties/filters/results`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      filter: {
+        conditions: [{ field: 'emailAddress', operator: 'is', value: prospect.email }],
+      },
+    }),
+  });
+  if (filterRes.ok) {
+    const found = await filterRes.json();
+    const list = Array.isArray(found?.parties) ? found.parties : [];
+    if (list.length > 0) existingPartyId = String(list[0].id);
+  } else {
+    console.error('Erreur recherche contact Capsule CRM (on tentera quand même une création):', await filterRes.text());
+  }
+
+  let partyId = existingPartyId;
+  if (!partyId) {
+    const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+    const lastName = rest.join(' ') || prospect.email;
+
+    const createRes = await fetch(`${CAPSULECRM_BASE_URL}/parties`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        party: {
+          type: 'person',
+          firstName: firstName || prospect.email,
+          lastName,
+          jobTitle: prospect.job_title || undefined,
+          organisationName: prospect.prospect_companies?.name || undefined,
+          emailAddresses: [{ type: 'Work', address: prospect.email }],
+        },
+      }),
+    });
+    if (!createRes.ok) {
+      throw new Error(`Erreur création contact Capsule CRM: ${await createRes.text()}`);
+    }
+    const created = await createRes.json();
+    partyId = created?.party?.id ? String(created.party.id) : null;
+    if (!partyId) {
+      throw new Error('Création contact Capsule CRM: aucun id retourné');
+    }
+  }
+
+  // Opportunité best-effort : nécessite un milestone.id valide, découvert
+  // dynamiquement (voir findWonMilestoneId ci-dessus). Si aucun jalon
+  // "gagné" n'est identifiable, on synchronise le contact seul plutôt que de
+  // deviner.
+  const wonMilestoneId = await findWonMilestoneId(headers);
+  if (!wonMilestoneId) {
+    return { contact_id: partyId, deal_id: null };
+  }
+
+  const opportunityRes = await fetch(`${CAPSULECRM_BASE_URL}/opportunities`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      opportunity: {
+        name: prospect.prospect_companies?.name
+          ? `${prospect.prospect_companies.name} — Meet Aaron`
+          : `${prospect.full_name || prospect.email} — Meet Aaron`,
+        party: { id: Number(partyId) },
+        milestone: { id: wonMilestoneId },
+      },
+    }),
+  });
+  if (!opportunityRes.ok) {
+    console.error('Erreur création opportunité Capsule CRM (contact quand même synchronisé):', await opportunityRes.text());
+    return { contact_id: partyId, deal_id: null };
+  }
+  const createdOpportunity = await opportunityRes.json();
+  const opportunityId = createdOpportunity?.opportunity?.id ? String(createdOpportunity.opportunity.id) : null;
+
+  return { contact_id: partyId, deal_id: opportunityId };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -1025,6 +1153,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   sellsy: syncWonProspectToSellsy,
   jobber: syncWonProspectToJobber,
   housecallpro: syncWonProspectToHousecallPro,
+  capsulecrm: syncWonProspectToCapsuleCrm,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
