@@ -25,7 +25,7 @@ import { syncWonProspectToCrm } from '@/lib/crm-sync';
 // s'étaient accumulés avant la première connexion CRM.
 const MAX_PER_SYNC = 25;
 
-const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy'];
+const KNOWN_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber'];
 
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
