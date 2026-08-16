@@ -278,7 +278,7 @@ export default function ProspectsPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #8b90a8; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--muted); font-family: 'Inter', sans-serif;
           }
         `}</style>
       </div>
@@ -292,7 +292,7 @@ export default function ProspectsPage() {
         <style jsx>{`
           .auth-loading {
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            background: #0b0e1a; color: #e5484d; font-family: 'Inter', sans-serif;
+            background: var(--bg); color: var(--accent-red); font-family: 'Inter', sans-serif;
             text-align: center; padding: 2rem;
           }
         `}</style>
@@ -596,7 +596,7 @@ export default function ProspectsPage() {
           background: var(--surface);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
           cursor: pointer;
@@ -619,7 +619,7 @@ export default function ProspectsPage() {
           box-sizing: border-box;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.65rem 1rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -631,7 +631,7 @@ export default function ProspectsPage() {
           background: none;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.6rem 0.9rem;
           font-size: 0.82rem;
           cursor: pointer;
@@ -670,7 +670,7 @@ export default function ProspectsPage() {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
           font-weight: 600;
@@ -707,7 +707,7 @@ export default function ProspectsPage() {
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
         }
@@ -758,7 +758,7 @@ export default function ProspectsPage() {
           background: rgba(75, 57, 239, 0.16);
           color: var(--text);
           padding: 0.2rem 0.6rem;
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           font-size: 0.78rem;
         }
         .notes {
@@ -782,7 +782,7 @@ export default function ProspectsPage() {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--accent);
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           padding: 0.25rem 0.55rem;
           font-size: 0.72rem;
           cursor: pointer;
@@ -796,7 +796,7 @@ export default function ProspectsPage() {
           margin: 0 0.3rem 0.3rem 0;
           background: transparent;
           border: 1px solid var(--border);
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           padding: 0.3rem 0.55rem;
           font-size: 0.74rem;
           cursor: pointer;
@@ -811,16 +811,16 @@ export default function ProspectsPage() {
           color: var(--accent-green);
         }
         .action-btn.lost {
-          border-color: #e5484d;
-          color: #e5484d;
+          border-color: var(--accent-red);
+          color: var(--accent-red);
         }
         .action-btn.thread {
           border-color: var(--accent);
           color: var(--accent);
         }
         .action-btn.pending-email {
-          border-color: #d4a017;
-          color: #d4a017;
+          border-color: var(--accent-amber);
+          color: var(--accent-amber);
           font-weight: 600;
         }
         .pending-banner {
@@ -829,25 +829,25 @@ export default function ProspectsPage() {
           align-items: center;
           gap: 0.8rem;
           background: rgba(212, 160, 23, 0.12);
-          border: 1px solid #d4a017;
+          border: 1px solid var(--accent-amber);
           color: var(--text);
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.8rem 1.1rem;
           font-size: 0.86rem;
           margin-bottom: 1.2rem;
         }
         .pending-banner-btn {
-          background: #d4a017;
-          color: #131629;
+          background: var(--accent-amber);
+          color: var(--bg-elevated);
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.4rem 0.9rem;
           font-size: 0.8rem;
           font-weight: 600;
           cursor: pointer;
         }
         .action-btn.delete {
-          color: #e5484d;
+          color: var(--accent-red);
         }
         .overlay {
           position: fixed;
@@ -862,7 +862,7 @@ export default function ProspectsPage() {
         .won-modal {
           background: var(--surface);
           border: 1px solid var(--accent-green);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
@@ -1009,7 +1009,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
@@ -1045,13 +1045,13 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           box-sizing: border-box;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
           font-size: 0.88rem;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
         }
         .actions {
@@ -1064,7 +1064,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -1073,7 +1073,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
@@ -1188,7 +1188,7 @@ function ConversationModal({ prospect, onClose }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 600px;
           max-width: 100%;
@@ -1216,7 +1216,7 @@ function ConversationModal({ prospect, onClose }) {
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.45rem 0.8rem;
           font-size: 0.8rem;
           cursor: pointer;
@@ -1226,7 +1226,7 @@ function ConversationModal({ prospect, onClose }) {
           color: var(--muted);
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.84rem;
         }
         .detail-block {
@@ -1248,7 +1248,7 @@ function ConversationModal({ prospect, onClose }) {
           background: rgba(75, 57, 239, 0.16);
           color: var(--text);
           padding: 0.2rem 0.6rem;
-          border-radius: 6px;
+          border-radius: var(--radius-sm);
           font-size: 0.78rem;
         }
         .thread {
@@ -1259,7 +1259,7 @@ function ConversationModal({ prospect, onClose }) {
           overflow-y: auto;
         }
         .msg {
-          border-radius: 10px;
+          border-radius: var(--radius-md);
           padding: 0.7rem 0.9rem;
           font-size: 0.82rem;
           border: 1px solid var(--border);
@@ -1399,7 +1399,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 600px;
           max-width: 100%;
@@ -1430,7 +1430,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
           box-sizing: border-box;
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -1438,7 +1438,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
           resize: vertical;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
         }
         .actions {
@@ -1452,7 +1452,7 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -1465,13 +1465,13 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
         .btn-secondary.reject {
-          border-color: #e5484d;
-          color: #e5484d;
+          border-color: var(--accent-red);
+          color: var(--accent-red);
         }
         .btn-secondary:disabled {
           opacity: 0.6;
@@ -1575,7 +1575,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
         .modal {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 16px;
+          border-radius: var(--radius-lg);
           padding: 1.8rem;
           width: 480px;
           max-width: 100%;
@@ -1608,7 +1608,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
         textarea {
           background: var(--bg);
           border: 1px solid var(--border);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
           font-size: 0.86rem;
@@ -1616,7 +1616,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
           resize: vertical;
         }
         .error {
-          color: #e5484d;
+          color: var(--accent-red);
           font-size: 0.82rem;
         }
         .muted {
@@ -1635,7 +1635,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-weight: 600;
           cursor: pointer;
@@ -1644,7 +1644,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
           padding: 0.45rem 0.8rem;
           font-size: 0.8rem;
           cursor: pointer;
@@ -1666,7 +1666,7 @@ function EmptyState({ title, body }) {
           padding: 4rem 1rem;
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 14px;
+          border-radius: var(--radius-lg);
         }
         .empty-title {
           font-weight: 600;
