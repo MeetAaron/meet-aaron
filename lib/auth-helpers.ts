@@ -19,6 +19,12 @@ export interface AuthedUser {
   company_id: string | null;
   role: string | null;
   email: string;
+  // Langue choisie par le commercial (sélecteur dans Shell) — utilisée pour
+  // générer le contenu dynamique d'Aaron (conseils, emails, chat, devis)
+  // dans la bonne langue. Voir lib/locale-instruction.ts et
+  // migration_user_locale_2026-08-16.sql. Toujours renseignée (défaut 'fr'
+  // en base), donc jamais null ici.
+  locale: string;
 }
 
 // Résout uniquement l'identité Supabase Auth (auth_user_id + email) à partir d'un
@@ -54,7 +60,7 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('id, auth_user_id, company_id, role, email')
+    .select('id, auth_user_id, company_id, role, email, locale')
     .eq('auth_user_id', identity.auth_user_id)
     .maybeSingle();
 
@@ -74,7 +80,7 @@ export async function getAuthedUserFromToken(token: string): Promise<AuthedUser 
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('id, auth_user_id, company_id, role, email')
+    .select('id, auth_user_id, company_id, role, email, locale')
     .eq('auth_user_id', identity.auth_user_id)
     .maybeSingle();
 
