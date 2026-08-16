@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { localeInstruction } from '@/lib/locale-instruction';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
@@ -17,7 +18,7 @@ réels (nom, téléphone, statut, avancement...), plutôt que de répondre dans 
 claire (ex: "donne moi le numero de ce client", "ou g en est ma campagne"), déduis ce qu'il veut et utilise l'outil
 adapté directement, sans lui demander de reformuler. Si une recherche de prospect ne renvoie rien ou plusieurs
 résultats ambigus, dis-le clairement et demande une précision (nom de société, par exemple).
-Réponds toujours en français, de façon concise et utile — pas de blabla inutile.
+Réponds toujours de façon concise et utile — pas de blabla inutile.
 Si le commercial exprime une suggestion, une remarque ou une idée d'amélioration sur l'outil, le produit ou l'organisation,
 dis-lui simplement que tu transmets l'info au fondateur — tu n'as pas besoin de lui demander de le faire lui-même par email,
 c'est déjà fait automatiquement de ton côté.`;
@@ -263,7 +264,7 @@ export async function POST(request: NextRequest) {
   const systemBlocks = [
     {
       type: 'text',
-      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}`,
+      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
       cache_control: { type: 'ephemeral' },
     },
   ];
