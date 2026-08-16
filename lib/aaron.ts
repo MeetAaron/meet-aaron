@@ -4,6 +4,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
+import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
 import { readFileSync } from 'fs';
 import path from 'path';
 
@@ -37,7 +38,7 @@ interface AaronOutput {
 async function buildContext(prospectId: string) {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('*, users(full_name, email), prospect_companies(name, domain, is_won_client, found_by_campaign_id)')
+    .select('*, users(full_name, email, locale), prospect_companies(name, domain, is_won_client, found_by_campaign_id)')
     .eq('id', prospectId)
     .single();
 
@@ -124,6 +125,12 @@ async function buildContext(prospectId: string) {
       email: prospect.users.email,
       societe: sellerCompany?.name || null,
       offre_vendue: sellerCompany?.business_summary || null,
+      // Langue choisie par le commercial (préférences) — voir la section
+      // "LANGUE DE LA RÉPONSE" du prompt système : utilisée telle quelle pour
+      // les champs internes (aaron_advice, personality_notes), et comme
+      // repère par défaut pour email_draft/rescue_proposal tant qu'aucun
+      // message du prospect n'a encore été reçu.
+      langue: LOCALE_NAMES[normalizeLocale(prospect.users.locale)],
     },
     prospect: {
       nom: prospect.full_name,
