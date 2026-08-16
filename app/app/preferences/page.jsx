@@ -100,6 +100,7 @@ function crmProvidersFor(locale) {
     { value: 'salesforce', label: 'Salesforce' },
     { value: 'hubspot', label: 'HubSpot' },
     { value: 'pipedrive', label: 'Pipedrive' },
+    { value: 'axonaut', label: 'Axonaut' },
     { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
   ];
 }
@@ -603,14 +604,16 @@ export default function PreferencesPage() {
                       {t('preferences.crm.setupHint', locale)}
                     </p>
 
-                    {['hubspot', 'salesforce', 'pipedrive'].includes(prefs.crm_provider) && (
+                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut'].includes(prefs.crm_provider) && (
                       // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
                       // elle-même (connecter/déconnecter/synchroniser) se gère
                       // désormais depuis Connexions, nouvelle catégorie "CRMs et
                       // bases de données" — cette page ne garde que le choix du
                       // fournisseur et le niveau de collaboration (voir item #30).
                       // Généralisé (2026-08-16) à Salesforce et Pipedrive, mêmes
-                      // connexions OAuth directes que HubSpot.
+                      // connexions OAuth directes que HubSpot. Axonaut ajouté suite
+                      // 15 : pas d'OAuth (clé API statique, voir Connexions) mais se
+                      // gère depuis la même page.
                       <p className="collab-extra-hint">
                         {t('preferences.crm.manageInConnexionsHint', locale)}{' '}
                         <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
