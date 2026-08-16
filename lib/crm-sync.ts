@@ -933,6 +933,87 @@ async function syncWonProspectToJobber(companyId: string, prospect: WonProspect)
 }
 
 // ---------------------------------------------------------------------------
+// Housecall Pro
+// ---------------------------------------------------------------------------
+
+// Housecall Pro n'a pas de flux OAuth accessible pour ce type d'intégration
+// (l'OAuth2 documenté vise les apps publiques du marketplace Housecall Pro,
+// un processus de partenariat séparé, hors périmètre ici) : comme Axonaut,
+// l'authentification se fait par une clé API statique générée par un
+// administrateur dans Housecall Pro (My Apps -> API Key Management). Base
+// URL, en-tête d'authentification (`Authorization: Token <clé>`, PAS
+// `Bearer`) et endpoints confirmés via le centre d'aide officiel Housecall
+// Pro ET le code source ouvert d'un serveur MCP tiers (buildwithbeacon/
+// housecallpro-mcp, lu à titre de référence uniquement, pas cloné dans le
+// produit) — les deux sources concordent, contrairement à un guide
+// d'intégration tiers (Rollout) qui affirmait à tort `Bearer` au lieu de
+// `Token`, écarté au profit du code source qui fait réellement les appels.
+const HOUSECALLPRO_BASE_URL = 'https://api.housecallpro.com';
+
+// Contrairement à Axonaut/Sellsy, Housecall Pro modélise déjà un client
+// (customer) comme un objet unique combinant identité individuelle
+// (first_name/last_name) et société (company_name) — pas de séparation
+// société/personne à gérer. La recherche par email est un vrai filtre
+// serveur documenté (`GET /customers?email=...`), plus fiable que le filtre
+// côté client utilisé pour Axonaut/Sellsy faute de recherche serveur
+// documentée pour ces deux-là.
+//
+// Pas de création d'estimation/job ici, volontairement : `POST /estimates`
+// exige un `employee_id` (l'employé Housecall Pro qui a réalisé la vente),
+// une donnée que Meet Aaron ne connaît pas et qu'il faudrait deviner (ex:
+// premier employé de la liste) — même principe que pour Jobber, on ne devine
+// jamais un identifiant pour une action à effet de bord. Seul le client est
+// donc synchronisé de façon fiable pour l'instant.
+async function syncWonProspectToHousecallPro(companyId: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
+  const connection = await getConnection(companyId, 'housecallpro');
+  const apiKey = decryptToken(connection.access_token);
+  const headers = {
+    Authorization: `Token ${apiKey}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+
+  const searchRes = await fetch(`${HOUSECALLPRO_BASE_URL}/customers?email=${encodeURIComponent(prospect.email)}`, { headers });
+  let existingCustomerId: string | null = null;
+  if (searchRes.ok) {
+    const found = await searchRes.json();
+    const list = Array.isArray(found) ? found : Array.isArray(found?.customers) ? found.customers : [];
+    const match = list.find((c: any) => (c.email || '').toLowerCase() === prospect.email.toLowerCase());
+    if (match) existingCustomerId = String(match.id);
+  } else {
+    console.error('Erreur recherche client Housecall Pro (on tentera quand même une création):', await searchRes.text());
+  }
+
+  if (existingCustomerId) {
+    return { contact_id: existingCustomerId, deal_id: null };
+  }
+
+  const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+  const lastName = rest.join(' ') || prospect.email;
+
+  const createRes = await fetch(`${HOUSECALLPRO_BASE_URL}/customers`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      first_name: firstName || prospect.email,
+      last_name: lastName,
+      email: prospect.email,
+      company_name: prospect.prospect_companies?.name || undefined,
+    }),
+  });
+  if (!createRes.ok) {
+    throw new Error(`Erreur création client Housecall Pro: ${await createRes.text()}`);
+  }
+  const created = await createRes.json();
+  const customerId = created?.id;
+  if (!customerId) {
+    throw new Error('Création client Housecall Pro: aucun id retourné');
+  }
+
+  return { contact_id: String(customerId), deal_id: null };
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée générique
 // ---------------------------------------------------------------------------
 
@@ -943,6 +1024,7 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   axonaut: syncWonProspectToAxonaut,
   sellsy: syncWonProspectToSellsy,
   jobber: syncWonProspectToJobber,
+  housecallpro: syncWonProspectToHousecallPro,
 };
 
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
