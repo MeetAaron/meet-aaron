@@ -1,0 +1,22 @@
+-- migration_user_locale_2026-08-16.sql
+-- Ajoute users.locale — nécessaire pour la traduction du contenu généré
+-- dynamiquement par Aaron (conseils, emails, chat, devis) dans la langue
+-- choisie par chaque commercial.
+--
+-- Contexte : le sélecteur de langue de l'interface (Shell, en haut de
+-- chaque page) existait déjà, mais ne modifiait qu'une valeur côté
+-- navigateur (localStorage, via lib/i18n.js) — jamais transmise ni
+-- persistée côté serveur. Aaron et les autres générations de contenu par
+-- Claude (conseils, emails de prospection, réponses du chat, devis...)
+-- n'avaient donc aucun moyen de savoir dans quelle langue écrire, et
+-- produisaient tout en français par défaut (le prompt système lui-même
+-- est rédigé en français).
+--
+-- Valeur par défaut 'fr' : tous les comptes existants restent en français
+-- tant que le commercial ne change pas la langue depuis le sélecteur —
+-- comportement identique à aujourd'hui, zéro régression pour les comptes
+-- déjà actifs. Voir lib/locale-instruction.ts pour les langues reconnues
+-- (fr, en, de, it, es, pt, nl — même liste que LOCALES dans lib/i18n.js,
+-- à garder synchronisée manuellement).
+
+alter table users add column if not exists locale text not null default 'fr';
