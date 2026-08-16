@@ -252,6 +252,43 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true, status: 'perdu' });
   }
 
+  // CHANGEMENTS A FAIRE — Mon équipe (item 1, 2026-08-16) : "clients perdus"
+  // est une des 6 nouvelles colonnes de stats de Mon équipe. Réutilise le
+  // même champ is_lost/lost_at que "marquer_perdu" ci-dessus (jusqu'ici
+  // utilisé uniquement pour un prospect perdu AVANT signature) — un client
+  // à part entière (first_order_confirmed_at renseigné) peut désormais aussi
+  // être marqué perdu/réactivé depuis Aaron Client, sans nouvelle colonne ni
+  // migration. Voir lib/team-stats.ts pour comment ce champ est agrégé.
+  if (action === 'marquer_client_perdu') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.first_order_confirmed_at) {
+      return NextResponse.json({ error: "Ce prospect n'est pas encore un client à part entière" }, { status: 400 });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ is_lost: true, lost_at: new Date().toISOString() })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, status: 'client_perdu' });
+  }
+
+  if (action === 'reactiver_client') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ is_lost: false, lost_at: null })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, status: 'client_reactive' });
+  }
+
   // Passage manuel en gagné : le commercial peut déclarer lui-même un
   // prospect gagné, avec ou sans passage par un RDV. is_won=true arrête
   // immédiatement la prospection automatique (comportement inchangé) — mais
