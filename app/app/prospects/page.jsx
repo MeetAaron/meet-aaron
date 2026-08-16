@@ -1684,13 +1684,15 @@ function EmptyState({ title, body }) {
 
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [lockedModules, setLockedModules] = useState({ sales: false, customer: false });
+  const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   const [locale, setLocale] = useLocale();
 
-  // Un module (Aaron Opportunité / Aaron Client) est grisé dans la navigation tant
-  // que l'offre souscrite par la société (companies.offer, voir Préférences)
-  // ne correspond pas à ce module. Aaron Prospect (Campagnes/Prospects) reste
-  // toujours accessible : c'est l'offre de base incluse à la souscription.
+  // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
+  // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
+  // est maintenant indépendamment actif/inactif (companies.offer_ap_active/
+  // offer_as_active/offer_ac_active), au lieu d'un seul module "offer" avec
+  // Aaron Prospect toujours actif par défaut. Voir lib/subscription.ts et
+  // l'onglet Abonnement dans Préférences.
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -1698,8 +1700,12 @@ function Shell({ children, active, userId }) {
       .then((r) => r.json())
       .then((body) => {
         if (cancelled) return;
-        const offer = body.preferences?.offer || 'AP';
-        setLockedModules({ sales: offer !== 'AS', customer: offer !== 'AC' });
+        const prefs = body.preferences || {};
+        setLockedModules({
+          prospect: prefs.offer_ap_active === false,
+          sales: prefs.offer_as_active !== true,
+          customer: prefs.offer_ac_active !== true,
+        });
       })
       .catch(() => {});
     return () => {
@@ -1709,10 +1715,10 @@ function Shell({ children, active, userId }) {
 
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯' },
+    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
-    { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀' },
+    { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
     { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
