@@ -11,6 +11,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
+import { localeInstruction, normalizeLocale } from './locale-instruction';
 
 const MAX_DOCS_IN_CONTEXT = 3;
 const MAX_CHARS_PER_DOC = 600;
@@ -74,7 +75,7 @@ async function loadAppointmentWithProspect(appointmentId: string) {
       `id, type, proposed_at, outcome, prospect_id,
        prospects (
          id, full_name, job_title, company_id, personality_type, personality_notes,
-         prospect_company_id, prospect_companies (name, domain)
+         prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)
        )`
     )
     .eq('id', appointmentId)
@@ -86,6 +87,14 @@ async function loadAppointmentWithProspect(appointmentId: string) {
   if (!prospect) throw new Error("Ce RDV n'est pas rattaché à un prospect suivi par Aaron");
 
   return { appointment, prospect };
+}
+
+// Langue du commercial assigné — voir la note équivalente dans
+// lib/aaron-customer.ts : ici aussi, le prospect n'a pas de langue détectée
+// séparément pour le brief/compte-rendu/devis (contenu interne ou déjà en
+// aval d'un RDV obtenu), donc on retombe sur celle du commercial.
+function prospectLocale(prospect: any): string {
+  return normalizeLocale(prospect?.users?.locale);
 }
 
 async function loadConversationMessages(prospectId: string) {
@@ -128,6 +137,7 @@ function parseJsonResponse<T>(data: any, errorLabel: string): T {
 export async function generateAppointmentBrief(appointmentId: string): Promise<AppointmentBrief> {
   const { appointment, prospect } = await loadAppointmentWithProspect(appointmentId);
   const companyId = prospect.company_id;
+  const locale = prospectLocale(prospect);
 
   const messages = await loadConversationMessages(prospect.id);
 
@@ -171,7 +181,8 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
           role: 'user',
           content:
             `Tu es Aaron, copilote commercial IA. Un commercial a un RDV ${appointment.type} bientôt avec ce prospect, ` +
-            `et compte sur toi pour préparer une fiche de brief express avant d'y aller.\n` +
+            `et compte sur toi pour préparer une fiche de brief express avant d'y aller. Rédige tout ce qui suit ` +
+            `${localeInstruction(locale)} — c'est une fiche interne, lue uniquement par le commercial.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"resume_historique": "résumé en 3-4 phrases des échanges jusqu'ici, ou une phrase indiquant qu'il n'y a pas encore d'historique", ` +
             `"profil_personnalite": "explication courte du profil détecté et comment s'y adapter en RDV, ou null si aucun profil détecté", ` +
@@ -208,6 +219,7 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
   const { appointment, prospect } = await loadAppointmentWithProspect(appointmentId);
   const companyId = prospect.company_id;
   const societe = prospect.prospect_companies?.name;
+  const locale = prospectLocale(prospect);
 
   const data = await callClaude(
     {
@@ -221,8 +233,8 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
             `"${prospect.full_name}"${societe ? ` (${societe})` : ''}, et t'a laissé ces notes rapides juste après :\n` +
             `"${trimmedNotes}"\n\n` +
             `À partir de ces notes UNIQUEMENT (n'invente pas de détails qui n'y figurent pas), rédige :\n` +
-            `1) un compte-rendu structuré et professionnel du RDV (points clés abordés, besoins exprimés, prochaines étapes)\n` +
-            `2) un email de relance prêt à envoyer au prospect pour le remercier et faire avancer l'affaire, ton professionnel et chaleureux, en français, sans balises HTML.\n` +
+            `1) un compte-rendu structuré et professionnel du RDV (points clés abordés, besoins exprimés, prochaines étapes) — usage interne, ${localeInstruction(locale)} (langue du commercial)\n` +
+            `2) un email de relance prêt à envoyer au prospect pour le remercier et faire avancer l'affaire, ton professionnel et chaleureux, ${localeInstruction(locale)}, sans balises HTML.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"compte_rendu": "compte-rendu structuré en plusieurs courts paragraphes séparés par des sauts de ligne", ` +
             `"email_relance": {"subject": "objet de l'email", "body": "corps de l'email"}}`,
@@ -300,7 +312,7 @@ async function loadRecentQuotesForProspect(prospectId: string) {
 export async function generateDevis(prospectId: string): Promise<Devis> {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, full_name, job_title, company_id, prospect_company_id, prospect_companies (name, domain)')
+    .select('id, full_name, job_title, company_id, prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)')
     .eq('id', prospectId)
     .single();
 
@@ -308,6 +320,7 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
 
   const companyId = prospect.company_id;
   const societe = (prospect as any).prospect_companies?.name;
+  const locale = prospectLocale(prospect);
 
   const { data: company } = await supabaseAdmin
     .from('companies')
@@ -346,8 +359,8 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
               : `Cette société n'a pas encore renseigné de catalogue de produits/tarifs — laisse "produit_id" à null et ` +
                 `"quantite" à 1 pour chaque poste, tu ne connais aucun prix.\n\n`) +
             `Rédige :\n1) un email d'accompagnement du devis, professionnel et chaleureux, qui rappelle le contexte ` +
-            `et la valeur pour ce prospect précis, en français, sans balises HTML.\n` +
-            `2) un récapitulatif de l'offre sous forme de postes.\n` +
+            `et la valeur pour ce prospect précis, ${localeInstruction(locale)}, sans balises HTML.\n` +
+            `2) un récapitulatif de l'offre sous forme de postes (usage interne, ${localeInstruction(locale)}).\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"objet": "objet de l'email", "corps_email": "corps de l'email", ` +
             `"recapitulatif": [{"poste": "nom du poste", "description": "1 phrase", "produit_id": "id du catalogue ou null", "quantite": 1}]}`,
