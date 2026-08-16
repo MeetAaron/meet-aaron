@@ -100,7 +100,9 @@ const DIRECT_CRM_PROVIDERS = ['hubspot', 'salesforce', 'pipedrive', 'jobber'];
 // qu'expose aussi Capsule (réservé aux apps multi-comptes, hors périmètre
 // ici). plancraft et ToolTime (5e/7e recherchés) n'ont pas d'API publique
 // documentée (beta fermée chez les deux) — non construits, voir statut.
-const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro', 'capsulecrm'];
+// ServiceM8 (7e CRM) réutilise aussi ce patron — clé API "Private App"
+// statique (Settings -> API Keys), en-tête X-Api-Key.
+const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro', 'capsulecrm', 'servicem8'];
 
 // Suite 15 (2e CRM du chantier, après Axonaut) : Sellsy utilise OAuth2
 // "client credentials" — ni redirection utilisateur (DIRECT_CRM_PROVIDERS),
@@ -120,6 +122,7 @@ function crmMetaFor(locale) {
     jobber: { name: 'Jobber', desc: t('connexions.jobberDesc', locale) },
     housecallpro: { name: 'Housecall Pro', desc: t('connexions.housecallproDesc', locale) },
     capsulecrm: { name: 'Capsule CRM', desc: t('connexions.capsulecrmDesc', locale) },
+    servicem8: { name: 'ServiceM8', desc: t('connexions.servicem8Desc', locale) },
   };
 }
 
