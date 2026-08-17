@@ -145,7 +145,7 @@ function exportProspectsToCsv(prospects, locale) {
   const csvContent = [headers, ...rows]
     .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -165,7 +165,7 @@ export default function ProspectsPage() {
   const [statusFilter, setStatusFilter] = useState('tous');
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [linkedinProspect, setLinkedinProspect] = useState(null);
+  const [linkedinProspect] = useState(null);
   const [wonProspect, setWonProspect] = useState(null);
   const [actingOn, setActingOn] = useState(null);
   const [search, setSearch] = useState('');
@@ -1749,7 +1749,21 @@ function Shell({ children, active, userId }) {
         <select
           className="lang-switcher"
           value={locale}
-          onChange={(e) => setLocale(e.target.value)}
+          onChange={(e) => {
+            const newLocale = e.target.value;
+            setLocale(newLocale);
+            // Synchronise côté serveur (fire-and-forget) pour que le contenu
+            // généré par Aaron (conseils, emails, chat, devis) utilise la même
+            // langue — voir lib/locale-instruction.ts. Un échec ici ne doit
+            // jamais bloquer le changement de langue de l'UI elle-même.
+            if (userId) {
+              fetch('/api/user/locale', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locale: newLocale }),
+              }).catch(() => {});
+            }
+          }}
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
