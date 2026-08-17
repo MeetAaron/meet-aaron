@@ -99,7 +99,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
-    const { auth_user_id, email, first_name, full_name, company_name, country } = session.metadata;
+    const { auth_user_id, email, first_name, full_name, company_name, country, modules } = session.metadata;
+    // Modules choisis à l'inscription (voir app/api/checkout/route.ts) — repli
+    // sur ['AP'] si absent (anciennes sessions Stripe créées avant cette
+    // évolution, encore en cours au moment du paiement).
+    const moduleList: string[] = (modules || 'AP').split(',').filter(Boolean);
 
     // Adresse de facturation complète collectée par Stripe Checkout
     // (billing_address_collection: 'required' dans /api/checkout) — stockée
@@ -136,11 +140,15 @@ export async function POST(request: NextRequest) {
           name: company_name,
           country,
           offer: 'AP',
-          // Abonnement multi-module (docx item 31 + section STRIPE) : une
-          // nouvelle société démarre avec seulement Aaron Prospect actif —
-          // Opportunités/Clients s'activent ensuite depuis Préférences &
-          // abonnement (app/api/subscription/modules), voir lib/subscription.ts.
-          offer_ap_active: true,
+          // Abonnement multi-module (docx item 31 + section STRIPE, étendu au
+          // choix dès l'inscription le 2026-08-17) : la société démarre avec
+          // les modules choisis par le patron dans l'onboarding (1, 2 ou les
+          // 3), au lieu d'imposer Aaron Prospect seul comme avant — modules
+          // toujours ajustables ensuite depuis Préférences & abonnement
+          // (app/api/subscription/modules), voir lib/subscription.ts.
+          offer_ap_active: moduleList.includes('AP'),
+          offer_as_active: moduleList.includes('AS'),
+          offer_ac_active: moduleList.includes('AC'),
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
           invite_code: generateInviteCode(company_name),
