@@ -35,6 +35,15 @@ function useAuthedUser() {
       if (cancelled) return;
 
       if (!res.ok) {
+        if (res.status === 404) {
+          // Voir la même logique dans useAuthedUser des autres pages —
+          // compte valide mais profil Meet Aaron pas encore créé (paiement
+          // Stripe non terminé, ou invitation commerciale pas encore
+          // rejointe) : on renvoie vers /onboarding plutôt que d'afficher un
+          // message d'erreur sans issue.
+          router.push('/onboarding');
+          return;
+        }
         const body = await res.json();
         setAuthError(body.error || 'Accès refusé');
       }
