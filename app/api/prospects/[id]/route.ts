@@ -49,7 +49,7 @@ const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe'
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed, first_email_subject, first_email_body } = await request.json();
+  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed, first_email_subject, first_email_body, ai_managed } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -458,6 +458,34 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true, contract_renewal_date });
+  }
+
+  // Bascule "Aaron gère ce client" (emails + devis), exposée dans Aaron
+  // Client — voir migration_customer_ai_managed_2026-08-17.sql. Quand
+  // ai_managed passe à false, handleWonCustomerMessage (voir
+  // app/api/cron/check-inbox/route.ts) n'ouvre plus du tout les messages de
+  // ce client : ni archivage, ni brouillon de réponse, ni traitement des
+  // check-ins — le commercial reprend entièrement la main, comme pour un
+  // email personnel.
+  if (action === 'set_ai_managed') {
+    if (typeof ai_managed !== 'boolean') {
+      return NextResponse.json({ error: 'ai_managed doit être un booléen' }, { status: 400 });
+    }
+
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.is_won) {
+      return NextResponse.json({ error: "Ce prospect n'est pas (encore) un client gagné" }, { status: 400 });
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({ ai_managed })
+      .eq('id', prospectId);
+
+    return NextResponse.json({ success: true, ai_managed });
   }
 
   // Aaron Customer v2 — écarte une suggestion d'upsell du tableau de bord
