@@ -6,11 +6,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+import { MODULE_CODES, ModuleCode, getModulePriceId } from '@/lib/subscription';
 
 // Configurable via Vercel (STRIPE_PRICE_ID_AARON_PROSPECT) pour basculer test/live
 // ou changer de tarif sans redéploiement de code — la valeur actuelle reste le
 // fallback pour ne rien casser tant que la variable n'est pas définie.
 const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'price_1U28xj7srPu7DrXAy07EdRs7';
+
+// Choix des modules à l'inscription (demande d'Alex 2026-08-17) : l'onboarding
+// ne propose plus uniquement Aaron Prospect — le futur patron choisit 1, 2 ou
+// les 3 modules (Aaron Prospect/Opportunités/Clients) dès la création du
+// compte, chacun devenant sa propre ligne d'abonnement Stripe (même
+// architecture "un abonnement, plusieurs subscription items" que la bascule
+// après-coup dans Préférences, voir lib/subscription.ts et
+// app/api/subscription/modules/route.ts). Aaron Prospect garde son fallback
+// de Price ID en dur (PRICE_ID_AARON_PROSPECT ci-dessus, comportement
+// préexistant) ; Opportunités/Clients passent par getModulePriceId, qui
+// renvoie null si la variable Vercel correspondante n'est pas configurée.
+function priceIdFor(module: ModuleCode): string | null {
+  return module === 'AP' ? PRICE_ID_AARON_PROSPECT : getModulePriceId(module);
+}
 
 // Marchés visés pour l'expansion internationale (voir statut projet) :
 // Portugal, Espagne, France, Belgique, Pays-Bas, Allemagne, Italie, UK,
@@ -34,10 +49,30 @@ const STRIPE_LOCALE_MAP: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country, locale } = await request.json();
+  const { first_name, full_name, company_name, country, locale, modules } = await request.json();
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
+  }
+
+  // Repli sur ['AP'] seul si le payload n'envoie rien de reconnu (ancien
+  // frontend pas encore redéployé, ou appel externe) — comportement identique
+  // à avant cette évolution.
+  const selectedModules: ModuleCode[] = Array.isArray(modules)
+    ? (modules.filter((m: string) => MODULE_CODES.includes(m as ModuleCode)) as ModuleCode[])
+    : [];
+  if (selectedModules.length === 0) selectedModules.push('AP');
+
+  const lineItems: { price: string; quantity: number }[] = [];
+  for (const mod of selectedModules) {
+    const priceId = priceIdFor(mod);
+    if (!priceId) {
+      return NextResponse.json(
+        { error: `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
+        { status: 501 }
+      );
+    }
+    lineItems.push({ price: priceId, quantity: 1 });
   }
 
   // auth_user_id et email proviennent du token vérifié : sinon, quelqu'un pourrait
@@ -54,7 +89,7 @@ try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: email,
-      line_items: [{ price: PRICE_ID_AARON_PROSPECT, quantity: 1 }],
+      line_items: lineItems,
       allow_promotion_codes: true,
       // Adresse de facturation complète (rue, ville, code postal) requise pour
       // pouvoir générer une vraie facture — avant, seul le pays était demandé.
@@ -83,6 +118,13 @@ try {
         full_name,
         company_name,
         country,
+        // Modules choisis à l'inscription — lu par le webhook
+        // (checkout.session.completed) pour activer les bons booléens
+        // offer_ap_active/offer_as_active/offer_ac_active à la création de
+        // la société. Même convention que purpose:'reactivate_subscription'
+        // (app/api/subscription/modules/route.ts), qui utilise déjà un
+        // champ metadata.modules en liste séparée par des virgules.
+        modules: selectedModules.join(','),
       },
     });
 
