@@ -178,6 +178,21 @@ export default function CustomerPage() {
     setChangingStatus(false);
   }
 
+  // Bascule "Aaron gère ce client" (emails + devis) par client — voir
+  // migration_customer_ai_managed_2026-08-17.sql et handleWonCustomerMessage
+  // dans app/api/cron/check-inbox/route.ts, qui n'ouvre plus le message si
+  // ai_managed est à false pour ce prospect.
+  async function handleToggleAiManaged(customerId, currentlyManaged) {
+    setChangingStatus(true);
+    await fetch(`/api/prospects/${customerId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_ai_managed', ai_managed: !currentlyManaged }),
+    });
+    await load();
+    setChangingStatus(false);
+  }
+
   async function handleLoadOnboarding(customerId) {
     setOnboardingLoading(true);
     setOnboardingError(null);
@@ -400,6 +415,11 @@ export default function CustomerPage() {
                         {ONBOARDING_META[customer.onboarding_status].label}
                       </span>
                     )}
+                    {customer.ai_managed === false && (
+                      <span className="onboarding-dot" style={{ background: 'var(--muted)' }}>
+                        {t('customer.aiManagedBadge', locale)}
+                      </span>
+                    )}
                   </span>
                 </button>
               );
@@ -445,6 +465,17 @@ export default function CustomerPage() {
                     {selectedCustomer.is_lost ? t('customer.reactivate', locale) : t('customer.markLost', locale)}
                   </button>
                 </div>
+
+                <label className="toggle-inactive ai-managed-toggle">
+                  <input
+                    type="checkbox"
+                    checked={selectedCustomer.ai_managed !== false}
+                    disabled={changingStatus}
+                    onChange={() => handleToggleAiManaged(selectedCustomer.id, selectedCustomer.ai_managed !== false)}
+                  />
+                  {t('customer.aiManagedLabel', locale)}
+                </label>
+                <p className="muted ai-managed-hint">{t('customer.aiManagedHint', locale)}</p>
 
                 <div className="stage-row">
                   <label htmlFor="onboarding-select">{t('customer.onboardingLabel', locale)}</label>
@@ -748,6 +779,23 @@ export default function CustomerPage() {
           border-radius: var(--radius-sm);
           padding: 0.4rem 0.6rem;
           font-size: 0.84rem;
+        }
+        .toggle-inactive {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          color: var(--muted);
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .ai-managed-toggle {
+          margin-top: 0.6rem;
+          color: var(--text);
+          font-weight: 500;
+        }
+        .ai-managed-hint {
+          font-size: 0.78rem;
+          margin: 0.2rem 0 0;
         }
         .block {
           margin-top: 1.4rem;
