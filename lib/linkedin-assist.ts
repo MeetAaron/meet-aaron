@@ -17,6 +17,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
+import { localeInstruction, normalizeLocale } from './locale-instruction';
 
 export interface LinkedInDraft {
   connection_note: string; // <= 300 caractères (limite LinkedIn pour une note de connexion)
@@ -27,11 +28,16 @@ export interface LinkedInDraft {
 export async function generateLinkedInDraft(prospectId: string): Promise<LinkedInDraft> {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
-    .select('full_name, job_title, linkedin_url, company_id, prospect_companies(name)')
+    .select('full_name, job_title, linkedin_url, company_id, assigned_user_id, prospect_companies(name), users(locale)')
     .eq('id', prospectId)
     .single();
 
   if (error || !prospect) throw new Error('Prospect introuvable');
+
+  // Pas d'historique d'échange à ce stade (premier contact LinkedIn) pour
+  // détecter la langue du contact — on retombe sur celle du commercial, même
+  // logique par défaut que le premier email d'Aaron (voir aaron_system_prompt.md).
+  const locale = normalizeLocale((prospect as any).users?.locale);
 
   const { data: company } = await supabaseAdmin
     .from('companies')
@@ -45,8 +51,8 @@ export async function generateLinkedInDraft(prospectId: string): Promise<LinkedI
 Contact : ${prospect.full_name}${prospect.job_title ? `, ${prospect.job_title}` : ''}${(prospect as any).prospect_companies?.name ? ` chez ${(prospect as any).prospect_companies.name}` : ''}.
 ${company?.business_summary ? `Activité de la société qui démarche : ${company.business_summary}` : ''}
 
-Rédige :
-1. Une note de demande de connexion LinkedIn, en français, chaleureuse et personnalisée, PAS commerciale/vendeuse, \
+Rédige, ${localeInstruction(locale)} :
+1. Une note de demande de connexion LinkedIn, chaleureuse et personnalisée, PAS commerciale/vendeuse, \
 280 caractères maximum (limite technique de LinkedIn) — l'objectif est juste d'être accepté, pas de vendre.
 2. Un premier message à envoyer une fois la connexion acceptée, court (3-4 phrases), qui amène naturellement vers \
 une prise de contact sans être trop direct.
