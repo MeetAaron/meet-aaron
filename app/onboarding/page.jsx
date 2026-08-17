@@ -6,6 +6,39 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { useLocale } from '@/lib/i18n';
 
+// Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
+// seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
+// s'activaient qu'après coup dans Préférences & abonnement. Même
+// architecture Stripe (voir lib/subscription.ts, app/api/checkout/route.ts) :
+// chaque module choisi ici devient sa propre ligne d'abonnement. Tarifs et
+// descriptions repris tels quels de app/app/preferences/page.jsx
+// (preferences.offers.apDesc/asDesc/acDesc) pour rester cohérent avec ce qui
+// est affiché après-coup — cette page n'est pas traduite (comme le reste du
+// tunnel d'inscription), donc textes en dur en français, pas de clé i18n.
+const AARON_MODULES = [
+  {
+    value: 'AP',
+    label: 'Aaron Prospect',
+    price: '30€ / mois',
+    desc: 'Prospection, relances et prise de rendez-vous.',
+    info: "Aaron cherche et contacte de nouveaux prospects pour vous, relance ceux qui ne répondent pas, et prend des rendez-vous directement dans votre agenda.",
+  },
+  {
+    value: 'AS',
+    label: 'Aaron Opportunités',
+    price: '30€ / mois',
+    desc: 'Négociation, devis, gestion des objections.',
+    info: "Une fois un rendez-vous obtenu, Aaron vous aide à faire avancer l'affaire : conseils avant RDV, devis chiffrés à partir de votre catalogue, relances jusqu'à la signature.",
+  },
+  {
+    value: 'AC',
+    label: 'Aaron Clients',
+    price: '30€ / mois',
+    desc: 'Fidélisation et relation client post-vente.',
+    info: "Une fois le client signé, Aaron prend le relais sur la relation post-vente : suivi de satisfaction, réponses aux demandes courantes, alertes si un client montre des signes de mécontentement.",
+  },
+];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [locale] = useLocale();
@@ -16,6 +49,8 @@ export default function OnboardingPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [country, setCountry] = useState('');
+  const [selectedModules, setSelectedModules] = useState(['AP']);
+  const [openInfo, setOpenInfo] = useState(null); // value du module dont l'explication est ouverte, ou null
   const [attested, setAttested] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -54,8 +89,18 @@ export default function OnboardingPage() {
     checkExisting();
   }, [router]);
 
+  function toggleModule(value) {
+    setSelectedModules((prev) =>
+      prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]
+    );
+  }
+
   async function handlePatronSubmit(e) {
     e.preventDefault();
+    if (selectedModules.length === 0) {
+      setError('Sélectionnez au moins un module Aaron avant de continuer.');
+      return;
+    }
     if (!attested) {
       setError('Merci de confirmer la case ci-dessous avant de continuer.');
       return;
@@ -74,6 +119,7 @@ export default function OnboardingPage() {
         company_name: companyName,
         country,
         locale,
+        modules: selectedModules,
       }),
     });
 
@@ -244,9 +290,60 @@ export default function OnboardingPage() {
             <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="ex: France" required />
           </label>
 
-          <div className="plan-box">
-            <span className="plan-name">Aaron Prospect</span>
-            <span className="plan-price">30€ / mois</span>
+          <div className="modules-field">
+            <span className="modules-label">Modules Aaron souhaités</span>
+            <div className="modules-grid">
+              {AARON_MODULES.map((m) => {
+                const selected = selectedModules.includes(m.value);
+                return (
+                  <div key={m.value} className={`module-card${selected ? ' selected' : ''}`}>
+                    {/* div (pas <button>) car elle contient elle-même le bouton "?" —
+                        deux <button> imbriqués sont invalides en HTML et cassent le
+                        rendu. role="button"/tabIndex/onKeyDown pour rester utilisable
+                        au clavier malgré tout. */}
+                    <div
+                      className="module-toggle"
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selected}
+                      onClick={() => toggleModule(m.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleModule(m.value);
+                        }
+                      }}
+                    >
+                      <span className="module-check" aria-hidden="true">{selected ? '✓' : ''}</span>
+                      <span className="module-main">
+                        <span className="module-title-row">
+                          <span className="module-title">{m.label}</span>
+                          <button
+                            type="button"
+                            className="info-btn"
+                            aria-label={`En savoir plus sur ${m.label}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenInfo(openInfo === m.value ? null : m.value);
+                            }}
+                          >
+                            ?
+                          </button>
+                        </span>
+                        <span className="module-desc">{m.desc}</span>
+                      </span>
+                      <span className="module-price">{m.price}</span>
+                    </div>
+                    {openInfo === m.value && <p className="module-info">{m.info}</p>}
+                  </div>
+                );
+              })}
+            </div>
+            {selectedModules.length > 0 && (
+              <p className="modules-total">
+                Total : {selectedModules.length * 30}€ / mois pour {selectedModules.length} module{selectedModules.length > 1 ? 's' : ''}
+              </p>
+            )}
           </div>
 
           <label className="checkbox-row">
@@ -256,7 +353,7 @@ export default function OnboardingPage() {
 
           {error && <p className="error">{error}</p>}
 
-          <button type="submit" className="btn-primary" disabled={submitting}>
+          <button type="submit" className="btn-primary" disabled={submitting || selectedModules.length === 0}>
             {submitting ? 'Redirection…' : 'Continuer vers le paiement'}
           </button>
 
@@ -364,25 +461,122 @@ export default function OnboardingPage() {
           color: #f4f1ea;
           font-size: 0.88rem;
         }
-        .plan-box {
-          background: rgba(75, 57, 239, 0.1);
-          border: 1px solid #4b39ef;
-          border-radius: 10px;
-          padding: 0.8rem 1rem;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+        .modules-field {
           margin-bottom: 1.2rem;
         }
-        .plan-name {
+        .modules-label {
+          display: block;
+          font-size: 0.82rem;
+          color: #8b90a8;
+          margin-bottom: 0.5rem;
+        }
+        .modules-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .module-card {
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        .module-toggle {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          width: 100%;
+          background: #0b0e1a;
+          border: 1px solid #232744;
+          border-radius: 10px;
+          padding: 0.7rem 0.9rem;
+          cursor: pointer;
+          text-align: left;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .module-card.selected .module-toggle {
+          border-color: #4b39ef;
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .module-check {
+          flex-shrink: 0;
+          width: 20px;
+          height: 20px;
+          border-radius: 6px;
+          border: 1px solid #232744;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #4b39ef;
+          font-size: 0.8rem;
+          font-weight: 700;
+        }
+        .module-card.selected .module-check {
+          border-color: #4b39ef;
+          background: #4b39ef;
+          color: white;
+        }
+        .module-main {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+        }
+        .module-title-row {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+        }
+        .module-title {
           color: #f4f1ea;
           font-weight: 600;
-          font-size: 0.9rem;
+          font-size: 0.88rem;
         }
-        .plan-price {
+        .info-btn {
+          flex-shrink: 0;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          border: 1px solid #8b90a8;
+          background: none;
+          color: #8b90a8;
+          font-size: 0.66rem;
+          line-height: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          padding: 0;
+        }
+        .info-btn:hover {
+          border-color: #4b39ef;
+          color: #4b39ef;
+        }
+        .module-desc {
+          color: #8b90a8;
+          font-size: 0.76rem;
+        }
+        .module-price {
+          flex-shrink: 0;
           color: #4b39ef;
           font-weight: 700;
-          font-size: 0.9rem;
+          font-size: 0.86rem;
+        }
+        .module-info {
+          background: #0b0e1a;
+          border: 1px solid #232744;
+          border-top: none;
+          border-radius: 0 0 10px 10px;
+          margin: 0;
+          padding: 0.6rem 0.9rem 0.7rem;
+          color: #8b90a8;
+          font-size: 0.78rem;
+          line-height: 1.4;
+        }
+        .modules-total {
+          text-align: right;
+          color: #8b90a8;
+          font-size: 0.78rem;
+          margin: 0.6rem 0 0;
         }
         .checkbox-row {
           flex-direction: row;
