@@ -48,6 +48,19 @@ function useAuthedUser() {
       if (cancelled) return;
 
       if (!res.ok) {
+        if (res.status === 404) {
+          // Compte Supabase Auth valide (email vérifié) mais aucun profil
+          // Meet Aaron encore créé — cas normal d'une inscription abandonnée
+          // avant la fin du paiement Stripe (le profil n'est créé qu'au
+          // webhook checkout.session.completed, voir
+          // app/api/webhooks/stripe/route.ts) ou d'un commercial invité pas
+          // encore rejoint (voir app/api/join-company/route.ts). On renvoie
+          // vers /onboarding pour reprendre l'inscription plutôt que
+          // d'afficher un message d'erreur sans issue ("contactez votre
+          // administrateur") à quelqu'un qui n'a simplement pas terminé.
+          router.push('/onboarding');
+          return;
+        }
         setAuthError(body.error || 'Accès refusé');
         setAuthLoading(false);
         return;
