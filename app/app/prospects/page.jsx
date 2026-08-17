@@ -145,7 +145,7 @@ function exportProspectsToCsv(prospects, locale) {
   const csvContent = [headers, ...rows]
     .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -165,7 +165,7 @@ export default function ProspectsPage() {
   const [statusFilter, setStatusFilter] = useState('tous');
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [linkedinProspect] = useState(null);
+  const [linkedinProspect, setLinkedinProspect] = useState(null);
   const [wonProspect, setWonProspect] = useState(null);
   const [actingOn, setActingOn] = useState(null);
   const [search, setSearch] = useState('');
