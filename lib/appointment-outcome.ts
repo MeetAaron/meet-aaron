@@ -20,6 +20,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
+import { localeInstruction, normalizeLocale } from './locale-instruction';
 
 export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
 
@@ -43,11 +44,53 @@ const OUTCOME_TO_PROSPECT_STATUS: Record<AppointmentOutcome, string> = {
   perdu: 'rouge',
 };
 
-const FALLBACK_NOTES: Record<AppointmentOutcome, string> = {
-  a_continuer: "Top, garde le momentum : une relance courte dans les prochains jours pour caler la suite peut faire la différence.",
-  opportunite: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités. Place à la vente, il doit désormais commander et devenir client !",
-  devis: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités, avec un devis en cours. Place à la vente, il doit désormais commander et devenir client !",
-  perdu: "Dommage pour celui-là. Si tu as une minute, note pourquoi (prix, timing, concurrent...) — ça aide à mieux cibler les prochains.",
+// Ces notes sont un texte FIXE (pas généré par Claude, voir plus bas
+// pourquoi) — donc pas de traduction automatique possible. Traduites à la
+// main dans les 7 langues supportées (voir lib/locale-instruction.ts),
+// même contenu que la version française d'origine dans chaque langue.
+const FALLBACK_NOTES: Record<string, Record<AppointmentOutcome, string>> = {
+  fr: {
+    a_continuer: "Top, garde le momentum : une relance courte dans les prochains jours pour caler la suite peut faire la différence.",
+    opportunite: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités. Place à la vente, il doit désormais commander et devenir client !",
+    devis: "Félicitations ! C'est une nouvelle opportunité — le prospect vient d'être déplacé dans le tableau des Opportunités, avec un devis en cours. Place à la vente, il doit désormais commander et devenir client !",
+    perdu: "Dommage pour celui-là. Si tu as une minute, note pourquoi (prix, timing, concurrent...) — ça aide à mieux cibler les prochains.",
+  },
+  en: {
+    a_continuer: "Nice, keep the momentum going: a quick follow-up in the next few days to lock in next steps can make all the difference.",
+    opportunite: "Congrats! This is a new opportunity — the prospect has just been moved to the Opportunities board. Time to close the deal, they now need to order and become a customer!",
+    devis: "Congrats! This is a new opportunity — the prospect has just been moved to the Opportunities board, with a quote in progress. Time to close the deal, they now need to order and become a customer!",
+    perdu: "Too bad about that one. If you have a minute, note down why (price, timing, a competitor...) — it helps target the next ones better.",
+  },
+  de: {
+    a_continuer: "Klasse, bleib dran: eine kurze Nachfass-Nachricht in den nächsten Tagen, um die nächsten Schritte festzuzurren, kann den Unterschied machen.",
+    opportunite: "Glückwunsch! Das ist eine neue Chance — der Interessent wurde gerade in die Chancen-Übersicht verschoben. Jetzt geht's an den Abschluss, er muss jetzt bestellen und Kunde werden!",
+    devis: "Glückwunsch! Das ist eine neue Chance — der Interessent wurde gerade in die Chancen-Übersicht verschoben, mit einem laufenden Angebot. Jetzt geht's an den Abschluss, er muss jetzt bestellen und Kunde werden!",
+    perdu: "Schade um den. Wenn du kurz Zeit hast, notiere warum (Preis, Timing, Wettbewerber...) — das hilft, die nächsten besser zu treffen.",
+  },
+  it: {
+    a_continuer: "Ottimo, mantieni lo slancio: un breve follow-up nei prossimi giorni per definire i prossimi passi può fare la differenza.",
+    opportunite: "Complimenti! È una nuova opportunità — il prospect è appena stato spostato nella tabella Opportunità. Ora si tratta di vendere, deve ordinare e diventare cliente!",
+    devis: "Complimenti! È una nuova opportunità — il prospect è appena stato spostato nella tabella Opportunità, con un preventivo in corso. Ora si tratta di vendere, deve ordinare e diventare cliente!",
+    perdu: "Peccato per questo. Se hai un minuto, annota il motivo (prezzo, tempistica, concorrente...) — aiuta a mirare meglio i prossimi.",
+  },
+  es: {
+    a_continuer: "Genial, mantén el impulso: un seguimiento breve en los próximos días para cerrar los siguientes pasos puede marcar la diferencia.",
+    opportunite: "¡Felicidades! Es una nueva oportunidad — el prospecto acaba de trasladarse al tablero de Oportunidades. Ahora toca vender, ¡tiene que pedir y convertirse en cliente!",
+    devis: "¡Felicidades! Es una nueva oportunidad — el prospecto acaba de trasladarse al tablero de Oportunidades, con un presupuesto en curso. Ahora toca vender, ¡tiene que pedir y convertirse en cliente!",
+    perdu: "Lástima con ese. Si tienes un minuto, anota por qué (precio, momento, competidor...) — ayuda a apuntar mejor a los próximos.",
+  },
+  pt: {
+    a_continuer: "Ótimo, mantenha o ritmo: um follow-up rápido nos próximos dias para definir os próximos passos pode fazer a diferença.",
+    opportunite: "Parabéns! É uma nova oportunidade — o prospect acabou de ser movido para o quadro de Oportunidades. Agora é vender, ele precisa encomendar e se tornar cliente!",
+    devis: "Parabéns! É uma nova oportunidade — o prospect acabou de ser movido para o quadro de Oportunidades, com um orçamento em andamento. Agora é vender, ele precisa encomendar e se tornar cliente!",
+    perdu: "Pena por esse. Se tiver um minuto, anote o motivo (preço, timing, concorrente...) — ajuda a mirar melhor os próximos.",
+  },
+  nl: {
+    a_continuer: "Mooi, hou het momentum vast: een korte follow-up in de komende dagen om de vervolgstappen vast te leggen kan het verschil maken.",
+    opportunite: "Gefeliciteerd! Dit is een nieuwe kans — de prospect is zojuist verplaatst naar het Kansen-bord. Tijd om te verkopen, hij moet nu bestellen en klant worden!",
+    devis: "Gefeliciteerd! Dit is een nieuwe kans — de prospect is zojuist verplaatst naar het Kansen-bord, met een offerte in behandeling. Tijd om te verkopen, hij moet nu bestellen en klant worden!",
+    perdu: "Jammer van deze. Als je een minuutje hebt, noteer waarom (prijs, timing, concurrent...) — dat helpt om de volgende beter te richten.",
+  },
 };
 
 // Ordre des étapes du pipeline (voir STAGE_ORDER dans app/app/sales/page.jsx)
@@ -64,7 +107,7 @@ const STAGE_RANK: Record<string, number> = {
 export async function recordAppointmentOutcome(appointmentId: string, outcome: AppointmentOutcome) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage)')
+    .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage, users(locale))')
     .eq('id', appointmentId)
     .single();
 
@@ -74,8 +117,9 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
 
   const prospect = (appointment as any).prospects;
   const companyId = prospect?.company_id || null;
+  const locale = normalizeLocale(prospect?.users?.locale);
 
-  let note = FALLBACK_NOTES[outcome];
+  let note = FALLBACK_NOTES[locale][outcome];
 
   // Pour "opportunite" / "devis", le message doit garantir un contenu précis
   // (féliciter + confirmer le déplacement dans le tableau des Opportunités —
@@ -98,7 +142,7 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
                 `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
                 `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
                 `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
-                `Réponds uniquement avec ce message, en français, sans préambule ni titre.`,
+                `Réponds uniquement avec ce message, ${localeInstruction(locale)}, sans préambule ni titre.`,
             },
           ],
         },
