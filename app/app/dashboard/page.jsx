@@ -1441,7 +1441,21 @@ function Shell({ children, active, userId }) {
         <select
           className="lang-switcher"
           value={locale}
-          onChange={(e) => setLocale(e.target.value)}
+          onChange={(e) => {
+            const newLocale = e.target.value;
+            setLocale(newLocale);
+            // Synchronise côté serveur (fire-and-forget) pour que le contenu
+            // généré par Aaron (conseils, emails, chat, devis) utilise la même
+            // langue — voir lib/locale-instruction.ts. Un échec ici ne doit
+            // jamais bloquer le changement de langue de l'UI elle-même.
+            if (userId) {
+              fetch('/api/user/locale', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locale: newLocale }),
+              }).catch(() => {});
+            }
+          }}
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
