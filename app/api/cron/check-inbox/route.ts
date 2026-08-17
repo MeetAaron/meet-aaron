@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, full_name, is_won, is_lost, company_id')
+        .select('id, full_name, is_won, is_lost, company_id, ai_managed')
         .eq('email', fromEmail)
         .eq('assigned_user_id', connection.user_id)
         .single();
@@ -237,7 +237,16 @@ export async function GET(request: NextRequest) {
       // capte quand même le message pour l'historique et, si un check-in
       // satisfaction/NPS est en attente de réponse, en extrait la note.
       // Voir lib/aaron-customer.ts et migration_aaron_customer_2026-08-13.sql.
+      //
+      // ai_managed === false : le commercial a explicitement repris la main
+      // sur ce client (bascule "Aaron gère ce client" désactivée dans Aaron
+      // Client, voir migration_customer_ai_managed_2026-08-17.sql) — Aaron
+      // n'archive rien et ne prépare aucun brouillon, exactement comme pour
+      // un email personnel. Seul le label/catégorie posé plus haut (avant
+      // qu'on sache si ce client est délégué) reste visible sur le message ;
+      // c'est un repli volontairement minimal, pas un vrai traitement.
       if (prospect.is_won) {
+        if (prospect.ai_managed === false) continue;
         await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText);
         continue;
       }
