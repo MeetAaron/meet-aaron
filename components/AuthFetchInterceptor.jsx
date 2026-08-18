@@ -42,7 +42,21 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
       // ce qui est un échec propre plutôt qu'un plantage silencieux ici.
     }
 
-    return originalFetch(input, opts);
+    const response = await originalFetch(input, opts);
+
+    // Session expirée ou invalide (voir lib/auth-helpers.ts : toutes les routes
+    // protégées répondent 401 "Non authentifié — reconnectez-vous." dans ce cas,
+    // jamais pour un autre motif — les routes cron et OAuth qui utilisent aussi
+    // un 401 ne passent pas par fetch() donc ne sont jamais concernées ici).
+    // Plutôt que de laisser chaque page (hook useAuthedUser dupliqué dans 17
+    // pages) afficher ce message brut à l'utilisateur, on redirige directement
+    // vers /login dès qu'un appel API renvoie 401 — un seul endroit à corriger
+    // pour toutes les pages, au lieu de 17.
+    if (response.status === 401 && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+
+    return response;
   };
 }
 
