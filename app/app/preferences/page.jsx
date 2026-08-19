@@ -64,8 +64,14 @@ function useAuthedUser() {
           router.push('/onboarding');
           return;
         }
-        setAuthError(body.error || 'Accès refusé');
-        setAuthLoading(false);
+        // Le client croyait la session valide (getSession() renvoyait
+        // quelque chose) mais le serveur la rejette quand même — cas réel
+        // remonté par Alex (2026-08-19) : il atterrissait sur une page
+        // cassée, sans rien pouvoir faire ni se déconnecter pour se
+        // reconnecter. On nettoie la session locale et on renvoie vers
+        // /login plutôt que de laisser un message d'erreur sans issue.
+        await supabaseBrowser.auth.signOut();
+        router.push('/login');
         return;
       }
 
@@ -1217,6 +1223,11 @@ function Shell({ children, active, userId }) {
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
+    // Efface aussi le marqueur "connexion explicite faite" de cet onglet
+    // (voir components/AuthFetchInterceptor.jsx) pour qu'un lien direct vers
+    // /app dans le même onglet, juste après cette déconnexion, repasse bien
+    // par /login au lieu de rouvrir l'app.
+    try { window.sessionStorage.removeItem('aaron-explicit-login'); } catch (err) {}
     window.location.href = '/login';
   }
 
