@@ -41,6 +41,11 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
+      // Marque cet onglet comme "connexion explicite faite" (voir
+      // components/AuthFetchInterceptor.jsx) — nécessaire même si la session
+      // Supabase était déjà valide/persistée avant ce clic, pour que la porte
+      // d'entrée de /app laisse passer.
+      try { window.sessionStorage.setItem('aaron-explicit-login', '1'); } catch (err) {}
       window.location.href = '/onboarding';
     } else {
       const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
@@ -70,6 +75,10 @@ export default function LoginPage() {
   async function handleOAuth(provider) {
     setLoading(true);
     setError(null);
+    // Voir handleEmailSubmit : on pose le marqueur dès le lancement de l'OAuth
+    // (avant la redirection vers Google/Microsoft) car il n'y a pas d'autre
+    // point de passage unique après un retour OAuth réussi.
+    try { window.sessionStorage.setItem('aaron-explicit-login', '1'); } catch (err) {}
     const { error } = await supabaseBrowser.auth.signInWithOAuth({
       provider,
       options: { redirectTo: `${window.location.origin}/onboarding` },
