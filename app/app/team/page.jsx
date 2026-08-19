@@ -154,6 +154,14 @@ export default function TeamPage() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [teamError, setTeamError] = useState(null);
+  // Bug remonté par Alex (2026-08-19) : le titre "Accès non autorisé" s'affichait
+  // pour N'IMPORTE QUELLE erreur de /api/team (401 session invalide, 500 hoquet
+  // serveur, coupure réseau...), pas seulement pour un vrai refus de rôle (403).
+  // On garde le statut HTTP à part pour n'afficher ce titre précis que sur un
+  // vrai 403, et gérer les autres cas (dont l'absence totale de gestion
+  // d'erreur réseau — `.catch()` manquant avant ce correctif) avec un message
+  // générique + bouton "Réessayer".
+  const [teamErrorStatus, setTeamErrorStatus] = useState(null);
 
   // Sélecteur de période (item 1) — partagé entre l'onglet Vue d'ensemble et
   // l'onglet Rapport de performances (item 3), qui répondent tous les deux à
@@ -165,6 +173,7 @@ export default function TeamPage() {
   const [resultsRows, setResultsRows] = useState([]);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState(null);
+  const [resultsErrorStatus, setResultsErrorStatus] = useState(null);
   const [resultsLoaded, setResultsLoaded] = useState(false);
 
   const [reportGenerating, setReportGenerating] = useState(false);
@@ -173,16 +182,24 @@ export default function TeamPage() {
   function loadTeam() {
     if (!userId) return;
     setLoading(true);
+    setTeamError(null);
+    setTeamErrorStatus(null);
     const params = periodQueryParams(periodMode, customFrom, customTo);
     fetch(`/api/team?user_id=${userId}&${params.toString()}`)
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
+      .then((r) => r.json().then((body) => ({ ok: r.ok, status: r.status, body })))
+      .then(({ ok, status, body }) => {
         if (!ok) {
           setTeamError(body.error);
+          setTeamErrorStatus(status);
         } else {
           setMembers(body.members || []);
           setInviteCode(body.invite_code || null);
         }
+        setLoading(false);
+      })
+      .catch(() => {
+        setTeamError(t('preferences.loadError', locale));
+        setTeamErrorStatus(null);
         setLoading(false);
       });
   }
@@ -196,15 +213,22 @@ export default function TeamPage() {
     if (!userId) return;
     setResultsLoading(true);
     setResultsError(null);
+    setResultsErrorStatus(null);
     fetch(`/api/team/results?user_id=${userId}`)
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
+      .then((r) => r.json().then((body) => ({ ok: r.ok, status: r.status, body })))
+      .then(({ ok, status, body }) => {
         if (!ok) {
           setResultsError(body.error);
+          setResultsErrorStatus(status);
         } else {
           setResultsRows(body.rows || []);
           setResultsLoaded(true);
         }
+        setResultsLoading(false);
+      })
+      .catch(() => {
+        setResultsError(t('preferences.loadError', locale));
+        setResultsErrorStatus(null);
         setResultsLoading(false);
       });
   }
@@ -384,7 +408,15 @@ export default function TeamPage() {
         loading ? (
           <p className="muted">{t('common.loading', locale)}</p>
         ) : teamError ? (
-          <EmptyState title={t('team.accessDenied', locale)} body={teamError} />
+          <div>
+            <EmptyState
+              title={teamErrorStatus === 403 ? t('team.accessDenied', locale) : t('preferences.loadError', locale)}
+              body={teamError}
+            />
+            <button type="button" onClick={loadTeam} style={{ marginTop: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 1.2rem', fontSize: '0.86rem', cursor: 'pointer' }}>
+              {t('common.retry', locale)}
+            </button>
+          </div>
         ) : members.length === 0 ? (
           <EmptyState title={t('team.noMembersTitle', locale)} body={t('team.noMembersBody', locale)} />
         ) : (
@@ -444,7 +476,15 @@ export default function TeamPage() {
           {resultsLoading ? (
             <p className="muted">{t('common.loading', locale)}</p>
           ) : resultsError ? (
-            <EmptyState title={t('team.accessDenied', locale)} body={resultsError} />
+            <div>
+              <EmptyState
+                title={resultsErrorStatus === 403 ? t('team.accessDenied', locale) : t('preferences.loadError', locale)}
+                body={resultsError}
+              />
+              <button type="button" onClick={loadResults} style={{ marginTop: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 1.2rem', fontSize: '0.86rem', cursor: 'pointer' }}>
+                {t('common.retry', locale)}
+              </button>
+            </div>
           ) : resultsRows.length === 0 ? (
             <EmptyState title={t('team.resultsEmptyTitle', locale)} body={t('team.resultsEmptyBody', locale)} />
           ) : (
