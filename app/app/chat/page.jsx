@@ -116,6 +116,15 @@ export default function ChatPage() {
   const [summarizing, setSummarizing] = useState(false);
   const [summaryDone, setSummaryDone] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
+  // Bug remonté par Alex (2026-08-19, nouveau compte) : la page "Chat avec Aaron"
+  // restait bloquée sur "Chargement…" indéfiniment. Cause : le message d'accueil
+  // (voir l'effet ci-dessous) attendait `userInfo` non-null avant de s'afficher,
+  // mais le fetch qui le charge n'avait ni gestion d'erreur ni marqueur "terminé"
+  // — au moindre hoquet (réseau, 401 transitoire, etc.) `userInfo` restait `null`
+  // pour toujours et l'accueil ne s'affichait jamais. `userInfoLoaded` distingue
+  // "chargement en cours" de "chargement terminé, avec ou sans résultat" (même
+  // principe que `historyLoaded` juste en dessous, qui lui gérait déjà ce cas).
+  const [userInfoLoaded, setUserInfoLoaded] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(-1); // -1 = pas en cours de questionnaire
   const [onboardingAnswers, setOnboardingAnswers] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -150,7 +159,8 @@ export default function ChatPage() {
       .then((res) => {
         if (res.user) setUserInfo(res.user);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setUserInfoLoaded(true));
   }, [userId]);
 
   // Rapatrie l'historique déjà persisté (voir migration_chat_history_2026-08-13.sql
@@ -174,12 +184,14 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
-    // On attend d'avoir le prénom pour un accueil personnalisé plutôt que générique.
-    if (!userInfo) return;
+    // On attend que le chargement du prénom soit TERMINÉ (succès ou échec, voir
+    // userInfoLoaded ci-dessus) pour un accueil personnalisé quand c'est possible
+    // — mais sans bloquer indéfiniment si ce fetch échoue.
+    if (!userInfoLoaded) return;
     // On attend de savoir si un historique existe déjà en base avant de semer
     // l'accueil, pour ne pas écraser une conversation/un questionnaire en cours.
     if (!historyLoaded) return;
-    const firstName = userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '';
+    const firstName = userInfo ? (userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '') : '';
     const onboardingQuestions = getOnboardingQuestions(locale);
     const welcomeMessages = [
       {
@@ -212,7 +224,7 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [isWelcome, messages.length, userInfo, historyLoaded, userId, locale]);
+  }, [isWelcome, messages.length, userInfo, userInfoLoaded, historyLoaded, userId, locale]);
 
   // Relance du questionnaire (voir restartRequested plus haut) : ajoute une
   // courte intro + la première question à la suite de la conversation
@@ -221,7 +233,9 @@ export default function ChatPage() {
   // /api/business-summary régénère un résumé propre à la fin.
   useEffect(() => {
     if (!restartRequested || restartSeeded) return;
-    if (!userInfo) return;
+    // Voir userInfoLoaded plus haut : on attend la FIN du chargement (pas un
+    // résultat non-nul) pour ne jamais bloquer indéfiniment.
+    if (!userInfoLoaded) return;
     if (!historyLoaded) return;
 
     const onboardingQuestions = getOnboardingQuestions(locale);
@@ -245,7 +259,7 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [restartRequested, restartSeeded, userInfo, historyLoaded, userId, locale]);
+  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
