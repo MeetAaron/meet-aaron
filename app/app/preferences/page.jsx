@@ -473,6 +473,14 @@ export default function PreferencesPage() {
                       {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
                     </button>
                     {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
+                    {/* Demande d'Alex (2026-08-19) : reprendre le questionnaire de
+                        découverte guidé (app/app/chat/page.jsx) depuis Préférences,
+                        pour quelqu'un qui l'a manqué/interrompu la première fois —
+                        voir restartRequested dans chat/page.jsx. N'écrase pas la
+                        conversation existante, l'ajoute à la suite. */}
+                    <Link href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
+                      {t('preferences.retakeQuestionnaireButton', locale)}
+                    </Link>
                   </div>
                 </div>
               )}
@@ -1111,19 +1119,35 @@ export default function PreferencesPage() {
           gap: 0.8rem;
           margin-top: 0.5rem;
         }
+        .btn-primary, .btn-secondary {
+          border-radius: var(--radius-sm);
+          padding: 0.65rem 1.2rem;
+          font-size: 0.86rem;
+          cursor: pointer;
+        }
         .btn-primary {
           background: var(--accent);
           color: white;
           border: none;
-          border-radius: var(--radius-sm);
-          padding: 0.65rem 1.2rem;
           font-weight: 600;
-          font-size: 0.86rem;
-          cursor: pointer;
         }
         .btn-primary:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+        }
+        /* .link-btn : le bouton "Relancer le questionnaire de découverte" est un
+           <Link> (donc un <a>), pas un <button> — sans ce reset il apparaît en
+           lien bleu souligné au lieu de matcher les autres boutons .btn-secondary
+           de cette même rangée d'actions. */
+        .link-btn {
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
         }
         .saved-msg {
           color: var(--accent-green);
