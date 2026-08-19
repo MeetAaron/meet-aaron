@@ -113,14 +113,25 @@ export default function ChatPage() {
   const [onboardingStep, setOnboardingStep] = useState(-1); // -1 = pas en cours de questionnaire
   const [onboardingAnswers, setOnboardingAnswers] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  // Relance du questionnaire de découverte depuis Préférences (bouton "Relancer
+  // le questionnaire de découverte", voir app/app/preferences/page.jsx) — pour
+  // quelqu'un qui l'a manqué ou déconnecté en cours de route la première fois.
+  // Distinct de isWelcome : ne dépend pas de messages.length === 0, puisqu'une
+  // conversation existe déjà dans ce cas (restartSeeded sert de garde-fou
+  // "une seule fois" à la place).
+  const [restartRequested, setRestartRequested] = useState(false);
+  const [restartSeeded, setRestartSeeded] = useState(false);
   const bottomRef = useRef(null);
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
   // d'avoir à englober la page dans un <Suspense> côté build Next.js.
   useEffect(() => {
-    const welcome = new URLSearchParams(window.location.search).get('welcome');
-    if (welcome === '1') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('welcome') === '1') {
       setIsWelcome(true);
+    }
+    if (params.get('restart_questionnaire') === '1') {
+      setRestartRequested(true);
     }
   }, []);
 
@@ -196,6 +207,39 @@ export default function ChatPage() {
       }),
     }).catch(() => {});
   }, [isWelcome, messages.length, userInfo, historyLoaded, userId, locale]);
+
+  // Relance du questionnaire (voir restartRequested plus haut) : ajoute une
+  // courte intro + la première question à la suite de la conversation
+  // existante (n'écrase rien — /api/chat-history insère, ne remplace jamais),
+  // et repart de zéro sur la progression (étape 0, réponses vidées) pour que
+  // /api/business-summary régénère un résumé propre à la fin.
+  useEffect(() => {
+    if (!restartRequested || restartSeeded) return;
+    if (!userInfo) return;
+    if (!historyLoaded) return;
+
+    const onboardingQuestions = getOnboardingQuestions(locale);
+    const restartMessages = [
+      { role: 'assistant', content: t('chat.restartQuestionnaireIntro', locale) },
+      { role: 'assistant', content: onboardingQuestions[0] },
+    ];
+    setMessages((prev) => [...prev, ...restartMessages]);
+    setOnboardingStep(0);
+    setOnboardingAnswers([]);
+    setSummaryDone(false);
+    setRestartSeeded(true);
+
+    fetch('/api/chat-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        messages: restartMessages,
+        onboarding_step: 0,
+        onboarding_answers: [],
+      }),
+    }).catch(() => {});
+  }, [restartRequested, restartSeeded, userInfo, historyLoaded, userId, locale]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
