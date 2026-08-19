@@ -61,8 +61,14 @@ function useAuthedUser() {
           router.push('/onboarding');
           return;
         }
-        setAuthError(body.error || 'Accès refusé');
-        setAuthLoading(false);
+        // Le client croyait la session valide (getSession() renvoyait
+        // quelque chose) mais le serveur la rejette quand même — cas réel
+        // remonté par Alex (2026-08-19) : il atterrissait sur une page
+        // cassée, sans rien pouvoir faire ni se déconnecter pour se
+        // reconnecter. On nettoie la session locale et on renvoie vers
+        // /login plutôt que de laisser un message d'erreur sans issue.
+        await supabaseBrowser.auth.signOut();
+        router.push('/login');
         return;
       }
 
