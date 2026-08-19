@@ -90,20 +90,40 @@ export default function SuggestionsPage() {
   const [feedback, setFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  // Bug remonté par Alex (2026-08-19) : le titre "Accès non autorisé" s'affichait
+  // pour N'IMPORTE QUELLE erreur de /api/feedback (401 session invalide, 500
+  // hoquet serveur, coupure réseau, qui n'était même pas gérée du tout avant ce
+  // correctif), pas seulement pour un vrai refus de rôle (403). Voir le même
+  // correctif sur app/app/team/page.jsx.
+  const [loadErrorStatus, setLoadErrorStatus] = useState(null);
   const [locale] = useLocale();
 
-  useEffect(() => {
+  function loadFeedback() {
     if (!userId) return;
+    setLoading(true);
+    setLoadError(null);
+    setLoadErrorStatus(null);
     fetch(`/api/feedback?user_id=${userId}`)
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
+      .then((r) => r.json().then((body) => ({ ok: r.ok, status: r.status, body })))
+      .then(({ ok, status, body }) => {
         if (!ok) {
           setLoadError(body.error);
+          setLoadErrorStatus(status);
         } else {
           setFeedback(body.feedback || []);
         }
         setLoading(false);
+      })
+      .catch(() => {
+        setLoadError(t('preferences.loadError', locale));
+        setLoadErrorStatus(null);
+        setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    loadFeedback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   if (authLoading) {
@@ -141,7 +161,15 @@ export default function SuggestionsPage() {
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : loadError ? (
-        <EmptyState title={t('suggestions.accessDenied', locale)} body={loadError} />
+        <div>
+          <EmptyState
+            title={loadErrorStatus === 403 ? t('suggestions.accessDenied', locale) : t('preferences.loadError', locale)}
+            body={loadError}
+          />
+          <button type="button" onClick={loadFeedback} style={{ marginTop: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 1.2rem', fontSize: '0.86rem', cursor: 'pointer' }}>
+            {t('common.retry', locale)}
+          </button>
+        </div>
       ) : feedback.length === 0 ? (
         <EmptyState title={t('suggestions.emptyTitle', locale)} body={t('suggestions.emptyBody', locale)} />
       ) : (
