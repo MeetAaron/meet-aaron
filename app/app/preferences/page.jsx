@@ -1215,6 +1215,11 @@ function Shell({ children, active, userId }) {
     };
   }, [userId]);
 
+  async function handleLogout() {
+    await supabaseBrowser.auth.signOut();
+    window.location.href = '/login';
+  }
+
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
@@ -1284,6 +1289,16 @@ function Shell({ children, active, userId }) {
             </Link>
           ))}
         </ul>
+        {/* Demande d'Alex (2026-08-19) : l'app n'avait aucun moyen de se
+            déconnecter nulle part — pertinent notamment pour tester le
+            parcours "nouveau visiteur" depuis la landing page (le bouton
+            "Essayer maintenant" saute la connexion si une session valide est
+            encore présente dans le navigateur, ce qui est le comportement
+            normal — mais il n'y avait aucun moyen d'en sortir pour vérifier). */}
+        <button type="button" className="logout-btn" onClick={handleLogout}>
+          <span className="nav-icon">🚪</span>
+          {t('common.logout', locale)}
+        </button>
       </nav>
       <main className="content">{children}</main>
       <style jsx global>{`
@@ -1498,6 +1513,27 @@ function Shell({ children, active, userId }) {
         .lock-badge {
           margin-left: auto;
           font-size: 0.72rem;
+        }
+        .logout-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          width: 100%;
+          margin-top: 0.8rem;
+          padding: 0.62rem 0.75rem;
+          border: none;
+          border-top: 1px solid var(--border-soft);
+          border-radius: var(--radius-md);
+          background: transparent;
+          color: var(--muted);
+          font-size: 0.87rem;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background var(--fast), color var(--fast);
+        }
+        .logout-btn:hover {
+          background: var(--surface-hover);
+          color: var(--accent-red);
         }
         .content {
           padding: 2.5rem 3rem;
