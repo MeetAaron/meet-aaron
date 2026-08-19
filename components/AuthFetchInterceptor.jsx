@@ -52,8 +52,25 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     // pages) afficher ce message brut à l'utilisateur, on redirige directement
     // vers /login dès qu'un appel API renvoie 401 — un seul endroit à corriger
     // pour toutes les pages, au lieu de 17.
+    //
+    // Bug remonté par Alex (2026-08-19) : cette redirection pouvait se déclencher
+    // juste après une connexion réussie ("connecté puis déconnecté aussitôt"),
+    // sur un raté ponctuel côté serveur lors de la toute première vérification du
+    // token (ex. léger délai de propagation juste après signInWithPassword) —
+    // alors même que la session était toujours valide localement. On revérifie
+    // donc la session locale avant de rediriger : si elle existe encore, ce 401
+    // était probablement transitoire et on laisse la page gérer l'erreur comme
+    // avant (pas de déconnexion forcée) ; on ne redirige que si la session a
+    // réellement disparu.
     if (response.status === 401 && window.location.pathname !== '/login') {
-      window.location.href = '/login';
+      try {
+        const { data } = await supabaseBrowser.auth.getSession();
+        if (!data?.session) {
+          window.location.href = '/login';
+        }
+      } catch (err) {
+        window.location.href = '/login';
+      }
     }
 
     return response;
