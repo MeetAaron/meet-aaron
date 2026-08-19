@@ -187,14 +187,32 @@ export default function PreferencesPage() {
   // besoin d'attendre le clic sur "Enregistrer").
   const [moduleBusy, setModuleBusy] = useState(null);
   const [moduleError, setModuleError] = useState(null);
+  // Bug remonté par Alex (2026-08-19) : "Préférences et abonnements reste en
+  // chargement". Cause : ni le rejet de la promesse fetch (erreur réseau) ni
+  // une réponse d'erreur du serveur (ex. 401/403 — body sans clé
+  // `preferences`) n'étaient gérés ici. `setLoading(false)` n'était alors
+  // jamais atteint, ou l'était avec `prefs` toujours vide — dans les deux cas
+  // le rendu ci-dessous (`loading || !prefs`) restait bloqué sur "Chargement…"
+  // indéfiniment, sans aucun message ni moyen de réessayer.
+  const [loadError, setLoadError] = useState(null);
 
   function loadPrefs() {
     if (!userId) return;
+    setLoadError(null);
     fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        setPrefs(res.preferences);
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok || !body.preferences) {
+          setLoading(false);
+          setLoadError(body?.error || t('preferences.loadError', locale));
+          return;
+        }
+        setPrefs(body.preferences);
         setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+        setLoadError(t('preferences.loadError', locale));
       });
   }
 
@@ -444,7 +462,14 @@ export default function PreferencesPage() {
         <h1>{t('nav.preferences', locale)}</h1>
       </header>
 
-      {loading || !prefs ? (
+      {loadError ? (
+        <div className="load-error">
+          <p>{loadError}</p>
+          <button type="button" className="btn-secondary" onClick={loadPrefs}>
+            {t('common.retry', locale)}
+          </button>
+        </div>
+      ) : loading || !prefs ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <div className="panel">
@@ -1179,6 +1204,18 @@ export default function PreferencesPage() {
         }
         .muted {
           color: var(--muted);
+        }
+        .load-error {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.8rem;
+          padding: 1.2rem;
+          background: var(--surface);
+          border: 1px solid var(--border-soft);
+          border-radius: var(--radius-md);
+          color: var(--accent-red);
+          font-size: 0.9rem;
         }
         @media (max-width: 600px) {
           .collab-options {
