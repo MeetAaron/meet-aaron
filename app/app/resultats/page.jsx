@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -319,10 +320,13 @@ function evolutionRangeFor(window, custom, now) {
 }
 
 // Bilan jour/semaine/mois compact pour une catégorie (item A3) — une rangée
-// de mini-cartes (valeur + date), la plus récente à droite, plutôt qu'un
-// graphique : aucune dépendance de charting à ajouter, cohérent avec le
-// reste de la page (StatCard/cat-stat-card).
+// de mini-cartes (valeur + date), la plus récente à droite, complétée par un
+// petit graphique en barres (tâche #129 piste 3 : vraie dataviz). Le
+// graphique est un composant div/CSS interne (components/charts/MiniBarChart),
+// aucune dépendance de charting externe ajoutée — cohérent avec le reste de
+// la page (StatCard/cat-stat-card).
 function BilanRow({ label, type, onTypeChange, rows, locale }) {
+  const chronological = [...rows].reverse();
   return (
     <div className="bilan-row">
       <div className="bilan-head">
@@ -340,6 +344,20 @@ function BilanRow({ label, type, onTypeChange, rows, locale }) {
           ))}
         </div>
       </div>
+      {chronological.length > 0 && (
+        <div className="bilan-chart">
+          <MiniBarChart
+            data={chronological.map(({ bucket, value }) => ({
+              key: bucket.key,
+              label:
+                type === 'month'
+                  ? bucket.start.toLocaleDateString(locale, { month: 'short' })
+                  : bucket.start.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
+              value,
+            }))}
+          />
+        </div>
+      )}
       <div className="bilan-buckets">
         {rows.length === 0 ? (
           <span className="muted bilan-empty">—</span>
@@ -393,6 +411,9 @@ function BilanRow({ label, type, onTypeChange, rows, locale }) {
           border-color: var(--accent);
           color: var(--text);
           font-weight: 600;
+        }
+        .bilan-chart {
+          margin-bottom: 0.6rem;
         }
         .bilan-buckets {
           display: flex;
