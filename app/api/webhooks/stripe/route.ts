@@ -47,12 +47,14 @@ export async function POST(request: NextRequest) {
     // est idempotent sur session.id (voir lib/credits.ts) : un retry Stripe
     // du même événement ne crédite pas deux fois.
     if (session.metadata?.purpose === 'credits_purchase') {
-      const { company_id, amount_eur } = session.metadata;
+      const { company_id, amount_eur, module } = session.metadata;
+      const moduleKey = module === 'ap' || module === 'as' || module === 'ac' ? module : undefined;
       const result = await addCredits(
         company_id,
         parseFloat(amount_eur),
         `Achat de ${amount_eur} crédits (Stripe)`,
-        session.id
+        session.id,
+        moduleKey
       );
       if (!result.added) {
         console.log(`Achat de crédits déjà traité pour la session Stripe ${session.id}, ignoré.`);
