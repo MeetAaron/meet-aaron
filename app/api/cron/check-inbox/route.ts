@@ -10,7 +10,7 @@ import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
-import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply } from '@/lib/aaron-customer';
+import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -388,6 +388,10 @@ export async function GET(request: NextRequest) {
               : `${prospect.full_name} a donné son accord. Aaron l'a basculé en client gagné.`,
             url: `/app/customer?user_id=${connection.user_id}`,
           });
+
+          // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature —
+          // voir lib/aaron-customer.ts. Fire-and-forget, best-effort.
+          triggerAutomaticOnboarding(prospect.id).catch(() => {});
         } catch (err: any) {
           console.error(`Erreur bascule automatique en client pour prospect ${prospect.id}:`, err.message);
         }
