@@ -853,12 +853,14 @@ export default function PreferencesPage() {
         </div>
       )}
 
+      {/* docx AJOUT GLOBAL item A8 : le pied de page ne doit garder QUE la
+          politique de confidentialité — "revoir la visite guidée" vit
+          maintenant en permanence sous le chat Aaron (voir
+          app/app/chat/page.jsx), et "se désabonner" est déjà couvert par les
+          boutons activer/résilier par module de l'onglet Abonnement
+          ci-dessus (pas besoin d'un lien de résiliation séparé ici). */}
       <footer className="page-footer">
-        <a href={`/app/tour${userId ? `?user_id=${userId}` : ''}`}>{t('preferences.footer.tourLink', locale)}</a>
-        <span className="footer-sep">·</span>
         <a href="/privacy" target="_blank" rel="noreferrer">{t('preferences.footer.privacyLink', locale)}</a>
-        <span className="footer-sep">·</span>
-        <a href="/unsubscribe" className="unsubscribe-link">{t('preferences.footer.unsubscribeLink', locale)}</a>
       </footer>
 
       <style jsx>{`
@@ -1193,14 +1195,6 @@ export default function PreferencesPage() {
           color: var(--muted);
           font-size: 0.78rem;
           text-decoration: underline;
-        }
-        .footer-sep {
-          color: var(--muted);
-          font-size: 0.78rem;
-          margin: 0 0.4rem;
-        }
-        .unsubscribe-link {
-          color: var(--accent-red);
         }
         .muted {
           color: var(--muted);
