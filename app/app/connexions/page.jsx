@@ -1484,7 +1484,7 @@ function Shell({ children, active, userId }) {
       <button
         type="button"
         className="mobile-menu-btn"
-        aria-label="Ouvrir le menu"
+        aria-label={t('shell.openMenu', locale)}
         onClick={() => setMobileOpen(true)}
       >
         <span className="bar" />
@@ -1529,7 +1529,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title="Non inclus dans votre abonnement actuel">🔒</span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}>🔒</span>}</li>
             </Link>
           ))}
         </ul>
