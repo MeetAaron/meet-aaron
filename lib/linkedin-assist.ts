@@ -66,7 +66,7 @@ Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, sans balises m
       max_tokens: 500,
       messages: [{ role: 'user', content: prompt }],
     },
-    prospect.company_id
+    prospect.company_id, 'ap'
   );
 
   const textBlock = data.content.find((b: any) => b.type === 'text');

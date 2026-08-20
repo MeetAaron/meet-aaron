@@ -196,7 +196,7 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
         },
       ],
     },
-    companyId
+    companyId, 'as'
   );
 
   const brief = parseJsonResponse<AppointmentBrief>(data, 'Brief pré-RDV');
@@ -243,7 +243,7 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
         },
       ],
     },
-    companyId
+    companyId, 'as'
   );
 
   const debrief = parseJsonResponse<AppointmentDebrief>(data, 'Compte-rendu post-RDV');
@@ -369,7 +369,7 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
         },
       ],
     },
-    companyId
+    companyId, 'as'
   );
 
   const raw = parseJsonResponse<{

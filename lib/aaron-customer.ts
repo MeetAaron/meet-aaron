@@ -154,7 +154,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
         },
       ],
     },
-    companyId
+    companyId, 'ac'
   );
 
   const result = parseJsonResponse<OnboardingPlan>(data, "Plan d'onboarding");
@@ -289,7 +289,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
           },
         ],
       },
-      prospect.company_id
+      prospect.company_id, 'ac'
     );
     return parseJsonResponse<CheckinMessage>(data, 'Email de check-in');
   } catch (err: any) {
@@ -328,7 +328,7 @@ export async function parseCheckinResponse(replyText: string, companyId: string 
           },
         ],
       },
-      companyId
+      companyId, 'ac'
     );
     return parseJsonResponse<CheckinResponseParsed>(data, 'Réponse de check-in');
   } catch (err: any) {
@@ -372,7 +372,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
           },
         ],
       },
-      prospect.company_id
+      prospect.company_id, 'ac'
     );
     return parseJsonResponse<RenewalOutreach>(data, 'Email de renouvellement');
   } catch (err: any) {
@@ -417,7 +417,7 @@ export async function generateUpsellSuggestion(prospectId: string): Promise<stri
           },
         ],
       },
-      prospect.company_id
+      prospect.company_id, 'ac'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     return textBlock?.text?.trim() || null;
@@ -464,7 +464,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
           },
         ],
       },
-      prospect.company_id
+      prospect.company_id, 'ac'
     );
     const result = parseJsonResponse<TestimonialRequest>(data, 'Demande de témoignage');
 
@@ -538,7 +538,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
           },
         ],
       },
-      prospect.company_id
+      prospect.company_id, 'ac'
     );
     return parseJsonResponse<SupportReplyDraft>(data, 'Suggestion de réponse support');
   } catch (err: any) {

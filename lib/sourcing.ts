@@ -83,7 +83,7 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
       messages: [{ role: 'user', content: prompt }],
     },
-    companyId
+    companyId, 'ap'
   );
 
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
@@ -147,7 +147,7 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null 
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
       messages: [{ role: 'user', content: prompt }],
     },
-    companyId
+    companyId, 'ap'
   );
 
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();

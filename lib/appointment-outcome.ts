@@ -146,7 +146,7 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
             },
           ],
         },
-        companyId
+        companyId, 'as'
       );
 
       const textBlock = data.content.find((b: any) => b.type === 'text');

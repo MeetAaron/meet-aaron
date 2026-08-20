@@ -5,17 +5,36 @@
 // dans l'abonnement atteint (lib/anthropic-client.ts), pour ne pas bloquer
 // une société qui accepte de payer un supplément pour continuer à utiliser
 // Aaron ce mois-ci.
+//
+// Tâche #140 (docx item Préférences/Abonnement) : en plus du pool général
+// historique (credit_balance_eur), chaque module payant (Aaron Prospect /
+// Aaron Sales / Aaron Customer) a désormais son PROPRE solde de crédits —
+// voir migration_credits_per_module_2026-08-20.sql. Le paramètre optionnel
+// `module` ci-dessous sélectionne la colonne concernée ; omis, le
+// comportement est strictement identique à avant (pool général), donc tous
+// les appels existants qui n'ont jamais entendu parler de "module" restent
+// inchangés.
 
 import { supabaseAdmin } from './supabase-admin';
 
-export async function getCreditBalance(companyId: string): Promise<number> {
+export type CreditModule = 'ap' | 'as' | 'ac';
+
+function balanceColumn(module?: CreditModule): string {
+  if (module === 'ap') return 'credit_balance_ap_eur';
+  if (module === 'as') return 'credit_balance_as_eur';
+  if (module === 'ac') return 'credit_balance_ac_eur';
+  return 'credit_balance_eur';
+}
+
+export async function getCreditBalance(companyId: string, module?: CreditModule): Promise<number> {
+  const column = balanceColumn(module);
   const { data } = await supabaseAdmin
     .from('companies')
-    .select('credit_balance_eur')
+    .select(column)
     .eq('id', companyId)
     .maybeSingle();
 
-  return data?.credit_balance_eur || 0;
+  return (data as any)?.[column] || 0;
 }
 
 // Ajoute des crédits (achat, ou ajustement manuel) et journalise la
@@ -27,9 +46,11 @@ export async function addCredits(
   companyId: string,
   amountEur: number,
   reason: string,
-  stripeSessionId?: string
+  stripeSessionId?: string,
+  module?: CreditModule
 ): Promise<{ added: boolean; balance: number }> {
-  const current = await getCreditBalance(companyId);
+  const column = balanceColumn(module);
+  const current = await getCreditBalance(companyId, module);
   const newBalance = current + amountEur;
 
   const { error: txError } = await supabaseAdmin.from('credit_transactions').insert({
@@ -38,6 +59,7 @@ export async function addCredits(
     reason,
     balance_after_eur: newBalance,
     stripe_session_id: stripeSessionId || null,
+    module: module || null,
   });
 
   if (txError) {
@@ -49,7 +71,7 @@ export async function addCredits(
     throw new Error(`Erreur journalisation crédits: ${txError.message}`);
   }
 
-  await supabaseAdmin.from('companies').update({ credit_balance_eur: newBalance }).eq('id', companyId);
+  await supabaseAdmin.from('companies').update({ [column]: newBalance }).eq('id', companyId);
   return { added: true, balance: newBalance };
 }
 
@@ -58,8 +80,14 @@ export async function addCredits(
 // ESTIMATION de coût, pas une facturation exacte au centime (voir
 // lib/anthropic-client.ts). La vérification "reste-t-il du solde avant
 // d'autoriser l'appel" se fait AVANT, côté callClaude.
-export async function spendCredits(companyId: string, amountEur: number, reason: string): Promise<number> {
-  const current = await getCreditBalance(companyId);
+export async function spendCredits(
+  companyId: string,
+  amountEur: number,
+  reason: string,
+  module?: CreditModule
+): Promise<number> {
+  const column = balanceColumn(module);
+  const current = await getCreditBalance(companyId, module);
   const newBalance = Math.max(0, current - amountEur);
 
   await Promise.all([
@@ -68,8 +96,9 @@ export async function spendCredits(companyId: string, amountEur: number, reason:
       delta_eur: -amountEur,
       reason,
       balance_after_eur: newBalance,
+      module: module || null,
     }),
-    supabaseAdmin.from('companies').update({ credit_balance_eur: newBalance }).eq('id', companyId),
+    supabaseAdmin.from('companies').update({ [column]: newBalance }).eq('id', companyId),
   ]);
 
   return newBalance;

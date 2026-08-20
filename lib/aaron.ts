@@ -174,7 +174,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
         },
       ],
     },
-    companyId
+    companyId, 'ap'
   );
 
   const textBlock = data.content.find((block: any) => block.type === 'text');

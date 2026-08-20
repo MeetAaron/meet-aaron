@@ -36,7 +36,7 @@
 // solde de crédits est également épuisé.
 
 import { supabaseAdmin } from './supabase-admin';
-import { getCreditBalance, spendCredits } from './credits';
+import { getCreditBalance, spendCredits, CreditModule } from './credits';
 
 const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
@@ -154,7 +154,18 @@ async function recordUsage(companyId: string, inputTokens: number, outputTokens:
 // cas, ni les plafonds ni l'enregistrement d'usage ne s'appliquent : on
 // préfère laisser passer l'appel plutôt que de bloquer une fonctionnalité par
 // excès de prudence sur un cas qui ne devrait pas exister.
-export async function callClaude(body: Record<string, any>, companyId: string | null): Promise<any> {
+//
+// `module` (tâche #140) : optionnel, 'ap'|'as'|'ac'. Le plafond
+// mensuel/quotidien inclus dans l'abonnement reste TOUJOURS transverse
+// (partagé par toute la société, indépendamment du module) — seul le solde
+// de crédits utilisé en dépassement change selon ce paramètre : omis, on
+// utilise le pool général historique ; renseigné, on utilise le solde propre
+// à ce module.
+export async function callClaude(
+  body: Record<string, any>,
+  companyId: string | null,
+  module?: CreditModule
+): Promise<any> {
   let usingCredits = false;
 
   if (companyId) {
@@ -164,7 +175,7 @@ export async function callClaude(body: Record<string, any>, companyId: string | 
       // la société a un solde de crédits ("boost", voir lib/credits.ts), en
       // débitant le coût réel de CET appel de ce solde. Sinon on bloque comme
       // avant.
-      const creditBalance = await getCreditBalance(companyId);
+      const creditBalance = await getCreditBalance(companyId, module);
       if (creditBalance <= 0) {
         throw new MonthlyCapExceededError(companyId, 'credits_exhausted');
       }
@@ -200,7 +211,7 @@ export async function callClaude(body: Record<string, any>, companyId: string | 
       // documenté plus haut pour le plafond mensuel — tolérance acceptée pour
       // un garde-fou, pas pour une facturation exacte.
       const costUsd = computeCostUsd(inputTokens, outputTokens);
-      await spendCredits(companyId, costUsd, 'Appel API au-delà du plafond inclus dans l’abonnement');
+      await spendCredits(companyId, costUsd, 'Appel API au-delà du plafond inclus dans l’abonnement', module);
     }
   }
 
