@@ -78,7 +78,7 @@ Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resser
   try {
     const data = await callClaude(
       { model: 'claude-sonnet-4-6', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
-      campaign.company_id
+      campaign.company_id, 'ap'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     advice = textBlock?.text?.trim() || "Aaron n'a pas pu générer d'avis cette fois — réessaie dans un instant.";
