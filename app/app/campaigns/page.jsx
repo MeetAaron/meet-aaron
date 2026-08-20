@@ -1169,6 +1169,11 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   const QUICK_SECTORS = quickSectorsFor(locale);
   const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
   const COMMUNICATION_SUGGESTIONS = communicationSuggestionsFor(locale);
+  // docx #17 : dernier écart de parité avec le mode "rédaction avec Aaron"
+  // (qui propose déjà ces mêmes raccourcis via OBJECTIVE_SUGGESTIONS dans
+  // ChatCampaignModal) — le formulaire classique n'avait qu'un champ nombre
+  // nu, sans raccourci en un clic.
+  const OBJECTIVE_COUNT_SUGGESTIONS = [10, 20, 50, 100];
   const [step, setStep] = useState(0);
   // docx #17 : la zone était auparavant scindée en un "type" (ville/département/
   // région — des notions propres à la France) + des codes, alors que zone_type
@@ -1394,6 +1399,13 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
                 onChange={(e) => setTargetCount(e.target.value)}
               />
             </label>
+            <div className="quick-chips">
+              {OBJECTIVE_COUNT_SUGGESTIONS.map((n) => (
+                <button type="button" key={n} className="chip" onClick={() => setTargetCount(n)}>
+                  {n} {t('campaigns.contactsUnit', locale)}
+                </button>
+              ))}
+            </div>
             <p className="hint">{t('campaigns.targetCountHint', locale)}</p>
 
             <div className="recap">
