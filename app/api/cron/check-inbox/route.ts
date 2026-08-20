@@ -169,11 +169,14 @@ async function handleWonCustomerMessage(
       inbound_excerpt: bodyText.slice(0, 500),
       suggested_subject: draft.suggested_subject,
       suggested_body: draft.suggested_body,
+      is_simple: draft.is_simple,
     });
 
     await sendPushNotification(userId, {
       title: 'Nouveau message client',
-      body: `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
+      body: draft.is_simple
+        ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
+        : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
       url: `/app/customer?user_id=${userId}`,
     });
   } catch (err: any) {
