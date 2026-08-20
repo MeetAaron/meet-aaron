@@ -366,7 +366,10 @@ export default function CustomerPage() {
           <div className="support-list">
             {supportDrafts.map((draft) => (
               <div className="support-card" key={draft.id}>
-                <p className="support-from"><strong>{draft.prospect_full_name}</strong></p>
+                <p className="support-from">
+                  <strong>{draft.prospect_full_name}</strong>
+                  {draft.is_simple && <span className="badge-simple">{t('customer.simpleFaqBadge', locale)}</span>}
+                </p>
                 {draft.inbound_excerpt && <p className="support-excerpt">« {draft.inbound_excerpt} »</p>}
                 <div className="email-preview">
                   <p className="email-subject">{draft.suggested_subject}</p>
@@ -942,6 +945,17 @@ export default function CustomerPage() {
         .support-from {
           font-size: 0.84rem;
           margin: 0 0 0.4rem;
+        }
+        .badge-simple {
+          display: inline-block;
+          margin-left: 0.5rem;
+          padding: 0.1rem 0.5rem;
+          border-radius: var(--radius-sm);
+          background: rgba(61, 214, 140, 0.15);
+          color: var(--accent-green);
+          font-size: 0.68rem;
+          font-weight: 600;
+          vertical-align: middle;
         }
         .support-excerpt {
           font-size: 0.78rem;
