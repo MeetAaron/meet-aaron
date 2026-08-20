@@ -88,12 +88,17 @@ function useAuthedUser() {
 // Couleurs par statut — les libellés sont traduits via t('status.<clé>', locale)
 // (voir lib/i18n.js) plutôt que codés en dur ici.
 //
-// CHANGEMENTS A FAIRE #4 (2026-08-15) : dans la rangée de stats du tableau de
-// bord, "RDV obtenu" (bleu) n'est plus un simple comptage du statut prospect
-// (qui ne redescend jamais tout seul, donc grossirait indéfiniment) — c'est
-// désormais une carte dédiée calculée sur une fenêtre glissante de 24h (voir
-// rdvObtenus24h plus bas) et affichée juste à côté de "en bonne voie"
-// (#4/#11). 'bleu' reste dans STATUS_COLORS/STATUS_META (utilisé par
+// CHANGEMENTS A FAIRE #4 (2026-08-15, précisé par Alex le 2026-08-20) : dans
+// la rangée de stats du tableau de bord, "RDV obtenu" (bleu) n'est plus un
+// simple comptage du statut prospect (qui ne redescend jamais tout seul, donc
+// grossirait indéfiniment) — c'est désormais une carte dédiée, affichée EN
+// PREMIER (tout à gauche, avant "en bonne voie" — demande explicite d'Alex :
+// "attention rdv obtenu doit être tout à gauche"). La fenêtre de calcul
+// (voir rdvObtenus24h plus bas) n'est PAS un glissant de 24h mais le jour
+// calendaire en cours (minuit à 23h59, heure du navigateur) — choix explicite
+// d'Alex face à la question "dernière connexion ou 24h glissantes ?" :
+// "je pense qu'il faut faire ces 24 dernières heures (donc de minuit à
+// 23h59)". 'bleu' reste dans STATUS_COLORS/STATUS_META (utilisé par
 // ActionCardModal pour la pastille de statut d'un prospect) — la rangée de
 // stats se contente simplement de ne pas boucler dessus (voir plus bas).
 const STATUS_COLORS = {
@@ -286,13 +291,15 @@ export default function DashboardPage() {
   const rescueProspects = prospects.filter((p) => p.rescue_proposal_pending);
   const totalActions = pendingAppointments.length + cancelledByClient.length + rescueProspects.length;
 
-  // #4/#9A — "RDV obtenu" : compteur glissant sur 24h des RDV obtenus par
-  // Aaron pendant l'absence du commercial (source Aaron, RDV pris
-  // manuellement exclus — voir migration_manual_appointments_2026-08-12.sql),
-  // plutôt qu'un total de statut prospect qui ne redescend jamais.
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  // #4/#9A — "RDV obtenu" : compteur des RDV obtenus par Aaron pendant
+  // l'absence du commercial (source Aaron, RDV pris manuellement exclus —
+  // voir migration_manual_appointments_2026-08-12.sql), plutôt qu'un total de
+  // statut prospect qui ne redescend jamais. Fenêtre = jour calendaire en
+  // cours (minuit à 23h59, heure locale du navigateur), PAS un glissant de
+  // 24h — décision explicite d'Alex (2026-08-20), voir commentaire plus haut.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const rdvObtenus24h = appointments.filter(
-    (a) => a.source !== 'manuel' && a.created_at && new Date(a.created_at) >= oneDayAgo
+    (a) => a.source !== 'manuel' && a.created_at && new Date(a.created_at) >= startOfToday
   );
   // #9B — détail par type de RDV.
   const rdvObtenusByType = {
@@ -430,21 +437,23 @@ export default function DashboardPage() {
           </section>
 
           <section className="stat-row">
-            <div className="stat-card">
-              <span className="dot" style={{ background: STATUS_META.vert.color }} />
-              <span className="stat-number">{statusCounts.vert || 0}</span>
-              <span className="stat-label">{STATUS_META.vert.label}</span>
-            </div>
+            {/* "attention rdv obtenu doit être tout à gauche, donc à gauche
+                de 'en bonne voie'" (Alex, 2026-08-20) — carte affichée en
+                premier, avant "en bonne voie". */}
             <div className="stat-card rdv-obtenu-card">
               <span className="dot" style={{ background: '#4B9EF0' }} />
               <span className="stat-number">{rdvObtenus24h.length}</span>
               <span className="stat-label">{t('status.bleu', locale)}</span>
               <span className="stat-sublabel">
-                {t('dash.rdvObtenuBreakdown', locale)
-                  .replace('{visio}', rdvObtenusByType.visio)
-                  .replace('{tel}', rdvObtenusByType.telephonique)
-                  .replace('{phys}', rdvObtenusByType.physique)}
+                <span className="rdv-type"><span className="rdv-type-icon">💻</span>{t('agenda.kindVideo', locale)} {rdvObtenusByType.visio}</span>
+                <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
+                <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
               </span>
+            </div>
+            <div className="stat-card">
+              <span className="dot" style={{ background: STATUS_META.vert.color }} />
+              <span className="stat-number">{statusCounts.vert || 0}</span>
+              <span className="stat-label">{STATUS_META.vert.label}</span>
             </div>
             {['jaune', 'orange', 'rouge'].map((key) => (
               <div className="stat-card" key={key}>
@@ -750,9 +759,24 @@ export default function DashboardPage() {
           color: var(--muted);
         }
         .stat-sublabel {
-          font-size: 0.68rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          margin-top: 0.15rem;
+        }
+        .rdv-type {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-family: var(--font-body);
+          font-size: 0.74rem;
           color: var(--muted);
-          font-family: var(--font-mono);
+        }
+        .rdv-type-icon {
+          font-size: 0.85rem;
+          width: 1.1em;
+          text-align: center;
+          flex-shrink: 0;
         }
         .rdv-obtenu-card {
           border-color: rgba(75, 158, 240, 0.5);
