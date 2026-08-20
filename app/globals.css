@@ -6,4 +6,16 @@ html, body {
   margin: 0;
   padding: 0;
   background: #F6F4EF;
+  /* L'app est presque entièrement en thème sombre (voir les variables --bg
+     etc. dans chaque page), mais sans cette déclaration, certains
+     navigateurs (thème sombre automatique de Chrome/Android en particulier)
+     tentent de "corriger" eux-mêmes les couleurs du site selon leurs propres
+     heuristiques — ce qui peut recolorer certains éléments de façon
+     incohérente (ex. un texte de bouton qui reste noir alors que le CSS lui
+     donne bien du blanc). Le déclarer explicitement dit au navigateur "cette
+     page gère déjà son propre thème sombre, n'essaie pas de deviner".
+     Piste retenue pour le bug remonté par Alex (2026-08-20) : boutons
+     "C'est parti !" / "Passer la visite" de la page /app/tour qui
+     s'affichaient en texte noir malgré un CSS correct. */
+  color-scheme: dark;
 }
