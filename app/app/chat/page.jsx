@@ -379,34 +379,52 @@ export default function ChatPage() {
     setMessages(newMessages);
     setInput('');
 
-    // Questionnaire de découverte guidé : on avance localement, question par
-    // question, sans appeler le modèle général — la séquence reste prévisible
-    // et instantanée, comme un vrai petit onboarding "clé en main".
+    // Questionnaire de découverte guidé : on avance question par question,
+    // en local pour la logique de progression (prévisible, jamais bloquée
+    // par un souci réseau/API) — mais avec, depuis le docx item A4, UN appel
+    // IA léger avant d'enchaîner, pour qu'Aaron accuse réception de la
+    // réponse au lieu de passer à la question suivante comme si de rien
+    // n'était (cas remonté par Alex : répondre qu'un "premier contact" est
+    // déjà un rendez-vous doit être reconnu, pas ignoré). Best-effort : si
+    // l'appel échoue ou que le plafond API est atteint, on retombe sur
+    // l'ancien comportement (juste la question suivante, sans accroche) —
+    // jamais bloquant pour la progression du questionnaire.
     const onboardingQuestions = getOnboardingQuestions(locale);
     if (onboardingStep >= 0 && onboardingStep < onboardingQuestions.length) {
-      const updatedAnswers = [
-        ...onboardingAnswers,
-        { question: onboardingQuestions[onboardingStep], answer: userMessage.content },
-      ];
+      const askedQuestion = onboardingQuestions[onboardingStep];
+      const updatedAnswers = [...onboardingAnswers, { question: askedQuestion, answer: userMessage.content }];
       setOnboardingAnswers(updatedAnswers);
+      setSending(true);
+
+      let ack = null;
+      try {
+        const ackRes = await fetch('/api/chat/onboarding-ack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, question: askedQuestion, answer: userMessage.content }),
+        });
+        const ackData = await ackRes.json();
+        ack = ackData.ack || null;
+      } catch {
+        // Voir commentaire ci-dessus — dégradation silencieuse.
+      }
 
       const nextStep = onboardingStep + 1;
       let assistantMessage;
       let newOnboardingStep;
       if (nextStep < onboardingQuestions.length) {
         newOnboardingStep = nextStep;
-        assistantMessage = { role: 'assistant', content: onboardingQuestions[nextStep] };
+        const nextQuestion = onboardingQuestions[nextStep];
+        assistantMessage = { role: 'assistant', content: ack ? `${ack}\n\n${nextQuestion}` : nextQuestion };
         setOnboardingStep(nextStep);
-        setMessages([...newMessages, assistantMessage]);
       } else {
         newOnboardingStep = -1;
-        assistantMessage = {
-          role: 'assistant',
-          content: t('chat.onboardingCompleteDocs', locale),
-        };
+        const completion = t('chat.onboardingCompleteDocs', locale);
+        assistantMessage = { role: 'assistant', content: ack ? `${ack}\n\n${completion}` : completion };
         setOnboardingStep(-1);
-        setMessages([...newMessages, assistantMessage]);
       }
+      setSending(false);
+      setMessages([...newMessages, assistantMessage]);
 
       // Persiste ce tour de questionnaire (question + réponse) et la nouvelle
       // progression, pour ne pas la reperdre si la page est quittée avant la fin.
