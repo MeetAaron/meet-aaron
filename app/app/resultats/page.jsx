@@ -91,22 +91,46 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-// Sélecteur de période (#88) — 4 fenêtres possibles, 'all' par défaut pour
-// ne rien changer au comportement précédent (qui montrait toujours l'ensemble
-// de l'historique) tant que le commercial n'a pas explicitement resserré.
-const PERIODS = ['7d', '30d', '3m', 'all'];
-const PERIOD_KEYS = { '7d': 'results.period7d', '30d': 'results.period30d', '3m': 'results.period3m', all: 'results.periodAll' };
+// Sélecteur de période (#88, puis #122 CHANGEMENTS A FAIRE item 25 le
+// 2026-08-20) — chaque catégorie (Prospects / Opportunités / Clients) a
+// maintenant son propre sélecteur indépendant, avec les 4 fenêtres demandées
+// explicitement par Alex : depuis le début, ce mois-ci, cette année, ou une
+// période personnalisée (du/au). 'all' reste la valeur par défaut pour ne
+// rien changer au comportement précédent tant que le commercial n'a pas
+// explicitement resserré.
+const PERIODS = ['all', 'month', 'year', 'custom'];
+const PERIOD_KEYS = {
+  all: 'results.periodAll',
+  month: 'results.periodMonth',
+  year: 'results.periodYear',
+  custom: 'results.periodCustom',
+};
+const RESULT_CATEGORIES = ['prospects', 'opportunities', 'clients'];
 
-function periodStartFor(period) {
-  if (period === 'all') return null;
-  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+function periodRangeFor(periodValue, custom) {
+  const now = new Date();
+  if (periodValue === 'month') {
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: null };
+  }
+  if (periodValue === 'year') {
+    return { start: new Date(now.getFullYear(), 0, 1), end: null };
+  }
+  if (periodValue === 'custom') {
+    return {
+      start: custom && custom.from ? new Date(custom.from) : null,
+      end: custom && custom.to ? new Date(`${custom.to}T23:59:59`) : null,
+    };
+  }
+  return { start: null, end: null }; // 'all' — depuis le début
 }
 
-function withinPeriod(dateValue, periodStart) {
-  if (!periodStart) return true;
+function withinRange(dateValue, range) {
+  if (!range.start && !range.end) return true;
   if (!dateValue) return false;
-  return new Date(dateValue) >= periodStart;
+  const d = new Date(dateValue);
+  if (range.start && d < range.start) return false;
+  if (range.end && d > range.end) return false;
+  return true;
 }
 
 const TYPE_ICONS = { telephonique: '📞', physique: '🤝', visio: '💻' };
@@ -178,13 +202,35 @@ export default function ResultatsPage() {
   const [customers, setCustomers] = useState([]);
   const [replyRate, setReplyRate] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('all');
+  // Un sélecteur de période par catégorie (item 25) — plus le sélecteur
+  // unique partagé d'avant, qui ne s'appliquait qu'à "Prospects" en pratique
+  // (Alex : "tu dois mettre la période pour chacune des 3 catégories, pas
+  // juste pour prospect").
+  const [periods, setPeriods] = useState({ prospects: 'all', opportunities: 'all', clients: 'all' });
+  const [customRanges, setCustomRanges] = useState({
+    prospects: { from: '', to: '' },
+    opportunities: { from: '', to: '' },
+    clients: { from: '', to: '' },
+  });
+
+  function updatePeriod(category, value) {
+    setPeriods((prev) => ({ ...prev, [category]: value }));
+  }
+  function updateCustomRange(category, field, value) {
+    setCustomRanges((prev) => ({ ...prev, [category]: { ...prev[category], [field]: value } }));
+  }
+
+  const prospectsCustom = customRanges.prospects;
 
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    const periodStart = periodStartFor(period);
-    const sinceParam = periodStart ? `&since=${encodeURIComponent(periodStart.toISOString())}` : '';
+    // Le taux de réponse (/api/reply-rate) est calculé côté serveur sur un
+    // historique de messages potentiellement volumineux — seule la borne de
+    // début ("since") lui est envoyée (l'API ne supporte pas de borne de
+    // fin), suivant la période choisie pour la catégorie Prospects.
+    const prospectsRange = periodRangeFor(periods.prospects, prospectsCustom);
+    const sinceParam = prospectsRange.start ? `&since=${encodeURIComponent(prospectsRange.start.toISOString())}` : '';
     Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
@@ -201,7 +247,7 @@ export default function ResultatsPage() {
       setReplyRate(rRes.reply_rate ?? null);
       setLoading(false);
     });
-  }, [userId, period]);
+  }, [userId, periods.prospects, prospectsCustom.from, prospectsCustom.to]);
 
   if (authLoading) {
     return (
@@ -240,14 +286,16 @@ export default function ResultatsPage() {
 
   const OPPORTUNITY_META = opportunityBucketMetaFor(locale);
   const HEALTH_META = healthBucketMetaFor(locale);
-  const periodStart = periodStartFor(period);
+  const prospectsRange = periodRangeFor(periods.prospects, customRanges.prospects);
+  const opportunitiesRange = periodRangeFor(periods.opportunities, customRanges.opportunities);
+  const clientsRange = periodRangeFor(periods.clients, customRanges.clients);
 
   // Catégorie Prospects — prospects contactés pendant la période (via leur
   // date de création, avec repli sur la dernière mise à jour si l'historique
   // ne connaît pas encore la vraie date de création) et RDV associés,
   // filtrés par la date proposée du RDV.
-  const prospectsInPeriod = prospects.filter((p) => withinPeriod(p.created_at || p.updated_at, periodStart));
-  const appointmentsInPeriod = appointments.filter((a) => withinPeriod(a.proposed_at, periodStart));
+  const prospectsInPeriod = prospects.filter((p) => withinRange(p.created_at || p.updated_at, prospectsRange));
+  const appointmentsInPeriod = appointments.filter((a) => withinRange(a.proposed_at, prospectsRange));
   const totalProspects = prospectsInPeriod.length;
   const rdvConfirmes = appointmentsInPeriod.filter((a) => a.status === 'validé' || a.status === 'terminé');
   const rdvObtenus = rdvConfirmes.length;
@@ -259,14 +307,14 @@ export default function ResultatsPage() {
     count: rdvConfirmes.filter((a) => a.type === type).length,
   }));
 
-  const campaignsInPeriod = campaigns.filter((c) => withinPeriod(c.created_at, periodStart));
+  const campaignsInPeriod = campaigns.filter((c) => withinRange(c.created_at, prospectsRange));
   const contactsSources = campaignsInPeriod.reduce((sum, c) => sum + (c.contacts_found || 0), 0);
   const entreprisesAnalysees = campaignsInPeriod.reduce((sum, c) => sum + (c.companies_found || 0), 0);
   const tauxContact = entreprisesAnalysees > 0 ? Math.round((contactsSources / entreprisesAnalysees) * 100) : 0;
 
   // Catégorie Opportunités — filtrée sur la date de dernière mise à jour
   // d'étape, pour ne compter que les affaires ayant bougé sur la période.
-  const dealsInPeriod = deals.filter((d) => withinPeriod(d.deal_stage_updated_at, periodStart));
+  const dealsInPeriod = deals.filter((d) => withinRange(d.deal_stage_updated_at, opportunitiesRange));
   const opportunityCounts = Object.keys(OPPORTUNITY_META).reduce((acc, key) => {
     acc[key] = dealsInPeriod.filter((d) => opportunityBucketFor(d) === key).length;
     return acc;
@@ -275,7 +323,7 @@ export default function ResultatsPage() {
   // Catégorie Clients — filtrée sur la date de gain (won_at), pour ne
   // compter que les clients gagnés sur la période, répartis par santé
   // actuelle.
-  const customersInPeriod = customers.filter((c) => withinPeriod(c.won_at, periodStart));
+  const customersInPeriod = customers.filter((c) => withinRange(c.won_at, clientsRange));
   const healthCounts = Object.keys(HEALTH_META).reduce((acc, key) => {
     acc[key] = customersInPeriod.filter((c) => healthBucketFor(c) === key).length;
     return acc;
@@ -288,27 +336,21 @@ export default function ResultatsPage() {
         <h1>{t('results.title', locale)}</h1>
       </header>
 
-      <div className="period-picker">
-        <span className="period-label">{t('results.periodLabel', locale)}</span>
-        <div className="period-buttons">
-          {PERIODS.map((p) => (
-            <button
-              key={p}
-              className={`period-btn${period === p ? ' active' : ''}`}
-              onClick={() => setPeriod(p)}
-            >
-              {t(PERIOD_KEYS[p], locale)}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
           <section className="panel category-panel">
-            <h2>{t('results.categoryProspects', locale)}</h2>
+            <div className="category-head">
+              <h2>{t('results.categoryProspects', locale)}</h2>
+              <PeriodPicker
+                value={periods.prospects}
+                custom={customRanges.prospects}
+                onChange={(v) => updatePeriod('prospects', v)}
+                onCustomChange={(field, v) => updateCustomRange('prospects', field, v)}
+                locale={locale}
+              />
+            </div>
             <div className="stat-grid">
               <StatCard label={t('results.statContactedProspects', locale)} value={totalProspects} />
               <StatCard
@@ -346,39 +388,52 @@ export default function ResultatsPage() {
           </section>
 
           <section className="panel category-panel">
-            <h2>{t('dash.opportunitiesTitle', locale)}</h2>
+            <div className="category-head">
+              <h2>{t('dash.opportunitiesTitle', locale)}</h2>
+              <PeriodPicker
+                value={periods.opportunities}
+                custom={customRanges.opportunities}
+                onChange={(v) => updatePeriod('opportunities', v)}
+                onCustomChange={(field, v) => updateCustomRange('opportunities', field, v)}
+                locale={locale}
+              />
+            </div>
             <p className="category-hint">{t('results.opportunitiesPeriodHint', locale)}</p>
-            {dealsInPeriod.length === 0 ? (
-              <EmptyState title={t('dash.noOpportunitiesYet', locale)} body={t('pipeline.emptyOpportunities', locale)} compact />
-            ) : (
-              <div className="category-row">
-                {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
-                  <div className="cat-stat-card" key={key}>
-                    <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
-                    <span className="stat-number">{opportunityCounts[key] || 0}</span>
-                    <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Item 24 : la grille doit s'afficher avec des 0 même sans
+                donnée sur la période, exactement comme "Prospects" — avant,
+                seule cette dernière le faisait correctement. */}
+            <div className="category-row">
+              {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
+                <div className="cat-stat-card" key={key}>
+                  <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
+                  <span className="stat-number">{opportunityCounts[key] || 0}</span>
+                  <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="panel category-panel">
-            <h2>{t('dash.clientsTitle', locale)}</h2>
+            <div className="category-head">
+              <h2>{t('dash.clientsTitle', locale)}</h2>
+              <PeriodPicker
+                value={periods.clients}
+                custom={customRanges.clients}
+                onChange={(v) => updatePeriod('clients', v)}
+                onCustomChange={(field, v) => updateCustomRange('clients', field, v)}
+                locale={locale}
+              />
+            </div>
             <p className="category-hint">{t('results.clientsWonPeriodHint', locale)}</p>
-            {customersInPeriod.length === 0 ? (
-              <EmptyState title={t('dash.noClientsYet', locale)} body={t('dash.noClientsYet', locale)} compact />
-            ) : (
-              <div className="category-row">
-                {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
-                  <div className="cat-stat-card" key={key}>
-                    <span className="dot" style={{ background: HEALTH_META[key].color }} />
-                    <span className="stat-number">{healthCounts[key] || 0}</span>
-                    <span className="stat-label">{HEALTH_META[key].label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="category-row">
+              {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
+                <div className="cat-stat-card" key={key}>
+                  <span className="dot" style={{ background: HEALTH_META[key].color }} />
+                  <span className="stat-number">{healthCounts[key] || 0}</span>
+                  <span className="stat-label">{HEALTH_META[key].label}</span>
+                </div>
+              ))}
+            </div>
           </section>
         </>
       )}
@@ -400,38 +455,16 @@ export default function ResultatsPage() {
           font-size: 1.9rem;
           margin: 0;
         }
-        .period-picker {
+        .category-head {
           display: flex;
-          align-items: center;
-          gap: 0.8rem;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 1rem;
           flex-wrap: wrap;
-          margin-bottom: 1.5rem;
+          margin-bottom: 0.3rem;
         }
-        .period-label {
-          font-size: 0.78rem;
-          color: var(--muted);
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-        .period-buttons {
-          display: flex;
-          gap: 0.4rem;
-          flex-wrap: wrap;
-        }
-        .period-btn {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          color: var(--muted);
-          border-radius: 999px;
-          padding: 0.4rem 0.9rem;
-          font-size: 0.8rem;
-          cursor: pointer;
-        }
-        .period-btn.active {
-          background: rgba(75, 57, 239, 0.18);
-          border-color: var(--accent);
-          color: var(--text);
-          font-weight: 600;
+        .category-head h2 {
+          margin: 0;
         }
         .panel {
           background: var(--surface);
@@ -571,6 +604,111 @@ function EmptyState({ title, body, compact }) {
           color: var(--muted);
           font-size: 0.88rem;
           margin: 0;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Sélecteur de période par catégorie (item 25) — 4 boutons + un repli "du/au"
+// quand "Personnalisé" est choisi. Un composant séparé pour pouvoir en poser
+// un par catégorie (Prospects/Opportunités/Clients) sans dupliquer le JSX.
+function PeriodPicker({ value, custom, onChange, onCustomChange, locale }) {
+  return (
+    <div className="period-picker">
+      <div className="period-buttons">
+        {PERIODS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            className={`period-btn${value === p ? ' active' : ''}`}
+            onClick={() => onChange(p)}
+          >
+            {t(PERIOD_KEYS[p], locale)}
+          </button>
+        ))}
+      </div>
+      {value === 'custom' && (
+        <div className="custom-range">
+          <label>
+            {t('results.customFrom', locale)}
+            <input
+              type="date"
+              value={custom.from}
+              max={custom.to || undefined}
+              onChange={(e) => onCustomChange('from', e.target.value)}
+            />
+          </label>
+          <label>
+            {t('results.customTo', locale)}
+            <input
+              type="date"
+              value={custom.to}
+              min={custom.from || undefined}
+              onChange={(e) => onCustomChange('to', e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+      <style jsx>{`
+        .period-picker {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.5rem;
+        }
+        .period-buttons {
+          display: flex;
+          gap: 0.4rem;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .period-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.35rem 0.8rem;
+          font-size: 0.76rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .period-btn.active {
+          background: rgba(75, 57, 239, 0.18);
+          border-color: var(--accent);
+          color: var(--text);
+          font-weight: 600;
+        }
+        .custom-range {
+          display: flex;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .custom-range label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .custom-range input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          padding: 0.3rem 0.5rem;
+          font-size: 0.78rem;
+          font-family: inherit;
+        }
+        @media (max-width: 640px) {
+          .period-picker {
+            align-items: flex-start;
+          }
+          .period-buttons,
+          .custom-range {
+            justify-content: flex-start;
+          }
         }
       `}</style>
     </div>
