@@ -4,6 +4,11 @@
 // d'Aaron" par document, et un rattachement à une catégorie (Général /
 // Prospects / Opportunités / Clients) qui détermine à quel(s) module(s)
 // d'Aaron le document est exposé (voir migration_documents_2026-08-16.sql).
+// CHANGEMENTS A FAIRE (item 26, 2026-08-20) : ajoute une vraie note libre du
+// commercial/fondateur par document ("Ma note"), distincte du toggle
+// ci-dessus et de la description saisie à l'upload — cette note est
+// transmise à Aaron avec l'extrait du document (voir
+// migration_document_note_2026-08-20.sql et lib/aaron*.ts).
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -127,6 +132,12 @@ export default function DocumentsPage() {
   const [adviceModalDoc, setAdviceModalDoc] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur par
+  // document, distincte du toggle "pris en compte par Aaron" et de la
+  // description saisie à l'upload — voir migration_document_note_2026-08-20.sql.
+  const [noteModalDoc, setNoteModalDoc] = useState(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNoteId, setSavingNoteId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -209,6 +220,28 @@ export default function DocumentsPage() {
       return;
     }
     setAdviceModalDoc({ ...doc, advice: body.advice, advice_generated_at: body.advice_generated_at });
+    load();
+  }
+
+  function openNoteModal(doc) {
+    setNoteDraft(doc.commercial_note || '');
+    setNoteModalDoc(doc);
+  }
+
+  async function handleSaveNote() {
+    if (!noteModalDoc) return;
+    setSavingNoteId(noteModalDoc.id);
+    const res = await fetch(`/api/documents/${noteModalDoc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commercial_note: noteDraft }),
+    });
+    setSavingNoteId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
+    setNoteModalDoc(null);
     load();
   }
 
@@ -366,6 +399,9 @@ export default function DocumentsPage() {
                       >
                         {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
                       </button>
+                      <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
+                        {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
+                      </button>
                       <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
                         {t('documents.deleteButton', locale)}
                       </button>
@@ -391,6 +427,31 @@ export default function DocumentsPage() {
               onClick={() => handleGenerateAdvice(adviceModalDoc)}
             >
               {generatingAdviceId === adviceModalDoc.id ? t('documents.adviceGenerating', locale) : t('documents.adviceRegenerate', locale)}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {noteModalDoc && (
+        <div className="overlay" onClick={() => setNoteModalDoc(null)}>
+          <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close-btn" onClick={() => setNoteModalDoc(null)}>✕</button>
+            <h2>{t('documents.noteModalTitle', locale)} — {noteModalDoc.file_name}</h2>
+            <p className="note-modal-hint">{t('documents.noteModalHint', locale)}</p>
+            <textarea
+              className="note-textarea"
+              value={noteDraft}
+              maxLength={4000}
+              placeholder={t('documents.notePlaceholder', locale)}
+              onChange={(e) => setNoteDraft(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-primary regenerate-btn"
+              disabled={savingNoteId === noteModalDoc.id}
+              onClick={handleSaveNote}
+            >
+              {savingNoteId === noteModalDoc.id ? t('documents.noteSaving', locale) : t('documents.noteSave', locale)}
             </button>
           </div>
         </div>
@@ -638,6 +699,24 @@ export default function DocumentsPage() {
         }
         .regenerate-btn {
           margin-top: 0.6rem;
+        }
+        .note-modal-hint {
+          font-size: 0.8rem;
+          color: var(--muted);
+          margin: 0 0 0.7rem;
+        }
+        .note-textarea {
+          width: 100%;
+          min-height: 140px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          color: var(--text);
+          font-family: inherit;
+          font-size: 0.88rem;
+          line-height: 1.5;
+          padding: 0.7rem 0.8rem;
+          resize: vertical;
         }
         .confirm-modal {
           background: var(--surface);
