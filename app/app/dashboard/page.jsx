@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -470,6 +471,18 @@ export default function DashboardPage() {
                 <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
                 <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
               </span>
+              {rdvObtenus24h.length > 0 && (
+                <div className="rdv-type-chart">
+                  <HorizontalBarChart
+                    data={[
+                      { key: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
+                      { key: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
+                      { key: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
+                    ]}
+                    barColor="#4B9EF0"
+                  />
+                </div>
+              )}
             </div>
             <div className="stat-card">
               <span className="dot" style={{ background: STATUS_META.vert.color }} />
@@ -484,6 +497,16 @@ export default function DashboardPage() {
               </div>
             ))}
           </section>
+          <div className="status-chart">
+            <HorizontalBarChart
+              data={['vert', 'jaune', 'orange', 'rouge'].map((key) => ({
+                key,
+                label: STATUS_META[key].label,
+                value: statusCounts[key] || 0,
+                color: STATUS_META[key].color,
+              }))}
+            />
+          </div>
           <p className="period-note">{t('dash.periodNote', locale)}</p>
 
           <section className="grid-two">
@@ -548,6 +571,18 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
+            {deals.length > 0 && (
+              <div className="stat-chart">
+                <HorizontalBarChart
+                  data={['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => ({
+                    key,
+                    label: OPPORTUNITY_META[key].label,
+                    value: opportunityCounts[key] || 0,
+                    color: OPPORTUNITY_META[key].color,
+                  }))}
+                />
+              </div>
+            )}
           </section>
 
           <section className="panel category-panel">
@@ -563,6 +598,18 @@ export default function DashboardPage() {
                     <span className="stat-label">{HEALTH_META[key].label}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {customers.length > 0 && (
+              <div className="stat-chart">
+                <HorizontalBarChart
+                  data={['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => ({
+                    key,
+                    label: HEALTH_META[key].label,
+                    value: healthCounts[key] || 0,
+                    color: HEALTH_META[key].color,
+                  }))}
+                />
               </div>
             )}
           </section>
@@ -802,10 +849,27 @@ export default function DashboardPage() {
         .rdv-obtenu-card {
           border-color: rgba(75, 158, 240, 0.5);
         }
+        .rdv-type-chart {
+          margin-top: 0.5rem;
+        }
+        .status-chart {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.85rem 1rem;
+          margin: -1.3rem 0 1.25rem;
+        }
+        .stat-chart {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.85rem 1rem;
+          margin-top: 0.75rem;
+        }
         .period-note {
           font-size: 0.76rem;
           color: var(--muted);
-          margin: -1.3rem 0 2rem;
+          margin: 0 0 2rem;
         }
         .day-groups {
           display: flex;
