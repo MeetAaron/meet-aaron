@@ -41,6 +41,11 @@ export async function GET(request: NextRequest) {
       .from('appointments')
       .select('id, prospect_id, proposed_at, type, outcome, debrief_summary, debrief_email_subject, debrief_email_body, debrief_email_sent_at')
       .in('prospect_id', dealIds)
+      // purpose = 'commercial' uniquement : une affaire tout juste signée
+      // (deal_stage = 'signe') peut déjà avoir un RDV de lancement plus
+      // récent (tâche #141) — on ne veut pas qu'il remplace le vrai dernier
+      // RDV commercial affiché ici. Voir migration_kickoff_rdv_2026-08-20.sql.
+      .eq('purpose', 'commercial')
       .order('proposed_at', { ascending: false });
 
     // Le RDV le plus récent par prospect — appointments est déjà trié par
