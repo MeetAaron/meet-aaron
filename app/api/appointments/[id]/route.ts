@@ -2,12 +2,22 @@
 // PATCH -> actions sur un rendez-vous :
 //   - "valider"  -> crée l'événement calendrier (Google ou Outlook)
 //   - "reporter" -> repasse la main à Aaron pour une nouvelle date
-//   - "annuler"  -> annule côté commercial, prévient le prospect
-//   - "relancer" -> (RDV annulé par le client) envoie un email de relance pour reprogrammer
-//   - "traiter"  -> (RDV annulé par le client) marque l'annulation comme prise en compte, sans email
+//   - "annuler"  -> annule côté commercial, prévient le prospect (SAUF si le RDV est déjà
+//     passé — voir plus bas, bug remonté par Alex le 2026-08-20 : annuler un RDV déjà passé
+//     envoyait quand même au prospect "je dois annuler notre rendez-vous prévu", ce qui n'a pas
+//     de sens pour un rendez-vous déjà terminé/manqué)
+//   - "relancer" -> (RDV annulé par le client, OU RDV passé annulé côté commercial) envoie un
+//     email de relance pour reprogrammer — CHANGEMENTS A FAIRE Prospects/A2 (2026-08-20) : un RDV
+//     déjà passé qu'on annule doit proposer une notif "moins urgente" de reprise de contact au
+//     lieu du message d'annulation classique ; on réutilise le même mécanisme que pour un RDV
+//     annulé par le client plutôt que d'ajouter un nouveau statut.
+//   - "traiter"  -> (RDV annulé par le client, ou RDV passé annulé côté commercial) marque
+//     l'annulation comme prise en compte, sans email
 //   - "acquitter_manque" -> (RDV manqué, date dépassée sans validation) le commercial "prend
 //     connaissance" du message du bandeau "actions manquées" du tableau de bord, SANS déclencher
 //     de validation/annulation — voir CHANGEMENTS A FAIRE #2 et migration_dashboard_missed_actions_2026-08-15.sql
+//   - "supprimer" (DELETE) -> supprime définitivement un RDV déjà passé (bouton absent
+//     auparavant — CHANGEMENTS A FAIRE Prospects/A4, 2026-08-20)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -200,14 +210,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   if (action === 'annuler') {
+    const alreadyPast = new Date(appointment.proposed_at) < new Date();
+
     await supabaseAdmin.from('appointments').update({ status: 'annulé', cancelled_by: 'commercial' }).eq('id', appointmentId);
 
-    await sendEmailForUser(
-      userId,
-      appointment.prospects.email,
-      'Concernant notre rendez-vous',
-      `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
-    );
+    // Bug remonté par Alex (2026-08-20) : annuler un RDV dont la date est déjà
+    // passée envoyait quand même au prospect "je dois annuler notre rendez-
+    // vous prévu" — un non-sens pour un rendez-vous déjà terminé/manqué. Dans
+    // ce cas on ne prévient pas le prospect ici ; le commercial choisira lui-
+    // même de relancer (action "relancer", voir plus bas) via la notif moins
+    // urgente qui apparaît désormais au tableau de bord pour ce cas.
+    if (!alreadyPast) {
+      await sendEmailForUser(
+        userId,
+        appointment.prospects.email,
+        'Concernant notre rendez-vous',
+        `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
+      );
+    }
 
     await supabaseAdmin.from('prospects').update({ status: 'jaune' }).eq('id', appointment.prospect_id);
 
@@ -251,4 +271,50 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
+}
+
+// DELETE -> supprime définitivement un RDV déjà passé. CHANGEMENTS A FAIRE
+// Prospects/A4 (2026-08-20) : Alex n'avait aucun moyen de supprimer un RDV
+// dont la date était dépassée, seulement de l'annuler (ce qui, en plus,
+// envoyait à tort un email d'annulation au prospect pour un rendez-vous déjà
+// passé — voir le commentaire sur l'action "annuler" plus haut). Volontairement
+// limité aux RDV déjà passés : un RDV à venir doit être annulé (pour prévenir
+// le prospect), pas supprimé en silence.
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const appointmentId = params.id;
+
+  const { data: appointment, error } = await supabaseAdmin
+    .from('appointments')
+    .select('proposed_at, prospects(assigned_user_id)')
+    .eq('id', appointmentId)
+    .single();
+
+  if (error || !appointment) {
+    return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+  }
+
+  const userId = (appointment as any).prospects?.assigned_user_id;
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== userId) return forbiddenResponse();
+
+  if (new Date(appointment.proposed_at) >= new Date()) {
+    return NextResponse.json(
+      { error: "Ce RDV n'est pas encore passé — annulez-le plutôt, pour prévenir le prospect." },
+      { status: 400 }
+    );
+  }
+
+  // notifications_log référence appointment_id (voir les crons de rappel/
+  // bilan RDV) — on nettoie d'abord pour éviter une violation de contrainte
+  // de clé étrangère à la suppression.
+  await supabaseAdmin.from('notifications_log').delete().eq('appointment_id', appointmentId);
+
+  const { error: deleteError } = await supabaseAdmin.from('appointments').delete().eq('id', appointmentId);
+  if (deleteError) {
+    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
 }
