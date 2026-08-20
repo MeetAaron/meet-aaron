@@ -359,6 +359,40 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Accord ferme détecté dans l'email reçu (docx "OPPORTUNITES A1") : Aaron
+      // bascule automatiquement ce prospect en client gagné — même effet que
+      // l'action manuelle "set_deal_stage = signé" côté UI (is_won, won_at,
+      // first_order_confirmed_at) — et prévient le commercial avec la raison
+      // détectée. Best-effort : un échec ici ne doit pas empêcher le reste du
+      // traitement du message (l'email de réponse a déjà été envoyé au-dessus).
+      if (aaronOutput.deal_approved?.detected) {
+        try {
+          const now = new Date().toISOString();
+          await supabaseAdmin
+            .from('prospects')
+            .update({
+              deal_stage: 'signe',
+              deal_stage_updated_at: now,
+              is_won: true,
+              won_at: now,
+              is_lost: false,
+              first_order_confirmed_at: now,
+              won_reason: aaronOutput.deal_approved.reason || null,
+            })
+            .eq('id', prospect.id);
+
+          await sendPushNotification(connection.user_id, {
+            title: 'Nouveau client 🎉',
+            body: aaronOutput.deal_approved.reason
+              ? `${prospect.full_name} a donné son accord — ${aaronOutput.deal_approved.reason}`
+              : `${prospect.full_name} a donné son accord. Aaron l'a basculé en client gagné.`,
+            url: `/app/customer?user_id=${connection.user_id}`,
+          });
+        } catch (err: any) {
+          console.error(`Erreur bascule automatique en client pour prospect ${prospect.id}:`, err.message);
+        }
+      }
+
       if (aaronOutput.appointment_cancelled) {
         const { data: cancelledAppointment } = await supabaseAdmin
           .from('appointments')
