@@ -72,7 +72,14 @@ export async function GET(request: NextRequest) {
   const todayDate = last7Dates[0]; // lastNDatesUTC(7)[0] est aujourd'hui
   const last7Days = [...last7Dates].reverse().map((date) => ({ date, cost_usd: byDate[date] || 0 })); // plus ancien -> plus récent
 
-  const creditBalanceEur = await getCreditBalance(user.company_id);
+  // Tâche #140 : en plus du pool général, un solde par module payant (Aaron
+  // Prospect / Sales / Customer) — voir lib/credits.ts.
+  const [creditBalanceEur, creditBalanceApEur, creditBalanceAsEur, creditBalanceAcEur] = await Promise.all([
+    getCreditBalance(user.company_id),
+    getCreditBalance(user.company_id, 'ap'),
+    getCreditBalance(user.company_id, 'as'),
+    getCreditBalance(user.company_id, 'ac'),
+  ]);
 
   return NextResponse.json({
     month_cost_usd: monthRow?.cost_usd || 0,
@@ -81,5 +88,8 @@ export async function GET(request: NextRequest) {
     today_cost_usd: byDate[todayDate] || 0,
     last_7_days: last7Days,
     credit_balance_eur: creditBalanceEur,
+    credit_balance_ap_eur: creditBalanceApEur,
+    credit_balance_as_eur: creditBalanceAsEur,
+    credit_balance_ac_eur: creditBalanceAcEur,
   });
 }
