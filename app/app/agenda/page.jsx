@@ -254,6 +254,20 @@ export default function AgendaPage() {
     load();
   }
 
+  // Prospects/A4 (docx CHANGEMENTS A FAIRE, 2026-08-20) : suppression
+  // définitive d'un RDV déjà passé — auparavant seule l'annulation existait,
+  // ce qui envoyait à tort un message d'annulation au prospect pour un
+  // rendez-vous déjà terminé (voir app/api/appointments/[id]/route.ts).
+  // Volontairement limité aux RDV déjà passés côté serveur ; pas de
+  // confirmation supplémentaire ici (le commercial vient de cliquer un
+  // bouton "Supprimer" explicite).
+  async function handleDelete(appointmentId) {
+    setActingOn(appointmentId);
+    await fetch(`/api/appointments/${appointmentId}`, { method: 'DELETE' });
+    setActingOn(null);
+    load();
+  }
+
   async function handleAddRule(e) {
     e.preventDefault();
     setSavingRule(true);
@@ -546,6 +560,15 @@ export default function AgendaPage() {
                       >
                         {t('common.cancel', locale)}
                       </button>
+                      {new Date(a.proposed_at) < new Date() && (
+                        <button
+                          className="btn-danger"
+                          disabled={actingOn === a.id}
+                          onClick={() => handleDelete(a.id)}
+                        >
+                          {t('common.delete', locale)}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -584,6 +607,18 @@ export default function AgendaPage() {
                     <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
                       {meta.label}
                     </span>
+                    {new Date(a.proposed_at) < new Date() && (
+                      <button
+                        type="button"
+                        className="btn-remove"
+                        disabled={actingOn === a.id}
+                        onClick={() => handleDelete(a.id)}
+                        aria-label={t('common.delete', locale)}
+                        title={t('common.delete', locale)}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 );
               })}
