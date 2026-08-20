@@ -50,6 +50,50 @@ const dynamicStorage = {
   },
 };
 
+// Porte d'entrée explicite de /app (voir components/AuthFetchInterceptor.jsx) :
+// un premier passage par "Se connecter" (ou le lancement d'une connexion
+// Google/Microsoft) dans la journée suffit — les visites suivantes CE
+// MÊME JOUR (heure locale du navigateur, jusqu'à minuit) entrent directement
+// dans l'app sans redemander l'email/le mot de passe, tant que la session
+// Supabase sous-jacente est toujours valide. Le lendemain (ou si le
+// stockage a été vidé), il faut repasser explicitement par "Se connecter".
+// Centralisé ici (plutôt que dupliqué dans chaque fichier qui y touche :
+// AuthFetchInterceptor, /login, /app/preferences) pour que la clé de
+// stockage et le format de date restent cohérents partout.
+const EXPLICIT_LOGIN_DATE_FLAG = 'aaron-explicit-login-date';
+
+function todayLocalDateString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function markExplicitLoginToday() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(EXPLICIT_LOGIN_DATE_FLAG, todayLocalDateString());
+  } catch (err) {
+    // Stockage indisponible (navigation privée stricte, etc.) : tant pis,
+    // il faudra juste repasser par "Se connecter" au prochain onglet — pas
+    // bloquant pour la connexion en cours.
+  }
+}
+
+export function isExplicitlyLoggedInToday(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(EXPLICIT_LOGIN_DATE_FLAG) === todayLocalDateString();
+  } catch (err) {
+    return false;
+  }
+}
+
+export function clearExplicitLogin() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(EXPLICIT_LOGIN_DATE_FLAG);
+  } catch (err) {}
+}
+
 export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
