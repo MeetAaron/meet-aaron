@@ -14,6 +14,8 @@
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
 import { localeInstruction, normalizeLocale } from './locale-instruction';
+import { sendEmailForUser } from './messaging';
+import { sendPushNotification } from './push';
 
 export interface OnboardingPlan {
   plan: { titre: string; description: string }[];
@@ -169,6 +171,68 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
   await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
   return result;
+}
+
+// Docx "CLIENTS A1(a)" : "dès la signature, séquence d'emails de bienvenue
+// [...] sans action manuelle du commercial". Jusqu'ici, generateOnboarding
+// ci-dessus préparait le plan + l'email de bienvenue mais le commercial
+// devait toujours cliquer deux fois (générer, puis envoyer) depuis Aaron
+// Client — voir app/api/customers/[id]/onboarding. Cette fonction fait les
+// deux étapes d'un coup, automatiquement, dès qu'un prospect devient
+// réellement client (first_order_confirmed_at renseigné) : à appeler depuis
+// CHAQUE endroit qui pose cette colonne (voir app/api/prospects/[id]/route.ts
+// actions marquer_gagne/confirmer_premiere_commande/set_deal_stage=signe,
+// app/api/cron/check-inbox pour la détection "bon pour accord", et
+// app/api/webhooks/youtrust pour la signature électronique confirmée).
+//
+// Best-effort et non-bloquant par construction : ne lève JAMAIS d'exception
+// (best-effort volontaire) — un échec ici (plafond API atteint, boîte mail
+// non connectée...) ne doit jamais empêcher la bascule "client gagné"
+// elle-même, qui est l'action principale. Les appelants doivent l'invoquer
+// en fire-and-forget (sans await bloquant la réponse HTTP) quand ils sont
+// eux-mêmes sur le chemin critique d'une action utilisateur interactive.
+export async function triggerAutomaticOnboarding(prospectId: string): Promise<void> {
+  try {
+    const result = await generateOnboarding(prospectId);
+
+    const { data: prospect } = await supabaseAdmin
+      .from('prospects')
+      .select('id, assigned_user_id, full_name, email, welcome_email_sent_at')
+      .eq('id', prospectId)
+      .single();
+
+    if (!prospect || prospect.welcome_email_sent_at || !prospect.email) return;
+
+    await sendEmailForUser(prospect.assigned_user_id, prospect.email, result.welcome_email.subject, result.welcome_email.body);
+
+    const sentAt = new Date().toISOString();
+    await supabaseAdmin.from('prospects').update({ welcome_email_sent_at: sentAt }).eq('id', prospectId);
+
+    const { data: conversation } = await supabaseAdmin
+      .from('conversations')
+      .select('id')
+      .eq('prospect_id', prospectId)
+      .eq('channel', 'email')
+      .maybeSingle();
+
+    if (conversation) {
+      await supabaseAdmin.from('messages').insert({
+        conversation_id: conversation.id,
+        direction: 'outbound',
+        sender_email: '',
+        recipient_email: prospect.email,
+        body: result.welcome_email.body,
+      });
+    }
+
+    await sendPushNotification(prospect.assigned_user_id, {
+      title: 'Onboarding démarré automatiquement',
+      body: `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et préparé un plan d'accueil dans Aaron Client.`,
+      url: `/app/customer?user_id=${prospect.assigned_user_id}`,
+    });
+  } catch (err: any) {
+    console.error(`Erreur onboarding automatique pour prospect ${prospectId}:`, err.message);
+  }
 }
 
 const FALLBACK_CHECKIN: Record<'nps' | 'satisfaction', CheckinMessage> = {
