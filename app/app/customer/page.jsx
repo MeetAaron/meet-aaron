@@ -455,6 +455,12 @@ export default function CustomerPage() {
                   <p className="muted">{selectedCustomer.prospect_companies.name}{selectedCustomer.job_title ? ` — ${selectedCustomer.job_title}` : ''}</p>
                 )}
 
+                {selectedCustomer.won_reason && (
+                  <p className="won-reason-line">
+                    {t('customer.wonReasonLabel', locale).replace('{reason}', selectedCustomer.won_reason)}
+                  </p>
+                )}
+
                 {selectedCustomer.is_lost ? (
                   <div className="health-row">
                     <span className="health-badge large" style={{ color: '#E5484D', borderColor: '#E5484D' }}>
@@ -750,6 +756,15 @@ export default function CustomerPage() {
           border-radius: 999px;
           color: var(--bg);
           font-weight: 600;
+        }
+        .won-reason-line {
+          font-size: 0.82rem;
+          line-height: 1.5;
+          color: var(--muted);
+          background: rgba(75, 57, 239, 0.1);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.7rem;
+          margin: 0.4rem 0 0.8rem;
         }
         .health-badge {
           font-size: 0.68rem;
