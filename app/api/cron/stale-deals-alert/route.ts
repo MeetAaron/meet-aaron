@@ -57,7 +57,7 @@ async function suggestRelance(
           },
         ],
       },
-      companyId
+      companyId, 'as'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     return textBlock?.text?.trim() || fallback;
