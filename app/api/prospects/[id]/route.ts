@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser, DailySendCapExceededError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -315,6 +316,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
+    // Docx "CLIENTS A1(a)" : onboarding automatique dès que ce prospect
+    // devient réellement client (pas juste "gagné en attente de 1ère
+    // commande") — voir lib/aaron-customer.ts. Fire-and-forget : ne bloque
+    // jamais la réponse de cette action interactive (le commercial ne doit
+    // pas attendre un appel Claude + l'envoi d'un email avant de voir son
+    // clic "Gagné" confirmé).
+    if (first_order_confirmed) {
+      triggerAutomaticOnboarding(prospectId).catch(() => {});
+    }
+
     return NextResponse.json({ success: true, status: 'gagne' });
   }
 
@@ -334,6 +345,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('prospects')
       .update({ first_order_confirmed_at: new Date().toISOString() })
       .eq('id', prospectId);
+
+    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
+    triggerAutomaticOnboarding(prospectId).catch(() => {});
 
     return NextResponse.json({ success: true, status: 'premiere_commande_confirmee' });
   }
@@ -372,6 +386,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
+
+    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
+    if (deal_stage === 'signe') {
+      triggerAutomaticOnboarding(prospectId).catch(() => {});
+    }
 
     return NextResponse.json({ success: true, deal_stage });
   }
