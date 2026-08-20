@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import PushNotificationManager from '@/components/PushNotificationManager';
 
@@ -1260,11 +1260,11 @@ function Shell({ children, active, userId }) {
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
-    // Efface aussi le marqueur "connexion explicite faite" de cet onglet
-    // (voir components/AuthFetchInterceptor.jsx) pour qu'un lien direct vers
-    // /app dans le même onglet, juste après cette déconnexion, repasse bien
-    // par /login au lieu de rouvrir l'app.
-    try { window.sessionStorage.removeItem('aaron-explicit-login'); } catch (err) {}
+    // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+    // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+    // qu'un lien direct vers /app, juste après cette déconnexion, repasse
+    // bien par /login au lieu de rouvrir l'app.
+    clearExplicitLogin();
     window.location.href = '/login';
   }
 
@@ -1337,16 +1337,25 @@ function Shell({ children, active, userId }) {
             </Link>
           ))}
         </ul>
-        {/* Demande d'Alex (2026-08-19) : l'app n'avait aucun moyen de se
-            déconnecter nulle part — pertinent notamment pour tester le
-            parcours "nouveau visiteur" depuis la landing page (le bouton
-            "Essayer maintenant" saute la connexion si une session valide est
-            encore présente dans le navigateur, ce qui est le comportement
-            normal — mais il n'y avait aucun moyen d'en sortir pour vérifier). */}
-        <button type="button" className="logout-btn" onClick={handleLogout}>
-          <span className="nav-icon">🚪</span>
-          {t('common.logout', locale)}
-        </button>
+        {/* Demande d'Alex (2026-08-19, complétée le 2026-08-20 item A10) :
+            l'app n'avait aucun moyen de se déconnecter nulle part — pertinent
+            notamment pour tester le parcours "nouveau visiteur" depuis la
+            landing page (le bouton "Essayer maintenant" saute la connexion si
+            une session valide est encore présente dans le navigateur, ce qui
+            est le comportement normal — mais il n'y avait aucun moyen d'en
+            sortir pour vérifier). Cette rubrique connexion/déconnexion est
+            désormais reprise à l'identique tout en bas de la barre latérale
+            sur toutes les pages, pas seulement ici. */}
+        <div className="account-section">
+          <div className="conn-status">
+            <span className="conn-dot" />
+            {t('shell.connected', locale)}
+          </div>
+          <button type="button" className="logout-btn" onClick={handleLogout}>
+            <span className="nav-icon">🚪</span>
+            {t('common.logout', locale)}
+          </button>
+        </div>
       </nav>
       <main className="content">{children}</main>
       <style jsx global>{`
@@ -1562,15 +1571,34 @@ function Shell({ children, active, userId }) {
           margin-left: auto;
           font-size: 0.72rem;
         }
+        .account-section {
+          margin-top: 0.8rem;
+          padding-top: 0.8rem;
+          border-top: 1px solid var(--border-soft);
+        }
+        .conn-status {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.3rem 0.75rem 0.5rem;
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+        .conn-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--accent-green);
+          box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18);
+          flex-shrink: 0;
+        }
         .logout-btn {
           display: flex;
           align-items: center;
           gap: 0.65rem;
           width: 100%;
-          margin-top: 0.8rem;
           padding: 0.62rem 0.75rem;
           border: none;
-          border-top: 1px solid var(--border-soft);
           border-radius: var(--radius-md);
           background: transparent;
           color: var(--muted);
