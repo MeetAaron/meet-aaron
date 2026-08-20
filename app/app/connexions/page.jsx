@@ -194,15 +194,13 @@ export default function ConnexionsPage() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState(null);
 
-  // docx item 27 : "ajouter un autre CRM" pour les CRM hors de la liste
-  // (Divalto excepté, qui a son propre chantier — voir tâche #112). La
-  // conversation guidée avec Aaron pour un CRM sur-mesure est une tâche à
-  // part entière (nécessite un vrai flux IA, pas juste un formulaire) —
-  // voir tâche #139. En attendant, on réutilise la boîte à suggestions
-  // existante (/api/feedback, déjà lue par le patron) pour ne pas laisser
-  // cette demande sans destination.
-  const [addCrmText, setAddCrmText] = useState('');
-  const [addCrmSending, setAddCrmSending] = useState(false);
+  // docx item 27 / tâche #139 : "ajouter un autre CRM" pour les CRM hors de
+  // la liste (Divalto excepté, qui a son propre chantier — voir tâche #112).
+  // Remplacé par une vraie conversation guidée avec Aaron (voir
+  // CrmCustomChatModal plus bas) au lieu d'un simple champ de texte libre.
+  // Le récapitulatif produit par Aaron part vers la boîte à suggestions
+  // existante (/api/feedback, déjà lue par le patron).
+  const [crmChatOpen, setCrmChatOpen] = useState(false);
   const [addCrmSent, setAddCrmSent] = useState(false);
 
   async function load() {
@@ -279,29 +277,31 @@ export default function ConnexionsPage() {
     }
   }
 
-  // docx item 27 — CRM hors de la liste des 9 intégrations existantes : pas de
-  // flux de connexion automatisé possible (format inconnu), donc on transmet
-  // la demande au patron via la boîte à suggestions existante plutôt que de
-  // deviner une intégration. Voir tâche #139 pour la vraie conversation
-  // guidée avec Aaron.
-  async function handleSendCrmRequest() {
-    if (!addCrmText.trim()) return;
-    setAddCrmSending(true);
+  // docx item 27 / tâche #139 — CRM hors de la liste des 9 intégrations
+  // existantes : pas de flux de connexion automatisé possible (format
+  // inconnu), donc pas de vraie intégration construite ici. Le récapitulatif
+  // structuré produit par la conversation avec Aaron (CrmCustomChatModal) est
+  // transmis au patron via la boîte à suggestions existante plutôt que de
+  // deviner une intégration.
+  async function handleSendCrmChatRequest(recap) {
+    const lines = [
+      "[Demande de CRM sur-mesure — via Aaron, Mon compte]",
+      `CRM : ${recap.crm_name || '—'}`,
+      `Données à synchroniser : ${Array.isArray(recap.data_to_sync) && recap.data_to_sync.length ? recap.data_to_sync.join(', ') : '—'}`,
+      `Accès disponible : ${recap.auth_method || '—'}`,
+    ];
+    if (recap.notes) lines.push(`Notes : ${recap.notes}`);
     try {
       await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          message: `[Demande d'ajout CRM depuis Mon compte] ${addCrmText.trim()}`,
-        }),
+        body: JSON.stringify({ user_id: userId, message: lines.join('\n') }),
       });
-      setAddCrmText('');
-      setAddCrmSent(true);
     } catch (err) {
-      // silencieux : ce n'est qu'une suggestion, pas une action critique
+      // silencieux : ce n'est qu'une transmission de demande, pas une action critique
     } finally {
-      setAddCrmSending(false);
+      setCrmChatOpen(false);
+      setAddCrmSent(true);
     }
   }
 
@@ -578,30 +578,30 @@ export default function ConnexionsPage() {
             })}
           </div>
 
-          {/* docx item 27 : "ajouter un autre CRM" — voir tâche #139 pour la
-              vraie conversation guidée avec Aaron ; en attendant, la demande
-              part vers la boîte à suggestions déjà lue par le patron. */}
+          {/* docx item 27 / tâche #139 : "ajouter un autre CRM" — conversation
+              guidée avec Aaron (CrmCustomChatModal) au lieu d'un simple champ
+              de texte libre ; le récapitulatif part vers la boîte à
+              suggestions déjà lue par le patron. */}
           <div className="add-crm-panel">
             <h3>{t('connexions.addOtherCrmTitle', locale)}</h3>
             <p className="add-crm-hint">{t('connexions.addOtherCrmHint', locale)}</p>
             {addCrmSent ? (
               <p className="profile-saved">{t('connexions.addOtherCrmSent', locale)}</p>
             ) : (
-              <>
-                <textarea
-                  className="add-crm-textarea"
-                  value={addCrmText}
-                  onChange={(e) => setAddCrmText(e.target.value)}
-                  placeholder={t('connexions.addOtherCrmPlaceholder', locale)}
-                  rows={3}
-                />
-                <button type="button" className="btn-secondary" onClick={handleSendCrmRequest} disabled={addCrmSending || !addCrmText.trim()}>
-                  {addCrmSending ? t('connexions.addOtherCrmSending', locale) : t('connexions.addOtherCrmButton', locale)}
-                </button>
-              </>
+              <button type="button" className="btn-secondary" onClick={() => setCrmChatOpen(true)}>
+                {t('connexions.crmChatOpenButton', locale)}
+              </button>
             )}
           </div>
         </>
+      )}
+
+      {crmChatOpen && (
+        <CrmCustomChatModal
+          userId={userId}
+          onClose={() => setCrmChatOpen(false)}
+          onSent={handleSendCrmChatRequest}
+        />
       )}
 
       <style jsx>{`
@@ -736,6 +736,264 @@ export default function ConnexionsPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+// Tâche #139 — conversation guidée avec Aaron pour un CRM sur-mesure, sur le
+// même modèle que ChatCampaignModal (app/app/campaigns/page.jsx) : le
+// frontend garde l'historique complet et le renvoie à chaque tour, Aaron
+// répond avec un texte + une ligne cachée <!--topic:XXX--> pendant les
+// questions, puis un bloc ```custom_crm_json``` une fois le récapitulatif
+// prêt (voir app/api/crm-connections/custom-chat/route.ts).
+function extractCustomCrmJson(text) {
+  const withoutTopic = text.replace(/<!--topic:\w+-->/, '').trim();
+  const topicMatch = text.match(/<!--topic:(\w+)-->/);
+  const topic = topicMatch ? topicMatch[1] : null;
+  const match = withoutTopic.match(/```custom_crm_json\s*([\s\S]*?)```/);
+  if (!match) return { displayText: withoutTopic, recap: null, topic };
+  const displayText = withoutTopic.slice(0, match.index).trim();
+  try {
+    const recap = JSON.parse(match[1].trim());
+    return { displayText, recap, topic: null };
+  } catch {
+    return { displayText, recap: null, topic };
+  }
+}
+
+function CrmCustomChatModal({ userId, onClose, onSent }) {
+  const [locale] = useLocale();
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: t('connexions.crmChatWelcome', locale) },
+  ]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [recap, setRecap] = useState(null);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function sendMessage(text) {
+    if (!text.trim() || sending) return;
+    const history = messages;
+    setMessages((prev) => [...prev, { role: 'user', content: text }]);
+    setInput('');
+    setSending(true);
+    setError(null);
+
+    const res = await fetch('/api/crm-connections/custom-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, message: text, history }),
+    });
+    const body = await res.json();
+    setSending(false);
+
+    if (!res.ok) {
+      setError(body.error || t('campaigns.chatErrorRetry', locale));
+      return;
+    }
+
+    const { displayText, recap: newRecap } = extractCustomCrmJson(body.reply);
+    setMessages((prev) => [...prev, { role: 'assistant', content: displayText }]);
+    setRecap(newRecap);
+  }
+
+  function handleSend(e) {
+    e.preventDefault();
+    sendMessage(input);
+  }
+
+  async function handleSubmit() {
+    if (!recap) return;
+    setSubmitting(true);
+    await onSent(recap);
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="crm-chat-overlay" onClick={onClose}>
+      <div className="crm-chat-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="crm-chat-header">
+          <h2>{t('connexions.crmChatModalTitle', locale)}</h2>
+          <button type="button" className="crm-chat-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="crm-chat-messages">
+          {messages.map((m, i) => (
+            <div key={i} className={`crm-chat-bubble ${m.role}`}>
+              {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
+            </div>
+          ))}
+          {sending && <div className="crm-chat-bubble assistant"><p className="crm-chat-typing">{t('campaigns.aaronThinking', locale)}</p></div>}
+        </div>
+
+        {recap && (
+          <div className="crm-chat-recap">
+            <p className="crm-chat-recap-title">{t('connexions.crmChatRecapTitle', locale)}</p>
+            <p><strong>{t('connexions.crmChatRecapCrm', locale)}</strong> {recap.crm_name || '—'}</p>
+            <p><strong>{t('connexions.crmChatRecapData', locale)}</strong> {Array.isArray(recap.data_to_sync) ? recap.data_to_sync.join(', ') : '—'}</p>
+            <p><strong>{t('connexions.crmChatRecapAuth', locale)}</strong> {recap.auth_method || '—'}</p>
+            {recap.notes && <p><strong>{t('connexions.crmChatRecapNotes', locale)}</strong> {recap.notes}</p>}
+            <button type="button" className="btn-primary" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? t('connexions.addOtherCrmSending', locale) : t('connexions.addOtherCrmButton', locale)}
+            </button>
+          </div>
+        )}
+
+        {error && <p className="crm-chat-error">{error}</p>}
+
+        <form className="crm-chat-input-row" onSubmit={handleSend}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={t('campaigns.chatInputPlaceholder', locale)}
+            disabled={sending}
+          />
+          <button type="submit" className="btn-secondary" disabled={sending || !input.trim()}>{t('campaigns.send', locale)}</button>
+        </form>
+      </div>
+
+      <style jsx>{`
+        .crm-chat-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .crm-chat-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.4rem;
+          width: 560px;
+          max-width: 100%;
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+        }
+        .crm-chat-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.8rem;
+        }
+        .crm-chat-header h2 {
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+          margin: 0;
+        }
+        .crm-chat-close {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .crm-chat-messages {
+          overflow-y: auto;
+          flex: 1;
+          min-height: 200px;
+          max-height: 40vh;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          margin-bottom: 0.8rem;
+        }
+        .crm-chat-bubble {
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.85rem;
+          font-size: 0.86rem;
+          line-height: 1.45;
+          max-width: 88%;
+          overflow-wrap: break-word;
+        }
+        .crm-chat-bubble p {
+          margin: 0;
+        }
+        .crm-chat-bubble p + p {
+          margin-top: 0.4rem;
+        }
+        .crm-chat-bubble.assistant {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          align-self: flex-start;
+        }
+        .crm-chat-bubble.user {
+          background: rgba(75, 57, 239, 0.18);
+          align-self: flex-end;
+        }
+        .crm-chat-typing {
+          color: var(--muted);
+          font-style: italic;
+        }
+        .crm-chat-recap {
+          background: var(--bg);
+          border: 1px solid var(--accent);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+          margin-bottom: 0.8rem;
+          font-size: 0.84rem;
+        }
+        .crm-chat-recap-title {
+          font-weight: 600;
+          margin: 0 0 0.5rem;
+          font-size: 0.76rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--accent);
+        }
+        .crm-chat-recap p {
+          margin: 0.25rem 0;
+          color: var(--text);
+        }
+        .crm-chat-error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+          margin: 0 0 0.6rem;
+        }
+        .crm-chat-input-row {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .crm-chat-input-row input {
+          flex: 1;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.88rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .crm-chat-input-row .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          cursor: pointer;
+        }
+        .crm-chat-input-row .btn-secondary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      `}</style>
+    </div>
   );
 }
 
