@@ -954,6 +954,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
             <p><strong>{t('campaigns.recapSizes', locale)}</strong> {(recap.company_sizes || []).length ? recap.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ') : t('campaigns.allSizes', locale)}</p>
             <p><strong>{t('campaigns.recapTarget', locale)}</strong> {recap.target_role ? (ROLE_SUGGESTIONS.find((r) => r.key === recap.target_role)?.label || recap.target_role) : t('campaigns.rolePeuImporte', locale)}</p>
             <p><strong>{t('campaigns.recapObjective', locale)}</strong> {recap.target_count || 20} {t('campaigns.contactsUnit', locale)}</p>
+            <p className="recap-hint">{t('campaigns.targetCountHint', locale)}</p>
             {recap.context_notes && <p><strong>{t('campaigns.recapNotes', locale)}</strong> {recap.context_notes}</p>}
             <p className="recap-hint">{t('campaigns.recapHint', locale)}</p>
             <button type="button" className="btn-primary" onClick={handleLaunch} disabled={launching}>
@@ -1163,15 +1164,22 @@ function wizardStepsFor(locale) {
 function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   const [locale] = useLocale();
   const WIZARD_STEPS = wizardStepsFor(locale);
-  const ZONE_TYPE_OPTIONS = zoneTypeOptionsFor(locale);
+  const ZONE_SUGGESTIONS = zoneSuggestionsFor(locale);
   const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
   const QUICK_SECTORS = quickSectorsFor(locale);
   const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
   const COMMUNICATION_SUGGESTIONS = communicationSuggestionsFor(locale);
   const [step, setStep] = useState(0);
+  // docx #17 : la zone était auparavant scindée en un "type" (ville/département/
+  // région — des notions propres à la France) + des codes, alors que zone_type
+  // et zone_codes ne sont en réalité JAMAIS lus par le moteur de sourcing
+  // (lib/sourcing.ts ne se base que sur zone_label) — uniquement stockés sans
+  // jamais être réaffichés nulle part. Simplifié en un seul champ texte libre,
+  // exactement comme le fait déjà le formulaire en conversation avec Aaron
+  // (qui gère nativement n'importe quelle zone dans le monde) — pour une vraie
+  // parité entre les deux formulaires plutôt qu'un formulaire classique limité
+  // à la France.
   const [zoneLabel, setZoneLabel] = useState('');
-  const [zoneType, setZoneType] = useState('departement');
-  const [zoneCodes, setZoneCodes] = useState('');
   const [companySizes, setCompanySizes] = useState([]);
   const [sectors, setSectors] = useState('');
   const [targetRole, setTargetRole] = useState('');
@@ -1182,7 +1190,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
   const isLastStep = step === WIZARD_STEPS.length - 1;
   const canGoNext =
-    (step === 0 && zoneLabel.trim() && zoneCodes.trim()) ||
+    (step === 0 && zoneLabel.trim()) ||
     step === 1 ||
     (step === 2 && sectors.trim()) ||
     step === 3 ||
@@ -1190,6 +1198,10 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
   function toggleCompanySize(key) {
     setCompanySizes((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  function addZoneSuggestion(label) {
+    setZoneLabel((prev) => (prev.trim() ? `${prev.trim()}, ${label}` : label));
   }
 
   function addQuickSector(sector) {
@@ -1232,8 +1244,11 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         company_id: companyId,
         assigned_user_id: userId,
         zone_label: zoneLabel,
-        zone_type: zoneType,
-        zone_codes: zoneCodes.split(',').map((s) => s.trim()).filter(Boolean),
+        // zone_type/zone_codes ne sont plus utilisés que pour satisfaire le
+        // schéma existant (voir commentaire sur zoneLabel plus haut) — même
+        // valeur fixe que le formulaire en conversation avec Aaron.
+        zone_type: 'zone',
+        zone_codes: [zoneLabel],
         sector_keywords: sectors.split(',').map((s) => s.trim()).filter(Boolean),
         company_sizes: companySizes,
         target_role: targetRole || null,
@@ -1249,8 +1264,6 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
     }
     onCreated();
   }
-
-  const selectedZoneType = ZONE_TYPE_OPTIONS.find((z) => z.key === zoneType) || ZONE_TYPE_OPTIONS[0];
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -1269,19 +1282,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         {step === 0 && (
           <div className="step-body">
             <p className="step-title">{t('campaigns.stepZoneTitle', locale)}</p>
-            <div className="zone-type-picker">
-              {ZONE_TYPE_OPTIONS.map((z) => (
-                <button
-                  type="button"
-                  key={z.key}
-                  className={`zone-type-btn${zoneType === z.key ? ' active' : ''}`}
-                  onClick={() => setZoneType(z.key)}
-                >
-                  <span className="zone-icon">{z.icon}</span>
-                  {z.label}
-                </button>
-              ))}
-            </div>
+            <p className="step-subtitle">{t('campaigns.zoneNameHint', locale)}</p>
 
             <label>
               {t('campaigns.zoneNameLabel', locale)}
@@ -1293,15 +1294,13 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
               />
             </label>
 
-            <label>
-              {selectedZoneType.hint}
-              <input
-                value={zoneCodes}
-                onChange={(e) => setZoneCodes(e.target.value)}
-                placeholder={selectedZoneType.placeholder}
-                required
-              />
-            </label>
+            <div className="quick-chips">
+              {ZONE_SUGGESTIONS.map((z) => (
+                <button type="button" key={z.label} className="chip" onClick={() => addZoneSuggestion(z.label)}>
+                  {z.flag} {z.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1399,7 +1398,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
 
             <div className="recap">
               <p className="recap-title">{t('campaigns.recapTitle', locale)}</p>
-              <p><strong>{t('campaigns.recapZone', locale)}</strong> {zoneLabel || '—'} ({selectedZoneType.label.toLowerCase()})</p>
+              <p><strong>{t('campaigns.recapZone', locale)}</strong> {zoneLabel || '—'}</p>
               <p><strong>{t('campaigns.recapSizes', locale)}</strong> {companySizes.length ? companySizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label).join(', ') : t('campaigns.allSizes', locale)}</p>
               <p><strong>{t('campaigns.recapSectors', locale)}</strong> {sectors || '—'}</p>
               <p><strong>{t('campaigns.recapTarget', locale)}</strong> {targetRole ? (ROLE_SUGGESTIONS.find((r) => r.key === targetRole)?.label || targetRole) : t('campaigns.rolePeuImporte', locale)}</p>
