@@ -88,7 +88,7 @@ export async function getAuthedUserFromToken(token: string): Promise<AuthedUser 
 }
 
 export function unauthorizedResponse() {
-  return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
+  return NextResponse.json({ error: 'Non authentifié — reconnecte-toi.' }, { status: 401 });
 }
 
 export function forbiddenResponse() {
