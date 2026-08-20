@@ -169,6 +169,14 @@ export default function PreferencesPage() {
   const [signatureError, setSignatureError] = useState(null);
   const [savingSignature, setSavingSignature] = useState(false);
   const [signatureSaved, setSignatureSaved] = useState(false);
+  // Tâche #141 sous-item 2 (2026-08-20) : informations légales de
+  // l'entreprise, utilisées comme en-tête "émetteur" sur les factures
+  // générées depuis Aaron Client (voir lib/invoice-pdf.ts,
+  // app/api/company-legal-info/route.ts).
+  const [legalInfo, setLegalInfo] = useState({ siret: '', legal_address: '', legal_form: '', vat_number: '', vat_exempt_mention: '' });
+  const [legalInfoLoaded, setLegalInfoLoaded] = useState(false);
+  const [savingLegalInfo, setSavingLegalInfo] = useState(false);
+  const [legalInfoSaved, setLegalInfoSaved] = useState(false);
   const [buyingCredits, setBuyingCredits] = useState(null);
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
@@ -257,7 +265,29 @@ export default function PreferencesPage() {
         setSignatureLoaded(true);
       })
       .catch(() => setSignatureLoaded(true));
+    fetch(`/api/company-legal-info?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.legal_info) setLegalInfo(res.legal_info);
+        setLegalInfoLoaded(true);
+      })
+      .catch(() => setLegalInfoLoaded(true));
   }, [userId]);
+
+  async function handleSaveLegalInfo() {
+    setSavingLegalInfo(true);
+    setLegalInfoSaved(false);
+    const res = await fetch('/api/company-legal-info', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, ...legalInfo }),
+    });
+    setSavingLegalInfo(false);
+    if (res.ok) {
+      setLegalInfoSaved(true);
+      setTimeout(() => setLegalInfoSaved(false), 2500);
+    }
+  }
 
   async function handleDetectSignature() {
     setDetectingSignature(true);
@@ -574,6 +604,49 @@ export default function PreferencesPage() {
                   <p className="collab-extra-hint">
                     {t('preferences.signatureDetectHint', locale)}
                   </p>
+                </div>
+              )}
+
+              {legalInfoLoaded && (
+                <div className="field">
+                  <label>{t('preferences.legalInfoLabel', locale)}</label>
+                  <p className="collab-extra-hint">{t('preferences.legalInfoHint', locale)}</p>
+                  <input
+                    type="text"
+                    value={legalInfo.siret}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, siret: e.target.value })}
+                    placeholder={t('preferences.legalInfoSiretPlaceholder', locale)}
+                  />
+                  <input
+                    type="text"
+                    value={legalInfo.legal_address}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, legal_address: e.target.value })}
+                    placeholder={t('preferences.legalInfoAddressPlaceholder', locale)}
+                  />
+                  <input
+                    type="text"
+                    value={legalInfo.legal_form}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, legal_form: e.target.value })}
+                    placeholder={t('preferences.legalInfoFormPlaceholder', locale)}
+                  />
+                  <input
+                    type="text"
+                    value={legalInfo.vat_number}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, vat_number: e.target.value })}
+                    placeholder={t('preferences.legalInfoVatPlaceholder', locale)}
+                  />
+                  <input
+                    type="text"
+                    value={legalInfo.vat_exempt_mention}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, vat_exempt_mention: e.target.value })}
+                    placeholder={t('preferences.legalInfoVatExemptPlaceholder', locale)}
+                  />
+                  <div className="actions">
+                    <button className="btn-secondary" onClick={handleSaveLegalInfo} disabled={savingLegalInfo}>
+                      {savingLegalInfo ? t('preferences.savingEllipsis', locale) : t('preferences.legalInfoSaveButton', locale)}
+                    </button>
+                    {legalInfoSaved && <span className="saved-msg">{t('preferences.legalInfoSavedMsg', locale)}</span>}
+                  </div>
                 </div>
               )}
             </>
