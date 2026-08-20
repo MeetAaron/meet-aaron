@@ -308,8 +308,11 @@ export default function DashboardPage() {
   // cours (minuit à 23h59, heure locale du navigateur), PAS un glissant de
   // 24h — décision explicite d'Alex (2026-08-20), voir commentaire plus haut.
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // purpose !== 'lancement' : un RDV de lancement (tâche #141, proposé
+  // automatiquement à un client déjà signé pendant l'onboarding) n'est pas
+  // un "RDV obtenu" au sens prospection — voir migration_kickoff_rdv_2026-08-20.sql.
   const rdvObtenus24h = appointments.filter(
-    (a) => a.source !== 'manuel' && a.created_at && new Date(a.created_at) >= startOfToday
+    (a) => a.source !== 'manuel' && a.purpose !== 'lancement' && a.created_at && new Date(a.created_at) >= startOfToday
   );
   // #9B — détail par type de RDV.
   const rdvObtenusByType = {
