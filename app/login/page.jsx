@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabaseBrowser, setRememberMe } from '@/lib/supabase-browser';
+import { supabaseBrowser, setRememberMe, markExplicitLoginToday } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -64,11 +64,13 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      // Marque cet onglet comme "connexion explicite faite" (voir
-      // components/AuthFetchInterceptor.jsx) — nécessaire même si la session
-      // Supabase était déjà valide/persistée avant ce clic, pour que la porte
-      // d'entrée de /app laisse passer.
-      try { window.sessionStorage.setItem('aaron-explicit-login', '1'); } catch (err) {}
+      // Marque la date du jour comme "connexion explicite faite" (voir
+      // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) —
+      // nécessaire même si la session Supabase était déjà valide/persistée
+      // avant ce clic, pour que la porte d'entrée de /app laisse passer. Reste
+      // valide jusqu'à minuit (heure locale), donc les visites suivantes ce
+      // même jour n'auront pas besoin de repasser par cet écran.
+      markExplicitLoginToday();
       window.location.href = '/onboarding';
     } else {
       const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
@@ -101,7 +103,7 @@ export default function LoginPage() {
     // Voir handleEmailSubmit : on pose le marqueur dès le lancement de l'OAuth
     // (avant la redirection vers Google/Microsoft) car il n'y a pas d'autre
     // point de passage unique après un retour OAuth réussi.
-    try { window.sessionStorage.setItem('aaron-explicit-login', '1'); } catch (err) {}
+    markExplicitLoginToday();
     const { error } = await supabaseBrowser.auth.signInWithOAuth({
       provider,
       options: { redirectTo: `${window.location.origin}/onboarding` },
