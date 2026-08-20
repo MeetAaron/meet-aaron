@@ -139,6 +139,94 @@ export default function CustomerPage() {
   const [supportDraftsLoading, setSupportDraftsLoading] = useState(true);
   const [supportActionId, setSupportActionId] = useState(null);
 
+  // Tâche #141 sous-item 2 (2026-08-20) : facturation client, voir
+  // lib/client-invoices.ts, lib/invoice-pdf.ts, migration_invoicing_2026-08-20.sql.
+  const [clientInvoices, setClientInvoices] = useState([]);
+  const [clientInvoicesLoading, setClientInvoicesLoading] = useState(false);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [invoiceLines, setInvoiceLines] = useState([{ designation: '', quantite: '1', prix_unitaire_ht_eur: '' }]);
+  const [invoiceDueDate, setInvoiceDueDate] = useState('');
+  const [invoiceVatRate, setInvoiceVatRate] = useState('');
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceCreateError, setInvoiceCreateError] = useState(null);
+  const [invoiceActionBusyId, setInvoiceActionBusyId] = useState(null);
+
+  async function loadClientInvoices(customerId) {
+    setClientInvoicesLoading(true);
+    const res = await fetch(`/api/customers/${customerId}/invoices`).then((r) => r.json());
+    setClientInvoices(res.invoices || []);
+    setClientInvoicesLoading(false);
+  }
+
+  async function submitInvoice(customerId, { prefillFromDevis }) {
+    setCreatingInvoice(true);
+    setInvoiceCreateError(null);
+    const payload = prefillFromDevis
+      ? { prefill_from_devis: true, due_date: invoiceDueDate || null, vat_rate: invoiceVatRate ? Number(invoiceVatRate) / 100 : null }
+      : {
+          line_items: invoiceLines
+            .filter((l) => l.designation && l.quantite && l.prix_unitaire_ht_eur)
+            .map((l) => ({ designation: l.designation, description: l.description || null, quantite: Number(l.quantite), prix_unitaire_ht_eur: Number(l.prix_unitaire_ht_eur) })),
+          due_date: invoiceDueDate || null,
+          vat_rate: invoiceVatRate ? Number(invoiceVatRate) / 100 : null,
+        };
+    const res = await fetch(`/api/customers/${customerId}/invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json();
+    setCreatingInvoice(false);
+    if (!res.ok) {
+      setInvoiceCreateError(body.error || t('customer.invoicesCreateError', locale));
+      return;
+    }
+    setShowInvoiceForm(false);
+    setInvoiceLines([{ designation: '', quantite: '1', prix_unitaire_ht_eur: '' }]);
+    setInvoiceDueDate('');
+    setInvoiceVatRate('');
+    await loadClientInvoices(customerId);
+  }
+
+  async function handleInvoiceStatusChange(customerId, invoiceId, status) {
+    setInvoiceActionBusyId(invoiceId);
+    await fetch(`/api/customers/${customerId}/invoices/${invoiceId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    await loadClientInvoices(customerId);
+    setInvoiceActionBusyId(null);
+  }
+
+  async function handleDownloadInvoicePdf(customerId, invoiceId, invoiceNumber) {
+    setInvoiceActionBusyId(invoiceId);
+    try {
+      const res = await fetch(`/api/customers/${customerId}/invoices/${invoiceId}/pdf`);
+      if (!res.ok) throw new Error('download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `facture-${invoiceNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // Best-effort — un échec ponctuel de téléchargement ne doit pas bloquer le reste de la page.
+    } finally {
+      setInvoiceActionBusyId(null);
+    }
+  }
+
+  function invoiceStatusLabel(status, locale) {
+    if (status === 'payee') return t('customer.invoicesStatusPayee', locale);
+    if (status === 'en_retard') return t('customer.invoicesStatusEnRetard', locale);
+    if (status === 'annulee') return t('customer.invoicesStatusAnnulee', locale);
+    return t('customer.invoicesStatusEmise', locale);
+  }
+
   async function load() {
     const res = await fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json());
     setCustomers(res.customers || []);
@@ -163,8 +251,15 @@ export default function CustomerPage() {
     setOnboardingError(null);
     setRenewalError(null);
     setTestimonialError(null);
+    setShowInvoiceForm(false);
+    setInvoiceCreateError(null);
     const customer = customers.find((c) => c.id === selectedId);
     setRenewalDateInput(customer?.contract_renewal_date || '');
+    if (selectedId) {
+      loadClientInvoices(selectedId);
+    } else {
+      setClientInvoices([]);
+    }
   }, [selectedId]);
 
   const selectedCustomer = customers.find((c) => c.id === selectedId) || null;
@@ -666,6 +761,146 @@ export default function CustomerPage() {
                     </>
                   )}
                 </section>
+
+                <section className="block">
+                  <h3>{t('customer.invoicesTitle', locale)}</h3>
+
+                  {clientInvoicesLoading ? (
+                    <p className="muted">…</p>
+                  ) : (
+                    <>
+                      {clientInvoices.length === 0 && <p className="muted">{t('customer.invoicesEmpty', locale)}</p>}
+                      {clientInvoices.map((inv) => (
+                        <div key={inv.id} className="email-preview">
+                          <p className="email-subject">
+                            {inv.invoice_number} — {(inv.total_ttc_eur || 0).toFixed(2)} € — {invoiceStatusLabel(inv.status, locale)}
+                          </p>
+                          <div className="actions-row">
+                            {(inv.status === 'emise' || inv.status === 'en_retard') && (
+                              <>
+                                <button
+                                  className="btn-secondary"
+                                  disabled={invoiceActionBusyId === inv.id}
+                                  onClick={() => handleInvoiceStatusChange(selectedCustomer.id, inv.id, 'payee')}
+                                >
+                                  {t('customer.invoicesMarkPaidButton', locale)}
+                                </button>
+                                <button
+                                  className="btn-secondary"
+                                  disabled={invoiceActionBusyId === inv.id}
+                                  onClick={() => handleInvoiceStatusChange(selectedCustomer.id, inv.id, 'annulee')}
+                                >
+                                  {t('customer.invoicesCancelButton', locale)}
+                                </button>
+                              </>
+                            )}
+                            <button
+                              className="btn-secondary"
+                              disabled={invoiceActionBusyId === inv.id}
+                              onClick={() => handleDownloadInvoicePdf(selectedCustomer.id, inv.id, inv.invoice_number)}
+                            >
+                              {t('customer.invoicesDownloadButton', locale)}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {!showInvoiceForm && (
+                    <div className="actions-row">
+                      <button className="btn-secondary" onClick={() => setShowInvoiceForm(true)}>
+                        {t('customer.invoicesNewButton', locale)}
+                      </button>
+                      {selectedCustomer.devis_recap && (
+                        <button
+                          className="btn-secondary"
+                          disabled={creatingInvoice}
+                          onClick={() => submitInvoice(selectedCustomer.id, { prefillFromDevis: true })}
+                        >
+                          {creatingInvoice ? t('customer.invoicesCreating', locale) : t('customer.invoicesPrefillButton', locale)}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {showInvoiceForm && (
+                    <div className="email-preview">
+                      {invoiceLines.map((line, idx) => (
+                        <div key={idx} className="actions-row">
+                          <input
+                            type="text"
+                            className="invoice-input"
+                            placeholder={t('customer.invoicesDesignationPlaceholder', locale)}
+                            value={line.designation}
+                            onChange={(e) => {
+                              const next = [...invoiceLines];
+                              next[idx] = { ...next[idx], designation: e.target.value };
+                              setInvoiceLines(next);
+                            }}
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            className="invoice-input invoice-input-narrow"
+                            placeholder={t('customer.invoicesQuantityPlaceholder', locale)}
+                            value={line.quantite}
+                            onChange={(e) => {
+                              const next = [...invoiceLines];
+                              next[idx] = { ...next[idx], quantite: e.target.value };
+                              setInvoiceLines(next);
+                            }}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="invoice-input invoice-input-narrow"
+                            placeholder={t('customer.invoicesUnitPricePlaceholder', locale)}
+                            value={line.prix_unitaire_ht_eur}
+                            onChange={(e) => {
+                              const next = [...invoiceLines];
+                              next[idx] = { ...next[idx], prix_unitaire_ht_eur: e.target.value };
+                              setInvoiceLines(next);
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setInvoiceLines([...invoiceLines, { designation: '', quantite: '1', prix_unitaire_ht_eur: '' }])}
+                      >
+                        {t('customer.invoicesAddLineButton', locale)}
+                      </button>
+
+                      <label>{t('customer.invoicesDueDateLabel', locale)}</label>
+                      <input type="date" className="date-input" value={invoiceDueDate} onChange={(e) => setInvoiceDueDate(e.target.value)} />
+
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        className="invoice-input invoice-input-narrow"
+                        placeholder={t('customer.invoicesVatRatePlaceholder', locale)}
+                        value={invoiceVatRate}
+                        onChange={(e) => setInvoiceVatRate(e.target.value)}
+                      />
+
+                      <div className="actions-row">
+                        <button className="btn-secondary" onClick={() => setShowInvoiceForm(false)}>
+                          {t('customer.invoicesCancelCreate', locale)}
+                        </button>
+                        <button className="btn-primary" disabled={creatingInvoice} onClick={() => submitInvoice(selectedCustomer.id, { prefillFromDevis: false })}>
+                          {creatingInvoice ? t('customer.invoicesCreating', locale) : t('customer.invoicesCreateButton', locale)}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {invoiceCreateError && <p className="error">{invoiceCreateError}</p>}
+                </section>
               </>
             )}
           </aside>
@@ -918,6 +1153,30 @@ export default function CustomerPage() {
           padding: 0.4rem 0.6rem;
           font-size: 0.82rem;
           font-family: inherit;
+        }
+        .actions-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          align-items: center;
+          margin-top: 0.6rem;
+        }
+        .actions-row .btn-secondary,
+        .actions-row .btn-primary {
+          margin-top: 0;
+        }
+        .invoice-input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.45rem 0.6rem;
+          font-size: 0.82rem;
+          font-family: inherit;
+          flex: 1 1 160px;
+        }
+        .invoice-input-narrow {
+          flex: 0 1 100px;
         }
         .support-inbox {
           background: var(--surface);
