@@ -560,16 +560,11 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        {isWelcome && (
+        {isWelcome && !summaryDone && (
           <div className="welcome-actions">
-            {!summaryDone && (
-              <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
-                {summarizing ? t('chat.generatingSummary', locale) : t('chat.generateSummaryButton', locale)}
-              </button>
-            )}
-            <Link href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="btn-primary btn-tour">
-              {t('chat.viewTourButton', locale)}
-            </Link>
+            <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
+              {summarizing ? t('chat.generatingSummary', locale) : t('chat.generateSummaryButton', locale)}
+            </button>
           </div>
         )}
 
@@ -596,6 +591,16 @@ export default function ChatPage() {
             {t('chat.send', locale)}
           </button>
         </form>
+      </div>
+
+      {/* docx AJOUT GLOBAL item A8 : "revoir la visite guidée" doit rester
+          accessible en permanence juste sous le chat (pas seulement pendant
+          l'onboarding, et plus dans le pied de page de Préférences — voir
+          app/app/preferences/page.jsx). */}
+      <div className="tour-link-row">
+        <Link href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="tour-link">
+          {t('chat.viewTourButton', locale)}
+        </Link>
       </div>
 
       <style jsx>{`
@@ -740,6 +745,18 @@ export default function ChatPage() {
           text-decoration: none;
           display: inline-flex;
           align-items: center;
+        }
+        .tour-link-row {
+          text-align: center;
+          margin-top: 0.8rem;
+        }
+        .tour-link {
+          color: var(--muted);
+          font-size: 0.82rem;
+          text-decoration: underline;
+        }
+        .tour-link:hover {
+          color: var(--text);
         }
         .input-row {
           display: flex;
