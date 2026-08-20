@@ -23,6 +23,15 @@ interface HealthInput {
     respondedAt: string | null;
     responseScore: number | null; // 0-10
   } | null;
+  // Fréquence des échanges (docx CLIENTS A1, "suivi de santé") : dernier
+  // message de la conversation email avec ce client, et nombre de messages
+  // reçus DU client (inbound) sur les 30 derniers jours. Volontairement pas
+  // d'analyse de sentiment ici (voir en-tête du fichier : ce score reste
+  // 100% déterministe, sans appel Claude) — seul un silence prolongé après
+  // un message d'Aaron/du commercial est traité comme signal de décrochage,
+  // distinct du silence après un check-in (déjà géré ci-dessous).
+  lastMessage: { direction: 'inbound' | 'outbound'; sentAt: string } | null;
+  inboundMessageCountLast30Days: number;
 }
 
 function daysSince(iso: string | null): number | null {
@@ -65,6 +74,19 @@ export function computeHealthScore(input: HealthInput): { score: number; label: 
         score -= 15; // silence prolongé après une sollicitation directe
       }
     }
+  }
+
+  // Fréquence des échanges : silence prolongé après le dernier message
+  // sortant (Aaron ou commercial), ou au contraire client engagé qui écrit
+  // régulièrement.
+  if (input.lastMessage && input.lastMessage.direction === 'outbound') {
+    const daysSinceLastMessage = daysSince(input.lastMessage.sentAt);
+    if (daysSinceLastMessage !== null && daysSinceLastMessage > 30) {
+      score -= 10; // silence prolongé, aucune réponse au dernier message envoyé
+    }
+  }
+  if (input.inboundMessageCountLast30Days >= 3) {
+    score += 5; // client engagé, échanges réguliers
   }
 
   score = Math.max(0, Math.min(100, score));

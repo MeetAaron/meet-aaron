@@ -46,6 +46,13 @@ export interface SupportReplyDraft {
   is_support_request: boolean;
   suggested_subject: string | null;
   suggested_body: string | null;
+  // Docx CLIENTS A1 "triage support niveau 1" : question simple/récurrente
+  // (FAQ) qu'Aaron peut répondre avec certitude à partir de ce qu'il connaît
+  // déjà de l'activité, vs demande complexe qui a vraiment besoin d'un
+  // regard humain avant envoi. Sert uniquement à trier/mettre en avant dans
+  // l'UI — l'envoi reste toujours un clic humain (jamais d'envoi automatique
+  // à un vrai client sans validation, voir migration_aaron_v2_2026-08-13.sql).
+  is_simple: boolean;
 }
 
 async function loadWonProspect(prospectId: string) {
@@ -496,7 +503,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
 // app/app/customer/page.jsx).
 export async function generateSupportReply(prospectId: string, messageBody: string): Promise<SupportReplyDraft> {
   const trimmed = messageBody.trim();
-  if (!trimmed) return { is_support_request: false, suggested_subject: null, suggested_body: null };
+  if (!trimmed) return { is_support_request: false, suggested_subject: null, suggested_body: null, is_simple: false };
 
   const prospect = await loadWonProspect(prospectId);
   const locale = prospectLocale(prospect);
@@ -519,9 +526,15 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
               `inventer d'information technique ou de politique que tu ne connais pas ; si tu ne peux pas répondre ` +
               `sur le fond, propose une réponse qui accuse réception et indique que le commercial revient vers lui ` +
               `rapidement avec les détails.\n` +
+              `Indique aussi si c'est une question SIMPLE (FAQ récurrente, réponse générique que tu connais avec ` +
+              `certitude à partir de ce que tu sais déjà de l'activité — horaires, comment procéder, question déjà ` +
+              `traitée type) ou COMPLEXE (nécessite une info spécifique au dossier du client, un engagement, un ` +
+              `chiffre, ou toute information que tu ne connais pas avec certitude) : is_simple doit être false dès ` +
+              `le moindre doute, ce n'est qu'une aide de tri pour le commercial, jamais un envoi automatique.\n` +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
               `{"is_support_request": true ou false, "suggested_subject": "objet de la réponse, ou null si is_support_request est false", ` +
-              `"suggested_body": "corps de la réponse suggérée, ou null si is_support_request est false"}`,
+              `"suggested_body": "corps de la réponse suggérée, ou null si is_support_request est false", ` +
+              `"is_simple": true ou false (false si is_support_request est false)}`,
           },
         ],
       },
@@ -532,6 +545,6 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
     if (!(err instanceof MonthlyCapExceededError)) {
       console.error('Erreur génération suggestion de réponse support:', err.message);
     }
-    return { is_support_request: false, suggested_subject: null, suggested_body: null };
+    return { is_support_request: false, suggested_subject: null, suggested_body: null, is_simple: false };
   }
 }
