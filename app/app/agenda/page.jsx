@@ -199,6 +199,14 @@ export default function AgendaPage() {
   const [savingRule, setSavingRule] = useState(false);
   const [newBlock, setNewBlock] = useState({ start_at: '', end_at: '', reason: '' });
   const [savingBlock, setSavingBlock] = useState(false);
+  // docx "AGENDA" item A3 : pouvoir modifier une ligne existante (créneau
+  // récurrent ou indisponibilité ponctuelle), pas juste la supprimer.
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [editRuleDraft, setEditRuleDraft] = useState(null);
+  const [savingEditRule, setSavingEditRule] = useState(false);
+  const [editingBlockId, setEditingBlockId] = useState(null);
+  const [editBlockDraft, setEditBlockDraft] = useState(null);
+  const [savingEditBlock, setSavingEditBlock] = useState(false);
   const [availError, setAvailError] = useState(null);
 
   // Calendrier mensuel (#87) — vue type iPhone au-dessus des listes : jours
@@ -319,6 +327,93 @@ export default function AgendaPage() {
   async function handleDeleteBlock(id) {
     await fetch(`/api/availability/blocks/${id}?user_id=${userId}`, { method: 'DELETE' });
     setBlocks((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  // --- Modifier un créneau récurrent (docx AGENDA item A3) ---
+  function startEditRule(r) {
+    setEditingRuleId(r.id);
+    setEditRuleDraft({
+      day_of_week: r.day_of_week,
+      start_time: r.start_time.slice(0, 5),
+      end_time: r.end_time.slice(0, 5),
+      appointment_type: r.appointment_type || '',
+    });
+  }
+
+  function cancelEditRule() {
+    setEditingRuleId(null);
+    setEditRuleDraft(null);
+  }
+
+  async function handleSaveEditRule(id) {
+    setSavingEditRule(true);
+    setAvailError(null);
+    const res = await fetch(`/api/availability/rules/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, ...editRuleDraft }),
+    });
+    const body = await res.json();
+    setSavingEditRule(false);
+    if (!res.ok) {
+      setAvailError(body.error);
+      return;
+    }
+    setRules((prev) =>
+      prev
+        .map((r) => (r.id === id ? body.rule : r))
+        .sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time))
+    );
+    cancelEditRule();
+  }
+
+  // --- Modifier une indisponibilité ponctuelle (docx AGENDA item A3) ---
+  function toDatetimeLocalValue(isoString) {
+    // <input type="datetime-local"> attend "AAAA-MM-JJTHH:mm" en heure
+    // locale du navigateur — new Date(iso).toISOString() renverrait de
+    // l'UTC, d'où ce recalage manuel du décalage horaire.
+    const d = new Date(isoString);
+    const offsetMs = d.getTimezoneOffset() * 60 * 1000;
+    return new Date(d.getTime() - offsetMs).toISOString().slice(0, 16);
+  }
+
+  function startEditBlock(b) {
+    setEditingBlockId(b.id);
+    setEditBlockDraft({
+      start_at: toDatetimeLocalValue(b.start_at),
+      end_at: toDatetimeLocalValue(b.end_at),
+      reason: b.reason || '',
+    });
+  }
+
+  function cancelEditBlock() {
+    setEditingBlockId(null);
+    setEditBlockDraft(null);
+  }
+
+  async function handleSaveEditBlock(id) {
+    setSavingEditBlock(true);
+    setAvailError(null);
+    const res = await fetch(`/api/availability/blocks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        start_at: new Date(editBlockDraft.start_at).toISOString(),
+        end_at: new Date(editBlockDraft.end_at).toISOString(),
+        reason: editBlockDraft.reason,
+      }),
+    });
+    const body = await res.json();
+    setSavingEditBlock(false);
+    if (!res.ok) {
+      setAvailError(body.error);
+      return;
+    }
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === id ? body.block : b)).sort((a, b) => a.start_at.localeCompare(b.start_at))
+    );
+    cancelEditBlock();
   }
 
   function openAddForDay(kind) {
@@ -638,14 +733,47 @@ export default function AgendaPage() {
               <p className="muted small">{t('disponibilites.noRulesYet', locale)}</p>
             ) : (
               <ul className="rule-list">
-                {rules.map((r) => (
-                  <li key={r.id} className="rule-item">
-                    <span className="rule-day">{dayLabel(r.day_of_week, locale)}</span>
-                    <span className="rule-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
-                    <span className="rule-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
-                    <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)}>✕</button>
-                  </li>
-                ))}
+                {rules.map((r) =>
+                  editingRuleId === r.id ? (
+                    <li key={r.id} className="rule-item rule-item-editing">
+                      <select
+                        value={editRuleDraft.day_of_week}
+                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, day_of_week: Number(e.target.value) })}
+                      >
+                        {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                      </select>
+                      <input
+                        type="time"
+                        value={editRuleDraft.start_time}
+                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, start_time: e.target.value })}
+                      />
+                      <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                      <input
+                        type="time"
+                        value={editRuleDraft.end_time}
+                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, end_time: e.target.value })}
+                      />
+                      <select
+                        value={editRuleDraft.appointment_type}
+                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, appointment_type: e.target.value })}
+                      >
+                        {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                      <button type="button" className="btn-primary" disabled={savingEditRule} onClick={() => handleSaveEditRule(r.id)}>
+                        {savingEditRule ? t('common.saving', locale) : t('common.save', locale)}
+                      </button>
+                      <button type="button" className="btn-secondary" onClick={cancelEditRule}>{t('common.cancel', locale)}</button>
+                    </li>
+                  ) : (
+                    <li key={r.id} className="rule-item">
+                      <span className="rule-day">{dayLabel(r.day_of_week, locale)}</span>
+                      <span className="rule-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
+                      <span className="rule-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
+                      <button type="button" className="btn-edit" onClick={() => startEditRule(r)} aria-label={t('common.edit', locale)}>✏️</button>
+                      <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)}>✕</button>
+                    </li>
+                  )
+                )}
               </ul>
             )}
 
@@ -675,17 +803,44 @@ export default function AgendaPage() {
               <p className="muted small">{t('disponibilites.noBlocksUpcoming', locale)}</p>
             ) : (
               <ul className="block-list">
-                {blocks.map((b) => (
-                  <li key={b.id} className="block-item">
-                    <span className="block-dates">
-                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                      {' → '}
-                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                    </span>
-                    {b.reason && <span className="block-reason">{b.reason}</span>}
-                    <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
-                  </li>
-                ))}
+                {blocks.map((b) =>
+                  editingBlockId === b.id ? (
+                    <li key={b.id} className="block-item block-item-editing">
+                      <input
+                        type="datetime-local"
+                        value={editBlockDraft.start_at}
+                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, start_at: e.target.value })}
+                      />
+                      <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                      <input
+                        type="datetime-local"
+                        value={editBlockDraft.end_at}
+                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, end_at: e.target.value })}
+                      />
+                      <input
+                        type="text"
+                        placeholder={t('disponibilites.reasonPlaceholder', locale)}
+                        value={editBlockDraft.reason}
+                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, reason: e.target.value })}
+                      />
+                      <button type="button" className="btn-primary" disabled={savingEditBlock} onClick={() => handleSaveEditBlock(b.id)}>
+                        {savingEditBlock ? t('common.saving', locale) : t('common.save', locale)}
+                      </button>
+                      <button type="button" className="btn-secondary" onClick={cancelEditBlock}>{t('common.cancel', locale)}</button>
+                    </li>
+                  ) : (
+                    <li key={b.id} className="block-item">
+                      <span className="block-dates">
+                        {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                        {' → '}
+                        {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                      {b.reason && <span className="block-reason">{b.reason}</span>}
+                      <button type="button" className="btn-edit" onClick={() => startEditBlock(b)} aria-label={t('common.edit', locale)}>✏️</button>
+                      <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
+                    </li>
+                  )
+                )}
               </ul>
             )}
 
@@ -1007,8 +1162,20 @@ export default function AgendaPage() {
           color: var(--muted);
           margin-left: 0.4rem;
         }
-        .btn-remove {
+        .btn-edit {
           margin-left: auto;
+          background: none;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.85rem;
+          padding: 0.2rem 0.4rem;
+          line-height: 1;
+        }
+        .btn-edit:hover {
+          color: var(--accent);
+        }
+        .btn-remove {
           background: none;
           border: none;
           color: var(--muted);
@@ -1018,6 +1185,34 @@ export default function AgendaPage() {
         }
         .btn-remove:hover {
           color: var(--accent-red);
+        }
+        .rule-item-editing, .block-item-editing {
+          flex-wrap: wrap;
+        }
+        .rule-item-editing select,
+        .rule-item-editing input,
+        .block-item-editing input {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.6rem;
+          color: var(--text);
+          font-size: 0.82rem;
+        }
+        .rule-item-editing .btn-primary,
+        .block-item-editing .btn-primary {
+          padding: 0.4rem 0.8rem;
+          font-size: 0.8rem;
+        }
+        .rule-item-editing .btn-secondary,
+        .block-item-editing .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.8rem;
+          font-size: 0.8rem;
+          cursor: pointer;
         }
         .rule-form, .block-form {
           display: flex;
