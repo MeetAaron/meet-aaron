@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
         system: buildSystemPrompt(pastCampaignsSummary, authedUser.locale),
         messages: conversationMessages,
       },
-      user.company_id
+      user.company_id, 'ap'
     );
 
     const textBlock = data.content.find((b: any) => b.type === 'text');
