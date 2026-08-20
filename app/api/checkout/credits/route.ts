@@ -21,6 +21,12 @@
 // Réservé au patron de la société : c'est une dépense engagée pour toute
 // l'équipe, pas une action qu'un commercial devrait pouvoir déclencher seul
 // (même logique que /api/team, réservé au patron).
+//
+// Tâche #140 (2026-08-20) : accepte désormais un `module` optionnel
+// ('ap'|'as'|'ac') pour acheter des crédits réservés à UN module (Aaron
+// Prospect / Sales / Customer) plutôt que le pool général — voir
+// lib/credits.ts et migration_credits_per_module_2026-08-20.sql. Omis, le
+// comportement est identique à avant (pool général).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
@@ -31,9 +37,16 @@ const CREDIT_PRICE_EUR = 1.5;
 const MIN_CREDITS = 1;
 const MAX_CREDITS = 5000;
 
+const MODULE_LABELS: Record<string, string> = {
+  ap: 'Aaron Prospect',
+  as: 'Aaron Sales',
+  ac: 'Aaron Customer',
+};
+
 export async function POST(request: NextRequest) {
-  const { credits } = await request.json();
+  const { credits, module } = await request.json();
   const creditsNum = Number(credits);
+  const moduleKey = typeof module === 'string' && module in MODULE_LABELS ? module : undefined;
 
   if (!Number.isInteger(creditsNum) || creditsNum < MIN_CREDITS || creditsNum > MAX_CREDITS) {
     return NextResponse.json({ error: 'Nombre de crédits invalide' }, { status: 400 });
@@ -60,8 +73,10 @@ export async function POST(request: NextRequest) {
           price_data: {
             currency: 'eur',
             product_data: {
-              name: `${creditsNum} crédits Aaron`,
-              description: "Crédits pour continuer à utiliser Aaron au-delà du plafond inclus dans l'abonnement",
+              name: moduleKey ? `${creditsNum} crédits ${MODULE_LABELS[moduleKey]}` : `${creditsNum} crédits Aaron`,
+              description: moduleKey
+                ? `Crédits pour continuer à utiliser ${MODULE_LABELS[moduleKey]} au-delà du plafond inclus dans l'abonnement`
+                : "Crédits pour continuer à utiliser Aaron au-delà du plafond inclus dans l'abonnement",
             },
             unit_amount: Math.round(amountEur * 100),
           },
@@ -76,6 +91,7 @@ export async function POST(request: NextRequest) {
         company_id: authedUser.company_id,
         amount_eur: String(amountEur),
         credits: String(creditsNum),
+        ...(moduleKey ? { module: moduleKey } : {}),
       },
     });
 
