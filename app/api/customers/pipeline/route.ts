@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
        renewal_email_subject, renewal_email_body, renewal_email_sent_at,
        upsell_suggestion, upsell_suggested_at, upsell_dismissed_at,
        testimonial_email_subject, testimonial_email_body, testimonial_email_sent_at,
+       devis_recap,
        prospect_companies (name, domain)`
     )
     .eq('assigned_user_id', userId)
