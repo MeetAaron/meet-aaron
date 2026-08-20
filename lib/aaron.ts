@@ -33,6 +33,7 @@ interface AaronOutput {
   } | null;
   action_required_from_sales: string | null;
   quote_requested: boolean;
+  deal_approved: { detected: boolean; reason: string | null } | null;
 }
 
 async function buildContext(prospectId: string) {
