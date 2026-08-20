@@ -327,8 +327,8 @@ export async function POST(request: NextRequest) {
         {
           error:
             err.reason === 'daily'
-              ? "Plafond de dépense API du jour atteint pour votre société — ça repart automatiquement demain."
-              : "Le plafond de dépense API mensuel de votre société est atteint — contactez votre administrateur.",
+              ? "Plafond de dépense API du jour atteint pour ta société — ça repart automatiquement demain."
+              : "Le plafond de dépense API mensuel de ta société est atteint — contacte ton administrateur.",
         },
         { status: 429 }
       );
