@@ -58,6 +58,45 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Fréquence des échanges (docx CLIENTS A1) : dernier message + nombre de
+  // messages entrants sur 30 jours, par client, via la conversation email.
+  let lastMessageByProspect: Record<string, { direction: 'inbound' | 'outbound'; sentAt: string }> = {};
+  let inboundCountByProspect: Record<string, number> = {};
+  if (customerIds.length > 0) {
+    const { data: conversations } = await supabaseAdmin
+      .from('conversations')
+      .select('id, prospect_id')
+      .in('prospect_id', customerIds)
+      .eq('channel', 'email');
+
+    const conversationIdToProspectId: Record<string, string> = {};
+    for (const conv of conversations || []) {
+      conversationIdToProspectId[conv.id] = conv.prospect_id;
+    }
+    const conversationIds = Object.keys(conversationIdToProspectId);
+
+    if (conversationIds.length > 0) {
+      const { data: messages } = await supabaseAdmin
+        .from('messages')
+        .select('conversation_id, direction, sent_at')
+        .in('conversation_id', conversationIds)
+        .order('sent_at', { ascending: false });
+
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      for (const msg of messages || []) {
+        const prospectId = conversationIdToProspectId[msg.conversation_id];
+        if (!prospectId) continue;
+
+        if (!lastMessageByProspect[prospectId]) {
+          lastMessageByProspect[prospectId] = { direction: msg.direction, sentAt: msg.sent_at };
+        }
+        if (msg.direction === 'inbound' && msg.sent_at && new Date(msg.sent_at).getTime() >= thirtyDaysAgo) {
+          inboundCountByProspect[prospectId] = (inboundCountByProspect[prospectId] || 0) + 1;
+        }
+      }
+    }
+  }
+
   let updated = 0;
   const alerted: string[] = [];
 
@@ -71,6 +110,8 @@ export async function GET(request: NextRequest) {
         lastCheckin: lastCheckin
           ? { sentAt: lastCheckin.sent_at, respondedAt: lastCheckin.responded_at, responseScore: lastCheckin.response_score }
           : null,
+        lastMessage: lastMessageByProspect[customer.id] || null,
+        inboundMessageCountLast30Days: inboundCountByProspect[customer.id] || 0,
       });
 
       await supabaseAdmin
