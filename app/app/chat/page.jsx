@@ -137,6 +137,17 @@ export default function ChatPage() {
   const [restartRequested, setRestartRequested] = useState(false);
   const [restartSeeded, setRestartSeeded] = useState(false);
   const bottomRef = useRef(null);
+  const messagesRef = useRef(null);
+  const textareaRef = useRef(null);
+  // docx "CHAT AVEC AARON" item A1 : le texte en cours de rédaction (non
+  // envoyé) doit survivre à un aller-retour sur une autre page — comme un
+  // brouillon WhatsApp. La page se démonte complètement en changeant de
+  // rubrique (ce n'est pas un problème d'auth/historique comme pour les
+  // messages déjà envoyés, voir /api/chat-history plus haut), donc un state
+  // React seul ne suffit pas : on persiste dans localStorage, scopé par
+  // utilisateur pour ne pas mélanger les brouillons entre commerciaux d'une
+  // même entreprise partageant le même navigateur.
+  const draftStorageKey = userId ? `meetaaron_chat_draft_${userId}` : null;
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
   // d'avoir à englober la page dans un <Suspense> côté build Next.js.
@@ -261,9 +272,62 @@ export default function ChatPage() {
     }).catch(() => {});
   }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale]);
 
+  // docx item A3 : scroller uniquement la liste de messages elle-même (pas
+  // toute la page) à chaque nouveau message. `scrollIntoView` sans option
+  // `block: 'nearest'` peut aussi faire défiler des ancêtres qui montrent
+  // déjà l'élément (ex: la page entière si `.chat-box` dépasse la fenêtre),
+  // ce qui produisait le "la page descend toute seule" remonté par Alex — on
+  // manipule directement `scrollTop` du conteneur scrollable pour rester
+  // strictement local à la boîte de chat.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [messages, sending]);
+
+  // docx item A1 : restaure le brouillon non envoyé dès que l'utilisateur est
+  // connu (une seule fois — on ne veut pas écraser ce que l'utilisateur est
+  // déjà en train de retaper si l'effet se redéclenchait).
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!draftStorageKey || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(draftStorageKey);
+      if (saved) setInput(saved);
+    } catch {
+      // localStorage indisponible (navigation privée stricte, etc.) — le
+      // brouillon ne survivra simplement pas à un changement de page, sans
+      // bloquer le reste de la fonctionnalité.
+    }
+  }, [draftStorageKey]);
+
+  // Sauvegarde le brouillon à chaque frappe, pour qu'il survienne un aller-
+  // retour vers une autre rubrique (la page se démonte entièrement).
+  useEffect(() => {
+    if (!draftStorageKey) return;
+    try {
+      if (input) {
+        window.localStorage.setItem(draftStorageKey, input);
+      } else {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+    } catch {
+      // Voir plus haut.
+    }
+  }, [draftStorageKey, input]);
+
+  // Le cadre ne s'agrandit "en direct" que via l'onChange du textarea (item
+  // A2) — quand `input` change par programme plutôt que par frappe (brouillon
+  // restauré au chargement, envoi qui vide le champ), rien ne redéclenche ce
+  // handler DOM, donc on resynchronise la hauteur ici à chaque changement de
+  // `input`, peu importe la cause.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    if (input) el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   async function handleGenerateSummary() {
     if (summarizing) return;
@@ -459,7 +523,7 @@ export default function ChatPage() {
       )}
 
       <div className="chat-box">
-        <div className="messages">
+        <div className="messages" ref={messagesRef}>
           {messages.length === 0 && (
             <div className="intro">
               <p>
@@ -492,9 +556,21 @@ export default function ChatPage() {
         )}
 
         <form className="input-row" onSubmit={handleSend}>
-          <input
+          <textarea
+            ref={textareaRef}
+            className="chat-textarea"
             value={input}
+            rows={1}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              // Entrée envoie (comme WhatsApp) ; Maj+Entrée insère un retour
+              // à la ligne — sinon impossible d'écrire un message multi-ligne
+              // avec un <textarea> qui envoie sur Entrée simple.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (input.trim() && !sending) handleSend(e);
+              }
+            }}
             placeholder={t('chat.inputPlaceholder', locale)}
             disabled={sending}
           />
@@ -649,11 +725,12 @@ export default function ChatPage() {
         }
         .input-row {
           display: flex;
+          align-items: flex-end;
           gap: 0.6rem;
           padding: 1rem;
           border-top: 1px solid var(--border);
         }
-        .input-row input {
+        .chat-textarea {
           flex: 1;
           background: var(--bg);
           border: 1px solid var(--border);
@@ -661,6 +738,15 @@ export default function ChatPage() {
           padding: 0.7rem 1rem;
           color: var(--text);
           font-size: 0.9rem;
+          font-family: inherit;
+          line-height: 1.4;
+          resize: none;
+          /* docx item A2 : s'agrandit avec le contenu (voir l'effet JS qui
+             ajuste style.height) jusqu'à ~6 lignes, puis défile — comme un
+             champ de saisie WhatsApp, sans jamais avaler toute la page. */
+          min-height: 2.6rem;
+          max-height: 9rem;
+          overflow-y: auto;
         }
         .btn-send {
           background: var(--accent);
