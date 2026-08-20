@@ -402,9 +402,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   // Aaron Sales v2 — le commercial colle ici le lien de la procédure de
-  // signature externe (Yousign ou autre) une fois le devis envoyé, en
-  // attendant une éventuelle intégration API directe (nécessite une clé
-  // Yousign fournie par Alex — voir migration_aaron_v2_2026-08-13.sql).
+  // signature externe (Yousign/Youtrust ou autre) une fois le devis envoyé.
+  // Depuis le 2026-08-20, ceci reste un REPLI manuel à côté de l'envoi
+  // automatique via l'API Youtrust (voir action POST sur
+  // app/api/prospects/[id]/signature-request et lib/youtrust.ts) — utile si
+  // Alex préfère générer le lien lui-même dans un autre outil, ou tant que
+  // YOUTRUST_API_KEY n'est pas configurée.
   if (action === 'set_signature_link') {
     if (typeof signature_link !== 'string' || !signature_link.trim()) {
       return NextResponse.json({ error: 'Lien de signature manquant' }, { status: 400 });
@@ -429,7 +432,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     await supabaseAdmin
       .from('prospects')
-      .update({ signature_external_link: null, signature_requested_at: null })
+      .update({
+        signature_external_link: null,
+        signature_requested_at: null,
+        youtrust_signature_request_id: null,
+        signature_status: null,
+        signature_completed_at: null,
+      })
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true });
