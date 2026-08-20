@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { NavIcon, LockIcon } from '@/components/NavIcon';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -913,7 +914,7 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon">{item.icon}</span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}>🔒</span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
             </Link>
           ))}
         </ul>
