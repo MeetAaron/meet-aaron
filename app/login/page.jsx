@@ -27,6 +27,22 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Demande d'Alex (docx CHANGEMENTS A FAIRE, item 1/A1) : pré-remplir email +
+  // mot de passe quand "se souvenir de moi" est coché. On ne stocke QUE
+  // l'email nous-mêmes (pas sensible) — jamais le mot de passe en clair dans
+  // notre propre stockage, ce serait un risque de sécurité inutile. Pour le
+  // mot de passe, la bonne pratique est de laisser le gestionnaire de mots de
+  // passe du NAVIGATEUR s'en charger (stockage chiffré côté OS/navigateur,
+  // pas côté app) : voir les attributs autoComplete ajoutés sur les champs
+  // ci-dessous, qui permettent au navigateur de proposer "Enregistrer le mot
+  // de passe ?" et de le pré-remplir lui-même ensuite.
+  useEffect(() => {
+    try {
+      const rememberedEmail = window.localStorage.getItem('aaron-remembered-email');
+      if (rememberedEmail) setEmail(rememberedEmail);
+    } catch (err) {}
+  }, []);
+
   async function handleEmailSubmit(e) {
     e.preventDefault();
     setLoading(true);
@@ -35,6 +51,13 @@ export default function LoginPage() {
 
     if (mode === 'signin') {
       setRememberMe(remember);
+      try {
+        if (remember) {
+          window.localStorage.setItem('aaron-remembered-email', email);
+        } else {
+          window.localStorage.removeItem('aaron-remembered-email');
+        }
+      } catch (err) {}
       const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
       if (error) {
         setError(error.message);
@@ -114,6 +137,7 @@ export default function LoginPage() {
             placeholder={t('auth.emailLabel', locale)}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
             required
           />
           <input
@@ -121,6 +145,7 @@ export default function LoginPage() {
             placeholder={t('auth.passwordLabel', locale)}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             required
             minLength={6}
           />
