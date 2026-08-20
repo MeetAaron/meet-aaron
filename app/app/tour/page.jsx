@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale } from '@/lib/i18n';
+import { NavIcon } from '@/components/NavIcon';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -200,7 +201,7 @@ export default function TourPage() {
               className={i === step ? 'active' : ''}
               onClick={() => setStep(i)}
             >
-              <span className="nav-icon">{s.icon}</span>
+              <span className="nav-icon"><NavIcon slug={s.slug} size={15} /></span>
               {s.title}
             </li>
           ))}
@@ -209,7 +210,9 @@ export default function TourPage() {
 
       <div className="tour-card">
         <p className="tour-progress">{step + 1} / {slides.length}</p>
-        <div className="tour-icon">{current.icon}</div>
+        <div className="tour-icon-badge">
+          <NavIcon slug={current.slug} size={40} />
+        </div>
         <h1>{current.title}</h1>
         <p className="tour-text">{current.text}</p>
 
@@ -322,9 +325,13 @@ export default function TourPage() {
           font-weight: 500;
         }
         .nav-icon {
-          font-size: 0.95rem;
-          width: 1.1em;
-          text-align: center;
+          width: 1.7em;
+          height: 1.7em;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 8px;
+          background: rgba(244, 241, 234, 0.04);
           flex-shrink: 0;
         }
         .tour-card {
@@ -343,9 +350,17 @@ export default function TourPage() {
           letter-spacing: 0.1em;
           margin: 0 0 1.2rem;
         }
-        .tour-icon {
-          font-size: 3rem;
-          margin-bottom: 1rem;
+        .tour-icon-badge {
+          width: 84px;
+          height: 84px;
+          border-radius: 50%;
+          margin: 0 auto 1.2rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #f4f1ea;
+          background: radial-gradient(circle at 32% 28%, #6a5bf5, #4b39ef 55%, #362a9e);
+          box-shadow: 0 10px 28px rgba(75, 57, 239, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
         }
         h1 {
           font-family: 'Space Grotesk', sans-serif;
