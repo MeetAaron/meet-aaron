@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 function useAuthedUser() {
@@ -341,6 +341,21 @@ function Shell({ children, active, userId }) {
     };
   }, [userId]);
 
+  // Demande d'Alex (docx CHANGEMENTS A FAIRE, item A10, 2026-08-20) : une
+  // rubrique connexion/déconnexion visible tout en bas de la barre latérale,
+  // sur chaque page (pas seulement Préférences comme avant) — distincte du
+  // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+  // l'activité des campagnes, pas la connexion de l'utilisateur.
+  async function handleLogout() {
+    await supabaseBrowser.auth.signOut();
+    // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+    // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+    // qu'un lien direct vers /app, juste après cette déconnexion, repasse
+    // bien par /login au lieu de rouvrir l'app.
+    clearExplicitLogin();
+    window.location.href = '/login';
+  }
+
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
@@ -411,6 +426,16 @@ function Shell({ children, active, userId }) {
             </Link>
           ))}
         </ul>
+        <div className="account-section">
+          <div className="conn-status">
+            <span className="conn-dot" />
+            {t('shell.connected', locale)}
+          </div>
+          <button type="button" className="logout-btn" onClick={handleLogout}>
+            <span className="nav-icon">🚪</span>
+            {t('common.logout', locale)}
+          </button>
+        </div>
       </nav>
       <main className="content">{children}</main>
       <style jsx global>{`
@@ -515,6 +540,46 @@ function Shell({ children, active, userId }) {
           border-right: 1px solid var(--border-soft);
           padding: 1.6rem 1.1rem;
           box-shadow: 1px 0 0 rgba(0, 0, 0, 0.15);
+        }
+        .account-section {
+          margin-top: 0.8rem;
+          padding-top: 0.8rem;
+          border-top: 1px solid var(--border-soft);
+        }
+        .conn-status {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.3rem 0.75rem 0.5rem;
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+        .conn-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--accent-green);
+          box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18);
+          flex-shrink: 0;
+        }
+        .logout-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          width: 100%;
+          padding: 0.62rem 0.75rem;
+          border: none;
+          border-radius: var(--radius-md);
+          background: transparent;
+          color: var(--muted);
+          font-size: 0.87rem;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background var(--fast), color var(--fast);
+        }
+        .logout-btn:hover {
+          background: var(--surface-hover);
+          color: var(--accent-red);
         }
         .brand {
           display: flex;
