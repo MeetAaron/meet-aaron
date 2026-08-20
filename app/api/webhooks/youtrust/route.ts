@@ -29,6 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPushNotification } from '@/lib/push';
+import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 
 function extractSignatureRequestId(event: any): string | null {
   return (
@@ -98,6 +99,10 @@ export async function POST(request: NextRequest) {
       body: `${prospect.full_name} a signé le devis. Aaron l'a basculé en client gagné.`,
       url: `/app/customer?user_id=${prospect.assigned_user_id}`,
     });
+
+    // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature — voir
+    // lib/aaron-customer.ts. Fire-and-forget, best-effort.
+    triggerAutomaticOnboarding(prospect.id).catch(() => {});
   } else {
     await supabaseAdmin
       .from('prospects')
