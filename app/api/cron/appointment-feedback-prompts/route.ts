@@ -30,6 +30,11 @@ export async function GET(request: NextRequest) {
     .from('appointments')
     .select('id, proposed_at, user_id, outcome, users(id, full_name, email, notify_channel), prospects(full_name)')
     .eq('status', 'validé')
+    // purpose = 'commercial' (défaut historique) uniquement : le bilan
+    // "Bon RDV / Opportunité / Devis / Perdu" n'a pas de sens pour un RDV de
+    // lancement (purpose = 'lancement', tâche #141) puisque le client est
+    // déjà signé — voir migration_kickoff_rdv_2026-08-20.sql.
+    .eq('purpose', 'commercial')
     .is('outcome', null)
     .lt('proposed_at', now.toISOString())
     .gt('proposed_at', windowStart.toISOString());
