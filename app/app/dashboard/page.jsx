@@ -1364,10 +1364,30 @@ function RescueModal({ prospect, onClose, onDone }) {
 
 function AaronPulse({ active }) {
   const [locale] = useLocale();
+  // docx AJOUT GLOBAL item A7 : Alex ne savait pas à quoi sert la pastille
+  // "En veille" — l'explication existait déjà (attribut title, survol
+  // souris uniquement) mais n'était pas assez visible, et invisible au
+  // tactile (mobile/tablette). Ajout d'un bouton info explicite, cliquable
+  // partout, qui affiche le même texte dans une bulle.
+  const [showInfo, setShowInfo] = useState(false);
+  const explanation = active ? t('pulse.activeTitle', locale) : t('pulse.idleTitle', locale);
   return (
-    <div className="pulse-wrap" title={active ? t('pulse.activeTitle', locale) : t('pulse.idleTitle', locale)}>
+    <div className="pulse-wrap" title={explanation}>
       <span className={`pulse-dot ${active ? 'is-active' : ''}`} />
       <span className="pulse-label">{active ? t('pulse.activeLabel', locale) : t('pulse.idleLabel', locale)}</span>
+      <button
+        type="button"
+        className="pulse-info-btn"
+        onClick={() => setShowInfo((v) => !v)}
+        aria-label={t('pulse.infoAriaLabel', locale)}
+      >
+        ⓘ
+      </button>
+      {showInfo && (
+        <div className="pulse-info-popover" onClick={() => setShowInfo(false)}>
+          {explanation}
+        </div>
+      )}
       <style jsx>{`
         .pulse-wrap {
           display: flex;
@@ -1377,6 +1397,35 @@ function AaronPulse({ active }) {
           border: 1px solid var(--border);
           border-radius: 999px;
           padding: 0.5rem 0.9rem;
+          position: relative;
+        }
+        .pulse-info-btn {
+          background: none;
+          border: none;
+          padding: 0;
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.85rem;
+          line-height: 1;
+          cursor: pointer;
+        }
+        .pulse-info-btn:hover {
+          color: var(--text);
+        }
+        .pulse-info-popover {
+          position: absolute;
+          top: calc(100% + 0.4rem);
+          right: 0;
+          width: 220px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.7rem;
+          font-size: 0.78rem;
+          color: var(--text);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+          z-index: 20;
+          cursor: pointer;
         }
         .pulse-dot {
           width: 9px;
