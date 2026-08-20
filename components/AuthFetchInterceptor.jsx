@@ -60,15 +60,37 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     const opts = init ? { ...init } : {};
 
     try {
-      const { data } = await supabaseBrowser.auth.getSession();
-      const token = data?.session?.access_token;
+      let { data } = await supabaseBrowser.auth.getSession();
+      let session = data?.session;
+
+      // Bug remonté par Alex (2026-08-19/20) : "Non authentifié — reconnectez-
+      // vous" sur des actions qui suivent un formulaire un peu long à remplir
+      // (ajout d'un créneau récurrent en Agenda, upload d'un document avec
+      // description/catégorie) — le point commun étant le TEMPS passé sur la
+      // page avant l'envoi. Piste retenue : le rafraîchissement automatique du
+      // token Supabase tourne sur un minuteur en arrière-plan qui peut être
+      // throttlé par le navigateur (onglet inactif, économie d'énergie), donc
+      // le token en localStorage peut être expiré au moment de l'envoi sans
+      // que le rafraîchissement automatique ait eu l'occasion de se déclencher.
+      // On vérifie donc nous-mêmes l'expiration ici et on force un
+      // rafraîchissement explicite si besoin, plutôt que de compter uniquement
+      // sur le minuteur interne du client Supabase.
+      const expiresAt = session?.expires_at; // secondes depuis epoch
+      const expiringSoon = typeof expiresAt === 'number' && expiresAt <= Math.floor(Date.now() / 1000) + 10;
+      if (session && expiringSoon) {
+        const { data: refreshed } = await supabaseBrowser.auth.refreshSession();
+        if (refreshed?.session) session = refreshed.session;
+      }
+
+      const token = session?.access_token;
       if (token) {
         opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
       }
     } catch (err) {
-      // Si on ne peut pas lire la session, on laisse partir la requête sans le
-      // header plutôt que de bloquer l'appli — la route protégée répondra 401,
-      // ce qui est un échec propre plutôt qu'un plantage silencieux ici.
+      // Si on ne peut pas lire/rafraîchir la session, on laisse partir la
+      // requête sans le header plutôt que de bloquer l'appli — la route
+      // protégée répondra 401, ce qui est un échec propre plutôt qu'un
+      // plantage silencieux ici.
     }
 
     const response = await originalFetch(input, opts);
