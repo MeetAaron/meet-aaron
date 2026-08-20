@@ -192,6 +192,262 @@ function healthBucketFor(customer) {
   return customer.customer_health_label || 'non_evalue';
 }
 
+// Historique de rapports (CHANGEMENTS A FAIRE #137, item A1) et bilan par
+// catégorie (item A3) — découpage en périodes jour (minuit à minuit),
+// semaine (lundi à dimanche) ou mois (calendaire), les plus récentes en
+// premier. `now` est un paramètre (plutôt que new Date() en dur) pour que le
+// composant reste facilement testable/prévisible.
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function startOfWeek(d) {
+  const x = startOfDay(d);
+  const day = (x.getDay() + 6) % 7; // lundi = 0
+  x.setDate(x.getDate() - day);
+  return x;
+}
+function startOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function reportBuckets(type, count, now) {
+  const ref = now || new Date();
+  const buckets = [];
+  for (let i = 0; i < count; i++) {
+    if (type === 'week') {
+      const start = startOfWeek(ref);
+      start.setDate(start.getDate() - i * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 7);
+      end.setMilliseconds(-1);
+      buckets.push({ start, end, key: start.toISOString().slice(0, 10) });
+    } else if (type === 'month') {
+      const start = startOfMonth(ref);
+      start.setMonth(start.getMonth() - i);
+      const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      end.setMilliseconds(-1);
+      buckets.push({ start, end, key: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}` });
+    } else {
+      const start = startOfDay(ref);
+      start.setDate(start.getDate() - i);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      end.setMilliseconds(-1);
+      buckets.push({ start, end, key: start.toISOString().slice(0, 10) });
+    }
+  }
+  return buckets;
+}
+
+// Ne garde que les périodes qui recoupent effectivement la période choisie
+// pour la catégorie (item A3 : "tout en gardant la période") — évite
+// d'afficher un bilan jour/semaine/mois qui déborde avant le début de la
+// période sélectionnée par le commercial.
+function bucketsWithinRange(type, range, count, now) {
+  const all = reportBuckets(type, count, now);
+  if (!range.start) return all;
+  return all.filter((b) => b.end >= range.start);
+}
+
+function reportTypeLabel(type, locale) {
+  if (type === 'week') return t('results.reportTabWeek', locale);
+  if (type === 'month') return t('results.reportTabMonth', locale);
+  return t('results.reportTabDay', locale);
+}
+
+function reportLabel(type, bucket, locale) {
+  const typeLabel = reportTypeLabel(type, locale);
+  if (type === 'month') {
+    return `${typeLabel} — ${bucket.start.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}`;
+  }
+  if (type === 'week') {
+    return `${typeLabel} — ${bucket.start.toLocaleDateString(locale)} / ${bucket.end.toLocaleDateString(locale)}`;
+  }
+  return `${typeLabel} — ${bucket.start.toLocaleDateString(locale)}`;
+}
+
+// Résumé chiffré d'une période — même logique que
+// lib/results-report.ts::computePeriodSummary (côté serveur, pour le
+// téléchargement), mais réutilise les données déjà chargées par la page
+// plutôt que de refaire des requêtes.
+function summarizeRange(range, data) {
+  const { prospects, appointments, deals, customers } = data;
+  const prospectsInRange = prospects.filter((p) => withinRange(p.created_at || p.updated_at, range));
+  const apptsInRange = appointments.filter((a) => withinRange(a.proposed_at, range));
+  const rdvObtenus = apptsInRange.filter((a) => a.status === 'validé' || a.status === 'terminé').length;
+  const rdvEnAttente = apptsInRange.filter((a) => a.status === 'proposé').length;
+  const tauxConversion = prospectsInRange.length > 0 ? Math.round((rdvObtenus / prospectsInRange.length) * 100) : 0;
+  const dealsInRange = deals.filter((d) => withinRange(d.deal_stage_updated_at, range));
+  const opportunitesGagnees = dealsInRange.filter((d) => d.deal_stage === 'signe').length;
+  const opportunitesPerdues = dealsInRange.filter((d) => d.deal_stage === 'perdu').length;
+  const customersInRange = customers.filter((c) => withinRange(c.won_at, range));
+  return {
+    prospectsContactes: prospectsInRange.length,
+    rdvObtenus,
+    rdvEnAttente,
+    tauxConversion,
+    opportunitesGagnees,
+    opportunitesPerdues,
+    clientsGagnes: customersInRange.length,
+  };
+}
+
+// Évolution/comparaison de performance (item A2) — fenêtre glissante (1
+// mois/6 mois/1 an) ou dates personnalisées, comparée à la fenêtre
+// équivalente immédiatement précédente (même durée, juste avant).
+function evolutionRangeFor(window, custom, now) {
+  const ref = now || new Date();
+  if (window === 'custom') {
+    if (!custom.from) return null;
+    const end = custom.to ? new Date(`${custom.to}T23:59:59`) : ref;
+    const start = new Date(custom.from);
+    const durationMs = Math.max(end.getTime() - start.getTime(), 0);
+    const prevEnd = new Date(start.getTime() - 1);
+    const prevStart = new Date(prevEnd.getTime() - durationMs);
+    return { current: { start, end }, previous: { start: prevStart, end: prevEnd } };
+  }
+  const months = window === '6m' ? 6 : window === '1y' ? 12 : 1;
+  const start = new Date(ref);
+  start.setMonth(start.getMonth() - months);
+  const prevStart = new Date(start);
+  prevStart.setMonth(prevStart.getMonth() - months);
+  const prevEnd = new Date(start.getTime() - 1);
+  return { current: { start, end: ref }, previous: { start: prevStart, end: prevEnd } };
+}
+
+// Bilan jour/semaine/mois compact pour une catégorie (item A3) — une rangée
+// de mini-cartes (valeur + date), la plus récente à droite, plutôt qu'un
+// graphique : aucune dépendance de charting à ajouter, cohérent avec le
+// reste de la page (StatCard/cat-stat-card).
+function BilanRow({ label, type, onTypeChange, rows, locale }) {
+  return (
+    <div className="bilan-row">
+      <div className="bilan-head">
+        <span className="bilan-label">{label}</span>
+        <div className="bilan-toggle">
+          {['day', 'week', 'month'].map((ty) => (
+            <button
+              key={ty}
+              type="button"
+              className={`bilan-btn${type === ty ? ' active' : ''}`}
+              onClick={() => onTypeChange(ty)}
+            >
+              {reportTypeLabel(ty, locale)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="bilan-buckets">
+        {rows.length === 0 ? (
+          <span className="muted bilan-empty">—</span>
+        ) : (
+          [...rows].reverse().map(({ bucket, value }) => (
+            <div className="bilan-bucket" key={bucket.key}>
+              <span className="bilan-value">{value}</span>
+              <span className="bilan-date">
+                {type === 'month'
+                  ? bucket.start.toLocaleDateString(locale, { month: 'short' })
+                  : bucket.start.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+      <style jsx>{`
+        .bilan-row {
+          margin-top: 1.2rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border);
+        }
+        .bilan-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.6rem;
+        }
+        .bilan-label {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: var(--muted);
+        }
+        .bilan-toggle {
+          display: flex;
+          gap: 0.3rem;
+        }
+        .bilan-btn {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.25rem 0.65rem;
+          font-size: 0.72rem;
+          cursor: pointer;
+        }
+        .bilan-btn.active {
+          background: rgba(75, 57, 239, 0.18);
+          border-color: var(--accent);
+          color: var(--text);
+          font-weight: 600;
+        }
+        .bilan-buckets {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .bilan-bucket {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.15rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.6rem;
+          min-width: 46px;
+        }
+        .bilan-value {
+          font-family: var(--font-mono);
+          font-weight: 600;
+          font-size: 0.9rem;
+        }
+        .bilan-date {
+          font-size: 0.62rem;
+          color: var(--muted);
+        }
+        .bilan-empty {
+          font-size: 0.78rem;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function EvolutionMetric({ label, current, previous, suffix }) {
+  const delta = current - previous;
+  const pct = previous > 0 ? Math.round((delta / previous) * 100) : current > 0 ? 100 : 0;
+  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+  const arrow = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '—';
+  return (
+    <div className="evolution-metric">
+      <span className="evolution-label">{label}</span>
+      <span className="evolution-value">
+        {current}
+        {suffix || ''}
+      </span>
+      <span className={`evolution-delta ${direction}`}>
+        {arrow} {delta > 0 ? '+' : ''}
+        {delta}
+        {suffix || ''} ({pct > 0 ? '+' : ''}
+        {pct}%)
+      </span>
+    </div>
+  );
+}
+
 export default function ResultatsPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
@@ -212,6 +468,24 @@ export default function ResultatsPage() {
     opportunities: { from: '', to: '' },
     clients: { from: '', to: '' },
   });
+
+  // Historique de rapports (#137 item A1) : onglet jour/semaine/mois, et
+  // "agrandir" pour révéler plus que les 5 rapports les plus récents.
+  const [reportTab, setReportTab] = useState('day');
+  const [reportsExpanded, setReportsExpanded] = useState(false);
+  const [downloadingKey, setDownloadingKey] = useState(null);
+
+  // Évolution/comparaison de performance (#137 item A2).
+  const [evolutionWindow, setEvolutionWindow] = useState('1m');
+  const [evolutionCustom, setEvolutionCustom] = useState({ from: '', to: '' });
+
+  // Bilan jour/semaine/mois par catégorie (#137 item A3) — un choix
+  // indépendant par catégorie, en plus (et non à la place) du sélecteur de
+  // période déjà existant pour chacune.
+  const [bilanTypes, setBilanTypes] = useState({ prospects: 'day', opportunities: 'day', clients: 'day' });
+  function updateBilanType(category, value) {
+    setBilanTypes((prev) => ({ ...prev, [category]: value }));
+  }
 
   function updatePeriod(category, value) {
     setPeriods((prev) => ({ ...prev, [category]: value }));
@@ -329,6 +603,71 @@ export default function ResultatsPage() {
     return acc;
   }, {});
 
+  // Historique de rapports (item A1) — les rapports les plus récents
+  // d'abord, 5 par défaut ("agrandir" en révèle davantage).
+  const rangeData = { prospects, appointments, deals, customers };
+  const reportCount = reportsExpanded ? (reportTab === 'day' ? 15 : 12) : 5;
+  const reportRows = reportBuckets(reportTab, reportCount).map((bucket) => ({
+    bucket,
+    summary: summarizeRange({ start: bucket.start, end: bucket.end }, rangeData),
+  }));
+
+  async function downloadReport(bucket, format) {
+    const key = `${reportTab}-${bucket.key}-${format}`;
+    setDownloadingKey(key);
+    try {
+      const res = await fetch('/api/results/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          type: reportTab,
+          period_start: bucket.start.toISOString(),
+          period_end: bucket.end.toISOString(),
+          format,
+          title: reportLabel(reportTab, bucket, locale),
+        }),
+      });
+      if (!res.ok) throw new Error('download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rapport-${reportTab}-${bucket.key}.${format === 'csv' ? 'csv' : 'pdf'}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // Best-effort — un échec ponctuel de téléchargement ne doit pas
+      // bloquer le reste de la page.
+    } finally {
+      setDownloadingKey(null);
+    }
+  }
+
+  // Évolution/comparaison de performance (item A2).
+  const evolutionRanges = evolutionRangeFor(evolutionWindow, evolutionCustom);
+  const evolutionCurrent = evolutionRanges ? summarizeRange(evolutionRanges.current, rangeData) : null;
+  const evolutionPrevious = evolutionRanges ? summarizeRange(evolutionRanges.previous, rangeData) : null;
+
+  // Bilan par catégorie (item A3), contraint à la période déjà choisie pour
+  // cette catégorie.
+  const bilanProspects = bucketsWithinRange(bilanTypes.prospects, prospectsRange, 6).map((bucket) => ({
+    bucket,
+    value: prospects.filter((p) => withinRange(p.created_at || p.updated_at, { start: bucket.start, end: bucket.end })).length,
+  }));
+  const bilanOpportunities = bucketsWithinRange(bilanTypes.opportunities, opportunitiesRange, 6).map((bucket) => ({
+    bucket,
+    value: deals.filter(
+      (d) => d.deal_stage === 'signe' && withinRange(d.deal_stage_updated_at, { start: bucket.start, end: bucket.end })
+    ).length,
+  }));
+  const bilanClients = bucketsWithinRange(bilanTypes.clients, clientsRange, 6).map((bucket) => ({
+    bucket,
+    value: customers.filter((c) => withinRange(c.won_at, { start: bucket.start, end: bucket.end })).length,
+  }));
+
   return (
     <Shell active={t('nav.results', locale)} userId={userId}>
       <header className="header">
@@ -385,6 +724,14 @@ export default function ResultatsPage() {
                 </div>
               </div>
             </div>
+
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricProspects', locale)}`}
+              type={bilanTypes.prospects}
+              onTypeChange={(v) => updateBilanType('prospects', v)}
+              rows={bilanProspects}
+              locale={locale}
+            />
           </section>
 
           <section className="panel category-panel">
@@ -411,6 +758,14 @@ export default function ResultatsPage() {
                 </div>
               ))}
             </div>
+
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricOpportunitesGagnees', locale)}`}
+              type={bilanTypes.opportunities}
+              onTypeChange={(v) => updateBilanType('opportunities', v)}
+              rows={bilanOpportunities}
+              locale={locale}
+            />
           </section>
 
           <section className="panel category-panel">
@@ -434,6 +789,155 @@ export default function ResultatsPage() {
                 </div>
               ))}
             </div>
+
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricClientsGagnes', locale)}`}
+              type={bilanTypes.clients}
+              onTypeChange={(v) => updateBilanType('clients', v)}
+              rows={bilanClients}
+              locale={locale}
+            />
+          </section>
+
+          <section className="panel">
+            <div className="category-head">
+              <h2>{t('results.reportHistoryTitle', locale)}</h2>
+            </div>
+            <div className="report-tabs">
+              {['day', 'week', 'month'].map((ty) => (
+                <button
+                  key={ty}
+                  type="button"
+                  className={`report-tab${reportTab === ty ? ' active' : ''}`}
+                  onClick={() => {
+                    setReportTab(ty);
+                    setReportsExpanded(false);
+                  }}
+                >
+                  {reportTypeLabel(ty, locale)}
+                </button>
+              ))}
+            </div>
+            <div className="report-list">
+              {reportRows.map(({ bucket, summary }) => (
+                <div className="report-row" key={bucket.key}>
+                  <div className="report-row-main">
+                    <span className="report-row-title">{reportLabel(reportTab, bucket, locale)}</span>
+                    <span className="report-row-hint">
+                      {summary.prospectsContactes} {t('results.reportMetricProspects', locale).toLowerCase()} ·{' '}
+                      {summary.rdvObtenus} {t('results.reportMetricRdv', locale).toLowerCase()} ·{' '}
+                      {summary.opportunitesGagnees} {t('results.reportMetricOpportunitesGagnees', locale).toLowerCase()} ·{' '}
+                      {summary.clientsGagnes} {t('results.reportMetricClientsGagnes', locale).toLowerCase()}
+                    </span>
+                  </div>
+                  <div className="report-row-actions">
+                    <button
+                      type="button"
+                      className="report-btn"
+                      disabled={downloadingKey === `${reportTab}-${bucket.key}-pdf`}
+                      onClick={() => downloadReport(bucket, 'pdf')}
+                    >
+                      {t('results.reportDownloadPdf', locale)}
+                    </button>
+                    <button
+                      type="button"
+                      className="report-btn"
+                      disabled={downloadingKey === `${reportTab}-${bucket.key}-csv`}
+                      onClick={() => downloadReport(bucket, 'csv')}
+                    >
+                      {t('results.reportDownloadCsv', locale)}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="report-expand-btn" onClick={() => setReportsExpanded((v) => !v)}>
+              {reportsExpanded ? t('results.reportCollapse', locale) : t('results.reportExpand', locale)}
+            </button>
+          </section>
+
+          <section className="panel">
+            <div className="category-head">
+              <h2>{t('results.evolutionTitle', locale)}</h2>
+              <div className="evolution-window-row">
+                {['1m', '6m', '1y', 'custom'].map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    className={`period-btn-like${evolutionWindow === w ? ' active' : ''}`}
+                    onClick={() => setEvolutionWindow(w)}
+                  >
+                    {t(
+                      w === '1m'
+                        ? 'results.evolutionWindow1m'
+                        : w === '6m'
+                        ? 'results.evolutionWindow6m'
+                        : w === '1y'
+                        ? 'results.evolutionWindow1y'
+                        : 'results.evolutionWindowCustom',
+                      locale
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {evolutionWindow === 'custom' && (
+              <div className="evolution-custom-range">
+                <label>
+                  {t('results.evolutionFrom', locale)}
+                  <input
+                    type="date"
+                    value={evolutionCustom.from}
+                    max={evolutionCustom.to || undefined}
+                    onChange={(e) => setEvolutionCustom((prev) => ({ ...prev, from: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  {t('results.evolutionTo', locale)}
+                  <input
+                    type="date"
+                    value={evolutionCustom.to}
+                    min={evolutionCustom.from || undefined}
+                    onChange={(e) => setEvolutionCustom((prev) => ({ ...prev, to: e.target.value }))}
+                  />
+                </label>
+              </div>
+            )}
+            {evolutionCurrent && evolutionPrevious ? (
+              <>
+                <p className="category-hint">{t('results.evolutionVsPrevious', locale)}</p>
+                <div className="evolution-grid">
+                  <EvolutionMetric
+                    label={t('results.reportMetricProspects', locale)}
+                    current={evolutionCurrent.prospectsContactes}
+                    previous={evolutionPrevious.prospectsContactes}
+                  />
+                  <EvolutionMetric
+                    label={t('results.reportMetricRdv', locale)}
+                    current={evolutionCurrent.rdvObtenus}
+                    previous={evolutionPrevious.rdvObtenus}
+                  />
+                  <EvolutionMetric
+                    label={t('results.statConversionRate', locale)}
+                    current={evolutionCurrent.tauxConversion}
+                    previous={evolutionPrevious.tauxConversion}
+                    suffix="%"
+                  />
+                  <EvolutionMetric
+                    label={t('results.reportMetricOpportunitesGagnees', locale)}
+                    current={evolutionCurrent.opportunitesGagnees}
+                    previous={evolutionPrevious.opportunitesGagnees}
+                  />
+                  <EvolutionMetric
+                    label={t('results.reportMetricClientsGagnes', locale)}
+                    current={evolutionCurrent.clientsGagnes}
+                    previous={evolutionPrevious.clientsGagnes}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="muted">{t('results.reportNoneYet', locale)}</p>
+            )}
           </section>
         </>
       )}
@@ -545,6 +1049,164 @@ export default function ResultatsPage() {
           .stat-grid {
             grid-template-columns: repeat(2, 1fr);
           }
+        }
+        .report-tabs {
+          display: flex;
+          gap: 0.4rem;
+          margin-bottom: 1rem;
+        }
+        .report-tab {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.35rem 0.9rem;
+          font-size: 0.8rem;
+          cursor: pointer;
+        }
+        .report-tab.active {
+          background: rgba(75, 57, 239, 0.18);
+          border-color: var(--accent);
+          color: var(--text);
+          font-weight: 600;
+        }
+        .report-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .report-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          flex-wrap: wrap;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.8rem 1rem;
+        }
+        .report-row-main {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          min-width: 0;
+        }
+        .report-row-title {
+          font-weight: 600;
+          font-size: 0.88rem;
+        }
+        .report-row-hint {
+          font-size: 0.74rem;
+          color: var(--muted);
+        }
+        .report-row-actions {
+          display: flex;
+          gap: 0.4rem;
+          flex-shrink: 0;
+        }
+        .report-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.75rem;
+          font-size: 0.76rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .report-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .report-expand-btn {
+          margin-top: 0.9rem;
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0;
+        }
+        .evolution-window-row {
+          display: flex;
+          gap: 0.4rem;
+          flex-wrap: wrap;
+        }
+        .period-btn-like {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.35rem 0.8rem;
+          font-size: 0.76rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .period-btn-like.active {
+          background: rgba(75, 57, 239, 0.18);
+          border-color: var(--accent);
+          color: var(--text);
+          font-weight: 600;
+        }
+        .evolution-custom-range {
+          display: flex;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 1rem;
+        }
+        .evolution-custom-range label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .evolution-custom-range input {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          padding: 0.3rem 0.5rem;
+          font-size: 0.78rem;
+          font-family: inherit;
+        }
+        .evolution-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+          gap: 0.9rem;
+        }
+        .evolution-metric {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .evolution-label {
+          font-size: 0.76rem;
+          color: var(--muted);
+        }
+        .evolution-value {
+          font-family: var(--font-mono);
+          font-size: 1.4rem;
+          font-weight: 600;
+        }
+        .evolution-delta {
+          font-size: 0.76rem;
+          font-weight: 600;
+        }
+        .evolution-delta.up {
+          color: var(--accent-green, #3dd68c);
+        }
+        .evolution-delta.down {
+          color: var(--accent-red, #e5484d);
+        }
+        .evolution-delta.flat {
+          color: var(--muted);
         }
       `}</style>
     </Shell>
