@@ -187,8 +187,9 @@ export default function AgendaPage() {
   const [actingOn, setActingOn] = useState(null);
   const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addModalPreset, setAddModalPreset] = useState(null); // { kind, date } quand ouvert depuis le calendrier
+  const [addModalPreset, setAddModalPreset] = useState(null); // { kind, date, hideUnavailability } quand ouvert depuis le calendrier
   const [detailAppointment, setDetailAppointment] = useState(null);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false); // docx AGENDA #19 : liste repliable (5 par défaut)
 
   // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
   // hebdomadaires récurrentes + indisponibilités ponctuelles.
@@ -416,8 +417,10 @@ export default function AgendaPage() {
     cancelEditBlock();
   }
 
-  function openAddForDay(kind) {
-    setAddModalPreset({ kind, date: selectedDay });
+  function openAddForDay(kind, opts) {
+    // docx AGENDA A2 : "+RDV ce jour" ne doit proposer que les 3 vrais types
+    // de RDV, pas "indisponibilité" en 4e option (bouton dédié juste à côté).
+    setAddModalPreset({ kind, date: selectedDay, hideUnavailability: opts?.hideUnavailability });
     setShowAddModal(true);
   }
 
@@ -594,7 +597,7 @@ export default function AgendaPage() {
             )}
 
             <div className="day-detail-actions">
-              <button type="button" className="btn-secondary" onClick={() => openAddForDay(null)}>
+              <button type="button" className="btn-secondary" onClick={() => openAddForDay(null, { hideUnavailability: true })}>
                 {t('agenda.dayDetailAddAppt', locale)}
               </button>
               <button type="button" className="btn-secondary" onClick={() => openAddForDay('indisponibilite')}>
@@ -674,7 +677,7 @@ export default function AgendaPage() {
           <section className="block">
             <h2>{t('agenda.sectionAll', locale)}</h2>
             <div className="list">
-              {rest.map((a) => {
+              {(showAllUpcoming ? rest : rest.slice(0, 5)).map((a) => {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
                 return (
                   <div className="row" key={a.id}>
@@ -718,6 +721,17 @@ export default function AgendaPage() {
                 );
               })}
             </div>
+            {rest.length > 5 && (
+              <button
+                type="button"
+                className="btn-link-more"
+                onClick={() => setShowAllUpcoming((prev) => !prev)}
+              >
+                {showAllUpcoming
+                  ? t('agenda.showLess', locale)
+                  : `${t('agenda.showMore', locale)} (${rest.length - 5})`}
+              </button>
+            )}
           </section>
         </>
       )}
@@ -1250,6 +1264,19 @@ export default function AgendaPage() {
           font-size: 0.8rem;
           cursor: pointer;
         }
+        .btn-link-more {
+          background: none;
+          border: none;
+          color: var(--accent, #2563eb);
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0.6rem 0;
+          margin-top: 0.2rem;
+        }
+        .btn-link-more:hover {
+          text-decoration: underline;
+        }
       `}</style>
     </Shell>
   );
@@ -1520,7 +1547,9 @@ function toDateInputValue(d) {
 // planifier un RDV avec n'importe lequel des trois sans changer de page.
 function AddEntryModal({ userId, onClose, onCreated, preset }) {
   const [locale] = useLocale();
-  const ENTRY_KINDS = entryKindsFor(locale);
+  // docx AGENDA A2 : depuis "+RDV ce jour", ne pas re-proposer "indisponibilité"
+  // (un bouton dédié existe déjà juste à côté dans le panneau du jour).
+  const ENTRY_KINDS = entryKindsFor(locale).filter((k) => !(preset?.hideUnavailability && k.key === 'indisponibilite'));
   const [kind, setKind] = useState(preset?.kind || null);
   const [prospectSource, setProspectSource] = useState('aaron'); // 'aaron' | 'perso'
   const [contacts, setContacts] = useState([]); // prospects + opportunités + clients fusionnés
@@ -1730,7 +1759,17 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
             {error && <p className="error">{error}</p>}
 
             <div className="actions">
-              <button type="button" className="btn-secondary" onClick={() => setKind(null)}>{t('common.back', locale)}</button>
+              {/* docx AGENDA A2 : si le type était préréglé (ex. "Ajouter une
+                  indisponibilité" depuis le panneau du jour), "Retour" doit
+                  fermer la fenêtre — pas re-proposer un choix de type qui
+                  n'a jamais été affiché à l'utilisateur. */}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => (preset?.kind ? onClose() : setKind(null))}
+              >
+                {t('common.back', locale)}
+              </button>
               <button type="submit" className="btn-valid" disabled={submitting}>
                 {submitting ? t('agenda.saving', locale) : t('common.add', locale)}
               </button>
