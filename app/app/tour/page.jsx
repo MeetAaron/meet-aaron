@@ -85,6 +85,23 @@ function slidesFor(locale) {
       title: t('tour.slide.prospects.title', locale),
       text: t('tour.slide.prospects.text', locale),
     },
+    // docx AJOUT GLOBAL item A6 : "sales" (Opportunités) et "customer"
+    // (Clients) manquaient entièrement de la visite guidée — seul Aaron
+    // Prospect y était présenté, alors que ce sont 2 des 3 modules Aaron à
+    // part entière (même ordre que la barre latérale, voir NAV_ITEMS dans
+    // app/app/dashboard/page.jsx).
+    {
+      slug: 'sales',
+      icon: '🤝',
+      title: t('tour.slide.sales.title', locale),
+      text: t('tour.slide.sales.text', locale),
+    },
+    {
+      slug: 'customer',
+      icon: '🌟',
+      title: t('tour.slide.customer.title', locale),
+      text: t('tour.slide.customer.text', locale),
+    },
     {
       slug: 'campaigns',
       icon: '🚀',
