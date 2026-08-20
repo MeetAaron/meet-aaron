@@ -173,6 +173,14 @@ export default function PreferencesPage() {
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
   const [billingPortalError, setBillingPortalError] = useState(null);
+  // Tâche #140 (2026-08-20) : liste des factures Aaron affichées directement
+  // dans l'appli (voir app/api/billing/invoices/route.ts), en plus du portail
+  // Stripe déjà en place ci-dessus.
+  const [invoices, setInvoices] = useState(null);
+  const [invoicesError, setInvoicesError] = useState(null);
+  // Tâche #140 : montants personnalisés séparés pour chaque module payant
+  // (en plus de `customCredits` ci-dessous, qui reste le pool général).
+  const [customCreditsByModule, setCustomCreditsByModule] = useState({ ap: '', as: '', ac: '' });
   // CHANGEMENTS A FAIRE #91-93 (2026-08-16, items 28-32) : page renommée et
   // restructurée en 3 onglets (Mon profil / Préférences / Abonnement) — voir
   // tableau TABS plus bas. `handleSave` reste unique et sauvegarde tous les
@@ -223,6 +231,18 @@ export default function PreferencesPage() {
       .then((r) => r.json())
       .then((res) => setUsage(res))
       .catch(() => {});
+    fetch('/api/billing/invoices')
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok) {
+          // Peut arriver légitimement pour un compte non-patron (403) — pas
+          // une erreur à afficher, la section ne s'affiche de toute façon que
+          // pour le patron ci-dessous.
+          return;
+        }
+        setInvoices(body.invoices || []);
+      })
+      .catch(() => setInvoicesError(t('preferences.invoices.error', locale)));
     fetch(`/api/business-summary?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => {
@@ -374,14 +394,21 @@ export default function PreferencesPage() {
   // nombre de crédits (20/40/60/80/100 ou un montant personnalisé) plutôt
   // qu'un montant en euros — le tarif (30€ pour 20 crédits, soit 1,50€/crédit)
   // est calculé côté serveur dans /api/checkout/credits, jamais côté client.
-  async function handleBuyCredits(credits) {
-    setBuyingCredits(credits);
+  //
+  // Tâche #140 : `module` optionnel ('ap'|'as'|'ac') pour acheter des
+  // crédits réservés à un module précis plutôt que le pool général — voir
+  // app/api/checkout/credits/route.ts. `buyingCredits` combine module et
+  // montant pour distinguer quel bouton précis est en cours d'achat parmi
+  // les 4 blocs (général + 3 modules).
+  async function handleBuyCredits(credits, module) {
+    const buyingKey = `${module || 'general'}:${credits}`;
+    setBuyingCredits(buyingKey);
     setCreditsError(null);
     try {
       const res = await fetch('/api/checkout/credits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credits }),
+        body: JSON.stringify(module ? { credits, module } : { credits }),
       });
       const body = await res.json();
       if (!res.ok || !body.url) {
@@ -403,6 +430,15 @@ export default function PreferencesPage() {
       return;
     }
     handleBuyCredits(credits);
+  }
+
+  function handleBuyCustomCreditsForModule(module) {
+    const credits = Number(customCreditsByModule[module]);
+    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
+      setCreditsError(t('preferences.credits.invalidCustom', locale));
+      return;
+    }
+    handleBuyCredits(credits, module);
   }
 
   // Ouvre le portail de facturation Stripe (factures téléchargeables — avec
@@ -753,7 +789,7 @@ export default function PreferencesPage() {
                               disabled={buyingCredits !== null}
                               onClick={() => handleBuyCredits(credits)}
                             >
-                              {buyingCredits === credits ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
+                              {buyingCredits === `general:${credits}` ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
                             </button>
                           ))}
                         </div>
@@ -785,6 +821,68 @@ export default function PreferencesPage() {
                 </div>
               )}
 
+              {/* Tâche #140 (2026-08-20) : un solde de crédits séparé par
+                  module payant, en plus du pool général ci-dessus — voir
+                  lib/credits.ts et migration_credits_per_module_2026-08-20.sql.
+                  Réutilise OFFERS (mêmes libellés que le bloc modules plus
+                  haut) pour rester cohérent. */}
+              {usage && OFFERS.map((o) => {
+                const moduleKey = o.value.toLowerCase(); // 'ap' | 'as' | 'ac'
+                const moduleBalance = Number(usage[`credit_balance_${moduleKey}_eur`] || 0);
+                return (
+                  <div className="field credits-field" key={`credits-${moduleKey}`}>
+                    <label>{`${t('preferences.credits.moduleLabelPrefix', locale)} — ${o.label}`}</label>
+                    <div className="usage-box">
+                      <div className="usage-row">
+                        <span>{t('preferences.credits.currentBalance', locale)}</span>
+                        <strong>{moduleBalance.toFixed(2)} €</strong>
+                      </div>
+                      <p className="usage-hint">{t('preferences.credits.moduleHint', locale)}</p>
+                      {prefs.role === 'patron' ? (
+                        <>
+                          <div className="credits-buy-row">
+                            {[20, 40, 60, 80, 100].map((credits) => (
+                              <button
+                                key={credits}
+                                type="button"
+                                className="btn-secondary"
+                                disabled={buyingCredits !== null}
+                                onClick={() => handleBuyCredits(credits, moduleKey)}
+                              >
+                                {buyingCredits === `${moduleKey}:${credits}` ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="upload-row">
+                            <input
+                              type="number"
+                              min={1}
+                              max={5000}
+                              className="cap-input"
+                              placeholder={t('preferences.credits.customPlaceholder', locale)}
+                              value={customCreditsByModule[moduleKey]}
+                              onChange={(e) =>
+                                setCustomCreditsByModule((prev) => ({ ...prev, [moduleKey]: e.target.value }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={buyingCredits !== null || !customCreditsByModule[moduleKey]}
+                              onClick={() => handleBuyCustomCreditsForModule(moduleKey)}
+                            >
+                              {t('preferences.credits.customButton', locale)}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="usage-hint">{t('preferences.credits.ownerOnlyHint', locale)}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
               {prefs?.role === 'patron' && (
                 <div className="field credits-field">
                   <label>{t('preferences.billing.label', locale)}</label>
@@ -803,6 +901,47 @@ export default function PreferencesPage() {
                       </button>
                     </div>
                     {billingPortalError && <p className="error">{billingPortalError}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Tâche #140 : factures Aaron téléchargeables directement dans
+                  l'appli (voir app/api/billing/invoices/route.ts), en plus du
+                  portail Stripe complet ci-dessus. */}
+              {prefs?.role === 'patron' && (
+                <div className="field credits-field">
+                  <label>{t('preferences.invoices.label', locale)}</label>
+                  <div className="usage-box">
+                    <p className="usage-hint">{t('preferences.invoices.hint', locale)}</p>
+                    {invoicesError && <p className="error">{invoicesError}</p>}
+                    {!invoicesError && invoices === null && (
+                      <p className="usage-hint">{t('preferences.invoices.loading', locale)}</p>
+                    )}
+                    {!invoicesError && invoices && invoices.length === 0 && (
+                      <p className="usage-hint">{t('preferences.invoices.empty', locale)}</p>
+                    )}
+                    {!invoicesError && invoices && invoices.length > 0 && (
+                      <ul className="invoices-list">
+                        {invoices.map((inv) => (
+                          <li key={inv.id} className="invoice-row">
+                            <span>
+                              {new Date(inv.created * 1000).toLocaleDateString(locale)} —{' '}
+                              {(inv.amount_paid / 100).toFixed(2)} {(inv.currency || 'eur').toUpperCase()}
+                            </span>
+                            {(inv.invoice_pdf || inv.hosted_invoice_url) && (
+                              <a
+                                href={inv.invoice_pdf || inv.hosted_invoice_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="invoice-link"
+                              >
+                                {t('preferences.invoices.downloadLink', locale)}
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </div>
               )}
@@ -1134,6 +1273,32 @@ export default function PreferencesPage() {
           gap: 0.6rem;
           margin-top: 0.7rem;
           flex-wrap: wrap;
+        }
+        .invoices-list {
+          list-style: none;
+          margin: 0.6rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .invoice-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.82rem;
+          padding: 0.4rem 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .invoice-row:last-child {
+          border-bottom: none;
+        }
+        .invoice-link {
+          color: var(--accent);
+          font-size: 0.78rem;
+          font-weight: 600;
+          white-space: nowrap;
+          margin-left: 0.8rem;
         }
         .error {
           color: var(--accent-red);
