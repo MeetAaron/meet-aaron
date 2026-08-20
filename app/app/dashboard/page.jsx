@@ -288,8 +288,18 @@ export default function DashboardPage() {
       !a.client_cancel_acknowledged &&
       new Date(a.proposed_at) >= now
   );
+  // Prospects/A2 (2026-08-20) : un RDV déjà passé qu'on annule côté commercial
+  // (voir action "annuler" dans app/api/appointments/[id]/route.ts, qui
+  // n'envoie plus le mail "je dois annuler" pour un RDV déjà passé) mérite
+  // une relance moins urgente pour reprendre contact, plutôt que rien du
+  // tout — même mécanisme d'action ("relancer"/"traiter") que pour un RDV
+  // annulé par le client, juste avec un libellé différent.
+  const needsReschedule = appointments.filter(
+    (a) => a.status === 'annulé' && a.cancelled_by === 'commercial' && !a.client_cancel_acknowledged
+  );
   const rescueProspects = prospects.filter((p) => p.rescue_proposal_pending);
-  const totalActions = pendingAppointments.length + cancelledByClient.length + rescueProspects.length;
+  const totalActions =
+    pendingAppointments.length + cancelledByClient.length + needsReschedule.length + rescueProspects.length;
 
   // #4/#9A — "RDV obtenu" : compteur des RDV obtenus par Aaron pendant
   // l'absence du commercial (source Aaron, RDV pris manuellement exclus —
@@ -420,6 +430,13 @@ export default function DashboardPage() {
                       <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
                         <span className="dot" style={{ background: '#E5484D' }} />
                         <span className="action-label">{t('dash.apptCancelledByClient', locale).replace('{name}', a.prospects?.full_name || '')}</span>
+                        <span className="action-arrow">→</span>
+                      </button>
+                    ))}
+                    {needsReschedule.map((a) => (
+                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
+                        <span className="dot" style={{ background: '#8B90A8' }} />
+                        <span className="action-label">{t('dash.apptNeedsReschedule', locale).replace('{name}', a.prospects?.full_name || '')}</span>
                         <span className="action-arrow">→</span>
                       </button>
                     ))}
@@ -926,7 +943,9 @@ function ActionCardModal({ appointment, onClose, onDone }) {
             {view === 'main' && (
               <div className="rdv-info">
                 {appointment.actionType === 'annule' && (
-                  <p className="cancel-label">{t('dash.apptCancelledByClient', locale).replace(' — {name}', '')}</p>
+                  <p className="cancel-label">
+                    {t(appointment.cancelled_by === 'client' ? 'dash.apptCancelledByClient' : 'dash.apptNeedsReschedule', locale).replace(' — {name}', '')}
+                  </p>
                 )}
                 <p><strong>{t(`apptType.${appointment.type}`, locale)}</strong></p>
                 <p className="muted">{new Date(appointment.proposed_at).toLocaleString(locale, { dateStyle: 'full', timeStyle: 'short' })}</p>
