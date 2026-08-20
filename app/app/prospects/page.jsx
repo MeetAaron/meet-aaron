@@ -17,6 +17,29 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 // (action marquer_perdu, qui ne touche pas deal_stage).
 const NON_TERMINAL_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
 
+// Demande d'Alex (docx CHANGEMENTS A FAIRE, item A1, 2026-08-20) : dans les
+// tableaux, le texte long (avis d'Aaron, notes de personnalité) s'affichait
+// en entier — "indigeste" selon ses mots. On n'affiche donc plus qu'un
+// échantillon du début, avec un bouton pour dérouler le texte complet si le
+// commercial le souhaite.
+const TRUNCATE_LENGTH = 90;
+
+function TruncatedText({ text, locale }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return <span className="muted">—</span>;
+  if (text.length <= TRUNCATE_LENGTH) return <>{text}</>;
+
+  return (
+    <>
+      {expanded ? text : `${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…`}
+      {' '}
+      <button type="button" className="truncate-toggle" onClick={() => setExpanded(!expanded)}>
+        {expanded ? t('common.seeLess', locale) : t('common.seeMore', locale)}
+      </button>
+    </>
+  );
+}
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -466,9 +489,9 @@ export default function ProspectsPage() {
                       ) : (
                         <span className="muted">{t('personality.notDetected', locale)}</span>
                       )}
-                      {p.personality_notes && <p className="notes">{p.personality_notes}</p>}
+                      {p.personality_notes && <p className="notes"><TruncatedText text={p.personality_notes} locale={locale} /></p>}
                     </td>
-                    <td className="advice">{p.aaron_advice || <span className="muted">—</span>}</td>
+                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} /></td>
                     <td className="contact">
                       <div>{p.email}</div>
                       {p.phone && <div className="muted">{p.phone}</div>}
@@ -804,6 +827,17 @@ export default function ProspectsPage() {
           border-radius: var(--radius-sm);
           padding: 0.25rem 0.55rem;
           font-size: 0.72rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .truncate-toggle {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--accent);
+          font-size: inherit;
+          font-family: inherit;
+          text-decoration: underline;
           cursor: pointer;
           white-space: nowrap;
         }
