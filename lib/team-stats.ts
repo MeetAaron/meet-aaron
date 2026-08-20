@@ -82,7 +82,11 @@ export async function computeStatsForMembers(
       .from('appointments')
       .select('id, user_id, proposed_at, status')
       .in('user_id', memberIds)
-      .in('status', ['validé', 'terminé']),
+      .in('status', ['validé', 'terminé'])
+      // purpose = 'commercial' uniquement : un RDV de lancement (tâche
+      // #141, client déjà signé) n'est pas un "RDV obtenu" au sens du
+      // pipeline de prospection — voir migration_kickoff_rdv_2026-08-20.sql.
+      .eq('purpose', 'commercial'),
     supabaseAdmin
       .from('prospects')
       .select('id, assigned_user_id, deal_stage, deal_stage_updated_at')

@@ -38,10 +38,14 @@ export async function computePeriodSummary(
   const { count: prospectsContactes } = await prospectsQuery;
 
   // RDV proposés sur la période (date du RDV, pas date de création).
+  // purpose = 'commercial' uniquement : un RDV de lancement (tâche #141,
+  // client déjà signé) fausserait le taux de conversion prospection — voir
+  // migration_kickoff_rdv_2026-08-20.sql.
   let apptQuery = supabaseAdmin
     .from('appointments')
     .select('id, status')
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('purpose', 'commercial');
   if (start) apptQuery = apptQuery.gte('proposed_at', start.toISOString());
   if (end) apptQuery = apptQuery.lte('proposed_at', end.toISOString());
   const { data: appts } = await apptQuery;

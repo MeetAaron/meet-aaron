@@ -1,8 +1,11 @@
 // lib/aaron-customer.ts
 // Le "cerveau" d'Aaron Customer : prend le relais d'Aaron Sales une fois
-// l'affaire signée (prospects.is_won = true). Trois responsabilités :
+// l'affaire signée (prospects.is_won = true). Responsabilités principales :
 //  - generateOnboarding      : plan d'accueil (checklist) + email de
 //    bienvenue prêt à envoyer au client tout juste signé.
+//  - generateKickoffProposal / parseKickoffResponse : proposition
+//    automatique de créneaux pour le RDV de lancement, et extraction de la
+//    date choisie par le client dans sa réponse (tâche #141, sous-item 1).
 //  - generateCheckinMessage  : email court de check-in satisfaction/NPS,
 //    envoyé périodiquement par le cron app/api/cron/customer-checkins.
 //  - parseCheckinResponse    : quand le client répond à un check-in (capté
@@ -53,6 +56,18 @@ export interface SupportReplyDraft {
   // l'UI — l'envoi reste toujours un clic humain (jamais d'envoi automatique
   // à un vrai client sans validation, voir migration_aaron_v2_2026-08-13.sql).
   is_simple: boolean;
+}
+
+export interface KickoffProposal {
+  subject: string;
+  body: string;
+}
+
+export interface KickoffResponseParsed {
+  // Date/heure ISO 8601 si le client a confirmé ou proposé un créneau
+  // précis pour le RDV de lancement, sinon null (voir parseKickoffResponse).
+  proposed_at: string | null;
+  type: 'visio' | 'telephonique' | 'physique';
 }
 
 async function loadWonProspect(prospectId: string) {
@@ -147,8 +162,10 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"plan": [{"titre": "étape courte (3-5 mots)", "description": "1 phrase expliquant quoi faire concrètement"}], ` +
             `"welcome_email": {"subject": "objet de l'email de bienvenue", "body": "corps de l'email, ton chaleureux et professionnel, ${localeInstruction(locale)}, sans balises HTML"}}\n` +
-            `Le plan doit contenir entre 4 et 6 étapes concrètes d'onboarding (ex: envoyer les accès, planifier un call de kickoff, ` +
-            `présenter les prochaines étapes, envoyer la documentation). Adapte le contenu au contexte fourni si disponible, ` +
+            `Le plan doit contenir entre 4 et 6 étapes concrètes d'onboarding (ex: envoyer les accès, présenter les ` +
+            `prochaines étapes, envoyer la documentation, planifier un point de suivi). Ne mentionne pas le premier ` +
+            `appel de lancement/kick-off : Aaron le propose déjà automatiquement dans un email séparé juste après ` +
+            `celui-ci, pas la peine de le dupliquer dans le plan. Adapte le contenu au contexte fourni si disponible, ` +
             `sinon reste générique mais concret.\n\n` +
             `Contexte :\n${JSON.stringify(context, null, 2)}`,
         },
@@ -234,9 +251,48 @@ export async function triggerAutomaticOnboarding(prospectId: string): Promise<vo
       });
     }
 
+    // Tâche #141 (sous-item 1) : en plus de l'email de bienvenue, Aaron
+    // propose spontanément un premier appel de lancement avec des créneaux
+    // concrets — voir generateKickoffProposal ci-dessus. Isolé dans son
+    // propre try/catch : un échec ici (plafond API atteint, etc.) ne doit
+    // jamais empêcher l'email de bienvenue ni la notification ci-dessous,
+    // qui restent l'essentiel de cette fonction. Le sujet/corps sont mis en
+    // cache sur prospects.kickoff_call_subject/_body pour permettre à
+    // app/api/cron/kickoff-followup de relancer avec le même contenu sans
+    // repayer un appel Claude.
+    let kickoffSent = false;
+    try {
+      const kickoff = await generateKickoffProposal(prospectId);
+      await sendEmailForUser(prospect.assigned_user_id, prospect.email, kickoff.subject, kickoff.body);
+
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          kickoff_call_proposed_at: new Date().toISOString(),
+          kickoff_call_subject: kickoff.subject,
+          kickoff_call_body: kickoff.body,
+        })
+        .eq('id', prospectId);
+
+      if (conversation) {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversation.id,
+          direction: 'outbound',
+          sender_email: '',
+          recipient_email: prospect.email,
+          body: kickoff.body,
+        });
+      }
+      kickoffSent = true;
+    } catch (err: any) {
+      console.error(`Erreur envoi proposition de RDV de lancement pour prospect ${prospectId}:`, err.message);
+    }
+
     await sendPushNotification(prospect.assigned_user_id, {
       title: 'Onboarding démarré automatiquement',
-      body: `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et préparé un plan d'accueil dans Aaron Client.`,
+      body: kickoffSent
+        ? `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et proposé un premier appel de lancement.`
+        : `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et préparé un plan d'accueil dans Aaron Client.`,
       url: `/app/customer?user_id=${prospect.assigned_user_id}`,
     });
   } catch (err: any) {
@@ -546,5 +602,114 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
       console.error('Erreur génération suggestion de réponse support:', err.message);
     }
     return { is_support_request: false, suggested_subject: null, suggested_body: null, is_simple: false };
+  }
+}
+
+const FALLBACK_KICKOFF: KickoffProposal = {
+  subject: 'Un premier échange pour bien démarrer ?',
+  body:
+    "Bonjour,\n\nMaintenant que c'est officiel, j'aimerais qu'on prenne un premier temps ensemble pour bien démarrer : " +
+    "faire connaissance, clarifier vos priorités et poser les bases.\n\n" +
+    "Quel créneau vous conviendrait dans les prochains jours (visio ou téléphone, comme vous préférez) ? " +
+    "Dites-moi simplement un jour et une heure qui vous arrangent, je m'adapte.\n\nAu plaisir d'échanger,",
+};
+
+// Tâche #141 (sous-item 1, docx "CLIENTS") : jusqu'ici, le RDV de lancement
+// n'était qu'un item texte dans le plan d'onboarding généré par
+// generateOnboarding ci-dessus — jamais un vrai créneau planifié. Appelée
+// depuis triggerAutomaticOnboarding, cette fonction rédige un email
+// proposant spontanément 2-3 créneaux pour un premier appel de lancement.
+// Comme la négociation de créneaux côté Aaron Prospect (voir
+// lib/aaron_system_prompt.md), la proposition se fait "à l'aveugle" : Aaron
+// ne consulte pas le vrai agenda du commercial à ce stade — c'est une
+// limitation déjà acceptée pour la prospection, reprise ici par cohérence.
+// La vérification réelle des conflits d'agenda a lieu plus tard, quand le
+// commercial valide le RDV (app/api/appointments/[id]/route.ts), exactement
+// comme pour un RDV commercial classique.
+export async function generateKickoffProposal(prospectId: string): Promise<KickoffProposal> {
+  const prospect = await loadWonProspect(prospectId);
+  const locale = prospectLocale(prospect);
+  const societe = (prospect as any).prospect_companies?.name;
+  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 300,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Le commercial vient de signer un nouveau client, "${prospect.full_name}"` +
+              `${societe ? ` (${societe})` : ''}. Nous sommes le ${today}. Rédige un email court proposant un premier ` +
+              `appel de lancement ("kick-off") dans les 5 à 10 prochains jours ouvrés, pour faire connaissance et bien ` +
+              `démarrer la relation.\n` +
+              `Propose 2 à 3 créneaux précis (jour + heure, en te basant sur des jours ouvrés à partir d'aujourd'hui), ` +
+              `demande le format préféré (visio ou téléphone), et précise que ce ne sont que des suggestions — le ` +
+              `client peut proposer un autre horaire s'il préfère.\n` +
+              `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux et professionnel, ${localeInstruction(locale)}, sans balises HTML"}`,
+          },
+        ],
+      },
+      prospect.company_id, 'ac'
+    );
+    return parseJsonResponse<KickoffProposal>(data, 'Proposition de RDV de lancement');
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération proposition de RDV de lancement (repli sur template):', err.message);
+    }
+    return FALLBACK_KICKOFF;
+  }
+}
+
+// Tâche #141 (sous-item 1) : quand un client répond à la proposition de RDV
+// de lancement (captée par app/api/cron/check-inbox -> handleWonCustomerMessage),
+// extrait une date/heure précise si le client en a confirmé ou proposé une —
+// même logique que la détection d'appointment_proposal côté Aaron Prospect
+// (lib/aaron_system_prompt.md), mais isolée ici en un appel dédié plutôt que
+// via generateAaronResponse, puisqu'Aaron ne répond JAMAIS automatiquement à
+// un client (principe déjà en place, voir en-tête de fichier). proposed_at
+// reste null si la réponse ne contient rien d'exploitable (question, report
+// vague, refus...) — mieux vaut ne rien créer que deviner une date.
+export async function parseKickoffResponse(replyText: string, companyId: string | null): Promise<KickoffResponseParsed> {
+  const trimmed = replyText.trim();
+  if (!trimmed || !companyId) return { proposed_at: null, type: 'visio' };
+
+  const nowIso = new Date().toISOString();
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 150,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Un client vient de répondre à un email lui proposant des créneaux pour un premier appel de lancement. ` +
+              `Nous sommes le ${nowIso} (heure UTC). Voici sa réponse :\n"${trimmed}"\n\n` +
+              `Si le client confirme un des créneaux proposés OU en propose lui-même un autre précis (jour + heure), ` +
+              `déduis la date/heure exacte au format ISO 8601 (ex: "2026-08-25T14:00:00.000Z"). Si sa réponse ne ` +
+              `contient aucune date/heure exploitable (question, report vague, refus, hors-sujet...), renvoie null.\n` +
+              `Déduis aussi le format souhaité si mentionné : "visio", "telephonique" ou "physique" (par défaut "visio" ` +
+              `si rien n'est précisé).\n` +
+              `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
+              `{"proposed_at": "date ISO 8601, ou null si aucune date/heure claire n'est présente dans le texte", ` +
+              `"type": "visio" ou "telephonique" ou "physique"}`,
+          },
+        ],
+      },
+      companyId, 'ac'
+    );
+    const result = parseJsonResponse<KickoffResponseParsed>(data, 'Réponse de RDV de lancement');
+    if (!['visio', 'telephonique', 'physique'].includes(result.type)) result.type = 'visio';
+    return result;
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur analyse réponse de RDV de lancement:', err.message);
+    }
+    return { proposed_at: null, type: 'visio' };
   }
 }
