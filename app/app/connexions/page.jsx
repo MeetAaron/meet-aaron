@@ -159,25 +159,51 @@ export default function ConnexionsPage() {
   // auparavant dans Préférences, vit maintenant ici avec les autres connexions
   // de comptes tiers. Le choix du fournisseur CRM et le niveau de collaboration
   // restent dans Préférences (voir item #30).
-  const [crmProvider, setCrmProvider] = useState(null);
+  //
+  // docx item 27 (2026-08-20) : cette page n'affichait qu'UN SEUL CRM (celui
+  // choisi via un menu déroulant dans Préférences) — désormais tous les CRM
+  // pris en charge sont affichés en une seule grille pour que l'utilisateur
+  // choisisse directement ici. crmSyncing/crmSyncResult/crmError sont donc
+  // passés d'une valeur unique (un seul provider visible à la fois) à des
+  // objets indexés par provider, pour que l'état d'une carte n'affecte pas les
+  // autres cartes affichées en même temps.
   const [userRole, setUserRole] = useState(null);
   const [crmConnections, setCrmConnections] = useState([]);
-  const [crmSyncing, setCrmSyncing] = useState(false);
-  const [crmSyncResult, setCrmSyncResult] = useState(null);
-  const [crmError, setCrmError] = useState(null);
+  const [crmSyncing, setCrmSyncing] = useState({});
+  const [crmSyncResult, setCrmSyncResult] = useState({});
+  const [crmError, setCrmError] = useState({});
+  const [crmOauthBannerError, setCrmOauthBannerError] = useState(null);
 
-  // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et,
-  // à terme, les autres CRM sans OAuth centralisé traités selon le même
-  // patron). crmError/crmSyncResult/crmSyncing ci-dessus restent partagés une
-  // fois la connexion établie (déconnexion/synchro identiques à HubSpot & co).
-  const [axonautApiKeyInput, setAxonautApiKeyInput] = useState('');
-  const [axonautConnecting, setAxonautConnecting] = useState(false);
+  // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et
+  // les autres CRM sans OAuth centralisé traités selon le même patron),
+  // maintenant indexé par provider (docx item 27 : plusieurs cartes clé API
+  // peuvent être affichées en même temps, chacune a son propre champ).
+  const [apiKeyInputs, setApiKeyInputs] = useState({});
+  const [apiKeyConnecting, setApiKeyConnecting] = useState({});
 
   // Suite 15 — Sellsy (client_id + client_secret, voir TWO_FIELD_CRM_PROVIDERS
-  // plus haut).
-  const [sellsyClientIdInput, setSellsyClientIdInput] = useState('');
-  const [sellsyClientSecretInput, setSellsyClientSecretInput] = useState('');
-  const [sellsyConnecting, setSellsyConnecting] = useState(false);
+  // plus haut), même généralisation par provider.
+  const [twoFieldInputs, setTwoFieldInputs] = useState({});
+  const [twoFieldConnecting, setTwoFieldConnecting] = useState({});
+
+  // docx C1/A2/A3 (2026-08-20) : cette page devient "Mon compte", structurée
+  // en 3 rubriques — mon profil / connexion / crm — au lieu d'un seul flux.
+  const [activeTab, setActiveTab] = useState('profile');
+  const [profileName, setProfileName] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState(null);
+
+  // docx item 27 : "ajouter un autre CRM" pour les CRM hors de la liste
+  // (Divalto excepté, qui a son propre chantier — voir tâche #112). La
+  // conversation guidée avec Aaron pour un CRM sur-mesure est une tâche à
+  // part entière (nécessite un vrai flux IA, pas juste un formulaire) —
+  // voir tâche #139. En attendant, on réutilise la boîte à suggestions
+  // existante (/api/feedback, déjà lue par le patron) pour ne pas laisser
+  // cette demande sans destination.
+  const [addCrmText, setAddCrmText] = useState('');
+  const [addCrmSending, setAddCrmSending] = useState(false);
+  const [addCrmSent, setAddCrmSent] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -208,14 +234,17 @@ export default function ConnexionsPage() {
     fetch(`/api/preferences?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => {
-        setCrmProvider(res.preferences?.crm_provider || null);
         setUserRole(res.preferences?.role || null);
       })
+      .catch(() => {});
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((res) => setProfileName(res.user?.full_name || ''))
       .catch(() => {});
 
     const params = new URLSearchParams(window.location.search);
     const crmOauthError = params.get('crm_oauth_error');
-    if (crmOauthError) setCrmError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', crmOauthError));
+    if (crmOauthError) setCrmOauthBannerError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', crmOauthError));
     if (params.get('oauth_success') || params.get('oauth_error') || crmOauthError || params.get('crm_oauth_success')) {
       window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
@@ -227,13 +256,62 @@ export default function ConnexionsPage() {
     load();
   }
 
+  async function handleSaveProfile() {
+    setProfileSaving(true);
+    setProfileError(null);
+    setProfileSaved(false);
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: profileName.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setProfileError(body.error || t('common.error', locale));
+        return;
+      }
+      setProfileSaved(true);
+    } catch (err) {
+      setProfileError(t('common.error', locale));
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  // docx item 27 — CRM hors de la liste des 9 intégrations existantes : pas de
+  // flux de connexion automatisé possible (format inconnu), donc on transmet
+  // la demande au patron via la boîte à suggestions existante plutôt que de
+  // deviner une intégration. Voir tâche #139 pour la vraie conversation
+  // guidée avec Aaron.
+  async function handleSendCrmRequest() {
+    if (!addCrmText.trim()) return;
+    setAddCrmSending(true);
+    try {
+      await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          message: `[Demande d'ajout CRM depuis Mon compte] ${addCrmText.trim()}`,
+        }),
+      });
+      setAddCrmText('');
+      setAddCrmSent(true);
+    } catch (err) {
+      // silencieux : ce n'est qu'une suggestion, pas une action critique
+    } finally {
+      setAddCrmSending(false);
+    }
+  }
+
   // Même schéma que connectProvider ci-dessous (navigation complète, pas
   // fetch) — /api/auth/<provider> déclenche une redirection OAuth externe.
   // CHANGEMENTS A FAIRE (2026-08-16) : généralisé de handleConnectHubspot à
   // handleConnectCrm(provider) pour supporter aussi Salesforce et Pipedrive
   // (même flux OAuth, seule l'URL de démarrage change).
   async function handleConnectCrm(provider) {
-    setCrmError(null);
+    setCrmError((prev) => ({ ...prev, [provider]: null }));
     const { data: { session } } = await supabaseBrowser.auth.getSession();
     if (!session) {
       window.location.href = '/login';
@@ -248,69 +326,72 @@ export default function ConnexionsPage() {
     loadCrmConnections();
   }
 
-  // Suite 15 — Axonaut n'a pas de flux OAuth (voir API_KEY_CRM_PROVIDERS plus
-  // haut) : contrairement à handleConnectCrm ci-dessus (redirection externe),
-  // ici on POST directement la clé collée par le patron. AuthFetchInterceptor
+  // Suite 15 — CRM sans flux OAuth (voir API_KEY_CRM_PROVIDERS plus haut) :
+  // contrairement à handleConnectCrm ci-dessus (redirection externe), ici on
+  // POST directement la clé collée par le patron. AuthFetchInterceptor
   // (components/AuthFetchInterceptor.jsx, monté globalement dans app/layout.jsx)
   // ajoute automatiquement le token d'auth à ce fetch(), comme pour tous les
-  // autres appels /api/* de cette page.
-  async function handleConnectAxonaut(provider) {
-    if (!axonautApiKeyInput.trim()) return;
-    setAxonautConnecting(true);
-    setCrmError(null);
+  // autres appels /api/* de cette page. docx item 27 : généralisé à un état
+  // indexé par provider (plusieurs cartes clé API affichées en même temps).
+  async function handleConnectApiKeyCrm(provider) {
+    const apiKey = (apiKeyInputs[provider] || '').trim();
+    if (!apiKey) return;
+    setApiKeyConnecting((prev) => ({ ...prev, [provider]: true }));
+    setCrmError((prev) => ({ ...prev, [provider]: null }));
     try {
       const res = await fetch(`/api/crm-connections/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: axonautApiKeyInput.trim() }),
+        body: JSON.stringify({ api_key: apiKey }),
       });
       const body = await res.json();
       if (!res.ok) {
-        setCrmError(body.error || t('common.error', locale));
+        setCrmError((prev) => ({ ...prev, [provider]: body.error || t('common.error', locale) }));
         return;
       }
-      setAxonautApiKeyInput('');
+      setApiKeyInputs((prev) => ({ ...prev, [provider]: '' }));
       loadCrmConnections();
     } catch (err) {
-      setCrmError(t('common.error', locale));
+      setCrmError((prev) => ({ ...prev, [provider]: t('common.error', locale) }));
     } finally {
-      setAxonautConnecting(false);
+      setApiKeyConnecting((prev) => ({ ...prev, [provider]: false }));
     }
   }
 
-  // Suite 15 — même principe que handleConnectAxonaut, mais deux valeurs.
-  async function handleConnectSellsy(provider) {
-    if (!sellsyClientIdInput.trim() || !sellsyClientSecretInput.trim()) return;
-    setSellsyConnecting(true);
-    setCrmError(null);
+  // Suite 15 — même principe, mais deux valeurs (Sellsy). docx item 27 :
+  // généralisé à un état indexé par provider.
+  async function handleConnectTwoFieldCrm(provider) {
+    const fields = twoFieldInputs[provider] || { fieldOne: '', fieldTwo: '' };
+    if (!fields.fieldOne.trim() || !fields.fieldTwo.trim()) return;
+    setTwoFieldConnecting((prev) => ({ ...prev, [provider]: true }));
+    setCrmError((prev) => ({ ...prev, [provider]: null }));
     try {
       const res = await fetch(`/api/crm-connections/${provider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_id: sellsyClientIdInput.trim(),
-          client_secret: sellsyClientSecretInput.trim(),
+          client_id: fields.fieldOne.trim(),
+          client_secret: fields.fieldTwo.trim(),
         }),
       });
       const body = await res.json();
       if (!res.ok) {
-        setCrmError(body.error || t('common.error', locale));
+        setCrmError((prev) => ({ ...prev, [provider]: body.error || t('common.error', locale) }));
         return;
       }
-      setSellsyClientIdInput('');
-      setSellsyClientSecretInput('');
+      setTwoFieldInputs((prev) => ({ ...prev, [provider]: { fieldOne: '', fieldTwo: '' } }));
       loadCrmConnections();
     } catch (err) {
-      setCrmError(t('common.error', locale));
+      setCrmError((prev) => ({ ...prev, [provider]: t('common.error', locale) }));
     } finally {
-      setSellsyConnecting(false);
+      setTwoFieldConnecting((prev) => ({ ...prev, [provider]: false }));
     }
   }
 
   async function handleSyncCrm(provider) {
-    setCrmSyncing(true);
-    setCrmSyncResult(null);
-    setCrmError(null);
+    setCrmSyncing((prev) => ({ ...prev, [provider]: true }));
+    setCrmSyncResult((prev) => ({ ...prev, [provider]: null }));
+    setCrmError((prev) => ({ ...prev, [provider]: null }));
     try {
       const res = await fetch('/api/crm-connections/sync', {
         method: 'POST',
@@ -319,14 +400,14 @@ export default function ConnexionsPage() {
       });
       const body = await res.json();
       if (!res.ok) {
-        setCrmError(body.error || t('common.error', locale));
+        setCrmError((prev) => ({ ...prev, [provider]: body.error || t('common.error', locale) }));
         return;
       }
-      setCrmSyncResult(body);
+      setCrmSyncResult((prev) => ({ ...prev, [provider]: body }));
     } catch (err) {
-      setCrmError(t('common.error', locale));
+      setCrmError((prev) => ({ ...prev, [provider]: t('common.error', locale) }));
     } finally {
-      setCrmSyncing(false);
+      setCrmSyncing((prev) => ({ ...prev, [provider]: false }));
     }
   }
 
@@ -386,6 +467,7 @@ export default function ConnexionsPage() {
 
   const googleConnection = connections.find((c) => c.provider === 'google');
   const microsoftConnection = connections.find((c) => c.provider === 'microsoft');
+  const ALL_CRM_PROVIDERS = [...DIRECT_CRM_PROVIDERS, ...API_KEY_CRM_PROVIDERS, ...TWO_FIELD_CRM_PROVIDERS];
 
   return (
     <Shell active={t('nav.connections', locale)} userId={userId}>
@@ -395,90 +477,223 @@ export default function ConnexionsPage() {
         <p className="subtitle">{t('connexions.subtitle', locale)}</p>
       </header>
 
+      {/* docx C1/A2/A3 (2026-08-20) : "Mon compte" en 3 rubriques — mon
+          profil / connexion / crm — au lieu d'un seul flux de connexions. */}
+      <div className="tabs">
+        <button type="button" className={activeTab === 'profile' ? 'tab active' : 'tab'} onClick={() => setActiveTab('profile')}>
+          {t('connexions.tabProfile', locale)}
+        </button>
+        <button type="button" className={activeTab === 'connection' ? 'tab active' : 'tab'} onClick={() => setActiveTab('connection')}>
+          {t('connexions.tabConnection', locale)}
+        </button>
+        <button type="button" className={activeTab === 'crm' ? 'tab active' : 'tab'} onClick={() => setActiveTab('crm')}>
+          {t('connexions.tabCrm', locale)}
+        </button>
+      </div>
+
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
+      ) : activeTab === 'profile' ? (
+        <div className="profile-panel">
+          <label className="profile-label">{t('connexions.profileNameLabel', locale)}</label>
+          <input
+            type="text"
+            className="profile-input"
+            value={profileName}
+            onChange={(e) => { setProfileName(e.target.value); setProfileSaved(false); }}
+            placeholder={t('connexions.profileNamePlaceholder', locale)}
+          />
+          {profileError && <p className="crm-error">{profileError}</p>}
+          {profileSaved && <p className="profile-saved">{t('connexions.profileSaved', locale)}</p>}
+          <button type="button" className="btn-primary" onClick={handleSaveProfile} disabled={profileSaving || !profileName.trim()}>
+            {profileSaving ? t('connexions.profileSaving', locale) : t('connexions.profileSaveButton', locale)}
+          </button>
+        </div>
+      ) : activeTab === 'connection' ? (
+        <div className="cards">
+          <ConnectionCard
+            title={PROVIDER_META.google.name}
+            desc={PROVIDER_META.google.desc}
+            connection={googleConnection}
+            health={emailHealth.find((h) => h.provider === 'google')}
+            onConnect={() => connectProvider('google')}
+            onDisconnect={() => handleDisconnect(googleConnection.id)}
+          />
+          <ConnectionCard
+            title={PROVIDER_META.microsoft.name}
+            desc={PROVIDER_META.microsoft.desc}
+            connection={microsoftConnection}
+            health={emailHealth.find((h) => h.provider === 'microsoft')}
+            onConnect={() => connectProvider('microsoft')}
+            onDisconnect={() => handleDisconnect(microsoftConnection.id)}
+          />
+        </div>
       ) : (
         <>
+          <h2 className="category-title">{t('connexions.crmCategoryTitle', locale)}</h2>
+          <p className="crm-directory-hint">{t('connexions.crmDirectoryHint', locale)}</p>
+          {crmOauthBannerError && <p className="crm-error">{crmOauthBannerError}</p>}
           <div className="cards">
-            <ConnectionCard
-              title={PROVIDER_META.google.name}
-              desc={PROVIDER_META.google.desc}
-              connection={googleConnection}
-              health={emailHealth.find((h) => h.provider === 'google')}
-              onConnect={() => connectProvider('google')}
-              onDisconnect={() => handleDisconnect(googleConnection.id)}
-            />
-            <ConnectionCard
-              title={PROVIDER_META.microsoft.name}
-              desc={PROVIDER_META.microsoft.desc}
-              connection={microsoftConnection}
-              health={emailHealth.find((h) => h.provider === 'microsoft')}
-              onConnect={() => connectProvider('microsoft')}
-              onDisconnect={() => handleDisconnect(microsoftConnection.id)}
-            />
+            {ALL_CRM_PROVIDERS.map((provider) => {
+              const connected = crmConnections.some((c) => c.provider === provider);
+              const common = {
+                key: provider,
+                provider,
+                title: CRM_META[provider].name,
+                desc: CRM_META[provider].desc,
+                connected,
+                canManage: userRole === 'patron',
+                onDisconnect: () => handleDisconnectCrm(provider),
+                onSync: () => handleSyncCrm(provider),
+                syncing: !!crmSyncing[provider],
+                syncResult: crmSyncResult[provider],
+                error: crmError[provider],
+              };
+              if (DIRECT_CRM_PROVIDERS.includes(provider)) {
+                return <CrmConnectionCard {...common} onConnect={() => handleConnectCrm(provider)} />;
+              }
+              if (API_KEY_CRM_PROVIDERS.includes(provider)) {
+                return (
+                  <ApiKeyCrmConnectionCard
+                    {...common}
+                    apiKeyInput={apiKeyInputs[provider] || ''}
+                    onApiKeyInputChange={(v) => setApiKeyInputs((prev) => ({ ...prev, [provider]: v }))}
+                    onConnect={() => handleConnectApiKeyCrm(provider)}
+                    connecting={!!apiKeyConnecting[provider]}
+                  />
+                );
+              }
+              const fields = twoFieldInputs[provider] || { fieldOne: '', fieldTwo: '' };
+              return (
+                <TwoFieldCrmConnectionCard
+                  {...common}
+                  fieldOneInput={fields.fieldOne}
+                  onFieldOneInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldOne: v } }))}
+                  fieldTwoInput={fields.fieldTwo}
+                  onFieldTwoInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldTwo: v } }))}
+                  onConnect={() => handleConnectTwoFieldCrm(provider)}
+                  connecting={!!twoFieldConnecting[provider]}
+                />
+              );
+            })}
           </div>
 
-          <h2 className="category-title">{t('connexions.crmCategoryTitle', locale)}</h2>
-          <div className="cards">
-            {DIRECT_CRM_PROVIDERS.includes(crmProvider) ? (
-              <CrmConnectionCard
-                provider={crmProvider}
-                title={CRM_META[crmProvider].name}
-                desc={CRM_META[crmProvider].desc}
-                connected={crmConnections.some((c) => c.provider === crmProvider)}
-                canManage={userRole === 'patron'}
-                onConnect={() => handleConnectCrm(crmProvider)}
-                onDisconnect={() => handleDisconnectCrm(crmProvider)}
-                onSync={() => handleSyncCrm(crmProvider)}
-                syncing={crmSyncing}
-                syncResult={crmSyncResult}
-                error={crmError}
-              />
-            ) : API_KEY_CRM_PROVIDERS.includes(crmProvider) ? (
-              <ApiKeyCrmConnectionCard
-                provider={crmProvider}
-                title={CRM_META[crmProvider].name}
-                desc={CRM_META[crmProvider].desc}
-                connected={crmConnections.some((c) => c.provider === crmProvider)}
-                canManage={userRole === 'patron'}
-                apiKeyInput={axonautApiKeyInput}
-                onApiKeyInputChange={setAxonautApiKeyInput}
-                onConnect={() => handleConnectAxonaut(crmProvider)}
-                connecting={axonautConnecting}
-                onDisconnect={() => handleDisconnectCrm(crmProvider)}
-                onSync={() => handleSyncCrm(crmProvider)}
-                syncing={crmSyncing}
-                syncResult={crmSyncResult}
-                error={crmError}
-              />
-            ) : TWO_FIELD_CRM_PROVIDERS.includes(crmProvider) ? (
-              <TwoFieldCrmConnectionCard
-                provider={crmProvider}
-                title={CRM_META[crmProvider].name}
-                desc={CRM_META[crmProvider].desc}
-                connected={crmConnections.some((c) => c.provider === crmProvider)}
-                canManage={userRole === 'patron'}
-                fieldOneInput={sellsyClientIdInput}
-                onFieldOneInputChange={setSellsyClientIdInput}
-                fieldTwoInput={sellsyClientSecretInput}
-                onFieldTwoInputChange={setSellsyClientSecretInput}
-                onConnect={() => handleConnectSellsy(crmProvider)}
-                connecting={sellsyConnecting}
-                onDisconnect={() => handleDisconnectCrm(crmProvider)}
-                onSync={() => handleSyncCrm(crmProvider)}
-                syncing={crmSyncing}
-                syncResult={crmSyncResult}
-                error={crmError}
-              />
+          {/* docx item 27 : "ajouter un autre CRM" — voir tâche #139 pour la
+              vraie conversation guidée avec Aaron ; en attendant, la demande
+              part vers la boîte à suggestions déjà lue par le patron. */}
+          <div className="add-crm-panel">
+            <h3>{t('connexions.addOtherCrmTitle', locale)}</h3>
+            <p className="add-crm-hint">{t('connexions.addOtherCrmHint', locale)}</p>
+            {addCrmSent ? (
+              <p className="profile-saved">{t('connexions.addOtherCrmSent', locale)}</p>
             ) : (
-              <EmptyState
-                title={t('connexions.noCrmSelectedTitle', locale)}
-                body={t('connexions.noCrmSelectedBody', locale)}
-              />
+              <>
+                <textarea
+                  className="add-crm-textarea"
+                  value={addCrmText}
+                  onChange={(e) => setAddCrmText(e.target.value)}
+                  placeholder={t('connexions.addOtherCrmPlaceholder', locale)}
+                  rows={3}
+                />
+                <button type="button" className="btn-secondary" onClick={handleSendCrmRequest} disabled={addCrmSending || !addCrmText.trim()}>
+                  {addCrmSending ? t('connexions.addOtherCrmSending', locale) : t('connexions.addOtherCrmButton', locale)}
+                </button>
+              </>
             )}
           </div>
         </>
       )}
+
+      <style jsx>{`
+        .tabs {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1.6rem;
+          border-bottom: 1px solid var(--border);
+        }
+        .tab {
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          color: var(--muted);
+          font-size: 0.88rem;
+          font-weight: 600;
+          padding: 0.7rem 0.2rem;
+          margin-right: 1.2rem;
+          cursor: pointer;
+        }
+        .tab.active {
+          color: var(--accent);
+          border-bottom-color: var(--accent);
+        }
+        .profile-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem;
+          max-width: 420px;
+        }
+        .profile-label {
+          display: block;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 0.35rem;
+        }
+        .profile-input {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.84rem;
+          margin-bottom: 0.7rem;
+          font-family: inherit;
+        }
+        .profile-saved {
+          color: var(--accent-green);
+          font-size: 0.82rem;
+          margin: 0 0 0.7rem;
+        }
+        .crm-directory-hint {
+          color: var(--muted);
+          font-size: 0.84rem;
+          margin: -0.6rem 0 1rem;
+        }
+        .crm-error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+          margin: 0 0 0.7rem;
+        }
+        .add-crm-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem;
+          margin-top: 1.6rem;
+          max-width: 480px;
+        }
+        .add-crm-panel h3 {
+          margin: 0 0 0.4rem;
+          font-family: var(--font-display);
+          font-size: 1rem;
+        }
+        .add-crm-hint {
+          color: var(--muted);
+          font-size: 0.82rem;
+          margin: 0 0 0.8rem;
+        }
+        .add-crm-textarea {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.84rem;
+          margin-bottom: 0.7rem;
+          font-family: inherit;
+          resize: vertical;
+        }
+      `}</style>
 
       <style jsx>{`
         .header {
