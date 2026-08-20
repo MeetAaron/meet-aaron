@@ -34,10 +34,14 @@ export async function GET(request: NextRequest) {
 
   const { data: drafts, error } = await supabaseAdmin
     .from('customer_support_drafts')
-    .select('id, prospect_id, inbound_excerpt, suggested_subject, suggested_body, created_at')
+    .select('id, prospect_id, inbound_excerpt, suggested_subject, suggested_body, is_simple, created_at')
     .in('prospect_id', prospectIds)
     .is('sent_at', null)
     .is('dismissed_at', null)
+    // Les questions simples (FAQ, prêtes à envoyer en un clic) remontent en
+    // premier — le commercial les traite en priorité, les cas complexes
+    // restent visibles juste en dessous plutôt que noyés dans la liste.
+    .order('is_simple', { ascending: false })
     .order('created_at', { ascending: false });
 
   if (error) {
