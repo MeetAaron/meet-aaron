@@ -6,9 +6,12 @@
 // PATCH   -> met à jour l'annotation "pris en compte par Aaron"
 //           (included_in_aaron_context — permet de retirer un document du
 //           contexte envoyé à Aaron sans le supprimer, ex. un vieux tarif
-//           qu'on veut garder archivé mais qu'on ne veut plus voir cité) et/ou
+//           qu'on veut garder archivé mais qu'on ne veut plus voir cité),
 //           la catégorie de rattachement (linked_category — voir
-//           migration_documents_2026-08-16.sql).
+//           migration_documents_2026-08-16.sql), et/ou la note commerciale
+//           (commercial_note — texte libre pris en compte par Aaron en plus
+//           de l'extrait du document, voir migration_document_note_2026-08-20.sql
+//           et docx "MES DOCUMENTS" item 26).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -50,6 +53,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Catégorie invalide' }, { status: 400 });
     }
     update.linked_category = body.linked_category;
+  }
+
+  if (typeof body.commercial_note === 'string') {
+    // Plafond défensif (même logique que extracted_text/description) : une
+    // note commerciale n'a pas vocation à être un document entier.
+    update.commercial_note = body.commercial_note.slice(0, 4000) || null;
   }
 
   if (Object.keys(update).length === 0) {
