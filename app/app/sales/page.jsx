@@ -133,6 +133,8 @@ export default function SalesPage() {
 
   const [signatureInput, setSignatureInput] = useState('');
   const [signatureSaving, setSignatureSaving] = useState(false);
+  const [signatureSending, setSignatureSending] = useState(false);
+  const [signatureSendError, setSignatureSendError] = useState(null);
 
   async function load() {
     const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
@@ -264,6 +266,18 @@ export default function SalesPage() {
       body: JSON.stringify({ action: 'clear_signature_link' }),
     });
     setSignatureSaving(false);
+    await load();
+  }
+
+  async function handleSendSignatureRequest(dealId) {
+    setSignatureSending(true);
+    setSignatureSendError(null);
+    const res = await fetch(`/api/prospects/${dealId}/signature-request`, { method: 'POST' }).then((r) => r.json());
+    setSignatureSending(false);
+    if (res.error) {
+      setSignatureSendError(res.error);
+      return;
+    }
     await load();
   }
 
@@ -502,6 +516,17 @@ export default function SalesPage() {
                 <section className="block">
                   <h3>{t('sales.signatureTitle', locale)}</h3>
                   <p className="muted">{t('sales.signatureIntro', locale)}</p>
+                  {selectedDeal.signature_status && (
+                    <span
+                      className="signature-status-badge"
+                      style={{
+                        color: selectedDeal.signature_status === 'signe' ? '#3ECF8E' : selectedDeal.signature_status === 'refuse' ? '#E5484D' : '#F5A623',
+                        borderColor: selectedDeal.signature_status === 'signe' ? '#3ECF8E' : selectedDeal.signature_status === 'refuse' ? '#E5484D' : '#F5A623',
+                      }}
+                    >
+                      {t(`sales.signatureStatus.${selectedDeal.signature_status}`, locale)}
+                    </span>
+                  )}
                   {selectedDeal.signature_external_link ? (
                     <div className="email-preview">
                       <p className="email-body">
@@ -515,18 +540,31 @@ export default function SalesPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="stage-row">
-                      <input
-                        type="text"
-                        value={signatureInput}
-                        onChange={(e) => setSignatureInput(e.target.value)}
-                        placeholder="https://..."
-                        className="signature-input"
-                      />
-                      <button className="btn-secondary" onClick={() => handleSetSignatureLink(selectedDeal.id)} disabled={signatureSaving || !signatureInput.trim()}>
-                        {signatureSaving ? t('sales.saving', locale) : t('common.save', locale)}
-                      </button>
-                    </div>
+                    <>
+                      <div className="stage-row">
+                        <button
+                          className="btn-primary"
+                          onClick={() => handleSendSignatureRequest(selectedDeal.id)}
+                          disabled={signatureSending || !selectedDeal.devis_generated_at}
+                        >
+                          {signatureSending ? t('sales.signatureSending', locale) : t('sales.signatureSendViaYoutrust', locale)}
+                        </button>
+                      </div>
+                      {signatureSendError && <p className="error">{signatureSendError}</p>}
+                      <p className="muted signature-fallback-hint">{t('sales.signatureFallbackHint', locale)}</p>
+                      <div className="stage-row">
+                        <input
+                          type="text"
+                          value={signatureInput}
+                          onChange={(e) => setSignatureInput(e.target.value)}
+                          placeholder="https://..."
+                          className="signature-input"
+                        />
+                        <button className="btn-secondary" onClick={() => handleSetSignatureLink(selectedDeal.id)} disabled={signatureSaving || !signatureInput.trim()}>
+                          {signatureSaving ? t('sales.saving', locale) : t('common.save', locale)}
+                        </button>
+                      </div>
+                    </>
                   )}
                 </section>
               </>
@@ -768,6 +806,19 @@ export default function SalesPage() {
           color: var(--accent-green);
           font-size: 0.8rem;
           margin: 0.6rem 0 0;
+        }
+        .signature-status-badge {
+          display: inline-block;
+          font-size: 0.72rem;
+          font-weight: 600;
+          padding: 0.15rem 0.55rem;
+          border: 1px solid;
+          border-radius: 999px;
+          margin: 0.2rem 0 0.6rem;
+        }
+        .signature-fallback-hint {
+          font-size: 0.76rem;
+          margin: 0.6rem 0 0.4rem;
         }
         .recap-note {
           color: #f0914e;
