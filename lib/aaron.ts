@@ -96,7 +96,7 @@ async function buildContext(prospectId: string) {
   // n'est pas envoyé ici.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
-    .select('file_name, description, extracted_text')
+    .select('file_name, description, extracted_text, commercial_note')
     .eq('company_id', prospect.company_id)
     .eq('included_in_aaron_context', true)
     .not('extracted_text', 'is', null)
@@ -107,6 +107,10 @@ async function buildContext(prospectId: string) {
   const documentsSummary = (documents || []).map((doc) => ({
     nom_fichier: doc.file_name,
     description: doc.description,
+    // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur sur
+    // ce document précis, à prendre en compte en plus de l'extrait — voir
+    // migration_document_note_2026-08-20.sql.
+    note_commerciale: doc.commercial_note || null,
     extrait: doc.extracted_text ? doc.extracted_text.slice(0, MAX_CHARS_PER_DOC) : null,
   }));
 

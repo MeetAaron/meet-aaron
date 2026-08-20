@@ -146,7 +146,7 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
   // ou explicitement 'opportunites'.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
-    .select('file_name, description, extracted_text')
+    .select('file_name, description, extracted_text, commercial_note')
     .eq('company_id', companyId)
     .eq('included_in_aaron_context', true)
     .not('extracted_text', 'is', null)
@@ -168,6 +168,8 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
     documents_entreprise: (documents || []).map((doc) => ({
       nom_fichier: doc.file_name,
       description: doc.description,
+      // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur.
+      note_commerciale: doc.commercial_note || null,
       extrait: doc.extracted_text ? doc.extracted_text.slice(0, MAX_CHARS_PER_DOC) : null,
     })),
   };
