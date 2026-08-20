@@ -10,7 +10,7 @@ import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
-import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -78,7 +78,7 @@ async function fetchNewMessagesForConnection(connection: {
 // et proposer une suggestion de réponse au commercial (triage support
 // niveau 1, voir lib/aaron-customer.ts -> generateSupportReply).
 async function handleWonCustomerMessage(
-  prospect: { id: string; full_name: string; company_id: string | null },
+  prospect: { id: string; full_name: string; company_id: string | null; kickoff_call_proposed_at?: string | null },
   userId: string,
   fromEmail: string,
   bodyText: string
@@ -98,6 +98,51 @@ async function handleWonCustomerMessage(
       recipient_email: '',
       body: bodyText,
     });
+  }
+
+  // Tâche #141 (sous-item 1) : si Aaron a proposé un RDV de lancement et
+  // qu'aucune ligne "lancement" n'est encore en cours de discussion/validée
+  // pour ce client, on regarde d'abord si CE message y répond avec une date
+  // exploitable — avant le triage check-in/support ci-dessous, qui ne
+  // concerne pas ce cas. Voir lib/aaron-customer.ts -> parseKickoffResponse.
+  if (prospect.kickoff_call_proposed_at) {
+    const { data: existingKickoff } = await supabaseAdmin
+      .from('appointments')
+      .select('id')
+      .eq('prospect_id', prospect.id)
+      .eq('purpose', 'lancement')
+      .in('status', ['proposé', 'validé'])
+      .maybeSingle();
+
+    if (!existingKickoff) {
+      try {
+        const parsed = await parseKickoffResponse(bodyText, prospect.company_id);
+        if (parsed.proposed_at) {
+          await supabaseAdmin.from('appointments').insert({
+            prospect_id: prospect.id,
+            user_id: userId,
+            type: parsed.type,
+            purpose: 'lancement',
+            proposed_at: parsed.proposed_at,
+            status: 'proposé',
+            source: 'aaron',
+            contact_name: prospect.full_name,
+          });
+
+          await sendPushNotification(userId, {
+            title: 'RDV de lancement à valider',
+            body: `${prospect.full_name} a répondu à la proposition de premier appel — à valider dans l'agenda.`,
+            url: `/app/agenda?user_id=${userId}`,
+          });
+
+          return;
+        }
+      } catch (err: any) {
+        console.error(`Erreur analyse réponse de RDV de lancement pour prospect ${prospect.id}:`, err.message);
+        // On retombe sur le triage check-in/support ci-dessous plutôt que
+        // d'abandonner silencieusement ce message.
+      }
+    }
   }
 
   const { data: pendingCheckin } = await supabaseAdmin
@@ -225,7 +270,7 @@ export async function GET(request: NextRequest) {
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, full_name, is_won, is_lost, company_id, ai_managed')
+        .select('id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at')
         .eq('email', fromEmail)
         .eq('assigned_user_id', connection.user_id)
         .single();
