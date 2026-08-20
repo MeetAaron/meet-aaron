@@ -21,14 +21,14 @@ const AARON_MODULES = [
     label: 'Aaron Prospect',
     price: '30€ / mois',
     desc: 'Prospection, relances et prise de rendez-vous.',
-    info: "Aaron cherche et contacte de nouveaux prospects pour vous, relance ceux qui ne répondent pas, et prend des rendez-vous directement dans votre agenda.",
+    info: "Aaron cherche et contacte de nouveaux prospects pour vous, relance ceux qui ne répondent pas, et prend des rendez-vous directement dans votre agenda — de la prospection jusqu'à l'obtention d'une opportunité.",
   },
   {
     value: 'AS',
     label: 'Aaron Opportunités',
     price: '30€ / mois',
     desc: 'Négociation, devis, gestion des objections.',
-    info: "Une fois un rendez-vous obtenu, Aaron vous aide à faire avancer l'affaire : conseils avant RDV, devis chiffrés à partir de votre catalogue, relances jusqu'à la signature.",
+    info: "Une fois un rendez-vous obtenu, Aaron vous aide à faire avancer l'affaire : conseils avant RDV, devis chiffrés à partir de votre catalogue, gestion des objections, relances jusqu'à la signature — de la négociation jusqu'à l'obtention d'un nouveau client.",
   },
   {
     value: 'AC',
@@ -292,6 +292,13 @@ export default function OnboardingPage() {
 
           <div className="modules-field">
             <span className="modules-label">Modules Aaron souhaités</span>
+            {/* docx AJOUT GLOBAL item A3 : préciser que chaque module
+                fonctionne seul (pas besoin des 3) et reste modifiable après
+                coup, pour rassurer avant le choix. */}
+            <p className="modules-hint">
+              Chaque module fonctionne de façon indépendante — inutile de tout prendre dès aujourd'hui. Vous pourrez
+              toujours activer ou résilier un module plus tard, depuis Préférences &amp; Abonnement dans l'application.
+            </p>
             <div className="modules-grid">
               {AARON_MODULES.map((m) => {
                 const selected = selectedModules.includes(m.value);
@@ -469,6 +476,12 @@ export default function OnboardingPage() {
           font-size: 0.82rem;
           color: #8b90a8;
           margin-bottom: 0.5rem;
+        }
+        .modules-hint {
+          font-size: 0.8rem;
+          color: #8b90a8;
+          margin: 0 0 0.7rem;
+          line-height: 1.4;
         }
         .modules-grid {
           display: flex;
