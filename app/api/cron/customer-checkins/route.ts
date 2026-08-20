@@ -1,26 +1,46 @@
 // app/api/cron/customer-checkins/route.ts
 // Exécuté une fois par jour via Vercel Cron. Envoie un email de check-in
-// satisfaction/NPS aux clients gagnés (is_won = true), selon une cadence
-// simple et déterministe :
-//  - premier check-in ~3 semaines après la signature (le temps que
-//    l'onboarding démarre réellement) ;
-//  - puis un nouveau check-in tous les ~60 jours, qu'il y ait eu une réponse
-//    au précédent ou non (on ne veut pas relancer indéfiniment un client
-//    silencieux, mais on veut quand même reprendre le pouls régulièrement).
-// La réponse du client est captée plus tard par app/api/cron/check-inbox
-// (voir handleWonCustomerMessage) et parsée par lib/aaron-customer.ts.
+// satisfaction/NPS aux clients gagnés (is_won = true), selon la cadence
+// demandée dans le docx (CLIENTS A1, "check-ins de satisfaction") :
+//  - 1er check-in à J+30 après la signature ;
+//  - 2e check-in à J+90 ;
+//  - 3e check-in à J+180 ;
+//  - au-delà, on continue tous les 180 jours (le docx ne précise pas la
+//    suite — on ne veut pas arrêter de prendre le pouls d'un client de
+//    longue date, donc on garde la dernière cadence plutôt que de s'arrêter).
+// `prospects.checkin_count` (voir migration_checkin_cadence_2026-08-20.sql)
+// retient le nombre de check-ins déjà envoyés pour savoir quel palier
+// appliquer ensuite. La réponse du client est captée plus tard par
+// app/api/cron/check-inbox (voir handleWonCustomerMessage) et parsée par
+// lib/aaron-customer.ts.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateCheckinMessage } from '@/lib/aaron-customer';
 
-const FIRST_CHECKIN_AFTER_DAYS = 21;
-const CHECKIN_INTERVAL_DAYS = 60;
+// Paliers en jours après la signature (won_at) pour les 3 premiers
+// check-ins ; au-delà, CHECKIN_INTERVAL_AFTER_MILESTONES_DAYS s'applique en
+// continu depuis le dernier check-in envoyé.
+const CHECKIN_MILESTONES_DAYS = [30, 90, 180];
+const CHECKIN_INTERVAL_AFTER_MILESTONES_DAYS = 180;
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
+}
+
+function isDue(customer: { won_at: string; last_checkin_sent_at: string | null; checkin_count: number }, now: number): boolean {
+  const count = customer.checkin_count || 0;
+  const daysThreshold =
+    count < CHECKIN_MILESTONES_DAYS.length ? CHECKIN_MILESTONES_DAYS[count] : CHECKIN_INTERVAL_AFTER_MILESTONES_DAYS;
+  // Les 3 premiers paliers comptent depuis la signature ; au-delà, depuis le
+  // dernier check-in envoyé (sinon les paliers 30/90/180 sont tous mesurés
+  // depuis won_at, ce qui reste correct puisqu'ils sont cumulatifs).
+  const baseline = count < CHECKIN_MILESTONES_DAYS.length ? customer.won_at : customer.last_checkin_sent_at;
+  if (!baseline) return false;
+  const dueAt = new Date(baseline).getTime() + daysThreshold * 24 * 60 * 60 * 1000;
+  return now >= dueAt;
 }
 
 export async function GET(request: NextRequest) {
@@ -29,32 +49,18 @@ export async function GET(request: NextRequest) {
   }
 
   const now = Date.now();
-  const firstCheckinBefore = new Date(now - FIRST_CHECKIN_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const nextCheckinBefore = new Date(now - CHECKIN_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  // Deux requêtes séparées plutôt qu'un OR complexe côté PostgREST : plus
-  // simple à lire et à faire évoluer si la cadence change un jour.
-  const { data: firstTimeCustomers, error: error1 } = await supabaseAdmin
+  const { data: customers, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, full_name, email, assigned_user_id, last_checkin_sent_at')
+    .select('id, full_name, email, assigned_user_id, won_at, last_checkin_sent_at, checkin_count')
     // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
-    .not('first_order_confirmed_at', 'is', null)
-    .is('last_checkin_sent_at', null)
-    .lt('won_at', firstCheckinBefore);
+    .not('first_order_confirmed_at', 'is', null);
 
-  const { data: dueForNextCheckin, error: error2 } = await supabaseAdmin
-    .from('prospects')
-    .select('id, full_name, email, assigned_user_id, last_checkin_sent_at')
-    // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
-    .not('first_order_confirmed_at', 'is', null)
-    .not('last_checkin_sent_at', 'is', null)
-    .lt('last_checkin_sent_at', nextCheckinBefore);
-
-  if (error1 || error2) {
-    return NextResponse.json({ error: (error1 || error2)?.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const due = [...(firstTimeCustomers || []), ...(dueForNextCheckin || [])];
+  const due = (customers || []).filter((c) => isDue(c as any, now));
   const sent: string[] = [];
 
   for (const customer of due) {
@@ -77,7 +83,10 @@ export async function GET(request: NextRequest) {
         sent_at: sentAt,
       });
 
-      await supabaseAdmin.from('prospects').update({ last_checkin_sent_at: sentAt }).eq('id', customer.id);
+      await supabaseAdmin
+        .from('prospects')
+        .update({ last_checkin_sent_at: sentAt, checkin_count: (customer.checkin_count || 0) + 1 })
+        .eq('id', customer.id);
 
       const { data: conversation } = await supabaseAdmin
         .from('conversations')
