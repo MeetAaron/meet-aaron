@@ -14,44 +14,32 @@
 
 'use client';
 
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser, isExplicitlyLoggedInToday } from '@/lib/supabase-browser';
 
-// Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19) : même avec
-// une session Supabase encore valide et persistée (case "se souvenir de moi"
-// cochée), on ne doit jamais atterrir directement dans /app en silence —
-// il faut être passé par un clic explicite sur "Se connecter" (ou le lancement
-// d'une connexion Google/Microsoft) DANS CET ONGLET. Sans ça, un lien direct
-// vers /app (ex. le bouton "Essayer maintenant" de la landing page) pouvait
-// laisser voir une page à moitié fonctionnelle avec un token bancal, sans
-// aucun moyen de s'en sortir ni de se déconnecter pour se reconnecter
-// proprement.
+// Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
+// 2026-08-20) : même avec une session Supabase encore valide et persistée
+// (case "se souvenir de moi" cochée), on ne doit pas atterrir directement
+// dans /app en silence sans qu'un premier passage explicite par "Se
+// connecter" ait eu lieu — sans ça, un lien direct vers /app (ex. le bouton
+// "Essayer maintenant" de la landing page) pouvait laisser voir une page à
+// moitié fonctionnelle avec un token bancal, sans aucun moyen de s'en sortir
+// ni de se déconnecter pour se reconnecter proprement.
 //
-// Implémentation : app/login/page.jsx pose un marqueur dans sessionStorage
-// (`aaron-explicit-login`) juste avant de rediriger vers /onboarding, que ce
-// soit après un login email/mot de passe ou au lancement d'un OAuth. Ce
-// marqueur vit dans sessionStorage (pas localStorage) : il est donc propre à
-// CET onglet et disparaît quand l'onglet/le navigateur est fermé — exactement
-// ce qu'Alex a demandé ("si je quitte la page, je dois retomber sur la page
-// de connexion"). Naviguer entre les pages de l'app dans le même onglet reste
-// fluide (le marqueur y reste tant que l'onglet vit), seul un tout nouvel
-// onglet/une nouvelle fenêtre repart de zéro.
-//
-// Ce contrôle se fait une seule fois, au tout premier chargement de la page
-// dans cet onglet (comme le patch de fetch ci-dessous) : il ne s'applique
-// qu'à une arrivée directe sur /app (rechargement complet), pas à une
-// navigation interne en client-side routing une fois déjà entré légitimement.
+// Version initiale (2026-08-19) : marqueur dans sessionStorage, donc exigé à
+// CHAQUE nouvel onglet. Alex a ensuite demandé (2026-08-20) qu'un retour dans
+// l'app plus tard la MÊME JOURNÉE n'redemande pas l'email/mot de passe et se
+// reconnecte directement — d'où le passage à localStorage avec la date du
+// jour (heure locale du navigateur) : le marqueur reste valide jusqu'à
+// minuit, quel que soit le nombre de nouveaux onglets ouverts ce jour-là,
+// et redemande une connexion explicite le lendemain. Le vrai contrôle
+// d'authentification reste de toute façon fait par Supabase + les routes API
+// (voir plus bas et lib/auth-helpers.ts) : ce marqueur ne fait qu'éviter de
+// redemander bêtement un clic "Se connecter" quand la session est encore là.
 if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
   window.__aaronAppEntryChecked = true;
   const path = window.location.pathname;
   if (path === '/app' || path.startsWith('/app/')) {
-    let explicitlyLoggedIn = false;
-    try {
-      explicitlyLoggedIn = window.sessionStorage.getItem('aaron-explicit-login') === '1';
-    } catch (err) {
-      // Stockage indisponible (navigation privée stricte, etc.) : on considère
-      // par sécurité qu'il faut repasser par la connexion.
-    }
-    if (!explicitlyLoggedIn) {
+    if (!isExplicitlyLoggedInToday()) {
       window.location.href = '/login';
     }
   }
