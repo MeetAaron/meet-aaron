@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import CsvImportModal from '@/components/CsvImportModal';
 
 // Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
 // app/app/sales/page.jsx) considérées "en cours de traitement" : un
@@ -235,6 +236,7 @@ export default function ProspectsPage() {
   const [statusFilter, setStatusFilter] = useState('tous');
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [linkedinProspect, setLinkedinProspect] = useState(null);
   const [wonProspect, setWonProspect] = useState(null);
   const [actingOn, setActingOn] = useState(null);
@@ -393,6 +395,9 @@ export default function ProspectsPage() {
           )}
           <button className="btn-secondary" onClick={() => downloadBlankProspectsTemplate(locale)}>
             {t('prospects.downloadTemplate', locale)}
+          </button>
+          <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
+            {t('csvImport.button', locale)}
           </button>
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
             {t('prospects.addButton', locale)}
@@ -650,6 +655,19 @@ export default function ProspectsPage() {
             if (emailWarning) {
               window.alert(emailWarning);
             }
+          }}
+        />
+      )}
+
+      {showCsvImport && (
+        <CsvImportModal
+          userId={userId}
+          companyId={companyId}
+          context="prospects"
+          module="ap"
+          onClose={() => setShowCsvImport(false)}
+          onImported={() => {
+            loadProspects();
           }}
         />
       )}
