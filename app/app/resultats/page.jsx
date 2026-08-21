@@ -625,14 +625,30 @@ export default function ResultatsPage() {
     return acc;
   }, {});
 
-  // Historique de rapports (item A1) — les rapports les plus récents
-  // d'abord, 5 par défaut ("agrandir" en révèle davantage).
+  // Historique de rapports (item A1) — retour Alex (2026-08-21) : une
+  // période sans la moindre activité (0 prospect contacté, 0 RDV, 0
+  // opportunité, 0 client) n'est pas "un rapport", donc ne doit pas
+  // apparaître dans la liste — sinon un compte tout neuf affiche 5 lignes à
+  // zéro plutôt qu'un message clair. On regarde donc plus loin en arrière
+  // (REPORT_LOOKBACK périodes candidates) et on ne garde que celles avec au
+  // moins une donnée non nulle, les plus récentes d'abord ; "Voir tout" /
+  // "Voir moins" bascule entre 5 et la totalité de cet historique filtré.
   const rangeData = { prospects, appointments, deals, customers };
-  const reportCount = reportsExpanded ? (reportTab === 'day' ? 15 : 12) : 5;
-  const reportRows = reportBuckets(reportTab, reportCount).map((bucket) => ({
-    bucket,
-    summary: summarizeRange({ start: bucket.start, end: bucket.end }, rangeData),
-  }));
+  const REPORT_LOOKBACK = { day: 60, week: 52, month: 24 };
+  function reportHasActivity(summary) {
+    return (
+      summary.prospectsContactes > 0 ||
+      summary.rdvObtenus > 0 ||
+      summary.rdvEnAttente > 0 ||
+      summary.opportunitesGagnees > 0 ||
+      summary.opportunitesPerdues > 0 ||
+      summary.clientsGagnes > 0
+    );
+  }
+  const activeReportRows = reportBuckets(reportTab, REPORT_LOOKBACK[reportTab] || 60)
+    .map((bucket) => ({ bucket, summary: summarizeRange({ start: bucket.start, end: bucket.end }, rangeData) }))
+    .filter(({ summary }) => reportHasActivity(summary));
+  const reportRows = reportsExpanded ? activeReportRows : activeReportRows.slice(0, 5);
 
   async function downloadReport(bucket, format) {
     const key = `${reportTab}-${bucket.key}-${format}`;
@@ -840,6 +856,9 @@ export default function ResultatsPage() {
                 </button>
               ))}
             </div>
+            {activeReportRows.length === 0 ? (
+              <p className="report-empty">{t('results.reportHistoryEmpty', locale)}</p>
+            ) : (
             <div className="report-list">
               {reportRows.map(({ bucket, summary }) => (
                 <div className="report-row" key={bucket.key}>
@@ -873,9 +892,12 @@ export default function ResultatsPage() {
                 </div>
               ))}
             </div>
-            <button type="button" className="report-expand-btn" onClick={() => setReportsExpanded((v) => !v)}>
-              {reportsExpanded ? t('results.reportCollapse', locale) : t('results.reportExpand', locale)}
-            </button>
+            )}
+            {activeReportRows.length > 5 && (
+              <button type="button" className="report-expand-btn" onClick={() => setReportsExpanded((v) => !v)}>
+                {reportsExpanded ? t('results.reportCollapse', locale) : t('results.reportExpand', locale)}
+              </button>
+            )}
           </section>
 
           <section className="panel">
@@ -1140,6 +1162,13 @@ export default function ResultatsPage() {
         .report-btn:disabled {
           opacity: 0.5;
           cursor: default;
+        }
+        .report-empty {
+          color: var(--muted);
+          font-size: 0.88rem;
+          text-align: center;
+          padding: 1.5rem 1rem;
+          margin: 0;
         }
         .report-expand-btn {
           margin-top: 0.9rem;
