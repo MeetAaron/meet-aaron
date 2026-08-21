@@ -110,6 +110,51 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
 }
 
+// docx AJOUT GLOBAL A15 : export CSV + modèle vierge, même principe que
+// exportProspectsToCsv/downloadBlankProspectsTemplate dans app/app/prospects/page.jsx.
+function downloadCsvFile(headers, rows, filename) {
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportCustomersToCsv(customers, locale) {
+  const headers = [
+    t('prospects.colName', locale),
+    t('modal.email', locale),
+    t('prospects.colJobTitle', locale),
+    t('customer.colHealth', locale),
+    t('prospects.templateColManaged', locale),
+  ];
+  const rows = customers.map((c) => [
+    c.full_name,
+    c.email,
+    c.job_title || '',
+    c.customer_health_label || '',
+    c.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
+  ]);
+  downloadCsvFile(headers, rows, `clients-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function downloadBlankCustomersTemplate(locale) {
+  const headers = [
+    t('prospects.colName', locale),
+    t('prospects.colCompany', locale),
+    t('prospects.colJobTitle', locale),
+    t('modal.email', locale),
+    t('modal.phone', locale),
+    t('prospects.templateColManaged', locale),
+  ];
+  downloadCsvFile(headers, [], 'modele-clients-vierge.csv');
+}
+
 export default function CustomerPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -241,10 +286,20 @@ export default function CustomerPage() {
     setSupportDraftsLoading(false);
   }
 
+  // docx AJOUT GLOBAL A15 : ajout manuel d'un client — voir AddClientModal
+  // plus bas et le flag skip_first_contact dans app/api/prospects/route.ts.
+  const [companyId, setCompanyId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+
   useEffect(() => {
     if (!userId) return;
     load();
     loadSupportDrafts();
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.user) setCompanyId(res.user.company_id);
+      });
   }, [userId]);
 
   useEffect(() => {
@@ -453,7 +508,32 @@ export default function CustomerPage() {
         <p className="subtitle">
           {t('customer.subtitle', locale)}
         </p>
+        <div className="header-actions">
+          {customers.length > 0 && (
+            <button className="btn-secondary" onClick={() => exportCustomersToCsv(customers, locale)}>
+              {t('customer.exportCsv', locale)}
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => downloadBlankCustomersTemplate(locale)}>
+            {t('customer.downloadTemplate', locale)}
+          </button>
+          <button className="btn-primary" onClick={() => setShowAddForm(true)}>
+            {t('customer.addButton', locale)}
+          </button>
+        </div>
       </header>
+
+      {showAddForm && (
+        <AddClientModal
+          userId={userId}
+          companyId={companyId}
+          onClose={() => setShowAddForm(false)}
+          onCreated={() => {
+            setShowAddForm(false);
+            load();
+          }}
+        />
+      )}
 
       {!supportDraftsLoading && supportDrafts.length > 0 && (
         <section className="support-inbox">
@@ -930,6 +1010,9 @@ export default function CustomerPage() {
           font-size: 0.88rem;
           max-width: 720px;
           margin: 0;
+        }
+        .header-actions {
+          margin-top: 0.9rem;
         }
         .muted {
           color: var(--muted);
@@ -1706,6 +1789,198 @@ function Shell({ children, active, userId }) {
             padding: 1.5rem;
             padding-top: 4.5rem;
           }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// docx AJOUT GLOBAL A15 : "ajouter manuellement" un client — pour une
+// relation déjà cliente hors Meet Aaron (reprise de base existante). Crée le
+// prospect sans déclencher le 1er email de prospection à froid
+// (skip_first_contact, voir app/api/prospects/route.ts), puis le marque
+// directement gagné + 1ère commande confirmée via l'action existante
+// marquer_gagne (app/api/prospects/[id]/route.ts) — ce qui déclenche
+// l'onboarding automatique normal (docx Clients A1a), comme pour un vrai
+// nouveau client.
+function AddClientModal({ userId, companyId, onClose, onCreated }) {
+  const [locale] = useLocale();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
+    const res = await fetch('/api/prospects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        assigned_user_id: userId,
+        full_name: fullName,
+        email,
+        job_title: jobTitle || null,
+        company_name: companyName || null,
+        skip_first_contact: true,
+      }),
+    });
+    const body = await res.json();
+
+    if (!res.ok) {
+      setSubmitting(false);
+      setError(body.error || t('customer.addModalErrorFallback', locale));
+      return;
+    }
+
+    const patchRes = await fetch(`/api/prospects/${body.prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'marquer_gagne', first_order_confirmed: true }),
+    });
+
+    setSubmitting(false);
+
+    if (!patchRes.ok) {
+      const patchBody = await patchRes.json();
+      setError(patchBody.error || t('customer.addModalErrorFallback', locale));
+      return;
+    }
+
+    onCreated();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <h2>{t('customer.addModalTitle', locale)}</h2>
+        <p className="hint">{t('customer.addModalHint', locale)}</p>
+
+        <div className="name-row">
+          <label>
+            {t('prospects.firstNameLabel', locale)}
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+          </label>
+          <label>
+            {t('prospects.lastNameLabel', locale)}
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+          </label>
+        </div>
+
+        <label>
+          {t('modal.email', locale)}
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+
+        <label>
+          {t('prospects.colCompany', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </label>
+
+        <label>
+          {t('prospects.colJobTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        </label>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', locale)}</button>
+          <button type="submit" className="btn-primary" disabled={submitting || !companyId}>
+            {submitting ? t('customer.addModalSubmitting', locale) : t('customer.addModalSubmit', locale)}
+          </button>
+        </div>
+      </form>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.8rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        h2 {
+          font-family: var(--font-display);
+          margin: 0 0 0.6rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.4;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 1rem;
+        }
+        .name-row {
+          display: flex;
+          gap: 0.8rem;
+        }
+        .name-row label {
+          flex: 1;
+          min-width: 0;
+        }
+        input {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.88rem;
+        }
+        .error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 1.2rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          cursor: pointer;
         }
       `}</style>
     </div>
