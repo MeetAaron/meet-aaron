@@ -281,7 +281,6 @@ export default function DashboardPage() {
   }, {});
 
   const activeCampaigns = campaigns.filter((c) => c.status === 'en_cours' || c.status === 'en_attente');
-  const activeMarketingCampaigns = marketingCampaigns.filter((c) => c.status === 'en_cours');
 
   const now = new Date();
 
