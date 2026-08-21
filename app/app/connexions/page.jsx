@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { getStoredTheme, applyTheme } from '@/lib/theme';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -194,6 +195,16 @@ export default function ConnexionsPage() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState(null);
+  // Mode clair optionnel (tâche #129, piste 2) — préférence 100% locale au
+  // navigateur (voir lib/theme.js), pas de champ base de données.
+  const [theme, setTheme] = useState('dark');
+  useEffect(() => {
+    setTheme(getStoredTheme());
+  }, []);
+  function changeTheme(next) {
+    setTheme(next);
+    applyTheme(next);
+  }
 
   // docx item 27 / tâche #139 : "ajouter un autre CRM" pour les CRM hors de
   // la liste (Divalto excepté, qui a son propre chantier — voir tâche #112).
@@ -509,6 +520,24 @@ export default function ConnexionsPage() {
           <button type="button" className="btn-primary" onClick={handleSaveProfile} disabled={profileSaving || !profileName.trim()}>
             {profileSaving ? t('connexions.profileSaving', locale) : t('connexions.profileSaveButton', locale)}
           </button>
+
+          <label className="profile-label theme-label">{t('connexions.themeLabel', locale)}</label>
+          <div className="theme-toggle">
+            <button
+              type="button"
+              className={theme === 'dark' ? 'theme-btn active' : 'theme-btn'}
+              onClick={() => changeTheme('dark')}
+            >
+              {t('connexions.themeDark', locale)}
+            </button>
+            <button
+              type="button"
+              className={theme === 'light' ? 'theme-btn active' : 'theme-btn'}
+              onClick={() => changeTheme('light')}
+            >
+              {t('connexions.themeLight', locale)}
+            </button>
+          </div>
         </div>
       ) : activeTab === 'connection' ? (
         <div className="cards">
@@ -654,6 +683,31 @@ export default function ConnexionsPage() {
           color: var(--accent-green);
           font-size: 0.82rem;
           margin: 0 0 0.7rem;
+        }
+        .theme-label {
+          margin-top: 1.1rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border);
+        }
+        .theme-toggle {
+          display: inline-flex;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          overflow: hidden;
+        }
+        .theme-btn {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          font-size: 0.82rem;
+          font-family: inherit;
+          padding: 0.5rem 1rem;
+          cursor: pointer;
+        }
+        .theme-btn.active {
+          background: rgba(75, 57, 239, 0.18);
+          color: var(--text);
+          font-weight: 600;
         }
         .crm-directory-hint {
           color: var(--muted);
