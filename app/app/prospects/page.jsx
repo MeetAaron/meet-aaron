@@ -162,6 +162,31 @@ function personalityColorLegendFor(locale) {
   return t('prospects.personalityColorLegend', locale);
 }
 
+// docx AJOUT GLOBAL A15 : ajoute la colonne "gestion Aaron" (oui/non — voir
+// champ ai_managed, migration_customer_ai_managed_2026-08-17.sql) demandée
+// explicitement par Alex, en plus des colonnes déjà exportées.
+function downloadCsvFile(headers, rows, filename) {
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
+  'prospects.colName',
+  'prospects.colCompany',
+  'prospects.colJobTitle',
+  'modal.email',
+  'modal.phone',
+  'prospects.templateColManaged',
+];
+
 function exportProspectsToCsv(prospects, locale) {
   const statusMeta = statusMetaFor(locale);
   const personalityLabels = personalityLabelsFor(locale);
@@ -174,6 +199,7 @@ function exportProspectsToCsv(prospects, locale) {
     t('modal.phone', locale),
     t('prospects.colPersonality', locale),
     t('modal.aaronAdvice', locale),
+    t('prospects.templateColManaged', locale),
   ];
   const rows = prospects.map((p) => [
     statusMeta[p.status]?.label || p.status,
@@ -184,17 +210,18 @@ function exportProspectsToCsv(prospects, locale) {
     p.phone || '',
     personalityLabels[p.personality_type] || '',
     p.aaron_advice || '',
+    p.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
   ]);
-  const csvContent = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `prospects-${new Date().toISOString().slice(0, 10)}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadCsvFile(headers, rows, `prospects-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+// docx AJOUT GLOBAL A15 : "un fichier vierge pour y mettre sa propre base de
+// données" — même entêtes que l'export, sans données, pour préparer un
+// import ultérieur (l'import "intelligent" avec complétion par Aaron reste à
+// construire, voir statut projet).
+function downloadBlankProspectsTemplate(locale) {
+  const headers = PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS.map((k) => t(k, locale));
+  downloadCsvFile(headers, [], 'modele-prospects-vierge.csv');
 }
 
 export default function ProspectsPage() {
@@ -364,6 +391,9 @@ export default function ProspectsPage() {
               {t('prospects.exportCsv', locale)}
             </button>
           )}
+          <button className="btn-secondary" onClick={() => downloadBlankProspectsTemplate(locale)}>
+            {t('prospects.downloadTemplate', locale)}
+          </button>
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
             {t('prospects.addButton', locale)}
           </button>
