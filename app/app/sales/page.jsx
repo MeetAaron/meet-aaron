@@ -109,6 +109,52 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
 }
 
+// docx AJOUT GLOBAL A15 : export CSV + modèle vierge, même principe que
+// exportProspectsToCsv/downloadBlankProspectsTemplate dans app/app/prospects/page.jsx.
+function downloadCsvFile(headers, rows, filename) {
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportDealsToCsv(deals, stageMeta, locale) {
+  const headers = [
+    t('sales.colStage', locale),
+    t('prospects.colName', locale),
+    t('modal.email', locale),
+    t('prospects.colJobTitle', locale),
+    t('prospects.templateColManaged', locale),
+  ];
+  const rows = deals.map((d) => [
+    stageMeta[d.deal_stage]?.label || d.deal_stage,
+    d.full_name,
+    d.email,
+    d.job_title || '',
+    d.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
+  ]);
+  downloadCsvFile(headers, rows, `opportunites-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function downloadBlankDealsTemplate(locale) {
+  const headers = [
+    t('prospects.colName', locale),
+    t('prospects.colCompany', locale),
+    t('prospects.colJobTitle', locale),
+    t('modal.email', locale),
+    t('modal.phone', locale),
+    t('sales.colStage', locale),
+    t('prospects.templateColManaged', locale),
+  ];
+  downloadCsvFile(headers, [], 'modele-opportunites-vierge.csv');
+}
+
 export default function SalesPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -137,6 +183,13 @@ export default function SalesPage() {
   const [signatureSending, setSignatureSending] = useState(false);
   const [signatureSendError, setSignatureSendError] = useState(null);
 
+  // docx AJOUT GLOBAL A15 : ajout manuel d'une opportunité (relation déjà
+  // établie hors Meet Aaron, ex. reprise d'une base existante) — voir
+  // AddDealModal plus bas et le flag skip_first_contact dans
+  // app/api/prospects/route.ts.
+  const [companyId, setCompanyId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+
   async function load() {
     const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
     setDeals(res.deals || []);
@@ -146,6 +199,11 @@ export default function SalesPage() {
   useEffect(() => {
     if (!userId) return;
     load();
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.user) setCompanyId(res.user.company_id);
+      });
   }, [userId]);
 
   // Réinitialise les états liés au brief/debrief à chaque changement de
@@ -319,7 +377,34 @@ export default function SalesPage() {
         <p className="subtitle">
           {t('sales.subtitle', locale)}
         </p>
+        <div className="header-actions">
+          {deals.length > 0 && (
+            <button className="btn-secondary" onClick={() => exportDealsToCsv(deals, STAGE_META, locale)}>
+              {t('sales.exportCsv', locale)}
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => downloadBlankDealsTemplate(locale)}>
+            {t('sales.downloadTemplate', locale)}
+          </button>
+          <button className="btn-primary" onClick={() => setShowAddForm(true)}>
+            {t('sales.addButton', locale)}
+          </button>
+        </div>
       </header>
+
+      {showAddForm && (
+        <AddDealModal
+          userId={userId}
+          companyId={companyId}
+          stageOrder={STAGE_ORDER}
+          stageMeta={STAGE_META}
+          onClose={() => setShowAddForm(false)}
+          onCreated={() => {
+            setShowAddForm(false);
+            load();
+          }}
+        />
+      )}
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
@@ -596,6 +681,9 @@ export default function SalesPage() {
           font-size: 0.88rem;
           max-width: 720px;
           margin: 0;
+        }
+        .header-actions {
+          margin-top: 0.9rem;
         }
         .muted {
           color: var(--muted);
@@ -1358,6 +1446,207 @@ function Shell({ children, active, userId }) {
             padding: 1.5rem;
             padding-top: 4.5rem;
           }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// docx AJOUT GLOBAL A15 : "ajouter manuellement" une opportunité — pour une
+// relation déjà entamée hors Meet Aaron (reprise d'une base existante,
+// affaire en cours ailleurs). Crée le prospect sans déclencher le 1er email
+// de prospection à froid (skip_first_contact, voir app/api/prospects/route.ts),
+// puis le place directement à l'étape de pipeline choisie via l'action déjà
+// existante set_deal_stage (app/api/prospects/[id]/route.ts) — même chemin
+// que quand un commercial fait glisser une affaire d'une colonne à l'autre.
+function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCreated }) {
+  const [locale] = useLocale();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [stage, setStage] = useState(stageOrder[0]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
+    const res = await fetch('/api/prospects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        assigned_user_id: userId,
+        full_name: fullName,
+        email,
+        job_title: jobTitle || null,
+        company_name: companyName || null,
+        skip_first_contact: true,
+      }),
+    });
+    const body = await res.json();
+
+    if (!res.ok) {
+      setSubmitting(false);
+      setError(body.error || t('sales.addModalErrorFallback', locale));
+      return;
+    }
+
+    const patchRes = await fetch(`/api/prospects/${body.prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_deal_stage', deal_stage: stage }),
+    });
+
+    setSubmitting(false);
+
+    if (!patchRes.ok) {
+      const patchBody = await patchRes.json();
+      setError(patchBody.error || t('sales.addModalErrorFallback', locale));
+      return;
+    }
+
+    onCreated();
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <h2>{t('sales.addModalTitle', locale)}</h2>
+        <p className="hint">{t('sales.addModalHint', locale)}</p>
+
+        <div className="name-row">
+          <label>
+            {t('prospects.firstNameLabel', locale)}
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+          </label>
+          <label>
+            {t('prospects.lastNameLabel', locale)}
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+          </label>
+        </div>
+
+        <label>
+          {t('modal.email', locale)}
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+
+        <label>
+          {t('prospects.colCompany', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </label>
+
+        <label>
+          {t('prospects.colJobTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        </label>
+
+        <label>
+          {t('sales.addModalStageLabel', locale)}
+          <select value={stage} onChange={(e) => setStage(e.target.value)}>
+            {stageOrder.map((s) => (
+              <option key={s} value={s}>{stageMeta[s].label}</option>
+            ))}
+          </select>
+        </label>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', locale)}</button>
+          <button type="submit" className="btn-primary" disabled={submitting || !companyId}>
+            {submitting ? t('sales.addModalSubmitting', locale) : t('sales.addModalSubmit', locale)}
+          </button>
+        </div>
+      </form>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.8rem;
+          width: 420px;
+          max-width: 100%;
+        }
+        h2 {
+          font-family: var(--font-display);
+          margin: 0 0 0.6rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.4;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 1rem;
+        }
+        .name-row {
+          display: flex;
+          gap: 0.8rem;
+        }
+        .name-row label {
+          flex: 1;
+          min-width: 0;
+        }
+        input, select {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.88rem;
+        }
+        .error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 1.2rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          cursor: pointer;
         }
       `}</style>
     </div>
