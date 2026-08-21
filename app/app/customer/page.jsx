@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import CsvImportModal from '@/components/CsvImportModal';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -290,6 +291,7 @@ export default function CustomerPage() {
   // plus bas et le flag skip_first_contact dans app/api/prospects/route.ts.
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -517,6 +519,9 @@ export default function CustomerPage() {
           <button className="btn-secondary" onClick={() => downloadBlankCustomersTemplate(locale)}>
             {t('customer.downloadTemplate', locale)}
           </button>
+          <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
+            {t('csvImport.button', locale)}
+          </button>
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
             {t('customer.addButton', locale)}
           </button>
@@ -530,6 +535,19 @@ export default function CustomerPage() {
           onClose={() => setShowAddForm(false)}
           onCreated={() => {
             setShowAddForm(false);
+            load();
+          }}
+        />
+      )}
+
+      {showCsvImport && (
+        <CsvImportModal
+          userId={userId}
+          companyId={companyId}
+          context="customer"
+          module="ac"
+          onClose={() => setShowCsvImport(false)}
+          onImported={() => {
             load();
           }}
         />
