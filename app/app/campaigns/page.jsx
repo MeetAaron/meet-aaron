@@ -150,6 +150,31 @@ export default function CampaignsPage() {
   const [changingStatusFor, setChangingStatusFor] = useState(null);
   const [confirmEndId, setConfirmEndId] = useState(null);
 
+  // Module Aaron Marketing (docx AJOUT GLOBAL, message du 21/08/2026) : un
+  // second onglet dans cette même page plutôt qu'une nouvelle rubrique dans
+  // la barre latérale — évite de dupliquer la navigation dans les 14 copies
+  // du composant Shell (voir claude/statut-*.md, aucun Shell partagé dans ce
+  // projet) pour un module qui reste, comme "Campagnes", rattaché à la
+  // prospection/relation client au sens large. "Marketing" cible les CLIENTS
+  // déjà gagnés (module Aaron Clients, offer_ac_active) — distinct de
+  // "Prospection" ci-dessus qui cible des prospects froids (module Aaron
+  // Prospect). Verrouillage visuel uniquement si Aaron Clients n'est pas
+  // actif (même convention que les pastilles 🔒 de la barre latérale — voir
+  // Shell plus bas : aucune route API de ce projet ne bloque déjà
+  // aujourd'hui côté serveur sur l'état d'un module, l'app s'appuie sur ce
+  // verrouillage visuel + le fait qu'un module inactif n'a simplement pas de
+  // données à afficher).
+  const [tab, setTab] = useState('prospection');
+  const [customerModuleActive, setCustomerModuleActive] = useState(true);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/preferences?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((body) => setCustomerModuleActive((body.preferences || {}).offer_ac_active === true))
+      .catch(() => {});
+  }, [userId]);
+
   async function loadCampaigns() {
     setLoading(true);
     const res = await fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json());
@@ -261,11 +286,35 @@ export default function CampaignsPage() {
           <p className="eyebrow">{t('campaigns.eyebrow', locale)}</p>
           <h1>{t('campaigns.pageTitle', locale)}</h1>
         </div>
-        <button className="btn-primary" onClick={() => setShowChat(true)}>
-          + {t('campaigns.newCampaign', locale)}
-        </button>
+        {tab === 'prospection' && (
+          <button className="btn-primary" onClick={() => setShowChat(true)}>
+            + {t('campaigns.newCampaign', locale)}
+          </button>
+        )}
       </header>
 
+      <div className="tab-switch">
+        <button
+          type="button"
+          className={`tab-btn ${tab === 'prospection' ? 'active' : ''}`}
+          onClick={() => setTab('prospection')}
+        >
+          🎯 {t('marketing.tabProspection', locale)}
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${tab === 'marketing' ? 'active' : ''}`}
+          onClick={() => setTab('marketing')}
+        >
+          📣 {t('marketing.tabMarketing', locale)}
+          {!customerModuleActive && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}
+        </button>
+      </div>
+
+      {tab === 'marketing' ? (
+        <MarketingCampaignsPanel userId={userId} companyId={companyId} locale={locale} customerModuleActive={customerModuleActive} />
+      ) : (
+      <>
       {!loading && campaigns.length > 0 && (
         <div className="global-advice-row">
           <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
@@ -447,6 +496,8 @@ export default function CampaignsPage() {
           }}
         />
       )}
+      </>
+      )}
 
       <style jsx>{`
         .header {
@@ -454,6 +505,33 @@ export default function CampaignsPage() {
           justify-content: space-between;
           align-items: flex-start;
           margin-bottom: 1.5rem;
+        }
+        .tab-switch {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 1.5rem;
+        }
+        .tab-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: 999px;
+          padding: 0.5rem 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .tab-btn.active {
+          background: var(--accent);
+          border-color: var(--accent);
+          color: white;
+        }
+        .tab-btn .lock-badge {
+          display: inline-flex;
+          opacity: 0.8;
         }
         .eyebrow {
           text-transform: uppercase;
@@ -1720,6 +1798,804 @@ function EmptyState({ title, body }) {
           color: var(--muted);
           font-size: 0.88rem;
           margin: 0;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Module Aaron Marketing (docx AJOUT GLOBAL, message du 21/08/2026 : "module
+// marketing campagne. Fais le. le meilleur au monde... Bases toi sur les
+// meilleurs de la concurrence") — campagnes email vers les clients déjà
+// gagnés (module Aaron Clients). Voir migration_marketing_campaigns_2026-08-21.sql
+// et app/api/marketing-campaigns/* pour le détail backend.
+const MARKETING_STATUS_COLORS = {
+  brouillon: '#8B90A8',
+  prete: '#4B9EF0',
+  en_cours: '#4B9EF0',
+  terminee: '#3DD68C',
+  en_pause: '#F0914E',
+};
+
+function marketingStatusLabelsFor(locale) {
+  return {
+    brouillon: { label: t('marketing.statusBrouillon', locale), color: MARKETING_STATUS_COLORS.brouillon },
+    prete: { label: t('marketing.statusPrete', locale), color: MARKETING_STATUS_COLORS.prete },
+    en_cours: { label: t('marketing.statusEnCours', locale), color: MARKETING_STATUS_COLORS.en_cours },
+    terminee: { label: t('marketing.statusTerminee', locale), color: MARKETING_STATUS_COLORS.terminee },
+    en_pause: { label: t('marketing.statusEnPause', locale), color: MARKETING_STATUS_COLORS.en_pause },
+  };
+}
+
+const HEALTH_FILTER_OPTIONS = ['saine', 'a_surveiller', 'a_risque'];
+
+function healthFilterLabelsFor(locale) {
+  return {
+    saine: t('marketing.healthSaine', locale),
+    a_surveiller: t('marketing.healthSurveiller', locale),
+    a_risque: t('marketing.healthRisque', locale),
+  };
+}
+
+function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActive }) {
+  const STATUS_LABELS = marketingStatusLabelsFor(locale);
+  const HEALTH_LABELS = healthFilterLabelsFor(locale);
+
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [savingNew, setSavingNew] = useState(false);
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const [subjectDraft, setSubjectDraft] = useState('');
+  const [bodyDraft, setBodyDraft] = useState('');
+  const [healthFilterDraft, setHealthFilterDraft] = useState([]);
+  const [minDaysDraft, setMinDaysDraft] = useState('');
+  const [savingContent, setSavingContent] = useState(false);
+
+  const [aiGoal, setAiGoal] = useState('');
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [actionError, setActionError] = useState(null);
+
+  const [audiencePreview, setAudiencePreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const [preparing, setPreparing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
+
+  const [adviceGenerating, setAdviceGenerating] = useState(false);
+
+  async function loadCampaigns() {
+    setLoading(true);
+    const res = await fetch(`/api/marketing-campaigns?user_id=${userId}`).then((r) => r.json());
+    setCampaigns(res.campaigns || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (!userId || !customerModuleActive) return;
+    loadCampaigns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, customerModuleActive]);
+
+  async function openCampaign(id) {
+    setSelectedId(id);
+    setDetailLoading(true);
+    setAudiencePreview(null);
+    setSendResult(null);
+    setActionError(null);
+    const res = await fetch(`/api/marketing-campaigns/${id}`).then((r) => r.json());
+    setDetail(res);
+    setSubjectDraft(res.campaign?.subject || '');
+    setBodyDraft(res.campaign?.body_text || '');
+    setHealthFilterDraft(res.campaign?.audience_health_filter || []);
+    setMinDaysDraft(res.campaign?.audience_min_days_since_won ? String(res.campaign.audience_min_days_since_won) : '');
+    setDetailLoading(false);
+  }
+
+  function closeDetail() {
+    setSelectedId(null);
+    setDetail(null);
+  }
+
+  async function createCampaign() {
+    if (!newName.trim()) return;
+    setSavingNew(true);
+    const res = await fetch('/api/marketing-campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, name: newName.trim() }),
+    });
+    setSavingNew(false);
+    if (!res.ok) return;
+    const body = await res.json();
+    setCreating(false);
+    setNewName('');
+    await loadCampaigns();
+    openCampaign(body.campaign.id);
+  }
+
+  async function deleteCampaign(id) {
+    const res = await fetch(`/api/marketing-campaigns/${id}`, { method: 'DELETE' });
+    if (!res.ok) return;
+    closeDetail();
+    loadCampaigns();
+  }
+
+  function toggleHealthFilter(key) {
+    setHealthFilterDraft((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  async function saveContent() {
+    setSavingContent(true);
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject: subjectDraft,
+        body_text: bodyDraft,
+        audience_health_filter: healthFilterDraft,
+        audience_min_days_since_won: minDaysDraft ? parseInt(minDaysDraft, 10) : null,
+      }),
+    });
+    setSavingContent(false);
+    if (!res.ok) return;
+    const body = await res.json();
+    setDetail((prev) => ({ ...prev, campaign: body.campaign }));
+    setAudiencePreview(null);
+    loadCampaigns();
+  }
+
+  async function aiDraft() {
+    if (!aiGoal.trim()) return;
+    setAiDrafting(true);
+    setActionError(null);
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal: aiGoal.trim() }),
+    });
+    const body = await res.json();
+    setAiDrafting(false);
+    if (!res.ok) {
+      setActionError(body.error || t('campaigns.chatErrorRetry', locale));
+      return;
+    }
+    setSubjectDraft(body.campaign.subject || '');
+    setBodyDraft(body.campaign.body_text || '');
+    setDetail((prev) => ({ ...prev, campaign: body.campaign }));
+    loadCampaigns();
+  }
+
+  async function previewAudience() {
+    setPreviewLoading(true);
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}/audience`).then((r) => r.json());
+    setPreviewLoading(false);
+    setAudiencePreview(res);
+  }
+
+  async function prepareRecipients() {
+    setPreparing(true);
+    setActionError(null);
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}/recipients`, { method: 'POST' });
+    const body = await res.json();
+    setPreparing(false);
+    if (!res.ok) {
+      setActionError(body.error || t('campaigns.chatErrorRetry', locale));
+      return;
+    }
+    setDetail((prev) => ({ ...prev, campaign: body.campaign }));
+    loadCampaigns();
+  }
+
+  async function sendCampaign() {
+    setSending(true);
+    setSendResult(null);
+    setActionError(null);
+    let done = false;
+    let totalSent = 0;
+    let totalFailed = 0;
+    while (!done) {
+      const res = await fetch(`/api/marketing-campaigns/${selectedId}/send`, { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setActionError(body.error || t('campaigns.chatErrorRetry', locale));
+        break;
+      }
+      totalSent += body.sent;
+      totalFailed += body.failed;
+      setSendResult({ sent: totalSent, failed: totalFailed, remaining: body.remaining });
+      done = body.done;
+    }
+    setSending(false);
+    loadCampaigns();
+    openCampaign(selectedId);
+  }
+
+  async function generateCampaignAdvice() {
+    setAdviceGenerating(true);
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}/advice`, { method: 'POST' });
+    const body = await res.json();
+    setAdviceGenerating(false);
+    if (!res.ok) return;
+    setDetail((prev) => ({ ...prev, campaign: { ...prev.campaign, advice: body.advice, advice_generated_at: body.advice_generated_at } }));
+    loadCampaigns();
+  }
+
+  async function pauseResume(action) {
+    const res = await fetch(`/api/marketing-campaigns/${selectedId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (!res.ok) return;
+    const body = await res.json();
+    setDetail((prev) => ({ ...prev, campaign: body.campaign }));
+    loadCampaigns();
+  }
+
+  if (!customerModuleActive) {
+    return (
+      <div className="mk-panel">
+        <EmptyState title={t('marketing.lockedTitle', locale)} body={t('marketing.lockedBody', locale)} />
+      </div>
+    );
+  }
+
+  const campaign = detail?.campaign;
+  const recipients = detail?.recipients || [];
+  const sentCount = recipients.filter((r) => r.status === 'envoye').length;
+  const clickCount = recipients.filter((r) => r.click_count > 0).length;
+  const unsubCount = recipients.filter((r) => r.status === 'desabonne').length;
+  const isEditable = campaign && ['brouillon', 'prete'].includes(campaign.status);
+  const currentStatus = campaign ? (STATUS_LABELS[campaign.status] || STATUS_LABELS.brouillon) : null;
+
+  return (
+    <div className="mk-panel">
+      {!selectedId ? (
+        <>
+          <div className="mk-toolbar">
+            <p className="mk-note">{t('marketing.intro', locale)}</p>
+            <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
+              + {t('marketing.newCampaign', locale)}
+            </button>
+          </div>
+
+          {creating && (
+            <div className="mk-new-row">
+              <input
+                type="text"
+                value={newName}
+                placeholder={t('marketing.campaignNamePlaceholder', locale)}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <button type="button" className="btn-primary" disabled={savingNew || !newName.trim()} onClick={createCampaign}>
+                {savingNew ? '…' : t('marketing.create', locale)}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setCreating(false);
+                  setNewName('');
+                }}
+              >
+                {t('common.cancel', locale)}
+              </button>
+            </div>
+          )}
+
+          {loading ? (
+            <p className="muted">{t('common.loading', locale)}</p>
+          ) : campaigns.length === 0 ? (
+            <EmptyState title={t('marketing.pageEmptyTitle', locale)} body={t('marketing.pageEmptyBody', locale)} />
+          ) : (
+            <div className="cards">
+              {campaigns.map((c) => {
+                const status = STATUS_LABELS[c.status] || STATUS_LABELS.brouillon;
+                return (
+                  <button type="button" className="card mk-card" key={c.id} onClick={() => openCampaign(c.id)}>
+                    <div className="card-top">
+                      <h3>{c.name}</h3>
+                      <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
+                        {status.label}
+                      </span>
+                    </div>
+                    {c.subject && <p className="muted mk-subject">✉️ {c.subject}</p>}
+                    <div className="mk-stats-row">
+                      <span>
+                        {c.stats.envoyes}/{c.stats.total} {t('marketing.statsSentSuffix', locale)}
+                      </span>
+                      <span className="muted">
+                        👆 {c.stats.clics} · 🚫 {c.stats.desabonnes}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : detailLoading || !campaign ? (
+        <p className="muted">{t('common.loading', locale)}</p>
+      ) : (
+        <div className="mk-detail">
+          <button type="button" className="link-btn mk-back" onClick={closeDetail}>
+            ← {t('marketing.backToList', locale)}
+          </button>
+
+          <div className="mk-detail-head">
+            <h2>{campaign.name}</h2>
+            <span className="status-pill" style={{ color: currentStatus.color, borderColor: currentStatus.color }}>
+              {currentStatus.label}
+            </span>
+          </div>
+
+          {actionError && <p className="error">{actionError}</p>}
+
+          {isEditable ? (
+            <>
+              <section className="mk-section">
+                <p className="mk-section-title">🤖 {t('marketing.aiSectionTitle', locale)}</p>
+                <div className="mk-ai-row">
+                  <input
+                    type="text"
+                    value={aiGoal}
+                    placeholder={t('marketing.aiGoalPlaceholder', locale)}
+                    onChange={(e) => setAiGoal(e.target.value)}
+                  />
+                  <button type="button" className="btn-secondary" disabled={aiDrafting || !aiGoal.trim()} onClick={aiDraft}>
+                    {aiDrafting ? t('marketing.aiDrafting', locale) : t('marketing.aiDraftBtn', locale)}
+                  </button>
+                </div>
+              </section>
+
+              <section className="mk-section">
+                <p className="mk-section-title">{t('marketing.subjectLabel', locale)}</p>
+                <input
+                  type="text"
+                  value={subjectDraft}
+                  onChange={(e) => setSubjectDraft(e.target.value)}
+                  placeholder={t('marketing.subjectPlaceholder', locale)}
+                />
+                <p className="mk-section-title">{t('marketing.bodyLabel', locale)}</p>
+                <textarea
+                  rows={7}
+                  value={bodyDraft}
+                  onChange={(e) => setBodyDraft(e.target.value)}
+                  placeholder={t('marketing.bodyPlaceholder', locale)}
+                />
+                <p className="mk-hint">{t('marketing.mergeTagHint', locale)}</p>
+              </section>
+
+              <section className="mk-section">
+                <p className="mk-section-title">🎯 {t('marketing.audienceTitle', locale)}</p>
+                <div className="mk-health-filters">
+                  {HEALTH_FILTER_OPTIONS.map((key) => (
+                    <label key={key} className="mk-checkbox">
+                      <input type="checkbox" checked={healthFilterDraft.includes(key)} onChange={() => toggleHealthFilter(key)} />
+                      {HEALTH_LABELS[key]}
+                    </label>
+                  ))}
+                </div>
+                <p className="mk-hint">{t('marketing.audienceAllHint', locale)}</p>
+                <label className="mk-min-days">
+                  {t('marketing.minDaysLabel', locale)}
+                  <input type="number" min="0" value={minDaysDraft} onChange={(e) => setMinDaysDraft(e.target.value)} />
+                </label>
+              </section>
+
+              <div className="mk-actions-row">
+                <button type="button" className="btn-secondary" disabled={savingContent} onClick={saveContent}>
+                  {savingContent ? '…' : t('marketing.saveContent', locale)}
+                </button>
+                <button type="button" className="btn-secondary" disabled={previewLoading} onClick={previewAudience}>
+                  {previewLoading ? '…' : t('marketing.previewAudienceBtn', locale)}
+                </button>
+                <button type="button" className="btn-danger" onClick={() => deleteCampaign(campaign.id)}>
+                  {t('marketing.deleteBtn', locale)}
+                </button>
+              </div>
+
+              {audiencePreview && (
+                <div className="mk-preview">
+                  <p>
+                    <strong>
+                      {t('marketing.audienceCountPrefix', locale)} {audiencePreview.count}
+                    </strong>
+                  </p>
+                  {audiencePreview.sample?.length > 0 && (
+                    <ul>
+                      {audiencePreview.sample.map((p) => (
+                        <li key={p.id}>
+                          {p.full_name} — {p.email}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              <div className="mk-send-row">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={preparing || !campaign.subject || !campaign.body_text}
+                  onClick={prepareRecipients}
+                >
+                  {preparing ? '…' : t('marketing.prepareRecipientsBtn', locale)}
+                </button>
+                {campaign.status === 'prete' && (
+                  <button type="button" className="btn-primary" disabled={sending} onClick={sendCampaign}>
+                    {sending ? t('marketing.sending', locale) : t('marketing.sendBtn', locale)}
+                  </button>
+                )}
+              </div>
+              {sendResult && (
+                <p className="mk-hint">
+                  {t('marketing.sendProgress', locale).replace('{sent}', String(sendResult.sent)).replace('{failed}', String(sendResult.failed))}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <section className="mk-section">
+                <p className="mk-section-title">✉️ {campaign.subject}</p>
+                <p className="mk-body-readonly">{campaign.body_text}</p>
+              </section>
+
+              <div className="mk-stats-grid">
+                <div>
+                  <strong>{sentCount}</strong>
+                  <span>{t('marketing.statsSent', locale)}</span>
+                </div>
+                <div>
+                  <strong>{clickCount}</strong>
+                  <span>{t('marketing.statsClicks', locale)}</span>
+                </div>
+                <div>
+                  <strong>{unsubCount}</strong>
+                  <span>{t('marketing.statsUnsub', locale)}</span>
+                </div>
+              </div>
+              <p className="mk-hint">{t('marketing.noOpenTrackingNote', locale)}</p>
+
+              {(campaign.status === 'en_cours' || campaign.status === 'en_pause') && (
+                <div className="mk-actions-row">
+                  {campaign.status === 'en_cours' ? (
+                    <button type="button" className="status-btn" onClick={() => pauseResume('pause')}>
+                      ⏸ {t('campaigns.pauseCampaign', locale)}
+                    </button>
+                  ) : (
+                    <button type="button" className="status-btn" onClick={() => pauseResume('reprendre')}>
+                      ▶ {t('campaigns.resumeCampaign', locale)}
+                    </button>
+                  )}
+                  {campaign.status === 'en_pause' && (
+                    <button type="button" className="btn-primary" disabled={sending} onClick={sendCampaign}>
+                      {sending ? t('marketing.sending', locale) : t('marketing.sendBtn', locale)}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="advice-box">
+                <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
+                {campaign.advice ? (
+                  <>
+                    <p className="advice-text">{campaign.advice}</p>
+                    <button type="button" className="link-btn" disabled={adviceGenerating} onClick={generateCampaignAdvice}>
+                      {adviceGenerating ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="link-btn" disabled={adviceGenerating} onClick={generateCampaignAdvice}>
+                    {adviceGenerating ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <style jsx>{`
+        .mk-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+        .mk-toolbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+        .mk-note {
+          color: var(--muted);
+          font-size: 0.86rem;
+          margin: 0;
+          max-width: 60ch;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-md);
+          padding: 0.65rem 1rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.9rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.9rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .status-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .link-btn {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.8rem;
+          cursor: pointer;
+          padding: 0;
+        }
+        .mk-new-row {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .mk-new-row input {
+          flex: 1;
+          min-width: 220px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.86rem;
+        }
+        .cards {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 1rem;
+        }
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.1rem;
+          text-align: left;
+        }
+        .mk-card {
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .card-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 0.6rem;
+          margin-bottom: 0.6rem;
+        }
+        .card-top h3 {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.02rem;
+          color: var(--text);
+        }
+        .status-pill {
+          border: 1px solid;
+          border-radius: 999px;
+          padding: 0.2rem 0.6rem;
+          font-size: 0.72rem;
+          white-space: nowrap;
+        }
+        .mk-subject {
+          font-size: 0.82rem;
+          margin: 0 0 0.6rem;
+        }
+        .mk-stats-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.78rem;
+          color: var(--text);
+        }
+        .mk-detail {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.4rem;
+        }
+        .mk-back {
+          margin-bottom: 0.8rem;
+        }
+        .mk-detail-head {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          margin-bottom: 1.2rem;
+        }
+        .mk-detail-head h2 {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.3rem;
+        }
+        .mk-section {
+          margin-bottom: 1.3rem;
+        }
+        .mk-section-title {
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: var(--text);
+          margin: 0 0 0.4rem;
+        }
+        .mk-section input[type='text'],
+        .mk-section textarea {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+          margin-bottom: 0.6rem;
+          box-sizing: border-box;
+        }
+        .mk-ai-row {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .mk-ai-row input {
+          flex: 1;
+          min-width: 220px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.8rem;
+          color: var(--text);
+          font-size: 0.86rem;
+        }
+        .mk-hint {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0.2rem 0 0;
+        }
+        .mk-health-filters {
+          display: flex;
+          gap: 1rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.4rem;
+        }
+        .mk-checkbox {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.84rem;
+          color: var(--text);
+        }
+        .mk-min-days {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.84rem;
+          color: var(--text);
+          margin-top: 0.6rem;
+        }
+        .mk-min-days input {
+          width: 80px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.5rem;
+          color: var(--text);
+        }
+        .mk-actions-row,
+        .mk-send-row {
+          display: flex;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.6rem;
+        }
+        .mk-preview {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.8rem 1rem;
+          margin-bottom: 0.8rem;
+          font-size: 0.84rem;
+        }
+        .mk-preview ul {
+          margin: 0.4rem 0 0;
+          padding-left: 1.1rem;
+          color: var(--muted);
+        }
+        .mk-body-readonly {
+          white-space: pre-line;
+          color: var(--text);
+          font-size: 0.88rem;
+          line-height: 1.5;
+        }
+        .mk-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 0.8rem;
+          margin: 1rem 0;
+        }
+        .mk-stats-grid div {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.7rem;
+          text-align: center;
+        }
+        .mk-stats-grid strong {
+          display: block;
+          font-size: 1.2rem;
+          color: var(--text);
+        }
+        .mk-stats-grid span {
+          font-size: 0.72rem;
+          color: var(--muted);
+        }
+        .advice-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+          margin-top: 0.6rem;
+        }
+        .advice-label {
+          font-size: 0.76rem;
+          font-weight: 600;
+          color: var(--muted);
+          margin: 0 0 0.4rem;
+        }
+        .advice-text {
+          font-size: 0.86rem;
+          color: var(--text);
+          margin: 0 0 0.5rem;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .error {
+          color: var(--accent-red);
+          font-size: 0.84rem;
         }
       `}</style>
     </div>
