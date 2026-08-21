@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import CsvImportModal from '@/components/CsvImportModal';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -189,6 +190,7 @@ export default function SalesPage() {
   // app/api/prospects/route.ts.
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
@@ -386,6 +388,9 @@ export default function SalesPage() {
           <button className="btn-secondary" onClick={() => downloadBlankDealsTemplate(locale)}>
             {t('sales.downloadTemplate', locale)}
           </button>
+          <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
+            {t('csvImport.button', locale)}
+          </button>
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
             {t('sales.addButton', locale)}
           </button>
@@ -401,6 +406,21 @@ export default function SalesPage() {
           onClose={() => setShowAddForm(false)}
           onCreated={() => {
             setShowAddForm(false);
+            load();
+          }}
+        />
+      )}
+
+      {showCsvImport && (
+        <CsvImportModal
+          userId={userId}
+          companyId={companyId}
+          context="sales"
+          module="as"
+          stageOrder={STAGE_ORDER}
+          stageMeta={STAGE_META}
+          onClose={() => setShowCsvImport(false)}
+          onImported={() => {
             load();
           }}
         />
