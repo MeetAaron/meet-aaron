@@ -885,6 +885,9 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   const [recap, setRecap] = useState(null);
   const [error, setError] = useState(null);
   const [launching, setLaunching] = useState(false);
+  // AJOUT GLOBAL (langue Aaron) : même champ que dans le formulaire
+  // classique — voir NewCampaignModal plus haut pour le détail.
+  const [chatTargetLocale, setChatTargetLocale] = useState('');
 
   async function sendMessage(text) {
     if (!text.trim() || sending) return;
@@ -945,6 +948,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         target_count: Number(recap.target_count) || 20,
         context_notes: recap.context_notes || null,
         target_role: recap.target_role || null,
+        target_locale: chatTargetLocale || null,
       }),
     });
     setLaunching(false);
@@ -1035,6 +1039,16 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
             <p><strong>{t('campaigns.recapObjective', locale)}</strong> {recap.target_count || 20} {t('campaigns.contactsUnit', locale)}</p>
             <p className="recap-hint">{t('campaigns.targetCountHint', locale)}</p>
             {recap.context_notes && <p><strong>{t('campaigns.recapNotes', locale)}</strong> {recap.context_notes}</p>}
+            <label>
+              {t('campaigns.targetLocaleLabel', locale)}
+              <select value={chatTargetLocale} onChange={(e) => setChatTargetLocale(e.target.value)}>
+                <option value="">{t('campaigns.targetLocaleAuto', locale)}</option>
+                {LOCALES.map((l) => (
+                  <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+                ))}
+              </select>
+            </label>
+            <p className="recap-hint">{t('campaigns.targetLocaleHint', locale)}</p>
             <p className="recap-hint">{t('campaigns.recapHint', locale)}</p>
             <button type="button" className="btn-primary" onClick={handleLaunch} disabled={launching}>
               {launching ? t('campaigns.launching', locale) : t('campaigns.launchCampaign', locale)}
@@ -1264,6 +1278,13 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   // parité entre les deux formulaires plutôt qu'un formulaire classique limité
   // à la France.
   const [zoneLabel, setZoneLabel] = useState('');
+  // AJOUT GLOBAL (langue Aaron) : langue dans laquelle Aaron rédige le tout
+  // premier email de prospection pour cette campagne — utile quand la zone
+  // visée n'utilise pas la même langue que le compte du commercial (ex.
+  // campagne Australie alors que le commercial utilise l'app en français).
+  // '' = comportement inchangé (langue du commercial). Voir lib/aaron.ts et
+  // migration_campaign_target_locale_2026-08-21.sql.
+  const [targetLocale, setTargetLocale] = useState('');
   const [companySizes, setCompanySizes] = useState([]);
   const [sectors, setSectors] = useState('');
   const [targetRole, setTargetRole] = useState('');
@@ -1338,6 +1359,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         target_role: targetRole || null,
         context_notes: contextNotes.trim() || null,
         target_count: Number(targetCount),
+        target_locale: targetLocale || null,
       }),
     });
     setSubmitting(false);
@@ -1385,6 +1407,17 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
                 </button>
               ))}
             </div>
+
+            <label>
+              {t('campaigns.targetLocaleLabel', locale)}
+              <select value={targetLocale} onChange={(e) => setTargetLocale(e.target.value)}>
+                <option value="">{t('campaigns.targetLocaleAuto', locale)}</option>
+                {LOCALES.map((l) => (
+                  <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+                ))}
+              </select>
+            </label>
+            <p className="step-subtitle">{t('campaigns.targetLocaleHint', locale)}</p>
           </div>
         )}
 
