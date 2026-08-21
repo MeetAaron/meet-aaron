@@ -89,10 +89,13 @@ async function loadAppointmentWithProspect(appointmentId: string) {
   return { appointment, prospect };
 }
 
-// Langue du commercial assigné — voir la note équivalente dans
-// lib/aaron-customer.ts : ici aussi, le prospect n'a pas de langue détectée
-// séparément pour le brief/compte-rendu/devis (contenu interne ou déjà en
-// aval d'un RDV obtenu), donc on retombe sur celle du commercial.
+// Langue du commercial assigné — reste la langue par défaut ET la langue
+// systématique du contenu interne (brief pré-RDV, compte-rendu). Pour le
+// contenu envoyé AU prospect (email de relance post-RDV, email de devis),
+// generateAppointmentDebrief/generateDevis détectent en plus sa langue à lui
+// dans l'historique des échanges (loadConversationMessages) et l'utilisent à
+// la place si elle diffère — voir l'instruction "LANGUE" dans chacune de ces
+// deux fonctions.
 function prospectLocale(prospect: any): string {
   return normalizeLocale(prospect?.users?.locale);
 }
@@ -222,6 +225,11 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
   const companyId = prospect.company_id;
   const societe = prospect.prospect_companies?.name;
   const locale = prospectLocale(prospect);
+  // Historique des échanges avec ce prospect (mails déjà envoyés/reçus) —
+  // sert uniquement à détecter dans quelle langue LUI écrit, pour l'email de
+  // relance ci-dessous (voir instruction "LANGUE" plus bas) ; le compte-rendu
+  // interne reste toujours dans la langue du commercial.
+  const messages = await loadConversationMessages(prospect.id);
 
   const data = await callClaude(
     {
@@ -234,9 +242,10 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
             `Tu es Aaron, copilote commercial IA. Le commercial vient d'avoir un RDV ${appointment.type} avec le prospect ` +
             `"${prospect.full_name}"${societe ? ` (${societe})` : ''}, et t'a laissé ces notes rapides juste après :\n` +
             `"${trimmedNotes}"\n\n` +
+            (messages.length ? `Historique des échanges déjà eus avec ce prospect (pour repérer dans quelle langue il écrit) :\n${JSON.stringify(messages, null, 2)}\n\n` : '') +
             `À partir de ces notes UNIQUEMENT (n'invente pas de détails qui n'y figurent pas), rédige :\n` +
             `1) un compte-rendu structuré et professionnel du RDV (points clés abordés, besoins exprimés, prochaines étapes) — usage interne, ${localeInstruction(locale)} (langue du commercial)\n` +
-            `2) un email de relance prêt à envoyer au prospect pour le remercier et faire avancer l'affaire, ton professionnel et chaleureux, ${localeInstruction(locale)}, sans balises HTML.\n` +
+            `2) un email de relance prêt à envoyer au prospect pour le remercier et faire avancer l'affaire, ton professionnel et chaleureux, sans balises HTML — LANGUE : si l'historique ci-dessus montre que le prospect écrit dans une langue différente de celle du commercial, rédige cet email dans SA langue à lui ; sinon ${localeInstruction(locale)}.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"compte_rendu": "compte-rendu structuré en plusieurs courts paragraphes séparés par des sauts de ligne", ` +
             `"email_relance": {"subject": "objet de l'email", "body": "corps de l'email"}}`,
@@ -361,7 +370,7 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
               : `Cette société n'a pas encore renseigné de catalogue de produits/tarifs — laisse "produit_id" à null et ` +
                 `"quantite" à 1 pour chaque poste, tu ne connais aucun prix.\n\n`) +
             `Rédige :\n1) un email d'accompagnement du devis, professionnel et chaleureux, qui rappelle le contexte ` +
-            `et la valeur pour ce prospect précis, ${localeInstruction(locale)}, sans balises HTML.\n` +
+            `et la valeur pour ce prospect précis, sans balises HTML — LANGUE : si l'historique des échanges ci-dessus montre que le prospect écrit dans une langue différente de celle du commercial, rédige cet email dans SA langue à lui ; sinon ${localeInstruction(locale)}.\n` +
             `2) un récapitulatif de l'offre sous forme de postes (usage interne, ${localeInstruction(locale)}).\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"objet": "objet de l'email", "corps_email": "corps de l'email", ` +

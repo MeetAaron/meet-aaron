@@ -60,16 +60,26 @@ async function buildContext(prospectId: string) {
   // campagne (ex: "mes clients habituels sont pressés et vont droit au but")
   // pour qu'Aaron adapte réellement le ton — jusqu'ici ces notes étaient
   // capturées mais jamais transmises à la génération des messages.
-  let campaignContext: { zone_label: string | null; context_notes: string | null } | null = null;
+  let campaignContext: { zone_label: string | null; context_notes: string | null; langue_cible: string | null } | null = null;
   const foundByCampaignId = (prospect as any).prospect_companies?.found_by_campaign_id;
   if (foundByCampaignId) {
     const { data: campaign } = await supabaseAdmin
       .from('prospecting_campaigns')
-      .select('zone_label, context_notes')
+      .select('zone_label, context_notes, target_locale')
       .eq('id', foundByCampaignId)
       .maybeSingle();
-    if (campaign && (campaign.zone_label || campaign.context_notes)) {
-      campaignContext = { zone_label: campaign.zone_label || null, context_notes: campaign.context_notes || null };
+    if (campaign && (campaign.zone_label || campaign.context_notes || campaign.target_locale)) {
+      campaignContext = {
+        zone_label: campaign.zone_label || null,
+        context_notes: campaign.context_notes || null,
+        // Langue explicitement choisie pour cette campagne (voir
+        // migration_campaign_target_locale_2026-08-21.sql) — utilisée par le
+        // prompt système UNIQUEMENT tant qu'aucun message du prospect n'a
+        // encore été reçu (voir section "LANGUE DE LA RÉPONSE" du prompt) ;
+        // null si non précisée, auquel cas le comportement reste inchangé
+        // (repli sur commercial.langue).
+        langue_cible: campaign.target_locale ? LOCALE_NAMES[normalizeLocale(campaign.target_locale)] : null,
+      };
     }
   }
 

@@ -86,14 +86,41 @@ async function loadWonProspect(prospectId: string) {
   return prospect;
 }
 
-// Langue du commercial en charge du client — utilisée comme repère par
-// défaut pour tout le contenu généré par Aaron Customer (emails au client,
-// suggestions internes) : le client n'a pas de langue connue côté Meet
-// Aaron (contrairement au prospect, dont on peut détecter la langue dans
-// l'historique de conversation via lib/aaron.ts), donc on retombe sur celle
-// du commercial qui gère la relation. Voir lib/locale-instruction.ts.
+// Langue du commercial en charge du client — reste la langue par défaut ET
+// la langue systématique du contenu interne (plan d'onboarding, etc.). Pour
+// le contenu envoyé AU client, chaque fonction ci-dessous détecte en plus sa
+// langue à lui dans l'historique des échanges (loadConversationMessages,
+// même historique que celui utilisé par lib/aaron.ts côté Prospect — il se
+// poursuit sans interruption du premier contact jusqu'au statut client) et
+// l'utilise à la place si elle diffère — voir l'instruction "LANGUE" dans
+// chaque prompt. Alignement avec le comportement déjà en place côté
+// Prospect (lib/aaron.ts) et Opportunités (lib/aaron-sales.ts).
 function prospectLocale(prospect: any): string {
   return normalizeLocale(prospect?.users?.locale);
+}
+
+// Même fonction que lib/aaron-sales.ts (copie volontaire, chaque "cerveau"
+// Aaron reste autonome — voir l'en-tête de ce fichier) : historique complet
+// des échanges email avec ce contact, du tout premier message de
+// prospection jusqu'à aujourd'hui (une seule conversation par prospect,
+// channel 'email', qui traverse les 3 statuts prospect/opportunité/client).
+async function loadConversationMessages(prospectId: string) {
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('prospect_id', prospectId)
+    .eq('channel', 'email')
+    .maybeSingle();
+
+  if (!conversation) return [];
+
+  const { data: messages } = await supabaseAdmin
+    .from('messages')
+    .select('direction, body, sent_at')
+    .eq('conversation_id', conversation.id)
+    .order('sent_at', { ascending: true });
+
+  return messages || [];
 }
 
 function parseJsonResponse<T>(data: any, errorLabel: string): T {
@@ -119,6 +146,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
   const companyId = prospect.company_id;
   const societe = (prospect as any).prospect_companies?.name;
   const locale = prospectLocale(prospect);
+  const messages = await loadConversationMessages(prospectId);
 
   // CHANGEMENTS A FAIRE #89 : ne retient que les documents pris en compte
   // par Aaron et rattachés au module Client — "général" (NULL/'general')
@@ -146,6 +174,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
       note_commerciale: doc.commercial_note || null,
       extrait: doc.extracted_text ? doc.extracted_text.slice(0, 600) : null,
     })),
+    historique_echanges: messages,
   };
 
   const data = await callClaude(
@@ -158,10 +187,12 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
           content:
             `Tu es Aaron, copilote commercial IA. Le commercial vient de signer un nouveau client : ` +
             `"${prospect.full_name}"${societe ? ` (${societe})` : ''}. Aide-le à bien démarrer la relation. ` +
-            `Rédige tout ce qui suit (plan ET email) ${localeInstruction(locale)}.\n` +
+            `Rédige le plan (usage interne) ${localeInstruction(locale)}. Pour l'email de bienvenue : si ` +
+            `"historique_echanges" dans le contexte ci-dessous montre que ce contact écrit dans une langue ` +
+            `différente de celle du commercial, rédige l'email dans SA langue à lui ; sinon ${localeInstruction(locale)}.\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"plan": [{"titre": "étape courte (3-5 mots)", "description": "1 phrase expliquant quoi faire concrètement"}], ` +
-            `"welcome_email": {"subject": "objet de l'email de bienvenue", "body": "corps de l'email, ton chaleureux et professionnel, ${localeInstruction(locale)}, sans balises HTML"}}\n` +
+            `"welcome_email": {"subject": "objet de l'email de bienvenue", "body": "corps de l'email, ton chaleureux et professionnel, sans balises HTML"}}\n` +
             `Le plan doit contenir entre 4 et 6 étapes concrètes d'onboarding (ex: envoyer les accès, présenter les ` +
             `prochaines étapes, envoyer la documentation, planifier un point de suivi). Ne mentionne pas le premier ` +
             `appel de lancement/kick-off : Aaron le propose déjà automatiquement dans un email séparé juste après ` +
@@ -326,6 +357,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
   const prospect = await loadWonProspect(prospectId);
   const fallback = FALLBACK_CHECKIN[type];
   const locale = prospectLocale(prospect);
+  const messages = await loadConversationMessages(prospectId);
 
   try {
     const data = await callClaude(
@@ -340,8 +372,9 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
               `pour "${prospect.full_name}", client depuis un moment. Le but : lui demander une note de 0 à 10 ` +
               `${type === 'nps' ? '(probabilité de recommandation)' : '(satisfaction générale)'} et lui demander de répondre ` +
               `directement à cet email avec sa note et un mot d'explication.\n` +
+              (messages.length ? `Historique des échanges déjà eus avec ce client (pour repérer dans quelle langue il écrit) :\n${JSON.stringify(messages, null, 2)}\n\n` : '') +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux, ${localeInstruction(locale)}, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux, sans balises HTML — LANGUE : si l'historique ci-dessus montre que le client écrit dans une langue différente de celle du commercial, écris dans SA langue à lui ; sinon ${localeInstruction(locale)}"}`,
           },
         ],
       },
@@ -410,6 +443,7 @@ const FALLBACK_RENEWAL: RenewalOutreach = {
 export async function generateRenewalOutreach(prospectId: string): Promise<RenewalOutreach> {
   const prospect = await loadWonProspect(prospectId);
   const locale = prospectLocale(prospect);
+  const messages = await loadConversationMessages(prospectId);
 
   try {
     const data = await callClaude(
@@ -423,8 +457,9 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
               `Tu es Aaron, copilote commercial IA. Le contrat du client "${prospect.full_name}" arrive bientôt à ` +
               `échéance. Rédige un email court pour amorcer la discussion de renouvellement, ton chaleureux et ` +
               `professionnel, qui ouvre la porte à un échange plutôt que de présumer la réponse.\n` +
+              (messages.length ? `Historique des échanges déjà eus avec ce client (pour repérer dans quelle langue il écrit) :\n${JSON.stringify(messages, null, 2)}\n\n` : '') +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ${localeInstruction(locale)}, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, sans balises HTML — LANGUE : si l'historique ci-dessus montre que le client écrit dans une langue différente de celle du commercial, écris dans SA langue à lui ; sinon ${localeInstruction(locale)}"}`,
           },
         ],
       },
@@ -502,6 +537,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
   const prospect = await loadWonProspect(prospectId);
   const fallback = FALLBACK_TESTIMONIAL;
   const locale = prospectLocale(prospect);
+  const messages = await loadConversationMessages(prospectId);
 
   try {
     const data = await callClaude(
@@ -515,8 +551,9 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
               `Tu es Aaron, copilote commercial IA. Le client "${prospect.full_name}" vient de donner une excellente ` +
               `note de satisfaction/recommandation. Rédige un email court demandant s'il accepterait de laisser un ` +
               `témoignage ou un avis sur son expérience, ton chaleureux et reconnaissant, sans être insistant.\n` +
+              (messages.length ? `Historique des échanges déjà eus avec ce client (pour repérer dans quelle langue il écrit) :\n${JSON.stringify(messages, null, 2)}\n\n` : '') +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ${localeInstruction(locale)}, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, sans balises HTML — LANGUE : si l'historique ci-dessus montre que le client écrit dans une langue différente de celle du commercial, écris dans SA langue à lui ; sinon ${localeInstruction(locale)}"}`,
           },
         ],
       },
@@ -578,10 +615,12 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
               `Détermine si c'est une vraie demande nécessitant une réponse (question, problème, besoin d'aide, ` +
               `demande d'info) ou juste un message informatif/social ne nécessitant pas de suggestion (accusé de ` +
               `réception, remerciement simple, hors-sujet...).\n` +
-              `Si c'est une vraie demande, rédige une suggestion de réponse professionnelle et utile (${localeInstruction(locale)}) — mais SANS ` +
-              `inventer d'information technique ou de politique que tu ne connais pas ; si tu ne peux pas répondre ` +
-              `sur le fond, propose une réponse qui accuse réception et indique que le commercial revient vers lui ` +
-              `rapidement avec les détails.\n` +
+              `Si c'est une vraie demande, rédige une suggestion de réponse professionnelle et utile — dans la MÊME ` +
+              `LANGUE que le message reçu ci-dessus (celle du client, pas forcément celle du commercial ; si le ` +
+              `message reçu ne permet pas de déterminer une langue avec certitude, utilise ${localeInstruction(locale)}) ` +
+              `— mais SANS inventer d'information technique ou de politique que tu ne connais pas ; si tu ne peux pas ` +
+              `répondre sur le fond, propose une réponse qui accuse réception et indique que le commercial revient ` +
+              `vers lui rapidement avec les détails.\n` +
               `Indique aussi si c'est une question SIMPLE (FAQ récurrente, réponse générique que tu connais avec ` +
               `certitude à partir de ce que tu sais déjà de l'activité — horaires, comment procéder, question déjà ` +
               `traitée type) ou COMPLEXE (nécessite une info spécifique au dossier du client, un engagement, un ` +
@@ -631,6 +670,7 @@ export async function generateKickoffProposal(prospectId: string): Promise<Kicko
   const locale = prospectLocale(prospect);
   const societe = (prospect as any).prospect_companies?.name;
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const messages = await loadConversationMessages(prospectId);
 
   try {
     const data = await callClaude(
@@ -648,8 +688,9 @@ export async function generateKickoffProposal(prospectId: string): Promise<Kicko
               `Propose 2 à 3 créneaux précis (jour + heure, en te basant sur des jours ouvrés à partir d'aujourd'hui), ` +
               `demande le format préféré (visio ou téléphone), et précise que ce ne sont que des suggestions — le ` +
               `client peut proposer un autre horaire s'il préfère.\n` +
+              (messages.length ? `Historique des échanges déjà eus avec ce client (pour repérer dans quelle langue il écrit) :\n${JSON.stringify(messages, null, 2)}\n\n` : '') +
               `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
-              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux et professionnel, ${localeInstruction(locale)}, sans balises HTML"}`,
+              `{"subject": "objet court", "body": "corps de l'email, 4-6 phrases maximum, ton chaleureux et professionnel, sans balises HTML — LANGUE : si l'historique ci-dessus montre que le client écrit dans une langue différente de celle du commercial, écris dans SA langue à lui ; sinon ${localeInstruction(locale)}"}`,
           },
         ],
       },
