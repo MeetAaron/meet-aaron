@@ -208,6 +208,18 @@ function groupAppointmentsByDay(list, locale) {
   return groups;
 }
 
+// docx AJOUT GLOBAL (message du 21/08/2026) : ligne compacte sous la section
+// Prospects indiquant le nombre de campagnes de prospection en cours.
+function campaignLineText(campaigns, activeCampaigns, locale) {
+  if (!campaigns || campaigns.length === 0) return t('dash.campaignLineNone', locale);
+  if (activeCampaigns.length === 0) {
+    return t('dash.campaignLineNoneActive', locale).replace('{total}', String(campaigns.length));
+  }
+  return t('dash.campaignLineActive', locale)
+    .replace('{active}', String(activeCampaigns.length))
+    .replace('{total}', String(campaigns.length));
+}
+
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -216,6 +228,13 @@ export default function DashboardPage() {
   const HEALTH_META = healthBucketMetaFor(locale);
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  // docx AJOUT GLOBAL (message du 21/08/2026) : campagnes du nouveau module
+  // Aaron Marketing (voir app/app/campaigns/page.jsx, onglet "Marketing"),
+  // pour la ligne "X campagne(s) en cours" sous la rubrique Clients — même
+  // principe que campaigns/activeCampaigns ci-dessus pour Prospects, mais
+  // avec sa propre notion d'"active" (en_cours uniquement : une campagne
+  // marketing "prête" n'est pas encore en train d'envoyer quoi que ce soit).
+  const [marketingCampaigns, setMarketingCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [deals, setDeals] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -227,18 +246,20 @@ export default function DashboardPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [pRes, cRes, aRes, dRes, cuRes] = await Promise.all([
+    const [pRes, cRes, aRes, dRes, cuRes, mRes] = await Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/marketing-campaigns?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
     ]);
     setProspects(pRes.prospects || []);
     setCampaigns(cRes.campaigns || []);
     setAppointments(aRes.appointments || []);
     setDeals(dRes.deals || []);
     setCustomers(cuRes.customers || []);
+    setMarketingCampaigns(mRes.campaigns || []);
     setLoading(false);
   }
 
@@ -264,6 +285,7 @@ export default function DashboardPage() {
   }, {});
 
   const activeCampaigns = campaigns.filter((c) => c.status === 'en_cours' || c.status === 'en_attente');
+  const activeMarketingCampaigns = marketingCampaigns.filter((c) => c.status === 'en_cours');
 
   const now = new Date();
 
@@ -371,7 +393,7 @@ export default function DashboardPage() {
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
           <h1>{t('dash.title', locale)}</h1>
         </div>
-        <AaronPulse active={activeCampaigns.length > 0} />
+        <ConnectionStatusBadge />
       </header>
 
       {loading ? (
@@ -508,6 +530,7 @@ export default function DashboardPage() {
             />
           </div>
           <p className="period-note">{t('dash.periodNote', locale)}</p>
+          <p className="campaign-line">{campaignLineText(campaigns, activeCampaigns, locale)}</p>
 
           <section className="grid-two">
             <div className="panel">
@@ -587,6 +610,7 @@ export default function DashboardPage() {
 
           <section className="panel category-panel">
             <h2>{t('dash.clientsTitle', locale)}</h2>
+            <p className="campaign-line">{campaignLineText(marketingCampaigns, activeMarketingCampaigns, locale)}</p>
             {customers.length === 0 ? (
               <EmptyState title={t('dash.noClientsYet', locale)} body={t('dash.noClientsYet', locale)} compact />
             ) : (
@@ -867,6 +891,11 @@ export default function DashboardPage() {
           margin-top: 0.75rem;
         }
         .period-note {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0 0 0.4rem;
+        }
+        .campaign-line {
           font-size: 0.76rem;
           color: var(--muted);
           margin: 0 0 2rem;
@@ -1430,34 +1459,64 @@ function RescueModal({ prospect, onClose, onDone }) {
   );
 }
 
-function AaronPulse({ active }) {
+// docx AJOUT GLOBAL A10 (2026-08-21) : remplace la pastille "En veille"/"Aaron
+// travaille" (AaronPulse, activité des campagnes) par le statut de connexion
+// du commercial lui-même, comme demandé. Deux états distincts : le réseau
+// (navigator.onLine — coupure internet réelle, rien à voir avec la session)
+// et la session (toujours "connecté" tant qu'on voit cette page, puisque
+// l'app redirige vers /login sinon — voir AuthFetchInterceptor). Cliquer
+// ouvre une confirmation de déconnexion, avec la même logique que le bouton
+// "Se déconnecter" déjà présent en bas de la barre latérale (docx A10
+// précédent) — ce badge est un raccourci en plus, pas un remplacement.
+function ConnectionStatusBadge() {
   const [locale] = useLocale();
-  // docx AJOUT GLOBAL item A7 : Alex ne savait pas à quoi sert la pastille
-  // "En veille" — l'explication existait déjà (attribut title, survol
-  // souris uniquement) mais n'était pas assez visible, et invisible au
-  // tactile (mobile/tablette). Ajout d'un bouton info explicite, cliquable
-  // partout, qui affiche le même texte dans une bulle.
-  const [showInfo, setShowInfo] = useState(false);
-  const explanation = active ? t('pulse.activeTitle', locale) : t('pulse.idleTitle', locale);
+  const [online, setOnline] = useState(true);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  useEffect(() => {
+    setOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+    function goOnline() { setOnline(true); }
+    function goOffline() { setOnline(false); }
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  async function confirmLogout() {
+    setLoggingOut(true);
+    await supabaseBrowser.auth.signOut();
+    clearExplicitLogin();
+    window.location.href = '/login';
+  }
+
+  const label = online ? t('connectionBadge.online', locale) : t('connectionBadge.offline', locale);
+
   return (
-    <div className="pulse-wrap" title={explanation}>
-      <span className={`pulse-dot ${active ? 'is-active' : ''}`} />
-      <span className="pulse-label">{active ? t('pulse.activeLabel', locale) : t('pulse.idleLabel', locale)}</span>
-      <button
-        type="button"
-        className="pulse-info-btn"
-        onClick={() => setShowInfo((v) => !v)}
-        aria-label={t('pulse.infoAriaLabel', locale)}
-      >
-        ⓘ
+    <div className="conn-wrap">
+      <button type="button" className="conn-btn" onClick={() => setShowConfirm((v) => !v)}>
+        <span className={`conn-dot ${online ? 'is-online' : 'is-offline'}`} />
+        <span className="conn-label">{label}</span>
       </button>
-      {showInfo && (
-        <div className="pulse-info-popover" onClick={() => setShowInfo(false)}>
-          {explanation}
+      {showConfirm && (
+        <div className="conn-popover">
+          <p>{t('connectionBadge.confirmLogout', locale)}</p>
+          <div className="conn-actions">
+            <button type="button" className="conn-cancel" onClick={() => setShowConfirm(false)}>{t('common.cancel', locale)}</button>
+            <button type="button" className="conn-confirm" disabled={loggingOut} onClick={confirmLogout}>
+              {loggingOut ? '…' : t('connectionBadge.logoutButton', locale)}
+            </button>
+          </div>
         </div>
       )}
       <style jsx>{`
-        .pulse-wrap {
+        .conn-wrap {
+          position: relative;
+        }
+        .conn-btn {
           display: flex;
           align-items: center;
           gap: 0.5rem;
@@ -1465,22 +1524,25 @@ function AaronPulse({ active }) {
           border: 1px solid var(--border);
           border-radius: 999px;
           padding: 0.5rem 0.9rem;
-          position: relative;
-        }
-        .pulse-info-btn {
-          background: none;
-          border: none;
-          padding: 0;
-          margin: 0;
-          color: var(--muted);
-          font-size: 0.85rem;
-          line-height: 1;
           cursor: pointer;
         }
-        .pulse-info-btn:hover {
-          color: var(--text);
+        .conn-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          background: var(--muted);
         }
-        .pulse-info-popover {
+        .conn-dot.is-online {
+          background: var(--accent-green);
+        }
+        .conn-dot.is-offline {
+          background: var(--accent-red);
+        }
+        .conn-label {
+          font-size: 0.8rem;
+          color: var(--muted);
+        }
+        .conn-popover {
           position: absolute;
           top: calc(100% + 0.4rem);
           right: 0;
@@ -1488,41 +1550,38 @@ function AaronPulse({ active }) {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
-          padding: 0.6rem 0.7rem;
-          font-size: 0.78rem;
+          padding: 0.7rem 0.8rem;
+          font-size: 0.8rem;
           color: var(--text);
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
           z-index: 20;
+        }
+        .conn-popover p {
+          margin: 0 0 0.6rem;
+        }
+        .conn-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.5rem;
+        }
+        .conn-cancel {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.7rem;
+          font-size: 0.76rem;
           cursor: pointer;
         }
-        .pulse-dot {
-          width: 9px;
-          height: 9px;
-          border-radius: 50%;
-          background: var(--muted);
-          position: relative;
-        }
-        .pulse-dot.is-active {
-          background: var(--accent-green);
-        }
-        .pulse-dot.is-active::after {
-          content: '';
-          position: absolute;
-          inset: -6px;
-          border-radius: 50%;
-          border: 1px solid var(--accent-green);
-          animation: ping 2s ease-out infinite;
-        }
-        .pulse-label {
-          font-size: 0.8rem;
-          color: var(--muted);
-        }
-        @keyframes ping {
-          0% { transform: scale(0.6); opacity: 0.8; }
-          100% { transform: scale(1.8); opacity: 0; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .pulse-dot.is-active::after { animation: none; }
+        .conn-confirm {
+          background: var(--accent-red);
+          border: none;
+          color: white;
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.7rem;
+          font-size: 0.76rem;
+          font-weight: 600;
+          cursor: pointer;
         }
       `}</style>
     </div>
