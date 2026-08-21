@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { LOCALE_NAMES } from '@/lib/locale-instruction';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
     target_count,
     context_notes,
     target_role,
+    target_locale,
   } = body;
 
   if (!company_id || !assigned_user_id || !zone_label || !zone_type || !zone_codes || !sector_keywords) {
@@ -105,6 +107,10 @@ export async function POST(request: NextRequest) {
       target_count: target_count || 20,
       context_notes: context_notes || null,
       target_role: target_role || null,
+      // Langue cible du 1er email de prospection (avant toute réponse du
+      // prospect) — voir migration_campaign_target_locale_2026-08-21.sql et
+      // lib/aaron.ts. null = comportement inchangé (langue du commercial).
+      target_locale: target_locale && LOCALE_NAMES[target_locale] ? target_locale : null,
       status: 'en_attente',
     })
     .select()
