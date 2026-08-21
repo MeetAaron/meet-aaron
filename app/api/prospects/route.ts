@@ -43,6 +43,20 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
 
+  // docx AJOUT GLOBAL A15 : "ajouter manuellement" une opportunité ou un
+  // client directement depuis Aaron Sales / Aaron Customer (import d'une
+  // base existante, relation déjà établie hors Meet Aaron) — voir
+  // app/app/sales/page.jsx et app/app/customer/page.jsx. Dans ce cas on ne
+  // veut surtout PAS déclencher le tout premier email de prospection à
+  // froid généré par Aaron ci-dessous : ce ne serait ni pertinent (la
+  // relation existe déjà) ni professionnel (mail "ravi de vous
+  // découvrir" à un client existant). `skip_first_contact` saute tout le
+  // bloc génération/envoi du premier message ; la page appelante enchaîne
+  // ensuite avec un PATCH set_deal_stage ou marquer_gagne selon le cas. Ne
+  // change rien au comportement existant (ajout normal de prospect) quand
+  // le champ est absent.
+  const skipFirstContact = body.skip_first_contact === true;
+
   if (!company_id || !assigned_user_id || !full_name || !email) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
   }
@@ -114,6 +128,10 @@ export async function POST(request: NextRequest) {
   // par le frontend plutôt qu'une 500 sans rollback.
   let aaronOutput = null;
   let emailWarning = null;
+
+  if (skipFirstContact) {
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
+  }
 
   try {
     // Récupère l'email réel du commercial pour l'enregistrer comme expéditeur,
