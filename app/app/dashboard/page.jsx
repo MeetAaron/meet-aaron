@@ -208,18 +208,6 @@ function groupAppointmentsByDay(list, locale) {
   return groups;
 }
 
-// docx AJOUT GLOBAL (message du 21/08/2026) : ligne compacte sous la section
-// Prospects indiquant le nombre de campagnes de prospection en cours.
-function campaignLineText(campaigns, activeCampaigns, locale) {
-  if (!campaigns || campaigns.length === 0) return t('dash.campaignLineNone', locale);
-  if (activeCampaigns.length === 0) {
-    return t('dash.campaignLineNoneActive', locale).replace('{total}', String(campaigns.length));
-  }
-  return t('dash.campaignLineActive', locale)
-    .replace('{active}', String(activeCampaigns.length))
-    .replace('{total}', String(campaigns.length));
-}
-
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -228,16 +216,19 @@ export default function DashboardPage() {
   const HEALTH_META = healthBucketMetaFor(locale);
   const [prospects, setProspects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
-  // docx AJOUT GLOBAL (message du 21/08/2026) : campagnes du nouveau module
-  // Aaron Marketing (voir app/app/campaigns/page.jsx, onglet "Marketing"),
-  // pour la ligne "X campagne(s) en cours" sous la rubrique Clients — même
-  // principe que campaigns/activeCampaigns ci-dessus pour Prospects, mais
-  // avec sa propre notion d'"active" (en_cours uniquement : une campagne
-  // marketing "prête" n'est pas encore en train d'envoyer quoi que ce soit).
-  const [marketingCampaigns, setMarketingCampaigns] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [deals, setDeals] = useState([]);
   const [customers, setCustomers] = useState([]);
+  // docx AJOUT GLOBAL (message du 21/08/2026) : le tableau de bord affiche
+  // les sections Opportunités/Clients même quand le module correspondant
+  // (Aaron Sales / Aaron Clients) n'est pas actif pour cette société — sans
+  // ça, un commercial sans ce module voyait un "Aucune opportunité pour
+  // l'instant" trompeur, comme s'il avait juste une pipeline vide plutôt
+  // qu'un module non inclus dans son abonnement. Même source que
+  // lockedModules dans Shell plus bas, dupliquée ici (convention du projet :
+  // pas de composant partagé entre Shell et le contenu de la page).
+  const [salesModuleActive, setSalesModuleActive] = useState(true);
+  const [customerModuleActive, setCustomerModuleActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(true);
  const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -246,20 +237,25 @@ export default function DashboardPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [pRes, cRes, aRes, dRes, cuRes, mRes] = await Promise.all([
+    const [pRes, cRes, aRes, dRes, cuRes, prefRes] = await Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
-      fetch(`/api/marketing-campaigns?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/preferences?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
     ]);
     setProspects(pRes.prospects || []);
     setCampaigns(cRes.campaigns || []);
     setAppointments(aRes.appointments || []);
     setDeals(dRes.deals || []);
     setCustomers(cuRes.customers || []);
-    setMarketingCampaigns(mRes.campaigns || []);
+    const prefs = prefRes.preferences || {};
+    // Même logique que lockedModules dans Shell/MarketingCampaignsPanel :
+    // Aaron Sales et Aaron Clients sont des modules optionnels, actifs
+    // seulement si explicitement true (pas de valeur par défaut "activé").
+    setSalesModuleActive(prefs.offer_as_active === true);
+    setCustomerModuleActive(prefs.offer_ac_active === true);
     setLoading(false);
   }
 
@@ -392,6 +388,7 @@ export default function DashboardPage() {
         <div>
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
           <h1>{t('dash.title', locale)}</h1>
+          <p className="period-note">{t('dash.periodNote', locale)}</p>
         </div>
         <ConnectionStatusBadge />
       </header>
@@ -529,8 +526,6 @@ export default function DashboardPage() {
               }))}
             />
           </div>
-          <p className="period-note">{t('dash.periodNote', locale)}</p>
-          <p className="campaign-line">{campaignLineText(campaigns, activeCampaigns, locale)}</p>
 
           <section className="grid-two">
             <div className="panel">
@@ -581,7 +576,9 @@ export default function DashboardPage() {
 
           <section className="panel category-panel">
             <h2>{t('dash.opportunitiesTitle', locale)}</h2>
-            {deals.length === 0 ? (
+            {!salesModuleActive ? (
+              <EmptyState title={t('dash.salesLockedTitle', locale)} body={t('dash.salesLockedBody', locale)} compact />
+            ) : deals.length === 0 ? (
               <EmptyState title={t('dash.noOpportunitiesYet', locale)} body={t('pipeline.emptyOpportunities', locale)} compact />
             ) : (
               <div className="category-row">
@@ -594,7 +591,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-            {deals.length > 0 && (
+            {salesModuleActive && deals.length > 0 && (
               <div className="stat-chart">
                 <HorizontalBarChart
                   data={['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => ({
@@ -610,9 +607,10 @@ export default function DashboardPage() {
 
           <section className="panel category-panel">
             <h2>{t('dash.clientsTitle', locale)}</h2>
-            <p className="campaign-line">{campaignLineText(marketingCampaigns, activeMarketingCampaigns, locale)}</p>
-            {customers.length === 0 ? (
-              <EmptyState title={t('dash.noClientsYet', locale)} body={t('dash.noClientsYet', locale)} compact />
+            {!customerModuleActive ? (
+              <EmptyState title={t('dash.clientsLockedTitle', locale)} body={t('dash.clientsLockedBody', locale)} compact />
+            ) : customers.length === 0 ? (
+              <EmptyState title={t('dash.noClientsYet', locale)} body={t('customer.emptyList', locale)} compact />
             ) : (
               <div className="category-row">
                 {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
@@ -624,7 +622,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-            {customers.length > 0 && (
+            {customerModuleActive && customers.length > 0 && (
               <div className="stat-chart">
                 <HorizontalBarChart
                   data={['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => ({
