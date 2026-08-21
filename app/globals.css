@@ -19,3 +19,36 @@ html, body {
      s'affichaient en texte noir malgré un CSS correct. */
   color-scheme: dark;
 }
+
+/* Mode clair optionnel (tâche #129, piste 2) — activé via data-theme="light"
+   sur <html> (voir lib/theme.js), déclenché depuis Mon compte -> Mon profil.
+   Surcharge des mêmes variables CSS que chaque page définit dans son propre
+   bloc `:root` (dupliqué à l'identique sur les 15 pages, voir commentaire de
+   ce bloc dans chaque page). Le sélecteur `html[data-theme="light"]` a une
+   spécificité supérieure à `:root` seul, donc il l'emporte quel que soit
+   l'ordre d'insertion entre ce fichier et les styles injectés par chaque
+   page — pas besoin de dupliquer cette surcharge 15 fois.
+   Limite connue et documentée (voir statut projet, tâche #129) : les
+   couleurs "accent"/statut (bleu, vert, rouge, ambre) restent identiques
+   dans les deux thèmes (elles fonctionnent sur fond clair comme sur fond
+   sombre) ; certaines teintes de survol codées en dur (`rgba(244, 241, 234,
+   ...)`, présentes sur les 15 pages) ne s'inversent pas automatiquement et
+   resteront visuellement un peu ternes en mode clair — non bloquant, pas de
+   texte illisible, mais pas encore parfaitement homogène. La page /app/tour
+   (visite guidée) reste en thème sombre quel que soit le réglage : elle
+   n'utilise pas encore ces variables CSS. */
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f1efe8;
+  --border: #e4e0d4;
+  --border-soft: rgba(20, 21, 31, 0.08);
+  --text: #14151f;
+  --muted: #63677c;
+  --muted-soft: #9296a8;
+  --shadow-sm: 0 1px 3px rgba(20, 21, 31, 0.08);
+  --shadow-md: 0 8px 24px rgba(20, 21, 31, 0.1);
+  --shadow-lg: 0 16px 48px rgba(20, 21, 31, 0.14);
+}
