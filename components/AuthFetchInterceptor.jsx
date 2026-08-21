@@ -93,7 +93,33 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
       // plantage silencieux ici.
     }
 
-    const response = await originalFetch(input, opts);
+    let response = await originalFetch(input, opts);
+
+    // Bug remonté à nouveau par Alex (2026-08-21) sur un upload de document :
+    // malgré le rafraîchissement préventif ci-dessus (marge de 10s), un 401
+    // "Non authentifié" pouvait encore survenir sur une requête un peu longue
+    // à PARTIR (gros fichier, connexion lente) — le token était encore valide
+    // de justesse au moment de l'estimation ci-dessus, mais plus au moment où
+    // le serveur le vérifie réellement. Plutôt que d'essayer de deviner la
+    // bonne marge de sécurité, on traite directement le symptôme : sur un 401,
+    // on rafraîchit la session et on REJOUE la requête une seule fois avant de
+    // considérer que c'est un vrai problème d'authentification. Rejouer est
+    // sans risque ici : toutes les routes protégées vérifient l'authentification
+    // tout en haut, avant toute écriture (voir lib/auth-helpers.ts) — un 401 veut
+    // donc dire qu'aucun effet de bord n'a eu lieu côté serveur.
+    if (response.status === 401 && isApiCall) {
+      try {
+        const { data: refreshed } = await supabaseBrowser.auth.refreshSession();
+        const retryToken = refreshed?.session?.access_token;
+        if (retryToken) {
+          const retryOpts = { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${retryToken}` } };
+          response = await originalFetch(input, retryOpts);
+        }
+      } catch (err) {
+        // Le rafraîchissement a échoué : on laisse la réponse 401 d'origine,
+        // gérée normalement ci-dessous (redirection si la session a réellement disparu).
+      }
+    }
 
     // Session expirée ou invalide (voir lib/auth-helpers.ts : toutes les routes
     // protégées répondent 401 "Non authentifié — reconnectez-vous." dans ce cas,
