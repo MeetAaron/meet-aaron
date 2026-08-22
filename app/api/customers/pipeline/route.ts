@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const { data: customers, error } = await supabaseAdmin
     .from('prospects')
     .select(
-      `id, full_name, job_title, email, won_at, won_reason, is_lost, lost_at, ai_managed,
+      `id, full_name, job_title, email, created_at, won_at, won_reason, is_lost, lost_at, ai_managed,
        onboarding_status, onboarding_plan, onboarding_generated_at,
        welcome_email_subject, welcome_email_body, welcome_email_sent_at,
        customer_health_score, customer_health_label, customer_health_updated_at, churn_risk,
