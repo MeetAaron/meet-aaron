@@ -107,6 +107,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('prospects')
       .update({
         status: 'jaune',
+        status_updated_at: new Date().toISOString(),
         rescue_proposal_pending: false,
         rescue_proposal_subject: null,
         rescue_proposal_body: null,
@@ -121,6 +122,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('prospects')
       .update({
         status: 'rouge',
+        status_updated_at: new Date().toISOString(),
         rescue_proposal_pending: false,
         rescue_proposal_subject: null,
         rescue_proposal_body: null,
@@ -244,6 +246,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('prospects')
       .update({
         status: 'rouge',
+        status_updated_at: new Date().toISOString(),
         is_lost: true,
         lost_at: new Date().toISOString(),
         rescue_proposal_pending: false,
