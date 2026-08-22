@@ -721,76 +721,22 @@ export default function PreferencesPage() {
                 </p>
               </div>
 
+              {/* Demande Alex (2026-08-22) : le niveau de collaboration + le
+                  choix du fournisseur CRM/notes ont déménagé dans Mon compte
+                  > CRM, juste au-dessus de la liste des CRM à connecter —
+                  plus logique à côté des cartes de connexion elles-mêmes
+                  qu'ici. On laisse un renvoi plutôt qu'un champ vide pour ne
+                  pas perdre quelqu'un qui cherchait ce réglage ici par
+                  habitude. */}
               <div className="field">
                 <label>{t('preferences.crm.collabLevelLabel', locale)}</label>
-                <div className="collab-options">
-                  {COLLABORATION_LEVELS.map((lvl) => (
-                    <button
-                      key={lvl.value}
-                      className={prefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
-                      onClick={() => setPrefs({ ...prefs, collaboration_level: lvl.value })}
-                    >
-                      <span className="collab-title">{lvl.label}</span>
-                      <span className="collab-desc">{lvl.desc}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {prefs.collaboration_level === 1 && (
-                  <div className="collab-extra">
-                    <p className="collab-extra-hint">
-                      {t('preferences.crm.uploadHint', locale)}
-                    </p>
-                    <div className="upload-row">
-                      <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-                      <button type="button" className="btn-secondary" onClick={handleUpload} disabled={!uploadFile || uploading}>
-                        {uploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
-                      </button>
-                    </div>
-                    {uploadDone && <p className="saved-msg">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
-                  </div>
-                )}
-
-                {(prefs.collaboration_level === 2 || prefs.collaboration_level === 3) && (
-                  <div className="collab-extra">
-                    <label className="sub-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
-                    <select
-                      value={prefs.crm_provider || ''}
-                      onChange={(e) => setPrefs({ ...prefs, crm_provider: e.target.value || null })}
-                    >
-                      {CRM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
-                    <label className="sub-label">{t('preferences.crm.notesLabel', locale)}</label>
-                    <textarea
-                      rows={3}
-                      value={prefs.crm_connection_notes || ''}
-                      onChange={(e) => setPrefs({ ...prefs, crm_connection_notes: e.target.value })}
-                      placeholder={t('preferences.crm.notesPlaceholder', locale)}
-                    />
-                    <p className="collab-extra-hint">
-                      {t('preferences.crm.setupHint', locale)}
-                    </p>
-
-                    {['hubspot', 'salesforce', 'pipedrive', 'axonaut', 'sellsy', 'jobber', 'housecallpro', 'capsulecrm', 'servicem8'].includes(prefs.crm_provider) && (
-                      // CHANGEMENTS A FAIRE #90 (2026-08-16) : la connexion HubSpot
-                      // elle-même (connecter/déconnecter/synchroniser) se gère
-                      // désormais depuis Connexions, nouvelle catégorie "CRMs et
-                      // bases de données" — cette page ne garde que le choix du
-                      // fournisseur et le niveau de collaboration (voir item #30).
-                      // Généralisé (2026-08-16) à Salesforce et Pipedrive, mêmes
-                      // connexions OAuth directes que HubSpot. Axonaut ajouté suite
-                      // 15 : pas d'OAuth (clé API statique, voir Connexions) mais se
-                      // gère depuis la même page.
-                      <p className="collab-extra-hint">
-                        {t('preferences.crm.manageInConnexionsHint', locale)}{' '}
-                        <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
-                          {t('nav.connections', locale)}
-                        </Link>
-                        .
-                      </p>
-                    )}
-                  </div>
-                )}
+                <p className="collab-extra-hint">
+                  {t('preferences.crm.movedToConnexionsHint', locale)}{' '}
+                  <Link href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
+                    {t('nav.connections', locale)}
+                  </Link>
+                  .
+                </p>
               </div>
             </>
           )}
