@@ -199,7 +199,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       })
       .eq('id', appointmentId);
 
-    await supabaseAdmin.from('prospects').update({ status: 'bleu' }).eq('id', appointment.prospect_id);
+    await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
 
     return NextResponse.json({ success: true, status: 'validé' });
   }
@@ -229,7 +229,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       );
     }
 
-    await supabaseAdmin.from('prospects').update({ status: 'jaune' }).eq('id', appointment.prospect_id);
+    await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
 
     return NextResponse.json({ success: true, status: 'annulé' });
   }
@@ -247,7 +247,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .update({ client_cancel_acknowledged: true })
       .eq('id', appointmentId);
 
-    await supabaseAdmin.from('prospects').update({ status: 'jaune' }).eq('id', appointment.prospect_id);
+    await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
 
     return NextResponse.json({ success: true, status: 'relance_envoyee' });
   }
