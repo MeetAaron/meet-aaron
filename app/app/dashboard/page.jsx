@@ -349,17 +349,42 @@ export default function DashboardPage() {
   };
 
   // #7 — catégorie Opportunités : réparties par code couleur pipeline,
-  // uniquement les opportunités créées aujourd'hui (même logique que les
-  // prospects ci-dessus).
-  const dealsToday = deals.filter((d) => d.created_at && new Date(d.created_at) >= startOfToday);
+  // uniquement les affaires ayant eu une ACTIVITÉ aujourd'hui (demande Alex,
+  // 2026-08-22 : "les changements dans la journée", ex. une opportunité
+  // jugée à risque aujourd'hui) — pas juste les affaires créées aujourd'hui,
+  // qui aurait presque toujours été vide. Pour signé/bonne voie/en cours,
+  // "aujourd'hui" = deal_stage_updated_at tombe aujourd'hui (l'étape a bougé
+  // aujourd'hui). Le bucket "risque" est un cas particulier : par définition
+  // il suppose deal_stage_updated_at VIEUX d'au moins STALE_DEAL_DAYS jours —
+  // donc il ne peut jamais être "mis à jour aujourd'hui". On considère à la
+  // place qu'une affaire a une "activité risque aujourd'hui" le jour précis
+  // où elle FRANCHIT le seuil des STALE_DEAL_DAYS jours d'inactivité (même
+  // jour que l'alerte automatique envoyée par app/api/cron/stale-deals-alert).
+  const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  function dealHasActivityToday(deal, bucket) {
+    if (!deal.deal_stage_updated_at) return false;
+    const updatedAt = new Date(deal.deal_stage_updated_at);
+    if (bucket === 'risque') {
+      const becameStaleAt = new Date(updatedAt.getTime() + STALE_DEAL_DAYS * 24 * 60 * 60 * 1000);
+      return becameStaleAt >= startOfToday && becameStaleAt < endOfToday;
+    }
+    return updatedAt >= startOfToday && updatedAt < endOfToday;
+  }
   const opportunityCounts = Object.keys(OPPORTUNITY_META).reduce((acc, key) => {
-    acc[key] = dealsToday.filter((d) => opportunityBucketFor(d) === key).length;
+    acc[key] = deals.filter((d) => opportunityBucketFor(d) === key && dealHasActivityToday(d, key)).length;
     return acc;
   }, {});
 
   // #8 — catégorie Clients : réparties par santé client, uniquement les
-  // clients créés aujourd'hui (même logique que les prospects ci-dessus).
-  const customersToday = customers.filter((c) => c.created_at && new Date(c.created_at) >= startOfToday);
+  // clients dont l'évaluation de santé a été mise à jour aujourd'hui
+  // (customer_health_updated_at) — même logique "activité du jour" que les
+  // opportunités ci-dessus. Point d'attention : le score est recalculé
+  // chaque nuit pour tous les clients (cron, voir lib/customer-health.ts),
+  // donc ce filtre peut rester proche du total complet si le cron met à
+  // jour la date à chaque passage même sans changement de label.
+  const customersToday = customers.filter(
+    (c) => c.customer_health_updated_at && new Date(c.customer_health_updated_at) >= startOfToday && new Date(c.customer_health_updated_at) < endOfToday
+  );
   const healthCounts = Object.keys(HEALTH_META).reduce((acc, key) => {
     acc[key] = customersToday.filter((c) => healthBucketFor(c) === key).length;
     return acc;
