@@ -137,9 +137,20 @@ export default function ChatPage() {
   // "une seule fois" à la place).
   const [restartRequested, setRestartRequested] = useState(false);
   const [restartSeeded, setRestartSeeded] = useState(false);
+  // Dépôt de document dans le chat (demande d'Alex, 22/08/2026) : pendingDocument
+  // contient les métadonnées du document déjà uploadé (voir
+  // app/api/chat/document/route.ts) mais pas encore sauvegardé dans "Mes
+  // documents" — renvoyé à chaque appel /api/chat tant qu'il reste affiché en
+  // chip au-dessus du champ de saisie (voir handleSend). Il disparaît soit
+  // parce qu'Aaron l'a sauvegardé (data.document_saved, voir handleSend), soit
+  // parce que le commercial le retire lui-même via le ✕ du chip.
+  const [pendingDocument, setPendingDocument] = useState(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [attachError, setAttachError] = useState(null);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   // docx "CHAT AVEC AARON" item A1 : le texte en cours de rédaction (non
   // envoyé) doit survivre à un aller-retour sur une autre page — comme un
   // brouillon WhatsApp. La page se démonte complètement en changeant de
@@ -371,6 +382,37 @@ export default function ChatPage() {
     ]);
   }
 
+  // Upload immédiat dès la sélection du fichier (pas seulement à l'envoi du
+  // message) : le commercial voit tout de suite le chip "document joint" et
+  // une éventuelle erreur (fichier trop lourd, échec réseau) avant même
+  // d'écrire son message.
+  async function handleFileSelected(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permet de resélectionner le même fichier plus tard
+    if (!file || !userId) return;
+
+    setAttachError(null);
+    setUploadingDocument(true);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('user_id', userId);
+
+    try {
+      const res = await fetch('/api/chat/document', { method: 'POST', body: formData });
+      const body = await res.json();
+      if (!res.ok) {
+        setAttachError(body.error || t('chat.attachError', locale));
+        return;
+      }
+      setPendingDocument(body.document);
+    } catch {
+      setAttachError(t('chat.attachError', locale));
+    } finally {
+      setUploadingDocument(false);
+    }
+  }
+
   async function handleSend(e) {
     e.preventDefault();
     if (!input.trim() || sending) return;
@@ -452,11 +494,16 @@ export default function ChatPage() {
         user_id: userId,
         message: userMessage.content,
         history: messages,
+        attached_document: pendingDocument || undefined,
       }),
     });
 
     const data = await res.json();
     setSending(false);
+    // Aaron vient de sauvegarder le document joint (outil sauvegarder_document,
+    // voir app/api/chat/route.ts) — le chip disparaît, sa propre réponse texte
+    // confirme déjà l'action au commercial.
+    if (data.document_saved) setPendingDocument(null);
 
     if (data.reply) {
       setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
@@ -569,7 +616,44 @@ export default function ChatPage() {
           </div>
         )}
 
+        {(pendingDocument || uploadingDocument || attachError) && (
+          <div className="attach-row">
+            {uploadingDocument && <span className="attach-chip attach-loading">{t('chat.attachUploading', locale)}</span>}
+            {pendingDocument && !uploadingDocument && (
+              <span className="attach-chip">
+                📎 {pendingDocument.file_name}
+                <button
+                  type="button"
+                  className="attach-remove"
+                  onClick={() => setPendingDocument(null)}
+                  aria-label={t('chat.attachRemove', locale)}
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {attachError && <span className="attach-error">{attachError}</span>}
+          </div>
+        )}
+
         <form className="input-row" onSubmit={handleSend}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="file-input-hidden"
+            onChange={handleFileSelected}
+            accept=".pdf,.txt,.csv,.doc,.docx,application/pdf,text/plain,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          />
+          <button
+            type="button"
+            className="btn-attach"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || uploadingDocument}
+            title={t('chat.attachButton', locale)}
+            aria-label={t('chat.attachButton', locale)}
+          >
+            📎
+          </button>
           <textarea
             ref={textareaRef}
             className="chat-textarea"
@@ -758,6 +842,66 @@ export default function ChatPage() {
         }
         .tour-link:hover {
           color: var(--text);
+        }
+        .attach-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0 1rem;
+          margin-top: 0.6rem;
+        }
+        .attach-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.35rem 0.7rem;
+          font-size: 0.8rem;
+        }
+        .attach-loading {
+          color: var(--muted);
+        }
+        .attach-remove {
+          background: none;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.75rem;
+          padding: 0;
+          line-height: 1;
+        }
+        .attach-remove:hover {
+          color: var(--accent-red);
+        }
+        .attach-error {
+          color: var(--accent-red);
+          font-size: 0.8rem;
+        }
+        .file-input-hidden {
+          display: none;
+        }
+        .btn-attach {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-md);
+          width: 2.6rem;
+          height: 2.6rem;
+          flex-shrink: 0;
+          font-size: 1rem;
+          cursor: pointer;
+        }
+        .btn-attach:hover {
+          color: var(--text);
+          border-color: var(--accent);
+        }
+        .btn-attach:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .input-row {
           display: flex;
