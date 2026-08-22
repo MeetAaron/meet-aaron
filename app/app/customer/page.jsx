@@ -626,6 +626,15 @@ export default function CustomerPage() {
                   {customer.prospect_companies?.name && <span className="customer-company">{customer.prospect_companies.name}</span>}
                   <span className="customer-meta">
                     {t('customer.clientSince', locale).replace('{days}', daysSince(customer.won_at))}
+                    {!customer.is_lost && customer.customer_health_updated_at && (
+                      <span
+                        className="health-since"
+                        title={new Date(customer.customer_health_updated_at).toLocaleString(locale)}
+                      >
+                        {' · '}
+                        {t('customer.healthSince', locale).replace('{days}', daysSince(customer.customer_health_updated_at))}
+                      </span>
+                    )}
                     {customer.onboarding_status && (
                       <span className="onboarding-dot" style={{ background: ONBOARDING_META[customer.onboarding_status].color }}>
                         {ONBOARDING_META[customer.onboarding_status].label}
