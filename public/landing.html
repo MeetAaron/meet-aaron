@@ -9,6 +9,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Meet Aaron">
+<!-- Favicon (tâche Alex 2026-08-22 : absent de Google Search) : "/" (redirect
+     serveur vers cette page, voir app/page.jsx) est la page effectivement
+     indexée par Google — les pages passant par app/layout.jsx récupèrent
+     déjà leur <link rel="icon"> via metadata.icons, mais cette page statique
+     n'est pas concernée par ce mécanisme et n'avait jusqu'ici que l'icône
+     Apple, jamais l'icône standard lue par les moteurs de recherche. -->
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon.png">
 <link rel="apple-touch-icon" href="/icon.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
