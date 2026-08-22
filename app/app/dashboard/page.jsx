@@ -275,14 +275,23 @@ export default function DashboardPage() {
     loadAll();
   }
 
-  const statusCounts = Object.keys(STATUS_META).reduce((acc, key) => {
-    acc[key] = prospects.filter((p) => p.status === key).length;
-    return acc;
-  }, {});
-
   const activeCampaigns = campaigns.filter((c) => c.status === 'en_cours' || c.status === 'en_attente');
 
   const now = new Date();
+  // Demande Alex (2026-08-22) : toutes les stats du dashboard (prospects,
+  // opportunités, clients) ne doivent montrer que les infos de la journée en
+  // cours, pas un cumul depuis toujours — même logique de jour calendaire
+  // (minuit à 23h59) que rdvObtenus24h ci-dessous, déclarée ici pour être
+  // réutilisable par les 3 compteurs.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // #1 — statuts prospects : uniquement les prospects créés aujourd'hui.
+  const statusCounts = Object.keys(STATUS_META).reduce((acc, key) => {
+    acc[key] = prospects.filter(
+      (p) => p.status === key && p.created_at && new Date(p.created_at) >= startOfToday
+    ).length;
+    return acc;
+  }, {});
 
   // #5 — au moins les 20 prochains RDV validés, regroupés par jour.
   const upcomingAppointments = appointments
@@ -326,7 +335,6 @@ export default function DashboardPage() {
   // statut prospect qui ne redescend jamais. Fenêtre = jour calendaire en
   // cours (minuit à 23h59, heure locale du navigateur), PAS un glissant de
   // 24h — décision explicite d'Alex (2026-08-20), voir commentaire plus haut.
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   // purpose !== 'lancement' : un RDV de lancement (tâche #141, proposé
   // automatiquement à un client déjà signé pendant l'onboarding) n'est pas
   // un "RDV obtenu" au sens prospection — voir migration_kickoff_rdv_2026-08-20.sql.
@@ -340,15 +348,20 @@ export default function DashboardPage() {
     physique: rdvObtenus24h.filter((a) => a.type === 'physique').length,
   };
 
-  // #7 — catégorie Opportunités : réparties par code couleur pipeline.
+  // #7 — catégorie Opportunités : réparties par code couleur pipeline,
+  // uniquement les opportunités créées aujourd'hui (même logique que les
+  // prospects ci-dessus).
+  const dealsToday = deals.filter((d) => d.created_at && new Date(d.created_at) >= startOfToday);
   const opportunityCounts = Object.keys(OPPORTUNITY_META).reduce((acc, key) => {
-    acc[key] = deals.filter((d) => opportunityBucketFor(d) === key).length;
+    acc[key] = dealsToday.filter((d) => opportunityBucketFor(d) === key).length;
     return acc;
   }, {});
 
-  // #8 — catégorie Clients : réparties par santé client.
+  // #8 — catégorie Clients : réparties par santé client, uniquement les
+  // clients créés aujourd'hui (même logique que les prospects ci-dessus).
+  const customersToday = customers.filter((c) => c.created_at && new Date(c.created_at) >= startOfToday);
   const healthCounts = Object.keys(HEALTH_META).reduce((acc, key) => {
-    acc[key] = customers.filter((c) => healthBucketFor(c) === key).length;
+    acc[key] = customersToday.filter((c) => healthBucketFor(c) === key).length;
     return acc;
   }, {});
 
@@ -515,16 +528,6 @@ export default function DashboardPage() {
               </div>
             ))}
           </section>
-          <div className="status-chart">
-            <HorizontalBarChart
-              data={['vert', 'jaune', 'orange', 'rouge'].map((key) => ({
-                key,
-                label: STATUS_META[key].label,
-                value: statusCounts[key] || 0,
-                color: STATUS_META[key].color,
-              }))}
-            />
-          </div>
 
           <section className="grid-two">
             <div className="panel">
@@ -872,13 +875,6 @@ export default function DashboardPage() {
         }
         .rdv-type-chart {
           margin-top: 0.5rem;
-        }
-        .status-chart {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: 0.85rem 1rem;
-          margin: -1.3rem 0 1.25rem;
         }
         .stat-chart {
           background: var(--surface);
