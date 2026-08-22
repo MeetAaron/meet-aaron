@@ -23,8 +23,14 @@ export const metadata = {
     manifest: "/manifest.json",
     // Icônes : favicon + icône "ajouter à l'écran d'accueil" sur iOS, qu'Apple
     // lit depuis <link rel="apple-touch-icon"> et non depuis manifest.json.
+    // favicon.ico ajouté en complément de icon.png (tâche Alex 2026-08-22,
+    // favicon absent de Google Search) : certains robots/anciens navigateurs
+    // ne lisent que ce format par défaut, généré depuis public/icon.png.
     icons: {
-        icon: "/icon.png",
+        icon: [
+            { url: "/favicon.ico", sizes: "any" },
+            { url: "/icon.png", type: "image/png", sizes: "192x192" },
+        ],
         apple: "/icon.png",
     },
     // Balises spécifiques iOS : sans apple-mobile-web-app-capable, Safari
