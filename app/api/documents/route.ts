@@ -14,9 +14,9 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { extractDocumentText } from '@/lib/document-extraction';
 
 const BUCKET = 'documents';
-const MAX_EXTRACTED_CHARS = 4000; // on ne garde qu'un extrait, pour limiter les tokens envoyés à Aaron
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -96,26 +96,6 @@ async function summarizeDocument(
   }
 }
 
-// Extrait le texte d'un fichier selon son type. Renvoie null si le type
-// n'est pas supporté (ex: .docx pour l'instant) — le document reste utilisable,
-// juste sans texte exploitable par Aaron.
-async function extractText(buffer: Buffer, mimeType: string): Promise<string | null> {
-  try {
-    if (mimeType === 'application/pdf') {
-      const pdfParse = (await import('pdf-parse')).default;
-      const result = await pdfParse(buffer);
-      return result.text.slice(0, MAX_EXTRACTED_CHARS);
-    }
-    if (mimeType === 'text/plain' || mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-      return buffer.toString('utf-8').slice(0, MAX_EXTRACTED_CHARS);
-    }
-    return null;
-  } catch (err) {
-    console.error('Erreur extraction texte document:', err);
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
@@ -149,7 +129,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
-  const extractedText = await extractText(buffer, file.type);
+  const extractedText = await extractDocumentText(buffer, file.type);
   const summary = extractedText
     ? await summarizeDocument(file.name, extractedText, user.company_id, authedUser.locale)
     : null;
