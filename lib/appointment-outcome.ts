@@ -167,7 +167,7 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
 
   if (prospect?.id) {
     const now = new Date().toISOString();
-    const prospectUpdate: Record<string, any> = { status: OUTCOME_TO_PROSPECT_STATUS[outcome] };
+    const prospectUpdate: Record<string, any> = { status: OUTCOME_TO_PROSPECT_STATUS[outcome], status_updated_at: now };
 
     if (outcome === 'opportunite' || outcome === 'devis') {
       // Nouvelle opportunité (ou demande de devis) : déplace le prospect dans
