@@ -162,6 +162,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
         .from('prospects')
         .update({
           status: aaronOutput.prospect_status,
+          status_updated_at: new Date().toISOString(),
           personality_type: aaronOutput.personality_type,
           personality_notes: aaronOutput.personality_notes,
           aaron_advice: aaronOutput.aaron_advice,
