@@ -151,6 +151,7 @@ export default function ChatPage() {
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const prefillAppliedRef = useRef(false);
   // docx "CHAT AVEC AARON" item A1 : le texte en cours de rédaction (non
   // envoyé) doit survivre à un aller-retour sur une autre page — comme un
   // brouillon WhatsApp. La page se démonte complètement en changeant de
@@ -170,6 +171,18 @@ export default function ChatPage() {
     }
     if (params.get('restart_questionnaire') === '1') {
       setRestartRequested(true);
+    }
+    // Tâche "Mon compte" (2026-08-22) : la carte "Ton CRM n'est pas dans la
+    // liste ?" (app/app/connexions/page.jsx) amène ici avec un message
+    // pré-rempli plutôt que d'ouvrir une conversation vide — le commercial
+    // reste libre de le modifier avant de l'envoyer. On ne fait que
+    // PRÉ-REMPLIR la zone de saisie, jamais d'envoi automatique. Priorité sur
+    // un éventuel brouillon déjà sauvegardé (voir draftRestoredRef plus bas) :
+    // un lien de préremplissage est une intention explicite et fraîche.
+    const prefill = params.get('prefill');
+    if (prefill) {
+      setInput(prefill);
+      prefillAppliedRef.current = true;
     }
   }, []);
 
@@ -304,6 +317,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (!draftStorageKey || draftRestoredRef.current) return;
     draftRestoredRef.current = true;
+    // Un lien "?prefill=..." (voir plus haut) vient déjà de remplir la zone
+    // de saisie avec une intention fraîche et explicite — on ne l'écrase pas
+    // avec un vieux brouillon resté en localStorage.
+    if (prefillAppliedRef.current) return;
     try {
       const saved = window.localStorage.getItem(draftStorageKey);
       if (saved) setInput(saved);
