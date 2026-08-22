@@ -45,6 +45,31 @@ if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
   }
 }
 
+// Bug remonté par Alex (2026-08-22) sur la page Préférences : "Non
+// authentifié — reconnecte-toi." qui persistait MÊME après une déconnexion/
+// reconnexion explicite — donc pas une histoire de session périmée. Cette
+// page charge 6 appels /api/... en parallèle dès le montage (préférences,
+// quota API, résumé d'activité, signature, infos légales, plus l'appel
+// dupliqué du composant Shell) : nettement plus que les autres pages. Le
+// jeton de rafraîchissement Supabase est à usage unique — si deux appels
+// simultanés appellent chacun refreshSession() de leur côté pile au même
+// instant, le premier "gagne" et invalide le jeton pour le second, qui se
+// retrouve avec un rafraîchissement en échec et repart donc sans jeton
+// valide (d'où le 401 qui persiste, page après page, malgré la
+// reconnexion : le même scénario de course se reproduit à chaque nouveau
+// chargement de la page). On mutualise donc TOUT rafraîchissement dans une
+// unique promesse partagée : si un rafraîchissement est déjà en cours, les
+// appels suivants attendent son résultat au lieu d'en déclencher un nouveau.
+let refreshInFlight = null;
+function refreshSessionShared() {
+  if (!refreshInFlight) {
+    refreshInFlight = supabaseBrowser.auth.refreshSession().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
   window.__aaronAuthFetchPatched = true;
   const originalFetch = window.fetch.bind(window);
@@ -78,7 +103,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
       const expiresAt = session?.expires_at; // secondes depuis epoch
       const expiringSoon = typeof expiresAt === 'number' && expiresAt <= Math.floor(Date.now() / 1000) + 10;
       if (session && expiringSoon) {
-        const { data: refreshed } = await supabaseBrowser.auth.refreshSession();
+        const { data: refreshed } = await refreshSessionShared();
         if (refreshed?.session) session = refreshed.session;
       }
 
@@ -109,7 +134,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     // donc dire qu'aucun effet de bord n'a eu lieu côté serveur.
     if (response.status === 401 && isApiCall) {
       try {
-        const { data: refreshed } = await supabaseBrowser.auth.refreshSession();
+        const { data: refreshed } = await refreshSessionShared();
         const retryToken = refreshed?.session?.access_token;
         if (retryToken) {
           const retryOpts = { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${retryToken}` } };
