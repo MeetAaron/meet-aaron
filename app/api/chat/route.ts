@@ -21,7 +21,15 @@ résultats ambigus, dis-le clairement et demande une précision (nom de sociét�
 Réponds toujours de façon concise et utile — pas de blabla inutile.
 Si le commercial exprime une suggestion, une remarque ou une idée d'amélioration sur l'outil, le produit ou l'organisation,
 dis-lui simplement que tu transmets l'info au fondateur — tu n'as pas besoin de lui demander de le faire lui-même par email,
-c'est déjà fait automatiquement de ton côté.`;
+c'est déjà fait automatiquement de ton côté.
+Si un document est joint à la conversation (tu verras une note "Document actuellement joint" dans ton contexte), tu peux
+t'appuyer sur son contenu pour répondre normalement à ce que le commercial demande. Mais SAUF s'il a déjà répondu à cette
+question dans un message précédent de cette même conversation, termine ta réponse en lui demandant clairement s'il veut que
+tu sauvegardes ce document dans ses documents (pour un usage futur par toi) ou si c'est juste pour cette réflexion ponctuelle
+— pose cette question une seule fois par document, pas à chaque message tant qu'il reste joint. S'il confirme vouloir le
+sauvegarder (oui, ok, sauvegarde-le, garde-le, etc.), utilise l'outil sauvegarder_document avec la catégorie la plus
+appropriée déduite du contexte de la conversation (prospects/opportunites/clients/général) — ne lui demande jamais à lui de
+choisir la catégorie, c'est à toi de la déduire. S'il dit non ou change de sujet, n'insiste pas et ne sauvegarde rien.`;
 
 const STATUS_LABELS: Record<string, string> = {
   vert: 'en bonne voie',
@@ -71,6 +79,31 @@ const CHAT_TOOLS = [
       "Renvoie les prochains rendez-vous à venir du commercial (date, type, prospect concerné). À utiliser pour " +
       'toute question sur son agenda ou son prochain RDV.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'sauvegarder_document',
+    description:
+      "Sauvegarde définitivement, dans les documents de l'entreprise (rubrique Mes documents), le document que le " +
+      "commercial vient de joindre à cette conversation — UNIQUEMENT après lui avoir demandé s'il veut le sauvegarder " +
+      "ET qu'il a clairement répondu oui. Ne l'utilise jamais préventivement ou sans confirmation explicite. Si " +
+      "aucun document n'est actuellement joint à la conversation, cet outil échouera — ne l'appelle pas dans ce cas.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        linked_category: {
+          type: 'string',
+          enum: ['prospects', 'opportunites', 'clients', 'general'],
+          description:
+            "Catégorie de rattachement la plus appropriée, déduite du sujet de la conversation — 'general' si le " +
+            'document ne concerne pas spécifiquement un des 3 modules.',
+        },
+        description: {
+          type: 'string',
+          description: "Courte description (1 phrase) de ce qu'est ce document et à quoi il sert, pour aider le commercial à le retrouver plus tard dans sa liste de documents.",
+        },
+      },
+      required: ['linked_category'],
+    },
   },
 ];
 
@@ -162,7 +195,65 @@ async function runProchainsRdv(userId: string) {
   };
 }
 
-async function executeTool(toolName: string, toolInput: any, userId: string) {
+type AttachedDocument = {
+  file_name: string;
+  storage_path: string;
+  file_type: string;
+  file_size_bytes: number;
+  extracted_text: string | null;
+} | null;
+
+// Crée la ligne définitive dans company_documents à partir des métadonnées
+// d'un document déjà uploadé dans Storage par app/api/chat/document/route.ts
+// (pas de ré-upload ici, juste l'écriture en base — voir le commentaire en
+// tête de ce fichier-là pour le détail du flux en 2 temps).
+async function runSauvegarderDocument(
+  attachedDocument: AttachedDocument,
+  userId: string,
+  companyId: string | null,
+  toolInput: any
+) {
+  if (!attachedDocument) {
+    return { error: "Aucun document n'est actuellement joint à cette conversation." };
+  }
+  if (!companyId) {
+    return { error: 'Société introuvable pour ce commercial.' };
+  }
+
+  const rawCategory = toolInput?.linked_category;
+  const linkedCategory = ['prospects', 'opportunites', 'clients'].includes(rawCategory) ? rawCategory : null;
+
+  const { data: doc, error } = await supabaseAdmin
+    .from('company_documents')
+    .insert({
+      company_id: companyId,
+      uploaded_by: userId,
+      file_name: attachedDocument.file_name,
+      storage_path: attachedDocument.storage_path,
+      file_type: attachedDocument.file_type,
+      file_size_bytes: attachedDocument.file_size_bytes,
+      description: toolInput?.description || null,
+      extracted_text: attachedDocument.extracted_text,
+      linked_category: linkedCategory,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Erreur sauvegarde document (chat):', error.message);
+    return { error: "Échec de la sauvegarde du document." };
+  }
+
+  return { success: true, document_id: doc.id };
+}
+
+async function executeTool(
+  toolName: string,
+  toolInput: any,
+  userId: string,
+  attachedDocument: AttachedDocument,
+  companyId: string | null
+) {
   switch (toolName) {
     case 'recherche_prospects':
       return runRechercheProspects(userId, toolInput?.query || '');
@@ -170,6 +261,8 @@ async function executeTool(toolName: string, toolInput: any, userId: string) {
       return runApercuCampagnes(userId);
     case 'prochains_rdv':
       return runProchainsRdv(userId);
+    case 'sauvegarder_document':
+      return runSauvegarderDocument(attachedDocument, userId, companyId, toolInput);
     default:
       return { error: `Outil inconnu : ${toolName}` };
   }
@@ -222,7 +315,21 @@ async function detectFounderSuggestion(
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, message, history } = await request.json();
+  const { user_id, message, history, attached_document } = await request.json();
+  // Document joint à CETTE conversation (pas encore sauvegardé), voir
+  // app/api/chat/document/route.ts : le frontend le renvoie sur chaque tour
+  // tant qu'il reste "en attente" côté client (chip affiché dans l'UI), ce qui
+  // évite d'avoir à faire persister cet état côté serveur entre deux appels.
+  const attachedDocument: AttachedDocument =
+    attached_document && attached_document.storage_path
+      ? {
+          file_name: String(attached_document.file_name || 'document'),
+          storage_path: String(attached_document.storage_path),
+          file_type: String(attached_document.file_type || ''),
+          file_size_bytes: Number(attached_document.file_size_bytes) || 0,
+          extracted_text: attached_document.extracted_text ? String(attached_document.extracted_text) : null,
+        }
+      : null;
 
   if (!user_id || !message) {
     return NextResponse.json({ error: 'user_id ou message manquant' }, { status: 400 });
@@ -261,14 +368,25 @@ export async function POST(request: NextRequest) {
     { role: 'user', content: message },
   ];
 
+  // Voir le commentaire sur CHAT_SYSTEM_PROMPT plus haut : tant que le document
+  // reste "joint" côté frontend (chip affiché, pas encore sauvegardé ni retiré
+  // manuellement), son contenu est rappelé ici à chaque tour — pas besoin de le
+  // dupliquer dans l'historique visible du chat.
+  const documentContext = attachedDocument
+    ? attachedDocument.extracted_text
+      ? `\n\nDocument actuellement joint à la conversation (pas encore sauvegardé) : "${attachedDocument.file_name}"\n"""\n${attachedDocument.extracted_text}\n"""`
+      : `\n\nUn document est joint à la conversation ("${attachedDocument.file_name}") mais son texte n'a pas pu être extrait automatiquement (format non pris en charge, ex: .docx) — demande au commercial de te résumer ce qu'il contient si c'est utile à la discussion. Tu peux quand même lui proposer de le sauvegarder tel quel dans ses documents.`
+    : '';
+
   const systemBlocks = [
     {
       type: 'text',
-      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
+      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}${documentContext}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
       cache_control: { type: 'ephemeral' },
     },
   ];
 
+  let documentSaved = false;
   let data;
   let suggestion;
   try {
@@ -299,7 +417,10 @@ export async function POST(request: NextRequest) {
 
       const toolResults = await Promise.all(
         toolUseBlocks.map(async (block: any) => {
-          const result = await executeTool(block.name, block.input, user_id);
+          const result = await executeTool(block.name, block.input, user_id, attachedDocument, user?.company_id || null);
+          if (block.name === 'sauvegarder_document' && (result as any)?.success) {
+            documentSaved = true;
+          }
           return {
             type: 'tool_result',
             tool_use_id: block.id,
@@ -365,5 +486,8 @@ export async function POST(request: NextRequest) {
   const { error: historyError } = await supabaseAdmin.from('chat_messages').insert(rowsToInsert);
   if (historyError) console.error('Erreur persistance chat_messages:', historyError.message);
 
-  return NextResponse.json({ reply });
+  // document_saved indique au frontend (app/app/chat/page.jsx) qu'il peut
+  // retirer le chip "document joint" — le document vient d'être écrit dans
+  // company_documents par l'outil sauvegarder_document ci-dessus.
+  return NextResponse.json({ reply, document_saved: documentSaved });
 }
