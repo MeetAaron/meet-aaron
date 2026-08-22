@@ -14,6 +14,36 @@ export const metadata = {
     // par le script ci-dessous, avant l'hydratation React, pour éviter un
     // flash chez un utilisateur ayant déjà choisi le mode clair.
     colorScheme: "dark",
+    // public/manifest.json existait déjà mais n'était référencé nulle part
+    // dans le <head> -> aucun navigateur ne considérait le site comme une PWA
+    // installable. C'est ce lien qui déclenche "Ajouter à l'écran d'accueil"
+    // en mode standalone (et non un simple raccourci Safari), condition
+    // nécessaire pour que l'API Push fonctionne sur iOS/Safari (16.4+) — voir
+    // lib/push.ts et components/PushNotificationManager.jsx.
+    manifest: "/manifest.json",
+    // Icônes : favicon + icône "ajouter à l'écran d'accueil" sur iOS, qu'Apple
+    // lit depuis <link rel="apple-touch-icon"> et non depuis manifest.json.
+    icons: {
+        icon: "/icon.png",
+        apple: "/icon.png",
+    },
+    // Balises spécifiques iOS : sans apple-mobile-web-app-capable, Safari
+    // ouvre la web-app ajoutée à l'écran d'accueil dans une fenêtre Safari
+    // classique (barre d'adresse visible) au lieu du mode standalone attendu
+    // pour une PWA, et l'API Push reste indisponible dans ce cas.
+    appleWebApp: {
+        capable: true,
+        statusBarStyle: "black-translucent",
+        title: "Meet Aaron",
+    },
+};
+
+// Couleur de la barre de statut/navigateur quand l'app est installée
+// (Android "Ajouter à l'écran d'accueil" + PWA desktop) — alignée sur
+// theme_color dans public/manifest.json. Next.js 13+ exige cet export
+// séparé de `metadata` pour themeColor (avertissement de build sinon).
+export const viewport = {
+    themeColor: "#0b0e1a",
 };
 
 export default function RootLayout({ children }) {
