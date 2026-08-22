@@ -26,6 +26,15 @@ const NON_TERMINAL_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
 // commercial le souhaite.
 const TRUNCATE_LENGTH = 90;
 
+// Demande Alex (2026-08-22) : voir depuis quand un prospect est dans sa
+// catégorie actuelle (colonne "Depuis") — même helper que sales/page.jsx et
+// customer/page.jsx (daysSince), appliqué ici à prospects.status_updated_at
+// (nouvelle colonne, voir migration_status_updated_at_2026-08-22.sql).
+function daysSince(iso) {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
+}
+
 function TruncatedText({ text, locale }) {
   const [expanded, setExpanded] = useState(false);
   if (!text) return <span className="muted">—</span>;
@@ -475,6 +484,7 @@ export default function ProspectsPage() {
             <thead>
               <tr>
                 <th>{t('prospects.colStatus', locale)}</th>
+                <th>{t('prospects.colStatusSince', locale)}</th>
                 <th>{t('prospects.colName', locale)}</th>
                 <th>{t('prospects.colCompany', locale)}</th>
                 {detailed && <th>{t('prospects.colJobTitle', locale)}</th>}
@@ -502,6 +512,15 @@ export default function ProspectsPage() {
                           <span className="dot" style={{ background: meta.color }} />
                           {meta.label}
                         </span>
+                      )}
+                    </td>
+                    <td className="muted since-cell">
+                      {p.status_updated_at ? (
+                        <span title={new Date(p.status_updated_at).toLocaleString(locale)}>
+                          {daysSince(p.status_updated_at)} {t('sales.daysSuffix', locale)}
+                        </span>
+                      ) : (
+                        '—'
                       )}
                     </td>
                     <td className="strong">{p.full_name}</td>
