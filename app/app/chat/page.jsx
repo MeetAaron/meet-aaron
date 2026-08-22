@@ -147,6 +147,12 @@ export default function ChatPage() {
   const [pendingDocument, setPendingDocument] = useState(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [attachError, setAttachError] = useState(null);
+  // Filet de sécurité sur l'appel /api/chat (l'appel principal, hors
+  // questionnaire de découverte) : avant, aucun try/catch ici — une erreur
+  // réseau ou un 500 sans JSON valide faisait planter handleSend en plein
+  // vol, "sending" restait bloqué à true (input verrouillé indéfiniment) et
+  // rien n'informait le commercial. Voir aussi chat.sendError (lib/i18n.js).
+  const [sendError, setSendError] = useState(null);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
@@ -433,6 +439,7 @@ export default function ChatPage() {
   async function handleSend(e) {
     e.preventDefault();
     if (!input.trim() || sending) return;
+    setSendError(null);
 
     const userMessage = { role: 'user', content: input };
     const newMessages = [...messages, userMessage];
@@ -503,27 +510,44 @@ export default function ChatPage() {
     }
 
     setSending(true);
+    setSendError(null);
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: userId,
-        message: userMessage.content,
-        history: messages,
-        attached_document: pendingDocument || undefined,
-      }),
-    });
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          message: userMessage.content,
+          history: messages,
+          attached_document: pendingDocument || undefined,
+        }),
+      });
 
-    const data = await res.json();
-    setSending(false);
-    // Aaron vient de sauvegarder le document joint (outil sauvegarder_document,
-    // voir app/api/chat/route.ts) — le chip disparaît, sa propre réponse texte
-    // confirme déjà l'action au commercial.
-    if (data.document_saved) setPendingDocument(null);
+      const data = await res.json();
 
-    if (data.reply) {
-      setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+      if (!res.ok) {
+        setSendError(data.error || t('chat.sendError', locale));
+        return;
+      }
+
+      // Aaron vient de sauvegarder le document joint (outil sauvegarder_document,
+      // voir app/api/chat/route.ts) — le chip disparaît, sa propre réponse texte
+      // confirme déjà l'action au commercial.
+      if (data.document_saved) setPendingDocument(null);
+
+      if (data.reply) {
+        setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+      } else {
+        setSendError(t('chat.sendError', locale));
+      }
+    } catch {
+      // Réseau coupé, timeout, réponse non-JSON... — voir commentaire sur
+      // sendError plus haut : avant ce correctif, cette branche n'existait
+      // pas du tout et "sending" restait bloqué à true.
+      setSendError(t('chat.sendError', locale));
+    } finally {
+      setSending(false);
     }
   }
 
@@ -633,7 +657,7 @@ export default function ChatPage() {
           </div>
         )}
 
-        {(pendingDocument || uploadingDocument || attachError) && (
+        {(pendingDocument || uploadingDocument || attachError || sendError) && (
           <div className="attach-row">
             {uploadingDocument && <span className="attach-chip attach-loading">{t('chat.attachUploading', locale)}</span>}
             {pendingDocument && !uploadingDocument && (
@@ -650,6 +674,7 @@ export default function ChatPage() {
               </span>
             )}
             {attachError && <span className="attach-error">{attachError}</span>}
+            {sendError && <span className="attach-error">{sendError}</span>}
           </div>
         )}
 
