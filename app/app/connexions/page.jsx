@@ -133,6 +133,36 @@ const API_KEY_CRM_PROVIDERS = ['axonaut', 'housecallpro', 'capsulecrm', 'service
 // (TwoFieldCrmConnectionCard, formulaire 2 champs).
 const TWO_FIELD_CRM_PROVIDERS = ['sellsy'];
 
+// Demande Alex (2026-08-22) : niveau de collaboration (0-3) + fournisseur/
+// notes CRM déplacés depuis Préférences vers ici — mêmes listes, copiées
+// telles quelles depuis app/app/preferences/page.jsx (collaborationLevelsFor /
+// crmProvidersFor) pour un rendu identique.
+function collaborationLevelsFor(locale) {
+  return [
+    { value: 0, label: t('preferences.crm.level0Label', locale), desc: t('preferences.crm.level0Desc', locale) },
+    { value: 1, label: t('preferences.crm.level1Label', locale), desc: t('preferences.crm.level1Desc', locale) },
+    { value: 2, label: t('preferences.crm.level2Label', locale), desc: t('preferences.crm.level2Desc', locale) },
+    { value: 3, label: t('preferences.crm.level3Label', locale), desc: t('preferences.crm.level3Desc', locale) },
+  ];
+}
+
+function crmProvidersFor(locale) {
+  return [
+    { value: '', label: t('preferences.crm.selectPlaceholder', locale) },
+    { value: 'divalto', label: 'Divalto' },
+    { value: 'salesforce', label: 'Salesforce' },
+    { value: 'hubspot', label: 'HubSpot' },
+    { value: 'pipedrive', label: 'Pipedrive' },
+    { value: 'axonaut', label: 'Axonaut' },
+    { value: 'sellsy', label: 'Sellsy' },
+    { value: 'jobber', label: 'Jobber' },
+    { value: 'housecallpro', label: 'Housecall Pro' },
+    { value: 'capsulecrm', label: 'Capsule CRM' },
+    { value: 'servicem8', label: 'ServiceM8' },
+    { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
+  ];
+}
+
 function crmMetaFor(locale) {
   return {
     hubspot: { name: 'HubSpot', desc: t('connexions.hubspotDesc', locale) },
@@ -152,6 +182,8 @@ export default function ConnexionsPage() {
   const [locale] = useLocale();
   const PROVIDER_META = providerMetaFor(locale);
   const CRM_META = crmMetaFor(locale);
+  const COLLABORATION_LEVELS = collaborationLevelsFor(locale);
+  const CRM_PROVIDERS_SELECT = crmProvidersFor(locale);
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -215,6 +247,20 @@ export default function ConnexionsPage() {
   const [crmChatOpen, setCrmChatOpen] = useState(false);
   const [addCrmSent, setAddCrmSent] = useState(false);
 
+  // Demandes Alex (2026-08-22) : recherche + repli "voir plus"/"voir moins"
+  // sur la grille CRM (9 cartes aujourd'hui, seulement 6 affichées par
+  // défaut), et niveau de collaboration + fournisseur CRM/notes déplacés ici
+  // depuis Préférences (juste au-dessus de la grille), pour rester à côté
+  // des cartes de connexion elles-mêmes plutôt que sur une autre page.
+  const [crmSearch, setCrmSearch] = useState('');
+  const [crmShowAll, setCrmShowAll] = useState(false);
+  const [collabPrefs, setCollabPrefs] = useState(null); // { collaboration_level, crm_provider, crm_connection_notes }
+  const [collabSaving, setCollabSaving] = useState(false);
+  const [collabSaved, setCollabSaved] = useState(false);
+  const [collabUploadFile, setCollabUploadFile] = useState(null);
+  const [collabUploading, setCollabUploading] = useState(false);
+  const [collabUploadDone, setCollabUploadDone] = useState(false);
+
   async function load() {
     setLoading(true);
     const res = await fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json());
@@ -237,6 +283,50 @@ export default function ConnexionsPage() {
       .catch(() => {});
   }
 
+  // Demande Alex (2026-08-22) : niveau de collaboration + fournisseur/notes
+  // CRM, déplacés depuis Préférences vers ici (juste au-dessus de la grille
+  // CRM). Même route PATCH /api/preferences que Préférences utilisait déjà
+  // pour ces 3 champs (voir app/api/preferences/route.ts) — comportement de
+  // sauvegarde identique, seul l'emplacement change.
+  async function handleSaveCollab() {
+    if (!collabPrefs) return;
+    setCollabSaving(true);
+    setCollabSaved(false);
+    try {
+      const res = await fetch('/api/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          collaboration_level: collabPrefs.collaboration_level,
+          crm_provider: collabPrefs.crm_provider,
+          crm_connection_notes: collabPrefs.crm_connection_notes,
+        }),
+      });
+      if (res.ok) {
+        setCollabSaved(true);
+        setTimeout(() => setCollabSaved(false), 2500);
+      }
+    } finally {
+      setCollabSaving(false);
+    }
+  }
+
+  async function handleCollabUpload() {
+    if (!collabUploadFile) return;
+    setCollabUploading(true);
+    const formData = new FormData();
+    formData.append('file', collabUploadFile);
+    formData.append('user_id', userId);
+    formData.append('description', 'Historique clients gagnés/perdus (niveau 1 CRM)');
+    const res = await fetch('/api/documents', { method: 'POST', body: formData });
+    setCollabUploading(false);
+    if (res.ok) {
+      setCollabUploadDone(true);
+      setCollabUploadFile(null);
+    }
+  }
+
   useEffect(() => {
     if (!userId) return;
     load();
@@ -245,6 +335,11 @@ export default function ConnexionsPage() {
       .then((r) => r.json())
       .then((res) => {
         setUserRole(res.preferences?.role || null);
+        setCollabPrefs({
+          collaboration_level: res.preferences?.collaboration_level ?? 0,
+          crm_provider: res.preferences?.crm_provider || null,
+          crm_connection_notes: res.preferences?.crm_connection_notes || '',
+        });
       })
       .catch(() => {});
     fetch(`/api/users/${userId}`)
@@ -560,78 +655,172 @@ export default function ConnexionsPage() {
         </div>
       ) : (
         <>
+          {/* Demande Alex (2026-08-22) : niveau de collaboration (0-3) +
+              fournisseur/notes CRM, déplacés depuis Préférences vers ici —
+              juste au-dessus de la liste des CRM, à côté des cartes de
+              connexion elles-mêmes. */}
+          {collabPrefs && (
+            <div className="collab-panel">
+              <h2 className="category-title collab-heading">{t('preferences.crm.collabLevelLabel', locale)}</h2>
+              <div className="collab-options">
+                {COLLABORATION_LEVELS.map((lvl) => (
+                  <button
+                    key={lvl.value}
+                    type="button"
+                    className={collabPrefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
+                    onClick={() => setCollabPrefs({ ...collabPrefs, collaboration_level: lvl.value })}
+                  >
+                    <span className="collab-card-title">{lvl.label}</span>
+                    <span className="collab-card-desc">{lvl.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {collabPrefs.collaboration_level === 1 && (
+                <div className="collab-extra">
+                  <p className="crm-directory-hint">{t('preferences.crm.uploadHint', locale)}</p>
+                  <div className="upload-row">
+                    <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setCollabUploadFile(e.target.files?.[0] || null)} />
+                    <button type="button" className="btn-secondary" onClick={handleCollabUpload} disabled={!collabUploadFile || collabUploading}>
+                      {collabUploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
+                    </button>
+                  </div>
+                  {collabUploadDone && <p className="profile-saved">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
+                </div>
+              )}
+
+              {(collabPrefs.collaboration_level === 2 || collabPrefs.collaboration_level === 3) && (
+                <div className="collab-extra">
+                  <label className="profile-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
+                  <select
+                    className="profile-input"
+                    value={collabPrefs.crm_provider || ''}
+                    onChange={(e) => setCollabPrefs({ ...collabPrefs, crm_provider: e.target.value || null })}
+                  >
+                    {CRM_PROVIDERS_SELECT.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                  <label className="profile-label">{t('preferences.crm.notesLabel', locale)}</label>
+                  <textarea
+                    className="profile-input add-crm-textarea"
+                    rows={3}
+                    value={collabPrefs.crm_connection_notes || ''}
+                    onChange={(e) => setCollabPrefs({ ...collabPrefs, crm_connection_notes: e.target.value })}
+                    placeholder={t('preferences.crm.notesPlaceholder', locale)}
+                  />
+                </div>
+              )}
+
+              <button type="button" className="btn-primary collab-save" onClick={handleSaveCollab} disabled={collabSaving}>
+                {collabSaving ? t('connexions.profileSaving', locale) : t('connexions.profileSaveButton', locale)}
+              </button>
+              {collabSaved && <p className="profile-saved">{t('connexions.profileSaved', locale)}</p>}
+            </div>
+          )}
+
           <h2 className="category-title">{t('connexions.crmCategoryTitle', locale)}</h2>
           <p className="crm-directory-hint">{t('connexions.crmDirectoryHint', locale)}</p>
           {crmOauthBannerError && <p className="crm-error">{crmOauthBannerError}</p>}
-          <div className="cards">
-            {ALL_CRM_PROVIDERS.map((provider) => {
-              const connected = crmConnections.some((c) => c.provider === provider);
-              const common = {
-                key: provider,
-                provider,
-                title: CRM_META[provider].name,
-                desc: CRM_META[provider].desc,
-                connected,
-                canManage: userRole === 'patron',
-                onDisconnect: () => handleDisconnectCrm(provider),
-                onSync: () => handleSyncCrm(provider),
-                syncing: !!crmSyncing[provider],
-                syncResult: crmSyncResult[provider],
-                error: crmError[provider],
-              };
-              if (DIRECT_CRM_PROVIDERS.includes(provider)) {
-                return <CrmConnectionCard {...common} onConnect={() => handleConnectCrm(provider)} />;
-              }
-              if (API_KEY_CRM_PROVIDERS.includes(provider)) {
-                return (
-                  <ApiKeyCrmConnectionCard
-                    {...common}
-                    apiKeyInput={apiKeyInputs[provider] || ''}
-                    onApiKeyInputChange={(v) => setApiKeyInputs((prev) => ({ ...prev, [provider]: v }))}
-                    onConnect={() => handleConnectApiKeyCrm(provider)}
-                    connecting={!!apiKeyConnecting[provider]}
-                  />
-                );
-              }
-              const fields = twoFieldInputs[provider] || { fieldOne: '', fieldTwo: '' };
-              return (
-                <TwoFieldCrmConnectionCard
-                  {...common}
-                  fieldOneInput={fields.fieldOne}
-                  onFieldOneInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldOne: v } }))}
-                  fieldTwoInput={fields.fieldTwo}
-                  onFieldTwoInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldTwo: v } }))}
-                  onConnect={() => handleConnectTwoFieldCrm(provider)}
-                  connecting={!!twoFieldConnecting[provider]}
-                />
-              );
-            })}
-          </div>
 
-          {/* docx item 27 / tâche #139 : "ajouter un autre CRM" — conversation
-              guidée avec Aaron (CrmCustomChatModal) au lieu d'un simple champ
-              de texte libre ; le récapitulatif part vers la boîte à
-              suggestions déjà lue par le patron. */}
-          <div className="add-crm-panel">
+          {/* Demande Alex (2026-08-22) : barre de recherche pour filtrer les
+              CRM directement, plutôt que de parcourir toute la grille. */}
+          <input
+            type="text"
+            className="crm-search"
+            value={crmSearch}
+            onChange={(e) => setCrmSearch(e.target.value)}
+            placeholder={t('connexions.crmSearchPlaceholder', locale)}
+          />
+
+          {(() => {
+            const filtered = ALL_CRM_PROVIDERS.filter((provider) =>
+              CRM_META[provider].name.toLowerCase().includes(crmSearch.trim().toLowerCase())
+            );
+            // Demande Alex : 6 cartes affichées par défaut + "voir plus" —
+            // le plafond ne s'applique que tant qu'aucune recherche n'est en
+            // cours (chercher un CRM doit toujours montrer TOUS les résultats
+            // correspondants, pas seulement les 6 premiers).
+            const visible = crmSearch.trim() || crmShowAll ? filtered : filtered.slice(0, 6);
+            return (
+              <>
+                <div className="cards">
+                  {visible.map((provider) => {
+                    const connected = crmConnections.some((c) => c.provider === provider);
+                    const common = {
+                      key: provider,
+                      provider,
+                      title: CRM_META[provider].name,
+                      desc: CRM_META[provider].desc,
+                      connected,
+                      canManage: userRole === 'patron',
+                      onDisconnect: () => handleDisconnectCrm(provider),
+                      onSync: () => handleSyncCrm(provider),
+                      syncing: !!crmSyncing[provider],
+                      syncResult: crmSyncResult[provider],
+                      error: crmError[provider],
+                    };
+                    if (DIRECT_CRM_PROVIDERS.includes(provider)) {
+                      // Demande Alex : "quand on clique sur les crm rien ne se
+                      // passe" — pas de formulaire à remplir pour ces CRM-là
+                      // (connexion OAuth en un clic), donc toute la carte
+                      // déclenche la connexion, pas seulement le bouton.
+                      return (
+                        <CrmConnectionCard
+                          {...common}
+                          onConnect={() => handleConnectCrm(provider)}
+                          onCardClick={!connected && userRole === 'patron' ? () => handleConnectCrm(provider) : null}
+                        />
+                      );
+                    }
+                    if (API_KEY_CRM_PROVIDERS.includes(provider)) {
+                      return (
+                        <ApiKeyCrmConnectionCard
+                          {...common}
+                          apiKeyInput={apiKeyInputs[provider] || ''}
+                          onApiKeyInputChange={(v) => setApiKeyInputs((prev) => ({ ...prev, [provider]: v }))}
+                          onConnect={() => handleConnectApiKeyCrm(provider)}
+                          connecting={!!apiKeyConnecting[provider]}
+                        />
+                      );
+                    }
+                    const fields = twoFieldInputs[provider] || { fieldOne: '', fieldTwo: '' };
+                    return (
+                      <TwoFieldCrmConnectionCard
+                        {...common}
+                        fieldOneInput={fields.fieldOne}
+                        onFieldOneInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldOne: v } }))}
+                        fieldTwoInput={fields.fieldTwo}
+                        onFieldTwoInputChange={(v) => setTwoFieldInputs((prev) => ({ ...prev, [provider]: { ...fields, fieldTwo: v } }))}
+                        onConnect={() => handleConnectTwoFieldCrm(provider)}
+                        connecting={!!twoFieldConnecting[provider]}
+                      />
+                    );
+                  })}
+                </div>
+                {!crmSearch.trim() && filtered.length > 6 && (
+                  <button type="button" className="btn-secondary crm-showmore" onClick={() => setCrmShowAll(!crmShowAll)}>
+                    {crmShowAll ? t('connexions.crmShowLess', locale) : t('connexions.crmShowMoreTemplate', locale).replace('{count}', filtered.length - 6)}
+                  </button>
+                )}
+                {crmSearch.trim() && filtered.length === 0 && (
+                  <p className="crm-directory-hint">{t('connexions.crmSearchEmpty', locale)}</p>
+                )}
+              </>
+            );
+          })()}
+
+          {/* docx item 27 / tâche #139 : "ajouter un autre CRM" — amène
+              maintenant directement au chat Aaron avec un message pré-rempli
+              (demande Alex 2026-08-22) plutôt que d'ouvrir une conversation
+              dédiée dans une fenêtre à part. */}
+          <Link
+            href={`/app/chat?user_id=${userId}&prefill=${encodeURIComponent(t('connexions.addOtherCrmPrefillMessage', locale))}`}
+            className="add-crm-panel add-crm-panel-link"
+          >
             <h3>{t('connexions.addOtherCrmTitle', locale)}</h3>
             <p className="add-crm-hint">{t('connexions.addOtherCrmHint', locale)}</p>
-            {addCrmSent ? (
-              <p className="profile-saved">{t('connexions.addOtherCrmSent', locale)}</p>
-            ) : (
-              <button type="button" className="btn-secondary" onClick={() => setCrmChatOpen(true)}>
-                {t('connexions.crmChatOpenButton', locale)}
-              </button>
-            )}
-          </div>
+            <span className="btn-secondary add-crm-cta">{t('connexions.crmChatOpenButton', locale)}</span>
+          </Link>
         </>
-      )}
-
-      {crmChatOpen && (
-        <CrmCustomChatModal
-          userId={userId}
-          onClose={() => setCrmChatOpen(false)}
-          onSent={handleSendCrmChatRequest}
-        />
       )}
 
       <style jsx>{`
@@ -747,6 +936,124 @@ export default function ConnexionsPage() {
           margin-bottom: 0.7rem;
           font-family: inherit;
           resize: vertical;
+        }
+        .collab-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem;
+          margin-bottom: 1.6rem;
+          max-width: 640px;
+        }
+        .collab-heading {
+          margin: 0 0 0.8rem;
+        }
+        .collab-options {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.6rem;
+        }
+        .collab-card {
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.8rem;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .collab-card:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+        .collab-card.active {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .collab-card-title {
+          font-weight: 600;
+          font-size: 0.86rem;
+          color: var(--text);
+        }
+        .collab-card-desc {
+          font-size: 0.76rem;
+          color: var(--muted);
+          line-height: 1.35;
+        }
+        .collab-extra {
+          margin-top: 0.9rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+        }
+        .upload-row {
+          display: flex;
+          gap: 0.6rem;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .collab-save {
+          margin-top: 1rem;
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1.1rem;
+          font-weight: 600;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .collab-save:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .crm-search {
+          display: block;
+          width: 100%;
+          max-width: 360px;
+          box-sizing: border-box;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.84rem;
+          margin-bottom: 1rem;
+          font-family: inherit;
+          background: var(--surface);
+          color: var(--text);
+        }
+        .crm-showmore {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1.1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .add-crm-panel-link {
+          display: block;
+          text-decoration: none;
+          color: inherit;
+          cursor: pointer;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .add-crm-panel-link:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+        .add-crm-cta {
+          display: inline-block;
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
         }
       `}</style>
 
@@ -1052,10 +1359,13 @@ function CrmCustomChatModal({ userId, onClose, onSent }) {
   );
 }
 
-function CrmConnectionCard({ provider, title, desc, connected, canManage, onConnect, onDisconnect, onSync, syncing, syncResult, error }) {
+function CrmConnectionCard({ provider, title, desc, connected, canManage, onConnect, onDisconnect, onSync, syncing, syncResult, error, onCardClick }) {
   const [locale] = useLocale();
   return (
-    <div className="card">
+    <div
+      className={onCardClick ? 'card card-clickable' : 'card'}
+      onClick={onCardClick || undefined}
+    >
       <div className="card-head">
         <h3>{title}</h3>
         <span className={`status-dot ${connected ? 'on' : 'off'}`} />
@@ -1098,6 +1408,10 @@ function CrmConnectionCard({ provider, title, desc, connected, canManage, onConn
         .card:hover {
           transform: translateY(-2px);
           box-shadow: var(--shadow-md);
+          cursor: pointer;
+        }
+        .card-clickable {
+          cursor: pointer;
         }
         .card-head {
           display: flex;
@@ -1256,6 +1570,10 @@ function ApiKeyCrmConnectionCard({
         .card:hover {
           transform: translateY(-2px);
           box-shadow: var(--shadow-md);
+          cursor: pointer;
+        }
+        .card-clickable {
+          cursor: pointer;
         }
         .card-head {
           display: flex;
@@ -1451,6 +1769,10 @@ function TwoFieldCrmConnectionCard({
         .card:hover {
           transform: translateY(-2px);
           box-shadow: var(--shadow-md);
+          cursor: pointer;
+        }
+        .card-clickable {
+          cursor: pointer;
         }
         .card-head {
           display: flex;
@@ -1648,6 +1970,10 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
         .card:hover {
           transform: translateY(-2px);
           box-shadow: var(--shadow-md);
+          cursor: pointer;
+        }
+        .card-clickable {
+          cursor: pointer;
         }
         .card-head {
           display: flex;
