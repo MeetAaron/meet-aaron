@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('id, full_name, assigned_user_id')
+    .select('id, full_name, assigned_user_id, company_id')
     .eq('youtrust_signature_request_id', signatureRequestId)
     .maybeSingle();
 
@@ -94,9 +94,19 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', prospect.id);
 
+    // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
+    // que le commercial a déjà l'abonnement Aaron Clients.
+    const { data: company } = await supabaseAdmin
+      .from('companies')
+      .select('offer_ac_active')
+      .eq('id', prospect.company_id)
+      .maybeSingle();
+
     await sendPushNotification(prospect.assigned_user_id, {
       title: 'Contrat signé 🎉',
-      body: `${prospect.full_name} a signé le devis. Aaron l'a basculé en client gagné.`,
+      body: company?.offer_ac_active
+        ? `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
+        : `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
       url: `/app/customer?user_id=${prospect.assigned_user_id}`,
     });
 
