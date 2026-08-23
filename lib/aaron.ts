@@ -34,6 +34,11 @@ interface AaronOutput {
   action_required_from_sales: string | null;
   quote_requested: boolean;
   deal_approved: { detected: boolean; reason: string | null } | null;
+  // Docx pipeline (Alex, 2026-08-23) : deux nouveaux signaux, même mécanique
+  // que deal_approved ci-dessus — voir lib/aaron_system_prompt.md pour la
+  // définition complète, et app/api/cron/check-inbox pour leur exploitation.
+  negotiation_confidence: { score: number; reason: string | null } | null;
+  opportunity_signal: { detected: boolean; reason: string | null } | null;
 }
 
 async function buildContext(prospectId: string) {
@@ -126,12 +131,26 @@ async function buildContext(prospectId: string) {
 
   const { data: validatedAppointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, proposed_at, type')
+    .select('id, proposed_at, type, outcome')
     .eq('prospect_id', prospectId)
     .eq('status', 'validé')
+    .eq('purpose', 'commercial')
     .order('proposed_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // Docx pipeline (Alex, 2026-08-23) : true si le RDV le plus récent est déjà
+  // passé et que le commercial n'a pas encore rempli son bilan
+  // ("Comment ça s'est passé ?" toujours en attente côté commercial) — voir
+  // section "DÉTECTION D'UNE INTENTION D'OPPORTUNITÉ SANS BILAN" du prompt
+  // système. Sert à Aaron pour savoir s'il peut légitimement déduire lui-même
+  // le passage en opportunité à partir de LA réponse du prospect, plutôt que
+  // d'attendre la saisie du commercial.
+  const bilanRdvEnAttente = !!(
+    validatedAppointment &&
+    !validatedAppointment.outcome &&
+    new Date(validatedAppointment.proposed_at).getTime() < Date.now()
+  );
 
   return {
     company_id: prospect.company_id,
@@ -154,6 +173,12 @@ async function buildContext(prospectId: string) {
       societe: prospect.prospect_companies?.name,
     },
     statut_actuel: prospect.status,
+    // Docx pipeline (Alex, 2026-08-23) : étape actuelle de la pipeline
+    // Opportunités (null si le prospect n'y est pas encore entré), et si un
+    // bilan de RDV est en attente — voir les deux nouvelles sections du
+    // prompt système (score de conviction / opportunité sans bilan).
+    etape_pipeline_actuelle: prospect.deal_stage,
+    bilan_rdv_en_attente: bilanRdvEnAttente,
     personnalite_detectee: prospect.personality_type,
     historique_conversation: conversations,
     autres_contacts_meme_societe: siblingContacts,
