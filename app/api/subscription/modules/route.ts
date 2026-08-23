@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
         // (impossible d'avoir un abonnement à 0 ligne). Le compte devient
         // totalement inactif jusqu'à réabonnement.
         await stripe.subscriptions.cancel(company.stripe_subscription_id);
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from('companies')
           .update({
             offer_ap_active: false,
@@ -102,6 +102,19 @@ export async function POST(request: NextRequest) {
             stripe_subscription_item_ac: null,
           })
           .eq('id', company.id);
+        // Bug corrigé le 2026-08-23 (signalé par Alex) : cette mise à jour
+        // Supabase n'était jusqu'ici jamais vérifiée — si elle échouait,
+        // Stripe avait déjà annulé l'abonnement mais la société restait
+        // marquée active en base, ou inversement ici on aurait pu répondre
+        // "success" alors que la désactivation n'était pas reflétée. On log
+        // et on renvoie une vraie erreur plutôt qu'un faux succès.
+        if (updateError) {
+          console.error(`Désactivation module ${module} : abonnement Stripe annulé mais mise à jour Supabase échouée`, updateError.message, { company_id: company.id });
+          return NextResponse.json(
+            { error: "L'abonnement Stripe a bien été annulé mais la mise à jour n'a pas pu être enregistrée — contactez le support, ne réessayez pas de désactiver." },
+            { status: 500 }
+          );
+        }
       } else {
         const itemId = await resolveSubscriptionItemId(company as any, module as ModuleCode);
         if (!itemId) {
@@ -111,10 +124,18 @@ export async function POST(request: NextRequest) {
           );
         }
         await stripe.subscriptionItems.del(itemId);
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from('companies')
           .update({ [activeColumn(module as ModuleCode)]: false, [itemColumn(module as ModuleCode)]: null })
           .eq('id', company.id);
+        // Même correctif que ci-dessus (2026-08-23).
+        if (updateError) {
+          console.error(`Désactivation module ${module} : ligne Stripe supprimée mais mise à jour Supabase échouée`, updateError.message, { company_id: company.id });
+          return NextResponse.json(
+            { error: "La ligne d'abonnement Stripe a bien été retirée mais la mise à jour n'a pas pu être enregistrée — contactez le support." },
+            { status: 500 }
+          );
+        }
       }
     } catch (err: any) {
       console.error(`Erreur désactivation module ${module} (Stripe):`, err.message);
@@ -147,10 +168,28 @@ export async function POST(request: NextRequest) {
         subscription: company.stripe_subscription_id,
         price: priceId,
       });
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from('companies')
         .update({ [activeColumn(module as ModuleCode)]: true, [itemColumn(module as ModuleCode)]: item.id })
         .eq('id', company.id);
+      // Bug corrigé le 2026-08-23 (signalé par Alex : compte réellement
+      // abonné aux 3 modules côté Stripe, mais cadenas toujours affichés) —
+      // c'est très probablement CE bug : cette mise à jour Supabase
+      // n'était jamais vérifiée, donc si elle échouait silencieusement
+      // (RLS, réseau, contrainte...), la route répondait quand même
+      // { success: true } — Stripe facture le module, mais
+      // offer_xx_active ne passe jamais à true en base, et le cadenas ne
+      // disparaît plus jamais tant que personne ne le corrige à la main.
+      if (updateError) {
+        console.error(`Activation module ${module} : ligne Stripe créée (${item.id}) mais mise à jour Supabase échouée`, updateError.message, { company_id: company.id });
+        return NextResponse.json(
+          {
+            error:
+              "Le module a bien été ajouté à votre abonnement Stripe (vous serez facturé au prorata), mais l'activation n'a pas pu être enregistrée côté application — contactez le support avant de réessayer, pour éviter de payer deux fois la même ligne.",
+          },
+          { status: 500 }
+        );
+      }
       return NextResponse.json({ success: true });
     }
 
