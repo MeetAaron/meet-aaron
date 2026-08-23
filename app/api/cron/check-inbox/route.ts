@@ -10,12 +10,28 @@ import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
+import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
+}
+
+// Docx pipeline (Alex, 2026-08-23) : les notifications de frontière
+// d'abonnement (nouvelle opportunité, devis signé) ont un texte différent
+// selon que le commercial a déjà le module concerné — voir doc pipeline
+// sections I.5/I.7. Petit helper partagé plutôt que de dupliquer la requête
+// à chaque endroit.
+async function getCompanyModuleFlags(companyId: string | null) {
+  if (!companyId) return { offer_as_active: false, offer_ac_active: false };
+  const { data } = await supabaseAdmin
+    .from('companies')
+    .select('offer_as_active, offer_ac_active')
+    .eq('id', companyId)
+    .maybeSingle();
+  return { offer_as_active: !!data?.offer_as_active, offer_ac_active: !!data?.offer_ac_active };
 }
 
 function extractGmailBody(payload: any): string {
@@ -270,7 +286,7 @@ export async function GET(request: NextRequest) {
 
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at')
+        .select('id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at, deal_stage')
         .eq('email', fromEmail)
         .eq('assigned_user_id', connection.user_id)
         .single();
@@ -409,6 +425,90 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Docx pipeline (Alex, 2026-08-23), section I.5 : le prospect a répondu
+      // avec un signal d'opportunité clair (demande de devis, enthousiasme
+      // net) alors que le bilan du RDV n'a pas encore été rempli par le
+      // commercial — Aaron enregistre le bilan à sa place, exactement comme
+      // s'il avait cliqué "Opportunité" (ou "Demande de devis"), ce qui
+      // retire au passage la notification "Comment ça s'est passé ?" encore
+      // en attente (appointments.outcome n'est plus null, voir
+      // app/api/cron/appointment-feedback-prompts). Texte différent selon
+      // que le commercial a déjà l'abonnement Aaron Opportunités.
+      if (aaronOutput.opportunity_signal?.detected) {
+        try {
+          const { data: pendingAppointment } = await supabaseAdmin
+            .from('appointments')
+            .select('id')
+            .eq('prospect_id', prospect.id)
+            .eq('status', 'validé')
+            .eq('purpose', 'commercial')
+            .is('outcome', null)
+            .order('proposed_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (pendingAppointment) {
+            await recordAppointmentOutcome(pendingAppointment.id, aaronOutput.quote_requested ? 'devis' : 'opportunite');
+
+            const { offer_as_active } = await getCompanyModuleFlags(prospect.company_id);
+            await sendPushNotification(connection.user_id, {
+              title: 'Nouvelle opportunité !',
+              body: offer_as_active
+                ? `${prospect.full_name} vient de basculer en opportunité — tu peux la suivre dès maintenant dans Aaron Opportunités. Je m'occupe de la faire avancer.`
+                : `Bonne nouvelle : ${prospect.full_name} vient de basculer en opportunité ! Abonne-toi à Aaron Opportunités pour la suivre jusqu'à la signature.`,
+              url: `/app/sales?user_id=${connection.user_id}`,
+            });
+          }
+        } catch (err: any) {
+          console.error(`Erreur bascule automatique en opportunité pour prospect ${prospect.id}:`, err.message);
+        }
+      }
+
+      // Docx pipeline (Alex, 2026-08-23), section I.4 : score de conviction
+      // Aaron pour la détection de "en négociation" — toujours enregistré
+      // pour affichage (badge sur la fiche), bascule automatique de
+      // deal_stage seulement à confiance forte (>= 75), jamais en arrière.
+      if (aaronOutput.negotiation_confidence) {
+        try {
+          const { score, reason } = aaronOutput.negotiation_confidence;
+          const now = new Date().toISOString();
+          await supabaseAdmin
+            .from('prospects')
+            .update({
+              negotiation_confidence_score: score,
+              negotiation_confidence_reason: reason || null,
+              negotiation_confidence_updated_at: now,
+            })
+            .eq('id', prospect.id);
+
+          const currentStage = (prospect as any).deal_stage;
+          if (score >= 75 && (currentStage === 'rdv_fait' || currentStage === 'devis_envoye')) {
+            await supabaseAdmin
+              .from('prospects')
+              .update({ deal_stage: 'en_negociation', deal_stage_updated_at: now })
+              .eq('id', prospect.id);
+
+            await sendPushNotification(connection.user_id, {
+              title: 'Affaire en négociation',
+              body: reason
+                ? `${prospect.full_name} — Aaron détecte une vraie dynamique de négociation : ${reason} (confiance ${score}/100).`
+                : `${prospect.full_name} montre des signes clairs de négociation active (confiance ${score}/100).`,
+              url: `/app/sales?user_id=${connection.user_id}`,
+            });
+          } else if (score >= 40) {
+            await sendPushNotification(connection.user_id, {
+              title: 'Signal de négociation détecté',
+              body: reason
+                ? `${prospect.full_name} — ${reason} (confiance ${score}/100, à confirmer toi-même dans Aaron Opportunités).`
+                : `${prospect.full_name} montre un signal de négociation à confirmer (confiance ${score}/100).`,
+              url: `/app/sales?user_id=${connection.user_id}`,
+            });
+          }
+        } catch (err: any) {
+          console.error(`Erreur score de conviction négociation pour prospect ${prospect.id}:`, err.message);
+        }
+      }
+
       // Accord ferme détecté dans l'email reçu (docx "OPPORTUNITES A1") : Aaron
       // bascule automatiquement ce prospect en client gagné — même effet que
       // l'action manuelle "set_deal_stage = signé" côté UI (is_won, won_at,
@@ -431,11 +531,15 @@ export async function GET(request: NextRequest) {
             })
             .eq('id', prospect.id);
 
+          // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent
+          // selon que le commercial a déjà l'abonnement Aaron Clients.
+          const { offer_ac_active } = await getCompanyModuleFlags(prospect.company_id);
+          const raison = aaronOutput.deal_approved.reason ? ` — ${aaronOutput.deal_approved.reason}` : '';
           await sendPushNotification(connection.user_id, {
-            title: 'Nouveau client 🎉',
-            body: aaronOutput.deal_approved.reason
-              ? `${prospect.full_name} a donné son accord — ${aaronOutput.deal_approved.reason}`
-              : `${prospect.full_name} a donné son accord. Aaron l'a basculé en client gagné.`,
+            title: 'Devis signé 🎉',
+            body: offer_ac_active
+              ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
+              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
             url: `/app/customer?user_id=${connection.user_id}`,
           });
 
