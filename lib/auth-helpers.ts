@@ -97,14 +97,75 @@ async function fetchUserRow(authUserId: string): Promise<AuthedUser | null> {
   return null;
 }
 
+// Déduplication + cache court des vérifications d'authentification (25/08,
+// round 3 sur le bug persistant "Non authentifié — reconnecte-toi." sur
+// Préférences et Mon équipe, remonté à nouveau par Alex malgré les deux
+// correctifs précédents de ce même jour — retry serveur sur la vérification
+// du token/la lecture de la ligne "users", puis revalidation via getUser()
+// côté client avant de rediriger). Point commun identifié entre CES deux
+// pages précises (jamais Dashboard/Prospects, qui fonctionnent) : elles
+// chargent 6 à 7 appels /api/... EN PARALLÈLE dès le montage (voir le
+// commentaire dans components/AuthFetchInterceptor.jsx), donc jusqu'à 6-7
+// vérifications de token strictement identiques (même token, à la même
+// seconde) contre l'API Supabase Auth PUIS la table users, déclenchées en
+// même temps — Dashboard/Prospects n'en déclenchent qu'1-2 au montage. Sous
+// cette charge en rafale, un léger ralentissement ou une erreur transitoire
+// sur l'UN des 6-7 appels suffit à afficher l'erreur, alors que la session
+// est parfaitement valide.
+//
+// On mutualise donc, PAR INSTANCE SERVERLESS CHAUDE (pas de garantie
+// inter-instances sur Vercel, mais une instance est généralement réutilisée
+// pour des requêtes aussi rapprochées dans le temps), toute vérification en
+// cours pour un même token : les appels concurrents attendent la MÊME
+// promesse au lieu de déclencher chacun leur propre aller-retour réseau —
+// exactement le même principe que refreshSessionShared() côté navigateur
+// (AuthFetchInterceptor.jsx). Un résultat RÉUSSI reste ensuite disponible
+// quelques secondes, pour que les appels qui suivent de très près (mais pas
+// strictement en même milliseconde) en profitent aussi. Un ÉCHEC n'est
+// volontairement PAS mis en cache : on ne veut pas transformer un blip
+// transitoire sur le tout premier appel en 401 garanti pour les 6 autres du
+// même lot — chaque appel qui arrive après un échec retente franchement.
+const AUTHED_USER_CACHE_TTL_MS = 8000;
+const authedUserCache = new Map<string, { promise: Promise<AuthedUser | null>; expiresAt: number }>();
+
+function getCachedAuthedUser(token: string, resolve: () => Promise<AuthedUser | null>): Promise<AuthedUser | null> {
+  const now = Date.now();
+  const cached = authedUserCache.get(token);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  const promise = resolve().then((result) => {
+    if (result) {
+      authedUserCache.set(token, { promise, expiresAt: Date.now() + AUTHED_USER_CACHE_TTL_MS });
+    } else {
+      authedUserCache.delete(token);
+    }
+    return result;
+  });
+
+  // Occupe immédiatement la place pour la déduplication EN VOL (avant même
+  // que cette promesse soit résolue) : les appels concurrents qui arrivent
+  // pendant qu'elle est en cours la réutilisent au lieu d'en déclencher une
+  // nouvelle.
+  authedUserCache.set(token, { promise, expiresAt: now + AUTHED_USER_CACHE_TTL_MS });
+
+  return promise;
+}
+
 // Résout l'identité ET le profil "users" Meet Aaron correspondant — utilisé par
 // toutes les autres routes protégées. Renvoie null si le token est absent/
 // invalide, ou si aucun profil "users" n'est encore lié à ce compte.
 export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | null> {
-  const identity = await getAuthedIdentity(request);
-  if (!identity) return null;
+  const authHeader = request.headers.get('authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return null;
 
-  return fetchUserRow(identity.auth_user_id);
+  return getCachedAuthedUser(token, async () => {
+    const identity = await resolveIdentityFromToken(token);
+    if (!identity) return null;
+    return fetchUserRow(identity.auth_user_id);
+  });
 }
 
 // Même chose que getAuthedUser, mais à partir d'un token déjà extrait (pas d'un
@@ -115,10 +176,11 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
 // forger un lien "Connecter Gmail" qui lierait sa propre boîte mail au compte
 // Meet Aaron d'un tiers.
 export async function getAuthedUserFromToken(token: string): Promise<AuthedUser | null> {
-  const identity = await resolveIdentityFromToken(token);
-  if (!identity) return null;
-
-  return fetchUserRow(identity.auth_user_id);
+  return getCachedAuthedUser(token, async () => {
+    const identity = await resolveIdentityFromToken(token);
+    if (!identity) return null;
+    return fetchUserRow(identity.auth_user_id);
+  });
 }
 
 export function unauthorizedResponse() {
