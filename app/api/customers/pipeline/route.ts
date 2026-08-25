@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
        upsell_suggestion, upsell_suggested_at, upsell_dismissed_at,
        testimonial_email_subject, testimonial_email_body, testimonial_email_sent_at,
        devis_recap,
-       prospect_companies (name, domain)`
+       prospect_companies (name, domain, address, siret, website, industry, company_size, estimated_revenue)`
     )
     .eq('assigned_user_id', userId)
     // Aaron Customer ne traite que les clients à part entière — 1ère commande
