@@ -1,23 +1,25 @@
 // app/api/chat/onboarding-ack/route.ts
-// POST -> génère UNE phrase courte d'accusé de réception intelligent pour le
-// questionnaire d'onboarding d'Aaron (app/app/chat/page.jsx, ONBOARDING_
-// QUESTION_KEYS), avant d'enchaîner sur la question suivante.
+// POST -> analyse chaque message du commercial pendant le questionnaire de
+// découverte d'Aaron (app/app/chat/page.jsx) pour décider s'il faut avancer à
+// la question suivante ou rester sur place, avant d'enchaîner.
 //
-// CHANGEMENTS A FAIRE, section CHAT AVEC AARON, item A4 : le questionnaire
-// était un script 100% local (7 questions fixes, aucun appel IA), qui
-// enchaînait sur la question suivante quelle que soit la réponse — y
-// compris quand la réponse remettait en cause la prémisse même de la
-// question (exemple d'Alex : "un premier contact c'est déjà un rendez-vous
-// non ?" en réponse à une question qui distinguait "obtenir un rendez-vous"
-// d'un premier contact). Cette route ajoute UN appel IA léger par question
-// (pas un vrai tour de conversation complet) pour produire une phrase
-// d'accroche qui montre qu'Aaron a vraiment lu la réponse, avant que le
-// frontend affiche la question suivante à la suite.
+// CHANGEMENTS A FAIRE, section CHAT AVEC AARON, item A4, puis retour Alex
+// (2026-08-25, capture d'écran à l'appui) : le questionnaire ne faisait
+// qu'ACCUSER réception avant d'enchaîner systématiquement sur la question
+// suivante, quel que soit le message reçu — y compris quand ce message était
+// une VRAIE question du commercial ("c'est à dire ?") plutôt qu'une réponse.
+// Résultat : Aaron ignorait la question et passait au sujet suivant comme un
+// simple formulaire à cases, alors qu'Alex avait explicitement demandé une
+// vraie interaction. Cette route classe maintenant chaque message en
+// is_answer (true = une réponse, même partielle/imparfaite, à la question
+// posée -> le frontend avance) ou false (une question, une incompréhension,
+// un aparté -> Aaron doit clarifier/répondre et RE-présenter la même
+// question, le frontend reste sur place et relance l'utilisateur dessus).
 //
 // Conçu pour rester bon marché et jamais bloquant : max_tokens réduit,
-// aucune conséquence si le modèle échoue ou si le plafond de dépense API de
-// la société est atteint — le frontend retombe alors sur l'ancien
-// comportement (juste la question suivante, sans accroche).
+// dégradation silencieuse si le modèle échoue ou si le plafond de dépense
+// API de la société est atteint — le frontend retombe alors sur l'ancien
+// comportement (avance directement, sans accroche ni clarification).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -25,16 +27,18 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 
-const SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA, en plein questionnaire de découverte avec un commercial/fondateur qui vient de répondre à une question de ce questionnaire.
+const SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA, en plein questionnaire de découverte avec un commercial/fondateur. Tu viens de lui poser une question de ce questionnaire, et il vient de répondre — mais "répondre" est à vérifier : c'est parfois une vraie réponse, parfois une question EN RETOUR, une incompréhension, ou un aparté sans lien.
 
-Ta seule tâche : rédiger UNE SEULE phrase courte (pas de liste, pas de retour sur tout le contexte) qui montre que tu as vraiment lu et compris sa réponse, avant qu'une autre question lui soit posée juste après (affichée séparément, ne la répète jamais et ne la dévoile jamais).
+Ta tâche a deux étapes :
 
-Règles impératives :
-- Jamais de formule générique creuse ("Merci !", "Noté !", "Parfait !") qui ignore le contenu réel de la réponse.
-- Si la réponse remet en cause la prémisse de la question (elle conteste une distinction que la question supposait, ou répond "ça n'a pas de sens pour mon métier" etc.), reconnais-le explicitement et adapte-toi à SA façon de voir les choses plutôt que d'enchaîner comme si de rien n'était.
-- Si la réponse est simple et directe, une accroche brève suffit (ex: reformuler en une poignée de mots ce qu'il vient de dire, pour montrer que c'est bien pris en compte).
-- Ne repose jamais la question déjà posée.
-- Une seule phrase, jamais plus.`;
+1. Détermine si son message répond réellement à la question posée (même de façon brève, partielle ou imparfaite — ça compte comme une réponse), OU s'il s'agit plutôt d'une question, d'une demande de clarification, d'une incompréhension, ou d'un message hors sujet qui n'apporte AUCUNE réponse exploitable.
+
+2. Rédige "reply" en conséquence :
+   - Si c'est une réponse (is_answer=true) : UNE SEULE phrase courte qui montre que tu as vraiment lu et compris — jamais une formule générique creuse ("Merci !", "Noté !"). Si sa réponse remet en cause la prémisse de la question, reconnais-le explicitement et adapte-toi à sa façon de voir les choses. Ne répète jamais la question posée (une autre question sera affichée juste après, séparément — ne la devine pas et ne l'invente pas).
+   - Si ce n'est PAS une réponse (is_answer=false) : réponds RÉELLEMENT à ce qu'il demande — explique, reformule la question avec d'autres mots ou un exemple concret, dissipe son incompréhension — comme le ferait un humain attentif qui n'a pas envie de brusquer la conversation. Termine ensuite en reposant clairement la question initiale (tu peux la reformuler, mais le sens doit rester exactement le même) pour qu'il sache qu'elle est toujours en attente de réponse.
+
+Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour ni balises markdown :
+{"is_answer": true|false, "reply": "..."}`;
 
 export async function POST(request: NextRequest) {
   const { user_id, question, answer } = await request.json();
@@ -56,12 +60,12 @@ export async function POST(request: NextRequest) {
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
-        max_tokens: 100,
+        max_tokens: 300,
         system: `${SYSTEM_PROMPT}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
         messages: [
           {
             role: 'user',
-            content: `Question posée : "${question}"\nRéponse du commercial : "${answer}"`,
+            content: `Question posée : "${question}"\nMessage du commercial : "${answer}"`,
           },
         ],
       },
@@ -69,14 +73,20 @@ export async function POST(request: NextRequest) {
     );
 
     const textBlock = data.content.find((b: any) => b.type === 'text');
-    const ack = textBlock?.text?.trim() || null;
-    return NextResponse.json({ ack });
+    if (!textBlock) return NextResponse.json({ is_answer: true, reply: null });
+
+    const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return NextResponse.json({
+      is_answer: parsed.is_answer !== false,
+      reply: typeof parsed.reply === 'string' ? parsed.reply.trim() : null,
+    });
   } catch (err) {
     // Best-effort : jamais bloquant pour le questionnaire (plafond de
-    // dépense API atteint, erreur réseau, etc.) — le frontend enchaîne
-    // simplement sans accroche dans ce cas. Pas de log d'erreur bruyant
-    // pour un appel volontairement secondaire.
+    // dépense API atteint, erreur réseau, réponse JSON malformée...) — le
+    // frontend enchaîne simplement sans accroche ni clarification dans ce
+    // cas, exactement comme avant l'ajout de cette route.
     const capped = err instanceof MonthlyCapExceededError;
-    return NextResponse.json({ ack: null, capped });
+    return NextResponse.json({ is_answer: true, reply: null, capped });
   }
 }
