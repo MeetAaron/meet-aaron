@@ -596,6 +596,13 @@ export default function ConnexionsPage() {
         <button type="button" className={activeTab === 'crm' ? 'tab active' : 'tab'} onClick={() => setActiveTab('crm')}>
           {t('connexions.tabCrm', locale)}
         </button>
+        {/* 4e onglet ajouté le 25/08 (demande Alex) : "Supprimer mon compte",
+            self-service avec avertissement -> confirmation par saisie exacte
+            -> "êtes-vous certain ?" -> suppression réelle 24h plus tard (voir
+            AccountDeletionPanel plus bas et app/api/account/deletion). */}
+        <button type="button" className={activeTab === 'delete' ? 'tab active' : 'tab'} onClick={() => setActiveTab('delete')}>
+          {t('connexions.tabDelete', locale)}
+        </button>
       </div>
 
       {loading ? (
@@ -653,7 +660,7 @@ export default function ConnexionsPage() {
             onDisconnect={() => handleDisconnect(microsoftConnection.id)}
           />
         </div>
-      ) : (
+      ) : activeTab === 'crm' ? (
         <>
           {/* Demande Alex (2026-08-22) : niveau de collaboration (0-3) +
               fournisseur/notes CRM, déplacés depuis Préférences vers ici —
@@ -821,6 +828,8 @@ export default function ConnexionsPage() {
             <span className="btn-secondary add-crm-cta">{t('connexions.crmChatOpenButton', locale)}</span>
           </Link>
         </>
+      ) : (
+        <AccountDeletionPanel locale={locale} />
       )}
 
       <style jsx>{`
@@ -1098,6 +1107,212 @@ export default function ConnexionsPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+// "Supprimer mon compte" (demande Alex 2026-08-25) — 4e onglet de "Mon
+// compte", à côté de CRM. Flux en plusieurs étapes bien distinctes, comme
+// demandé : avertissement -> saisie exacte de la phrase de confirmation ->
+// "êtes-vous certain(e) ?" -> suppression réelle programmée 24h plus tard
+// (jamais immédiate). Voir app/api/account/deletion pour le backend et
+// migration_account_deletion_2026-08-25.sql pour ce qui est réellement
+// supprimé (société entière si seul·e sur l'espace, sinon juste l'accès
+// personnel — voir le commentaire en tête de cette migration).
+function AccountDeletionPanel({ locale }) {
+  const [status, setStatus] = useState('loading'); // loading | idle | intro | confirm | final | scheduled
+  const [scheduledFor, setScheduledFor] = useState(null);
+  const [confirmInput, setConfirmInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/account/deletion')
+      .then((r) => r.json())
+      .then((body) => {
+        if (cancelled) return;
+        if (body.requested && body.scheduled_for) {
+          setScheduledFor(body.scheduled_for);
+          setStatus('scheduled');
+        } else {
+          setStatus('intro');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('intro');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const requiredPhrase = t('connexions.deleteConfirmPhrase', locale).trim().toLowerCase();
+  const phraseMatches = confirmInput.trim().toLowerCase() === requiredPhrase;
+
+  function formatDateTime(iso) {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    const time = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    return { date, time };
+  }
+
+  async function handleConfirmDeletion() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/account/deletion', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error || t('connexions.deleteError', locale));
+        setSubmitting(false);
+        return;
+      }
+      setScheduledFor(body.scheduled_for);
+      setStatus('scheduled');
+    } catch {
+      setError(t('connexions.deleteError', locale));
+    }
+    setSubmitting(false);
+  }
+
+  async function handleCancelDeletion() {
+    setCancelling(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/account/deletion', { method: 'DELETE' });
+      if (!res.ok) {
+        setError(t('connexions.deleteError', locale));
+        setCancelling(false);
+        return;
+      }
+      setScheduledFor(null);
+      setConfirmInput('');
+      setStatus('intro');
+    } catch {
+      setError(t('connexions.deleteError', locale));
+    }
+    setCancelling(false);
+  }
+
+  if (status === 'loading') {
+    return <p className="muted">{t('common.loading', locale)}</p>;
+  }
+
+  if (status === 'scheduled' && scheduledFor) {
+    const { date, time } = formatDateTime(scheduledFor);
+    return (
+      <div className="delete-panel">
+        <h2 className="category-title">{t('connexions.deleteScheduledTitle', locale)}</h2>
+        <p className="delete-scheduled-msg">
+          {t('connexions.deleteScheduledMessage', locale).replace('{date}', date).replace('{time}', time)}
+        </p>
+        {error && <p className="crm-error">{error}</p>}
+        <button type="button" className="btn-secondary" onClick={handleCancelDeletion} disabled={cancelling}>
+          {cancelling ? t('connexions.deleteCancelling', locale) : t('connexions.deleteCancelButton', locale)}
+        </button>
+        <style jsx>{`
+          .delete-panel { max-width: 560px; }
+          .delete-scheduled-msg { color: var(--muted); line-height: 1.5; margin: 0.5rem 0 1.2rem; }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (status === 'confirm') {
+    return (
+      <div className="delete-panel">
+        <h2 className="category-title">{t('connexions.deleteTitle', locale)}</h2>
+        <p className="delete-confirm-label">
+          {t('connexions.deleteConfirmPhraseLabel', locale)} <strong>{t('connexions.deleteConfirmPhrase', locale)}</strong>
+        </p>
+        <input
+          type="text"
+          className="profile-input"
+          value={confirmInput}
+          onChange={(e) => setConfirmInput(e.target.value)}
+          placeholder={t('connexions.deleteConfirmPlaceholder', locale)}
+        />
+        {error && <p className="crm-error">{error}</p>}
+        <div className="delete-actions">
+          <button type="button" className="btn-danger" disabled={!phraseMatches} onClick={() => setStatus('final')}>
+            {t('connexions.deleteContinueButton', locale)}
+          </button>
+          <button type="button" className="link-secondary-inline" onClick={() => { setStatus('intro'); setConfirmInput(''); }}>
+            {t('connexions.deleteBackButton', locale)}
+          </button>
+        </div>
+        <style jsx>{`
+          .delete-panel { max-width: 560px; }
+          .delete-confirm-label { color: var(--muted); line-height: 1.5; margin: 0.5rem 0 1rem; }
+          .delete-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+          .btn-danger {
+            background: #E5484D;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.7rem 1.4rem;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+          .link-secondary-inline { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 0.85rem; }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (status === 'final') {
+    return (
+      <div className="delete-panel">
+        <h2 className="category-title">{t('connexions.deleteFinalQuestion', locale)}</h2>
+        {error && <p className="crm-error">{error}</p>}
+        <div className="delete-actions">
+          <button type="button" className="btn-danger" onClick={handleConfirmDeletion} disabled={submitting}>
+            {submitting ? t('connexions.deleteSubmitting', locale) : t('connexions.deleteFinalYes', locale)}
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => { setStatus('intro'); setConfirmInput(''); }} disabled={submitting}>
+            {t('connexions.deleteFinalNo', locale)}
+          </button>
+        </div>
+        <style jsx>{`
+          .delete-panel { max-width: 560px; }
+          .delete-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+          .btn-danger {
+            background: #E5484D;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.7rem 1.4rem;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+        `}</style>
+      </div>
+    );
+  }
+
+  // status === 'intro'
+  return (
+    <div className="delete-panel">
+      <h2 className="category-title">{t('connexions.deleteTitle', locale)}</h2>
+      <p className="delete-intro">{t('connexions.deleteIntro', locale)}</p>
+      <button type="button" className="btn-danger" onClick={() => setStatus('confirm')}>
+        {t('connexions.deleteContinueButton', locale)}
+      </button>
+      <style jsx>{`
+        .delete-panel { max-width: 560px; }
+        .delete-intro { color: var(--muted); line-height: 1.55; margin: 0.5rem 0 1.2rem; }
+        .btn-danger {
+          background: #E5484D;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          padding: 0.7rem 1.4rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -2060,6 +2275,13 @@ function EmptyState({ title, body }) {
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
+  // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
+  // (pas grisé/verrouillé, absent) pour un compte "commercial" (rejoint via
+  // code d'invitation, ou créé en solo sans être "fondateur(trice)/
+  // dirigeant(e)" — voir app/onboarding/page.jsx). null tant que le rôle
+  // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
+  // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
+  const [userRole, setUserRole] = useState(null);
   const [locale, setLocale] = useLocale();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
@@ -2081,6 +2303,7 @@ function Shell({ children, active, userId }) {
           sales: prefs.offer_as_active !== true,
           customer: prefs.offer_ac_active !== true,
         });
+        setUserRole(prefs.role || null);
       })
       .catch(() => {});
     return () => {
@@ -2162,7 +2385,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => item.slug !== 'team' || userRole === 'patron').map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
