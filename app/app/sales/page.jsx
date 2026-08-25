@@ -14,6 +14,8 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
+import ExportFormatMenu from '@/components/ExportFormatMenu';
+import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -110,22 +112,12 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
 }
 
-// docx AJOUT GLOBAL A15 : export CSV + modèle vierge, même principe que
-// exportProspectsToCsv/downloadBlankProspectsTemplate dans app/app/prospects/page.jsx.
-function downloadCsvFile(headers, rows, filename) {
-  const csvContent = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function exportDealsToCsv(deals, stageMeta, locale) {
+// docx AJOUT GLOBAL A15 : export + modèle vierge, même principe que
+// exportProspectsToCsv/downloadBlankProspectsTemplate dans
+// app/app/prospects/page.jsx. Choix CSV (recommandé) / Excel (demande Alex
+// 2026-08-25, voir components/ExportFormatMenu.jsx et lib/xlsx-io.js) :
+// `format` vaut 'csv' ou 'xlsx'.
+function exportDealsToCsv(deals, stageMeta, locale, format) {
   const headers = [
     t('sales.colStage', locale),
     t('prospects.colName', locale),
@@ -140,10 +132,10 @@ function exportDealsToCsv(deals, stageMeta, locale) {
     d.job_title || '',
     d.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
   ]);
-  downloadCsvFile(headers, rows, `opportunites-${new Date().toISOString().slice(0, 10)}.csv`);
+  downloadSpreadsheet(headers, rows, `opportunites-${new Date().toISOString().slice(0, 10)}`, format);
 }
 
-function downloadBlankDealsTemplate(locale) {
+function downloadBlankDealsTemplate(locale, format) {
   const headers = [
     t('prospects.colName', locale),
     t('prospects.colCompany', locale),
@@ -153,7 +145,7 @@ function downloadBlankDealsTemplate(locale) {
     t('sales.colStage', locale),
     t('prospects.templateColManaged', locale),
   ];
-  downloadCsvFile(headers, [], 'modele-opportunites-vierge.csv');
+  downloadSpreadsheet(headers, [], 'modele-opportunites-vierge', format);
 }
 
 export default function SalesPage() {
@@ -381,13 +373,15 @@ export default function SalesPage() {
         </p>
         <div className="header-actions">
           {deals.length > 0 && (
-            <button className="btn-secondary" onClick={() => exportDealsToCsv(deals, STAGE_META, locale)}>
-              {t('sales.exportCsv', locale)}
-            </button>
+            <ExportFormatMenu
+              label={t('sales.exportCsv', locale)}
+              onChoose={(format) => exportDealsToCsv(deals, STAGE_META, locale, format)}
+            />
           )}
-          <button className="btn-secondary" onClick={() => downloadBlankDealsTemplate(locale)}>
-            {t('sales.downloadTemplate', locale)}
-          </button>
+          <ExportFormatMenu
+            label={t('sales.downloadTemplate', locale)}
+            onChoose={(format) => downloadBlankDealsTemplate(locale, format)}
+          />
           <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
             {t('csvImport.button', locale)}
           </button>
