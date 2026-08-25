@@ -166,8 +166,26 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     // réellement disparu.
     if (response.status === 401 && window.location.pathname !== '/login') {
       try {
-        const { data } = await supabaseBrowser.auth.getSession();
-        if (!data?.session) {
+        // Bug remonté à nouveau par Alex (2026-08-25) : "Non authentifié —
+        // reconnecte-toi." qui persiste même en cliquant sur "Réessayer",
+        // sans aucun moyen de s'en sortir. Cause probable : getSession() ne
+        // fait AUCUN aller-retour réseau, il se contente de relire la copie
+        // locale (mémoire/localStorage) de la session — si un rafraîchissement
+        // de jeton a échoué silencieusement quelque part (jeton de
+        // rafraîchissement à usage unique déjà consommé par un appel
+        // concurrent, voir refreshSessionShared ci-dessus) sans que le client
+        // Supabase local ait purgé son état, getSession() continue de
+        // renvoyer une session qui "a l'air" valide alors que le serveur la
+        // rejette déjà pour de bon — donc plus aucune redirection possible
+        // vers /login, la page reste bloquée sur l'erreur brute. getUser(),
+        // contrairement à getSession(), revalide réellement le jeton auprès
+        // de Supabase avant de répondre.
+        const { data, error } = await supabaseBrowser.auth.getUser();
+        if (error || !data?.user) {
+          // On nettoie explicitement l'état local avant de rediriger, pour
+          // ne pas laisser une session locale corrompue perturber la page de
+          // connexion elle-même ou la prochaine tentative.
+          await supabaseBrowser.auth.signOut();
           window.location.href = '/login';
         }
       } catch (err) {
