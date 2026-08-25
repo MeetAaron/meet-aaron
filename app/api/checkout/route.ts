@@ -49,7 +49,7 @@ const STRIPE_LOCALE_MAP: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country, locale, modules } = await request.json();
+  const { first_name, full_name, company_name, country, locale, modules, role } = await request.json();
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -125,6 +125,13 @@ try {
         // (app/api/subscription/modules/route.ts), qui utilise déjà un
         // champ metadata.modules en liste séparée par des virgules.
         modules: selectedModules.join(','),
+        // 'patron' (fondateur/dirigeant, valeur par défaut) ou 'commercial'
+        // (commercial solo qui paie lui-même — pas de code d'activation
+        // entreprise). Lu par le webhook pour renseigner users.role au lieu
+        // de forcer 'patron' pour tout le monde (demande Alex 25/08 : un
+        // commercial solo payant seul ne doit pas hériter des permissions
+        // "fondateur", ex. voir "Mon équipe" dans le menu).
+        role: role === 'commercial' ? 'commercial' : 'patron',
       },
     });
 
