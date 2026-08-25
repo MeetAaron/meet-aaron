@@ -8,6 +8,8 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
+import ExportFormatMenu from '@/components/ExportFormatMenu';
+import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 // Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
 // app/app/sales/page.jsx) considérées "en cours de traitement" : un
@@ -173,22 +175,6 @@ function personalityColorLegendFor(locale) {
   return t('prospects.personalityColorLegend', locale);
 }
 
-// docx AJOUT GLOBAL A15 : ajoute la colonne "gestion Aaron" (oui/non — voir
-// champ ai_managed, migration_customer_ai_managed_2026-08-17.sql) demandée
-// explicitement par Alex, en plus des colonnes déjà exportées.
-function downloadCsvFile(headers, rows, filename) {
-  const csvContent = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
   'prospects.colName',
   'prospects.colCompany',
@@ -198,7 +184,14 @@ const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
   'prospects.templateColManaged',
 ];
 
-function exportProspectsToCsv(prospects, locale) {
+// docx AJOUT GLOBAL A15 : ajoute la colonne "gestion Aaron" (oui/non — voir
+// champ ai_managed, migration_customer_ai_managed_2026-08-17.sql) demandée
+// explicitement par Alex, en plus des colonnes déjà exportées.
+//
+// Choix CSV (recommandé) / Excel (demande Alex 2026-08-25, voir
+// components/ExportFormatMenu.jsx et lib/xlsx-io.js) : `format` vaut 'csv'
+// ou 'xlsx'.
+function exportProspectsToCsv(prospects, locale, format) {
   const statusMeta = statusMetaFor(locale);
   const personalityLabels = personalityLabelsFor(locale);
   const headers = [
@@ -223,16 +216,15 @@ function exportProspectsToCsv(prospects, locale) {
     p.aaron_advice || '',
     p.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
   ]);
-  downloadCsvFile(headers, rows, `prospects-${new Date().toISOString().slice(0, 10)}.csv`);
+  downloadSpreadsheet(headers, rows, `prospects-${new Date().toISOString().slice(0, 10)}`, format);
 }
 
 // docx AJOUT GLOBAL A15 : "un fichier vierge pour y mettre sa propre base de
 // données" — même entêtes que l'export, sans données, pour préparer un
-// import ultérieur (l'import "intelligent" avec complétion par Aaron reste à
-// construire, voir statut projet).
-function downloadBlankProspectsTemplate(locale) {
+// import ultérieur. Choix CSV/Excel identique à l'export (voir ci-dessus).
+function downloadBlankProspectsTemplate(locale, format) {
   const headers = PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS.map((k) => t(k, locale));
-  downloadCsvFile(headers, [], 'modele-prospects-vierge.csv');
+  downloadSpreadsheet(headers, [], 'modele-prospects-vierge', format);
 }
 
 export default function ProspectsPage() {
@@ -399,13 +391,15 @@ export default function ProspectsPage() {
             </button>
           )}
           {prospects.length > 0 && (
-            <button className="btn-secondary" onClick={() => exportProspectsToCsv(filtered, locale)}>
-              {t('prospects.exportCsv', locale)}
-            </button>
+            <ExportFormatMenu
+              label={t('prospects.exportCsv', locale)}
+              onChoose={(format) => exportProspectsToCsv(filtered, locale, format)}
+            />
           )}
-          <button className="btn-secondary" onClick={() => downloadBlankProspectsTemplate(locale)}>
-            {t('prospects.downloadTemplate', locale)}
-          </button>
+          <ExportFormatMenu
+            label={t('prospects.downloadTemplate', locale)}
+            onChoose={(format) => downloadBlankProspectsTemplate(locale, format)}
+          />
           <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
             {t('csvImport.button', locale)}
           </button>
