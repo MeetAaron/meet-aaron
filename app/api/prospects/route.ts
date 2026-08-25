@@ -126,11 +126,24 @@ export async function POST(request: NextRequest) {
   }
 
   if (!prospectCompany) {
+    // BUGFIX (2026-08-25, suite) : la première version de ce correctif ne
+    // touchait qu'à la LECTURE (`domainForMatching` ci-dessus) mais insérait
+    // encore le domaine BRUT (`domain`, potentiellement 'gmail.com' etc.) sur
+    // la nouvelle fiche société. `prospect_companies` a une contrainte unique
+    // sur (company_id, domain) : dès qu'un 2e prospect sur le même domaine
+    // grand public était créé, l'insert échouait avec "duplicate key value
+    // violates unique constraint prospect_companies_company_id_domain_key"
+    // (remonté par Alex en recréant ses prospects test après le premier
+    // correctif). On stocke donc `null` comme domaine pour une fiche société
+    // créée pour un domaine grand public — elle ne sert de toute façon jamais
+    // au matching dans ce cas (voir `domainForMatching` ci-dessus), et
+    // Postgres autorise plusieurs lignes à `null` sur une colonne unique
+    // (NULL n'est jamais égal à NULL) donc plus aucune collision possible.
     const { data: newCompany, error: companyError } = await supabaseAdmin
       .from('prospect_companies')
       .insert({
         company_id,
-        domain,
+        domain: domainForMatching,
         name: cleanCompanyName,
         address,
         siret,
