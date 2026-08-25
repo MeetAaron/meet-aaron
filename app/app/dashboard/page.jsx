@@ -514,60 +514,10 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* Docx bug PWA (Alex, 2026-08-23) : le bloc RDV doit être son propre
-              bloc, juste sous "Actions requises" et au-dessus du bloc
-              "Prospect" — avant, RDV et les statuts prospect étaient mélangés
-              dans la même rangée sans titre. Séparé en deux sections
-              distinctes ci-dessous, la 2e reprenant le même habillage
-              (panel + h2 + category-row) que les sections Opportunités/
-              Clients plus bas, pour que "Prospect" ait enfin son propre
-              titre comme elles. */}
-          <section className="rdv-block">
-            {/* "attention rdv obtenu doit être tout à gauche, donc à gauche
-                de 'en bonne voie'" (Alex, 2026-08-20) — conservé : la carte
-                RDV reste la toute première carte de statistiques affichée. */}
-            <div className="stat-card rdv-obtenu-card">
-              <span className="dot" style={{ background: '#4B9EF0' }} />
-              <span className="stat-number">{rdvObtenus24h.length}</span>
-              <span className="stat-label">{t('status.bleu', locale)}</span>
-              <span className="stat-sublabel">
-                <span className="rdv-type"><span className="rdv-type-icon">💻</span>{t('agenda.kindVideo', locale)} {rdvObtenusByType.visio}</span>
-                <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
-                <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
-              </span>
-              {rdvObtenus24h.length > 0 && (
-                <div className="rdv-type-chart">
-                  <HorizontalBarChart
-                    data={[
-                      { key: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
-                      { key: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
-                      { key: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
-                    ]}
-                    barColor="#4B9EF0"
-                  />
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="panel category-panel">
-            <h2>{t('dash.prospectsTitle', locale)}</h2>
-            <div className="category-row">
-              <div className="stat-card">
-                <span className="dot" style={{ background: STATUS_META.vert.color }} />
-                <span className="stat-number">{statusCounts.vert || 0}</span>
-                <span className="stat-label">{STATUS_META.vert.label}</span>
-              </div>
-              {['jaune', 'orange', 'rouge'].map((key) => (
-                <div className="stat-card" key={key}>
-                  <span className="dot" style={{ background: STATUS_META[key].color }} />
-                  <span className="stat-number">{statusCounts[key] || 0}</span>
-                  <span className="stat-label">{STATUS_META[key].label}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
+          {/* Réorganisation demandée par Alex (2026-08-25) : "Prochains
+              rendez-vous" et "Campagnes en cours" remontent juste sous
+              "Actions requises" (avant : après le bloc Prospect). Suivent
+              ensuite, dans l'ordre, Prospect puis Opportunité puis Clients. */}
           <section className="grid-two">
             <div className="panel">
               <h2>{t('dash.upcomingAppointments', locale)}</h2>
@@ -615,34 +565,84 @@ export default function DashboardPage() {
             </div>
           </section>
 
+          {/* "petit truc pourris : merci de bien remettre rdv obtenu a côté
+              de 'en bonne voie'" (Alex, 2026-08-25) — la carte RDV obtenu
+              revient dans la même rangée que le pipeline Prospect, en
+              première position (à gauche de "En bonne voie"), comme avant
+              le découpage en bloc séparé du 2026-08-23. */}
+          <section className="panel category-panel">
+            <h2>{t('dash.prospectsTitle', locale)}</h2>
+            <div className="category-row">
+              <div className="stat-card rdv-obtenu-card">
+                <span className="dot" style={{ background: '#4B9EF0' }} />
+                <span className="stat-number">{rdvObtenus24h.length}</span>
+                <span className="stat-label">{t('status.bleu', locale)}</span>
+                <span className="stat-sublabel">
+                  <span className="rdv-type"><span className="rdv-type-icon">💻</span>{t('agenda.kindVideo', locale)} {rdvObtenusByType.visio}</span>
+                  <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
+                  <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
+                </span>
+                {rdvObtenus24h.length > 0 && (
+                  <div className="rdv-type-chart">
+                    <HorizontalBarChart
+                      data={[
+                        { key: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
+                        { key: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
+                        { key: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
+                      ]}
+                      barColor="#4B9EF0"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="stat-card">
+                <span className="dot" style={{ background: STATUS_META.vert.color }} />
+                <span className="stat-number">{statusCounts.vert || 0}</span>
+                <span className="stat-label">{STATUS_META.vert.label}</span>
+              </div>
+              {['jaune', 'orange', 'rouge'].map((key) => (
+                <div className="stat-card" key={key}>
+                  <span className="dot" style={{ background: STATUS_META[key].color }} />
+                  <span className="stat-number">{statusCounts[key] || 0}</span>
+                  <span className="stat-label">{STATUS_META[key].label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* "pour opportuntié et client merci d'afficher la pipeline comme
+              pour prospect" (Alex, 2026-08-25) : la rangée de statuts
+              s'affiche désormais toujours (avec des 0), comme Prospect —
+              seul le cas "module non inclus dans l'abonnement" garde son
+              propre message dédié. */}
           <section className="panel category-panel">
             <h2>{t('dash.opportunitiesTitle', locale)}</h2>
             {!salesModuleActive ? (
               <EmptyState title={t('dash.salesLockedTitle', locale)} body={t('dash.salesLockedBody', locale)} compact />
-            ) : deals.length === 0 ? (
-              <EmptyState title={t('dash.noOpportunitiesYet', locale)} body={t('pipeline.emptyOpportunities', locale)} compact />
             ) : (
-              <div className="category-row">
-                {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
-                  <div className="stat-card" key={key}>
-                    <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
-                    <span className="stat-number">{opportunityCounts[key] || 0}</span>
-                    <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
+              <>
+                <div className="category-row">
+                  {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
+                    <div className="stat-card" key={key}>
+                      <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
+                      <span className="stat-number">{opportunityCounts[key] || 0}</span>
+                      <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
+                    </div>
+                  ))}
+                </div>
+                {deals.length > 0 && (
+                  <div className="stat-chart">
+                    <HorizontalBarChart
+                      data={['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => ({
+                        key,
+                        label: OPPORTUNITY_META[key].label,
+                        value: opportunityCounts[key] || 0,
+                        color: OPPORTUNITY_META[key].color,
+                      }))}
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-            {salesModuleActive && deals.length > 0 && (
-              <div className="stat-chart">
-                <HorizontalBarChart
-                  data={['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => ({
-                    key,
-                    label: OPPORTUNITY_META[key].label,
-                    value: opportunityCounts[key] || 0,
-                    color: OPPORTUNITY_META[key].color,
-                  }))}
-                />
-              </div>
+                )}
+              </>
             )}
           </section>
 
@@ -650,30 +650,30 @@ export default function DashboardPage() {
             <h2>{t('dash.clientsTitle', locale)}</h2>
             {!customerModuleActive ? (
               <EmptyState title={t('dash.clientsLockedTitle', locale)} body={t('dash.clientsLockedBody', locale)} compact />
-            ) : customers.length === 0 ? (
-              <EmptyState title={t('dash.noClientsYet', locale)} body={t('customer.emptyList', locale)} compact />
             ) : (
-              <div className="category-row">
-                {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
-                  <div className="stat-card" key={key}>
-                    <span className="dot" style={{ background: HEALTH_META[key].color }} />
-                    <span className="stat-number">{healthCounts[key] || 0}</span>
-                    <span className="stat-label">{HEALTH_META[key].label}</span>
+              <>
+                <div className="category-row">
+                  {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
+                    <div className="stat-card" key={key}>
+                      <span className="dot" style={{ background: HEALTH_META[key].color }} />
+                      <span className="stat-number">{healthCounts[key] || 0}</span>
+                      <span className="stat-label">{HEALTH_META[key].label}</span>
+                    </div>
+                  ))}
+                </div>
+                {customers.length > 0 && (
+                  <div className="stat-chart">
+                    <HorizontalBarChart
+                      data={['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => ({
+                        key,
+                        label: HEALTH_META[key].label,
+                        value: healthCounts[key] || 0,
+                        color: HEALTH_META[key].color,
+                      }))}
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-            {customerModuleActive && customers.length > 0 && (
-              <div className="stat-chart">
-                <HorizontalBarChart
-                  data={['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => ({
-                    key,
-                    label: HEALTH_META[key].label,
-                    value: healthCounts[key] || 0,
-                    color: HEALTH_META[key].color,
-                  }))}
-                />
-              </div>
+                )}
+              </>
             )}
           </section>
         </>
@@ -870,17 +870,6 @@ export default function DashboardPage() {
           grid-template-columns: repeat(5, 1fr);
           gap: 0.75rem;
           margin-bottom: 2rem;
-        }
-        .rdv-block {
-          margin-bottom: 1.25rem;
-        }
-        .rdv-block .stat-card {
-          max-width: 280px;
-        }
-        @media (max-width: 480px) {
-          .rdv-block .stat-card {
-            max-width: none;
-          }
         }
         .stat-card {
           background: var(--surface);
@@ -2046,6 +2035,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
