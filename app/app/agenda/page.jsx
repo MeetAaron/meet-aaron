@@ -2504,6 +2504,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
