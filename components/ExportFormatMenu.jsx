@@ -34,7 +34,7 @@ export default function ExportFormatMenu({ label, onChoose, disabled }) {
 
   return (
     <div className="export-format-menu" ref={wrapRef}>
-      <button type="button" className="btn-secondary" disabled={disabled} onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="trigger-btn" disabled={disabled} onClick={() => setOpen((o) => !o)}>
         {label}
       </button>
       {open && (
@@ -51,6 +51,35 @@ export default function ExportFormatMenu({ label, onChoose, disabled }) {
         .export-format-menu {
           position: relative;
           display: inline-block;
+        }
+        /* Bug remonté par Alex (25/08/2026, capture à l'appui) : le bouton
+           déclencheur porte la classe "btn-secondary" mais celle-ci n'est
+           définie que dans le <style jsx> scopé de CHAQUE page qui utilise ce
+           composant (Prospects, Opportunités, Clients) — styled-jsx isole ses
+           règles au composant où elles sont écrites, elles ne s'appliquent
+           jamais à un composant enfant importé comme celui-ci. Le bouton se
+           retrouvait donc sans aucune mise en forme (ni fond, ni bordure), ce
+           qui le faisait ressembler à du texte brut à côté des vrais boutons
+           ("Importer un fichier", "+ Ajouter..."). On redéfinit ici la même
+           apparence que .btn-secondary, en local, pour ne plus dépendre du
+           CSS scopé de la page parente. */
+        .trigger-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 1rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .trigger-btn:hover:not(:disabled) {
+          color: var(--text);
+          border-color: var(--text);
+        }
+        .trigger-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
         }
         .menu {
           position: absolute;
