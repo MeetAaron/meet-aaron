@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
         company_size: companySize,
         estimated_revenue: estimatedRevenue,
       })
-      .select('id, name')
+      .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
       .single();
 
     if (companyError) {
