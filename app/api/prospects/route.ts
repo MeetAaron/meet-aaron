@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   const { data: prospects, error } = await supabaseAdmin
     .from('prospects')
-    .select('*, prospect_companies(name, domain)')
+    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
     .eq('assigned_user_id', userId)
     // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
     // prospect "gagné" (is_won=true) mais sans commande confirmée reste donc
@@ -81,10 +81,23 @@ export async function POST(request: NextRequest) {
   const domain = email.split('@')[1];
   const cleanCompanyName = company_name?.trim() || null;
 
+  // Infos société complémentaires (demande Alex, 2026-08-25 : "il manque des
+  // infos... l'adresse, etc etc ?") — voir migration_company_info_2026-08-25.sql.
+  // Toutes optionnelles, en texte libre, portées par prospect_companies (la
+  // société) et non par prospects (le contact) : plusieurs contacts d'une
+  // même société partagent donc automatiquement ces infos.
+  const cleanStr = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const address = cleanStr(body.address);
+  const siret = cleanStr(body.siret);
+  const website = cleanStr(body.website);
+  const industry = cleanStr(body.industry);
+  const companySize = cleanStr(body.company_size);
+  const estimatedRevenue = cleanStr(body.estimated_revenue);
+
   // Cherche ou crée la prospect_company associée à ce domaine
   let { data: prospectCompany } = await supabaseAdmin
     .from('prospect_companies')
-    .select('id, name')
+    .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
     .eq('company_id', company_id)
     .eq('domain', domain)
     .single();
@@ -92,7 +105,17 @@ export async function POST(request: NextRequest) {
   if (!prospectCompany) {
     const { data: newCompany, error: companyError } = await supabaseAdmin
       .from('prospect_companies')
-      .insert({ company_id, domain, name: cleanCompanyName })
+      .insert({
+        company_id,
+        domain,
+        name: cleanCompanyName,
+        address,
+        siret,
+        website,
+        industry,
+        company_size: companySize,
+        estimated_revenue: estimatedRevenue,
+      })
       .select('id, name')
       .single();
 
@@ -100,10 +123,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: companyError.message }, { status: 500 });
     }
     prospectCompany = newCompany;
-  } else if (cleanCompanyName && !prospectCompany.name) {
-    // La société existait déjà (autre prospect sur le même domaine) mais sans nom connu :
-    // on complète avec ce que le commercial vient de renseigner.
-    await supabaseAdmin.from('prospect_companies').update({ name: cleanCompanyName }).eq('id', prospectCompany.id);
+  } else {
+    // La société existait déjà (autre prospect sur le même domaine) : on
+    // complète chaque champ encore vide avec ce que le commercial vient de
+    // renseigner, sans jamais écraser une valeur déjà connue.
+    const companyUpdate: Record<string, any> = {};
+    if (cleanCompanyName && !prospectCompany.name) companyUpdate.name = cleanCompanyName;
+    if (address && !prospectCompany.address) companyUpdate.address = address;
+    if (siret && !prospectCompany.siret) companyUpdate.siret = siret;
+    if (website && !prospectCompany.website) companyUpdate.website = website;
+    if (industry && !prospectCompany.industry) companyUpdate.industry = industry;
+    if (companySize && !prospectCompany.company_size) companyUpdate.company_size = companySize;
+    if (estimatedRevenue && !prospectCompany.estimated_revenue) companyUpdate.estimated_revenue = estimatedRevenue;
+    if (Object.keys(companyUpdate).length > 0) {
+      await supabaseAdmin.from('prospect_companies').update(companyUpdate).eq('id', prospectCompany.id);
+    }
   }
 
   // Crée le prospect
