@@ -153,6 +153,17 @@ export default function ChatPage() {
   // vol, "sending" restait bloqué à true (input verrouillé indéfiniment) et
   // rien n'informait le commercial. Voir aussi chat.sendError (lib/i18n.js).
   const [sendError, setSendError] = useState(null);
+  // Conversations multiples (demande d'Alex, 25/08/2026) : "possibilité
+  // d'ouvrir une nouvelle conversation" + "possibilité de mettre une conv en
+  // favoris" — voir migration_chat_conversations_2026-08-25.sql. Conservation
+  // illimitée (comme Claude/ChatGPT) : `conversations` peut contenir plus de
+  // 10 entrées, rien n'est supprimé automatiquement. `activeConversationId`
+  // est celle actuellement affichée dans la boîte de chat.
+  const [conversations, setConversations] = useState([]);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [conversationsError, setConversationsError] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [creatingConversation, setCreatingConversation] = useState(false);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
@@ -205,13 +216,75 @@ export default function ChatPage() {
       .finally(() => setUserInfoLoaded(true));
   }, [userId]);
 
+  // Résout la conversation à afficher (voir migration_chat_conversations_2026-08-25.sql) :
+  // reprend la dernière conversation ouverte par ce commercial sur cet appareil
+  // (localStorage, même principe que draftStorageKey plus haut), sinon la plus
+  // récente renvoyée par l'API, sinon en crée une nouvelle si aucune n'existe
+  // encore (tout premier message d'un commercial).
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const activeKey = `meetaaron_chat_active_conversation_${userId}`;
+
+    fetch(`/api/chat-conversations?user_id=${userId}`)
+      .then((r) => r.json())
+      .then(async (res) => {
+        if (cancelled) return;
+        if (!Array.isArray(res.conversations)) {
+          setConversationsError(true);
+          return;
+        }
+        let list = res.conversations;
+        setConversations(list);
+
+        let savedId = null;
+        try {
+          savedId = window.localStorage.getItem(activeKey);
+        } catch {
+          // localStorage indisponible — voir draftStorageKey plus haut, même dégradation silencieuse.
+        }
+        let chosen = list.find((c) => c.id === savedId) || list[0] || null;
+
+        if (!chosen) {
+          // Tout premier passage de ce commercial : pas encore de conversation en base.
+          const createRes = await fetch('/api/chat-conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId }),
+          }).catch(() => null);
+          const createBody = createRes ? await createRes.json().catch(() => null) : null;
+          if (createBody?.conversation) {
+            chosen = createBody.conversation;
+            setConversations([chosen]);
+          }
+        }
+
+        if (chosen) {
+          setActiveConversationId(chosen.id);
+          try {
+            window.localStorage.setItem(activeKey, chosen.id);
+          } catch {
+            // Voir plus haut.
+          }
+        }
+      })
+      .catch(() => setConversationsError(true))
+      .finally(() => !cancelled && setConversationsLoaded(true));
+
+    return () => { cancelled = true; };
+  }, [userId]);
+
   // Rapatrie l'historique déjà persisté (voir migration_chat_history_2026-08-13.sql
   // et app/api/chat-history/route.ts) avant toute décision d'afficher l'accueil —
   // sans ça, revenir sur cette page après être parti ailleurs (ex: "Mes documents")
-  // en plein questionnaire d'onboarding faisait tout recommencer à zéro.
+  // en plein questionnaire d'onboarding faisait tout recommencer à zéro. Se
+  // redéclenche à chaque changement de conversation active (nouvelle
+  // conversation créée, ou changement manuel depuis la liste ci-dessous).
   useEffect(() => {
-    if (!userId) return;
-    fetch(`/api/chat-history?user_id=${userId}`)
+    if (!userId || !activeConversationId) return;
+    setHistoryLoaded(false);
+    setMessages([]);
+    fetch(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`)
       .then((r) => r.json())
       .then((res) => {
         if (Array.isArray(res.messages) && res.messages.length > 0) {
@@ -222,7 +295,7 @@ export default function ChatPage() {
       })
       .catch(() => {})
       .finally(() => setHistoryLoaded(true));
-  }, [userId]);
+  }, [userId, activeConversationId]);
 
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
@@ -261,12 +334,13 @@ export default function ChatPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_id: userId,
+        conversation_id: activeConversationId,
         messages: welcomeMessages,
         onboarding_step: 0,
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [isWelcome, messages.length, userInfo, userInfoLoaded, historyLoaded, userId, locale]);
+  }, [isWelcome, messages.length, userInfo, userInfoLoaded, historyLoaded, userId, locale, activeConversationId]);
 
   // Relance du questionnaire (voir restartRequested plus haut) : ajoute une
   // courte intro + la première question à la suite de la conversation
@@ -296,12 +370,13 @@ export default function ChatPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_id: userId,
+        conversation_id: activeConversationId,
         messages: restartMessages,
         onboarding_step: 0,
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale]);
+  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale, activeConversationId]);
 
   // docx item A3 : scroller uniquement la liste de messages elle-même (pas
   // toute la page) à chaque nouveau message. `scrollIntoView` sans option
@@ -520,6 +595,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
+          conversation_id: activeConversationId,
           messages: [userMessage, assistantMessage],
           onboarding_step: newOnboardingStep,
           onboarding_answers: answersToSave,
@@ -538,6 +614,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
+          conversation_id: activeConversationId,
           message: userMessage.content,
           history: messages,
           attached_document: pendingDocument || undefined,
@@ -587,6 +664,63 @@ export default function ChatPage() {
     setShowFeedback(false);
     setFeedbackSent(true);
     setTimeout(() => setFeedbackSent(false), 3000);
+  }
+
+  // "possibilité d'ouvrir une nouvelle conversation" (Alex, 25/08/2026).
+  async function handleNewConversation() {
+    if (creatingConversation) return;
+    setCreatingConversation(true);
+    try {
+      const res = await fetch('/api/chat-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.conversation) return;
+      setConversations((prev) => [body.conversation, ...prev]);
+      setActiveConversationId(body.conversation.id);
+      try {
+        window.localStorage.setItem(`meetaaron_chat_active_conversation_${userId}`, body.conversation.id);
+      } catch {
+        // Voir draftStorageKey plus haut.
+      }
+    } finally {
+      setCreatingConversation(false);
+    }
+  }
+
+  function handleSwitchConversation(conversationId) {
+    if (conversationId === activeConversationId) return;
+    setActiveConversationId(conversationId);
+    try {
+      window.localStorage.setItem(`meetaaron_chat_active_conversation_${userId}`, conversationId);
+    } catch {
+      // Voir draftStorageKey plus haut.
+    }
+  }
+
+  // "possibilité de mettre une conv en favoris" (Alex, 25/08/2026) — épingle
+  // en haut de liste (voir tri dans GET /api/chat-conversations), ne protège
+  // plus rien d'une suppression automatique puisqu'il n'y en a pas.
+  async function handleToggleFavorite(conversation, e) {
+    e.stopPropagation();
+    const nextValue = !conversation.is_favorite;
+    setConversations((prev) =>
+      prev
+        .map((c) => (c.id === conversation.id ? { ...c, is_favorite: nextValue } : c))
+        .sort((a, b) => (b.is_favorite === a.is_favorite ? 0 : b.is_favorite ? 1 : -1))
+    );
+    try {
+      await fetch(`/api/chat-conversations/${conversation.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, is_favorite: nextValue }),
+      });
+    } catch {
+      // Best-effort : au pire l'état local se resynchronisera au prochain
+      // chargement de la liste (changement de page puis retour).
+    }
   }
 
   if (authLoading) {
@@ -738,6 +872,55 @@ export default function ChatPage() {
             {t('chat.send', locale)}
           </button>
         </form>
+      </div>
+
+      {/* "possibilité d'ouvrir une nouvelle conversation" + "possibilité de
+          mettre une conv en favoris" (Alex, 25/08/2026), affiché "en bas du
+          bloc chat avec aaron" comme demandé. Conservation illimitée (voir
+          migration_chat_conversations_2026-08-25.sql) : le favori sert
+          uniquement à épingler en haut de liste, rien n'est jamais supprimé
+          automatiquement. */}
+      <div className="conversations-panel">
+        <div className="conversations-head">
+          <h2>{t('chat.conversationsTitle', locale)}</h2>
+          <button type="button" className="btn-secondary" onClick={handleNewConversation} disabled={creatingConversation}>
+            + {t('chat.newConversation', locale)}
+          </button>
+        </div>
+        <p className="conversations-hint">{t('chat.conversationsHint', locale)}</p>
+        {conversationsError && conversations.length === 0 ? (
+          <p className="conversations-error">{t('chat.conversationsLoadError', locale)}</p>
+        ) : (
+          <ul className="conversations-list">
+            {conversations.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className={`conversation-row ${c.id === activeConversationId ? 'active' : ''}`}
+                  onClick={() => handleSwitchConversation(c.id)}
+                >
+                  <span
+                    className={`conversation-star ${c.is_favorite ? 'is-favorite' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => handleToggleFavorite(c, e)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') handleToggleFavorite(c, e);
+                    }}
+                    title={c.is_favorite ? t('chat.favoriteRemove', locale) : t('chat.favoriteAdd', locale)}
+                    aria-label={c.is_favorite ? t('chat.favoriteRemove', locale) : t('chat.favoriteAdd', locale)}
+                  >
+                    {c.is_favorite ? '★' : '☆'}
+                  </span>
+                  <span className="conversation-info">
+                    <span className="conversation-title">{c.title || t('chat.conversationUntitled', locale)}</span>
+                    {c.preview && <span className="conversation-preview">{c.preview}</span>}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* docx AJOUT GLOBAL item A8 : "revoir la visite guidée" doit rester
@@ -892,6 +1075,95 @@ export default function ChatPage() {
           text-decoration: none;
           display: inline-flex;
           align-items: center;
+        }
+        .conversations-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.2rem 1.4rem;
+          margin-top: 1.25rem;
+        }
+        .conversations-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          margin-bottom: 0.4rem;
+        }
+        .conversations-head h2 {
+          font-size: 0.95rem;
+          margin: 0;
+          font-family: var(--font-display);
+        }
+        .conversations-hint {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0 0 0.9rem;
+        }
+        .conversations-error {
+          font-size: 0.82rem;
+          color: var(--accent-red);
+          margin: 0;
+        }
+        .conversations-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+          max-height: 260px;
+          overflow-y: auto;
+        }
+        .conversation-row {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          background: transparent;
+          border: 1px solid transparent;
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.6rem;
+          cursor: pointer;
+          text-align: left;
+        }
+        .conversation-row:hover {
+          background: var(--bg);
+        }
+        .conversation-row.active {
+          background: var(--bg);
+          border-color: var(--border);
+        }
+        .conversation-star {
+          flex-shrink: 0;
+          font-size: 1rem;
+          color: var(--muted);
+          line-height: 1;
+          cursor: pointer;
+        }
+        .conversation-star.is-favorite {
+          color: #F0C94E;
+        }
+        .conversation-info {
+          display: flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          min-width: 0;
+          flex: 1;
+        }
+        .conversation-title {
+          font-size: 0.84rem;
+          color: var(--text);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .conversation-preview {
+          font-size: 0.74rem;
+          color: var(--muted);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .tour-link-row {
           text-align: center;
@@ -1400,6 +1672,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
