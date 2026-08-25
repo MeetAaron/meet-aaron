@@ -9,6 +9,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
+import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 // Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
@@ -181,6 +182,12 @@ const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
   'prospects.colJobTitle',
   'modal.email',
   'modal.phone',
+  'prospects.colAddress',
+  'prospects.colSiret',
+  'prospects.colWebsite',
+  'prospects.colIndustry',
+  'prospects.colCompanySize',
+  'prospects.colEstimatedRevenue',
   'prospects.templateColManaged',
 ];
 
@@ -201,6 +208,12 @@ function exportProspectsToCsv(prospects, locale, format) {
     t('prospects.colJobTitle', locale),
     t('modal.email', locale),
     t('modal.phone', locale),
+    t('prospects.colAddress', locale),
+    t('prospects.colSiret', locale),
+    t('prospects.colWebsite', locale),
+    t('prospects.colIndustry', locale),
+    t('prospects.colCompanySize', locale),
+    t('prospects.colEstimatedRevenue', locale),
     t('prospects.colPersonality', locale),
     t('modal.aaronAdvice', locale),
     t('prospects.templateColManaged', locale),
@@ -212,6 +225,12 @@ function exportProspectsToCsv(prospects, locale, format) {
     p.job_title || '',
     p.email,
     p.phone || '',
+    p.prospect_companies?.address || '',
+    p.prospect_companies?.siret || '',
+    p.prospect_companies?.website || '',
+    p.prospect_companies?.industry || '',
+    p.prospect_companies?.company_size || '',
+    p.prospect_companies?.estimated_revenue || '',
     personalityLabels[p.personality_type] || '',
     p.aaron_advice || '',
     p.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
@@ -390,12 +409,18 @@ export default function ProspectsPage() {
               {detailed ? t('prospects.viewSimple', locale) : t('prospects.viewDetailed', locale)}
             </button>
           )}
-          {prospects.length > 0 && (
-            <ExportFormatMenu
-              label={t('prospects.exportCsv', locale)}
-              onChoose={(format) => exportProspectsToCsv(filtered, locale, format)}
-            />
-          )}
+          {/* Bug remonté par Alex (25/08/2026) : ce bouton (téléchargement de
+              la base de prospects gérée par Aaron) était masqué tant qu'il
+              n'y avait aucun prospect — ce qui le faisait passer pour
+              "manquant" sur un compte encore vide. Toujours visible
+              maintenant, comme "Télécharger un modèle vierge" juste à côté ;
+              désactivé (plutôt que masqué) quand il n'y a réellement rien à
+              exporter, pour rester cohérent visuellement. */}
+          <ExportFormatMenu
+            label={t('prospects.exportCsv', locale)}
+            disabled={filtered.length === 0}
+            onChoose={(format) => exportProspectsToCsv(filtered, locale, format)}
+          />
           <ExportFormatMenu
             label={t('prospects.downloadTemplate', locale)}
             onChoose={(format) => downloadBlankProspectsTemplate(locale, format)}
@@ -622,7 +647,7 @@ export default function ProspectsPage() {
       )}
 
       {threadProspect && (
-        <ConversationModal prospect={threadProspect} onClose={() => setThreadProspect(null)} />
+        <ConversationModal prospect={threadProspect} onClose={() => setThreadProspect(null)} onSaved={loadProspects} />
       )}
 
       {pendingEmailProspect && (
@@ -695,6 +720,8 @@ export default function ProspectsPage() {
         }
         .header-actions {
           display: flex;
+          align-items: center;
+          flex-wrap: wrap;
           gap: 0.6rem;
         }
         .btn-secondary {
@@ -982,6 +1009,8 @@ export default function ProspectsPage() {
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
         }
         .won-title {
           font-family: var(--font-display);
@@ -1020,6 +1049,13 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
   const [jobTitle, setJobTitle] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [showCompanyFields, setShowCompanyFields] = useState(false);
+  const [address, setAddress] = useState('');
+  const [siret, setSiret] = useState('');
+  const [website, setWebsite] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [companySize, setCompanySize] = useState('');
+  const [estimatedRevenue, setEstimatedRevenue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1042,6 +1078,12 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         job_title: jobTitle || null,
         company_name: companyName || null,
         linkedin_url: linkedinUrl || null,
+        address: address || null,
+        siret: siret || null,
+        website: website || null,
+        industry: industry || null,
+        company_size: companySize || null,
+        estimated_revenue: estimatedRevenue || null,
       }),
     });
 
@@ -1101,6 +1143,39 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder={t('prospects.linkedinPlaceholder', locale)} />
         </label>
 
+        {!showCompanyFields ? (
+          <button type="button" className="toggle-company-fields" onClick={() => setShowCompanyFields(true)}>
+            + {t('prospects.companyInfoTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          </button>
+        ) : (
+          <div className="company-fields">
+            <label>
+              {t('prospects.colAddress', locale)}
+              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colSiret', locale)}
+              <input value={siret} onChange={(e) => setSiret(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colWebsite', locale)}
+              <input value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colIndustry', locale)}
+              <input value={industry} onChange={(e) => setIndustry(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colCompanySize', locale)}
+              <input value={companySize} onChange={(e) => setCompanySize(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colEstimatedRevenue', locale)}
+              <input value={estimatedRevenue} onChange={(e) => setEstimatedRevenue(e.target.value)} />
+            </label>
+          </div>
+        )}
+
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
@@ -1129,6 +1204,8 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
         }
         h2 {
           font-family: var(--font-display);
@@ -1166,6 +1243,28 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           color: var(--text);
           font-size: 0.88rem;
         }
+        .toggle-company-fields {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0;
+          margin-bottom: 1rem;
+        }
+        .company-fields {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.8rem 0.8rem;
+          margin-bottom: 0.2rem;
+          padding: 0.9rem;
+          background: var(--bg);
+          border-radius: var(--radius-sm);
+        }
+        .company-fields label {
+          margin-bottom: 0;
+        }
         .error {
           color: var(--accent-red);
           font-size: 0.82rem;
@@ -1193,6 +1292,11 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
           padding: 0.6rem 1rem;
           cursor: pointer;
         }
+        @media (max-width: 480px) {
+          .company-fields {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
     </div>
   );
@@ -1207,7 +1311,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
 // le commercial. Chaque message sortant est marqué "🤖 Généré par Aaron" pour
 // que le commercial distingue clairement ce qui a été écrit/envoyé
 // automatiquement (tout l'outbound, dans ce produit) des réponses du prospect.
-function ConversationModal({ prospect, onClose }) {
+function ConversationModal({ prospect, onClose, onSaved }) {
   const [locale] = useLocale();
   const PERSONALITY_LABELS = personalityLabelsFor(locale);
   const PERSONALITY_COLOR_LEGEND = personalityColorLegendFor(locale);
@@ -1247,6 +1351,10 @@ function ConversationModal({ prospect, onClose }) {
           </div>
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
         </div>
+
+        <section className="detail-block">
+          <CompanyInfoEditor prospect={prospect} locale={locale} onSaved={onSaved} />
+        </section>
 
         <section className="detail-block">
           <h3>{t('prospects.aaronOpinionTitle', locale)}</h3>
@@ -1695,6 +1803,8 @@ function LinkedInDraftModal({ prospect, onClose }) {
           padding: 1.8rem;
           width: 480px;
           max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
         }
         h2 {
           font-family: var(--font-display);
@@ -2189,6 +2299,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
