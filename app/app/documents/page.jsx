@@ -904,7 +904,7 @@ function Shell({ children, active, userId }) {
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.label}
-              href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
+              href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
