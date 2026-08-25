@@ -21,9 +21,16 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
-  const { data: user } = await supabaseAdmin.from('users').select('email_signature').eq('id', userId).single();
+  const { data: user } = await supabaseAdmin
+    .from('users')
+    .select('email_signature, email_signature_image_url')
+    .eq('id', userId)
+    .single();
 
-  return NextResponse.json({ signature: user?.email_signature || null });
+  return NextResponse.json({
+    signature: user?.email_signature || null,
+    signature_image_url: user?.email_signature_image_url || null,
+  });
 }
 
 export async function PATCH(request: NextRequest) {
