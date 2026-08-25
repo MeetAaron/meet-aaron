@@ -143,7 +143,7 @@ export async function applyAaronCategory(userId: string, messageId: string | und
 // catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
 // récupère l'id du brouillon dès sa création, qui reste valable une fois le
 // message envoyé (déplacé de Brouillons vers Éléments envoyés).
-export async function sendOutlookEmail(userId: string, to: string, subject: string, body: string) {
+export async function sendOutlookEmail(userId: string, to: string, subject: string, body: string, opts?: { html?: boolean }) {
   const accessToken = await getValidAccessToken(userId);
 
   const createRes = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
@@ -154,7 +154,7 @@ export async function sendOutlookEmail(userId: string, to: string, subject: stri
     },
     body: JSON.stringify({
       subject,
-      body: { contentType: 'Text', content: body },
+      body: { contentType: opts?.html ? 'HTML' : 'Text', content: body },
       toRecipients: [{ emailAddress: { address: to } }],
     }),
   });

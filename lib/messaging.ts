@@ -117,14 +117,36 @@ export async function sendEmailForUser(
 
   const providers = await getConnectedProviders(userId);
 
-  const { data: user } = await supabaseAdmin.from('users').select('email_signature').eq('id', userId).maybeSingle();
-  const fullBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
+  const { data: user } = await supabaseAdmin
+    .from('users')
+    .select('email_signature, email_signature_image_url')
+    .eq('id', userId)
+    .maybeSingle();
+
+  // Signature avec image (carte de visite, demande Alex 2026-08-25) : un
+  // texte brut ne peut pas afficher d'image, on bascule donc TOUT le message
+  // en HTML uniquement dans ce cas précis — le chemin texte brut existant
+  // (immense majorité des envois, signature texte seule ou aucune signature)
+  // reste strictement inchangé pour ne rien casser ailleurs.
+  let fullBody = body;
+  let isHtml = false;
+  if (user?.email_signature_image_url) {
+    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const bodyHtml = escapeHtml(body).replace(/\n/g, '<br>');
+    const signatureHtml = user.email_signature
+      ? `<p style="margin:0 0 8px;">${escapeHtml(user.email_signature).replace(/\n/g, '<br>')}</p>`
+      : '';
+    fullBody = `<div>${bodyHtml}</div><br>${signatureHtml}<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;">`;
+    isHtml = true;
+  } else if (user?.email_signature) {
+    fullBody = `${body}\n\n${user.email_signature}`;
+  }
 
   let result;
   if (providers.has('google')) {
-    result = await sendGmailEmail(userId, to, subject, fullBody);
+    result = await sendGmailEmail(userId, to, subject, fullBody, { html: isHtml });
   } else if (providers.has('microsoft')) {
-    result = await sendOutlookEmail(userId, to, subject, fullBody);
+    result = await sendOutlookEmail(userId, to, subject, fullBody, { html: isHtml });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }

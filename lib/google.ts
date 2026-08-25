@@ -133,13 +133,13 @@ export async function applyAaronLabel(userId: string, threadId: string | undefin
 }
 
 // Envoie un email via l'API Gmail (au nom du commercial connecté)
-export async function sendGmailEmail(userId: string, to: string, subject: string, body: string) {
+export async function sendGmailEmail(userId: string, to: string, subject: string, body: string, opts?: { html?: boolean }) {
   const accessToken = await getValidAccessToken(userId);
 
   const rawMessage = [
     `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
-    'Content-Type: text/plain; charset=utf-8',
+    opts?.html ? 'Content-Type: text/html; charset=utf-8' : 'Content-Type: text/plain; charset=utf-8',
     '',
     body,
   ].join('\n');
