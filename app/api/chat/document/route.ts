@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { extractDocumentText } from '@/lib/document-extraction';
+import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 
 const BUCKET = 'documents';
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 Mo — cohérent avec un document commercial usuel (pas un usage de stockage de masse)
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   // les logs/Storage — aucune incidence fonctionnelle, le fichier est déplacé
   // nulle part au moment de la confirmation, seule la ligne company_documents
   // est créée en pointant vers ce même storage_path.
-  const storagePath = `${user.company_id}/chat/${Date.now()}-${file.name}`;
+  const storagePath = `${user.company_id}/chat/${Date.now()}-${sanitizeFilenameForStorageKey(file.name)}`;
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from(BUCKET)
