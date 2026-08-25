@@ -9,6 +9,7 @@ import { generateAaronResponse } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { isGenericEmailDomain } from '@/lib/csv-import';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -94,13 +95,35 @@ export async function POST(request: NextRequest) {
   const companySize = cleanStr(body.company_size);
   const estimatedRevenue = cleanStr(body.estimated_revenue);
 
-  // Cherche ou crée la prospect_company associée à ce domaine
-  let { data: prospectCompany } = await supabaseAdmin
-    .from('prospect_companies')
-    .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
-    .eq('company_id', company_id)
-    .eq('domain', domain)
-    .single();
+  // Cherche ou crée la prospect_company associée à ce domaine.
+  //
+  // BUGFIX (2026-08-25, remonté par Alex : 3 prospects avec 3 sociétés
+  // différentes affichaient tous "Dupont SAS" dans la liste) : le matching
+  // par domaine email a du sens pour un vrai domaine d'entreprise (plusieurs
+  // contacts @dupont-sas.fr partagent légitimement la même fiche société,
+  // d'où le badge "+N autres contacts"). Mais pour un domaine grand public
+  // (gmail.com, yahoo.fr, etc. — typiquement des emails de test ou des
+  // prospects dont on n'a que l'email perso), ce même matching fusionnait
+  // à tort n'importe quels prospects partageant ce domaine dans UNE seule
+  // fiche société, quel que soit le nom d'entreprise saisi pour chacun : le
+  // premier nom saisi "gagnait" et tous les suivants étaient silencieusement
+  // ignorés (voir le bloc `else` juste en dessous, qui ne complète que les
+  // champs encore vides). `isGenericEmailDomain` (déjà utilisée côté import
+  // CSV, voir lib/csv-import.ts) exclut ces domaines du matching : chaque
+  // prospect sur un domaine grand public obtient désormais toujours sa
+  // propre fiche société.
+  const domainForMatching = domain && !isGenericEmailDomain(email) ? domain : null;
+
+  let prospectCompany = null;
+  if (domainForMatching) {
+    const { data: existingCompany } = await supabaseAdmin
+      .from('prospect_companies')
+      .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
+      .eq('company_id', company_id)
+      .eq('domain', domainForMatching)
+      .single();
+    prospectCompany = existingCompany;
+  }
 
   if (!prospectCompany) {
     const { data: newCompany, error: companyError } = await supabaseAdmin
