@@ -12,7 +12,7 @@ import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
-    .select('*, prospect_companies(name, domain)')
+    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
     .eq('id', params.id)
     .single();
 
@@ -50,7 +50,23 @@ const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe'
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, deal_stage, onboarding_status, signature_link, contract_renewal_date, first_order_confirmed, first_email_subject, first_email_body, ai_managed } = await request.json();
+  const {
+    action,
+    deal_stage,
+    onboarding_status,
+    signature_link,
+    contract_renewal_date,
+    first_order_confirmed,
+    first_email_subject,
+    first_email_body,
+    ai_managed,
+    address,
+    siret,
+    website,
+    industry,
+    company_size,
+    estimated_revenue,
+  } = await request.json();
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -517,6 +533,45 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     return NextResponse.json({ success: true, ai_managed });
+  }
+
+  // Modifie les infos société (adresse, SIRET, site web, secteur, taille,
+  // CA estimé — demande Alex, 2026-08-25 : "il manque des infos... l'adresse,
+  // etc etc ?"). Portées par prospect_companies (la société), pas par ce
+  // prospect : la modification se répercute donc sur tous les contacts de la
+  // même société. Voir migration_company_info_2026-08-25.sql. Accessible
+  // depuis Prospects, Opportunités ET Clients puisque les trois pages
+  // affichent la même fiche prospect/société, juste à des étapes différentes
+  // du pipeline.
+  if (action === 'update_company_info') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    if (!prospect.prospect_company_id) {
+      return NextResponse.json({ error: 'Aucune société associée à cette fiche' }, { status: 400 });
+    }
+
+    const cleanStr = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const companyUpdate = {
+      address: cleanStr(address),
+      siret: cleanStr(siret),
+      website: cleanStr(website),
+      industry: cleanStr(industry),
+      company_size: cleanStr(company_size),
+      estimated_revenue: cleanStr(estimated_revenue),
+    };
+
+    const { error: updateError } = await supabaseAdmin
+      .from('prospect_companies')
+      .update(companyUpdate)
+      .eq('id', prospect.prospect_company_id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
   }
 
   // Aaron Customer v2 — écarte une suggestion d'upsell du tableau de bord
