@@ -15,6 +15,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
+import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 function useAuthedUser() {
@@ -123,6 +124,13 @@ function exportDealsToCsv(deals, stageMeta, locale, format) {
     t('prospects.colName', locale),
     t('modal.email', locale),
     t('prospects.colJobTitle', locale),
+    t('prospects.colCompany', locale),
+    t('prospects.colAddress', locale),
+    t('prospects.colSiret', locale),
+    t('prospects.colWebsite', locale),
+    t('prospects.colIndustry', locale),
+    t('prospects.colCompanySize', locale),
+    t('prospects.colEstimatedRevenue', locale),
     t('prospects.templateColManaged', locale),
   ];
   const rows = deals.map((d) => [
@@ -130,6 +138,13 @@ function exportDealsToCsv(deals, stageMeta, locale, format) {
     d.full_name,
     d.email,
     d.job_title || '',
+    d.prospect_companies?.name || '',
+    d.prospect_companies?.address || '',
+    d.prospect_companies?.siret || '',
+    d.prospect_companies?.website || '',
+    d.prospect_companies?.industry || '',
+    d.prospect_companies?.company_size || '',
+    d.prospect_companies?.estimated_revenue || '',
     d.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
   ]);
   downloadSpreadsheet(headers, rows, `opportunites-${new Date().toISOString().slice(0, 10)}`, format);
@@ -142,6 +157,12 @@ function downloadBlankDealsTemplate(locale, format) {
     t('prospects.colJobTitle', locale),
     t('modal.email', locale),
     t('modal.phone', locale),
+    t('prospects.colAddress', locale),
+    t('prospects.colSiret', locale),
+    t('prospects.colWebsite', locale),
+    t('prospects.colIndustry', locale),
+    t('prospects.colCompanySize', locale),
+    t('prospects.colEstimatedRevenue', locale),
     t('sales.colStage', locale),
     t('prospects.templateColManaged', locale),
   ];
@@ -372,12 +393,14 @@ export default function SalesPage() {
           {t('sales.subtitle', locale)}
         </p>
         <div className="header-actions">
-          {deals.length > 0 && (
-            <ExportFormatMenu
-              label={t('sales.exportCsv', locale)}
-              onChoose={(format) => exportDealsToCsv(deals, STAGE_META, locale, format)}
-            />
-          )}
+          {/* Voir le même correctif dans app/app/prospects/page.jsx : bouton
+              toujours visible (désactivé plutôt que masqué si rien à
+              exporter), pour ne plus donner l'impression qu'il manque. */}
+          <ExportFormatMenu
+            label={t('sales.exportCsv', locale)}
+            disabled={deals.length === 0}
+            onChoose={(format) => exportDealsToCsv(deals, STAGE_META, locale, format)}
+          />
           <ExportFormatMenu
             label={t('sales.downloadTemplate', locale)}
             onChoose={(format) => downloadBlankDealsTemplate(locale, format)}
@@ -471,6 +494,10 @@ export default function SalesPage() {
               <>
                 <h2>{selectedDeal.full_name}</h2>
                 {selectedDeal.prospect_companies?.name && <p className="muted">{selectedDeal.prospect_companies.name}{selectedDeal.job_title ? ` — ${selectedDeal.job_title}` : ''}</p>}
+
+                <section className="block">
+                  <CompanyInfoEditor prospect={selectedDeal} locale={locale} onSaved={load} />
+                </section>
 
                 <div className="stage-row">
                   <label htmlFor="stage-select">{t('sales.stageLabel', locale)}</label>
@@ -697,6 +724,10 @@ export default function SalesPage() {
           margin: 0;
         }
         .header-actions {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.6rem;
           margin-top: 0.9rem;
         }
         .muted {
@@ -1389,6 +1420,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
@@ -1489,6 +1521,13 @@ function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCre
   const [companyName, setCompanyName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [stage, setStage] = useState(stageOrder[0]);
+  const [showCompanyFields, setShowCompanyFields] = useState(false);
+  const [address, setAddress] = useState('');
+  const [siret, setSiret] = useState('');
+  const [website, setWebsite] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [companySize, setCompanySize] = useState('');
+  const [estimatedRevenue, setEstimatedRevenue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1510,6 +1549,12 @@ function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCre
         job_title: jobTitle || null,
         company_name: companyName || null,
         skip_first_contact: true,
+        address: address || null,
+        siret: siret || null,
+        website: website || null,
+        industry: industry || null,
+        company_size: companySize || null,
+        estimated_revenue: estimatedRevenue || null,
       }),
     });
     const body = await res.json();
@@ -1578,6 +1623,39 @@ function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCre
           </select>
         </label>
 
+        {!showCompanyFields ? (
+          <button type="button" className="toggle-company-fields" onClick={() => setShowCompanyFields(true)}>
+            + {t('prospects.companyInfoTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          </button>
+        ) : (
+          <div className="company-fields">
+            <label>
+              {t('prospects.colAddress', locale)}
+              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colSiret', locale)}
+              <input value={siret} onChange={(e) => setSiret(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colWebsite', locale)}
+              <input value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colIndustry', locale)}
+              <input value={industry} onChange={(e) => setIndustry(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colCompanySize', locale)}
+              <input value={companySize} onChange={(e) => setCompanySize(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colEstimatedRevenue', locale)}
+              <input value={estimatedRevenue} onChange={(e) => setEstimatedRevenue(e.target.value)} />
+            </label>
+          </div>
+        )}
+
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
@@ -1606,6 +1684,8 @@ function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCre
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
         }
         h2 {
           font-family: var(--font-display);
@@ -1632,6 +1712,33 @@ function AddDealModal({ userId, companyId, stageOrder, stageMeta, onClose, onCre
         .name-row label {
           flex: 1;
           min-width: 0;
+        }
+        .toggle-company-fields {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0;
+          margin-bottom: 1rem;
+        }
+        .company-fields {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.8rem 0.8rem;
+          margin-bottom: 0.2rem;
+          padding: 0.9rem;
+          background: var(--bg);
+          border-radius: var(--radius-sm);
+        }
+        .company-fields label {
+          margin-bottom: 0;
+        }
+        @media (max-width: 480px) {
+          .company-fields {
+            grid-template-columns: 1fr;
+          }
         }
         input, select {
           width: 100%;
