@@ -195,7 +195,15 @@ export default function PreferencesPage() {
   // tableau TABS plus bas. `handleSave` reste unique et sauvegarde tous les
   // champs "Préférences" quel que soit l'onglet actif (bouton toujours visible
   // en bas du panneau), pour ne rien changer au comportement de sauvegarde.
-  const [activeTab, setActiveTab] = useState('profile');
+  // Ouvre directement l'onglet Abonnement si on arrive via ?tab=subscription
+  // (lien "module verrouillé" du menu latéral, voir Shell plus bas) — sans ça
+  // il fallait cliquer soi-même sur l'onglet après avoir été redirigé, ce qui
+  // n'explique pas pourquoi on atterrit ici depuis un item verrouillé.
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === 'undefined') return 'profile';
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'subscription' || tab === 'preferences' ? tab : 'profile';
+  });
   const [customCredits, setCustomCredits] = useState('');
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
   // multi-module — état dédié pour le bouton activer/désactiver de chaque
@@ -1509,7 +1517,7 @@ function Shell({ children, active, userId }) {
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.label}
-              href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
+              href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
