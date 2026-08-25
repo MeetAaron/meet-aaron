@@ -21,6 +21,7 @@ const HISTORY_LIMIT = 60;
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
+  let conversationId = request.nextUrl.searchParams.get('conversation_id');
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
@@ -29,10 +30,29 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
+  // Client historique/périmé sans conversation_id (voir chat-conversations,
+  // 25/08/2026) : on retombe sur la conversation la plus récente de ce
+  // commercial plutôt que d'échouer.
+  if (!conversationId) {
+    const { data: fallback } = await supabaseAdmin
+      .from('chat_conversations')
+      .select('id')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    conversationId = fallback?.id || null;
+  }
+
+  if (!conversationId) {
+    return NextResponse.json({ messages: [], onboarding_step: -1, onboarding_answers: [] });
+  }
+
   const { data: messagesDesc, error: messagesError } = await supabaseAdmin
     .from('chat_messages')
     .select('role, content, created_at')
     .eq('user_id', userId)
+    .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(HISTORY_LIMIT);
 
@@ -58,10 +78,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, messages, onboarding_step, onboarding_answers } = await request.json();
+  const { user_id, conversation_id, messages, onboarding_step, onboarding_answers } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
+  }
+  if (!conversation_id && Array.isArray(messages) && messages.length > 0) {
+    return NextResponse.json({ error: 'conversation_id manquant' }, { status: 400 });
   }
 
   const authedUser = await getAuthedUser(request);
@@ -71,13 +94,28 @@ export async function POST(request: NextRequest) {
   if (Array.isArray(messages) && messages.length > 0) {
     const rows = messages
       .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
-      .map((m: any) => ({ user_id, role: m.role, content: m.content }));
+      .map((m: any) => ({ user_id, conversation_id, role: m.role, content: m.content }));
 
     if (rows.length > 0) {
       const { error: insertError } = await supabaseAdmin.from('chat_messages').insert(rows);
       if (insertError) {
         return NextResponse.json({ error: insertError.message }, { status: 500 });
       }
+      // Fait remonter la conversation en haut de la liste (triée par
+      // updated_at, voir GET /api/chat-conversations) et lui donne un titre
+      // auto (premier message du commercial, tronqué) si elle n'en a pas
+      // encore — mêmes règles qu'un nouveau titre généré par /api/chat.
+      const firstUserMessage = rows.find((r) => r.role === 'user')?.content || null;
+      const { data: existing } = await supabaseAdmin
+        .from('chat_conversations')
+        .select('title')
+        .eq('id', conversation_id)
+        .maybeSingle();
+      const titleUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (existing && !existing.title && firstUserMessage) {
+        titleUpdate.title = firstUserMessage.trim().slice(0, 60);
+      }
+      await supabaseAdmin.from('chat_conversations').update(titleUpdate).eq('id', conversation_id);
     }
   }
 
