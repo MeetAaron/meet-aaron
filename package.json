@@ -17,7 +17,8 @@
           "pdf-parse": "^1.1.1",
           "pdfkit": "^0.15.0",
           "stripe": "^16.8.0",
-          "web-push": "^3.6.7"
+          "web-push": "^3.6.7",
+          "xlsx": "^0.18.5"
     },
     "devDependencies": {
           "typescript": "^5.5.4",
