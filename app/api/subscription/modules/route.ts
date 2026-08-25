@@ -207,8 +207,8 @@ export async function POST(request: NextRequest) {
       customer: company.stripe_customer_id,
       line_items: [{ price: priceId, quantity: 1 }],
       allow_promotion_codes: true,
-      success_url: `${origin}/app/preferences?user_id=${authedUser.id}&subscription_reactivated=1`,
-      cancel_url: `${origin}/app/preferences?user_id=${authedUser.id}`,
+      success_url: `${origin}/app/connexions?user_id=${authedUser.id}&tab=subscription&subscription_reactivated=1`,
+      cancel_url: `${origin}/app/connexions?user_id=${authedUser.id}&tab=subscription`,
       metadata: {
         purpose: 'reactivate_subscription',
         company_id: company.id,
