@@ -8,9 +8,22 @@ import { getAuthedUserFromToken } from '@/lib/auth-helpers';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 
+// 'gmail.labels' ajouté le 25/08 (bug signalé par Alex : le label coloré
+// "🤖 Géré par Aaron" — voir lib/google.ts, applyAaronLabel/
+// getOrCreateAaronLabelId — n'apparaissait jamais dans Gmail). Cause
+// racine : gmail.send/gmail.readonly ne donnent PAS le droit de créer ou
+// poser des labels — chaque appel labels.create / threads.modify échouait
+// donc en 403, avalé silencieusement par le try/catch (volontaire, pour ne
+// jamais bloquer un envoi/une lecture d'email pour un souci de label — voir
+// commentaire sur applyAaronLabel). Important : ce scope plus large ne
+// s'applique qu'aux NOUVELLES connexions Google — les commerciaux déjà
+// connectés doivent déconnecter puis reconnecter Gmail (Mon compte >
+// Connexion) pour que Google leur represente l'écran de consentement avec
+// ce droit supplémentaire ; leur jeton actuel ne l'obtient pas rétroactivement.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.labels',
   'https://www.googleapis.com/auth/calendar.events',
   'openid',
   'email',
