@@ -44,7 +44,17 @@ export default function OnboardingPage() {
   const [locale] = useLocale();
   const [checking, setChecking] = useState(true);
   const [session, setSession] = useState(null);
-  const [role, setRole] = useState(null); // null | 'patron' | 'commercial'
+  // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
+  // avec un 2e compte) : QUI la personne est (personRole — fondateur/
+  // dirigeant(e) ou commercial(e), détermine le rôle en base et donc si
+  // "Mon équipe" apparaît dans le menu, voir Shell) puis, seulement pour un
+  // commercial, COMMENT il/elle rejoint Meet Aaron (signupPath — code
+  // d'activation de son entreprise, ou création de son propre espace payant
+  // s'il n'en a pas). Avant, ces deux questions étaient confondues en une
+  // seule ("role"), ce qui laissait croire qu'un commercial solo devait
+  // forcément avoir un code pour s'inscrire.
+  const [personRole, setPersonRole] = useState(null); // null | 'patron' | 'commercial'
+  const [signupPath, setSignupPath] = useState(null); // null | 'invite_code' | 'own_space'
   const [companyName, setCompanyName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -120,6 +130,12 @@ export default function OnboardingPage() {
         country,
         locale,
         modules: selectedModules,
+        // "patron" pour un(e) fondateur(trice)/dirigeant(e), "commercial"
+        // pour un commercial solo qui paie pour lui-même sans code
+        // d'activation (voir commentaire sur personRole/signupPath plus
+        // haut) — lu par le webhook Stripe pour définir users.role, qui
+        // détermine ensuite si "Mon équipe" apparaît dans le menu.
+        role: personRole,
       }),
     });
 
@@ -174,38 +190,67 @@ export default function OnboardingPage() {
     );
   }
 
-  if (!role) {
+  if (!personRole || (personRole === 'commercial' && !signupPath)) {
+    // Deux questions successives (retour Alex 25/08) : d'abord QUI (fondateur/
+    // dirigeant(e) vs commercial(e) — détermine le rôle en base, donc si "Mon
+    // équipe" apparaît dans le menu), puis, seulement pour un commercial,
+    // COMMENT il/elle rejoint Meet Aaron (code d'activation de son
+    // entreprise, ou son propre espace payant s'il n'en a pas).
+    const askingSignupPath = personRole === 'commercial' && !signupPath;
     return (
       <div className="wrap">
         <div className="card">
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>Bienvenue sur Meet Aaron</h1>
-          <p className="subtitle">Pour commencer, dites-nous qui vous êtes.</p>
 
-          {/* Reformulé le 25/08 (retour Alex, test avec un 2e compte) : l'ancien
-              intitulé "Je suis dirigeant(e) / fondateur(trice)" laissait
-              croire qu'un commercial solo, qui paie de sa poche pour
-              s'équiper lui-même, n'avait pas sa place ici et devait
-              forcément passer par un code d'invitation — alors que ce
-              bouton est exactement son chemin (il crée son propre espace,
-              seul, et paie son abonnement par carte). Le second bouton est
-              réservé au cas où l'entreprise a DÉJÀ un abonnement Meet Aaron
-              actif et a transmis un code pour le rejoindre sans repayer. */}
-          <button type="button" className="role-btn" onClick={() => setRole('patron')}>
-            <span className="role-title">Je crée mon espace Meet Aaron</span>
-            <span className="role-desc">
-              Seul(e) ou à la tête d'une équipe — vous configurez votre abonnement (carte bancaire) et pourrez inviter
-              des collègues ensuite.
-            </span>
-          </button>
+          {!askingSignupPath ? (
+            <>
+              <p className="subtitle">Pour commencer, dites-nous qui vous êtes.</p>
 
-          <button type="button" className="role-btn" onClick={() => setRole('commercial')}>
-            <span className="role-title">J'ai un code d'invitation de mon entreprise</span>
-            <span className="role-desc">
-              Mon entreprise a déjà un abonnement Meet Aaron actif et m'a transmis un code pour rejoindre son espace,
-              sans payer individuellement.
-            </span>
-          </button>
+              <button type="button" className="role-btn" onClick={() => setPersonRole('patron')}>
+                <span className="role-title">Je suis fondateur(trice) / dirigeant(e)</span>
+                <span className="role-desc">
+                  Je crée l'espace Meet Aaron de mon entreprise et je configure l'abonnement (carte bancaire).
+                </span>
+              </button>
+
+              <button type="button" className="role-btn" onClick={() => setPersonRole('commercial')}>
+                <span className="role-title">Je suis commercial(e)</span>
+                <span className="role-desc">
+                  Je fais de la prospection/vente pour une entreprise — avec ou sans code transmis par mon employeur.
+                </span>
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="subtitle">Une dernière précision avant de continuer.</p>
+
+              {/* Distinct de "Je suis commercial(e)" ci-dessus : avant, ce
+                  choix ÉTAIT la question "qui êtes-vous", ce qui empêchait
+                  un commercial solo (sans code, payant lui-même) de
+                  simplement se déclarer commercial — il devait mentir et
+                  se dire "dirigeant(e)" pour pouvoir payer. */}
+              <button type="button" className="role-btn" onClick={() => setSignupPath('invite_code')}>
+                <span className="role-title">J'ai un code d'activation de mon entreprise</span>
+                <span className="role-desc">
+                  Mon entreprise a déjà un abonnement Meet Aaron actif et m'a transmis un code pour rejoindre son
+                  espace, sans payer individuellement.
+                </span>
+              </button>
+
+              <button type="button" className="role-btn" onClick={() => setSignupPath('own_space')}>
+                <span className="role-title">Je crée mon propre espace</span>
+                <span className="role-desc">
+                  Je n'ai pas de code : je configure mon propre abonnement (carte bancaire) pour utiliser Meet Aaron
+                  seul(e).
+                </span>
+              </button>
+
+              <button type="button" className="link-back" onClick={() => setPersonRole(null)}>
+                ← Retour
+              </button>
+            </>
+          )}
         </div>
 
         <style jsx>{`
@@ -278,7 +323,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="wrap">
-      {role === 'patron' ? (
+      {signupPath !== 'invite_code' ? (
         <form className="card" onSubmit={handlePatronSubmit}>
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>Créez votre espace Meet Aaron</h1>
@@ -384,7 +429,18 @@ export default function OnboardingPage() {
             {submitting ? 'Redirection…' : 'Continuer vers le paiement'}
           </button>
 
-          <button type="button" className="link-back" onClick={() => { setRole(null); setError(null); }}>
+          <button
+            type="button"
+            className="link-back"
+            onClick={() => {
+              if (personRole === 'patron') {
+                setPersonRole(null);
+              } else {
+                setSignupPath(null);
+              }
+              setError(null);
+            }}
+          >
             ← Retour
           </button>
         </form>
@@ -433,11 +489,11 @@ export default function OnboardingPage() {
               sans code (cas Alex — commercial solo testant sans code
               d'entreprise) n'avait pas d'autre choix que "← Retour" puis
               redevine tout seul qu'il fallait cliquer l'autre bouton. */}
-          <button type="button" className="link-secondary" onClick={() => { setRole('patron'); setError(null); }}>
+          <button type="button" className="link-secondary" onClick={() => { setSignupPath('own_space'); setError(null); }}>
             Vous n'avez pas de code ? Créez votre propre espace Meet Aaron →
           </button>
 
-          <button type="button" className="link-back" onClick={() => { setRole(null); setError(null); }}>
+          <button type="button" className="link-back" onClick={() => { setSignupPath(null); setError(null); }}>
             ← Retour
           </button>
         </form>
