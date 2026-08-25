@@ -8,6 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
+import PushNotificationManager from '@/components/PushNotificationManager';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -177,6 +178,35 @@ function crmMetaFor(locale) {
   };
 }
 
+// Portés depuis app/app/preferences/page.jsx (fusion "Mon compte" du
+// 2026-08-25, demande Alex : "on va fusionner préférences et abonnements
+// dans compte, ça me paraît bien plus logique") — mêmes fonctions, copiées
+// telles quelles pour un rendu identique aux onglets Préférences/Abonnement.
+function channelOptionsFor(locale) {
+  return [
+    { value: 'email', label: t('preferences.channel.email', locale) },
+    { value: 'push', label: t('preferences.channel.push', locale) },
+    { value: 'both', label: t('preferences.channel.both', locale) },
+  ];
+}
+
+const DELAY_OPTIONS = [15, 30, 60];
+
+function firstEmailOptionsFor(locale) {
+  return [
+    { value: false, label: t('preferences.firstEmail.auto', locale) },
+    { value: true, label: t('preferences.firstEmail.manual', locale) },
+  ];
+}
+
+function offersFor(locale) {
+  return [
+    { value: 'AP', label: t('preferences.offers.apLabel', locale), desc: t('preferences.offers.apDesc', locale), available: true },
+    { value: 'AS', label: t('nav.opportunity', locale), desc: t('preferences.offers.asDesc', locale), available: true },
+    { value: 'AC', label: t('nav.client', locale), desc: t('preferences.offers.acDesc', locale), available: true },
+  ];
+}
+
 export default function ConnexionsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -223,6 +253,16 @@ export default function ConnexionsPage() {
   // docx C1/A2/A3 (2026-08-20) : cette page devient "Mon compte", structurée
   // en 3 rubriques — mon profil / connexion / crm — au lieu d'un seul flux.
   const [activeTab, setActiveTab] = useState('profile');
+  // Fusion "Mon compte" (2026-08-25) : les anciens liens "module verrouillé"
+  // (voir Shell plus bas, dupliqué dans les 14 pages) et les retours Stripe
+  // pointent vers ?tab=subscription (ex-page /app/preferences) — ouvre
+  // directement le bon onglet plutôt que de forcer un clic supplémentaire.
+  // Les valeurs reconnues correspondent 1:1 aux 7 clés d'activeTab.
+  useEffect(() => {
+    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    const VALID_TABS = ['profile', 'company', 'connection', 'crm', 'preferences', 'subscription', 'delete'];
+    if (tabParam && VALID_TABS.includes(tabParam)) setActiveTab(tabParam);
+  }, []);
   const [profileName, setProfileName] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
@@ -260,6 +300,437 @@ export default function ConnexionsPage() {
   const [collabUploadFile, setCollabUploadFile] = useState(null);
   const [collabUploading, setCollabUploading] = useState(false);
   const [collabUploadDone, setCollabUploadDone] = useState(false);
+
+  // --- Portés depuis app/app/preferences/page.jsx (fusion "Mon compte",
+  // 2026-08-25) : onglets Mon entreprise / Préférences / Abonnement. Préfixés
+  // `prefs*`/`loadError` etc. déjà distincts des noms ci-dessus sauf `loading`
+  // (renommé `prefsLoading` ici, `loading` plus haut reste réservé au
+  // chargement des connexions comme avant).
+  const CHANNEL_OPTIONS = channelOptionsFor(locale);
+  const FIRST_EMAIL_OPTIONS = firstEmailOptionsFor(locale);
+  const OFFERS = offersFor(locale);
+  const [prefs, setPrefs] = useState(null);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [offerError, setOfferError] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [businessSummary, setBusinessSummary] = useState('');
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [summarySaved, setSummarySaved] = useState(false);
+  const [summaryDirty, setSummaryDirty] = useState(false);
+  const [signature, setSignature] = useState('');
+  const [signatureLoaded, setSignatureLoaded] = useState(false);
+  const [detectingSignature, setDetectingSignature] = useState(false);
+  const [signatureError, setSignatureError] = useState(null);
+  const [savingSignature, setSavingSignature] = useState(false);
+  const [signatureSaved, setSignatureSaved] = useState(false);
+  // Signature avec image ("carte de visite", demande Alex 2026-08-25) — voir
+  // app/api/signature/image/route.ts et lib/messaging.ts (bascule HTML à
+  // l'envoi quand cette image est présente).
+  const [signatureImageUrl, setSignatureImageUrl] = useState(null);
+  const [signatureImageFile, setSignatureImageFile] = useState(null);
+  const [signatureImageUploading, setSignatureImageUploading] = useState(false);
+  const [signatureImageError, setSignatureImageError] = useState(null);
+  const [legalInfo, setLegalInfo] = useState({ siret: '', legal_address: '', legal_form: '', vat_number: '', vat_exempt_mention: '' });
+  const [legalInfoLoaded, setLegalInfoLoaded] = useState(false);
+  const [savingLegalInfo, setSavingLegalInfo] = useState(false);
+  const [legalInfoSaved, setLegalInfoSaved] = useState(false);
+  const [buyingCredits, setBuyingCredits] = useState(null);
+  const [creditsError, setCreditsError] = useState(null);
+  const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
+  const [billingPortalError, setBillingPortalError] = useState(null);
+  const [invoices, setInvoices] = useState(null);
+  const [invoicesError, setInvoicesError] = useState(null);
+  const [customCreditsByModule, setCustomCreditsByModule] = useState({ ap: '', as: '', ac: '' });
+  const [customCredits, setCustomCredits] = useState('');
+  const [moduleBusy, setModuleBusy] = useState(null);
+  const [moduleError, setModuleError] = useState(null);
+  // Redesign onglet Abonnement (demande Alex 2026-08-25) : date de
+  // renouvellement lue en direct depuis Stripe (usage.renewal_date, voir
+  // app/api/api-usage), et un seul bloc "Crédits" avec 3 onglets
+  // Prospect/Opportunités/Clients au lieu de 4 blocs empilés.
+  const [creditsModuleTab, setCreditsModuleTab] = useState('ap');
+  const [invoicesShowAll, setInvoicesShowAll] = useState(false);
+
+  // Vraie page profil (demande Alex 2026-08-25) : email + mot de passe,
+  // modifiables avec vérification. L'email courant vient de la session
+  // Supabase Auth (source de vérité), pas de la table "users" — les deux
+  // sont synchronisés automatiquement après confirmation (voir
+  // app/api/auth/link/route.ts).
+  const [currentEmail, setCurrentEmail] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChangeSaving, setEmailChangeSaving] = useState(false);
+  const [emailChangeSent, setEmailChangeSent] = useState(false);
+  const [emailChangeError, setEmailChangeError] = useState(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeSaving, setPasswordChangeSaving] = useState(false);
+  const [passwordChangeSaved, setPasswordChangeSaved] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState(null);
+
+  useEffect(() => {
+    supabaseBrowser.auth.getSession().then(({ data }) => {
+      if (data?.session?.user?.email) setCurrentEmail(data.session.user.email);
+    });
+  }, []);
+
+  function loadPrefs() {
+    if (!userId) return;
+    setLoadError(null);
+    fetch(`/api/preferences?user_id=${userId}`)
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok || !body.preferences) {
+          setPrefsLoading(false);
+          setLoadError(body?.error || t('preferences.loadError', locale));
+          return;
+        }
+        setPrefs(body.preferences);
+        setPrefsLoading(false);
+      })
+      .catch(() => {
+        setPrefsLoading(false);
+        setLoadError(t('preferences.loadError', locale));
+      });
+  }
+
+  function loadBusinessSummary() {
+    if (!userId) return;
+    fetch(`/api/business-summary?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setBusinessSummary(res.summary || '');
+        setSummaryLoaded(true);
+        setSummaryDirty(false);
+      })
+      .catch(() => setSummaryLoaded(true));
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    loadPrefs();
+    fetch(`/api/api-usage?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => setUsage(res))
+      .catch(() => {});
+    fetch('/api/billing/invoices')
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok) return;
+        setInvoices(body.invoices || []);
+      })
+      .catch(() => setInvoicesError(t('preferences.invoices.error', locale)));
+    loadBusinessSummary();
+    fetch(`/api/signature?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setSignature(res.signature || '');
+        setSignatureImageUrl(res.signature_image_url || null);
+        setSignatureLoaded(true);
+      })
+      .catch(() => setSignatureLoaded(true));
+    fetch(`/api/company-legal-info?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.legal_info) setLegalInfo(res.legal_info);
+        setLegalInfoLoaded(true);
+      })
+      .catch(() => setLegalInfoLoaded(true));
+  }, [userId]);
+
+  // Voir le commentaire sur summaryDirty plus haut (préférences d'origine) :
+  // quand l'onglet redevient visible, on relit le résumé métier au cas où il
+  // aurait été régénéré ailleurs — sans écraser une saisie manuelle en cours.
+  useEffect(() => {
+    if (!userId) return;
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && !summaryDirty) {
+        loadBusinessSummary();
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [userId, summaryDirty]);
+
+  async function handleSaveLegalInfo() {
+    setSavingLegalInfo(true);
+    setLegalInfoSaved(false);
+    const res = await fetch('/api/company-legal-info', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, ...legalInfo }),
+    });
+    setSavingLegalInfo(false);
+    if (res.ok) {
+      setLegalInfoSaved(true);
+      setTimeout(() => setLegalInfoSaved(false), 2500);
+    }
+  }
+
+  async function handleDetectSignature() {
+    setDetectingSignature(true);
+    setSignatureError(null);
+    const res = await fetch('/api/signature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const body = await res.json();
+    setDetectingSignature(false);
+    if (!res.ok || !body.signature) {
+      setSignatureError(body.error || t('preferences.signatureNotDetected', locale));
+      return;
+    }
+    setSignature(body.signature);
+  }
+
+  async function handleSaveSignature() {
+    setSavingSignature(true);
+    setSignatureSaved(false);
+    const res = await fetch('/api/signature', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, signature }),
+    });
+    setSavingSignature(false);
+    if (res.ok) {
+      setSignatureSaved(true);
+      setTimeout(() => setSignatureSaved(false), 2500);
+    }
+  }
+
+  async function handleUploadSignatureImage() {
+    if (!signatureImageFile) return;
+    setSignatureImageUploading(true);
+    setSignatureImageError(null);
+    const formData = new FormData();
+    formData.append('file', signatureImageFile);
+    formData.append('user_id', userId);
+    const res = await fetch('/api/signature/image', { method: 'POST', body: formData });
+    const body = await res.json();
+    setSignatureImageUploading(false);
+    if (!res.ok) {
+      setSignatureImageError(body.error || t('common.error', locale));
+      return;
+    }
+    setSignatureImageUrl(body.url);
+    setSignatureImageFile(null);
+  }
+
+  async function handleRemoveSignatureImage() {
+    setSignatureImageUploading(true);
+    setSignatureImageError(null);
+    const res = await fetch(`/api/signature/image?user_id=${userId}`, { method: 'DELETE' });
+    setSignatureImageUploading(false);
+    if (res.ok) setSignatureImageUrl(null);
+  }
+
+  async function handleSaveSummary() {
+    setSavingSummary(true);
+    setSummarySaved(false);
+    const res = await fetch('/api/business-summary', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, summary: businessSummary }),
+    });
+    setSavingSummary(false);
+    if (res.ok) {
+      setSummarySaved(true);
+      setSummaryDirty(false);
+      setTimeout(() => setSummarySaved(false), 2500);
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    setOfferError(null);
+    const res = await fetch('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        notify_channel: prefs.notify_channel,
+        notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
+        require_first_email_approval: prefs.require_first_email_approval,
+        daily_prospecting_email_cap: prefs.daily_prospecting_email_cap,
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const body = await res.json();
+      setOfferError(body.error);
+      return;
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  async function handleToggleModule(moduleValue, isActive) {
+    if (isActive) {
+      const activeCount = ['AP', 'AS', 'AC'].filter((m) => prefs[`offer_${m.toLowerCase()}_active`]).length;
+      const warningKey = activeCount <= 1
+        ? 'preferences.subscription.confirmDeactivateLastTemplate'
+        : 'preferences.subscription.confirmDeactivateTemplate';
+      const moduleLabel = OFFERS.find((o) => o.value === moduleValue)?.label || moduleValue;
+      if (!confirm(t(warningKey, locale).replace('{module}', moduleLabel))) return;
+    }
+
+    setModuleBusy(moduleValue);
+    setModuleError(null);
+    try {
+      const res = await fetch('/api/subscription/modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module: moduleValue, action: isActive ? 'deactivate' : 'activate' }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setModuleError(body.error || t('common.error', locale));
+        return;
+      }
+      if (body.checkout_url) {
+        window.location.href = body.checkout_url;
+        return;
+      }
+      loadPrefs();
+    } catch (err) {
+      setModuleError(t('common.error', locale));
+    } finally {
+      setModuleBusy(null);
+    }
+  }
+
+  async function handleBuyCredits(credits, module) {
+    const buyingKey = `${module || 'general'}:${credits}`;
+    setBuyingCredits(buyingKey);
+    setCreditsError(null);
+    try {
+      const res = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(module ? { credits, module } : { credits }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body.url) {
+        setCreditsError(body.error || t('common.error', locale));
+        setBuyingCredits(null);
+        return;
+      }
+      window.location.href = body.url;
+    } catch (err) {
+      setCreditsError(t('common.error', locale));
+      setBuyingCredits(null);
+    }
+  }
+
+  function handleBuyCustomCredits() {
+    const credits = Number(customCredits);
+    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
+      setCreditsError(t('preferences.credits.invalidCustom', locale));
+      return;
+    }
+    handleBuyCredits(credits);
+  }
+
+  function handleBuyCustomCreditsForModule(module) {
+    const credits = Number(customCreditsByModule[module]);
+    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
+      setCreditsError(t('preferences.credits.invalidCustom', locale));
+      return;
+    }
+    handleBuyCredits(credits, module);
+  }
+
+  async function handleOpenBillingPortal() {
+    setOpeningBillingPortal(true);
+    setBillingPortalError(null);
+    try {
+      const res = await fetch('/api/billing-portal', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok || !body.url) {
+        setBillingPortalError(body.error || t('common.error', locale));
+        setOpeningBillingPortal(false);
+        return;
+      }
+      window.location.href = body.url;
+    } catch (err) {
+      setBillingPortalError(t('common.error', locale));
+      setOpeningBillingPortal(false);
+    }
+  }
+
+  // Changement d'email (demande Alex 2026-08-25) : Supabase Auth envoie un
+  // lien de confirmation à la NOUVELLE adresse — rien ne change réellement
+  // tant qu'il n'est pas cliqué (c'est la "vérification"). users.email se
+  // resynchronise automatiquement à la prochaine visite d'une page une fois
+  // confirmé (voir app/api/auth/link/route.ts).
+  async function handleChangeEmail() {
+    const trimmed = newEmail.trim();
+    if (!trimmed || trimmed === currentEmail) return;
+    setEmailChangeSaving(true);
+    setEmailChangeError(null);
+    setEmailChangeSent(false);
+    const { error } = await supabaseBrowser.auth.updateUser({ email: trimmed });
+    setEmailChangeSaving(false);
+    if (error) {
+      setEmailChangeError(error.message || t('common.error', locale));
+      return;
+    }
+    setEmailChangeSent(true);
+    setNewEmail('');
+  }
+
+  // Changement de mot de passe (demande Alex 2026-08-25) : "vérification quand
+  // même" -> on exige le mot de passe actuel et on le vérifie par une vraie
+  // tentative de connexion avant d'autoriser le changement, plutôt que de
+  // faire confiance à une session déjà ouverte (qui peut être restée ouverte
+  // sur un appareil partagé).
+  async function handleChangePassword() {
+    setPasswordChangeError(null);
+    setPasswordChangeSaved(false);
+    if (!currentPassword || !newPassword) {
+      setPasswordChangeError(t('connexions.passwordAllFieldsRequired', locale));
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordChangeError(t('connexions.passwordTooShort', locale));
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setPasswordChangeError(t('connexions.passwordMismatch', locale));
+      return;
+    }
+    setPasswordChangeSaving(true);
+    const { error: signInError } = await supabaseBrowser.auth.signInWithPassword({
+      email: currentEmail,
+      password: currentPassword,
+    });
+    if (signInError) {
+      setPasswordChangeSaving(false);
+      setPasswordChangeError(t('connexions.passwordCurrentIncorrect', locale));
+      return;
+    }
+    const { error: updateError } = await supabaseBrowser.auth.updateUser({ password: newPassword });
+    setPasswordChangeSaving(false);
+    if (updateError) {
+      setPasswordChangeError(updateError.message || t('common.error', locale));
+      return;
+    }
+    setPasswordChangeSaved(true);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setTimeout(() => setPasswordChangeSaved(false), 3000);
+  }
 
   async function load() {
     setLoading(true);
@@ -584,11 +1055,16 @@ export default function ConnexionsPage() {
         <p className="subtitle">{t('connexions.subtitle', locale)}</p>
       </header>
 
-      {/* docx C1/A2/A3 (2026-08-20) : "Mon compte" en 3 rubriques — mon
-          profil / connexion / crm — au lieu d'un seul flux de connexions. */}
+      {/* Fusion "Mon compte" (demande Alex 2026-08-25) : 7 onglets — mon
+          profil / mon entreprise / connexion / crm / préférences /
+          abonnement / supprimer mon compte — au lieu des 3 anciens onglets
+          ici + 3 autres qui vivaient dans Préférences (app/app/preferences). */}
       <div className="tabs">
         <button type="button" className={activeTab === 'profile' ? 'tab active' : 'tab'} onClick={() => setActiveTab('profile')}>
           {t('connexions.tabProfile', locale)}
+        </button>
+        <button type="button" className={activeTab === 'company' ? 'tab active' : 'tab'} onClick={() => setActiveTab('company')}>
+          {t('connexions.tabCompany', locale)}
         </button>
         <button type="button" className={activeTab === 'connection' ? 'tab active' : 'tab'} onClick={() => setActiveTab('connection')}>
           {t('connexions.tabConnection', locale)}
@@ -596,7 +1072,13 @@ export default function ConnexionsPage() {
         <button type="button" className={activeTab === 'crm' ? 'tab active' : 'tab'} onClick={() => setActiveTab('crm')}>
           {t('connexions.tabCrm', locale)}
         </button>
-        {/* 4e onglet ajouté le 25/08 (demande Alex) : "Supprimer mon compte",
+        <button type="button" className={activeTab === 'preferences' ? 'tab active' : 'tab'} onClick={() => setActiveTab('preferences')}>
+          {t('connexions.tabPreferences', locale)}
+        </button>
+        <button type="button" className={activeTab === 'subscription' ? 'tab active' : 'tab'} onClick={() => setActiveTab('subscription')}>
+          {t('connexions.tabSubscription', locale)}
+        </button>
+        {/* Onglet ajouté le 25/08 (demande Alex) : "Supprimer mon compte",
             self-service avec avertissement -> confirmation par saisie exacte
             -> "êtes-vous certain ?" -> suppression réelle 24h plus tard (voir
             AccountDeletionPanel plus bas et app/api/account/deletion). */}
@@ -623,23 +1105,210 @@ export default function ConnexionsPage() {
             {profileSaving ? t('connexions.profileSaving', locale) : t('connexions.profileSaveButton', locale)}
           </button>
 
-          <label className="profile-label theme-label">{t('connexions.themeLabel', locale)}</label>
-          <div className="theme-toggle">
+          {/* Vraie page profil (demande Alex 2026-08-25) : email + mot de
+              passe, modifiables avec vérification — voir handleChangeEmail
+              (Supabase Auth envoie le lien de confirmation) et
+              handleChangePassword (ré-authentification par mot de passe
+              actuel avant d'autoriser le changement). */}
+          <div className="profile-section">
+            <label className="profile-label">{t('connexions.emailSectionLabel', locale)}</label>
+            <p className="profile-current-value">{currentEmail || '—'}</p>
+            <input
+              type="email"
+              className="profile-input"
+              value={newEmail}
+              onChange={(e) => { setNewEmail(e.target.value); setEmailChangeSent(false); setEmailChangeError(null); }}
+              placeholder={t('connexions.emailNewPlaceholder', locale)}
+            />
+            {emailChangeError && <p className="crm-error">{emailChangeError}</p>}
+            {emailChangeSent && <p className="profile-saved">{t('connexions.emailChangeSentMsg', locale)}</p>}
             <button
               type="button"
-              className={theme === 'dark' ? 'theme-btn active' : 'theme-btn'}
-              onClick={() => changeTheme('dark')}
+              className="btn-primary"
+              onClick={handleChangeEmail}
+              disabled={emailChangeSaving || !newEmail.trim() || newEmail.trim() === currentEmail}
             >
-              {t('connexions.themeDark', locale)}
+              {emailChangeSaving ? t('connexions.emailChangeSaving', locale) : t('connexions.emailChangeButton', locale)}
             </button>
-            <button
-              type="button"
-              className={theme === 'light' ? 'theme-btn active' : 'theme-btn'}
-              onClick={() => changeTheme('light')}
-            >
-              {t('connexions.themeLight', locale)}
+            <p className="profile-hint">{t('connexions.emailChangeHint', locale)}</p>
+          </div>
+
+          <div className="profile-section">
+            <label className="profile-label">{t('connexions.passwordSectionLabel', locale)}</label>
+            <input
+              type="password"
+              className="profile-input"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder={t('connexions.passwordCurrentLabel', locale)}
+              autoComplete="current-password"
+            />
+            <input
+              type="password"
+              className="profile-input"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder={t('connexions.passwordNewLabel', locale)}
+              autoComplete="new-password"
+            />
+            <input
+              type="password"
+              className="profile-input"
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              placeholder={t('connexions.passwordConfirmLabel', locale)}
+              autoComplete="new-password"
+            />
+            {passwordChangeError && <p className="crm-error">{passwordChangeError}</p>}
+            {passwordChangeSaved && <p className="profile-saved">{t('connexions.passwordChangeSavedMsg', locale)}</p>}
+            <button type="button" className="btn-primary" onClick={handleChangePassword} disabled={passwordChangeSaving}>
+              {passwordChangeSaving ? t('connexions.passwordChangeSaving', locale) : t('connexions.passwordChangeButton', locale)}
             </button>
           </div>
+        </div>
+      ) : activeTab === 'company' ? (
+        <div className="company-panel">
+          {summaryLoaded && (
+            <div className="field">
+              <label>{t('preferences.businessProfileLabel', locale)}</label>
+              <textarea
+                rows={6}
+                value={businessSummary}
+                onChange={(e) => {
+                  setBusinessSummary(e.target.value);
+                  setSummaryDirty(true);
+                }}
+                placeholder={t('preferences.businessProfilePlaceholder', locale)}
+              />
+              <div className="actions">
+                <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
+                  {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
+                </button>
+                {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
+                <Link href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
+                  {t('preferences.retakeQuestionnaireButton', locale)}
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {signatureLoaded && (
+            <div className="field">
+              <label>{t('preferences.signatureLabel', locale)}</label>
+              <textarea
+                rows={4}
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                placeholder={t('preferences.signaturePlaceholder', locale)}
+              />
+              {signatureError && <p className="error">{signatureError}</p>}
+              <div className="actions">
+                <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
+                  {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
+                </button>
+                <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
+                  {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
+                </button>
+                {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
+              </div>
+              <p className="collab-extra-hint">
+                {t('preferences.signatureDetectHint', locale)}
+              </p>
+
+              {/* Signature avec image ("carte de visite", demande Alex
+                  2026-08-25) : la signature texte ci-dessus reste facultative,
+                  cette image est ajoutée dessous dans les emails envoyés —
+                  voir handleUploadSignatureImage / lib/messaging.ts. */}
+              <div className="signature-image-block">
+                <label className="sub-label">{t('connexions.signatureImageLabel', locale)}</label>
+                <p className="collab-extra-hint">{t('connexions.signatureImageHint', locale)}</p>
+                {signatureImageUrl && (
+                  <div className="signature-image-preview">
+                    <img src={signatureImageUrl} alt="Signature" />
+                    <button type="button" className="btn-secondary" onClick={handleRemoveSignatureImage} disabled={signatureImageUploading}>
+                      {t('connexions.signatureImageRemoveButton', locale)}
+                    </button>
+                  </div>
+                )}
+                <div className="upload-row">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    onChange={(e) => setSignatureImageFile(e.target.files?.[0] || null)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleUploadSignatureImage}
+                    disabled={!signatureImageFile || signatureImageUploading}
+                  >
+                    {signatureImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
+                  </button>
+                </div>
+                {signatureImageError && <p className="error">{signatureImageError}</p>}
+              </div>
+            </div>
+          )}
+
+          {legalInfoLoaded && (
+            <div className="field">
+              <label>{t('preferences.legalInfoLabel', locale)}</label>
+              <p className="collab-extra-hint">{t('preferences.legalInfoHint', locale)}</p>
+              <div className="legal-grid">
+                <div className="legal-field">
+                  <label className="legal-field-label">{t('connexions.legalInfoSiretLabel', locale)}</label>
+                  <input
+                    type="text"
+                    value={legalInfo.siret}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, siret: e.target.value })}
+                    placeholder={t('preferences.legalInfoSiretPlaceholder', locale)}
+                  />
+                </div>
+                <div className="legal-field">
+                  <label className="legal-field-label">{t('connexions.legalInfoFormLabel', locale)}</label>
+                  <input
+                    type="text"
+                    value={legalInfo.legal_form}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, legal_form: e.target.value })}
+                    placeholder={t('preferences.legalInfoFormPlaceholder', locale)}
+                  />
+                </div>
+                <div className="legal-field legal-field-full">
+                  <label className="legal-field-label">{t('connexions.legalInfoAddressLabel', locale)}</label>
+                  <input
+                    type="text"
+                    value={legalInfo.legal_address}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, legal_address: e.target.value })}
+                    placeholder={t('preferences.legalInfoAddressPlaceholder', locale)}
+                  />
+                </div>
+                <div className="legal-field">
+                  <label className="legal-field-label">{t('connexions.legalInfoVatLabel', locale)}</label>
+                  <input
+                    type="text"
+                    value={legalInfo.vat_number}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, vat_number: e.target.value })}
+                    placeholder={t('preferences.legalInfoVatPlaceholder', locale)}
+                  />
+                </div>
+                <div className="legal-field legal-field-full">
+                  <label className="legal-field-label">{t('connexions.legalInfoVatExemptLabel', locale)}</label>
+                  <input
+                    type="text"
+                    value={legalInfo.vat_exempt_mention}
+                    onChange={(e) => setLegalInfo({ ...legalInfo, vat_exempt_mention: e.target.value })}
+                    placeholder={t('preferences.legalInfoVatExemptPlaceholder', locale)}
+                  />
+                </div>
+              </div>
+              <div className="actions">
+                <button className="btn-secondary" onClick={handleSaveLegalInfo} disabled={savingLegalInfo}>
+                  {savingLegalInfo ? t('preferences.savingEllipsis', locale) : t('preferences.legalInfoSaveButton', locale)}
+                </button>
+                {legalInfoSaved && <span className="saved-msg">{t('preferences.legalInfoSavedMsg', locale)}</span>}
+              </div>
+            </div>
+          )}
         </div>
       ) : activeTab === 'connection' ? (
         <div className="cards">
@@ -828,6 +1497,338 @@ export default function ConnexionsPage() {
             <span className="btn-secondary add-crm-cta">{t('connexions.crmChatOpenButton', locale)}</span>
           </Link>
         </>
+      ) : activeTab === 'preferences' ? (
+        loadError ? (
+          <div className="load-error">
+            <p>{loadError}</p>
+            <button type="button" className="btn-secondary" onClick={loadPrefs}>
+              {t('common.retry', locale)}
+            </button>
+          </div>
+        ) : prefsLoading || !prefs ? (
+          <p className="muted">{t('common.loading', locale)}</p>
+        ) : (
+          <div className="preferences-panel">
+            {/* Thème déplacé ici depuis Mon profil, au-dessus du canal de
+                notification (demande Alex 2026-08-25). */}
+            <div className="field">
+              <label>{t('connexions.themeLabel', locale)}</label>
+              <div className="theme-toggle">
+                <button type="button" className={theme === 'dark' ? 'theme-btn active' : 'theme-btn'} onClick={() => changeTheme('dark')}>
+                  {t('connexions.themeDark', locale)}
+                </button>
+                <button type="button" className={theme === 'light' ? 'theme-btn active' : 'theme-btn'} onClick={() => changeTheme('light')}>
+                  {t('connexions.themeLight', locale)}
+                </button>
+              </div>
+            </div>
+
+            <div className="field">
+              <label>{t('preferences.notifyChannelLabel', locale)}</label>
+              <div className="options">
+                {CHANNEL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={prefs.notify_channel === opt.value ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, notify_channel: opt.value })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
+                <PushNotificationManager />
+              )}
+            </div>
+
+            <div className="field">
+              <label>{t('preferences.notifyDelayLabel', locale)}</label>
+              <div className="options">
+                {DELAY_OPTIONS.map((minutes) => (
+                  <button
+                    key={minutes}
+                    className={prefs.notify_before_appointment_minutes === minutes ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
+                  >
+                    {minutes} {t('preferences.minutesUnit', locale)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>{t('preferences.firstEmailLabel', locale)}</label>
+              <div className="options">
+                {FIRST_EMAIL_OPTIONS.map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    className={prefs.require_first_email_approval === opt.value ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="collab-extra-hint">
+                {t('preferences.firstEmailHint', locale)}
+              </p>
+            </div>
+
+            <div className="field">
+              <label>{t('preferences.dailyCapLabel', locale)}</label>
+              <input
+                type="number"
+                min={1}
+                max={2000}
+                className="cap-input"
+                value={prefs.daily_prospecting_email_cap}
+                onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
+              />
+              <p className="collab-extra-hint">
+                {t('preferences.dailyCapHint', locale)}
+              </p>
+            </div>
+
+            <div className="actions">
+              <button className="btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
+              </button>
+              {saved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
+            </div>
+          </div>
+        )
+      ) : activeTab === 'subscription' ? (
+        loadError ? (
+          <div className="load-error">
+            <p>{loadError}</p>
+            <button type="button" className="btn-secondary" onClick={loadPrefs}>
+              {t('common.retry', locale)}
+            </button>
+          </div>
+        ) : prefsLoading || !prefs ? (
+          <p className="muted">{t('common.loading', locale)}</p>
+        ) : (
+          <div className="subscription-panel">
+            {usage?.renewal_date && (
+              <p className="renewal-date">
+                {t('connexions.renewalDateLabel', locale).replace(
+                  '{date}',
+                  new Date(usage.renewal_date).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+                )}
+              </p>
+            )}
+
+            <div className="field">
+              <label>{t('preferences.subscriptionLabel', locale)}</label>
+              <div className="offer-options">
+                {OFFERS.map((o) => {
+                  const isActive = Boolean(prefs[`offer_${o.value.toLowerCase()}_active`]);
+                  return (
+                    <div key={o.value} className={`offer-card ${isActive ? 'active' : ''}`}>
+                      <span className="offer-title">
+                        {o.label}
+                        <span className={`status-pill ${isActive ? 'on' : 'off'}`}>
+                          {isActive ? t('preferences.subscription.activeLabel', locale) : t('preferences.subscription.inactiveLabel', locale)}
+                        </span>
+                      </span>
+                      <span className="offer-desc">{o.desc}</span>
+                      {prefs.role === 'patron' && (
+                        <button
+                          type="button"
+                          className={isActive ? 'btn-danger' : 'btn-primary'}
+                          disabled={moduleBusy === o.value}
+                          onClick={() => handleToggleModule(o.value, isActive)}
+                        >
+                          {moduleBusy === o.value
+                            ? '…'
+                            : isActive
+                              ? t('preferences.subscription.deactivateButton', locale)
+                              : t('preferences.subscription.activateButton', locale)}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {moduleError && <p className="error">{moduleError}</p>}
+              {!moduleError && offerError && <p className="error">{offerError}</p>}
+            </div>
+
+            {/* Redesign (demande Alex 2026-08-25) : un seul bloc "Crédits" au
+                lieu de 4 blocs empilés — solde réel affiché en crédits (calculé
+                à partir du coût API réellement mesuré ce mois-ci, voir
+                app/api/api-usage), avec explication du plafond mensuel inclus
+                réparti sur le mois. Le "boost" (achat de crédits) se fait
+                ensuite par module via 3 onglets, à la place des 3 cartes
+                séparées qui s'empilaient auparavant. */}
+            {usage && (
+              <div className="field credits-field">
+                <label>{t('connexions.creditsTitle', locale)}</label>
+                <div className="usage-box">
+                  <div className="usage-row">
+                    <span>{t('connexions.creditsBalanceLabel', locale)}</span>
+                    <strong>
+                      {Math.max(0, Math.round((usage.monthly_cap_usd || 0) - (usage.month_cost_usd || 0) + (usage.credit_balance_eur || 0)))} {t('connexions.creditsUnit', locale)}
+                    </strong>
+                  </div>
+                  <p className="usage-hint">
+                    {t('connexions.creditsExplanation', locale).replace('{cap}', Math.round(usage.monthly_cap_usd || 0))}
+                  </p>
+                  {creditsError && <p className="error">{creditsError}</p>}
+
+                  {prefs.role === 'patron' && (
+                    <>
+                      <p className="sub-label">{t('connexions.creditsBoostSectionLabel', locale)}</p>
+                      <div className="tabs credits-module-tabs">
+                        {OFFERS.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            className={creditsModuleTab === o.value.toLowerCase() ? 'tab active' : 'tab'}
+                            onClick={() => setCreditsModuleTab(o.value.toLowerCase())}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                      {(() => {
+                        const moduleKey = creditsModuleTab;
+                        const moduleBalance = Number(usage[`credit_balance_${moduleKey}_eur`] || 0);
+                        return (
+                          <div className="credits-module-panel">
+                            <div className="usage-row">
+                              <span>{t('preferences.credits.moduleLabelPrefix', locale)}</span>
+                              <strong>{Math.round(moduleBalance)} {t('connexions.creditsUnit', locale)}</strong>
+                            </div>
+                            <div className="credits-buy-row">
+                              {[20, 40, 60, 80, 100].map((credits) => (
+                                <button
+                                  key={credits}
+                                  type="button"
+                                  className="btn-secondary"
+                                  disabled={buyingCredits !== null}
+                                  onClick={() => handleBuyCredits(credits, moduleKey)}
+                                >
+                                  {buyingCredits === `${moduleKey}:${credits}` ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="upload-row">
+                              <input
+                                type="number"
+                                min={1}
+                                max={5000}
+                                className="cap-input"
+                                placeholder={t('preferences.credits.customPlaceholder', locale)}
+                                value={customCreditsByModule[moduleKey]}
+                                onChange={(e) =>
+                                  setCustomCreditsByModule((prev) => ({ ...prev, [moduleKey]: e.target.value }))
+                                }
+                              />
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={buyingCredits !== null || !customCreditsByModule[moduleKey]}
+                                onClick={() => handleBuyCustomCreditsForModule(moduleKey)}
+                              >
+                                {t('preferences.credits.customButton', locale)}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Redesign (demande Alex 2026-08-25) : le bloc "Facturation"
+                (portail Stripe complet) est supprimé — seules les factures
+                Aaron restent, avec un plafond d'affichage à 5 + un bouton
+                "voir plus"/"voir moins" plutôt qu'une liste qui s'allonge
+                indéfiniment. */}
+            {prefs?.role === 'patron' && (
+              <div className="field credits-field">
+                <label>{t('preferences.invoices.label', locale)}</label>
+                <div className="usage-box">
+                  <p className="usage-hint">{t('preferences.invoices.hint', locale)}</p>
+                  {invoicesError && <p className="error">{invoicesError}</p>}
+                  {!invoicesError && invoices === null && (
+                    <p className="usage-hint">{t('preferences.invoices.loading', locale)}</p>
+                  )}
+                  {!invoicesError && invoices && invoices.length === 0 && (
+                    <p className="usage-hint">{t('preferences.invoices.empty', locale)}</p>
+                  )}
+                  {!invoicesError && invoices && invoices.length > 0 && (
+                    <>
+                      <ul className="invoices-list">
+                        {(invoicesShowAll ? invoices : invoices.slice(0, 5)).map((inv) => (
+                          <li key={inv.id} className="invoice-row">
+                            <span>
+                              {new Date(inv.created * 1000).toLocaleDateString(locale)} —{' '}
+                              {(inv.amount_paid / 100).toFixed(2)} {(inv.currency || 'eur').toUpperCase()}
+                            </span>
+                            {(inv.invoice_pdf || inv.hosted_invoice_url) && (
+                              <a
+                                href={inv.invoice_pdf || inv.hosted_invoice_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="invoice-link"
+                              >
+                                {t('preferences.invoices.downloadLink', locale)}
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {invoices.length > 5 && (
+                        <button type="button" className="btn-secondary crm-showmore" onClick={() => setInvoicesShowAll(!invoicesShowAll)}>
+                          {invoicesShowAll
+                            ? t('preferences.invoices.showLess', locale)
+                            : t('preferences.invoices.showMoreTemplate', locale).replace('{count}', invoices.length - 5)}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Suivi coût API interne (aaron@meetaaron.app uniquement, inchangé). */}
+            {usage && prefs.email === 'aaron@meetaaron.app' && (
+              <div className="field usage-field">
+                <label>{t('preferences.usage.apiCostLabel', locale)}</label>
+                <div className="usage-box">
+                  <div className="usage-row">
+                    <span>{t('preferences.usage.thisMonth', locale)}</span>
+                    <strong>
+                      {usage.month_cost_usd.toFixed(2)} $
+                      {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', usage.monthly_cap_usd)}
+                    </strong>
+                  </div>
+                  <div className="usage-row">
+                    <span>{t('preferences.usage.today', locale)}</span>
+                    <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
+                  </div>
+                  <div className="usage-bars">
+                    {usage.last_7_days.map((d) => (
+                      <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${d.cost_usd.toFixed(2)} $`}>
+                        <div
+                          className="usage-bar"
+                          style={{ height: `${Math.min(100, (d.cost_usd / (usage.daily_cap_usd || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="usage-hint">
+                    {t('preferences.usage.hint', locale)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )
       ) : (
         <AccountDeletionPanel locale={locale} />
       )}
@@ -1063,6 +2064,400 @@ export default function ConnexionsPage() {
           border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
+        }
+        /* Améliore la ligne d'upload "Niveau 1" du CRM (demande Alex
+           2026-08-25 : "l'interface est moche pour le texte") — le bouton
+           natif du champ fichier suit désormais le style des autres boutons
+           secondaires de l'app, au lieu du bouton gris par défaut du
+           navigateur, sans changer le comportement du champ. */
+        .upload-row input[type='file'] {
+          flex: 1;
+          min-width: 200px;
+          font-size: 0.8rem;
+          color: var(--muted);
+        }
+        .upload-row input[type='file']::file-selector-button {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.9rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          font-family: inherit;
+          margin-right: 0.8rem;
+          cursor: pointer;
+        }
+        .upload-row input[type='file']::file-selector-button:hover {
+          background: var(--bg);
+        }
+        .btn-primary,
+        .btn-secondary,
+        .btn-danger {
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1.1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+        }
+        .btn-secondary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-danger {
+          background: transparent;
+          border: 1px solid var(--accent-red);
+          color: var(--accent-red);
+        }
+        .link-btn {
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+        }
+        .saved-msg {
+          color: var(--accent-green);
+          font-size: 0.84rem;
+        }
+        .error {
+          color: var(--accent-red);
+          font-size: 0.8rem;
+          margin-top: 0.5rem;
+          overflow-wrap: break-word;
+        }
+        .sub-label {
+          display: block;
+          font-size: 0.8rem;
+          color: var(--muted);
+          margin: 0.9rem 0 0.35rem;
+        }
+        .load-error {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.8rem;
+          padding: 1.2rem;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          color: var(--accent-red);
+          font-size: 0.9rem;
+        }
+        select,
+        textarea {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+        }
+        .cap-input {
+          width: 100%;
+          max-width: 140px;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+        }
+
+        /* Onglet Mon profil : sections email/mot de passe (demande Alex
+           2026-08-25). */
+        .profile-section {
+          margin-top: 1.4rem;
+          padding-top: 1.1rem;
+          border-top: 1px solid var(--border);
+        }
+        .profile-current-value {
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin: 0 0 0.6rem;
+        }
+        .profile-hint {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0.5rem 0 0;
+          line-height: 1.4;
+        }
+
+        /* Onglet Mon entreprise. */
+        .company-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.6rem;
+          max-width: 640px;
+        }
+        .company-panel .field {
+          margin-bottom: 1.8rem;
+        }
+        .company-panel .field:last-child {
+          margin-bottom: 0;
+        }
+        .company-panel .field label {
+          display: block;
+          font-size: 0.9rem;
+          margin-bottom: 0.7rem;
+        }
+        .company-panel .actions {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          margin-top: 0.6rem;
+          flex-wrap: wrap;
+        }
+        .signature-image-block {
+          margin-top: 1.2rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border);
+        }
+        .signature-image-preview {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          margin: 0.6rem 0 0.9rem;
+          padding: 0.8rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+        }
+        .signature-image-preview img {
+          max-width: 180px;
+          max-height: 80px;
+          border-radius: var(--radius-sm);
+        }
+        .legal-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+          margin: 0.6rem 0 1rem;
+        }
+        .legal-field-full {
+          grid-column: 1 / -1;
+        }
+        .legal-field-label {
+          display: block;
+          font-size: 0.78rem;
+          color: var(--muted);
+          margin-bottom: 0.35rem;
+        }
+        .legal-field input {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.84rem;
+          font-family: inherit;
+        }
+        @media (max-width: 600px) {
+          .legal-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* Onglets Préférences / Abonnement (portés depuis l'ancienne page
+           Préférences, fusion "Mon compte" du 2026-08-25). */
+        .preferences-panel,
+        .subscription-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.6rem;
+          max-width: 640px;
+        }
+        .renewal-date {
+          font-size: 0.84rem;
+          color: var(--muted);
+          margin: -0.6rem 0 1.4rem;
+        }
+        .field {
+          margin-bottom: 1.8rem;
+        }
+        .field:last-child {
+          margin-bottom: 0;
+        }
+        .field label {
+          display: block;
+          font-size: 0.9rem;
+          margin-bottom: 0.7rem;
+        }
+        .options {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+        .option {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.9rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .option.active {
+          border-color: var(--accent);
+          color: var(--text);
+          background: rgba(75, 57, 239, 0.14);
+        }
+        .offer-options {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .offer-card {
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+          align-items: flex-start;
+        }
+        .offer-card.active {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .offer-title {
+          font-weight: 600;
+          font-size: 0.9rem;
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .status-pill {
+          font-size: 0.66rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          padding: 0.15rem 0.5rem;
+          border-radius: 999px;
+        }
+        .status-pill.on {
+          background: rgba(52, 199, 89, 0.16);
+          color: var(--accent-green, #34c759);
+        }
+        .status-pill.off {
+          background: rgba(139, 144, 168, 0.16);
+          color: var(--muted);
+        }
+        .offer-desc {
+          font-size: 0.8rem;
+          color: var(--muted);
+        }
+        .offer-card > button {
+          margin-top: 0.4rem;
+        }
+        .credits-field {
+          margin-top: 1rem;
+        }
+        .usage-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 1rem;
+        }
+        .usage-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.86rem;
+          margin-bottom: 0.5rem;
+        }
+        .usage-hint {
+          font-size: 0.74rem;
+          color: var(--muted);
+          margin: 0;
+          line-height: 1.4;
+        }
+        .credits-buy-row {
+          display: flex;
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+          flex-wrap: wrap;
+        }
+        .credits-module-tabs {
+          margin: 0 0 0.9rem;
+        }
+        .credits-module-panel {
+          padding-top: 0.3rem;
+        }
+        .invoices-list {
+          list-style: none;
+          margin: 0.6rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .invoice-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.82rem;
+          padding: 0.4rem 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .invoice-row:last-child {
+          border-bottom: none;
+        }
+        .invoice-link {
+          color: var(--accent);
+          font-size: 0.78rem;
+          font-weight: 600;
+          white-space: nowrap;
+          margin-left: 0.8rem;
+        }
+        .usage-field {
+          margin-top: 0.5rem;
+        }
+        .usage-bars {
+          display: flex;
+          align-items: flex-end;
+          gap: 0.4rem;
+          height: 48px;
+          margin: 0.8rem 0 0.4rem;
+        }
+        .usage-bar-wrap {
+          flex: 1;
+          height: 100%;
+          display: flex;
+          align-items: flex-end;
+          background: var(--surface);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+        .usage-bar {
+          width: 100%;
+          background: var(--accent);
+          min-height: 2px;
         }
       `}</style>
 
@@ -2338,7 +3733,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
-    { label: t('nav.preferences', locale), slug: 'preferences', icon: '⚙️' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
     { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
@@ -2663,6 +4057,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
