@@ -65,7 +65,14 @@ export async function POST(request: NextRequest) {
   const amountEur = Math.round(creditsNum * CREDIT_PRICE_EUR * 100) / 100;
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    // Objet de paramètres construit à part et casté `any` : `managed_payments`
+    // (voir commentaire plus bas) n'existe pas dans les types du SDK npm
+    // "stripe" installé (16.8.0, antérieur à cette fonctionnalité Stripe) même
+    // si l'API elle-même l'accepte avec l'apiVersion configurée dans
+    // lib/stripe.ts (déjà castée `any` pour la même raison) — évite une
+    // erreur TypeScript "Object literal may only specify known properties"
+    // qui casserait le build Vercel.
+    const sessionParams: any = {
       mode: 'payment',
       customer_email: authedUser.email,
       line_items: [
@@ -84,8 +91,8 @@ export async function POST(request: NextRequest) {
         },
       ],
       allow_promotion_codes: true,
-      success_url: `${origin}/app/preferences?user_id=${authedUser.id}&credits_success=1`,
-      cancel_url: `${origin}/app/preferences?user_id=${authedUser.id}`,
+      success_url: `${origin}/app/connexions?user_id=${authedUser.id}&tab=subscription&credits_success=1`,
+      cancel_url: `${origin}/app/connexions?user_id=${authedUser.id}&tab=subscription`,
       metadata: {
         purpose: 'credits_purchase',
         company_id: authedUser.company_id,
@@ -93,7 +100,19 @@ export async function POST(request: NextRequest) {
         credits: String(creditsNum),
         ...(moduleKey ? { module: moduleKey } : {}),
       },
-    });
+      // Bug signalé par Alex le 25/08 : l'achat échouait avec "Invalid
+      // line_items[0]: the product tax code is missing" — Stripe "Managed
+      // Payments" (activé par défaut sur le compte) exige un tax_code sur
+      // CHAQUE produit, y compris ceux créés à la volée via price_data
+      // (aucun tax_code n'est configurable sur un produit ad hoc). On
+      // désactive Managed Payments pour CETTE session ponctuelle plutôt que
+      // d'inventer/deviner un tax_code — Stripe applique alors son
+      // comportement standard (pas de calcul de taxe automatique sur cet
+      // achat de crédits, comme avant l'activation de Managed Payments).
+      managed_payments: { enabled: false },
+    };
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
