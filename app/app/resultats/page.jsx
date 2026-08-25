@@ -1431,6 +1431,13 @@ function PeriodPicker({ value, custom, onChange, onCustomChange, locale }) {
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
+  // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
+  // (pas grisé/verrouillé, absent) pour un compte "commercial" (rejoint via
+  // code d'invitation, ou créé en solo sans être "fondateur(trice)/
+  // dirigeant(e)" — voir app/onboarding/page.jsx). null tant que le rôle
+  // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
+  // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
+  const [userRole, setUserRole] = useState(null);
   const [locale, setLocale] = useLocale();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
@@ -1452,6 +1459,7 @@ function Shell({ children, active, userId }) {
           sales: prefs.offer_as_active !== true,
           customer: prefs.offer_ac_active !== true,
         });
+        setUserRole(prefs.role || null);
       })
       .catch(() => {});
     return () => {
@@ -1533,7 +1541,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => item.slug !== 'team' || userRole === 'patron').map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
