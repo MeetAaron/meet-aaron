@@ -531,7 +531,7 @@ export default function PreferencesPage() {
   }
 
   return (
-    <Shell active={t('nav.preferences', locale)} userId={userId}>
+    <Shell active={t('nav.preferences', locale)} userId={userId} preloadedPrefs={prefs}>
       <header className="header">
         <p className="eyebrow">{t('preferences.eyebrow', locale)}</p>
         <h1>{t('nav.preferences', locale)}</h1>
@@ -1414,7 +1414,7 @@ export default function PreferencesPage() {
   );
 }
 
-function Shell({ children, active, userId }) {
+function Shell({ children, active, userId, preloadedPrefs }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
@@ -1432,7 +1432,28 @@ function Shell({ children, active, userId }) {
   // offer_as_active/offer_ac_active), au lieu d'un seul module "offer" avec
   // Aaron Prospect toujours actif par défaut. Voir lib/subscription.ts et
   // l'onglet Abonnement dans Préférences.
+  //
+  // Round 3 (25/08) sur le bug persistant "Non authentifié" spécifique à
+  // CETTE page : `PreferencesPage` (le composant parent, plus haut dans ce
+  // même fichier) charge déjà l'intégralité de `/api/preferences` pour son
+  // propre contenu — ce Shell interne déclenchait donc un DEUXIÈME appel
+  // strictement identique, en plus des 5-6 autres appels déjà lancés en
+  // parallèle par PreferencesPage au montage (voir la nouvelle
+  // dédupliction/cache côté serveur dans lib/auth-helpers.ts, qui vise le
+  // même problème). Quand le parent a déjà les préférences (`preloadedPrefs`
+  // non nul), on les réutilise directement au lieu de refaire l'appel —
+  // un appel réseau de moins dans la rafale du montage. Les 13 autres pages
+  // ne passent pas ce prop et gardent le comportement (fetch) inchangé.
   useEffect(() => {
+    if (preloadedPrefs) {
+      setLockedModules({
+        prospect: preloadedPrefs.offer_ap_active === false,
+        sales: preloadedPrefs.offer_as_active !== true,
+        customer: preloadedPrefs.offer_ac_active !== true,
+      });
+      setUserRole(preloadedPrefs.role || null);
+      return;
+    }
     if (!userId) return;
     let cancelled = false;
     fetch(`/api/preferences?user_id=${userId}`)
@@ -1451,7 +1472,7 @@ function Shell({ children, active, userId }) {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, preloadedPrefs]);
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
@@ -1522,7 +1543,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => item.slug !== 'team' || userRole === 'patron').map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' && item.slug !== 'suggestions') || userRole === 'patron').map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
