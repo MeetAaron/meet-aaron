@@ -27,6 +27,7 @@
 import { useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
 import { parseCsv, autoMapColumns, buildMappedRows, IMPORT_FIELDS, isGenericEmailDomain } from '@/lib/csv-import';
+import { parseXlsxArrayBuffer } from '@/lib/xlsx-io';
 
 const MAX_ROWS = 500;
 const AI_BATCH_SIZE = 40;
@@ -78,9 +79,24 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     setTruncatedWarning(null);
     setFileName(file.name);
 
+    // Choix CSV (recommandé) / Excel demandé par Alex (2026-08-25) : détecté
+    // par l'extension du fichier déposé — pas besoin de le redemander,
+    // l'utilisateur vient de choisir ce fichier précis. Si c'est un Excel,
+    // Aaron le convertit lui-même (parseXlsxArrayBuffer, voir lib/xlsx-io.js)
+    // vers exactement la même forme de données qu'un CSV, donc tout le reste
+    // de ce composant (mapping, relecture, assistance IA) ne voit aucune
+    // différence entre les deux formats.
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+
     const reader = new FileReader();
-    reader.onload = () => {
-      const rows = parseCsv(String(reader.result || ''));
+    reader.onload = async () => {
+      let rows;
+      try {
+        rows = isExcel ? await parseXlsxArrayBuffer(reader.result) : parseCsv(String(reader.result || ''));
+      } catch (err) {
+        setError(t('csvImport.parseError', locale));
+        return;
+      }
       if (rows.length < 2) {
         setError(t('csvImport.tooFewRows', locale));
         return;
@@ -97,7 +113,11 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
       setStep('map');
     };
     reader.onerror = () => setError(t('csvImport.parseError', locale));
-    reader.readAsText(file);
+    if (isExcel) {
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
   }
 
   function handleMapContinue() {
@@ -318,7 +338,11 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
               {t(context === 'reactivation' ? 'csvImport.reactivationUploadHint' : 'csvImport.uploadHint', locale)}
             </p>
             <label className="file-drop">
-              <input type="file" accept=".csv,text/csv" onChange={handleFile} />
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                onChange={handleFile}
+              />
               {t('csvImport.chooseFile', locale)}
             </label>
             {error && <p className="error">{error}</p>}
