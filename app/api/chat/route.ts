@@ -315,7 +315,7 @@ async function detectFounderSuggestion(
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, message, history, attached_document } = await request.json();
+  const { user_id, conversation_id, message, history, attached_document } = await request.json();
   // Document joint à CETTE conversation (pas encore sauvegardé), voir
   // app/api/chat/document/route.ts : le frontend le renvoie sur chaque tour
   // tant qu'il reste "en attente" côté client (chip affiché dans l'UI), ce qui
@@ -333,6 +333,9 @@ export async function POST(request: NextRequest) {
 
   if (!user_id || !message) {
     return NextResponse.json({ error: 'user_id ou message manquant' }, { status: 400 });
+  }
+  if (!conversation_id) {
+    return NextResponse.json({ error: 'conversation_id manquant' }, { status: 400 });
   }
 
   const authedUser = await getAuthedUser(request);
@@ -479,12 +482,26 @@ export async function POST(request: NextRequest) {
   // vide. Attendu (pas fire-and-forget) : sur une plateforme serverless, le
   // travail lancé après la réponse HTTP n'est pas garanti de s'exécuter jusqu'au
   // bout. Ne bloque jamais la réponse au commercial si cette écriture échoue.
-  const rowsToInsert: { user_id: string; role: string; content: string }[] = [
-    { user_id, role: 'user', content: message },
+  const rowsToInsert: { user_id: string; conversation_id: string; role: string; content: string }[] = [
+    { user_id, conversation_id, role: 'user', content: message },
   ];
-  if (reply) rowsToInsert.push({ user_id, role: 'assistant', content: reply });
+  if (reply) rowsToInsert.push({ user_id, conversation_id, role: 'assistant', content: reply });
   const { error: historyError } = await supabaseAdmin.from('chat_messages').insert(rowsToInsert);
   if (historyError) console.error('Erreur persistance chat_messages:', historyError.message);
+
+  // Voir le commentaire équivalent dans app/api/chat-history/route.ts : fait
+  // remonter la conversation en haut de liste et lui donne un titre auto
+  // (premier message du commercial) si elle n'en a pas encore.
+  const { data: existingConversation } = await supabaseAdmin
+    .from('chat_conversations')
+    .select('title')
+    .eq('id', conversation_id)
+    .maybeSingle();
+  const conversationUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (existingConversation && !existingConversation.title) {
+    conversationUpdate.title = message.trim().slice(0, 60);
+  }
+  await supabaseAdmin.from('chat_conversations').update(conversationUpdate).eq('id', conversation_id);
 
   // document_saved indique au frontend (app/app/chat/page.jsx) qu'il peut
   // retirer le chip "document joint" — le document vient d'être écrit dans
