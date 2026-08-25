@@ -164,6 +164,16 @@ export default function PreferencesPage() {
   const [summaryLoaded, setSummaryLoaded] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [summarySaved, setSummarySaved] = useState(false);
+  // Bug remonté par Alex (25/08/2026) : après avoir relancé le questionnaire
+  // de découverte depuis le chat (bouton ci-dessous) puis être revenu sur
+  // Préférences, le résumé métier affiché restait l'ancien — /api/business-summary
+  // (POST, dans chat/page.jsx) sauvegarde pourtant bien côté serveur, mais cette
+  // page ne refait son fetch qu'au montage ([userId] ne change jamais), et la
+  // navigation retour peut réutiliser l'instance déjà montée sans redéclencher
+  // le useEffect. On force donc un re-fetch du résumé quand l'onglet redevient
+  // visible — sauf si le commercial a une modification manuelle non sauvegardée
+  // en cours dans le champ, pour ne jamais écraser sa saisie.
+  const [summaryDirty, setSummaryDirty] = useState(false);
   const [signature, setSignature] = useState('');
   const [signatureLoaded, setSignatureLoaded] = useState(false);
   const [detectingSignature, setDetectingSignature] = useState(false);
@@ -260,13 +270,7 @@ export default function PreferencesPage() {
         setInvoices(body.invoices || []);
       })
       .catch(() => setInvoicesError(t('preferences.invoices.error', locale)));
-    fetch(`/api/business-summary?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        setBusinessSummary(res.summary || '');
-        setSummaryLoaded(true);
-      })
-      .catch(() => setSummaryLoaded(true));
+    loadBusinessSummary();
     fetch(`/api/signature?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => {
@@ -282,6 +286,37 @@ export default function PreferencesPage() {
       })
       .catch(() => setLegalInfoLoaded(true));
   }, [userId]);
+
+  function loadBusinessSummary() {
+    if (!userId) return;
+    fetch(`/api/business-summary?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        setBusinessSummary(res.summary || '');
+        setSummaryLoaded(true);
+        setSummaryDirty(false);
+      })
+      .catch(() => setSummaryLoaded(true));
+  }
+
+  // Voir le commentaire sur summaryDirty plus haut : quand l'onglet redevient
+  // visible (retour depuis le chat après le questionnaire, ou simplement
+  // changement d'onglet du navigateur), on relit le résumé métier au cas où
+  // il aurait été régénéré ailleurs — sans écraser une saisie manuelle en cours.
+  useEffect(() => {
+    if (!userId) return;
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && !summaryDirty) {
+        loadBusinessSummary();
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [userId, summaryDirty]);
 
   async function handleSaveLegalInfo() {
     setSavingLegalInfo(true);
@@ -341,6 +376,7 @@ export default function PreferencesPage() {
     setSavingSummary(false);
     if (res.ok) {
       setSummarySaved(true);
+      setSummaryDirty(false);
       setTimeout(() => setSummarySaved(false), 2500);
     }
   }
@@ -571,7 +607,10 @@ export default function PreferencesPage() {
                   <textarea
                     rows={6}
                     value={businessSummary}
-                    onChange={(e) => setBusinessSummary(e.target.value)}
+                    onChange={(e) => {
+                      setBusinessSummary(e.target.value);
+                      setSummaryDirty(true);
+                    }}
                     placeholder={t('preferences.businessProfilePlaceholder', locale)}
                   />
                   <div className="actions">
@@ -1830,6 +1869,7 @@ function Shell({ children, active, userId, preloadedPrefs }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
