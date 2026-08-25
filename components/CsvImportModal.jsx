@@ -50,6 +50,11 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
   const [headers, setHeaders] = useState([]);
   const [rawRows, setRawRows] = useState([]);
   const [mapping, setMapping] = useState({});
+  // Docx pipeline "Réactivation" (Alex, 2026-08-23) : nom du fichier déposé,
+  // pour tracer le lot de réactivation (voir app/api/reactivation/batches) —
+  // utilisé uniquement quand context === 'reactivation'.
+  const [fileName, setFileName] = useState('');
+  const [reactivationConfirmed, setReactivationConfirmed] = useState(false);
 
   const [reviewRows, setReviewRows] = useState([]);
   const [included, setIncluded] = useState({});
@@ -71,6 +76,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     if (!file) return;
     setError(null);
     setTruncatedWarning(null);
+    setFileName(file.name);
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -202,8 +208,39 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     setProgress({ done: 0, total: includedRows.length });
     const rowResults = [];
 
+    // Docx pipeline "Réactivation" (Alex, 2026-08-23) : un seul lot tracé par
+    // fichier déposé (pas un par ligne) — la confirmation "je confirme
+    // donner à Aaron la prise en charge de ce fichier" a déjà été cochée à
+    // ce stade (bouton Importer désactivé sinon, voir plus bas).
+    let reactivationBatchId = null;
+    if (context === 'reactivation') {
+      try {
+        const batchRes = await fetch('/api/reactivation/batches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_id: companyId,
+            uploaded_by_user_id: userId,
+            file_name: fileName || 'fichier de réactivation',
+            row_count: includedRows.length,
+          }),
+        });
+        const batchBody = await batchRes.json();
+        if (batchRes.ok) reactivationBatchId = batchBody.batch.id;
+      } catch (err) {
+        // Best-effort : même si la création du lot échoue, on ne bloque pas
+        // la réactivation elle-même — les prospects seront juste créés sans
+        // reactivation_batch_id (origin reste correctement 'reactive_par_aaron').
+      }
+    }
+
     for (const row of includedRows) {
-      const skipFirstContact = context === 'prospects' ? !autoContact : true;
+      // 'reactivation' : Aaron contacte toujours automatiquement (pas de
+      // choix laissé, cohérent avec "Aaron doit soulager le commercial, pas
+      // lui imposer des contraintes" — voir doc pipeline). 'prospects' :
+      // choix du commercial via la case à cocher. Sinon (sales/customer) :
+      // jamais de 1er email à froid (relation déjà établie).
+      const skipFirstContact = context === 'reactivation' ? false : context === 'prospects' ? !autoContact : true;
       try {
         const res = await fetch('/api/prospects', {
           method: 'POST',
@@ -217,6 +254,8 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
             job_title: row.job_title || null,
             company_name: row.company_name || null,
             skip_first_contact: skipFirstContact,
+            origin: context === 'reactivation' ? 'reactive_par_aaron' : undefined,
+            reactivation_batch_id: reactivationBatchId,
           }),
         });
         const body = await res.json();
@@ -271,11 +310,13 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
   return (
     <div className="overlay" onClick={step === 'importing' ? undefined : onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{t('csvImport.title', locale)}</h2>
+        <h2>{t(context === 'reactivation' ? 'csvImport.reactivationTitle' : 'csvImport.title', locale)}</h2>
 
         {step === 'upload' && (
           <>
-            <p className="hint">{t('csvImport.uploadHint', locale)}</p>
+            <p className="hint">
+              {t(context === 'reactivation' ? 'csvImport.reactivationUploadHint' : 'csvImport.uploadHint', locale)}
+            </p>
             <label className="file-drop">
               <input type="file" accept=".csv,text/csv" onChange={handleFile} />
               {t('csvImport.chooseFile', locale)}
@@ -429,6 +470,20 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
             )}
             {context === 'prospects' && <p className="hint small">{t('csvImport.autoContactHint', locale)}</p>}
 
+            {context === 'reactivation' && (
+              <>
+                <p className="hint small">{t('csvImport.reactivationAutoContactHint', locale)}</p>
+                <label className="ai-toggle">
+                  <input
+                    type="checkbox"
+                    checked={reactivationConfirmed}
+                    onChange={(e) => setReactivationConfirmed(e.target.checked)}
+                  />
+                  {t('csvImport.reactivationConfirmLabel', locale)}
+                </label>
+              </>
+            )}
+
             {context === 'sales' && stageOrder && (
               <label className="map-row">
                 {t('csvImport.stageLabel', locale)}
@@ -447,7 +502,12 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
               <button type="button" className="btn-secondary" onClick={() => setStep('map')}>
                 {t('csvImport.backButton', locale)}
               </button>
-              <button type="button" className="btn-primary" disabled={includedRows.length === 0} onClick={handleImport}>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={includedRows.length === 0 || (context === 'reactivation' && !reactivationConfirmed)}
+                onClick={handleImport}
+              >
                 {t('csvImport.importButton', locale).replace('{n}', String(includedRows.length))}
               </button>
             </div>
