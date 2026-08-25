@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   const { data: alreadyLinked } = await supabaseAdmin
     .from('users')
-    .select('id, company_id, first_name, full_name, role')
+    .select('id, company_id, first_name, full_name, role, email')
     .eq('auth_user_id', auth_user_id)
     .maybeSingle();
 
@@ -49,6 +49,19 @@ export async function POST(request: NextRequest) {
     const inactiveError = await subscriptionInactiveError(alreadyLinked.company_id);
     if (inactiveError) {
       return NextResponse.json({ error: inactiveError }, { status: 403 });
+    }
+    // Changement d'email depuis "Mon compte" (demande Alex 2026-08-25) :
+    // supabaseBrowser.auth.updateUser({ email }) envoie un lien de
+    // confirmation à la NOUVELLE adresse et ne fait rien tant qu'il n'est pas
+    // cliqué — `email` ici vient du token de session déjà vérifié
+    // (getAuthedIdentity), donc une différence signifie que la confirmation
+    // a bien eu lieu. Ce point d'entrée est appelé au chargement de chaque
+    // page (voir useAuthedUser, dupliqué dans les 14 pages), c'est donc
+    // l'endroit le plus fiable pour répercuter le changement dans la table
+    // "users" sans construire un webhook Supabase Auth dédié.
+    if (email && alreadyLinked.email && email !== alreadyLinked.email) {
+      await supabaseAdmin.from('users').update({ email }).eq('id', alreadyLinked.id);
+      alreadyLinked.email = email;
     }
     return NextResponse.json({ user: alreadyLinked });
   }
