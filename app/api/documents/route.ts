@@ -15,6 +15,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { extractDocumentText } from '@/lib/document-extraction';
+import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 
 const BUCKET = 'documents';
 
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const storagePath = `${user.company_id}/${Date.now()}-${file.name}`;
+  const storagePath = `${user.company_id}/${Date.now()}-${sanitizeFilenameForStorageKey(file.name)}`;
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from(BUCKET)
