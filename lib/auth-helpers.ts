@@ -31,11 +31,28 @@ export interface AuthedUser {
 // token de session déjà extrait — cœur commun à getAuthedIdentity (en-tête
 // Authorization) et getAuthedUserFromToken (token en query param, pour les routes
 // atteintes par navigation complète et non par fetch()).
+//
+// Retente une fois en cas d'ERREUR de la vérification elle-même (pas "token
+// invalide/expiré" — un vrai souci ponctuel côté serveur Supabase Auth, un
+// blip réseau entre notre backend et Supabase). Ajouté le 25/08 en écho au
+// même correctif déjà fait sur fetchUserRow ci-dessous (25/08 également) :
+// avant ça, CETTE étape-ci (vérification du token) n'avait aucune
+// résilience — une seule erreur transitoire ici renvoyait null tout de
+// suite, donc un 401 "Non authentifié" alors que le token était en fait
+// valide. Alex a remonté (25/08) que le 401 persistant touchait plusieurs
+// pages différentes malgré "Réessayer" : cette étape, plus en amont que le
+// correctif précédent, est une piste supplémentaire.
 async function resolveIdentityFromToken(token: string): Promise<{ auth_user_id: string; email: string } | null> {
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user?.id || !data.user.email) return null;
-
-  return { auth_user_id: data.user.id, email: data.user.email };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (!error && data?.user?.id && data.user.email) {
+      return { auth_user_id: data.user.id, email: data.user.email };
+    }
+    if (error) {
+      console.error('[auth-helpers] Erreur vérification token Supabase Auth, tentative ' + (attempt + 1) + ' :', error.message);
+    }
+  }
+  return null;
 }
 
 // Résout uniquement l'identité Supabase Auth (auth_user_id + email) à partir du
