@@ -514,10 +514,18 @@ export default function DashboardPage() {
             )}
           </section>
 
-          <section className="stat-row">
+          {/* Docx bug PWA (Alex, 2026-08-23) : le bloc RDV doit être son propre
+              bloc, juste sous "Actions requises" et au-dessus du bloc
+              "Prospect" — avant, RDV et les statuts prospect étaient mélangés
+              dans la même rangée sans titre. Séparé en deux sections
+              distinctes ci-dessous, la 2e reprenant le même habillage
+              (panel + h2 + category-row) que les sections Opportunités/
+              Clients plus bas, pour que "Prospect" ait enfin son propre
+              titre comme elles. */}
+          <section className="rdv-block">
             {/* "attention rdv obtenu doit être tout à gauche, donc à gauche
-                de 'en bonne voie'" (Alex, 2026-08-20) — carte affichée en
-                premier, avant "en bonne voie". */}
+                de 'en bonne voie'" (Alex, 2026-08-20) — conservé : la carte
+                RDV reste la toute première carte de statistiques affichée. */}
             <div className="stat-card rdv-obtenu-card">
               <span className="dot" style={{ background: '#4B9EF0' }} />
               <span className="stat-number">{rdvObtenus24h.length}</span>
@@ -540,18 +548,24 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-            <div className="stat-card">
-              <span className="dot" style={{ background: STATUS_META.vert.color }} />
-              <span className="stat-number">{statusCounts.vert || 0}</span>
-              <span className="stat-label">{STATUS_META.vert.label}</span>
-            </div>
-            {['jaune', 'orange', 'rouge'].map((key) => (
-              <div className="stat-card" key={key}>
-                <span className="dot" style={{ background: STATUS_META[key].color }} />
-                <span className="stat-number">{statusCounts[key] || 0}</span>
-                <span className="stat-label">{STATUS_META[key].label}</span>
+          </section>
+
+          <section className="panel category-panel">
+            <h2>{t('dash.prospectsTitle', locale)}</h2>
+            <div className="category-row">
+              <div className="stat-card">
+                <span className="dot" style={{ background: STATUS_META.vert.color }} />
+                <span className="stat-number">{statusCounts.vert || 0}</span>
+                <span className="stat-label">{STATUS_META.vert.label}</span>
               </div>
-            ))}
+              {['jaune', 'orange', 'rouge'].map((key) => (
+                <div className="stat-card" key={key}>
+                  <span className="dot" style={{ background: STATUS_META[key].color }} />
+                  <span className="stat-number">{statusCounts[key] || 0}</span>
+                  <span className="stat-label">{STATUS_META[key].label}</span>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="grid-two">
@@ -856,6 +870,17 @@ export default function DashboardPage() {
           grid-template-columns: repeat(5, 1fr);
           gap: 0.75rem;
           margin-bottom: 2rem;
+        }
+        .rdv-block {
+          margin-bottom: 1.25rem;
+        }
+        .rdv-block .stat-card {
+          max-width: 280px;
+        }
+        @media (max-width: 480px) {
+          .rdv-block .stat-card {
+            max-width: none;
+          }
         }
         .stat-card {
           background: var(--surface);
