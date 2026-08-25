@@ -448,22 +448,25 @@ export default function ChatPage() {
 
     // Questionnaire de découverte guidé : on avance question par question,
     // en local pour la logique de progression (prévisible, jamais bloquée
-    // par un souci réseau/API) — mais avec, depuis le docx item A4, UN appel
-    // IA léger avant d'enchaîner, pour qu'Aaron accuse réception de la
-    // réponse au lieu de passer à la question suivante comme si de rien
-    // n'était (cas remonté par Alex : répondre qu'un "premier contact" est
-    // déjà un rendez-vous doit être reconnu, pas ignoré). Best-effort : si
-    // l'appel échoue ou que le plafond API est atteint, on retombe sur
-    // l'ancien comportement (juste la question suivante, sans accroche) —
-    // jamais bloquant pour la progression du questionnaire.
+    // par un souci réseau/API), mais chaque message est d'abord CLASSÉ par
+    // un appel IA léger (/api/chat/onboarding-ack) : est-ce une vraie
+    // réponse à la question posée, ou une question/incompréhension de la
+    // part du commercial ? Retour Alex (2026-08-25, capture à l'appui) :
+    // avant ce correctif, un message comme "c'est à dire ?" était traité
+    // comme SI c'était la réponse, et Aaron enchaînait quand même sur la
+    // question suivante — un simple formulaire déguisé, pas une vraie
+    // interaction. Maintenant : si ce n'est pas une réponse, Aaron clarifie
+    // (reply) et REPOSE la même question, sans avancer ni enregistrer quoi
+    // que ce soit comme réponse. Best-effort : si l'appel échoue ou que le
+    // plafond API est atteint, on retombe sur l'ancien comportement (avance
+    // directement, sans accroche) — jamais bloquant pour la progression.
     const onboardingQuestions = getOnboardingQuestions(locale);
     if (onboardingStep >= 0 && onboardingStep < onboardingQuestions.length) {
       const askedQuestion = onboardingQuestions[onboardingStep];
-      const updatedAnswers = [...onboardingAnswers, { question: askedQuestion, answer: userMessage.content }];
-      setOnboardingAnswers(updatedAnswers);
       setSending(true);
 
-      let ack = null;
+      let isAnswer = true;
+      let reply = null;
       try {
         const ackRes = await fetch('/api/chat/onboarding-ack', {
           method: 'POST',
@@ -471,30 +474,47 @@ export default function ChatPage() {
           body: JSON.stringify({ user_id: userId, question: askedQuestion, answer: userMessage.content }),
         });
         const ackData = await ackRes.json();
-        ack = ackData.ack || null;
+        isAnswer = ackData.is_answer !== false;
+        reply = ackData.reply || null;
       } catch {
         // Voir commentaire ci-dessus — dégradation silencieuse.
       }
 
-      const nextStep = onboardingStep + 1;
       let assistantMessage;
       let newOnboardingStep;
-      if (nextStep < onboardingQuestions.length) {
-        newOnboardingStep = nextStep;
-        const nextQuestion = onboardingQuestions[nextStep];
-        assistantMessage = { role: 'assistant', content: ack ? `${ack}\n\n${nextQuestion}` : nextQuestion };
-        setOnboardingStep(nextStep);
+      let answersToSave = onboardingAnswers;
+
+      if (!isAnswer) {
+        // Pas une réponse : on ne fait PAS avancer le questionnaire, et on
+        // n'enregistre RIEN comme réponse à la question posée — sinon "c'est
+        // à dire ?" se retrouverait enregistré comme réponse au résumé final.
+        newOnboardingStep = onboardingStep;
+        assistantMessage = { role: 'assistant', content: reply || askedQuestion };
       } else {
-        newOnboardingStep = -1;
-        const completion = t('chat.onboardingCompleteDocs', locale);
-        assistantMessage = { role: 'assistant', content: ack ? `${ack}\n\n${completion}` : completion };
-        setOnboardingStep(-1);
+        const updatedAnswers = [...onboardingAnswers, { question: askedQuestion, answer: userMessage.content }];
+        answersToSave = updatedAnswers;
+        setOnboardingAnswers(updatedAnswers);
+
+        const nextStep = onboardingStep + 1;
+        if (nextStep < onboardingQuestions.length) {
+          newOnboardingStep = nextStep;
+          const nextQuestion = onboardingQuestions[nextStep];
+          assistantMessage = { role: 'assistant', content: reply ? `${reply}\n\n${nextQuestion}` : nextQuestion };
+          setOnboardingStep(nextStep);
+        } else {
+          newOnboardingStep = -1;
+          const completion = t('chat.onboardingCompleteDocs', locale);
+          assistantMessage = { role: 'assistant', content: reply ? `${reply}\n\n${completion}` : completion };
+          setOnboardingStep(-1);
+        }
       }
+
       setSending(false);
       setMessages([...newMessages, assistantMessage]);
 
-      // Persiste ce tour de questionnaire (question + réponse) et la nouvelle
-      // progression, pour ne pas la reperdre si la page est quittée avant la fin.
+      // Persiste ce tour de questionnaire (question + réponse, si c'en était
+      // vraiment une) et la nouvelle progression, pour ne pas la reperdre si
+      // la page est quittée avant la fin.
       fetch('/api/chat-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -502,7 +522,7 @@ export default function ChatPage() {
           user_id: userId,
           messages: [userMessage, assistantMessage],
           onboarding_step: newOnboardingStep,
-          onboarding_answers: updatedAnswers,
+          onboarding_answers: answersToSave,
         }),
       }).catch(() => {});
 
