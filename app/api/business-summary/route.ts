@@ -132,10 +132,24 @@ export async function POST(request: NextRequest) {
     (documentSummaries ? `Documents fournis (déjà résumés) :\n${documentSummaries}\n\n` : '') +
     (qaText ? `Réponses du commercial à un questionnaire de découverte :\n${qaText}\n\n` : '') +
     (description && !qaText ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
-    `Rédige un résumé clair et structuré de l'activité de cette société en 5 à 8 phrases : ce qu'elle vend, ` +
+    `Rédige un résumé clair et structuré de l'activité de cette société en 5 à 9 phrases : ce qu'elle vend, ` +
     `les différents profils/types de clients (s'il y en a plusieurs), le produit ou service phare, l'argument de ` +
     `vente qui fait le plus mouche, l'objection la plus fréquente et comment la lever, et le type de conclusion à ` +
-    `viser après un premier contact (RDV, devis, essai...). Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
+    `viser après un premier contact (RDV, devis, essai...). ` +
+    // 2026-08-25 (demande Alex, feedback sur des premiers emails jugés trop
+    // génériques) : si le commercial a donné des éléments concrets de
+    // légitimité/expertise (années d'expérience, certifications/labels,
+    // nombre de clients ou chantiers réalisés, spécialisation précise,
+    // références notables), fais-en une phrase À PART, clairement identifiable
+    // dans le résumé — c'est ce qu'Aaron utilise pour positionner le premier
+    // message comme venant d'un expert reconnu plutôt que d'un commercial
+    // générique (principe d'autorité de Cialdini, voir lib/aaron_system_prompt.md).
+    // N'invente RIEN : si aucun élément concret de ce type n'a été donné,
+    // n'ajoute pas cette phrase plutôt que d'en fabriquer une vague.
+    `Si le commercial a mentionné des éléments concrets prouvant son expérience/expertise/légitimité (années ` +
+    `d'expérience, certifications, nombre de clients ou de réalisations, spécialisation, références notables), ` +
+    `regroupe-les dans une phrase séparée et explicite commençant par "Légitimité :" — sans en inventer si aucun ` +
+    `n'a été fourni. Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
     `préambule ni titre.`;
 
   try {
