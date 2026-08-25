@@ -97,6 +97,12 @@ const ONBOARDING_QUESTION_KEYS = [
   'chat.onboardingQ5',
   'chat.onboardingQ6',
   'chat.onboardingQ7',
+  // Q8 (2026-08-25, demande Alex) : éléments d'autorité/légitimité (expérience,
+  // certifications, chiffres, références) — sans ça le résumé business ne
+  // contient rien que le premier email à un prospect puisse utiliser pour
+  // établir une vraie posture d'expert (principe d'autorité de Cialdini),
+  // voir app/api/business-summary/route.ts et lib/aaron_system_prompt.md.
+  'chat.onboardingQ8',
 ];
 
 function getOnboardingQuestions(locale) {
