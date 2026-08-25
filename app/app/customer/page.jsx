@@ -14,6 +14,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
+import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 function useAuthedUser() {
@@ -123,6 +124,13 @@ function exportCustomersToCsv(customers, locale, format) {
     t('prospects.colName', locale),
     t('modal.email', locale),
     t('prospects.colJobTitle', locale),
+    t('prospects.colCompany', locale),
+    t('prospects.colAddress', locale),
+    t('prospects.colSiret', locale),
+    t('prospects.colWebsite', locale),
+    t('prospects.colIndustry', locale),
+    t('prospects.colCompanySize', locale),
+    t('prospects.colEstimatedRevenue', locale),
     t('customer.colHealth', locale),
     t('prospects.templateColManaged', locale),
   ];
@@ -130,6 +138,13 @@ function exportCustomersToCsv(customers, locale, format) {
     c.full_name,
     c.email,
     c.job_title || '',
+    c.prospect_companies?.name || '',
+    c.prospect_companies?.address || '',
+    c.prospect_companies?.siret || '',
+    c.prospect_companies?.website || '',
+    c.prospect_companies?.industry || '',
+    c.prospect_companies?.company_size || '',
+    c.prospect_companies?.estimated_revenue || '',
     c.customer_health_label || '',
     c.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
   ]);
@@ -143,6 +158,12 @@ function downloadBlankCustomersTemplate(locale, format) {
     t('prospects.colJobTitle', locale),
     t('modal.email', locale),
     t('modal.phone', locale),
+    t('prospects.colAddress', locale),
+    t('prospects.colSiret', locale),
+    t('prospects.colWebsite', locale),
+    t('prospects.colIndustry', locale),
+    t('prospects.colCompanySize', locale),
+    t('prospects.colEstimatedRevenue', locale),
     t('prospects.templateColManaged', locale),
   ];
   downloadSpreadsheet(headers, [], 'modele-clients-vierge', format);
@@ -503,12 +524,14 @@ export default function CustomerPage() {
           {t('customer.subtitle', locale)}
         </p>
         <div className="header-actions">
-          {customers.length > 0 && (
-            <ExportFormatMenu
-              label={t('customer.exportCsv', locale)}
-              onChoose={(format) => exportCustomersToCsv(customers, locale, format)}
-            />
-          )}
+          {/* Voir le même correctif dans app/app/prospects/page.jsx : bouton
+              toujours visible (désactivé plutôt que masqué si rien à
+              exporter), pour ne plus donner l'impression qu'il manque. */}
+          <ExportFormatMenu
+            label={t('customer.exportCsv', locale)}
+            disabled={customers.length === 0}
+            onChoose={(format) => exportCustomersToCsv(customers, locale, format)}
+          />
           <ExportFormatMenu
             label={t('customer.downloadTemplate', locale)}
             onChoose={(format) => downloadBlankCustomersTemplate(locale, format)}
@@ -654,6 +677,10 @@ export default function CustomerPage() {
                 {selectedCustomer.prospect_companies?.name && (
                   <p className="muted">{selectedCustomer.prospect_companies.name}{selectedCustomer.job_title ? ` — ${selectedCustomer.job_title}` : ''}</p>
                 )}
+
+                <section className="block">
+                  <CompanyInfoEditor prospect={selectedCustomer} locale={locale} onSaved={load} />
+                </section>
 
                 {selectedCustomer.won_reason && (
                   <p className="won-reason-line">
@@ -1033,6 +1060,10 @@ export default function CustomerPage() {
           margin: 0;
         }
         .header-actions {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.6rem;
           margin-top: 0.9rem;
         }
         .muted {
@@ -1740,6 +1771,7 @@ function Shell({ children, active, userId }) {
         }
         .content {
           padding: 2.5rem 3rem;
+          min-width: 0;
           animation: content-in 0.35s var(--ease);
         }
         @keyframes content-in {
@@ -1840,6 +1872,13 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
   const [email, setEmail] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
+  const [showCompanyFields, setShowCompanyFields] = useState(false);
+  const [address, setAddress] = useState('');
+  const [siret, setSiret] = useState('');
+  const [website, setWebsite] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [companySize, setCompanySize] = useState('');
+  const [estimatedRevenue, setEstimatedRevenue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1861,6 +1900,12 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
         job_title: jobTitle || null,
         company_name: companyName || null,
         skip_first_contact: true,
+        address: address || null,
+        siret: siret || null,
+        website: website || null,
+        industry: industry || null,
+        company_size: companySize || null,
+        estimated_revenue: estimatedRevenue || null,
       }),
     });
     const body = await res.json();
@@ -1920,6 +1965,39 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
           <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         </label>
 
+        {!showCompanyFields ? (
+          <button type="button" className="toggle-company-fields" onClick={() => setShowCompanyFields(true)}>
+            + {t('prospects.companyInfoTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          </button>
+        ) : (
+          <div className="company-fields">
+            <label>
+              {t('prospects.colAddress', locale)}
+              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colSiret', locale)}
+              <input value={siret} onChange={(e) => setSiret(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colWebsite', locale)}
+              <input value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colIndustry', locale)}
+              <input value={industry} onChange={(e) => setIndustry(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colCompanySize', locale)}
+              <input value={companySize} onChange={(e) => setCompanySize(e.target.value)} />
+            </label>
+            <label>
+              {t('prospects.colEstimatedRevenue', locale)}
+              <input value={estimatedRevenue} onChange={(e) => setEstimatedRevenue(e.target.value)} />
+            </label>
+          </div>
+        )}
+
         {error && <p className="error">{error}</p>}
 
         <div className="actions">
@@ -1948,6 +2026,8 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
           padding: 1.8rem;
           width: 420px;
           max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
         }
         h2 {
           font-family: var(--font-display);
@@ -1974,6 +2054,33 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
         .name-row label {
           flex: 1;
           min-width: 0;
+        }
+        .toggle-company-fields {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0;
+          margin-bottom: 1rem;
+        }
+        .company-fields {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.8rem 0.8rem;
+          margin-bottom: 0.2rem;
+          padding: 0.9rem;
+          background: var(--bg);
+          border-radius: var(--radius-sm);
+        }
+        .company-fields label {
+          margin-bottom: 0;
+        }
+        @media (max-width: 480px) {
+          .company-fields {
+            grid-template-columns: 1fr;
+          }
         }
         input {
           width: 100%;
