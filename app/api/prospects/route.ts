@@ -43,6 +43,19 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
 
+  // Docx pipeline "Réactivation" (Alex, 2026-08-23) : d'où vient ce prospect —
+  // sourcé par Aaron (campagne de prospection), ajouté à la main par le
+  // commercial (formulaire ou import CSV normal), ou réactivé par Aaron
+  // depuis un fichier de clients/prospects/opportunités perdus (voir
+  // components/CsvImportModal.jsx contexte "reactivation" et
+  // app/api/reactivation/batches). Valeur par défaut 'amene_par_toi' pour ne
+  // rien changer au comportement existant (ajout manuel / import CSV normal)
+  // quand le champ n'est pas fourni.
+  const origin = ['amene_par_aaron', 'amene_par_toi', 'reactive_par_aaron'].includes(body.origin)
+    ? body.origin
+    : 'amene_par_toi';
+  const reactivationBatchId = body.reactivation_batch_id || null;
+
   // docx AJOUT GLOBAL A15 : "ajouter manuellement" une opportunité ou un
   // client directement depuis Aaron Sales / Aaron Customer (import d'une
   // base existante, relation déjà établie hors Meet Aaron) — voir
@@ -106,6 +119,8 @@ export async function POST(request: NextRequest) {
       job_title,
       linkedin_url: linkedin_url?.trim() || null,
       status: 'jaune',
+      origin,
+      reactivation_batch_id: reactivationBatchId,
     })
     .select()
     .single();
