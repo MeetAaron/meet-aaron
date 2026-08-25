@@ -1,7 +1,7 @@
 // app/app/agenda/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -191,6 +191,10 @@ export default function AgendaPage() {
   const [addModalPreset, setAddModalPreset] = useState(null); // { kind, date, hideUnavailability } quand ouvert depuis le calendrier
   const [detailAppointment, setDetailAppointment] = useState(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false); // docx AGENDA #19 : liste repliable (5 par défaut)
+  // Demande d'Alex (25/08/2026) : mêmes listes repliables (5 par défaut) pour
+  // les créneaux récurrents et les indisponibilités ponctuelles.
+  const [showAllRules, setShowAllRules] = useState(false);
+  const [showAllBlocks, setShowAllBlocks] = useState(false);
 
   // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
   // hebdomadaires récurrentes + indisponibilités ponctuelles.
@@ -547,73 +551,6 @@ export default function AgendaPage() {
         </div>
       )}
 
-      <section className="block calendar-block">
-        <h2>{t('agenda.calendarTitle', locale)}</h2>
-        <MonthCalendar
-          month={calendarMonth}
-          onChangeMonth={setCalendarMonth}
-          appointments={appointments}
-          blocks={blocks}
-          selectedDay={selectedDay}
-          onSelectDay={(day) => setSelectedDay((prev) => (prev && prev.toDateString() === day.toDateString() ? null : day))}
-        />
-
-        {selectedDay && (
-          <div className="day-detail">
-            <div className="day-detail-header">
-              <strong>{selectedDay.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
-              <button type="button" className="btn-remove" onClick={() => setSelectedDay(null)} aria-label={t('agenda.dayDetailClose', locale)}>✕</button>
-            </div>
-
-            {selectedDayAppointments.length === 0 ? (
-              <p className="muted small">{t('agenda.dayDetailNoAppointments', locale)}</p>
-            ) : (
-              <ul className="day-detail-list">
-                {selectedDayAppointments.map((a) => (
-                  <li key={a.id} className="day-detail-item">
-                    <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
-                    <span>{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className="muted">{a.prospects?.full_name || a.contact_name}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {selectedDayBlocks.length === 0 ? (
-              <p className="muted small">{t('agenda.dayDetailNoBlocks', locale)}</p>
-            ) : (
-              <ul className="day-detail-list">
-                {selectedDayBlocks.map((b) => (
-                  <li key={b.id} className="day-detail-item">
-                    <span className="block-dot" />
-                    <span>
-                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
-                      {' → '}
-                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                    {b.reason && <span className="muted">{b.reason}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="day-detail-actions">
-              <button type="button" className="btn-secondary" onClick={() => openAddForDay(null, { hideUnavailability: true })}>
-                {t('agenda.dayDetailAddAppt', locale)}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => openAddForDay('indisponibilite')}>
-                {t('agenda.dayDetailAddBlock', locale)}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="calendar-legend">
-          <span className="legend-item"><span className="legend-dot appt" /> {t('agenda.calendarLegendAppt', locale)}</span>
-          <span className="legend-item"><span className="legend-dot blocked" /> {t('agenda.calendarLegendBlocked', locale)}</span>
-        </div>
-      </section>
-
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : appointments.length === 0 ? (
@@ -737,6 +674,77 @@ export default function AgendaPage() {
         </>
       )}
 
+      {/* "la liste des rdvs à venir doit être tout en haut. Et ensuite
+          seulement le bloc calendrier" (Alex, 25/08/2026) — le bloc
+          calendrier vient maintenant après la liste des RDV ci-dessus,
+          au lieu d'avant. */}
+      <section className="block calendar-block">
+        <h2>{t('agenda.calendarTitle', locale)}</h2>
+        <MonthCalendar
+          month={calendarMonth}
+          onChangeMonth={setCalendarMonth}
+          appointments={appointments}
+          blocks={blocks}
+          selectedDay={selectedDay}
+          onSelectDay={(day) => setSelectedDay((prev) => (prev && prev.toDateString() === day.toDateString() ? null : day))}
+        />
+
+        {selectedDay && (
+          <div className="day-detail">
+            <div className="day-detail-header">
+              <strong>{selectedDay.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
+              <button type="button" className="btn-remove" onClick={() => setSelectedDay(null)} aria-label={t('agenda.dayDetailClose', locale)}>✕</button>
+            </div>
+
+            {selectedDayAppointments.length === 0 ? (
+              <p className="muted small">{t('agenda.dayDetailNoAppointments', locale)}</p>
+            ) : (
+              <ul className="day-detail-list">
+                {selectedDayAppointments.map((a) => (
+                  <li key={a.id} className="day-detail-item">
+                    <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                    <span>{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="muted">{a.prospects?.full_name || a.contact_name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {selectedDayBlocks.length === 0 ? (
+              <p className="muted small">{t('agenda.dayDetailNoBlocks', locale)}</p>
+            ) : (
+              <ul className="day-detail-list">
+                {selectedDayBlocks.map((b) => (
+                  <li key={b.id} className="day-detail-item">
+                    <span className="block-dot" />
+                    <span>
+                      {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
+                      {' → '}
+                      {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                    {b.reason && <span className="muted">{b.reason}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="day-detail-actions">
+              <button type="button" className="btn-secondary" onClick={() => openAddForDay(null, { hideUnavailability: true })}>
+                {t('agenda.dayDetailAddAppt', locale)}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => openAddForDay('indisponibilite')}>
+                {t('agenda.dayDetailAddBlock', locale)}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="calendar-legend">
+          <span className="legend-item"><span className="legend-dot appt" /> {t('agenda.calendarLegendAppt', locale)}</span>
+          <span className="legend-item"><span className="legend-dot blocked" /> {t('agenda.calendarLegendBlocked', locale)}</span>
+        </div>
+      </section>
+
       {/* Disponibilités fusionnées ici (#86) — deux sections sous les RDV, plus d'onglet séparé. */}
       <section className="block">
         <h2>{t('disponibilites.recurringSlotsTitle', locale)}</h2>
@@ -748,7 +756,7 @@ export default function AgendaPage() {
               <p className="muted small">{t('disponibilites.noRulesYet', locale)}</p>
             ) : (
               <ul className="rule-list">
-                {rules.map((r) =>
+                {(showAllRules ? rules : rules.slice(0, 5)).map((r) =>
                   editingRuleId === r.id ? (
                     <li key={r.id} className="rule-item rule-item-editing">
                       <select
@@ -791,6 +799,11 @@ export default function AgendaPage() {
                 )}
               </ul>
             )}
+            {rules.length > 5 && (
+              <button type="button" className="btn-link-more" onClick={() => setShowAllRules((prev) => !prev)}>
+                {showAllRules ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${rules.length - 5})`}
+              </button>
+            )}
 
             <form className="rule-form" onSubmit={handleAddRule}>
               <select value={newRule.day_of_week} onChange={(e) => setNewRule({ ...newRule, day_of_week: Number(e.target.value) })}>
@@ -818,7 +831,7 @@ export default function AgendaPage() {
               <p className="muted small">{t('disponibilites.noBlocksUpcoming', locale)}</p>
             ) : (
               <ul className="block-list">
-                {blocks.map((b) =>
+                {(showAllBlocks ? blocks : blocks.slice(0, 5)).map((b) =>
                   editingBlockId === b.id ? (
                     <li key={b.id} className="block-item block-item-editing">
                       <input
@@ -857,6 +870,11 @@ export default function AgendaPage() {
                   )
                 )}
               </ul>
+            )}
+            {blocks.length > 5 && (
+              <button type="button" className="btn-link-more" onClick={() => setShowAllBlocks((prev) => !prev)}>
+                {showAllBlocks ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${blocks.length - 5})`}
+              </button>
             )}
 
             <form className="block-form" onSubmit={handleAddBlock}>
@@ -1539,6 +1557,250 @@ function toDateInputValue(d) {
   return `${y}-${m}-${day}`;
 }
 
+// Retour d'Alex (25/08/2026) sur le formulaire "Ajouter dans l'agenda" :
+// "quand on choisit une indisponibilité, un calendrier apparaît [...] mais
+// penses à bien séparer entre les mois [...] car là on ne distingue pas bien
+// les mois entre eux" — c'était le sélecteur de date NATIF du navigateur
+// (<input type="date">), dont l'apparence dépend entièrement du navigateur/OS
+// et qu'on ne peut pas restyler en CSS. On le remplace ici par un vrai
+// composant, sur le même principe que MonthCalendar (un seul mois affiché à
+// la fois, en-tête "Mois Année" bien visible, flèches précédent/suivant) —
+// même logique visuelle qu'Alex avait déjà validée pour le calendrier
+// principal de l'agenda.
+function SimpleDatePicker({ value, onChange }) {
+  const [locale] = useLocale();
+  const MONTH_LABELS = monthLabelsFor(locale);
+  const WEEKDAY_LABELS = weekdayLabelsFor(locale);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const selectedDate = value ? new Date(`${value}T00:00:00`) : null;
+  const [viewMonth, setViewMonth] = useState(() => selectedDate || new Date());
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  // Retour d'Alex (25/08/2026) : choisir le 15 septembre comme date de début
+  // puis ouvrir le sélecteur de date de fin ne doit pas retomber sur le mois
+  // du jour (août) — "ça perturbe et on est obligé de scroller à chaque
+  // fois". `viewMonth` doit donc suivre `value` quand celui-ci change depuis
+  // l'extérieur (voir la synchronisation date de début -> date de fin dans
+  // AddEntryModal), pas seulement à l'ouverture initiale du composant.
+  useEffect(() => {
+    if (selectedDate) setViewMonth(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const year = viewMonth.getFullYear();
+  const monthIndex = viewMonth.getMonth();
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  const startOffset = (firstOfMonth.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, monthIndex, d));
+
+  const displayLabel = selectedDate
+    ? selectedDate.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+    : t('agenda.pickDatePlaceholder', locale);
+
+  return (
+    <div className="simple-date-picker" ref={wrapRef}>
+      <button type="button" className="date-trigger" onClick={() => setOpen((o) => !o)}>
+        📅 {displayLabel}
+      </button>
+      {open && (
+        <div className="date-popover">
+          <div className="cal-header">
+            <button type="button" onClick={() => setViewMonth(new Date(year, monthIndex - 1, 1))} aria-label={t('common.back', locale)}>‹</button>
+            <span>{MONTH_LABELS[monthIndex]} {year}</span>
+            <button type="button" onClick={() => setViewMonth(new Date(year, monthIndex + 1, 1))} aria-label={t('tour.next', locale)}>›</button>
+          </div>
+          <div className="cal-grid cal-weekdays">
+            {WEEKDAY_LABELS.map((w, i) => <span key={i}>{w}</span>)}
+          </div>
+          <div className="cal-grid">
+            {cells.map((day, i) => {
+              if (!day) return <span key={i} className="cal-cell empty" />;
+              const dateStr = toDateInputValue(day);
+              const isSelected = value === dateStr;
+              return (
+                <button
+                  type="button"
+                  key={i}
+                  className={`cal-cell${isSelected ? ' selected' : ''}`}
+                  onClick={() => { onChange(dateStr); setOpen(false); }}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <style jsx>{`
+        .simple-date-picker {
+          position: relative;
+        }
+        .date-trigger {
+          width: 100%;
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.85rem;
+          cursor: pointer;
+        }
+        .date-popover {
+          position: absolute;
+          top: calc(100% + 0.4rem);
+          left: 0;
+          z-index: 60;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+          padding: 0.8rem;
+          width: 280px;
+        }
+        .cal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.88rem;
+          font-weight: 600;
+          margin-bottom: 0.7rem;
+          text-transform: capitalize;
+        }
+        .cal-header button {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          width: 26px;
+          height: 26px;
+          cursor: pointer;
+        }
+        .cal-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 0.2rem;
+        }
+        .cal-weekdays {
+          margin-bottom: 0.3rem;
+          font-size: 0.68rem;
+          color: var(--muted);
+          text-align: center;
+        }
+        .cal-cell {
+          aspect-ratio: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          font-size: 0.76rem;
+          cursor: pointer;
+        }
+        .cal-cell.empty {
+          background: transparent;
+          border: none;
+          cursor: default;
+        }
+        .cal-cell.selected {
+          border-color: var(--accent);
+          background: rgba(75, 57, 239, 0.18);
+        }
+        .cal-cell:not(.empty):hover {
+          border-color: var(--accent);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Même retour d'Alex : le sélecteur d'heure natif (<input type="time">)
+// s'affiche, selon le navigateur, comme deux colonnes de chiffres sans
+// étiquette ("on ne sait pas à quoi correspondent ces 2 colonnes de
+// nombres") — remplacé ici par deux menus déroulants clairement étiquetés
+// "Heures" / "Minutes", combinés vers le même format "HH:MM" qu'utilisait
+// déjà <input type="time"> (aucun changement nécessaire côté logique de
+// soumission du formulaire).
+function TimeSelectField({ value, onChange }) {
+  const [locale] = useLocale();
+  const [hours, minutes] = value ? value.split(':') : ['', ''];
+
+  function update(nextHours, nextMinutes) {
+    if (nextHours === '' || nextMinutes === '') {
+      onChange('');
+      return;
+    }
+    onChange(`${nextHours}:${nextMinutes}`);
+  }
+
+  return (
+    <div className="time-select-field">
+      <div className="time-select-col">
+        <span className="time-select-label">{t('agenda.hoursLabel', locale)}</span>
+        <select value={hours} onChange={(e) => update(e.target.value, minutes || '00')}>
+          <option value="" disabled>--</option>
+          {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).map((h) => (
+            <option key={h} value={h}>{h}</option>
+          ))}
+        </select>
+      </div>
+      <span className="time-select-sep">:</span>
+      <div className="time-select-col">
+        <span className="time-select-label">{t('agenda.minutesLabel', locale)}</span>
+        <select value={minutes} onChange={(e) => update(hours || '00', e.target.value)}>
+          <option value="" disabled>--</option>
+          {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </div>
+      <style jsx>{`
+        .time-select-field {
+          display: flex;
+          align-items: flex-end;
+          gap: 0.35rem;
+        }
+        .time-select-col {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .time-select-label {
+          font-size: 0.68rem;
+          color: var(--muted);
+        }
+        .time-select-col select {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          padding: 0.55rem 0.5rem;
+          font-size: 0.85rem;
+        }
+        .time-select-sep {
+          padding-bottom: 0.6rem;
+          color: var(--muted);
+          font-weight: 600;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // CHANGEMENTS A FAIRE #87 : "ajout d'évènement avec recherche prospect/
 // opportunité/client" — le tunnel Aaron Prospect ne couvre que les prospects
 // et opportunités en cours (voir GET /api/prospects, qui exclut les clients
@@ -1729,11 +1991,23 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
             <div className="date-row">
               <label>
                 {kind === 'indisponibilite' ? t('agenda.startLabel', locale) : t('agenda.dateLabel', locale)}
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                <SimpleDatePicker
+                  value={date}
+                  onChange={(newDate) => {
+                    // Retour d'Alex (25/08/2026) : la date de fin doit suivre
+                    // la date de début tant que le commercial ne l'a pas
+                    // modifiée lui-même — évite de retomber sur le mois du
+                    // jour en ouvrant le sélecteur de fin juste après.
+                    setDate(newDate);
+                    if (kind === 'indisponibilite') {
+                      setEndDate((prevEnd) => (!prevEnd || prevEnd === date ? newDate : prevEnd));
+                    }
+                  }}
+                />
               </label>
               <label>
                 {t('agenda.timeLabel', locale)}
-                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
+                <TimeSelectField value={time} onChange={setTime} />
               </label>
             </div>
 
@@ -1741,11 +2015,11 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
               <div className="date-row">
                 <label>
                   {t('agenda.endLabel', locale)}
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+                  <SimpleDatePicker value={endDate} onChange={setEndDate} />
                 </label>
                 <label>
                   {t('agenda.timeLabel', locale)}
-                  <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+                  <TimeSelectField value={endTime} onChange={setEndTime} />
                 </label>
               </div>
             )}
