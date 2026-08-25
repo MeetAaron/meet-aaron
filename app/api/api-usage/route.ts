@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { getCreditBalance } from '@/lib/credits';
+import { stripe } from '@/lib/stripe';
 
 const DEFAULT_MONTHLY_CAP_USD = 20;
 const DAILY_CAP_DIVISOR = 15;
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('monthly_api_cap_usd')
+    .select('monthly_api_cap_usd, stripe_subscription_id')
     .eq('id', user.company_id)
     .single();
 
@@ -81,6 +82,33 @@ export async function GET(request: NextRequest) {
     getCreditBalance(user.company_id, 'ac'),
   ]);
 
+  // Date de renouvellement (demande Alex 2026-08-25, onglet Abonnement) — pas
+  // stockée en base, lue en direct depuis Stripe à chaque appel. Best-effort :
+  // un souci Stripe ici ne doit jamais faire échouer le reste de la page.
+  // apiVersion configurée dans lib/stripe.ts est plus récente que les types du
+  // SDK npm installé (déjà `as any` là-bas pour la même raison) — sur les
+  // abonnements multi-lignes récents, `current_period_end` a été déplacé du
+  // niveau abonnement au niveau de chaque ligne (subscription item), donc on
+  // vérifie les deux plutôt que de supposer lequel existe.
+  let renewalDate: string | null = null;
+  if (company?.stripe_subscription_id) {
+    try {
+      const subscription: any = await stripe.subscriptions.retrieve(company.stripe_subscription_id, {
+        expand: ['items'],
+      });
+      const periodEnds: number[] = [];
+      if (subscription.current_period_end) periodEnds.push(subscription.current_period_end);
+      for (const item of subscription.items?.data || []) {
+        if (item.current_period_end) periodEnds.push(item.current_period_end);
+      }
+      if (periodEnds.length) {
+        renewalDate = new Date(Math.max(...periodEnds) * 1000).toISOString();
+      }
+    } catch (err: any) {
+      console.error('Erreur récupération date de renouvellement Stripe:', err.message);
+    }
+  }
+
   return NextResponse.json({
     month_cost_usd: monthRow?.cost_usd || 0,
     monthly_cap_usd: monthlyCapUsd,
@@ -91,5 +119,6 @@ export async function GET(request: NextRequest) {
     credit_balance_ap_eur: creditBalanceApEur,
     credit_balance_as_eur: creditBalanceAsEur,
     credit_balance_ac_eur: creditBalanceAcEur,
+    renewal_date: renewalDate,
   });
 }
