@@ -51,6 +51,35 @@ export async function getAuthedIdentity(
   return resolveIdentityFromToken(token);
 }
 
+// Va chercher la ligne "users" liée à un auth_user_id, avec UNE tentative de
+// nouvel essai en cas d'erreur (pas "pas de ligne trouvée", une vraie erreur
+// de requête — connexion Supabase pas encore chaude sur une route peu
+// sollicitée, coupure ponctuelle...). Avant ce correctif (25/08), l'erreur
+// était silencieusement ignorée (`const { data } = await ...`) et traitée
+// exactement comme "aucun profil" : un blip transitoire de la base se
+// traduisait donc par un 401 "Non authentifié — reconnecte-toi." trompeur,
+// alors que le token était parfaitement valide — piste sur le bug remonté par
+// Alex (25/08) où "Mon équipe"/"Préférences & abonnement" échouent alors que
+// Dashboard/Prospects (appelés bien plus souvent, connexion déjà chaude)
+// fonctionnent.
+async function fetchUserRow(authUserId: string): Promise<AuthedUser | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('id, auth_user_id, company_id, role, email, locale')
+      .eq('auth_user_id', authUserId)
+      .maybeSingle();
+
+    if (!error) return (user as AuthedUser) || null;
+
+    // Vraie erreur de requête (pas "pas de ligne") : on log pour garder une
+    // trace côté serveur (au lieu de disparaître dans un 401 générique), et on
+    // retente une fois avant d'abandonner.
+    console.error('[auth-helpers] Erreur requête users (auth_user_id=' + authUserId + '), tentative ' + (attempt + 1) + ' :', error.message);
+  }
+  return null;
+}
+
 // Résout l'identité ET le profil "users" Meet Aaron correspondant — utilisé par
 // toutes les autres routes protégées. Renvoie null si le token est absent/
 // invalide, ou si aucun profil "users" n'est encore lié à ce compte.
@@ -58,13 +87,7 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
   const identity = await getAuthedIdentity(request);
   if (!identity) return null;
 
-  const { data: user } = await supabaseAdmin
-    .from('users')
-    .select('id, auth_user_id, company_id, role, email, locale')
-    .eq('auth_user_id', identity.auth_user_id)
-    .maybeSingle();
-
-  return (user as AuthedUser) || null;
+  return fetchUserRow(identity.auth_user_id);
 }
 
 // Même chose que getAuthedUser, mais à partir d'un token déjà extrait (pas d'un
@@ -78,13 +101,7 @@ export async function getAuthedUserFromToken(token: string): Promise<AuthedUser 
   const identity = await resolveIdentityFromToken(token);
   if (!identity) return null;
 
-  const { data: user } = await supabaseAdmin
-    .from('users')
-    .select('id, auth_user_id, company_id, role, email, locale')
-    .eq('auth_user_id', identity.auth_user_id)
-    .maybeSingle();
-
-  return (user as AuthedUser) || null;
+  return fetchUserRow(identity.auth_user_id);
 }
 
 export function unauthorizedResponse() {
