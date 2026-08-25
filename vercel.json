@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/invoice-late-payments",
       "schedule": "45 9 * * *"
+    },
+    {
+      "path": "/api/cron/execute-account-deletions",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
