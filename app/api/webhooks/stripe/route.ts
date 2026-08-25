@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
-    const { auth_user_id, email, first_name, full_name, company_name, country, modules } = session.metadata;
+    const { auth_user_id, email, first_name, full_name, company_name, country, modules, role } = session.metadata;
     // Modules choisis à l'inscription (voir app/api/checkout/route.ts) — repli
     // sur ['AP'] si absent (anciennes sessions Stripe créées avant cette
     // évolution, encore en cours au moment du paiement).
@@ -176,7 +176,12 @@ export async function POST(request: NextRequest) {
       email,
       first_name: first_name || null,
       full_name,
-      role: 'patron',
+      // Lu depuis les metadata Stripe (voir app/api/checkout/route.ts) —
+      // 'commercial' pour un commercial solo qui paie lui-même son propre
+      // espace (pas de code d'activation entreprise), 'patron' sinon.
+      // Repli sur 'patron' si absent (anciennes sessions Stripe créées avant
+      // cette évolution du 25/08, encore en cours au moment du paiement).
+      role: role === 'commercial' ? 'commercial' : 'patron',
       company_id: companyId,
       // Par défaut, un nouveau compte reçoit les notifications par email ET
       // push (RDV proposé par un client, RDV annulé, etc.) — modifiable
