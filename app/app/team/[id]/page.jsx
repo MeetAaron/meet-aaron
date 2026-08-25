@@ -402,7 +402,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
-    { label: t('nav.preferences', locale), slug: 'preferences', icon: '⚙️' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
     { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
