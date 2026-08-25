@@ -343,17 +343,6 @@ export default function CampaignsPage() {
               onImported={() => setShowReactivation(false)}
             />
           )}
-          <style jsx>{`
-            .reactivation-panel {
-              padding: 2rem 0;
-            }
-            .reactivation-intro {
-              color: var(--muted);
-              max-width: 640px;
-              line-height: 1.5;
-              margin-bottom: 1.2rem;
-            }
-          `}</style>
         </div>
       ) : (
       <>
@@ -574,6 +563,15 @@ export default function CampaignsPage() {
         .tab-btn .lock-badge {
           display: inline-flex;
           opacity: 0.8;
+        }
+        .reactivation-panel {
+          padding: 2rem 0;
+        }
+        .reactivation-intro {
+          color: var(--muted);
+          max-width: 640px;
+          line-height: 1.5;
+          margin-bottom: 1.2rem;
         }
         .eyebrow {
           text-transform: uppercase;
