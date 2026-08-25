@@ -240,6 +240,11 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       job_title: contact.job_title,
       linkedin_url: contact.linkedin_url,
       status: 'jaune',
+      // Docx pipeline "Réactivation" (Alex, 2026-08-23) : ce prospect a été
+      // trouvé et démarché de A à Z par Aaron (campagne de prospection),
+      // contrairement à un ajout manuel/CSV du commercial ou une
+      // réactivation — voir migration_reactivation_2026-08-23.sql.
+      origin: 'amene_par_aaron',
     });
 
     newContactsCount++;
