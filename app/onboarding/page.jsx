@@ -182,14 +182,29 @@ export default function OnboardingPage() {
           <h1>Bienvenue sur Meet Aaron</h1>
           <p className="subtitle">Pour commencer, dites-nous qui vous êtes.</p>
 
+          {/* Reformulé le 25/08 (retour Alex, test avec un 2e compte) : l'ancien
+              intitulé "Je suis dirigeant(e) / fondateur(trice)" laissait
+              croire qu'un commercial solo, qui paie de sa poche pour
+              s'équiper lui-même, n'avait pas sa place ici et devait
+              forcément passer par un code d'invitation — alors que ce
+              bouton est exactement son chemin (il crée son propre espace,
+              seul, et paie son abonnement par carte). Le second bouton est
+              réservé au cas où l'entreprise a DÉJÀ un abonnement Meet Aaron
+              actif et a transmis un code pour le rejoindre sans repayer. */}
           <button type="button" className="role-btn" onClick={() => setRole('patron')}>
-            <span className="role-title">Je suis dirigeant(e) / fondateur(trice)</span>
-            <span className="role-desc">Je crée l'espace Meet Aaron de mon entreprise (abonnement).</span>
+            <span className="role-title">Je crée mon espace Meet Aaron</span>
+            <span className="role-desc">
+              Seul(e) ou à la tête d'une équipe — vous configurez votre abonnement (carte bancaire) et pourrez inviter
+              des collègues ensuite.
+            </span>
           </button>
 
           <button type="button" className="role-btn" onClick={() => setRole('commercial')}>
-            <span className="role-title">Je suis commercial(e)</span>
-            <span className="role-desc">On m'a donné un code d'invitation pour rejoindre l'espace de mon entreprise.</span>
+            <span className="role-title">J'ai un code d'invitation de mon entreprise</span>
+            <span className="role-desc">
+              Mon entreprise a déjà un abonnement Meet Aaron actif et m'a transmis un code pour rejoindre son espace,
+              sans payer individuellement.
+            </span>
           </button>
         </div>
 
@@ -284,6 +299,11 @@ export default function OnboardingPage() {
             Nom de votre société
             <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Open X" required />
           </label>
+          {/* Précision ajoutée le 25/08 : un commercial solo qui découvre ce
+              champ juste après avoir cliqué "Je crée mon espace Meet Aaron"
+              peut se demander s'il a le droit de continuer alors qu'il n'a
+              pas de société au sens juridique — on lève l'ambiguïté ici. */}
+          <p className="field-hint">Si vous êtes seul(e), indiquez simplement votre nom ou celui de votre activité.</p>
 
           <label>
             Pays de votre société
@@ -386,7 +406,7 @@ export default function OnboardingPage() {
           </div>
 
           <label>
-            Code d'invitation
+            Code d'invitation de votre entreprise
             <input
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
@@ -395,11 +415,26 @@ export default function OnboardingPage() {
               required
             />
           </label>
+          {/* Précision ajoutée le 25/08 (retour Alex) : "code d'invitation"
+              seul n'était pas assez explicite sur ce qu'il fait concrètement
+              (rejoindre un abonnement déjà payé par l'entreprise). */}
+          <p className="field-hint">
+            Ce code vous a été transmis par votre dirigeant(e) ou responsable — il vous fait rejoindre l'abonnement
+            déjà actif de votre entreprise, sans paiement de votre part.
+          </p>
 
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="btn-primary" disabled={submitting}>
             {submitting ? 'Connexion…' : 'Rejoindre mon équipe'}
+          </button>
+
+          {/* Échappatoire ajoutée le 25/08 : avant, quelqu'un arrivant ici
+              sans code (cas Alex — commercial solo testant sans code
+              d'entreprise) n'avait pas d'autre choix que "← Retour" puis
+              redevine tout seul qu'il fallait cliquer l'autre bouton. */}
+          <button type="button" className="link-secondary" onClick={() => { setRole('patron'); setError(null); }}>
+            Vous n'avez pas de code ? Créez votre propre espace Meet Aaron →
           </button>
 
           <button type="button" className="link-back" onClick={() => { setRole(null); setError(null); }}>
@@ -467,6 +502,12 @@ export default function OnboardingPage() {
           padding: 0.6rem 0.8rem;
           color: #f4f1ea;
           font-size: 0.88rem;
+        }
+        .field-hint {
+          font-size: 0.78rem;
+          color: #8b90a8;
+          margin: -0.7rem 0 1rem;
+          line-height: 1.4;
         }
         .modules-field {
           margin-bottom: 1.2rem;
@@ -632,6 +673,21 @@ export default function OnboardingPage() {
           font-size: 0.78rem;
           cursor: pointer;
           margin-top: 0.9rem;
+          text-decoration: underline;
+        }
+        .link-secondary {
+          display: block;
+          width: 100%;
+          text-align: center;
+          background: none;
+          border: none;
+          color: #7c8cff;
+          font-size: 0.82rem;
+          font-weight: 500;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .link-secondary:hover {
           text-decoration: underline;
         }
       `}</style>
