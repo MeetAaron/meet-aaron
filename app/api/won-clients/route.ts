@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   const { data: wonClients, error } = await supabaseAdmin
     .from('prospects')
-    .select('*, prospect_companies(name, domain)')
+    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
     .eq('assigned_user_id', userId)
     // Client à part entière = 1ère commande confirmée (pas juste "gagné" —
     // voir migration_first_order_confirmed_2026-08-14.sql).
