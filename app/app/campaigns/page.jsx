@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import CsvImportModal from '@/components/CsvImportModal';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -149,6 +150,12 @@ export default function CampaignsPage() {
   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
   const [changingStatusFor, setChangingStatusFor] = useState(null);
   const [confirmEndId, setConfirmEndId] = useState(null);
+  // Docx pipeline "Réactivation" (Alex, 2026-08-23) : "pas dans Marketing,
+  // plutôt dans Campagnes" — 3e onglet ici, même composant CsvImportModal
+  // que Prospects/Sales/Customer mais avec context="reactivation" (voir ce
+  // composant) : origine "reactive_par_aaron", contact automatique forcé,
+  // confirmation unique obligatoire par fichier.
+  const [showReactivation, setShowReactivation] = useState(false);
 
   // Module Aaron Marketing (docx AJOUT GLOBAL, message du 21/08/2026) : un
   // second onglet dans cette même page plutôt qu'une nouvelle rubrique dans
@@ -309,10 +316,45 @@ export default function CampaignsPage() {
           📣 {t('marketing.tabMarketing', locale)}
           {!customerModuleActive && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${tab === 'reactivation' ? 'active' : ''}`}
+          onClick={() => setTab('reactivation')}
+        >
+          🔄 {t('reactivation.tabLabel', locale)}
+        </button>
       </div>
 
       {tab === 'marketing' ? (
         <MarketingCampaignsPanel userId={userId} companyId={companyId} locale={locale} customerModuleActive={customerModuleActive} />
+      ) : tab === 'reactivation' ? (
+        <div className="reactivation-panel">
+          <p className="reactivation-intro">{t('reactivation.intro', locale)}</p>
+          <button type="button" className="btn-primary" onClick={() => setShowReactivation(true)}>
+            {t('csvImport.reactivationButton', locale)}
+          </button>
+          {showReactivation && (
+            <CsvImportModal
+              userId={userId}
+              companyId={companyId}
+              context="reactivation"
+              module="ap"
+              onClose={() => setShowReactivation(false)}
+              onImported={() => setShowReactivation(false)}
+            />
+          )}
+          <style jsx>{`
+            .reactivation-panel {
+              padding: 2rem 0;
+            }
+            .reactivation-intro {
+              color: var(--muted);
+              max-width: 640px;
+              line-height: 1.5;
+              margin-bottom: 1.2rem;
+            }
+          `}</style>
+        </div>
       ) : (
       <>
       {!loading && campaigns.length > 0 && (
