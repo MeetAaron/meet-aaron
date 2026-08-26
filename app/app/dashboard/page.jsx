@@ -843,12 +843,15 @@ export default function DashboardPage() {
         .onboarding-row {
           display: flex;
           align-items: center;
+          justify-content: space-between;
+          width: 100%;
           gap: 0.7rem;
           padding: 0.75rem 1.3rem;
           border-bottom: 1px solid rgba(59, 130, 246, 0.15);
           text-decoration: none;
           color: var(--text);
           transition: background 0.15s;
+          box-sizing: border-box;
         }
         .onboarding-row:last-child {
           border-bottom: none;
@@ -857,6 +860,7 @@ export default function DashboardPage() {
           background: rgba(59, 130, 246, 0.08);
         }
         .onboarding-check {
+          flex-shrink: 0;
           font-weight: 700;
           color: var(--accent-green, #2ecc71);
           width: 1.2rem;
@@ -866,7 +870,8 @@ export default function DashboardPage() {
           color: var(--muted);
         }
         .onboarding-label {
-          flex: 1;
+          flex: 1 1 auto;
+          min-width: 0;
           font-size: 0.9rem;
         }
         .onboarding-row.done .onboarding-label {
@@ -874,6 +879,9 @@ export default function DashboardPage() {
           text-decoration: line-through;
         }
         .onboarding-cta {
+          flex-shrink: 0;
+          margin-left: auto;
+          padding-left: 0.7rem;
           font-size: 0.8rem;
           font-weight: 600;
           color: var(--accent);
