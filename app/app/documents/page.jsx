@@ -413,9 +413,13 @@ export default function DocumentsPage() {
                   <td className="muted">{new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</td>
                   <td>
                     <div className="row-actions">
+                      {/* Demande Alex (26/08/2026, capture à l'appui) : les 4 actions
+                          n'étaient que du texte, peu lisible/esthétique en colonne
+                          étroite — ajout d'une icône devant chaque libellé, même
+                          principe que le bouton aaron-toggle juste au-dessus (✅/🚫). */}
                       {d.download_url && (
                         <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
-                          {t('documents.download', locale)}
+                          📥 {t('documents.download', locale)}
                         </a>
                       )}
                       <button
@@ -424,13 +428,13 @@ export default function DocumentsPage() {
                         disabled={generatingAdviceId === d.id}
                         onClick={() => (d.advice ? setAdviceModalDoc(d) : handleGenerateAdvice(d))}
                       >
-                        {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
+                        💬 {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
                       </button>
                       <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
-                        {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
+                        📝 {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
                       </button>
                       <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
-                        {t('documents.deleteButton', locale)}
+                        🗑️ {t('documents.deleteButton', locale)}
                       </button>
                     </div>
                   </td>
