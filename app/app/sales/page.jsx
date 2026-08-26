@@ -204,11 +204,27 @@ export default function SalesPage() {
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
+  // "Aaron s'en charge" (demande Alex, 26/08/2026) : étendu depuis Prospects
+  // à Aaron Opportunité — même toggle, même action PATCH set_ai_managed déjà
+  // ouverte à tout prospect (voir app/api/prospects/[id]/route.ts).
+  const [togglingAiManaged, setTogglingAiManaged] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json());
     setDeals(res.deals || []);
     setLoading(false);
+  }
+
+  async function handleToggleAiManaged(deal) {
+    const nextManaged = deal.ai_managed === false;
+    setTogglingAiManaged(true);
+    await fetch(`/api/prospects/${deal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_ai_managed', ai_managed: nextManaged }),
+    });
+    setTogglingAiManaged(false);
+    load();
   }
 
   useEffect(() => {
@@ -492,8 +508,21 @@ export default function SalesPage() {
               <p className="muted">{t('sales.selectDealPrompt', locale)}</p>
             ) : (
               <>
-                <h2>{selectedDeal.full_name}</h2>
-                {selectedDeal.prospect_companies?.name && <p className="muted">{selectedDeal.prospect_companies.name}{selectedDeal.job_title ? ` — ${selectedDeal.job_title}` : ''}</p>}
+                <div className="detail-header-row">
+                  <div>
+                    <h2>{selectedDeal.full_name}</h2>
+                    {selectedDeal.prospect_companies?.name && <p className="muted">{selectedDeal.prospect_companies.name}{selectedDeal.job_title ? ` — ${selectedDeal.job_title}` : ''}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    className={`ai-managed-toggle${selectedDeal.ai_managed === false ? ' off' : ' on'}`}
+                    disabled={togglingAiManaged}
+                    onClick={() => handleToggleAiManaged(selectedDeal)}
+                    title={selectedDeal.ai_managed === false ? t('prospects.aiManagedOffTitle', locale) : t('prospects.aiManagedOnTitle', locale)}
+                  >
+                    {selectedDeal.ai_managed === false ? `⏸️ ${t('prospects.aiManagedOffLabel', locale)}` : `🤖 ${t('prospects.aiManagedOnLabel', locale)}`}
+                  </button>
+                </div>
 
                 <section className="block">
                   <CompanyInfoEditor prospect={selectedDeal} locale={locale} onSaved={load} />
@@ -837,6 +866,34 @@ export default function SalesPage() {
           font-family: var(--font-display);
           font-size: 1.15rem;
           margin: 0 0 0.2rem;
+        }
+        .detail-header-row {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.6rem;
+        }
+        .ai-managed-toggle {
+          flex-shrink: 0;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.7rem;
+          font-size: 0.76rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .ai-managed-toggle.on {
+          border-color: var(--accent);
+          color: var(--accent);
+        }
+        .ai-managed-toggle.off {
+          border-color: var(--muted);
+          color: var(--muted);
+        }
+        .ai-managed-toggle:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
         .stage-row {
           display: flex;
