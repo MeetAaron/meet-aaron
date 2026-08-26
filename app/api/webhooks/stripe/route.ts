@@ -23,6 +23,7 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateInviteCode } from '@/lib/invite-code';
 import { addCredits } from '@/lib/credits';
+import { convertMatchingProspectsToClients } from '@/lib/prospect-conversion';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -196,6 +197,17 @@ export async function POST(request: NextRequest) {
         company_id: companyId,
       });
       return NextResponse.json({ error: 'Erreur création utilisateur' }, { status: 500 });
+    }
+
+    // Cas "dogfooding" (voir lib/prospect-conversion.ts) : ce nouvel inscrit
+    // meetaaron.app est peut-être lui-même un prospect démarché par Aaron
+    // Prospect (ex: Alex vend meetaaron.app à ses propres prospects). Fire-and
+    // -forget, ne doit jamais retarder ni faire échouer la réponse au webhook
+    // Stripe — la création du compte ci-dessus est l'action critique.
+    if (email) {
+      convertMatchingProspectsToClients(email).catch((err: any) => {
+        console.error('Erreur convertMatchingProspectsToClients (webhook Stripe):', err.message);
+      });
     }
   }
 
