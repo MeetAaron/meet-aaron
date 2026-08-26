@@ -1,4 +1,4 @@
--- cleanup_aaron_meetaaron_account_2026-08-26.sql
+-- cleanup_aaron_meetaaron_account_2026-08-26.sql (v2 — tables optionnelles sécurisées)
 --
 -- Reprend exactement le script qu'Alex avait déjà utilisé avec succès pour
 -- réinitialiser ses comptes de test (alexandre.fevre01@gmail.com /
@@ -16,13 +16,17 @@
 -- prochain login ne pose aucun problème : le webhook Stripe créera une
 -- nouvelle ligne "users" avec ce même auth_user_id.
 --
--- Portée : liste de tables identique à celle du trigger de
--- migration_account_deletion_2026-08-25.sql (branche "solo", déjà revue et
--- utilisée en production), donc plus complète que le script d'origine
--- d'Alex (qui datait d'avant l'ajout de plusieurs tables : quotes,
--- customer_checkins, products, crm_connections, credit_transactions,
--- api_usage_*, chat_messages, push_subscriptions, email_send_counters,
--- client_invoices, marketing_campaigns*, reactivation_batches).
+-- v2 (26/08/2026, correctif) : la v1 a échoué avec
+-- "relation marketing_campaign_recipients does not exist" — cette table
+-- (issue de la liste du trigger de migration_account_deletion_2026-08-25.sql)
+-- n'existe en fait pas dans ta base réelle. Comme tout tourne dans une
+-- seule transaction implicite, l'échec a annulé TOUT le bloc — rien n'avait
+-- donc été supprimé, aucune casse. Cette v2 vérifie l'existence de chaque
+-- table optionnelle via to_regclass(...) avant de tenter un delete dessus,
+-- pour ne plus jamais bloquer sur une table absente/renommée. Les tables
+-- garanties présentes (users, companies, prospects, messages,
+-- conversations, appointments, oauth_connections, availability_*,
+-- email_verifications) restent en delete direct, sans garde.
 --
 -- Sécurité : abandonne sans rien supprimer si aaron@meetaaron.app fait
 -- partie d'une société avec d'autres membres (ne devrait jamais arriver
@@ -55,7 +59,11 @@ begin
   end if;
 
   select array_agg(id) into v_prospect_ids from prospects where company_id = v_company_id;
-  select array_agg(id) into v_quote_ids from quotes where company_id = v_company_id;
+
+  -- quotes / quote_line_items (tables optionnelles)
+  if to_regclass('public.quotes') is not null then
+    select array_agg(id) into v_quote_ids from quotes where company_id = v_company_id;
+  end if;
 
   delete from messages
   where conversation_id in (
@@ -65,41 +73,87 @@ begin
   );
 
   if v_prospect_ids is not null and array_length(v_prospect_ids, 1) > 0 then
-    delete from customer_checkins where prospect_id = any(v_prospect_ids);
-    delete from customer_health_alerts where prospect_id = any(v_prospect_ids);
-    delete from customer_support_drafts where prospect_id = any(v_prospect_ids);
-    delete from deal_stage_alerts where prospect_id = any(v_prospect_ids);
+    if to_regclass('public.customer_checkins') is not null then
+      delete from customer_checkins where prospect_id = any(v_prospect_ids);
+    end if;
+    if to_regclass('public.customer_health_alerts') is not null then
+      delete from customer_health_alerts where prospect_id = any(v_prospect_ids);
+    end if;
+    if to_regclass('public.customer_support_drafts') is not null then
+      delete from customer_support_drafts where prospect_id = any(v_prospect_ids);
+    end if;
+    if to_regclass('public.deal_stage_alerts') is not null then
+      delete from deal_stage_alerts where prospect_id = any(v_prospect_ids);
+    end if;
   end if;
 
   delete from notifications_log where user_id in (select id from users where company_id = v_company_id);
   delete from appointments where prospect_id in (select id from prospects where company_id = v_company_id);
   delete from conversations where prospect_id in (select id from prospects where company_id = v_company_id);
 
-  if v_quote_ids is not null and array_length(v_quote_ids, 1) > 0 then
+  if to_regclass('public.quote_line_items') is not null
+     and v_quote_ids is not null and array_length(v_quote_ids, 1) > 0 then
     delete from quote_line_items where quote_id = any(v_quote_ids);
   end if;
-  delete from quotes where company_id = v_company_id;
+  if to_regclass('public.quotes') is not null then
+    delete from quotes where company_id = v_company_id;
+  end if;
 
   delete from prospects where company_id = v_company_id;
-  delete from prospect_companies where company_id = v_company_id;
-  delete from prospecting_campaigns where company_id = v_company_id;
-  delete from company_documents where company_id = v_company_id;
-  delete from feedback_messages where company_id = v_company_id;
-  delete from products where company_id = v_company_id;
-  delete from crm_connections where company_id = v_company_id;
-  delete from credit_transactions where company_id = v_company_id;
-  delete from api_usage_monthly where company_id = v_company_id;
-  delete from api_usage_daily where company_id = v_company_id;
 
-  delete from client_invoices where company_id = v_company_id;
-  delete from marketing_campaign_recipients
-    where campaign_id in (select id from marketing_campaigns where company_id = v_company_id);
-  delete from marketing_campaigns where company_id = v_company_id;
-  delete from reactivation_batches where company_id = v_company_id;
+  if to_regclass('public.prospect_companies') is not null then
+    delete from prospect_companies where company_id = v_company_id;
+  end if;
+  if to_regclass('public.prospecting_campaigns') is not null then
+    delete from prospecting_campaigns where company_id = v_company_id;
+  end if;
+  if to_regclass('public.company_documents') is not null then
+    delete from company_documents where company_id = v_company_id;
+  end if;
+  if to_regclass('public.feedback_messages') is not null then
+    delete from feedback_messages where company_id = v_company_id;
+  end if;
+  if to_regclass('public.products') is not null then
+    delete from products where company_id = v_company_id;
+  end if;
+  if to_regclass('public.crm_connections') is not null then
+    delete from crm_connections where company_id = v_company_id;
+  end if;
+  if to_regclass('public.credit_transactions') is not null then
+    delete from credit_transactions where company_id = v_company_id;
+  end if;
+  if to_regclass('public.api_usage_monthly') is not null then
+    delete from api_usage_monthly where company_id = v_company_id;
+  end if;
+  if to_regclass('public.api_usage_daily') is not null then
+    delete from api_usage_daily where company_id = v_company_id;
+  end if;
+  if to_regclass('public.client_invoices') is not null then
+    delete from client_invoices where company_id = v_company_id;
+  end if;
 
-  delete from chat_messages where user_id in (select id from users where company_id = v_company_id);
-  delete from push_subscriptions where user_id in (select id from users where company_id = v_company_id);
-  delete from email_send_counters where user_id in (select id from users where company_id = v_company_id);
+  if to_regclass('public.marketing_campaign_recipients') is not null
+     and to_regclass('public.marketing_campaigns') is not null then
+    delete from marketing_campaign_recipients
+      where campaign_id in (select id from marketing_campaigns where company_id = v_company_id);
+  end if;
+  if to_regclass('public.marketing_campaigns') is not null then
+    delete from marketing_campaigns where company_id = v_company_id;
+  end if;
+  if to_regclass('public.reactivation_batches') is not null then
+    delete from reactivation_batches where company_id = v_company_id;
+  end if;
+
+  if to_regclass('public.chat_messages') is not null then
+    delete from chat_messages where user_id in (select id from users where company_id = v_company_id);
+  end if;
+  if to_regclass('public.push_subscriptions') is not null then
+    delete from push_subscriptions where user_id in (select id from users where company_id = v_company_id);
+  end if;
+  if to_regclass('public.email_send_counters') is not null then
+    delete from email_send_counters where user_id in (select id from users where company_id = v_company_id);
+  end if;
+
   delete from availability_blocks where user_id in (select id from users where company_id = v_company_id);
   delete from availability_rules where user_id in (select id from users where company_id = v_company_id);
   delete from oauth_connections where user_id in (select id from users where company_id = v_company_id);
