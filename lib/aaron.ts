@@ -44,7 +44,7 @@ interface AaronOutput {
 async function buildContext(prospectId: string) {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('*, users(full_name, email, locale), prospect_companies(name, domain, is_won_client, found_by_campaign_id)')
+    .select('*, users(full_name, email, locale), prospect_companies(name, domain, is_won_client, found_by_campaign_id, research_summary)')
     .eq('id', prospectId)
     .single();
 
@@ -171,6 +171,13 @@ async function buildContext(prospectId: string) {
       email: prospect.email,
       poste: prospect.job_title,
       societe: prospect.prospect_companies?.name,
+      // Recherche web sur la société du prospect (voir
+      // lib/prospect-research.ts et la section MAÎTRISE DES DEUX SOCIÉTÉS du
+      // prompt système) : null si la fiche n'était pas recherchable (société
+      // de test, voir isCompanyResearchable()) ou si aucune info fiable n'a
+      // été trouvée — dans les deux cas, null signifie explicitement "ne
+      // prétends pas connaître cette société", jamais "cherche toi-même".
+      recherche_societe_prospect: prospect.prospect_companies?.research_summary || null,
     },
     statut_actuel: prospect.status,
     // Docx pipeline (Alex, 2026-08-23) : étape actuelle de la pipeline

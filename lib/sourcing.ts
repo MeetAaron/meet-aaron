@@ -4,6 +4,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
+import { researchProspectCompany } from './prospect-research';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -206,10 +207,39 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         },
         { onConflict: 'company_id,domain' }
       )
-      .select('id')
+      .select('id, research_summary')
       .single();
 
     if (companyError || !prospectCompany) continue;
+
+    // Même logique de maîtrise de la société contactée que l'ajout manuel
+    // (voir app/api/prospects/route.ts et lib/prospect-research.ts) — une
+    // société trouvée par campagne a quasi toujours un vrai domaine/site, donc
+    // quasi toujours recherchable. Ne bloque jamais le traitement du lot en
+    // cas d'échec.
+    if (!prospectCompany.research_summary) {
+      try {
+        const researchSummary = await researchProspectCompany(campaign.company_id, {
+          name: company.name || null,
+          domain: company.domain || null,
+          website: company.website || null,
+          industry: null,
+        });
+        if (researchSummary) {
+          await supabaseAdmin
+            .from('prospect_companies')
+            .update({ research_summary: researchSummary, research_checked_at: new Date().toISOString() })
+            .eq('id', prospectCompany.id);
+        } else {
+          await supabaseAdmin
+            .from('prospect_companies')
+            .update({ research_checked_at: new Date().toISOString() })
+            .eq('id', prospectCompany.id);
+        }
+      } catch (err: any) {
+        console.error('Erreur recherche web société prospect (campagne, non bloquant):', err.message);
+      }
+    }
 
     const { data: existingProspect } = await supabaseAdmin
       .from('prospects')
