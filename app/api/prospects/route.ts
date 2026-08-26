@@ -215,41 +215,45 @@ export async function POST(request: NextRequest) {
   let aaronOutput = null;
   let emailWarning = null;
 
-  if (skipFirstContact) {
-    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
-  }
-
-  // MAÎTRISE DE LA SOCIÉTÉ CONTACTÉE (demande Alex, 2026-08-26) : avant tout
-  // premier contact, Aaron doit connaître le vrai métier de la société qu'il
-  // s'apprête à démarcher, pas juste son nom — voir lib/prospect-research.ts
-  // (recherche web, exception intégrée pour les sociétés de test qui
-  // n'existent pas réellement) et lib/aaron_system_prompt.md (section
-  // MAÎTRISE DES DEUX SOCIÉTÉS). Ne lance la recherche qu'une seule fois par
-  // fiche société (research_summary déjà en base = on ne repaie jamais deux
-  // fois la même recherche, y compris pour un 2e contact de la même société),
-  // et seulement quand un premier email va réellement être généré ci-dessous
-  // (placé APRÈS le early-return `skipFirstContact` : inutile de dépenser un
-  // appel de recherche web pour un ajout manuel de client/opportunité
-  // existant, qui ne déclenche jamais de premier message). Ne bloque jamais
-  // la création du prospect en cas d'échec de la recherche.
+  // MAÎTRISE + AUTO-COMPLÉTION DE LA SOCIÉTÉ CONTACTÉE (demande Alex,
+  // 2026-08-26) : avant tout premier contact, Aaron doit connaître le vrai
+  // métier de la société qu'il s'apprête à démarcher, pas juste son nom — et
+  // "quand j'entre le prospect manuellement aaron doit essayer de compléter
+  // la fiche prospect par lui-même (trouver le site web, trouver le siret,
+  // maîtriser parfaitement)". Voir lib/prospect-research.ts (recherche web
+  // unique par société, renvoie résumé + champs structurés, exception
+  // intégrée pour les sociétés de test qui n'existent pas réellement) et
+  // lib/aaron_system_prompt.md (section MAÎTRISE DES DEUX SOCIÉTÉS). Placé
+  // AVANT le early-return `skipFirstContact` (contrairement à la première
+  // version de cette fonctionnalité) : un ajout manuel de client/opportunité
+  // existant ne déclenche jamais de premier message, mais sa fiche mérite
+  // quand même d'être complétée automatiquement — c'est explicitement ce
+  // qu'Alex a demandé. Ne lance la recherche qu'une seule fois par fiche
+  // société (research_summary/research_checked_at déjà en base = on ne
+  // repaie jamais deux fois la même recherche), et ne complète chaque champ
+  // structuré QUE s'il est encore vide, exactement comme companyUpdate
+  // ci-dessus : jamais écraser une valeur déjà renseignée par le commercial.
+  // Ne bloque jamais la création du prospect en cas d'échec de la recherche.
   if (!prospectCompany.research_summary) {
     try {
-      const researchSummary = await researchProspectCompany(company_id, {
+      const research = await researchProspectCompany(company_id, {
         name: cleanCompanyName || prospectCompany.name || null,
         domain: domainForMatching,
         website: website || prospectCompany.website || null,
         industry: industry || prospectCompany.industry || null,
       });
-      if (researchSummary) {
-        await supabaseAdmin
-          .from('prospect_companies')
-          .update({ research_summary: researchSummary, research_checked_at: new Date().toISOString() })
-          .eq('id', prospectCompany.id);
-        prospectCompany.research_summary = researchSummary;
+      if (research) {
+        const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
+        if (research.summary) researchUpdate.research_summary = research.summary;
+        if (research.website && !prospectCompany.website) researchUpdate.website = research.website;
+        if (research.siret && !prospectCompany.siret) researchUpdate.siret = research.siret;
+        if (research.address && !prospectCompany.address) researchUpdate.address = research.address;
+        if (research.industry && !prospectCompany.industry) researchUpdate.industry = research.industry;
+        await supabaseAdmin.from('prospect_companies').update(researchUpdate).eq('id', prospectCompany.id);
+        prospectCompany = { ...prospectCompany, ...researchUpdate };
       } else {
-        // Même en l'absence de résultat exploitable, on marque la fiche comme
-        // vérifiée pour ne pas relancer une recherche vouée à échouer à
-        // chaque nouveau contact de cette même société de test.
+        // Fiche non recherchable (société de test) : on marque quand même la
+        // fiche comme vérifiée pour ne pas retenter à chaque nouveau contact.
         await supabaseAdmin
           .from('prospect_companies')
           .update({ research_checked_at: new Date().toISOString() })
@@ -258,6 +262,10 @@ export async function POST(request: NextRequest) {
     } catch (err: any) {
       console.error('Erreur recherche web société prospect (non bloquant):', err.message);
     }
+  }
+
+  if (skipFirstContact) {
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
   }
 
   try {
