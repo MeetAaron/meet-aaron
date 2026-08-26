@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body')
+    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret')
     .eq('id', user.company_id)
     .single();
 
@@ -57,6 +57,12 @@ export async function GET(request: NextRequest) {
       default_first_email_enabled: company?.default_first_email_enabled ?? false,
       default_first_email_subject: company?.default_first_email_subject || '',
       default_first_email_body: company?.default_first_email_body || '',
+      // Webhook générique de conversion prospect -> client (demande Alex,
+      // 2026-08-26) — voir migration_external_conversion_webhook_2026-08-26.sql
+      // et app/api/webhooks/external-conversion/[secret]/route.ts. Lecture
+      // seule ici (généré côté base, jamais modifiable via ce PATCH) : null
+      // tant que la migration n'a pas été exécutée par Alex.
+      external_conversion_webhook_secret: company?.external_conversion_webhook_secret || null,
     },
   });
 }
