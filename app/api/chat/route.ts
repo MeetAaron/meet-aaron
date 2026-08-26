@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { summarizeDocument } from '@/lib/document-summary';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
@@ -211,7 +212,8 @@ async function runSauvegarderDocument(
   attachedDocument: AttachedDocument,
   userId: string,
   companyId: string | null,
-  toolInput: any
+  toolInput: any,
+  locale: string
 ) {
   if (!attachedDocument) {
     return { error: "Aucun document n'est actuellement joint à cette conversation." };
@@ -222,6 +224,14 @@ async function runSauvegarderDocument(
 
   const rawCategory = toolInput?.linked_category;
   const linkedCategory = ['prospects', 'opportunites', 'clients'].includes(rawCategory) ? rawCategory : null;
+
+  // Même synthèse automatique que l'upload classique (voir lib/document-summary.ts)
+  // — jusqu'ici manquante sur ce chemin (bug remonté par Alex le 26/08/2026),
+  // la colonne "Synthèse (Aaron)" restait vide pour tout document sauvegardé
+  // depuis le chat. Best-effort : un échec ne bloque pas la sauvegarde.
+  const summary = attachedDocument.extracted_text
+    ? await summarizeDocument(attachedDocument.file_name, attachedDocument.extracted_text, companyId, locale)
+    : null;
 
   const { data: doc, error } = await supabaseAdmin
     .from('company_documents')
@@ -234,6 +244,7 @@ async function runSauvegarderDocument(
       file_size_bytes: attachedDocument.file_size_bytes,
       description: toolInput?.description || null,
       extracted_text: attachedDocument.extracted_text,
+      summary,
       linked_category: linkedCategory,
     })
     .select('id')
@@ -252,7 +263,8 @@ async function executeTool(
   toolInput: any,
   userId: string,
   attachedDocument: AttachedDocument,
-  companyId: string | null
+  companyId: string | null,
+  locale: string
 ) {
   switch (toolName) {
     case 'recherche_prospects':
@@ -262,7 +274,7 @@ async function executeTool(
     case 'prochains_rdv':
       return runProchainsRdv(userId);
     case 'sauvegarder_document':
-      return runSauvegarderDocument(attachedDocument, userId, companyId, toolInput);
+      return runSauvegarderDocument(attachedDocument, userId, companyId, toolInput, locale);
     default:
       return { error: `Outil inconnu : ${toolName}` };
   }
@@ -420,7 +432,7 @@ export async function POST(request: NextRequest) {
 
       const toolResults = await Promise.all(
         toolUseBlocks.map(async (block: any) => {
-          const result = await executeTool(block.name, block.input, user_id, attachedDocument, user?.company_id || null);
+          const result = await executeTool(block.name, block.input, user_id, attachedDocument, user?.company_id || null, authedUser.locale);
           if (block.name === 'sauvegarder_document' && (result as any)?.success) {
             documentSaved = true;
           }
