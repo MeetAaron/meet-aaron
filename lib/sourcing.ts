@@ -207,29 +207,34 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         },
         { onConflict: 'company_id,domain' }
       )
-      .select('id, research_summary')
+      .select('id, research_summary, website, siret, address, industry')
       .single();
 
     if (companyError || !prospectCompany) continue;
 
-    // Même logique de maîtrise de la société contactée que l'ajout manuel
-    // (voir app/api/prospects/route.ts et lib/prospect-research.ts) — une
-    // société trouvée par campagne a quasi toujours un vrai domaine/site, donc
-    // quasi toujours recherchable. Ne bloque jamais le traitement du lot en
-    // cas d'échec.
+    // Même logique de maîtrise + auto-complétion de la société contactée que
+    // l'ajout manuel (voir app/api/prospects/route.ts et
+    // lib/prospect-research.ts) — une société trouvée par campagne a quasi
+    // toujours un vrai domaine/site, donc quasi toujours recherchable. Ne
+    // bloque jamais le traitement du lot en cas d'échec, et ne complète
+    // chaque champ que s'il est encore vide (jamais écraser company.website
+    // déjà trouvé par searchCompaniesInZone ci-dessus).
     if (!prospectCompany.research_summary) {
       try {
-        const researchSummary = await researchProspectCompany(campaign.company_id, {
+        const research = await researchProspectCompany(campaign.company_id, {
           name: company.name || null,
           domain: company.domain || null,
-          website: company.website || null,
-          industry: null,
+          website: company.website || prospectCompany.website || null,
+          industry: prospectCompany.industry || null,
         });
-        if (researchSummary) {
-          await supabaseAdmin
-            .from('prospect_companies')
-            .update({ research_summary: researchSummary, research_checked_at: new Date().toISOString() })
-            .eq('id', prospectCompany.id);
+        if (research) {
+          const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
+          if (research.summary) researchUpdate.research_summary = research.summary;
+          if (research.website && !prospectCompany.website) researchUpdate.website = research.website;
+          if (research.siret && !prospectCompany.siret) researchUpdate.siret = research.siret;
+          if (research.address && !prospectCompany.address) researchUpdate.address = research.address;
+          if (research.industry && !prospectCompany.industry) researchUpdate.industry = research.industry;
+          await supabaseAdmin.from('prospect_companies').update(researchUpdate).eq('id', prospectCompany.id);
         } else {
           await supabaseAdmin
             .from('prospect_companies')

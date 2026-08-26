@@ -6,6 +6,14 @@
 // de portes dans le bâtiment alors aaron doit parfaitement maîtriser le
 // métier, ainsi que la société du gars").
 //
+// Étendu le même jour (demande Alex : "quand j'entre le prospect manuellement
+// aaron doit essayer de compléter la fiche prospect par lui-même (trouver le
+// site web, trouver le siret, maîtriser parfaitement)") pour renvoyer, EN
+// PLUS du résumé métier, les champs structurés de la fiche encore vides —
+// site web, SIRET, adresse, secteur — dans le même appel de recherche web
+// (pas d'appel supplémentaire : le coût reste celui d'une seule recherche par
+// société, voir max_uses ci-dessous).
+//
 // Réutilise la même infrastructure que lib/sourcing.ts (outil web_search de
 // l'API Anthropic, voir migration_credits... / lib/anthropic-client.ts pour
 // le suivi de coût), mais orientée vers UNE société déjà identifiée plutôt
@@ -37,6 +45,19 @@ export interface ProspectCompanyResearchInput {
   industry: string | null;
 }
 
+// Champs structurés que la recherche peut compléter EN PLUS du résumé — un
+// champ n'est renvoyé que si une source fiable l'a confirmé ; le SIRET est en
+// plus validé côté code (14 chiffres, espaces tolérés) avant d'être retenu,
+// pour ne jamais enregistrer une valeur inventée qui aurait échappé à la
+// consigne "n'invente rien" du prompt.
+export interface ProspectCompanyResearchResult {
+  summary: string | null;
+  website: string | null;
+  siret: string | null;
+  address: string | null;
+  industry: string | null;
+}
+
 // Une fiche est jugée "réelle" (donc recherchable) si elle a un site web ou
 // un domaine email qui n'est pas un domaine grand public (gmail.com, etc. —
 // voir lib/csv-import.ts), OU un nom de société qui ressemble à un vrai nom
@@ -57,18 +78,27 @@ export function isCompanyResearchable(input: ProspectCompanyResearchInput): bool
   return hasRealWebsite || hasPlausibleCompanyName;
 }
 
-// Renvoie le résumé de recherche (string) si une info fiable a été trouvée,
-// ou null si rien de fiable n'a été trouvé / la fiche n'était pas
-// recherchable / l'appel a échoué — dans tous les cas de null, Aaron doit
-// rester sur une approche générique plutôt que de prétendre connaître le
-// métier du prospect (voir lib/aaron_system_prompt.md, section MAÎTRISE DES
-// DEUX SOCIÉTÉS). N'interrompt jamais la création du prospect en cas
-// d'erreur : une recherche ratée dégrade la qualité du premier message, elle
-// ne doit jamais bloquer la fonctionnalité principale.
+function isPlausibleSiret(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const digitsOnly = value.replace(/\s+/g, '');
+  return /^\d{14}$/.test(digitsOnly);
+}
+
+// Renvoie le résumé + les champs structurés trouvés (chacun null si non
+// trouvé/non fiable), ou null si la fiche n'était pas recherchable (société
+// de test, voir isCompanyResearchable()) ou si l'appel a totalement échoué —
+// dans tous les cas de null/champ null, Aaron doit rester sur une approche
+// générique plutôt que de prétendre connaître le métier du prospect (voir
+// lib/aaron_system_prompt.md, section MAÎTRISE DES DEUX SOCIÉTÉS), et
+// l'appelant ne doit compléter que les champs de la fiche encore vides
+// (jamais écraser une valeur déjà renseignée par le commercial). N'interrompt
+// jamais la création du prospect en cas d'erreur : une recherche ratée
+// dégrade la qualité du premier message / la complétude de la fiche, elle ne
+// doit jamais bloquer la fonctionnalité principale.
 export async function researchProspectCompany(
   companyId: string,
   input: ProspectCompanyResearchInput
-): Promise<string | null> {
+): Promise<ProspectCompanyResearchResult | null> {
   if (!isCompanyResearchable(input)) return null;
 
   const identifiers = [
@@ -80,26 +110,36 @@ export async function researchProspectCompany(
     .join('\n');
 
   const prompt =
-    `Tu prépares un commercial B2B à contacter cette entreprise pour la toute première fois. Cherche sur le web ` +
-    `(son site officiel en priorité, sinon LinkedIn, annuaires professionnels ou pages presse) des informations ` +
-    `réelles et vérifiables sur son activité :\n\n${identifiers}\n\n` +
-    `Rédige un résumé factuel en 3 à 5 phrases : ce que fait CONCRÈTEMENT cette entreprise (son métier précis, ` +
-    `pas juste un secteur générique comme "BTP" ou "services"), son marché ou ses clients typiques si tu les ` +
+    `Tu prépares un commercial B2B à contacter cette entreprise pour la toute première fois, et tu complètes sa ` +
+    `fiche CRM. Cherche sur le web (son site officiel en priorité, sinon LinkedIn, annuaires professionnels type ` +
+    `societe.com/pappers.fr/infogreffe.fr, ou pages presse) des informations réelles et vérifiables sur elle :\n\n` +
+    `${identifiers}\n\n` +
+    `Réponds UNIQUEMENT avec un objet JSON (sans texte avant/après, sans balises markdown) au format :\n` +
+    `{\n` +
+    `  "summary": "résumé factuel en 3 à 5 phrases : ce que fait CONCRÈTEMENT cette entreprise (son métier précis, ` +
+    `pas juste un secteur générique comme \\"BTP\\" ou \\"services\\"), son marché ou ses clients typiques si tu les ` +
     `identifies, et un ou deux termes de vocabulaire propres à son métier qui montreraient une vraie connaissance ` +
-    `du secteur dans un email (ex: pour un poseur de portes de garage, des termes comme "motorisation", "portail ` +
-    `battant/coulissant", "mise aux normes"). N'INVENTE RIEN : si tu ne trouves aucune information fiable sur ` +
-    `CETTE entreprise précise (à distinguer d'une société homonyme), réponds uniquement le mot ` +
-    `"AUCUNE_INFO_FIABLE" sans rien ajouter d'autre.`;
+    `du secteur dans un email (ex: pour un poseur de portes de garage, des termes comme \\"motorisation\\", ` +
+    `\\"portail battant/coulissant\\", \\"mise aux normes\\"), ou null si tu ne trouves aucune information fiable ` +
+    `sur CETTE entreprise précise (à distinguer d'une société homonyme)",\n` +
+    `  "website": "URL du site officiel ou null",\n` +
+    `  "siret": "numéro SIRET (14 chiffres) trouvé sur une source fiable (societe.com, pappers.fr, infogreffe.fr, ` +
+    `mentions légales du site officiel...) ou null si non trouvé avec certitude",\n` +
+    `  "address": "adresse postale du siège ou de l'établissement principal ou null",\n` +
+    `  "industry": "secteur d'activité précis (pas juste \\"BTP\\" ou \\"services\\") ou null"\n` +
+    `}\n\n` +
+    `N'INVENTE RIEN : chaque champ doit être null plutôt que deviné si tu n'as pas trouvé de source fiable.`;
 
   try {
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
-        max_tokens: 600,
+        max_tokens: 900,
         // max_uses borne le coût de cette recherche ponctuelle, même logique
         // que lib/sourcing.ts (searchContactAtCompany) pour une entreprise
         // déjà identifiée : moins de recherches nécessaires qu'une découverte
-        // de zone complète.
+        // de zone complète. Inchangé malgré l'ajout des champs structurés :
+        // c'est toujours UNE seule recherche par société, pas une de plus.
         tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
         messages: [{ role: 'user', content: prompt }],
       },
@@ -109,8 +149,24 @@ export async function researchProspectCompany(
 
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     const text = textBlock?.text?.trim();
-    if (!text || text.includes('AUCUNE_INFO_FIABLE')) return null;
-    return text;
+    if (!text) return { summary: null, website: null, siret: null, address: null, industry: null };
+
+    const cleaned = text.replace(/```json|```/g, '').trim();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      console.error('Réponse recherche société prospect non parsable:', text);
+      return { summary: null, website: null, siret: null, address: null, industry: null };
+    }
+
+    return {
+      summary: typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary.trim() : null,
+      website: typeof parsed.website === 'string' && parsed.website.trim() ? parsed.website.trim() : null,
+      siret: isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null,
+      address: typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null,
+      industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : null,
+    };
   } catch (err: any) {
     console.error('Erreur recherche web société prospect:', err.message);
     return null;
