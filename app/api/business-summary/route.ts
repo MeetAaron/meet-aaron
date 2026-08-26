@@ -149,14 +149,30 @@ export async function POST(request: NextRequest) {
     `Si le commercial a mentionné des éléments concrets prouvant son expérience/expertise/légitimité (années ` +
     `d'expérience, certifications, nombre de clients ou de réalisations, spécialisation, références notables), ` +
     `regroupe-les dans une phrase séparée et explicite commençant par "Légitimité :" — sans en inventer si aucun ` +
-    `n'a été fourni. Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
+    `n'a été fourni. ` +
+    // 2026-08-26 (suite demande Alex du 25/08) : même mécanique que
+    // "Légitimité :" ci-dessus, mais pour la preuve sociale (principe de
+    // Cialdini du même nom) — nourrie par la nouvelle question du
+    // questionnaire de découverte "as-tu un exemple concret de client
+    // satisfait..." (voir chat.onboardingQSocialProof, app/app/chat/page.jsx).
+    // Distincte de "Légitimité :" : la légitimité parle de QUI est le
+    // commercial/la société (expertise, ancienneté), la preuve sociale parle
+    // de CE QUE d'autres clients ont vécu/obtenu concrètement — les deux se
+    // complètent mais ne doivent pas être fusionnées dans la même phrase.
+    `Si le commercial a donné un exemple concret de client satisfait, un résultat chiffré ou une transformation ` +
+    `obtenue par un client (preuve sociale), regroupe cela dans une autre phrase séparée et explicite commençant ` +
+    `par "Preuve sociale :" — sans en inventer si rien de concret n'a été fourni. ` +
+    `Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
     `préambule ni titre.`;
 
   try {
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
-        max_tokens: 400,
+        // Relevé de 400 à 500 (2026-08-26) : le résumé peut maintenant
+        // contenir jusqu'à deux phrases marqueurs supplémentaires
+        // ("Légitimité :" et "Preuve sociale :") en plus du corps principal.
+        max_tokens: 500,
         messages: [{ role: 'user', content: prompt }],
       },
       user.company_id
