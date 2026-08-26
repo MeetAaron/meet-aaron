@@ -131,6 +131,16 @@ export default function DocumentsPage() {
   const [categoryUpdatingId, setCategoryUpdatingId] = useState(null);
   const [generatingAdviceId, setGeneratingAdviceId] = useState(null);
   const [adviceModalDoc, setAdviceModalDoc] = useState(null);
+  // Demande Alex (2026-08-26, capture à l'appui) : la synthèse générée par
+  // Aaron s'affichait en entier dans la cellule du tableau (max-width: 280px,
+  // voir .summary-cell) — un vrai paragraphe forcé sur une colonne étroite
+  // donne 4-5 mots par ligne, illisible. Même traitement que le correctif
+  // appliqué à app/app/prospects/page.jsx le même jour : on tronque dans la
+  // cellule et "Voir plus" ouvre une fenêtre dédiée (réutilise le style
+  // .advice-modal/.advice-modal-text déjà utilisé par "Avis d'Aaron" juste
+  // à côté, pour une lecture en vrais paragraphes larges).
+  const [summaryModalDoc, setSummaryModalDoc] = useState(null);
+  const SUMMARY_TRUNCATE_LENGTH = 110;
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur par
@@ -360,7 +370,23 @@ export default function DocumentsPage() {
                 <tr key={d.id}>
                   <td className="strong">{d.file_name}</td>
                   <td className="muted">{d.description || '—'}</td>
-                  <td className="muted summary-cell">{d.summary || '—'}</td>
+                  <td className="muted summary-cell">
+                    {d.summary ? (
+                      d.summary.length <= SUMMARY_TRUNCATE_LENGTH ? (
+                        d.summary
+                      ) : (
+                        <>
+                          {`${d.summary.slice(0, SUMMARY_TRUNCATE_LENGTH).trimEnd()}…`}
+                          {' '}
+                          <button type="button" className="link-btn" onClick={() => setSummaryModalDoc(d)}>
+                            {t('common.seeMore', locale)}
+                          </button>
+                        </>
+                      )
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <select
                       className="category-select-inline"
@@ -412,6 +438,16 @@ export default function DocumentsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {summaryModalDoc && (
+        <div className="overlay" onClick={() => setSummaryModalDoc(null)}>
+          <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close-btn" onClick={() => setSummaryModalDoc(null)}>✕</button>
+            <h2>{t('documents.summaryModalTitle', locale)} — {summaryModalDoc.file_name}</h2>
+            <p className="advice-modal-text">{summaryModalDoc.summary}</p>
+          </div>
         </div>
       )}
 
