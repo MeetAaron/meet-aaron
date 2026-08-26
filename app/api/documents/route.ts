@@ -12,9 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { callClaude } from '@/lib/anthropic-client';
-import { localeInstruction } from '@/lib/locale-instruction';
 import { extractDocumentText } from '@/lib/document-extraction';
+import { summarizeDocument } from '@/lib/document-summary';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 
 const BUCKET = 'documents';
@@ -56,46 +55,9 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ documents: documentsWithUrls });
 }
 
-// Génère une courte synthèse (2-4 phrases) du document via Claude, pour un
-// aperçu rapide côté équipe (liste des documents). Renvoie null si le texte
-// extrait est vide/absent, ou si l'appel échoue — le document reste utilisable
-// sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
-async function summarizeDocument(
-  fileName: string,
-  extractedText: string,
-  companyId: string,
-  locale: string
-): Promise<string | null> {
-  if (!extractedText || extractedText.trim().length < 50) return null;
-
-  try {
-    const data = await callClaude(
-      {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 300,
-        messages: [
-          {
-            role: 'user',
-            content:
-              `Voici le contenu extrait du document "${fileName}" (usage commercial : plaquette, argumentaire, tarifs, etc.). ` +
-              `Rédige une synthèse ${localeInstruction(locale)} de 2 à 4 phrases maximum, utile pour qu'un commercial comprenne en un coup d'œil ` +
-              `à quoi sert ce document et ce qu'il contient. Réponds UNIQUEMENT avec la synthèse, sans titre ni préambule.\n\n` +
-              `${extractedText.slice(0, 4000)}`,
-          },
-        ],
-      },
-      companyId
-    );
-
-    const textBlock = data.content.find((block: any) => block.type === 'text');
-    return textBlock ? textBlock.text.trim() : null;
-  } catch (err: any) {
-    // Y compris un plafond de dépense atteint : le document reste utilisable
-    // sans synthèse (Aaron continue d'exploiter extracted_text dans tous les cas).
-    console.error('Erreur génération synthèse document:', err.message);
-    return null;
-  }
-}
+// summarizeDocument factorisé dans lib/document-summary.ts (2026-08-26) —
+// partagé avec app/api/chat/route.ts (outil sauvegarder_document), qui
+// créait jusqu'ici la ligne company_documents SANS synthèse.
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
