@@ -184,6 +184,14 @@ export default function ChatPage() {
   // utilisateur pour ne pas mélanger les brouillons entre commerciaux d'une
   // même entreprise partageant le même navigateur.
   const draftStorageKey = userId ? `meetaaron_chat_draft_${userId}` : null;
+  // Bug remonté par Alex (26/08/2026) : un document joint mais pas encore
+  // confirmé/sauvegardé (pendingDocument) disparaissait dès qu'on quittait la
+  // page (changement de rubrique) et qu'on y revenait — c'est un state React
+  // pur, qui repart à `null` à chaque montage du composant, exactement comme
+  // le brouillon ci-dessus avant son propre correctif. Le fichier reste bien
+  // dans Storage entre-temps (voir app/api/chat/document/route.ts) : seule la
+  // référence en mémoire était perdue. Même traitement que draftStorageKey.
+  const pendingDocStorageKey = userId ? `meetaaron_chat_pending_doc_${userId}` : null;
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour éviter
   // d'avoir à englober la page dans un <Suspense> côté build Next.js.
@@ -432,6 +440,37 @@ export default function ChatPage() {
       // Voir plus haut.
     }
   }, [draftStorageKey, input]);
+
+  // Restaure le document en attente (pas encore sauvegardé) dès que
+  // l'utilisateur est connu — même principe que le brouillon ci-dessus, une
+  // seule fois pour ne pas écraser un nouvel upload en cours.
+  const pendingDocRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!pendingDocStorageKey || pendingDocRestoredRef.current) return;
+    pendingDocRestoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(pendingDocStorageKey);
+      if (saved) setPendingDocument(JSON.parse(saved));
+    } catch {
+      // localStorage indisponible ou JSON corrompu — le document restera
+      // simplement non restauré, sans bloquer le reste de la page.
+    }
+  }, [pendingDocStorageKey]);
+
+  // Sauvegarde le document en attente à chaque changement, pour qu'il
+  // survive un aller-retour vers une autre rubrique.
+  useEffect(() => {
+    if (!pendingDocStorageKey) return;
+    try {
+      if (pendingDocument) {
+        window.localStorage.setItem(pendingDocStorageKey, JSON.stringify(pendingDocument));
+      } else {
+        window.localStorage.removeItem(pendingDocStorageKey);
+      }
+    } catch {
+      // Voir plus haut.
+    }
+  }, [pendingDocStorageKey, pendingDocument]);
 
   // Le cadre ne s'agrandit "en direct" que via l'onChange du textarea (item
   // A2) — quand `input` change par programme plutôt que par frappe (brouillon
