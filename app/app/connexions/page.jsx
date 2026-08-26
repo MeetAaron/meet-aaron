@@ -1,7 +1,7 @@
 // app/app/connexions/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -399,6 +399,34 @@ export default function ConnexionsPage() {
       if (data?.session?.user?.email) setCurrentEmail(data.session.user.email);
     });
   }, []);
+
+  // {prenom}/{societe} dans l'email par défaut (demande Alex, 2026-08-26,
+  // suite à sa question "comment l'utilisateur peut-il savoir que ces tokens
+  // existent ?") : le seul endroit où ils étaient mentionnés jusqu'ici était
+  // le placeholder des champs — invisible dès que l'utilisateur tape du
+  // texte. Ces boutons rendent les tokens visibles en permanence ET
+  // évitent d'avoir à retenir/taper la syntaxe : un clic insère le token à
+  // l'endroit exact du curseur dans le champ correspondant.
+  const defaultEmailSubjectRef = useRef(null);
+  const defaultEmailBodyRef = useRef(null);
+
+  function insertDefaultEmailToken(fieldRef, fieldName, token) {
+    const el = fieldRef.current;
+    const current = prefs[fieldName] || '';
+    if (!el) {
+      setPrefs({ ...prefs, [fieldName]: current + token });
+      return;
+    }
+    const start = el.selectionStart ?? current.length;
+    const end = el.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + token + current.slice(end);
+    setPrefs({ ...prefs, [fieldName]: next });
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
 
   // Webhook générique de conversion prospect -> client (demande Alex,
   // 2026-08-26) — voir preferences.externalConversionWebhookLabel plus bas.
@@ -1686,14 +1714,50 @@ export default function ConnexionsPage() {
               </div>
               {prefs.default_first_email_enabled && (
                 <div className="default-email-fields">
+                  <div className="token-toolbar">
+                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabel', locale)}</span>
+                    <button
+                      type="button"
+                      className="token-btn"
+                      onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{prenom}')}
+                    >
+                      {t('preferences.defaultFirstEmailInsertPrenom', locale)}
+                    </button>
+                    <button
+                      type="button"
+                      className="token-btn"
+                      onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{societe}')}
+                    >
+                      {t('preferences.defaultFirstEmailInsertSociete', locale)}
+                    </button>
+                  </div>
                   <input
+                    ref={defaultEmailSubjectRef}
                     type="text"
                     className="cap-input"
                     placeholder={t('preferences.defaultFirstEmailSubjectPlaceholder', locale)}
                     value={prefs.default_first_email_subject}
                     onChange={(e) => setPrefs({ ...prefs, default_first_email_subject: e.target.value })}
                   />
+                  <div className="token-toolbar">
+                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabel', locale)}</span>
+                    <button
+                      type="button"
+                      className="token-btn"
+                      onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{prenom}')}
+                    >
+                      {t('preferences.defaultFirstEmailInsertPrenom', locale)}
+                    </button>
+                    <button
+                      type="button"
+                      className="token-btn"
+                      onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{societe}')}
+                    >
+                      {t('preferences.defaultFirstEmailInsertSociete', locale)}
+                    </button>
+                  </div>
                   <textarea
+                    ref={defaultEmailBodyRef}
                     rows={8}
                     placeholder={t('preferences.defaultFirstEmailBodyPlaceholder', locale)}
                     value={prefs.default_first_email_body}
@@ -2342,6 +2406,30 @@ export default function ConnexionsPage() {
         .field .cap-input[type='text'] {
           max-width: 100%;
           margin-top: 0.6rem;
+        }
+        .token-toolbar {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+        .token-toolbar-label {
+          font-size: 0.78rem;
+          color: var(--muted);
+          margin-right: 0.2rem;
+        }
+        .token-btn {
+          background: var(--surface);
+          border: 1px dashed var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.25rem 0.55rem;
+          font-size: 0.78rem;
+          font-family: var(--font-mono);
+          color: var(--accent);
+          cursor: pointer;
+        }
+        .token-btn:hover {
+          background: rgba(59, 130, 246, 0.08);
         }
 
         .webhook-url-row {
