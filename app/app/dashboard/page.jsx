@@ -229,6 +229,19 @@ export default function DashboardPage() {
   // pas de composant partagé entre Shell et le contenu de la page).
   const [salesModuleActive, setSalesModuleActive] = useState(true);
   const [customerModuleActive, setCustomerModuleActive] = useState(true);
+  // Checklist de mise en route (demande Alex, 2026-08-26 : "tu me garantis
+  // que quand on crée un nouveau compte il y a la visite guidée + création
+  // profil business + connexion google/microsoft + création première
+  // campagne/prospect test ?") — aucune de ces 4 étapes n'est bloquante côté
+  // inscription (voir app/api/webhooks/stripe/route.ts et app/onboarding),
+  // donc plutôt qu'un blocage dur, ce bandeau non-bloquant et persistant
+  // (visible tant que les 4 étapes ne sont pas toutes faites) sert de
+  // "garantie souple" : personne ne peut manquer ces étapes sans s'en rendre
+  // compte à chaque passage sur le tableau de bord.
+  const [onboardingTourSeen, setOnboardingTourSeen] = useState(true);
+  const [businessSummaryDone, setBusinessSummaryDone] = useState(true);
+  const [emailConnected, setEmailConnected] = useState(true);
+  const [onboardingChecklistOpen, setOnboardingChecklistOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(true);
  const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -237,13 +250,19 @@ export default function DashboardPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [pRes, cRes, aRes, dRes, cuRes, prefRes] = await Promise.all([
+    const [pRes, cRes, aRes, dRes, cuRes, prefRes, bsRes, connRes] = await Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/preferences?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      // Checklist de mise en route (voir déclaration des states ci-dessus) :
+      // deux appels de plus, déjà légers et déjà utilisés ailleurs dans
+      // l'appli (Préférences, Mon compte > Connexion) — pas de nouvelle route
+      // nécessaire.
+      fetch(`/api/business-summary?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
     ]);
     setProspects(pRes.prospects || []);
     setCampaigns(cRes.campaigns || []);
@@ -256,6 +275,9 @@ export default function DashboardPage() {
     // seulement si explicitement true (pas de valeur par défaut "activé").
     setSalesModuleActive(prefs.offer_as_active === true);
     setCustomerModuleActive(prefs.offer_ac_active === true);
+    setOnboardingTourSeen(prefs.onboarding_tour_seen === true);
+    setBusinessSummaryDone(!!bsRes.summary);
+    setEmailConnected((connRes.connections || []).length > 0);
     setLoading(false);
   }
 
@@ -390,6 +412,39 @@ export default function DashboardPage() {
     return acc;
   }, {});
 
+  // Checklist de mise en route — voir le commentaire sur les states plus
+  // haut. "Première campagne ou prospect" : un prospect ajouté à la main
+  // compte autant qu'une campagne lancée, les deux prouvent que le
+  // commercial a réellement mis un premier pied dans l'outil.
+  const onboardingSteps = [
+    {
+      key: 'tour',
+      done: onboardingTourSeen,
+      label: t('dash.onboardingStepTour', locale),
+      href: '/app/tour',
+    },
+    {
+      key: 'profile',
+      done: businessSummaryDone,
+      label: t('dash.onboardingStepProfile', locale),
+      href: `/app/chat?user_id=${userId}&restart_questionnaire=1`,
+    },
+    {
+      key: 'email',
+      done: emailConnected,
+      label: t('dash.onboardingStepEmail', locale),
+      href: '/app/connexions',
+    },
+    {
+      key: 'first',
+      done: campaigns.length > 0 || prospects.length > 0,
+      label: t('dash.onboardingStepFirst', locale),
+      href: '/app/prospects',
+    },
+  ];
+  const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
+  const onboardingComplete = onboardingDoneCount === onboardingSteps.length;
+
   if (authLoading) {
     return (
       <div className="auth-loading">
@@ -434,6 +489,36 @@ export default function DashboardPage() {
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
+          {!onboardingComplete && (
+            <section className="onboarding-panel">
+              <button className="onboarding-toggle" onClick={() => setOnboardingChecklistOpen(!onboardingChecklistOpen)}>
+                <span>
+                  {t('dash.onboardingTitle', locale)}{' '}
+                  <span className="badge">{onboardingDoneCount}/{onboardingSteps.length}</span>
+                </span>
+                <span className="chevron">{onboardingChecklistOpen ? '▲' : '▼'}</span>
+              </button>
+              {onboardingChecklistOpen && (
+                <div className="onboarding-list">
+                  {onboardingSteps.map((step) =>
+                    step.done ? (
+                      <div key={step.key} className="onboarding-row done">
+                        <span className="onboarding-check">✓</span>
+                        <span className="onboarding-label">{step.label}</span>
+                      </div>
+                    ) : (
+                      <Link key={step.key} href={step.href} className="onboarding-row">
+                        <span className="onboarding-check pending">○</span>
+                        <span className="onboarding-label">{step.label}</span>
+                        <span className="onboarding-cta">{t('dash.onboardingStepCta', locale)}</span>
+                      </Link>
+                    )
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
           {missedAppointments.length > 0 && (
             <section className="missed-panel">
               <p className="missed-title">
@@ -722,6 +807,77 @@ export default function DashboardPage() {
           margin: 0;
           max-width: 26ch;
           line-height: 1.2;
+        }
+        .onboarding-panel {
+          background: rgba(59, 130, 246, 0.08);
+          border: 1px solid var(--accent);
+          border-radius: var(--radius-lg);
+          margin-bottom: 1.2rem;
+          overflow: hidden;
+        }
+        .onboarding-toggle {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem 1.3rem;
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-size: 0.92rem;
+          font-weight: 700;
+          color: var(--accent);
+          font-family: inherit;
+        }
+        .onboarding-toggle .badge {
+          background: var(--accent);
+          color: #fff;
+          border-radius: 999px;
+          padding: 0.1rem 0.55rem;
+          font-size: 0.78rem;
+          margin-left: 0.4rem;
+        }
+        .onboarding-list {
+          border-top: 1px solid rgba(59, 130, 246, 0.25);
+        }
+        .onboarding-row {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          padding: 0.75rem 1.3rem;
+          border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+          text-decoration: none;
+          color: var(--text);
+          transition: background 0.15s;
+        }
+        .onboarding-row:last-child {
+          border-bottom: none;
+        }
+        a.onboarding-row:hover {
+          background: rgba(59, 130, 246, 0.08);
+        }
+        .onboarding-check {
+          font-weight: 700;
+          color: var(--accent-green, #2ecc71);
+          width: 1.2rem;
+          text-align: center;
+        }
+        .onboarding-check.pending {
+          color: var(--muted);
+        }
+        .onboarding-label {
+          flex: 1;
+          font-size: 0.9rem;
+        }
+        .onboarding-row.done .onboarding-label {
+          color: var(--muted);
+          text-decoration: line-through;
+        }
+        .onboarding-cta {
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: var(--accent);
+          white-space: nowrap;
         }
         .missed-panel {
           background: rgba(229, 72, 77, 0.08);
