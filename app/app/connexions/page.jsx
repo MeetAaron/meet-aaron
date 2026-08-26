@@ -199,6 +199,25 @@ function firstEmailOptionsFor(locale) {
   ];
 }
 
+// Objectif de prospection + email de premier contact par défaut (demande
+// Alex, 2026-08-26) — voir migration_prospecting_goal_default_email_2026-08-26.sql
+// et la section OBJECTIF DE LA PROSPECTION de lib/aaron_system_prompt.md.
+function prospectingGoalOptionsFor(locale) {
+  return [
+    { value: 'rdv', label: t('preferences.prospectingGoal.rdv', locale) },
+    { value: 'devis', label: t('preferences.prospectingGoal.devis', locale) },
+    { value: 'essai_gratuit', label: t('preferences.prospectingGoal.essaiGratuit', locale) },
+    { value: 'autre', label: t('preferences.prospectingGoal.autre', locale) },
+  ];
+}
+
+function defaultFirstEmailOptionsFor(locale) {
+  return [
+    { value: false, label: t('preferences.defaultFirstEmail.auto', locale) },
+    { value: true, label: t('preferences.defaultFirstEmail.manual', locale) },
+  ];
+}
+
 function offersFor(locale) {
   return [
     { value: 'AP', label: t('preferences.offers.apLabel', locale), desc: t('preferences.offers.apDesc', locale), available: true },
@@ -308,6 +327,8 @@ export default function ConnexionsPage() {
   // chargement des connexions comme avant).
   const CHANNEL_OPTIONS = channelOptionsFor(locale);
   const FIRST_EMAIL_OPTIONS = firstEmailOptionsFor(locale);
+  const PROSPECTING_GOAL_OPTIONS = prospectingGoalOptionsFor(locale);
+  const DEFAULT_FIRST_EMAIL_OPTIONS = defaultFirstEmailOptionsFor(locale);
   const OFFERS = offersFor(locale);
   const [prefs, setPrefs] = useState(null);
   const [prefsLoading, setPrefsLoading] = useState(true);
@@ -562,6 +583,11 @@ export default function ConnexionsPage() {
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
         require_first_email_approval: prefs.require_first_email_approval,
         daily_prospecting_email_cap: prefs.daily_prospecting_email_cap,
+        prospecting_goal: prefs.prospecting_goal,
+        prospecting_goal_details: prefs.prospecting_goal_details,
+        default_first_email_enabled: prefs.default_first_email_enabled,
+        default_first_email_subject: prefs.default_first_email_subject,
+        default_first_email_body: prefs.default_first_email_body,
       }),
     });
     setSaving(false);
@@ -1606,6 +1632,68 @@ export default function ConnexionsPage() {
               </p>
             </div>
 
+            <div className="field">
+              <label>{t('preferences.prospectingGoalLabel', locale)}</label>
+              <div className="options">
+                {PROSPECTING_GOAL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={prefs.prospecting_goal === opt.value ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, prospecting_goal: opt.value })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {prefs.prospecting_goal === 'autre' && (
+                <input
+                  type="text"
+                  className="cap-input"
+                  placeholder={t('preferences.prospectingGoalDetailsPlaceholder', locale)}
+                  value={prefs.prospecting_goal_details}
+                  onChange={(e) => setPrefs({ ...prefs, prospecting_goal_details: e.target.value })}
+                />
+              )}
+              <p className="collab-extra-hint">
+                {t('preferences.prospectingGoalHint', locale)}
+              </p>
+            </div>
+
+            <div className="field">
+              <label>{t('preferences.defaultFirstEmailLabel', locale)}</label>
+              <div className="options">
+                {DEFAULT_FIRST_EMAIL_OPTIONS.map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    className={prefs.default_first_email_enabled === opt.value ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, default_first_email_enabled: opt.value })}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {prefs.default_first_email_enabled && (
+                <div className="default-email-fields">
+                  <input
+                    type="text"
+                    className="cap-input"
+                    placeholder={t('preferences.defaultFirstEmailSubjectPlaceholder', locale)}
+                    value={prefs.default_first_email_subject}
+                    onChange={(e) => setPrefs({ ...prefs, default_first_email_subject: e.target.value })}
+                  />
+                  <textarea
+                    rows={8}
+                    placeholder={t('preferences.defaultFirstEmailBodyPlaceholder', locale)}
+                    value={prefs.default_first_email_body}
+                    onChange={(e) => setPrefs({ ...prefs, default_first_email_body: e.target.value })}
+                  />
+                </div>
+              )}
+              <p className="collab-extra-hint">
+                {t('preferences.defaultFirstEmailHint', locale)}
+              </p>
+            </div>
+
             <div className="actions">
               <button className="btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
@@ -2197,6 +2285,30 @@ export default function ConnexionsPage() {
           color: var(--text);
           font-size: 0.86rem;
           font-family: inherit;
+        }
+        .default-email-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          margin-top: 0.6rem;
+        }
+        .default-email-fields input,
+        .default-email-fields textarea {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .field .cap-input[type='text'] {
+          max-width: 100%;
+          margin-top: 0.6rem;
         }
 
         /* Onglet Mon profil : sections email/mot de passe (demande Alex
