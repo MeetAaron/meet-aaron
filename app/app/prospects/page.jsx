@@ -38,17 +38,25 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
 }
 
-function TruncatedText({ text, locale }) {
-  const [expanded, setExpanded] = useState(false);
+// Demande Alex (2026-08-26, capture d'écran à l'appui) : l'ancienne version
+// dépliait le texte complet EN PLACE, dans la même cellule de tableau large
+// de 26ch (voir .advice ci-dessous) — résultat illisible, une quasi-phrase
+// par ligne. "Voir plus" ouvre désormais la fiche complète du prospect
+// (ConversationModal, déjà utilisée par le bouton "Conversation" — voir
+// setThreadProspect passé ici via onExpand), qui affiche ce même texte dans
+// un cadre large de 600px et sans contrainte de largeur (.advice-line) :
+// beaucoup plus lisible, et cohérent avec ce que le commercial voit déjà en
+// ouvrant la conversation.
+function TruncatedText({ text, locale, onExpand }) {
   if (!text) return <span className="muted">—</span>;
   if (text.length <= TRUNCATE_LENGTH) return <>{text}</>;
 
   return (
     <>
-      {expanded ? text : `${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…`}
+      {`${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…`}
       {' '}
-      <button type="button" className="truncate-toggle" onClick={() => setExpanded(!expanded)}>
-        {expanded ? t('common.seeLess', locale) : t('common.seeMore', locale)}
+      <button type="button" className="truncate-toggle" onClick={onExpand}>
+        {t('common.seeMore', locale)}
       </button>
     </>
   );
