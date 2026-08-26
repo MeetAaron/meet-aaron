@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role')
+    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen')
     .eq('id', userId)
     .single();
 
