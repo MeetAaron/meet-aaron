@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes')
+    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body')
     .eq('id', user.company_id)
     .single();
 
@@ -49,12 +49,34 @@ export async function GET(request: NextRequest) {
       offer_ac_active: company?.offer_ac_active ?? false,
       crm_provider: company?.crm_provider ?? null,
       crm_connection_notes: company?.crm_connection_notes ?? null,
+      // Objectif de prospection + email de premier contact par défaut (demande
+      // Alex, 2026-08-26) — voir migration_prospecting_goal_default_email_2026-08-26.sql,
+      // lu par lib/aaron.ts.
+      prospecting_goal: company?.prospecting_goal || 'rdv',
+      prospecting_goal_details: company?.prospecting_goal_details || '',
+      default_first_email_enabled: company?.default_first_email_enabled ?? false,
+      default_first_email_subject: company?.default_first_email_subject || '',
+      default_first_email_body: company?.default_first_email_body || '',
     },
   });
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, collaboration_level, crm_provider, crm_connection_notes } = await request.json();
+  const {
+    user_id,
+    notify_channel,
+    notify_before_appointment_minutes,
+    require_first_email_approval,
+    daily_prospecting_email_cap,
+    collaboration_level,
+    crm_provider,
+    crm_connection_notes,
+    prospecting_goal,
+    prospecting_goal_details,
+    default_first_email_enabled,
+    default_first_email_subject,
+    default_first_email_body,
+  } = await request.json();
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -94,13 +116,36 @@ export async function PATCH(request: NextRequest) {
   // module a un effet Stripe réel (ajout/suppression d'une ligne
   // d'abonnement, voire annulation complète), ce que ce PATCH générique ne
   // fait pas. Voir app/api/subscription/modules/route.ts, la route dédiée.
-  if (collaboration_level !== undefined || crm_provider !== undefined || crm_connection_notes !== undefined) {
+  // Objectif de prospection : valide la valeur avant écriture (contrainte
+  // SQL déjà en place côté base, mais on préfère un message d'erreur clair
+  // ici plutôt qu'une 500 générique en cas de valeur inattendue).
+  if (prospecting_goal !== undefined && !['rdv', 'devis', 'essai_gratuit', 'autre'].includes(prospecting_goal)) {
+    return NextResponse.json({ error: 'Objectif de prospection invalide' }, { status: 400 });
+  }
+
+  if (
+    collaboration_level !== undefined ||
+    crm_provider !== undefined ||
+    crm_connection_notes !== undefined ||
+    prospecting_goal !== undefined ||
+    prospecting_goal_details !== undefined ||
+    default_first_email_enabled !== undefined ||
+    default_first_email_subject !== undefined ||
+    default_first_email_body !== undefined
+  ) {
     const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', user_id).single();
     if (user) {
       const companyUpdates: Record<string, unknown> = {};
       if (collaboration_level !== undefined) companyUpdates.collaboration_level = collaboration_level;
       if (crm_provider !== undefined) companyUpdates.crm_provider = crm_provider;
       if (crm_connection_notes !== undefined) companyUpdates.crm_connection_notes = crm_connection_notes;
+      if (prospecting_goal !== undefined) companyUpdates.prospecting_goal = prospecting_goal;
+      if (prospecting_goal_details !== undefined) companyUpdates.prospecting_goal_details = prospecting_goal_details || null;
+      // Booléen : "!== undefined" (pas "if (x)") pour pouvoir repasser
+      // l'option à false, même logique que require_first_email_approval plus haut.
+      if (default_first_email_enabled !== undefined) companyUpdates.default_first_email_enabled = default_first_email_enabled;
+      if (default_first_email_subject !== undefined) companyUpdates.default_first_email_subject = default_first_email_subject || null;
+      if (default_first_email_body !== undefined) companyUpdates.default_first_email_body = default_first_email_body || null;
 
       await supabaseAdmin
         .from('companies')
