@@ -507,13 +507,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true, contract_renewal_date });
   }
 
-  // Bascule "Aaron gère ce client" (emails + devis), exposée dans Aaron
-  // Client — voir migration_customer_ai_managed_2026-08-17.sql. Quand
-  // ai_managed passe à false, handleWonCustomerMessage (voir
-  // app/api/cron/check-inbox/route.ts) n'ouvre plus du tout les messages de
-  // ce client : ni archivage, ni brouillon de réponse, ni traitement des
-  // check-ins — le commercial reprend entièrement la main, comme pour un
-  // email personnel.
+  // Bascule "Aaron s'en charge" — à l'origine exposée uniquement dans Aaron
+  // Client (voir migration_customer_ai_managed_2026-08-17.sql) et bloquée
+  // ici pour tout prospect pas encore gagné. Étendue le 2026-08-26 (demande
+  // Alex : "il faut quand même un bouton à côté de chaque ligne du genre
+  // 'aaron s'en charge / aaron ne s'en charge pas'" + garantie qu'Aaron ne
+  // traite que les contacts dont il a la charge) à TOUT prospect assigné au
+  // commercial connecté, quel que soit son statut (prospect en cours,
+  // opportunité, client gagné) : app/api/cron/check-inbox/route.ts vérifie
+  // désormais ai_managed dans les deux branches (client gagné comme avant,
+  // et prospect/opportunité en cours, nouveau) — quand ai_managed passe à
+  // false, Aaron n'ouvre plus du tout les messages de ce contact : ni
+  // archivage, ni brouillon de réponse, ni relance automatique — le
+  // commercial reprend entièrement la main, comme pour un email personnel.
   if (action === 'set_ai_managed') {
     if (typeof ai_managed !== 'boolean') {
       return NextResponse.json({ error: 'ai_managed doit être un booléen' }, { status: 400 });
@@ -522,10 +528,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const authedUser = await getAuthedUser(request);
     if (!authedUser) return unauthorizedResponse();
     if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
-
-    if (!prospect.is_won) {
-      return NextResponse.json({ error: "Ce prospect n'est pas (encore) un client gagné" }, { status: 400 });
-    }
 
     await supabaseAdmin
       .from('prospects')
