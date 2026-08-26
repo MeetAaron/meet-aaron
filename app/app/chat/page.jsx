@@ -97,6 +97,18 @@ const ONBOARDING_QUESTION_KEYS = [
   'chat.onboardingQ5',
   'chat.onboardingQ6',
   'chat.onboardingQ7',
+  // Q_Differentiation / Q_SocialProof / Q_Trigger (2026-08-26, demande Alex :
+  // "la création du profil business gagnerait à être plus complet") — trois
+  // questions à plus fort levier ajoutées AVANT Q8 (pas après) pour ne pas
+  // avoir à retraduire Q8 dans les 7 langues, son texte étant explicitement
+  // formulé comme "Dernière question" — Q8 reste donc bien la dernière
+  // affichée. Ces 3 nouveaux textes suivent le pattern pragmatique déjà en
+  // place cette session (clés FR uniquement, t() retombe sur le français pour
+  // les autres langues, voir documents.summaryModalTitle/prospects.aiManagedOn
+  // par exemple) plutôt que d'être traduits dans les 7 locales.
+  'chat.onboardingQDifferentiation',
+  'chat.onboardingQSocialProof',
+  'chat.onboardingQTrigger',
   // Q8 (2026-08-25, demande Alex) : éléments d'autorité/légitimité (expérience,
   // certifications, chiffres, références) — sans ça le résumé business ne
   // contient rien que le premier email à un prospect puisse utiliser pour
