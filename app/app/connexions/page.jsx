@@ -1047,6 +1047,22 @@ export default function ConnexionsPage() {
   const microsoftConnection = connections.find((c) => c.provider === 'microsoft');
   const ALL_CRM_PROVIDERS = [...DIRECT_CRM_PROVIDERS, ...API_KEY_CRM_PROVIDERS, ...TWO_FIELD_CRM_PROVIDERS];
 
+  // Demande Alex (2026-08-26) : le label Gmail "🤖 Géré par Aaron" (seul repère
+  // visuel, dans SA boîte, pour savoir quels fils Aaron gère) n'apparaît jamais
+  // sur les fils envoyés avec un jeton Google connecté AVANT l'ajout du scope
+  // gmail.labels (voir app/api/auth/google/route.ts, commentaire du 25/08) —
+  // Google ne redonne jamais ce droit rétroactivement à un jeton déjà émis, et
+  // l'échec de pose du label est volontairement silencieux côté envoi (voir
+  // applyAaronLabel dans lib/google.ts) pour ne jamais bloquer un email pour un
+  // simple souci d'étiquette. Résultat : sans repère ici, ce cas est invisible
+  // pour le commercial — l'email part normalement, juste sans label. On détecte
+  // donc le scope manquant à partir de connection.scopes (stocké tel quel depuis
+  // la réponse OAuth de Google, voir app/api/auth/google/callback) et on
+  // affiche un avertissement explicite avec un bouton de reconnexion.
+  const googleMissingLabelScope =
+    !!googleConnection &&
+    !(googleConnection.scopes || []).includes('https://www.googleapis.com/auth/gmail.labels');
+
   return (
     <Shell active={t('nav.connections', locale)} userId={userId}>
       <header className="header">
@@ -1317,6 +1333,7 @@ export default function ConnexionsPage() {
             desc={PROVIDER_META.google.desc}
             connection={googleConnection}
             health={emailHealth.find((h) => h.provider === 'google')}
+            missingLabelScope={googleMissingLabelScope}
             onConnect={() => connectProvider('google')}
             onDisconnect={() => handleDisconnect(googleConnection.id)}
           />
@@ -3483,7 +3500,7 @@ function TwoFieldCrmConnectionCard({
   );
 }
 
-function ConnectionCard({ title, desc, connection, health, onConnect, onDisconnect }) {
+function ConnectionCard({ title, desc, connection, health, missingLabelScope, onConnect, onDisconnect }) {
   const [locale] = useLocale();
   const isConnected = !!connection;
   return (
@@ -3496,6 +3513,15 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
       {isConnected ? (
         <>
           <p className="account">{connection.provider_account_email}</p>
+          {missingLabelScope && (
+            <div className="health">
+              <p className="health-title">🤖 {t('connexions.labelScopeTitle', locale)}</p>
+              <p className="health-hint">{t('connexions.labelScopeHint', locale)}</p>
+              <button type="button" className="btn-secondary" onClick={onConnect}>
+                {t('connexions.labelScopeReconnectButton', locale)}
+              </button>
+            </div>
+          )}
           {health && !health.consumer_domain && health.health && (
             <div className="health">
               <p className="health-title">{t('connexions.domainHealthPrefix', locale)} {health.domain}</p>
@@ -3625,6 +3651,18 @@ function ConnectionCard({ title, desc, connection, health, onConnect, onDisconne
           font-weight: 600;
           font-size: 0.84rem;
           cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .health {
+          border-color: rgba(229, 72, 77, 0.35);
         }
         .btn-danger {
           background: transparent;
