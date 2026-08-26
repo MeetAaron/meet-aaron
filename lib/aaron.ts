@@ -56,9 +56,28 @@ async function buildContext(prospectId: string) {
   // app/api/business-summary).
   const { data: sellerCompany } = await supabaseAdmin
     .from('companies')
-    .select('name, business_summary')
+    .select('name, business_summary, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body')
     .eq('id', prospect.company_id)
     .maybeSingle();
+
+  // Objectif de prospection (demande Alex, 2026-08-26) : jusqu'ici la
+  // "mission" d'Aaron était codée en dur sur l'obtention d'un rendez-vous,
+  // quelle que soit la réponse donnée à la question d'onboarding
+  // correspondante (jamais exploitée comme un vrai réglage de comportement,
+  // seulement comme texte libre noyé dans business_summary). Traduit ici en
+  // libellé lisible passé au prompt système — voir la section "OBJECTIF DE
+  // LA PROSPECTION" de lib/aaron_system_prompt.md pour comment c'est utilisé.
+  const PROSPECTING_GOAL_LABELS: Record<string, string> = {
+    rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio)',
+    devis: 'obtenir une demande de devis/chiffrage directe, sans passer par un rendez-vous',
+    essai_gratuit: "faire s'inscrire ou essayer le produit/service directement, sans passer par un rendez-vous",
+    autre: 'un autre objectif, précisé ci-dessous',
+  };
+  const prospectingGoalKey = sellerCompany?.prospecting_goal || 'rdv';
+  const objectifDemarchage = {
+    objectif: PROSPECTING_GOAL_LABELS[prospectingGoalKey] || PROSPECTING_GOAL_LABELS.rdv,
+    precision: sellerCompany?.prospecting_goal_details || null,
+  };
 
   // Si ce prospect a été trouvé par une campagne de prospection, récupère les
   // notes de contexte laissées par le commercial lors de la création de la
@@ -159,6 +178,9 @@ async function buildContext(prospectId: string) {
       email: prospect.users.email,
       societe: sellerCompany?.name || null,
       offre_vendue: sellerCompany?.business_summary || null,
+      // Objectif de prospection choisi par le commercial (Préférences) — voir
+      // la section "OBJECTIF DE LA PROSPECTION" du prompt système.
+      objectif_demarchage: objectifDemarchage,
       // Langue choisie par le commercial (préférences) — voir la section
       // "LANGUE DE LA RÉPONSE" du prompt système : utilisée telle quelle pour
       // les champs internes (aaron_advice, personality_notes), et comme
@@ -195,11 +217,62 @@ async function buildContext(prospectId: string) {
       ? { date: validatedAppointment.proposed_at, type: validatedAppointment.type }
       : null,
     contexte_campagne_origine: campaignContext,
+    // Préfixé "_" par convention de ce fichier (comme company_id) : usage
+    // interne à generateAaronResponse ci-dessous, jamais envoyé à Claude
+    // (voir la déstructuration qui l'extrait avant construction du prompt).
+    _defaultFirstEmail: sellerCompany?.default_first_email_enabled
+      ? {
+          subject: sellerCompany.default_first_email_subject || '',
+          body: sellerCompany.default_first_email_body || '',
+        }
+      : null,
   };
 }
 
+// Remplace {prenom} par le prénom du prospect (premier mot de son nom
+// complet) si connu, sinon retire proprement le jeton plutôt que de laisser
+// "{prenom}" apparaître tel quel dans un email envoyé.
+function fillFirstNameToken(text: string, prospectFullName: string | null | undefined): string {
+  const firstName = (prospectFullName || '').trim().split(/\s+/)[0] || '';
+  return text.replace(/\{prenom\}/gi, firstName);
+}
+
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
-  const { company_id: companyId, ...context } = await buildContext(prospectId);
+  const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, ...context } = await buildContext(prospectId);
+
+  // Email de premier contact par défaut (demande Alex, 2026-08-26) : si
+  // activé ET qu'il s'agit bien du tout premier contact (aucun message dans
+  // aucune conversation existante), on utilise le texte fixe du commercial
+  // tel quel plutôt que de générer dynamiquement — la signature est ajoutée
+  // automatiquement à l'envoi par lib/messaging.ts, comme pour tout email,
+  // donc pas besoin de la gérer ici. Les relances/réponses (dès qu'un
+  // message existe, dans un sens ou dans l'autre) restent TOUJOURS générées
+  // dynamiquement : elles doivent réagir à ce que le prospect a réellement
+  // écrit, un texte fixe n'aurait aucun sens à ce stade.
+  const isFirstContact = !(context.historique_conversation || []).some(
+    (c: any) => (c.messages || []).length > 0
+  );
+  if (isFirstContact && defaultFirstEmail && defaultFirstEmail.subject.trim() && defaultFirstEmail.body.trim()) {
+    return {
+      email_draft: {
+        subject: fillFirstNameToken(defaultFirstEmail.subject, context.prospect?.nom),
+        body: fillFirstNameToken(defaultFirstEmail.body, context.prospect?.nom),
+      },
+      prospect_status: 'jaune',
+      personality_type: null,
+      personality_notes: null,
+      aaron_advice: "Premier email envoyé avec le modèle par défaut défini dans Préférences (pas de génération IA pour ce message).",
+      detected_phone: null,
+      appointment_cancelled: false,
+      rescue_proposal: null,
+      appointment_proposal: null,
+      action_required_from_sales: null,
+      quote_requested: false,
+      deal_approved: null,
+      negotiation_confidence: null,
+      opportunity_signal: null,
+    };
+  }
 
   const data = await callClaude(
     {
