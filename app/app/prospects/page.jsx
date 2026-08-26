@@ -302,6 +302,25 @@ export default function ProspectsPage() {
     loadProspects();
   }
 
+  // Bascule "Aaron s'en charge" par prospect (demande Alex, 2026-08-26) —
+  // même endpoint que le contrôle équivalent déjà utilisé pour Aaron Client
+  // (voir app/app/customer/page.jsx, handleToggleAiManaged), étendu par
+  // app/api/prospects/[id]/route.ts et app/api/cron/check-inbox/route.ts à
+  // tout prospect, plus seulement aux clients gagnés. Quand ai_managed passe
+  // à false, Aaron n'ouvre plus les messages de ce contact : ni relance
+  // automatique, ni brouillon de réponse.
+  async function handleToggleAiManaged(prospect) {
+    const nextManaged = prospect.ai_managed === false;
+    setActingOn(prospect.id);
+    await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_ai_managed', ai_managed: nextManaged }),
+    });
+    setActingOn(null);
+    loadProspects();
+  }
+
   async function handleMarkLost(prospect) {
     if (!window.confirm(t('prospects.confirmMarkLost', locale).replace('{name}', prospect.full_name))) {
       return;
@@ -633,6 +652,15 @@ export default function ProspectsPage() {
                           </button>
                         </>
                       )}
+                      <button
+                        type="button"
+                        className={`action-btn ai-managed-toggle${p.ai_managed === false ? ' off' : ' on'}`}
+                        disabled={actingOn === p.id}
+                        onClick={() => handleToggleAiManaged(p)}
+                        title={p.ai_managed === false ? t('prospects.aiManagedOffTitle', locale) : t('prospects.aiManagedOnTitle', locale)}
+                      >
+                        {p.ai_managed === false ? `⏸️ ${t('prospects.aiManagedOffLabel', locale)}` : `🤖 ${t('prospects.aiManagedOnLabel', locale)}`}
+                      </button>
                       <button
                         type="button"
                         className="action-btn delete"
@@ -973,6 +1001,14 @@ export default function ProspectsPage() {
           border-color: var(--accent-amber);
           color: var(--accent-amber);
           font-weight: 600;
+        }
+        .action-btn.ai-managed-toggle.on {
+          border-color: var(--accent);
+          color: var(--accent);
+        }
+        .action-btn.ai-managed-toggle.off {
+          border-color: var(--muted);
+          color: var(--muted);
         }
         .pending-banner {
           display: flex;
