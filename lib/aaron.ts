@@ -70,7 +70,7 @@ async function buildContext(prospectId: string) {
   const PROSPECTING_GOAL_LABELS: Record<string, string> = {
     rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio)',
     devis: 'obtenir une demande de devis/chiffrage directe, sans passer par un rendez-vous',
-    essai_gratuit: "faire s'inscrire ou essayer le produit/service directement, sans passer par un rendez-vous",
+    essai_gratuit: "faire s'inscrire ou s'abonner directement au produit/service (essai comme abonnement payant en auto-service), sans passer par un rendez-vous",
     autre: 'un autre objectif, précisé ci-dessous',
   };
   const prospectingGoalKey = sellerCompany?.prospecting_goal || 'rdv';
@@ -230,11 +230,19 @@ async function buildContext(prospectId: string) {
 }
 
 // Remplace {prenom} par le prénom du prospect (premier mot de son nom
-// complet) si connu, sinon retire proprement le jeton plutôt que de laisser
-// "{prenom}" apparaître tel quel dans un email envoyé.
-function fillFirstNameToken(text: string, prospectFullName: string | null | undefined): string {
-  const firstName = (prospectFullName || '').trim().split(/\s+/)[0] || '';
-  return text.replace(/\{prenom\}/gi, firstName);
+// complet) et {societe} par le nom de la société du prospect (demande Alex,
+// 2026-08-26 : pouvoir personnaliser l'email par défaut avec les deux),
+// si connus — sinon retire proprement le jeton plutôt que de laisser
+// "{prenom}"/"{societe}" apparaître tel quel dans un email envoyé.
+function fillTemplateTokens(
+  text: string,
+  prospect: { nom?: string | null; societe?: string | null }
+): string {
+  const firstName = (prospect.nom || '').trim().split(/\s+/)[0] || '';
+  const company = (prospect.societe || '').trim();
+  return text
+    .replace(/\{prenom\}/gi, firstName)
+    .replace(/\{societe\}/gi, company);
 }
 
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
@@ -255,8 +263,8 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
   if (isFirstContact && defaultFirstEmail && defaultFirstEmail.subject.trim() && defaultFirstEmail.body.trim()) {
     return {
       email_draft: {
-        subject: fillFirstNameToken(defaultFirstEmail.subject, context.prospect?.nom),
-        body: fillFirstNameToken(defaultFirstEmail.body, context.prospect?.nom),
+        subject: fillTemplateTokens(defaultFirstEmail.subject, context.prospect || {}),
+        body: fillTemplateTokens(defaultFirstEmail.body, context.prospect || {}),
       },
       prospect_status: 'jaune',
       personality_type: null,
