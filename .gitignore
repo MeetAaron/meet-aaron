@@ -32,3 +32,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# notes/scratch de travail des sessions Claude — pas du code applicatif,
+# souvent déjà dupliqués dans les docs du Projet claude.ai (claude/statut-*.md).
+# Listés explicitement (pas de wildcard) pour ne jamais ignorer par erreur un
+# futur script SQL ou fichier utile qui, lui, doit être pushé sur GitHub.
+activate_alex_modules_2026-08-22.sql
+activate_modules_alex.sql
+build_pipeline_doc.js
+comptes-test-meet-aaron-2026-08-22.xlsx
+idees_refonte_visuelle_129_2026-08-20.md
+migration_account_deletion_2026-08-25.sql
+migration_status_updated_at_2026-08-22.sql
+pipeline-aaron-sales-explication.docx
+pipeline-aaron-sales-explication.md
+recherche_facturation_electronique_multi_pays_2026-08-20.md
+statut-2026-08-22-dashboard-today-stats.md
+statut-2026-08-22-favicon-et-landing.md
+statut-2026-08-22-status-since-cadenas-landing.md
+statut-2026-08-25-mon-compte-bugs-divers.md
+video-presentation-meet-aaron-conseils.md
