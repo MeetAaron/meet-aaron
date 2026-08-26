@@ -331,6 +331,7 @@ export default function ConnexionsPage() {
   const DEFAULT_FIRST_EMAIL_OPTIONS = defaultFirstEmailOptionsFor(locale);
   const OFFERS = offersFor(locale);
   const [prefs, setPrefs] = useState(null);
+  const [webhookCopied, setWebhookCopied] = useState(false);
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -398,6 +399,17 @@ export default function ConnexionsPage() {
       if (data?.session?.user?.email) setCurrentEmail(data.session.user.email);
     });
   }, []);
+
+  // Webhook générique de conversion prospect -> client (demande Alex,
+  // 2026-08-26) — voir preferences.externalConversionWebhookLabel plus bas.
+  function copyWebhookUrl() {
+    if (!prefs?.external_conversion_webhook_secret) return;
+    const url = `${window.location.origin}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setWebhookCopied(true);
+      setTimeout(() => setWebhookCopied(false), 2000);
+    });
+  }
 
   function loadPrefs() {
     if (!userId) return;
@@ -1694,6 +1706,27 @@ export default function ConnexionsPage() {
               </p>
             </div>
 
+            <div className="field">
+              <label>{t('preferences.externalConversionWebhookLabel', locale)}</label>
+              {prefs.external_conversion_webhook_secret ? (
+                <div className="webhook-url-row">
+                  <code className="webhook-url">
+                    {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`}
+                  </code>
+                  <button type="button" className="btn-copy" onClick={copyWebhookUrl}>
+                    {webhookCopied ? t('team.copied', locale) : t('team.copy', locale)}
+                  </button>
+                </div>
+              ) : (
+                <p className="collab-extra-hint">
+                  {t('preferences.externalConversionWebhookPending', locale)}
+                </p>
+              )}
+              <p className="collab-extra-hint">
+                {t('preferences.externalConversionWebhookHint', locale)}
+              </p>
+            </div>
+
             <div className="actions">
               <button className="btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
@@ -2309,6 +2342,39 @@ export default function ConnexionsPage() {
         .field .cap-input[type='text'] {
           max-width: 100%;
           margin-top: 0.6rem;
+        }
+
+        .webhook-url-row {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.6rem;
+          margin-top: 0.6rem;
+        }
+        .webhook-url {
+          flex: 1 1 auto;
+          min-width: 0;
+          font-family: var(--font-mono);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          font-size: 0.82rem;
+          color: var(--accent-green, #2ecc71);
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+        .btn-copy {
+          flex-shrink: 0;
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          font-family: inherit;
         }
 
         /* Onglet Mon profil : sections email/mot de passe (demande Alex
