@@ -10,6 +10,7 @@ import { sendEmailForUser, DailySendCapExceededError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { isGenericEmailDomain } from '@/lib/csv-import';
+import { researchProspectCompany } from '@/lib/prospect-research';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest) {
   if (domainForMatching) {
     const { data: existingCompany } = await supabaseAdmin
       .from('prospect_companies')
-      .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
+      .select('id, name, address, siret, website, industry, company_size, estimated_revenue, research_summary')
       .eq('company_id', company_id)
       .eq('domain', domainForMatching)
       .single();
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
         company_size: companySize,
         estimated_revenue: estimatedRevenue,
       })
-      .select('id, name, address, siret, website, industry, company_size, estimated_revenue')
+      .select('id, name, address, siret, website, industry, company_size, estimated_revenue, research_summary')
       .single();
 
     if (companyError) {
@@ -216,6 +217,47 @@ export async function POST(request: NextRequest) {
 
   if (skipFirstContact) {
     return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
+  }
+
+  // MAÎTRISE DE LA SOCIÉTÉ CONTACTÉE (demande Alex, 2026-08-26) : avant tout
+  // premier contact, Aaron doit connaître le vrai métier de la société qu'il
+  // s'apprête à démarcher, pas juste son nom — voir lib/prospect-research.ts
+  // (recherche web, exception intégrée pour les sociétés de test qui
+  // n'existent pas réellement) et lib/aaron_system_prompt.md (section
+  // MAÎTRISE DES DEUX SOCIÉTÉS). Ne lance la recherche qu'une seule fois par
+  // fiche société (research_summary déjà en base = on ne repaie jamais deux
+  // fois la même recherche, y compris pour un 2e contact de la même société),
+  // et seulement quand un premier email va réellement être généré ci-dessous
+  // (placé APRÈS le early-return `skipFirstContact` : inutile de dépenser un
+  // appel de recherche web pour un ajout manuel de client/opportunité
+  // existant, qui ne déclenche jamais de premier message). Ne bloque jamais
+  // la création du prospect en cas d'échec de la recherche.
+  if (!prospectCompany.research_summary) {
+    try {
+      const researchSummary = await researchProspectCompany(company_id, {
+        name: cleanCompanyName || prospectCompany.name || null,
+        domain: domainForMatching,
+        website: website || prospectCompany.website || null,
+        industry: industry || prospectCompany.industry || null,
+      });
+      if (researchSummary) {
+        await supabaseAdmin
+          .from('prospect_companies')
+          .update({ research_summary: researchSummary, research_checked_at: new Date().toISOString() })
+          .eq('id', prospectCompany.id);
+        prospectCompany.research_summary = researchSummary;
+      } else {
+        // Même en l'absence de résultat exploitable, on marque la fiche comme
+        // vérifiée pour ne pas relancer une recherche vouée à échouer à
+        // chaque nouveau contact de cette même société de test.
+        await supabaseAdmin
+          .from('prospect_companies')
+          .update({ research_checked_at: new Date().toISOString() })
+          .eq('id', prospectCompany.id);
+      }
+    } catch (err: any) {
+      console.error('Erreur recherche web société prospect (non bloquant):', err.message);
+    }
   }
 
   try {
