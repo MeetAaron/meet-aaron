@@ -591,9 +591,9 @@ export default function ProspectsPage() {
                       ) : (
                         <span className="muted">{t('personality.notDetected', locale)}</span>
                       )}
-                      {p.personality_notes && <p className="notes"><TruncatedText text={p.personality_notes} locale={locale} /></p>}
+                      {p.personality_notes && <p className="notes"><TruncatedText text={p.personality_notes} locale={locale} onExpand={() => setThreadProspect(p)} /></p>}
                     </td>
-                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} /></td>
+                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} onExpand={() => setThreadProspect(p)} /></td>
                     <td className="contact">
                       <div>{p.email}</div>
                       {p.phone && <div className="muted">{p.phone}</div>}
