@@ -272,18 +272,16 @@ export async function GET(request: NextRequest) {
       const { fromEmail, bodyText, threadId } = msg;
       if (!fromEmail) continue;
 
-      // Marque le message comme "géré par Aaron" dès la réception, avant même
-      // de générer la réponse — si la génération échoue plus bas, le
-      // commercial sait quand même qu'il ne doit pas répondre lui-même en
-      // attendant. Gmail : label posé sur tout le fil. Outlook : catégorie
-      // posée sur ce message précis (voir applyAaronCategory dans
-      // lib/microsoft.ts — Outlook catégorise message par message, pas par fil).
-      if (connection.provider === 'google') {
-        applyAaronLabel(connection.user_id, threadId).catch(() => {});
-      } else if (connection.provider === 'microsoft') {
-        applyAaronCategory(connection.user_id, msg.id).catch(() => {});
-      }
-
+      // GARANTIE DE PÉRIMÈTRE (demande Alex, 2026-08-26 : "garantis-moi
+      // qu'aaron n'est capable que de prendre en charge les emails des
+      // contacts dont il a la charge"). Ce périmètre est structurellement
+      // garanti par ce match : un email dont l'expéditeur ne correspond à
+      // AUCUN prospect assigné à CE commercial est ignoré (aucune ligne
+      // trouvée = `continue` juste en dessous) — Aaron ne peut donc déjà
+      // traiter que les contacts que le commercial a lui-même créés
+      // (démarchés par Aaron via une campagne, ou ajoutés/importés
+      // manuellement), jamais un email personnel quelconque adressé à sa
+      // boîte mail.
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
         .select('id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at, deal_stage')
@@ -296,21 +294,37 @@ export async function GET(request: NextRequest) {
       // recontacter, même s'il répond après coup.
       if (!prospect || prospect.is_lost) continue;
 
+      // Contrôle MANUEL par-dessus la garantie structurelle ci-dessus : le
+      // bouton "Aaron s'en charge / n'en charge plus" (Prospects, Aaron
+      // Opportunité, Aaron Client — voir ai_managed, initialement réservé à
+      // Aaron Client via migration_customer_ai_managed_2026-08-17.sql puis
+      // étendu à tout prospect le 2026-08-26). Placé AVANT la pose du
+      // label/catégorie juste en dessous, contrairement à la version
+      // précédente : un contact explicitement repris en main par le
+      // commercial ne doit ni être traité PAR Aaron, ni être étiqueté "Géré
+      // par Aaron" (l'étiquette doit rester un signal fiable — c'est très
+      // précisément ce qu'Alex a demandé : "comment savoir quel email aaron
+      // prend en charge et quel il ne prend pas en charge ?").
+      if (prospect.ai_managed === false) continue;
+
+      // Marque le message comme "géré par Aaron" dès la réception, avant même
+      // de générer la réponse — si la génération échoue plus bas, le
+      // commercial sait quand même qu'il ne doit pas répondre lui-même en
+      // attendant. Gmail : label posé sur tout le fil. Outlook : catégorie
+      // posée sur ce message précis (voir applyAaronCategory dans
+      // lib/microsoft.ts — Outlook catégorise message par message, pas par fil).
+      if (connection.provider === 'google') {
+        applyAaronLabel(connection.user_id, threadId).catch(() => {});
+      } else if (connection.provider === 'microsoft') {
+        applyAaronCategory(connection.user_id, msg.id).catch(() => {});
+      }
+
       // is_won : le prospect est déjà client — Aaron Prospect (relance de
       // prospection automatique) ne s'applique plus, mais Aaron Customer
       // capte quand même le message pour l'historique et, si un check-in
       // satisfaction/NPS est en attente de réponse, en extrait la note.
       // Voir lib/aaron-customer.ts et migration_aaron_customer_2026-08-13.sql.
-      //
-      // ai_managed === false : le commercial a explicitement repris la main
-      // sur ce client (bascule "Aaron gère ce client" désactivée dans Aaron
-      // Client, voir migration_customer_ai_managed_2026-08-17.sql) — Aaron
-      // n'archive rien et ne prépare aucun brouillon, exactement comme pour
-      // un email personnel. Seul le label/catégorie posé plus haut (avant
-      // qu'on sache si ce client est délégué) reste visible sur le message ;
-      // c'est un repli volontairement minimal, pas un vrai traitement.
       if (prospect.is_won) {
-        if (prospect.ai_managed === false) continue;
         await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText);
         continue;
       }
