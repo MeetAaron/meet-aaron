@@ -10,6 +10,54 @@ import { supabaseAdmin } from './supabase-admin';
 import { sendGmailEmail, getGoogleFreeBusy } from './google';
 import { sendOutlookEmail, getOutlookFreeBusy } from './microsoft';
 
+// Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
+// les emails générés par Aaron sont parfois "wrappés à la main" par le
+// modèle — un retour à la ligne après ~50-70 caractères à l'intérieur d'un
+// même paragraphe, habitude héritée du texte brut classique — plutôt qu'un
+// seul paragraphe fluide laissé au client mail à reformater. Sur un écran
+// large (ordinateur), chaque ligne ainsi coupée tient dans la largeur du
+// volet de lecture : l'ensemble ressemble, par coïncidence, à un paragraphe
+// normal. Sur mobile, la largeur est bien plus étroite : chaque ligne déjà
+// coupée est à son tour re-coupée par le client mail, ce qui donne des
+// lignes très inégales (une grande ligne suivie d'un mot ou deux esseulés) —
+// exactement le rendu "haché" observé par Alex sur son téléphone. Le prompt
+// système demande désormais explicitement à Aaron de ne jamais faire ça
+// (voir lib/aaron_system_prompt.md), mais un prompt seul n'est pas une
+// garantie fiable à 100% : ceci est le filet de sécurité exécuté juste avant
+// l'envoi, pour TOUT email sortant quel que soit son origine (premier
+// contact, relance, sauvetage, debrief...), puisque sendEmailForUser est le
+// point d'entrée unique d'envoi.
+//
+// Ne touche qu'aux sauts de ligne UNIQUES à l'intérieur d'un même bloc (un
+// wrap de paragraphe) : un saut de ligne DOUBLE (paragraphe intentionnel,
+// ligne vide) est toujours préservé tel quel. Parmi les sauts uniques, on ne
+// fusionne que ceux entourés d'au moins une ligne "longue" (~une bribe de
+// phrase) : une salutation ("Bonjour Fabrice,") ou une signature
+// ("Cordialement,\nAlexandre") sont par nature des lignes courtes des deux
+// côtés du saut, donc jamais fusionnées — seul le vrai wrap de paragraphe
+// (lignes consécutives proches de la largeur de wrap) est reconstruit en une
+// phrase fluide.
+const EMAIL_WRAP_MERGE_MIN_LINE_LENGTH = 30;
+
+function normalizeEmailBodyLineBreaks(text: string): string {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block.split('\n');
+      let result = lines[0] ?? '';
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const prevLine = lines[i - 1].trim();
+        const looksLikeManualWrap =
+          prevLine.length >= EMAIL_WRAP_MERGE_MIN_LINE_LENGTH || line.length >= EMAIL_WRAP_MERGE_MIN_LINE_LENGTH;
+        result += looksLikeManualWrap ? ` ${line}` : `\n${line}`;
+      }
+      return result.trim();
+    })
+    .filter((block) => block.length > 0)
+    .join('\n\n');
+}
+
 async function getConnectedProviders(userId: string): Promise<Set<string>> {
   const { data } = await supabaseAdmin
     .from('oauth_connections')
@@ -105,6 +153,10 @@ export async function sendEmailForUser(
   opts?: { emailType?: 'prospecting' | 'transactional' }
 ) {
   const emailType = opts?.emailType || 'transactional';
+  // Voir normalizeEmailBodyLineBreaks ci-dessus — corrige les retours à la
+  // ligne manuels avant même le plafond de démarchage/le choix du
+  // fournisseur, pour couvrir tous les envois sans exception.
+  body = normalizeEmailBodyLineBreaks(body);
 
   if (emailType === 'prospecting' && (await hasReachedProspectingCap(userId))) {
     const { data: user } = await supabaseAdmin
