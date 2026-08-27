@@ -570,6 +570,10 @@ export default function TeamPage() {
           display: flex;
           align-items: center;
           gap: 0.5rem;
+          /* Audit mobile 27/08/2026 : 2 champs date + leurs libellés "De"/
+             "à" étaient trop serrés sur ~375px de large sans passer à la
+             ligne. */
+          flex-wrap: wrap;
         }
         .period-dates input[type='date'] {
           background: var(--bg);
@@ -676,6 +680,11 @@ export default function TeamPage() {
           display: flex;
           align-items: center;
           gap: 0.6rem;
+          /* Audit mobile 27/08/2026 : code + bouton "Copier" pouvaient être
+             rognés par le garde-fou overflow-x:hidden global sur un écran
+             étroit, rendant le code partiellement illisible/impossible à
+             copier "à l'oeil". */
+          flex-wrap: wrap;
         }
         .invite-code {
           font-family: var(--font-mono);
