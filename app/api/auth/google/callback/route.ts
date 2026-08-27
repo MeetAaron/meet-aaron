@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error');
 
   if (error) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}&tab=connection`);
   }
 
   if (!code || !returnedState) {
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   const [cookieNonce, userId] = cookieValue?.split(':') || [];
 
   if (!cookieValue || cookieNonce !== returnedState || !userId) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch&tab=connection`);
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/google/callback`;
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token Google:', errBody);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed&tab=connection`);
   }
 
   const tokens = await tokenResponse.json();
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens Google:', dbError);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error&tab=connection`);
   }
 
   // Fire-and-forget (demande Alex, 27/08/2026, suite à un domaine pro sans
@@ -101,5 +101,5 @@ export async function GET(request: NextRequest) {
     notifyIfDeliverabilityIssue(userId, profile.email).catch(() => {});
   }
 
-  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google`);
+  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google&tab=connection`);
 }
