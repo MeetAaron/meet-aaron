@@ -52,3 +52,8 @@ statut-2026-08-22-favicon-et-landing.md
 statut-2026-08-22-status-since-cadenas-landing.md
 statut-2026-08-25-mon-compte-bugs-divers.md
 video-presentation-meet-aaron-conseils.md
+# Plaquette PDF générée le 27/08/2026 (demande Alex) — livrée via SendUserFile,
+# script de rendu (render.js/plaquette.html) et preview gardés en local pour
+# pouvoir la régénérer/l'ajuster plus tard, mais ce ne sont pas des fichiers
+# applicatifs à pousser sur GitHub.
+plaquette/
