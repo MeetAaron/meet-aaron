@@ -28,6 +28,13 @@ const NON_TERMINAL_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
 // échantillon du début, avec un bouton pour dérouler le texte complet si le
 // commercial le souhaite.
 const TRUNCATE_LENGTH = 90;
+// docx item 14 (2026-08-27, remonté par Alex) : "Conseil d'Aaron" prenait
+// encore trop de lignes dans la vue tableau compacte/globale malgré la
+// troncature ci-dessus (90 caractères ~= 4 lignes vu la largeur de colonne
+// .advice, max-width: 26ch). Longueur dédiée, plus courte, pour cette seule
+// colonne — le panneau détaillé "Voir plus" (ligne ~1438) continue d'afficher
+// le texte intégral, inchangé, comme Alex le souhaite explicitement.
+const ADVICE_TRUNCATE_LENGTH = 55;
 
 // Demande Alex (2026-08-22) : voir depuis quand un prospect est dans sa
 // catégorie actuelle (colonne "Depuis") — même helper que sales/page.jsx et
@@ -47,13 +54,13 @@ function daysSince(iso) {
 // un cadre large de 600px et sans contrainte de largeur (.advice-line) :
 // beaucoup plus lisible, et cohérent avec ce que le commercial voit déjà en
 // ouvrant la conversation.
-function TruncatedText({ text, locale, onExpand }) {
+function TruncatedText({ text, locale, onExpand, maxLength = TRUNCATE_LENGTH }) {
   if (!text) return <span className="muted">—</span>;
-  if (text.length <= TRUNCATE_LENGTH) return <>{text}</>;
+  if (text.length <= maxLength) return <>{text}</>;
 
   return (
     <>
-      {`${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…`}
+      {`${text.slice(0, maxLength).trimEnd()}…`}
       {' '}
       <button type="button" className="truncate-toggle" onClick={onExpand}>
         {t('common.seeMore', locale)}
@@ -593,7 +600,7 @@ export default function ProspectsPage() {
                       )}
                       {p.personality_notes && <p className="notes"><TruncatedText text={p.personality_notes} locale={locale} onExpand={() => setThreadProspect(p)} /></p>}
                     </td>
-                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} onExpand={() => setThreadProspect(p)} /></td>
+                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} onExpand={() => setThreadProspect(p)} maxLength={ADVICE_TRUNCATE_LENGTH} /></td>
                     <td className="contact">
                       <div>{p.email}</div>
                       {p.phone && <div className="muted">{p.phone}</div>}
@@ -724,8 +731,17 @@ export default function ProspectsPage() {
           userId={userId}
           companyId={companyId}
           onClose={() => setShowAddForm(false)}
-          onCreated={(emailWarning) => {
+          onCreated={() => {
             setShowAddForm(false);
+            loadProspects();
+          }}
+          onFirstContactSettled={(emailWarning) => {
+            // docx item 13 (2026-08-27) : le prospect apparaît déjà dans la
+            // liste (onCreated ci-dessus) — cet appel arrive un peu plus
+            // tard, une fois qu'Aaron a fini de préparer/envoyer le premier
+            // message en arrière-plan. On rafraîchit la liste pour refléter
+            // le statut/conseil final, et on affiche l'avertissement s'il y
+            // en a un (mêmes messages qu'avant, juste asynchrones).
             loadProspects();
             if (emailWarning) {
               window.alert(emailWarning);
@@ -1084,7 +1100,7 @@ export default function ProspectsPage() {
   );
 }
 
-function AddProspectModal({ userId, companyId, onClose, onCreated }) {
+function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContactSettled }) {
   const [locale] = useLocale();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -1110,6 +1126,12 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
 
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
 
+    // docx item 13 (2026-08-27) : async_first_contact fait répondre cette
+    // route en moins d'une seconde (juste la création en base) — voir le
+    // commentaire détaillé dans app/api/prospects/route.ts. Le vrai premier
+    // message d'Aaron (recherche web + génération + envoi, la partie lente
+    // qui prenait ~1 minute) est déclenché juste en dessous, séparément et
+    // sans bloquer ce formulaire.
     const res = await fetch('/api/prospects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1128,6 +1150,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
         industry: industry || null,
         company_size: companySize || null,
         estimated_revenue: estimatedRevenue || null,
+        async_first_contact: true,
       }),
     });
 
@@ -1140,7 +1163,16 @@ function AddProspectModal({ userId, companyId, onClose, onCreated }) {
       return;
     }
 
-    onCreated(body.emailWarning || null);
+    onCreated(body.prospect);
+
+    if (body.prospect?.id) {
+      fetch(`/api/prospects/${body.prospect.id}/generate-first-contact`, { method: 'POST' })
+        .then((r) => r.json())
+        .then((res) => onFirstContactSettled(res.emailWarning || null))
+        .catch(() =>
+          onFirstContactSettled("Prospect ajouté, mais le premier message n'a pas pu être généré automatiquement.")
+        );
+    }
   }
 
   return (
