@@ -10,6 +10,22 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import PushNotificationManager from '@/components/PushNotificationManager';
 
+// Téléchargement d'un fichier généré côté serveur (export "Profil de
+// l'entreprise" en Word/PDF, demande Alex 27/08/2026) — même utilitaire que
+// downloadBlob dans app/app/team/page.jsx (dupliqué ici plutôt que
+// mutualisé, convention déjà en place dans ce projet pour ces petits
+// helpers sans logique métier propre à un module).
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -358,6 +374,23 @@ export default function ConnexionsPage() {
   // un agrandissement en plein écran pour relire/éditer le texte en entier
   // confortablement.
   const [summaryExpanded, setSummaryExpanded] = useState(false);
+  // Export Word/PDF + import d'une version modifiée (demande Alex,
+  // 27/08/2026) : "Profil de l'entreprise" plutôt que "résumé" côté libellés
+  // (même champ business_summary, juste renommé côté UI). exportingFormat
+  // désactive le bouton en cours de téléchargement ('word' | 'pdf' | null).
+  // pendingImport reflète business_summary_pending_* côté API — non-null
+  // tant qu'un document importé n'a pas été traité (bannière de revue avec
+  // "Ne pas analyser" / "Faire analyser par Aaron").
+  const [exportingFormat, setExportingFormat] = useState(null);
+  const [exportError, setExportError] = useState(null);
+  const [pendingImport, setPendingImport] = useState(null); // { fileName, uploadedAt } | null
+  const [importUploading, setImportUploading] = useState(false);
+  const [importError, setImportError] = useState(null);
+  const [discardingImport, setDiscardingImport] = useState(false);
+  const [analyzingImport, setAnalyzingImport] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState(null);
+  const [analyzeChangeNote, setAnalyzeChangeNote] = useState(null);
+  const importFileInputRef = useRef(null);
   const [signature, setSignature] = useState('');
   const [signatureLoaded, setSignatureLoaded] = useState(false);
   const [detectingSignature, setDetectingSignature] = useState(false);
@@ -490,6 +523,7 @@ export default function ConnexionsPage() {
       .then((r) => r.json())
       .then((res) => {
         setBusinessSummary(res.summary || '');
+        setPendingImport(res.pending || null);
         setSummaryLoaded(true);
         setSummaryDirty(false);
       })
@@ -654,6 +688,109 @@ export default function ConnexionsPage() {
       setSummarySaved(true);
       setSummaryDirty(false);
       setTimeout(() => setSummarySaved(false), 2500);
+    }
+  }
+
+  // Export Word/PDF "à tout moment" (demande Alex, 27/08/2026) — voir
+  // app/api/business-summary/export/route.ts. Le format déterminera
+  // l'extension (.rtf pour Word, .pdf) et le Content-Type renvoyés par
+  // l'API ; ici on lit juste le blob et on déclenche le téléchargement.
+  async function handleExportSummary(format) {
+    setExportingFormat(format);
+    setExportError(null);
+    try {
+      const res = await fetch(`/api/business-summary/export?user_id=${userId}&format=${format}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setExportError(err.error || t('preferences.businessProfileExportError', locale));
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match ? match[1] : `profil-entreprise.${format === 'word' ? 'rtf' : 'pdf'}`;
+      downloadBlob(blob, filename);
+    } catch {
+      setExportError(t('preferences.businessProfileExportError', locale));
+    } finally {
+      setExportingFormat(null);
+    }
+  }
+
+  // Import d'une version modifiée (demande Alex, 27/08/2026) : stocke le
+  // texte extrait "en attente" côté serveur — RIEN ne change sur le profil
+  // actif tant que l'utilisateur n'a pas choisi "Ne pas analyser" ou "Faire
+  // analyser par Aaron" ci-dessous. Voir app/api/business-summary/import/.
+  async function handleImportFileChange(e) {
+    const file = e.target.files?.[0];
+    if (importFileInputRef.current) importFileInputRef.current.value = '';
+    if (!file) return;
+
+    setImportUploading(true);
+    setImportError(null);
+    setAnalyzeChangeNote(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('user_id', userId);
+      const res = await fetch('/api/business-summary/import', { method: 'POST', body: formData });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setImportError(body.error || t('preferences.businessProfileImportError', locale));
+        return;
+      }
+      setPendingImport({ fileName: body.fileName, uploadedAt: new Date().toISOString() });
+    } catch {
+      setImportError(t('preferences.businessProfileImportError', locale));
+    } finally {
+      setImportUploading(false);
+    }
+  }
+
+  // Bouton "Ne pas analyser" : efface le document en attente sans toucher au
+  // profil actif.
+  async function handleDiscardPendingImport() {
+    setDiscardingImport(true);
+    setAnalyzeError(null);
+    try {
+      const res = await fetch('/api/business-summary/import/discard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (res.ok) {
+        setPendingImport(null);
+        setAnalyzeChangeNote(null);
+      }
+    } finally {
+      setDiscardingImport(false);
+    }
+  }
+
+  // Bouton "Faire analyser par Aaron" : Aaron retravaille le profil à partir
+  // du document importé et remarque ce qui a changé (changeNote) — voir
+  // app/api/business-summary/import/analyze/route.ts.
+  async function handleAnalyzePendingImport() {
+    setAnalyzingImport(true);
+    setAnalyzeError(null);
+    try {
+      const res = await fetch('/api/business-summary/import/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAnalyzeError(body.error || t('preferences.businessProfileAnalyzeError', locale));
+        return;
+      }
+      setBusinessSummary(body.summary || '');
+      setAnalyzeChangeNote(body.changeNote || null);
+      setPendingImport(null);
+    } catch {
+      setAnalyzeError(t('preferences.businessProfileAnalyzeError', locale));
+    } finally {
+      setAnalyzingImport(false);
     }
   }
 
@@ -1333,6 +1470,55 @@ export default function ConnexionsPage() {
                   {t('preferences.retakeQuestionnaireButton', locale)}
                 </Link>
               </div>
+
+              {/* Export Word/PDF "à tout moment" + import d'une version
+                  modifiée (demande Alex, 27/08/2026) — voir
+                  app/api/business-summary/export et .../import. */}
+              <div className="profile-io-row">
+                <button type="button" className="btn-secondary" onClick={() => handleExportSummary('word')} disabled={exportingFormat !== null}>
+                  {exportingFormat === 'word' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportWordButton', locale)}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => handleExportSummary('pdf')} disabled={exportingFormat !== null}>
+                  {exportingFormat === 'pdf' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportPdfButton', locale)}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => importFileInputRef.current?.click()} disabled={importUploading}>
+                  {importUploading ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileImportButton', locale)}
+                </button>
+                <input
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".docx,.rtf,.pdf,application/pdf,application/rtf,text/rtf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  style={{ display: 'none' }}
+                  onChange={handleImportFileChange}
+                />
+              </div>
+              {exportError && <p className="crm-error">{exportError}</p>}
+              {importError && <p className="crm-error">{importError}</p>}
+
+              {pendingImport && (
+                <div className="pending-import-banner">
+                  <p className="pending-import-text">
+                    {t('preferences.businessProfilePendingLabel', locale)} <strong>{pendingImport.fileName}</strong>
+                    {pendingImport.uploadedAt ? ` (${new Date(pendingImport.uploadedAt).toLocaleDateString('fr-FR')})` : ''}
+                  </p>
+                  {analyzeError && <p className="crm-error">{analyzeError}</p>}
+                  <div className="pending-import-actions">
+                    <button type="button" className="btn-secondary" onClick={handleDiscardPendingImport} disabled={discardingImport || analyzingImport}>
+                      {discardingImport ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileDiscardButton', locale)}
+                    </button>
+                    <button type="button" className="btn-primary" onClick={handleAnalyzePendingImport} disabled={discardingImport || analyzingImport}>
+                      {analyzingImport ? t('preferences.businessProfileAnalyzingEllipsis', locale) : t('preferences.businessProfileAnalyzeButton', locale)}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {analyzeChangeNote && (
+                <div className="analyze-change-note">
+                  <p className="analyze-change-note-title">{t('preferences.businessProfileChangeNoteTitle', locale)}</p>
+                  <p>{analyzeChangeNote}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1348,6 +1534,8 @@ export default function ConnexionsPage() {
               onSave={handleSaveSummary}
               saving={savingSummary}
               saved={summarySaved}
+              onExport={handleExportSummary}
+              exportingFormat={exportingFormat}
             />
           )}
 
@@ -2737,6 +2925,51 @@ export default function ConnexionsPage() {
           margin-top: 0.9rem;
           flex-wrap: wrap;
         }
+        .profile-io-row {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border-soft);
+          flex-wrap: wrap;
+        }
+        .pending-import-banner {
+          margin-top: 1rem;
+          padding: 0.9rem 1rem;
+          background: rgba(75, 57, 239, 0.1);
+          border: 1px solid var(--accent);
+          border-radius: var(--radius-md);
+        }
+        .pending-import-text {
+          margin: 0 0 0.7rem;
+          font-size: 0.86rem;
+          color: var(--text);
+        }
+        .pending-import-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+        }
+        .analyze-change-note {
+          margin-top: 1rem;
+          padding: 0.9rem 1rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          font-size: 0.86rem;
+          color: var(--text);
+          line-height: 1.5;
+        }
+        .analyze-change-note-title {
+          margin: 0 0 0.4rem;
+          font-weight: 600;
+          color: var(--accent);
+        }
+        .analyze-change-note p:last-child {
+          margin: 0;
+        }
         .signature-image-block {
           margin-top: 1.2rem;
           padding-top: 1rem;
@@ -3282,7 +3515,7 @@ function extractCustomCrmJson(text) {
 // Édite le même state (value/onChange) que le textarea inline — les deux
 // vues restent donc toujours synchronisées, et "Enregistrer" ici déclenche
 // exactement le même handler (onSave = handleSaveSummary du parent).
-function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, saving, saved }) {
+function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, saving, saved, onExport, exportingFormat }) {
   return (
     <div className="summary-expand-overlay" onClick={onClose}>
       <div className="summary-expand-modal" onClick={(e) => e.stopPropagation()}>
@@ -3299,6 +3532,16 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
         />
         <div className="summary-expand-actions">
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
+          {onExport && (
+            <>
+              <button type="button" className="btn-secondary" onClick={() => onExport('word')} disabled={exportingFormat !== null}>
+                {exportingFormat === 'word' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportWordButton', locale)}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => onExport('pdf')} disabled={exportingFormat !== null}>
+                {exportingFormat === 'pdf' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportPdfButton', locale)}
+              </button>
+            </>
+          )}
           <button type="button" className="btn-primary" onClick={onSave} disabled={saving}>
             {saving ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
           </button>
@@ -3373,6 +3616,11 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
           justify-content: flex-end;
           gap: 0.6rem;
           margin-top: 1rem;
+          /* flex-wrap : 2 boutons d'export ajoutés à cette rangée (27/08/2026)
+             en plus de Fermer/Enregistrer — sur mobile (modale à max-width:
+             100%), 4 boutons sans wrap déborderaient (même bug déjà corrigé
+             ailleurs, voir app/globals.css). */
+          flex-wrap: wrap;
         }
         .btn-primary {
           background: var(--accent);
