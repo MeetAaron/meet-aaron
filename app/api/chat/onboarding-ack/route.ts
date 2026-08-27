@@ -57,11 +57,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Prompt caching (demande Alex, 27/08/2026 — coût API jugé trop élevé
+    // alors qu'aucune campagne n'a encore tourné) : cette route est appelée
+    // une fois PAR QUESTION du questionnaire de découverte, généralement une
+    // dizaine de fois coup sur coup dans la même session — le system prompt
+    // est identique à chaque appel (seule la locale change, elle-même fixe
+    // pour un utilisateur donné le temps du questionnaire). Le passer en bloc
+    // "cache_control" (même mécanisme déjà utilisé dans lib/aaron.ts) évite
+    // de le refacturer en entier à chaque question.
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 300,
-        system: `${SYSTEM_PROMPT}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
+        system: [
+          { type: 'text', text: `${SYSTEM_PROMPT}\n\nRéponds ${localeInstruction(authedUser.locale)}.`, cache_control: { type: 'ephemeral' } },
+        ],
         messages: [
           {
             role: 'user',
