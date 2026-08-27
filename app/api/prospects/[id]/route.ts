@@ -341,6 +341,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       is_won: true,
       won_at: now,
       is_lost: false,
+      // Demande Alex (27/08/2026) : le bouton "Gagné" (raccourci volontaire
+      // pour un deal conclu vite, sans forcément passer par le pipeline
+      // Opportunités — voir commentaire plus haut) faisait "sauter" l'étape
+      // Opportunités : le prospect devenait client sans jamais apparaître
+      // dans app/app/sales/page.jsx, faussant les stats du pipeline. On
+      // renseigne donc automatiquement deal_stage à "signe" ici (même valeur
+      // que set_deal_stage plus bas quand l'étape choisie manuellement est
+      // "signe") — le commercial garde la rapidité du raccourci, mais la
+      // fiche apparaît quand même correctement dans la colonne "Signé" du
+      // Kanban Opportunités et compte dans les statistiques du pipeline.
+      deal_stage: 'signe',
+      deal_stage_updated_at: now,
     };
     if (first_order_confirmed) {
       update.first_order_confirmed_at = now;
