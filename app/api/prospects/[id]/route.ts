@@ -67,6 +67,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     industry,
     company_size,
     estimated_revenue,
+    full_name,
+    email,
+    phone,
+    job_title,
   } = await request.json();
   const prospectId = params.id;
 
@@ -577,6 +581,50 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('prospect_companies')
       .update(companyUpdate)
       .eq('id', prospect.prospect_company_id);
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  }
+
+  // Demande Alex (27/08/2026) : "il faut une possibilité de modifier
+  // manuellement la fiche" dans Prospects/Opportunités/Clients — jusqu'ici
+  // seules les infos société (update_company_info ci-dessus, via
+  // components/CompanyInfoEditor.jsx) étaient modifiables après création ;
+  // rien ne permettait de corriger le nom, l'email, le téléphone ou le poste
+  // du contact lui-même une fois la fiche créée. Voir
+  // components/ContactInfoEditor.jsx (nouveau, même pattern que
+  // CompanyInfoEditor) pour le composant partagé qui appelle cette action
+  // depuis les 3 pages.
+  if (action === 'update_contact_info') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id && authedUser.company_id !== prospect.company_id) {
+      return forbiddenResponse();
+    }
+
+    const cleanStr = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const newFullName = cleanStr(full_name);
+    const newEmail = cleanStr(email);
+
+    if (!newFullName) {
+      return NextResponse.json({ error: 'Le nom est obligatoire' }, { status: 400 });
+    }
+    if (!newEmail) {
+      return NextResponse.json({ error: "L'email est obligatoire" }, { status: 400 });
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('prospects')
+      .update({
+        full_name: newFullName,
+        email: newEmail,
+        phone: cleanStr(phone),
+        job_title: cleanStr(job_title),
+      })
+      .eq('id', prospectId);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
