@@ -91,6 +91,11 @@ function useAuthedUser() {
 // pavé de texte libre. Les réponses alimentent /api/business-summary.
 const ONBOARDING_QUESTION_KEYS = [
   'chat.onboardingQ1',
+  // Q1b (2026-08-27, demande Alex, docx "Modifs Aaron") : la Q1 posait 2
+  // questions en une (secteur d'activité ET taille d'entreprise) — scindée
+  // en 2 questions distinctes, celle-ci juste après pour ne pas décaler le
+  // sens des questions suivantes.
+  'chat.onboardingQ1b',
   'chat.onboardingQ2',
   'chat.onboardingQ3',
   'chat.onboardingQ4',
@@ -120,6 +125,113 @@ const ONBOARDING_QUESTION_KEYS = [
 function getOnboardingQuestions(locale) {
   return ONBOARDING_QUESTION_KEYS.map((key) => t(key, locale));
 }
+
+// Suggestions cliquables par question du questionnaire de découverte
+// (demande Alex, 27/08/2026, docx "Modifs Aaron" : "quand tu poses tes
+// questions, guide un peu l'utilisateur [...] à chaque question au moins
+// 4-5 propositions déjà faites. Quand l'utilisateur clique dessus ça écrit
+// le texte" — exemple donné : clic sur "TPE" → Aaron écrit "mes clients
+// sont généralement des TPE"). Cliquer remplace le contenu du champ de
+// saisie par la phrase toute faite ; le commercial reste libre de la
+// modifier avant d'envoyer.
+//
+// FR uniquement (comme les questions QDifferentiation/QSocialProof/QTrigger/
+// Q8 juste au-dessus, voir leur commentaire) : rédiger et maintenir des
+// suggestions idiomatiques dans les 7 langues aurait été disproportionné
+// pour un simple confort de saisie — les chips ne s'affichent donc que pour
+// les commerciaux en français (voir le rendu conditionné sur `locale`),
+// les autres langues gardent le champ libre habituel, sans rien de cassé.
+const ONBOARDING_QUESTION_SUGGESTIONS = {
+  'chat.onboardingQ1': [
+    { label: 'BTP / Artisanat', text: 'Je travaille principalement dans le secteur du BTP et de l\'artisanat.' },
+    { label: 'Services aux entreprises', text: 'Je travaille dans les services aux entreprises (B2B).' },
+    { label: 'Commerce / Distribution', text: 'Je travaille dans le commerce et la distribution.' },
+    { label: 'Tech / Logiciel', text: 'Je travaille dans la tech, sur des solutions logicielles (SaaS).' },
+    { label: 'Santé / Bien-être', text: 'Je travaille dans le secteur de la santé et du bien-être.' },
+  ],
+  'chat.onboardingQ1b': [
+    { label: 'TPE', text: 'Mes clients sont généralement des TPE.' },
+    { label: 'PME', text: 'Mes clients sont généralement des PME.' },
+    { label: 'ETI / Grand groupe', text: 'Mes clients sont généralement des ETI ou des grands groupes.' },
+    { label: 'Particuliers', text: 'Je travaille surtout avec des particuliers, pas des entreprises.' },
+    { label: 'Tous types', text: 'Je travaille avec des entreprises de toutes tailles.' },
+  ],
+  'chat.onboardingQ2': [
+    { label: 'Un seul profil homogène', text: 'J\'ai une seule famille de clients, assez homogène.' },
+    { label: 'Plusieurs profils distincts', text: 'J\'ai plusieurs profils de clients bien distincts.' },
+    { label: 'Ça dépend des offres', text: 'Ça dépend des offres ou des périodes.' },
+  ],
+  'chat.onboardingQ3': [
+    { label: 'Pressés', text: 'Mes clients sont généralement pressés, ils veulent aller droit au but.' },
+    { label: 'Méfiants', text: 'Mes clients sont plutôt méfiants au premier contact.' },
+    { label: 'Bavards', text: 'Mes clients aiment discuter, ils sont plutôt bavards.' },
+    { label: 'Factuels', text: 'Mes clients sont factuels, ils veulent des chiffres et des preuves.' },
+    { label: 'Exigeants', text: 'Mes clients sont exigeants sur la qualité.' },
+  ],
+  'chat.onboardingQ4': [
+    { label: 'Un produit', text: 'Mon produit phare est : ' },
+    { label: 'Un service', text: 'Mon service phare est : ' },
+    { label: 'Un abonnement (SaaS)', text: 'Mon offre phare est un abonnement (SaaS) : ' },
+    { label: 'Une prestation sur-mesure', text: 'Mon offre phare est une prestation sur-mesure : ' },
+  ],
+  'chat.onboardingQ5': [
+    { label: 'Rapport qualité-prix', text: 'L\'argument qui fait le plus mouche, c\'est le rapport qualité-prix.' },
+    { label: 'Gain de temps', text: 'L\'argument qui fait le plus mouche, c\'est le gain de temps que j\'apporte.' },
+    { label: 'Qualité / savoir-faire', text: 'L\'argument qui fait le plus mouche, c\'est la qualité du travail et le savoir-faire.' },
+    { label: 'Réactivité / proximité', text: 'L\'argument qui fait le plus mouche, c\'est ma réactivité et ma proximité.' },
+  ],
+  'chat.onboardingQ6': [
+    { label: 'Le prix', text: 'L\'objection la plus fréquente, c\'est le prix.' },
+    { label: 'Le manque de temps', text: 'L\'objection la plus fréquente, c\'est le manque de temps du prospect.' },
+    { label: 'La confiance', text: 'L\'objection la plus fréquente, c\'est la confiance envers un nouveau prestataire.' },
+    { label: 'Déjà un prestataire', text: 'L\'objection la plus fréquente, c\'est qu\'ils travaillent déjà avec quelqu\'un d\'autre.' },
+  ],
+  'chat.onboardingQ7': [
+    { label: 'Obtenir un rendez-vous', text: 'L\'idéal après un premier contact, c\'est d\'obtenir un rendez-vous.' },
+    { label: 'Envoyer un devis', text: 'L\'idéal après un premier contact, c\'est d\'envoyer un devis.' },
+    { label: 'Proposer un essai gratuit', text: 'L\'idéal après un premier contact, c\'est de proposer un essai gratuit.' },
+    { label: 'Envoyer de la documentation', text: 'L\'idéal après un premier contact, c\'est d\'envoyer de la documentation.' },
+  ],
+  'chat.onboardingQDifferentiation': [
+    { label: 'Savoir-faire / expertise', text: 'Ce qui me différencie, c\'est mon savoir-faire et mon expertise.' },
+    { label: 'Réactivité', text: 'Ce qui me différencie, c\'est ma réactivité.' },
+    { label: 'Positionnement prix', text: 'Ce qui me différencie, c\'est mon positionnement prix.' },
+    { label: 'Accompagnement / suivi', text: 'Ce qui me différencie, c\'est l\'accompagnement et le suivi que j\'offre.' },
+  ],
+  'chat.onboardingQSocialProof': [
+    { label: 'Oui, avec des chiffres', text: 'Oui, j\'ai un exemple concret avec un résultat chiffré : ' },
+    { label: 'Oui, sans chiffres précis', text: 'Oui, j\'ai un exemple concret, sans chiffres précis : ' },
+    { label: 'Pas d\'exemple pour l\'instant', text: 'Je n\'ai pas d\'exemple précis à donner pour l\'instant.' },
+  ],
+  'chat.onboardingQTrigger': [
+    { label: 'Un événement précis', text: 'Ce qui pousse généralement un prospect à se décider, c\'est un événement précis (déménagement, recrutement, panne...).' },
+    { label: 'Une période de l\'année', text: 'Ce qui pousse généralement un prospect à se décider, c\'est une période de l\'année particulière.' },
+    { label: 'Fin de contrat concurrent', text: 'Ce qui pousse généralement un prospect à se décider, c\'est la fin d\'un contrat avec un concurrent.' },
+    { label: 'Difficile à dire', text: 'C\'est difficile à dire, ça varie beaucoup selon les prospects.' },
+  ],
+  'chat.onboardingQ8': [
+    { label: 'Années d\'expérience', text: 'J\'ai plusieurs années d\'expérience dans ce domaine.' },
+    { label: 'Certifications / labels', text: 'J\'ai des certifications ou labels reconnus dans mon secteur.' },
+    { label: 'Nombre de clients/chantiers', text: 'J\'ai déjà réalisé de nombreux clients/chantiers dans ce domaine.' },
+    { label: 'Références notables', text: 'J\'ai des références notables que je peux citer.' },
+    { label: 'Rien de précis pour l\'instant', text: 'Je n\'ai pas d\'élément précis à mettre en avant pour l\'instant.' },
+  ],
+};
+
+// Code langue BCP47 attendu par SpeechSynthesisUtterance.lang — la voix
+// utilisée dépend ensuite des voix installées côté navigateur/OS de
+// l'utilisateur (hors de notre contrôle), mais indiquer la bonne langue
+// aide le navigateur à choisir une voix cohérente quand plusieurs sont
+// disponibles.
+const SPEECH_LANG_BY_LOCALE = {
+  fr: 'fr-FR',
+  en: 'en-US',
+  de: 'de-DE',
+  it: 'it-IT',
+  es: 'es-ES',
+  pt: 'pt-PT',
+  nl: 'nl-NL',
+};
 
 export default function ChatPage() {
   const [locale] = useLocale();
@@ -190,6 +302,13 @@ export default function ChatPage() {
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [conversationsError, setConversationsError] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState(null);
+  // Lecture à voix haute des messages d'Aaron (demande Alex, 27/08/2026,
+  // docx "Modifs Aaron" : "durant la création du profil, que l'on puisse
+  // cliquer sur un haut-parleur et Aaron dit les messages en haut-parleur")
+  // — via l'API Web Speech native du navigateur (window.speechSynthesis),
+  // sans dépendance ni appel serveur. speakingIndex pointe l'index du
+  // message actuellement lu (au plus un à la fois), null si aucun.
+  const [speakingIndex, setSpeakingIndex] = useState(null);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
@@ -524,6 +643,41 @@ export default function ChatPage() {
     el.style.height = 'auto';
     if (input) el.style.height = `${el.scrollHeight}px`;
   }, [input]);
+
+  // Coupe la lecture en cours si la page/le composant est démonté (ex:
+  // changement de rubrique) — sinon window.speechSynthesis continuerait de
+  // parler en arrière-plan indéfiniment.
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  function speakMessage(text, index) {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    // Un second clic sur le message en cours de lecture l'arrête (bascule
+    // haut-parleur actif ⇄ silencieux), plutôt que de relancer la lecture
+    // depuis le début.
+    if (speakingIndex === index) {
+      window.speechSynthesis.cancel();
+      setSpeakingIndex(null);
+      return;
+    }
+
+    // Une seule lecture à la fois : on coupe toute lecture précédente avant
+    // d'en démarrer une nouvelle.
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = SPEECH_LANG_BY_LOCALE[locale] || 'fr-FR';
+    utterance.onend = () => setSpeakingIndex((current) => (current === index ? null : current));
+    utterance.onerror = () => setSpeakingIndex((current) => (current === index ? null : current));
+    setSpeakingIndex(index);
+    window.speechSynthesis.speak(utterance);
+  }
 
   async function handleGenerateSummary() {
     if (summarizing) return;
@@ -869,16 +1023,33 @@ export default function ChatPage() {
       </header>
 
       {/* Barre de progression du questionnaire de découverte (demande Alex,
-          27/08/2026, façon assistants campagnes/marketing) : discrète (6px,
-          "pas obligé de prendre autant de place"), visible uniquement
-          pendant le questionnaire lui-même (onboardingStep >= 0), pour les
-          deux flux (création initiale ET régénération depuis Mon compte). */}
+          27/08/2026, façon assistants campagnes/marketing), visible
+          uniquement pendant le questionnaire lui-même (onboardingStep >= 0),
+          pour les deux flux (création initiale ET régénération depuis Mon
+          compte). Remplacée le 27/08/2026 (docx "Modifs Aaron", "tu as
+          oublié la barre de progression PAR POINT... si il y a 8 questions
+          alors une barre avec 8 points, et à chaque question répondue un
+          point se remplit") par une suite de points discrets — un par
+          question — plutôt qu'une barre continue en pourcentage : un point
+          est rempli une fois la question CORRESPONDANTE répondue (index
+          strictement inférieur à onboardingStep, qui pointe la question
+          affichée mais pas encore répondue), le point de la question en
+          cours est mis en évidence sans être plein. */}
       {onboardingStep >= 0 && (
-        <div className="questionnaire-progress">
-          <div
-            className="questionnaire-progress-fill"
-            style={{ width: `${Math.round(((onboardingStep + 1) / getOnboardingQuestions(locale).length) * 100)}%` }}
-          />
+        <div
+          className="questionnaire-progress-dots"
+          role="progressbar"
+          aria-valuenow={onboardingStep + 1}
+          aria-valuemin={1}
+          aria-valuemax={getOnboardingQuestions(locale).length}
+          aria-label={t('chat.questionnaireProgressLabel', locale)}
+        >
+          {getOnboardingQuestions(locale).map((_, i) => (
+            <span
+              key={i}
+              className={`questionnaire-progress-dot${i < onboardingStep ? ' filled' : ''}${i === onboardingStep ? ' current' : ''}`}
+            />
+          ))}
         </div>
       )}
 
@@ -918,6 +1089,22 @@ export default function ChatPage() {
                 <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
               )}
               {m.content}
+              {/* Haut-parleur (demande Alex, docx "Modifs Aaron") : sur tous
+                  les messages d'Aaron — pas seulement pendant la création du
+                  profil, où c'était explicitement demandé, mais aussi dans
+                  le reste du chat, souvent utile pour les descriptions
+                  longues (prospect/opportunité/client) qu'Aaron y renvoie. */}
+              {m.role === 'assistant' && (
+                <button
+                  type="button"
+                  className={`btn-speak${speakingIndex === i ? ' speaking' : ''}`}
+                  onClick={() => speakMessage(m.content, i)}
+                  title={t('chat.speakButton', locale)}
+                  aria-label={t('chat.speakButton', locale)}
+                >
+                  {speakingIndex === i ? '⏸' : '🔊'}
+                </button>
+              )}
             </div>
           ))}
           {sending && <div className="bubble assistant typing">{t('chat.aaronThinking', locale)}</div>}
@@ -953,6 +1140,27 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Suggestions cliquables (demande Alex, docx "Modifs Aaron") :
+            uniquement pendant le questionnaire, uniquement en français (voir
+            le commentaire sur ONBOARDING_QUESTION_SUGGESTIONS plus haut). */}
+        {onboardingStep >= 0 && !sending && locale === 'fr' && ONBOARDING_QUESTION_SUGGESTIONS[ONBOARDING_QUESTION_KEYS[onboardingStep]] && (
+          <div className="suggestion-row">
+            {ONBOARDING_QUESTION_SUGGESTIONS[ONBOARDING_QUESTION_KEYS[onboardingStep]].map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                className="suggestion-chip"
+                onClick={() => {
+                  setInput(s.text);
+                  textareaRef.current?.focus();
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <form className="input-row" onSubmit={handleSend}>
           <input
             ref={fileInputRef}
@@ -977,15 +1185,11 @@ export default function ChatPage() {
             value={input}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              // Entrée envoie (comme WhatsApp) ; Maj+Entrée insère un retour
-              // à la ligne — sinon impossible d'écrire un message multi-ligne
-              // avec un <textarea> qui envoie sur Entrée simple.
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (input.trim() && !sending) handleSend(e);
-              }
-            }}
+            // Revenu en arrière (demande Alex, 27/08/2026, docx "Modifs
+            // Aaron") : Entrée ne doit PLUS envoyer le message, juste
+            // revenir à la ligne (comportement natif d'un <textarea>, donc
+            // rien à gérer ici) — seul un clic sur "Envoyer" envoie
+            // désormais le message.
             placeholder={t('chat.inputPlaceholder', locale)}
             disabled={sending}
           />
@@ -1092,18 +1296,26 @@ export default function ChatPage() {
           font-size: 0.85rem;
           margin-bottom: 1rem;
         }
-        .questionnaire-progress {
-          height: 6px;
-          background: var(--border);
-          border-radius: 999px;
-          overflow: hidden;
+        .questionnaire-progress-dots {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
           margin-bottom: 1rem;
         }
-        .questionnaire-progress-fill {
-          height: 100%;
-          background: var(--accent);
+        .questionnaire-progress-dot {
+          width: 8px;
+          height: 8px;
           border-radius: 999px;
-          transition: width 0.3s ease;
+          background: var(--border);
+          transition: background 0.2s ease, transform 0.2s ease;
+        }
+        .questionnaire-progress-dot.filled {
+          background: var(--accent);
+        }
+        .questionnaire-progress-dot.current {
+          background: var(--bg);
+          border: 2px solid var(--accent);
+          transform: scale(1.15);
         }
         .feedback-form {
           background: var(--surface);
@@ -1189,15 +1401,37 @@ export default function ChatPage() {
           border-bottom-right-radius: 4px;
         }
         .bubble.assistant {
+          position: relative;
           align-self: flex-start;
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
           border-bottom-left-radius: 4px;
+          padding-right: 2.3rem;
         }
         .bubble.typing {
           color: var(--muted);
           font-style: italic;
+        }
+        .btn-speak {
+          position: absolute;
+          top: 0.35rem;
+          right: 0.4rem;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          font-size: 0.8rem;
+          line-height: 1;
+          padding: 0.2rem;
+          opacity: 0.55;
+          color: var(--muted);
+        }
+        .btn-speak:hover {
+          opacity: 1;
+        }
+        .btn-speak.speaking {
+          opacity: 1;
+          color: var(--accent);
         }
         .bubble-attachment {
           display: flex;
@@ -1332,6 +1566,26 @@ export default function ChatPage() {
           gap: 0.5rem;
           padding: 0 1rem;
           margin-top: 0.6rem;
+        }
+        .suggestion-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+          padding: 0.6rem 1rem 0;
+        }
+        .suggestion-chip {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--accent);
+          border-radius: 999px;
+          padding: 0.35rem 0.8rem;
+          font-size: 0.78rem;
+          cursor: pointer;
+          transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .suggestion-chip:hover {
+          border-color: var(--accent);
+          background: var(--surface);
         }
         .attach-chip {
           display: inline-flex;
