@@ -2173,6 +2173,21 @@ export default function ConnexionsPage() {
           gap: 0.5rem;
           margin-bottom: 1.6rem;
           border-bottom: 1px solid var(--border);
+          /* Mobile (demande Alex, 27/08/2026) : 7 onglets ("Mon profil" à
+             "Supprimer mon compte") ne tiennent jamais sur la largeur d'un
+             téléphone. Avant, ça débordait de la page entière (voir
+             overflow-x: hidden ajouté dans globals.css) et "Supprimer mon
+             compte" devenait inatteignable. Maintenant la rangée défile
+             elle-même horizontalement, contenue dans sa propre largeur —
+             scrollbar masquée (barre d'onglets, pas un contenu à lire) mais
+             le défilement tactile reste actif.*/
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .tabs::-webkit-scrollbar {
+          display: none;
         }
         .tab {
           background: none;
@@ -2183,6 +2198,8 @@ export default function ConnexionsPage() {
           font-weight: 600;
           padding: 0.7rem 0.2rem;
           margin-right: 1.2rem;
+          white-space: nowrap;
+          flex-shrink: 0;
           cursor: pointer;
         }
         .tab.active {
