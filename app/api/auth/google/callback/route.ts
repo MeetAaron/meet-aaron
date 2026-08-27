@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { encryptToken } from '@/lib/encryption';
+import { notifyIfDeliverabilityIssue } from '@/lib/email-deliverability';
 
 // Redirige tout en effaçant le cookie anti-CSRF à usage unique (posé par
 // /api/auth/google), qu'il ait été consommé avec succès ou non.
@@ -89,6 +90,15 @@ export async function GET(request: NextRequest) {
   if (dbError) {
     console.error('Erreur stockage tokens Google:', dbError);
     return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
+  }
+
+  // Fire-and-forget (demande Alex, 27/08/2026, suite à un domaine pro sans
+  // DMARC repéré manuellement) : prévient tout de suite si le domaine pro
+  // connecté n'a pas SPF/DMARC correct, plutôt que de compter sur une
+  // visite future de Connexions — voir lib/email-deliverability.ts. Ne doit
+  // jamais retarder ou faire échouer la redirection.
+  if (profile.email) {
+    notifyIfDeliverabilityIssue(userId, profile.email).catch(() => {});
   }
 
   return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google`);
