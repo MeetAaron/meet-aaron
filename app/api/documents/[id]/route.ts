@@ -61,6 +61,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     update.commercial_note = body.commercial_note.slice(0, 4000) || null;
   }
 
+  // Pièce jointe au premier email (demande Alex, 27/08/2026 — voir
+  // migration_first_email_attachment_2026-08-27.sql et
+  // lib/first-email-attachment.ts). Un seul document par société doit avoir
+  // ce champ à true : en l'activant sur celui-ci, on désactive d'abord tous
+  // les autres de la même société plutôt que de laisser l'utilisateur en
+  // marquer plusieurs par erreur (ce qui n'aurait pas de sens — un seul
+  // fichier peut être joint à un email).
+  if (typeof body.attach_to_first_email === 'boolean') {
+    if (body.attach_to_first_email) {
+      await supabaseAdmin
+        .from('company_documents')
+        .update({ attach_to_first_email: false })
+        .eq('company_id', document.company_id)
+        .neq('id', documentId);
+    }
+    update.attach_to_first_email = body.attach_to_first_email;
+  }
+
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
   }
