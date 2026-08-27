@@ -1325,26 +1325,36 @@ export default function ConnexionsPage() {
               qui soumettait aussi des réglages sans rapport. Le jeton {lien}
               dans l'éditeur d'email par défaut (Préférences) continue de lire
               prefs.public_link_url normalement, sans changement. */}
-          <div className="company-section">
-            <h3 className="company-section-title">{t('preferences.publicLinkLabel', locale)}</h3>
-            <input
-              type="text"
-              className="cap-input"
-              value={prefs.public_link_url || ''}
-              onChange={(e) => setPrefs({ ...prefs, public_link_url: e.target.value })}
-              placeholder={t('preferences.publicLinkPlaceholder', locale)}
-            />
-            {publicLinkError && <p className="error">{publicLinkError}</p>}
-            <p className="collab-extra-hint">
-              {t('preferences.publicLinkHint', locale)}
-            </p>
-            <div className="actions">
-              <button className="btn-secondary" onClick={handleSavePublicLink} disabled={savingPublicLink}>
-                {savingPublicLink ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
-              </button>
-              {publicLinkSaved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
+          {/* BUG CORRIGÉ (27/08/2026, crash constaté par Alex — "Application
+              error: a client-side exception has occurred" en ouvrant Mon
+              entreprise) : ce bloc lisait prefs.public_link_url sans garde,
+              alors que prefs démarre à null (voir useState(null) plus haut)
+              et se charge de façon async — toute ouverture de l'onglet avant
+              la fin du chargement plantait la page. Les autres sections de
+              cet onglet ont leur propre garde (summaryLoaded, signatureLoaded,
+              legalInfoLoaded) ; celle-ci utilise directement prefs. */}
+          {prefs && (
+            <div className="company-section">
+              <h3 className="company-section-title">{t('preferences.publicLinkLabel', locale)}</h3>
+              <input
+                type="text"
+                className="cap-input"
+                value={prefs.public_link_url || ''}
+                onChange={(e) => setPrefs({ ...prefs, public_link_url: e.target.value })}
+                placeholder={t('preferences.publicLinkPlaceholder', locale)}
+              />
+              {publicLinkError && <p className="error">{publicLinkError}</p>}
+              <p className="collab-extra-hint">
+                {t('preferences.publicLinkHint', locale)}
+              </p>
+              <div className="actions">
+                <button className="btn-secondary" onClick={handleSavePublicLink} disabled={savingPublicLink}>
+                  {savingPublicLink ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
+                </button>
+                {publicLinkSaved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
+              </div>
             </div>
-          </div>
+          )}
 
           {signatureLoaded && (
             <div className="company-section">
