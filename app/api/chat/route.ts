@@ -41,6 +41,18 @@ IMPORTANT — ne dis JAMAIS "c'est sauvegardé" ou une formule équivalente avan
 disponible dans la conversation), dis-le honnêtement au commercial et demande-lui de renvoyer le fichier — ne prétends
 jamais qu'une sauvegarde a eu lieu si tu n'as pas ce résultat.
 
+Ajout au profil d'entreprise à la volée (demande Alex, 27/08/2026) : à tout moment de la conversation — même en dehors
+du questionnaire de découverte initial, et même si celui-ci est déjà terminé — le commercial peut te dire qu'il veut
+ajouter une information à son profil d'entreprise (ex: "j'aimerais ajouter ça à mon profil d'entreprise", "note que...",
+"ajoute que je fais aussi..."). Dans ce cas, ne relance JAMAIS le questionnaire de découverte depuis le début pour ça —
+ce n'est pas ce qu'il te demande. Écoute ce qu'il veut ajouter, reformule-le en une synthèse claire et bien rédigée
+(améliore la formulation si besoin, dans le même style factuel que le reste du profil, sans changer le sens ni rien
+inventer), puis demande-lui de confirmer avant d'agir (ex: "je note ça dans ton profil : « ... » — je l'ajoute ?"). Ne
+touche RIEN tant qu'il n'a pas confirmé explicitement (oui, ok, vas-y, etc.) ; s'il ne confirme pas ou change de sujet,
+n'ajoute rien. Une fois confirmé, utilise l'outil mettre_a_jour_profil_entreprise avec cette synthèse (jamais son
+message brut tel quel s'il est mal formulé). IMPORTANT — ne dis JAMAIS "c'est ajouté à ton profil" ou une formule
+équivalente avant d'avoir reçu un résultat de succès de cet outil dans CE tour.
+
 Lien public à mentionner dans les emails de prospection (voir aussi la note "Lien public" dans ton contexte plus bas) : tu
 n'as AUCUN outil pour le modifier depuis ce chat. Si le commercial te demande de l'ajouter/le changer, explique-lui
 clairement qu'il doit le faire lui-même dans Mon compte > Connexions — ne dis jamais que tu l'as "intégré" ou "mis" si tu
@@ -126,6 +138,28 @@ const CHAT_TOOLS = [
         },
       },
       required: ['linked_category'],
+    },
+  },
+  {
+    name: 'mettre_a_jour_profil_entreprise',
+    description:
+      "Ajoute une information au profil de l'entreprise (le résumé business qui te sert de contexte, voir ta note " +
+      "\"Profil de l'entreprise\" plus haut) — UNIQUEMENT après avoir proposé au commercial une synthèse claire de ce " +
+      "qu'il veut ajouter ET qu'il a confirmé explicitement (oui, ok, vas-y, etc.). N'utilise JAMAIS cet outil sans " +
+      "confirmation préalable explicite dans cette même conversation. Ne relance jamais le questionnaire de " +
+      "découverte pour ça — cet outil sert justement à éviter ça.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        ajout: {
+          type: 'string',
+          description:
+            "Le texte à ajouter au profil de l'entreprise — ta synthèse claire et bien rédigée de ce que le " +
+            "commercial a demandé d'ajouter (améliorée si besoin, dans le même style factuel que le reste du " +
+            "profil), PAS une copie brute de son message tel quel.",
+        },
+      },
+      required: ['ajout'],
     },
   },
 ];
@@ -293,6 +327,46 @@ async function runSauvegarderDocument(
   return { success: true, document_id: doc.id, attach_to_first_email: attachToFirstEmail };
 }
 
+// Ajoute la synthèse validée par le commercial à la suite du profil
+// d'entreprise existant (voir mettre_a_jour_profil_entreprise ci-dessus) —
+// on ne remplace jamais business_summary, on y ajoute un paragraphe, pour ne
+// jamais perdre ce qui a été construit par le questionnaire de découverte
+// ou une régénération précédente.
+async function runMettreAJourProfilEntreprise(companyId: string | null, toolInput: any) {
+  if (!companyId) {
+    return { error: 'Société introuvable pour ce commercial.' };
+  }
+
+  const ajout = String(toolInput?.ajout || '').trim();
+  if (!ajout) {
+    return { error: 'Rien à ajouter — texte vide.' };
+  }
+
+  const { data: company, error: fetchError } = await supabaseAdmin
+    .from('companies')
+    .select('business_summary')
+    .eq('id', companyId)
+    .single();
+
+  if (fetchError) {
+    return { error: fetchError.message };
+  }
+
+  const existing = (company?.business_summary || '').trim();
+  const updated = existing ? `${existing}\n\n${ajout}` : ajout;
+
+  const { error: updateError } = await supabaseAdmin
+    .from('companies')
+    .update({ business_summary: updated })
+    .eq('id', companyId);
+
+  if (updateError) {
+    return { error: updateError.message };
+  }
+
+  return { success: true };
+}
+
 async function executeTool(
   toolName: string,
   toolInput: any,
@@ -310,6 +384,8 @@ async function executeTool(
       return runProchainsRdv(userId);
     case 'sauvegarder_document':
       return runSauvegarderDocument(attachedDocument, userId, companyId, toolInput, locale);
+    case 'mettre_a_jour_profil_entreprise':
+      return runMettreAJourProfilEntreprise(companyId, toolInput);
     default:
       return { error: `Outil inconnu : ${toolName}` };
   }
@@ -418,7 +494,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.company_id)
       .maybeSingle();
     if (company?.business_summary) {
-      businessContext = `\n\nRésumé de l'activité de la société (généré précédemment à partir des documents et des explications du commercial) : ${company.business_summary}`;
+      businessContext = `\n\nProfil de l'entreprise (généré précédemment à partir des documents et des explications du commercial) : ${company.business_summary}`;
     }
     // Lien public à mentionner dans les emails de prospection (demande Alex,
     // 27/08/2026) — voir migration_public_link_url_2026-08-27.sql. Tu ne
@@ -455,6 +531,9 @@ export async function POST(request: NextRequest) {
   ];
 
   let documentSaved = false;
+  // Utilisé côté client uniquement pour l'instant à titre informatif (pas
+  // d'affichage dédié) — voir mettre_a_jour_profil_entreprise plus haut.
+  let profileUpdated = false;
   let data;
   let suggestion;
   try {
@@ -488,6 +567,9 @@ export async function POST(request: NextRequest) {
           const result = await executeTool(block.name, block.input, user_id, attachedDocument, user?.company_id || null, authedUser.locale);
           if (block.name === 'sauvegarder_document' && (result as any)?.success) {
             documentSaved = true;
+          }
+          if (block.name === 'mettre_a_jour_profil_entreprise' && (result as any)?.success) {
+            profileUpdated = true;
           }
           return {
             type: 'tool_result',
@@ -571,5 +653,5 @@ export async function POST(request: NextRequest) {
   // document_saved indique au frontend (app/app/chat/page.jsx) qu'il peut
   // retirer le chip "document joint" — le document vient d'être écrit dans
   // company_documents par l'outil sauvegarder_document ci-dessus.
-  return NextResponse.json({ reply, document_saved: documentSaved });
+  return NextResponse.json({ reply, document_saved: documentSaved, profile_updated: profileUpdated });
 }
