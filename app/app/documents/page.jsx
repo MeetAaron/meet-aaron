@@ -660,6 +660,7 @@ export default function DocumentsPage() {
           color: var(--accent);
           text-decoration: none;
           font-weight: 500;
+          white-space: nowrap;
         }
         .category-select {
           background: var(--bg);
@@ -702,10 +703,16 @@ export default function DocumentsPage() {
           cursor: not-allowed;
         }
         .row-actions {
+          /* Retour Alex (27/08/2026) : les 5 actions passaient à la ligne
+             (une par ligne, "c'est moche") faute de place dans la colonne —
+             le tableau parent défile déjà horizontalement (overflow-x: auto
+             ci-dessus), donc on force tout sur une seule ligne plutôt que de
+             laisser le flex-wrap empiler les actions verticalement. */
           display: flex;
           align-items: center;
           gap: 0.7rem;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
+          white-space: nowrap;
         }
         .link-btn {
           background: none;
@@ -715,6 +722,7 @@ export default function DocumentsPage() {
           font-size: 0.82rem;
           cursor: pointer;
           padding: 0;
+          white-space: nowrap;
         }
         .link-btn.danger {
           color: var(--accent-red);
