@@ -602,7 +602,21 @@ export default function ChatPage() {
     if (!input.trim() || sending) return;
     setSendError(null);
 
-    const userMessage = { role: 'user', content: input };
+    // UX pièce jointe (demande Alex, 27/08/2026, façon ChatGPT/Claude) : le
+    // fichier joint s'affiche désormais comme un repère DANS la bulle de
+    // message envoyée, pas seulement comme un chip flottant au-dessus du
+    // champ de saisie. Le chip lui-même reste inchangé côté logique (voir
+    // pendingDocument plus haut) — il doit continuer à être renvoyé à chaque
+    // tour tant que le document n'est pas sauvegardé/retiré, potentiellement
+    // sur plusieurs messages d'affilée (le temps qu'Aaron demande
+    // confirmation) — seul l'AFFICHAGE de CE message précis change : on note
+    // simplement, au moment de l'envoi, quel document était joint à ce
+    // tour-ci, pour l'afficher dans sa bulle d'historique.
+    const userMessage = {
+      role: 'user',
+      content: input,
+      ...(pendingDocument ? { attachment: { file_name: pendingDocument.file_name } } : {}),
+    };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
@@ -900,6 +914,9 @@ export default function ChatPage() {
           )}
           {messages.map((m, i) => (
             <div key={i} className={`bubble ${m.role}`}>
+              {m.attachment && (
+                <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
+              )}
               {m.content}
             </div>
           ))}
@@ -1181,6 +1198,20 @@ export default function ChatPage() {
         .bubble.typing {
           color: var(--muted);
           font-style: italic;
+        }
+        .bubble-attachment {
+          display: flex;
+          align-items: center;
+          gap: 0.3rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          opacity: 0.85;
+          margin-bottom: 0.35rem;
+          padding-bottom: 0.35rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+        }
+        .bubble.assistant .bubble-attachment {
+          border-bottom-color: var(--border);
         }
         .welcome-actions {
           display: flex;
