@@ -3769,6 +3769,18 @@ function TwoFieldCrmConnectionCard({
 function ConnectionCard({ title, desc, connection, health, missingLabelScope, onConnect, onDisconnect }) {
   const [locale] = useLocale();
   const isConnected = !!connection;
+  // Enregistrements DNS prêts à copier-coller (demande Alex, 27/08/2026,
+  // suite à un domaine pro sans DMARC repéré manuellement) — remplace le
+  // simple texte "va corriger ça dans ton DNS" par la valeur exacte à
+  // coller, calculée côté API (voir app/api/email-health/route.ts et
+  // lib/email-deliverability.ts).
+  const [copiedField, setCopiedField] = useState(null);
+  function copyRecord(value, field) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedField(field);
+      setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 2000);
+    });
+  }
   return (
     <div className="card">
       <div className="card-head">
@@ -3803,9 +3815,33 @@ function ConnectionCard({ title, desc, connection, health, missingLabelScope, on
                 </span>
               </div>
               {(!health.health.spf.found || !health.health.dmarc.found) && (
-                <p className="health-hint">
-                  {t('connexions.healthHintPrefix', locale)} {health.domain} {t('connexions.healthHintSuffix', locale)}
-                </p>
+                <>
+                  <p className="health-hint">
+                    {t('connexions.healthHintPrefix', locale)} {health.domain} {t('connexions.healthHintSuffix', locale)}
+                  </p>
+                  {health.suggested?.spf && (
+                    <div className="record-row">
+                      <span className="record-label">SPF — {t('connexions.recordHost', locale)}: @</span>
+                      <div className="record-value-row">
+                        <code className="record-value">{health.suggested.spf}</code>
+                        <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.spf, 'spf')}>
+                          {copiedField === 'spf' ? t('team.copied', locale) : t('team.copy', locale)}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {health.suggested?.dmarc && (
+                    <div className="record-row">
+                      <span className="record-label">DMARC — {t('connexions.recordHost', locale)}: _dmarc</span>
+                      <div className="record-value-row">
+                        <code className="record-value">{health.suggested.dmarc}</code>
+                        <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.dmarc, 'dmarc')}>
+                          {copiedField === 'dmarc' ? t('team.copied', locale) : t('team.copy', locale)}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -3859,6 +3895,42 @@ function ConnectionCard({ title, desc, connection, health, missingLabelScope, on
           font-size: 0.76rem;
           color: var(--muted);
           overflow-wrap: break-word;
+        }
+        .record-row {
+          margin-top: 0.6rem;
+        }
+        .record-label {
+          display: block;
+          font-size: 0.72rem;
+          font-weight: 600;
+          color: var(--muted);
+          margin-bottom: 0.25rem;
+        }
+        .record-value-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .record-value {
+          flex: 1;
+          min-width: 0;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.6rem;
+          font-size: 0.74rem;
+          word-break: break-all;
+        }
+        .btn-copy {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.4rem 0.7rem;
+          font-size: 0.74rem;
+          cursor: pointer;
+          white-space: nowrap;
         }
       `}</style>
       <style jsx>{`
