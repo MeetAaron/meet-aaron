@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error');
 
   if (error) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}&tab=connection`);
   }
 
   if (!code || !returnedState) {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   const [cookieNonce, userId] = cookieValue?.split(':') || [];
 
   if (!cookieValue || cookieNonce !== returnedState || !userId) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch&tab=connection`);
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/microsoft/callback`;
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token Microsoft:', errBody);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed&tab=connection`);
   }
 
   const tokens = await tokenResponse.json();
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens Microsoft:', dbError);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error&tab=connection`);
   }
 
   // Fire-and-forget — voir même correctif côté Google callback et
@@ -93,5 +93,5 @@ export async function GET(request: NextRequest) {
     notifyIfDeliverabilityIssue(userId, microsoftEmail).catch(() => {});
   }
 
-  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft`);
+  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft&tab=connection`);
 }
