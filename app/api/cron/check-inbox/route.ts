@@ -403,10 +403,19 @@ export async function GET(request: NextRequest) {
       // attendant. Gmail : label posé sur tout le fil. Outlook : catégorie
       // posée sur ce message précis (voir applyAaronCategory dans
       // lib/microsoft.ts — Outlook catégorise message par message, pas par fil).
+      //
+      // AWAIT nécessaire (même bug que sur l'envoi, voir lib/google.ts ->
+      // sendGmailEmail, constaté par Alex le 27/08/2026 : un email envoyé par
+      // Aaron sans que le label ne se pose jamais). applyAaronLabel et
+      // applyAaronCategory avalent déjà leurs propres erreurs en interne —
+      // attendre ne peut donc jamais faire échouer le traitement du message —
+      // mais sans await, l'appel restait fire-and-forget et pouvait être
+      // interrompu si la fonction serverless se terminait avant que les
+      // requêtes réseau internes n'aient fini.
       if (connection.provider === 'google') {
-        applyAaronLabel(connection.user_id, threadId).catch(() => {});
+        await applyAaronLabel(connection.user_id, threadId);
       } else if (connection.provider === 'microsoft') {
-        applyAaronCategory(connection.user_id, msg.id).catch(() => {});
+        await applyAaronCategory(connection.user_id, msg.id);
       }
 
       // is_won : le prospect est déjà client — Aaron Prospect (relance de
