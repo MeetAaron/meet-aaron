@@ -456,23 +456,42 @@ export default function ChatPage() {
   // Restaure le document en attente (pas encore sauvegardé) dès que
   // l'utilisateur est connu — même principe que le brouillon ci-dessus, une
   // seule fois pour ne pas écraser un nouvel upload en cours.
-  const pendingDocRestoredRef = useRef(false);
+  //
+  // Bug trouvé le 27/08/2026 (Alex : le document "perd son contexte actif"
+  // en pleine conversation, sans même changer de page) : cet effet de
+  // restauration et celui de sauvegarde ci-dessous s'exécutaient tous les
+  // deux au montage, DANS LE MÊME lot d'effets. `setPendingDocument(doc)`
+  // ici ne met pas à jour la variable `pendingDocument` capturée par la
+  // closure de l'effet de sauvegarde suivant (le re-render n'a pas encore eu
+  // lieu) — cet effet de sauvegarde voyait donc encore `pendingDocument ===
+  // null` et appelait `localStorage.removeItem(...)`, effaçant SILENCIEUSEMENT
+  // la valeur que cet effet-ci venait tout juste de lire. Le document restait
+  // affiché (state React déjà mis à jour) mais sa sauvegarde localStorage
+  // avait disparu : le prochain démontage du composant (nouvel onglet du
+  // chat, changement de conversation, etc.) le perdait pour de bon, avant
+  // même que l'outil sauvegarder_document n'ait pu agir. `pendingDocRestored`
+  // (state, pas juste une ref) bloque l'effet de sauvegarde tant que la
+  // restauration n'est pas passée par au moins un rendu.
+  const [pendingDocRestored, setPendingDocRestored] = useState(false);
   useEffect(() => {
-    if (!pendingDocStorageKey || pendingDocRestoredRef.current) return;
-    pendingDocRestoredRef.current = true;
+    if (!pendingDocStorageKey || pendingDocRestored) return;
     try {
       const saved = window.localStorage.getItem(pendingDocStorageKey);
       if (saved) setPendingDocument(JSON.parse(saved));
     } catch {
       // localStorage indisponible ou JSON corrompu — le document restera
       // simplement non restauré, sans bloquer le reste de la page.
+    } finally {
+      setPendingDocRestored(true);
     }
-  }, [pendingDocStorageKey]);
+  }, [pendingDocStorageKey, pendingDocRestored]);
 
   // Sauvegarde le document en attente à chaque changement, pour qu'il
-  // survive un aller-retour vers une autre rubrique.
+  // survive un aller-retour vers une autre rubrique. Gated sur
+  // `pendingDocRestored` (voir commentaire ci-dessus) : ne s'exécute qu'une
+  // fois la restauration effectivement passée par un rendu, jamais avant.
   useEffect(() => {
-    if (!pendingDocStorageKey) return;
+    if (!pendingDocStorageKey || !pendingDocRestored) return;
     try {
       if (pendingDocument) {
         window.localStorage.setItem(pendingDocStorageKey, JSON.stringify(pendingDocument));
@@ -482,7 +501,7 @@ export default function ChatPage() {
     } catch {
       // Voir plus haut.
     }
-  }, [pendingDocStorageKey, pendingDocument]);
+  }, [pendingDocStorageKey, pendingDocument, pendingDocRestored]);
 
   // Le cadre ne s'agrandit "en direct" que via l'onChange du textarea (item
   // A2) — quand `input` change par programme plutôt que par frappe (brouillon
