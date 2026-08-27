@@ -433,7 +433,11 @@ export default function DashboardPage() {
       key: 'email',
       done: emailConnected,
       label: t('dash.onboardingStepEmail', locale),
-      href: '/app/connexions',
+      // docx item 10 (2026-08-27) : "Boîte email connectée" ne redirigeait pas
+      // vers l'onglet Connexion — /app/connexions seul atterrit sur l'onglet
+      // "Mon profil" par défaut (voir activeTab dans connexions/page.jsx).
+      // ?tab=connection ouvre directement le bon onglet.
+      href: '/app/connexions?tab=connection',
     },
     {
       key: 'first',
