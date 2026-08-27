@@ -31,11 +31,24 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('business_summary')
+    .select(
+      'business_summary, business_summary_pending_text, business_summary_pending_file_name, business_summary_pending_uploaded_at'
+    )
     .eq('id', user.company_id)
     .single();
 
-  return NextResponse.json({ summary: company?.business_summary || null });
+  // pending : présent uniquement si un document modifié a été importé et
+  // n'a pas encore été traité ("Ne pas analyser" ou "Faire analyser par
+  // Aaron", voir app/api/business-summary/import/*) — sinon null, pour que
+  // l'UI sache s'il faut afficher la bannière de revue.
+  const pending = company?.business_summary_pending_text
+    ? {
+        fileName: company.business_summary_pending_file_name,
+        uploadedAt: company.business_summary_pending_uploaded_at,
+      }
+    : null;
+
+  return NextResponse.json({ summary: company?.business_summary || null, pending });
 }
 
 // PATCH -> permet au commercial de corriger/étoffer le résumé à la main,
