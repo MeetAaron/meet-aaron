@@ -256,6 +256,13 @@ export default function ConnexionsPage() {
   const [crmSyncResult, setCrmSyncResult] = useState({});
   const [crmError, setCrmError] = useState({});
   const [crmOauthBannerError, setCrmOauthBannerError] = useState(null);
+  // docx item 9 (2026-08-27) : après connexion Google/Microsoft réussie
+  // (souvent juste après la visite guidée, voir app/app/tour/page.jsx), on
+  // affiche une petite bannière + un CTA vers "ajouter mon premier prospect"
+  // plutôt que de laisser l'utilisateur seul sur cette page sans indication
+  // de la suite — "conseils pas à pas" demandés par Alex pour tout
+  // l'enchaînement post-onboarding.
+  const [oauthJustConnected, setOauthJustConnected] = useState(null);
 
   // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et
   // les autres CRM sans OAuth centralisé traités selon le même patron),
@@ -888,6 +895,10 @@ export default function ConnexionsPage() {
     const params = new URLSearchParams(window.location.search);
     const crmOauthError = params.get('crm_oauth_error');
     if (crmOauthError) setCrmOauthBannerError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', crmOauthError));
+    const oauthSuccessProvider = params.get('oauth_success');
+    if (oauthSuccessProvider === 'google' || oauthSuccessProvider === 'microsoft') {
+      setOauthJustConnected(oauthSuccessProvider);
+    }
     if (params.get('oauth_success') || params.get('oauth_error') || crmOauthError || params.get('crm_oauth_success')) {
       window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
@@ -1395,6 +1406,14 @@ export default function ConnexionsPage() {
         </div>
       ) : activeTab === 'connection' ? (
         <div className="cards">
+          {oauthJustConnected && (
+            <div className="oauth-success-banner">
+              <p>{t('connexions.oauthSuccessBanner', locale)}</p>
+              <Link href={`/app/prospects?user_id=${userId}`} className="oauth-success-cta">
+                {t('connexions.oauthSuccessCta', locale)} →
+              </Link>
+            </div>
+          )}
           <ConnectionCard
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
@@ -2795,6 +2814,34 @@ export default function ConnexionsPage() {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           gap: 1rem;
+        }
+        .oauth-success-banner {
+          grid-column: 1 / -1;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 0.7rem;
+          background: rgba(46, 204, 113, 0.1);
+          border: 1px solid rgba(46, 204, 113, 0.3);
+          border-radius: 10px;
+          padding: 0.9rem 1.1rem;
+        }
+        .oauth-success-banner p {
+          margin: 0;
+          font-size: 0.88rem;
+          color: var(--text);
+        }
+        .oauth-success-cta {
+          flex-shrink: 0;
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: var(--accent);
+          text-decoration: none;
+          white-space: nowrap;
+        }
+        .oauth-success-cta:hover {
+          text-decoration: underline;
         }
         .cards + .category-title {
           margin-top: 2rem;
