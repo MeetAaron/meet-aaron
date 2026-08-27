@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { encryptToken } from '@/lib/encryption';
+import { notifyIfDeliverabilityIssue } from '@/lib/email-deliverability';
 
 // Redirige tout en effaçant le cookie anti-CSRF à usage unique.
 function redirectClearingCookie(url: string) {
@@ -82,6 +83,14 @@ export async function GET(request: NextRequest) {
   if (dbError) {
     console.error('Erreur stockage tokens Microsoft:', dbError);
     return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error`);
+  }
+
+  // Fire-and-forget — voir même correctif côté Google callback et
+  // lib/email-deliverability.ts. Ne doit jamais retarder ou faire échouer
+  // la redirection.
+  const microsoftEmail = profile.mail || profile.userPrincipalName;
+  if (microsoftEmail) {
+    notifyIfDeliverabilityIssue(userId, microsoftEmail).catch(() => {});
   }
 
   return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft`);
