@@ -22,6 +22,7 @@ import { processCampaignBatch } from '@/lib/sourcing';
 import { generateAaronResponse } from '@/lib/aaron';
 import { sendEmailForUser, hasReachedProspectingCap } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
+import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -42,10 +43,16 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   // appartient toujours à un seul commercial.
   const { data: campaignOwner } = await supabaseAdmin
     .from('users')
-    .select('require_first_email_approval')
+    .select('require_first_email_approval, company_id')
     .eq('id', assignedUserId)
     .single();
   const requireApproval = campaignOwner?.require_first_email_approval === true;
+  // Une seule requête par campagne (comme campaignOwner ci-dessus) puisque
+  // tous les prospects de cette campagne appartiennent au même commercial,
+  // donc à la même société — voir lib/first-email-attachment.ts.
+  const firstEmailAttachment = campaignOwner?.company_id
+    ? await getFirstEmailAttachment(campaignOwner.company_id)
+    : null;
 
   const result = await processCampaignBatch(campaignId, 5);
 
@@ -140,7 +147,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
           prospect.email,
           aaronOutput.email_draft.subject,
           aaronOutput.email_draft.body,
-          { emailType: 'prospecting' }
+          { emailType: 'prospecting', attachment: firstEmailAttachment || undefined }
         );
 
         const { data: senderUser } = await supabaseAdmin
