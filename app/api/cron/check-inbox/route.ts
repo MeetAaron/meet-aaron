@@ -424,7 +424,7 @@ export async function GET(request: NextRequest) {
       // satisfaction/NPS est en attente de réponse, en extrait la note.
       // Voir lib/aaron-customer.ts et migration_aaron_customer_2026-08-13.sql.
       if (prospect.is_won) {
-        await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText);
+        await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText, msg.id);
         continue;
       }
 
