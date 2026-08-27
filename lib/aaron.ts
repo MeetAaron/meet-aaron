@@ -56,7 +56,7 @@ async function buildContext(prospectId: string) {
   // app/api/business-summary).
   const { data: sellerCompany } = await supabaseAdmin
     .from('companies')
-    .select('name, business_summary, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body')
+    .select('name, business_summary, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, public_link_url')
     .eq('id', prospect.company_id)
     .maybeSingle();
 
@@ -187,6 +187,12 @@ async function buildContext(prospectId: string) {
       // repère par défaut pour email_draft/rescue_proposal tant qu'aucun
       // message du prospect n'a encore été reçu.
       langue: LOCALE_NAMES[normalizeLocale(prospect.users.locale)],
+      // Lien public que le commercial autorise Aaron à mentionner (demande
+      // Alex, 27/08/2026 — voir migration_public_link_url_2026-08-27.sql et la
+      // section LIEN PUBLIC du prompt système). null tant qu'il n'est pas
+      // renseigné dans Mon compte > Connexions : Aaron ne doit JAMAIS
+      // fabriquer une URL à sa place.
+      lien_public_a_mentionner: sellerCompany?.public_link_url || null,
     },
     prospect: {
       nom: prospect.full_name,
@@ -230,19 +236,22 @@ async function buildContext(prospectId: string) {
 }
 
 // Remplace {prenom} par le prénom du prospect (premier mot de son nom
-// complet) et {societe} par le nom de la société du prospect (demande Alex,
-// 2026-08-26 : pouvoir personnaliser l'email par défaut avec les deux),
-// si connus — sinon retire proprement le jeton plutôt que de laisser
-// "{prenom}"/"{societe}" apparaître tel quel dans un email envoyé.
+// complet), {societe} par le nom de la société du prospect (demande Alex,
+// 2026-08-26), et {lien} par le lien public du commercial (demande Alex,
+// 27/08/2026 — voir migration_public_link_url_2026-08-27.sql), si connus —
+// sinon retire proprement le jeton plutôt que de le laisser tel quel dans un
+// email envoyé.
 function fillTemplateTokens(
   text: string,
-  prospect: { nom?: string | null; societe?: string | null }
+  prospect: { nom?: string | null; societe?: string | null },
+  publicLink?: string | null
 ): string {
   const firstName = (prospect.nom || '').trim().split(/\s+/)[0] || '';
   const company = (prospect.societe || '').trim();
   return text
     .replace(/\{prenom\}/gi, firstName)
-    .replace(/\{societe\}/gi, company);
+    .replace(/\{societe\}/gi, company)
+    .replace(/\{lien\}/gi, (publicLink || '').trim());
 }
 
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
@@ -263,8 +272,8 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
   if (isFirstContact && defaultFirstEmail && defaultFirstEmail.subject.trim() && defaultFirstEmail.body.trim()) {
     return {
       email_draft: {
-        subject: fillTemplateTokens(defaultFirstEmail.subject, context.prospect || {}),
-        body: fillTemplateTokens(defaultFirstEmail.body, context.prospect || {}),
+        subject: fillTemplateTokens(defaultFirstEmail.subject, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
+        body: fillTemplateTokens(defaultFirstEmail.body, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
       },
       prospect_status: 'jaune',
       personality_type: null,
