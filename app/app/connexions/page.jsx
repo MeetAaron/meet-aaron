@@ -2314,6 +2314,15 @@ export default function ConnexionsPage() {
           grid-template-columns: 1fr 1fr;
           gap: 0.6rem;
         }
+        /* Audit mobile 27/08/2026 : contrairement à .legal-grid juste en
+           dessous (qui a déjà ce même correctif), cette grille 2x2 restait
+           figée en 2 colonnes sur mobile — texte de chaque carte écrasé sur
+           ~140px de large dans .collab-panel (max-width: 640px). */
+        @media (max-width: 600px) {
+          .collab-options {
+            grid-template-columns: 1fr;
+          }
+        }
         .collab-card {
           text-align: left;
           background: var(--bg);
@@ -2742,6 +2751,10 @@ export default function ConnexionsPage() {
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-md);
+          /* Audit mobile 27/08/2026 : sans flex-wrap, l'image (jusqu'à
+             180px) + le bouton "Supprimer l'image" ne tenaient pas sur
+             ~375px de large et le bouton se retrouvait coupé/inatteignable. */
+          flex-wrap: wrap;
         }
         .signature-image-preview img {
           max-width: 180px;
