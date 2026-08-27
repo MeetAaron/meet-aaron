@@ -541,6 +541,17 @@ export default function CampaignsPage() {
           display: flex;
           gap: 0.5rem;
           margin-bottom: 1.5rem;
+          /* Audit mobile 27/08/2026 : 3 boutons ("Prospection"/"Marketing"/
+             "Réactivation") sans overflow géré débordaient sur ~375px de
+             large, rendant "Réactivation" inatteignable (même bug que
+             l'ancien .tabs de Mon compte, voir app/globals.css). */
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .tab-switch::-webkit-scrollbar {
+          display: none;
         }
         .tab-btn {
           display: flex;
@@ -554,6 +565,8 @@ export default function CampaignsPage() {
           font-size: 0.84rem;
           font-weight: 600;
           cursor: pointer;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
         .tab-btn.active {
           background: var(--accent);
