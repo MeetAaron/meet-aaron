@@ -30,7 +30,21 @@ tu sauvegardes ce document dans ses documents (pour un usage futur par toi) ou s
 — pose cette question une seule fois par document, pas à chaque message tant qu'il reste joint. S'il confirme vouloir le
 sauvegarder (oui, ok, sauvegarde-le, garde-le, etc.), utilise l'outil sauvegarder_document avec la catégorie la plus
 appropriée déduite du contexte de la conversation (prospects/opportunites/clients/général) — ne lui demande jamais à lui de
-choisir la catégorie, c'est à toi de la déduire. S'il dit non ou change de sujet, n'insiste pas et ne sauvegarde rien.`;
+choisir la catégorie, c'est à toi de la déduire. Si le document est destiné à être envoyé en pièce jointe au premier email
+de prospection (le commercial le dit explicitement, ex: "attache-le au premier email"), passe aussi
+joindre_au_premier_email=true à l'outil — mais rappelle-lui d'abord, une seule fois, qu'une pièce jointe dès le premier
+contact peut nuire à la délivrabilité (filtres anti-spam), et qu'un lien dans le corps du message (voir plus bas, LIEN
+PUBLIC) est généralement préférable. S'il dit non ou change de sujet, n'insiste pas et ne sauvegarde rien.
+
+IMPORTANT — ne dis JAMAIS "c'est sauvegardé" ou une formule équivalente avant d'avoir reçu un résultat de succès
+({"success": true, ...}) de l'outil sauvegarder_document dans CE tour. Si l'outil renvoie une erreur (ex: document plus
+disponible dans la conversation), dis-le honnêtement au commercial et demande-lui de renvoyer le fichier — ne prétends
+jamais qu'une sauvegarde a eu lieu si tu n'as pas ce résultat.
+
+Lien public à mentionner dans les emails de prospection (voir aussi la note "Lien public" dans ton contexte plus bas) : tu
+n'as AUCUN outil pour le modifier depuis ce chat. Si le commercial te demande de l'ajouter/le changer, explique-lui
+clairement qu'il doit le faire lui-même dans Mon compte > Connexions — ne dis jamais que tu l'as "intégré" ou "mis" si tu
+n'as en réalité rien pu faire.`;
 
 const STATUS_LABELS: Record<string, string> = {
   vert: 'en bonne voie',
@@ -101,6 +115,14 @@ const CHAT_TOOLS = [
         description: {
           type: 'string',
           description: "Courte description (1 phrase) de ce qu'est ce document et à quoi il sert, pour aider le commercial à le retrouver plus tard dans sa liste de documents.",
+        },
+        joindre_au_premier_email: {
+          type: 'boolean',
+          description:
+            "true UNIQUEMENT si le commercial a explicitement demandé que ce document soit envoyé en pièce jointe au " +
+            "premier email de prospection (voir la consigne sur la délivrabilité dans tes instructions). Un seul " +
+            "document par société peut être marqué ainsi — en activer un nouveau désactive automatiquement l'ancien. " +
+            "Omets ce champ (ou false) si ce n'est pas ce que le commercial veut.",
         },
       },
       required: ['linked_category'],
@@ -233,6 +255,18 @@ async function runSauvegarderDocument(
     ? await summarizeDocument(attachedDocument.file_name, attachedDocument.extracted_text, companyId, locale)
     : null;
 
+  // Pièce jointe au premier email (demande Alex, 27/08/2026) : même règle
+  // "un seul document par société" que app/api/documents/[id]/route.ts —
+  // désactive d'abord tous les autres avant d'insérer celui-ci avec le champ
+  // à true, pour ne jamais en avoir deux marqués en même temps.
+  const attachToFirstEmail = toolInput?.joindre_au_premier_email === true;
+  if (attachToFirstEmail) {
+    await supabaseAdmin
+      .from('company_documents')
+      .update({ attach_to_first_email: false })
+      .eq('company_id', companyId);
+  }
+
   const { data: doc, error } = await supabaseAdmin
     .from('company_documents')
     .insert({
@@ -246,6 +280,7 @@ async function runSauvegarderDocument(
       extracted_text: attachedDocument.extracted_text,
       summary,
       linked_category: linkedCategory,
+      attach_to_first_email: attachToFirstEmail,
     })
     .select('id')
     .single();
@@ -255,7 +290,7 @@ async function runSauvegarderDocument(
     return { error: "Échec de la sauvegarde du document." };
   }
 
-  return { success: true, document_id: doc.id };
+  return { success: true, document_id: doc.id, attach_to_first_email: attachToFirstEmail };
 }
 
 async function executeTool(
@@ -293,22 +328,31 @@ async function detectFounderSuggestion(
   companyId: string | null
 ): Promise<{ isSuggestion: boolean; summary: string | null }> {
   try {
+    // Prompt caching (demande Alex, 27/08/2026, coût API jugé trop élevé) :
+    // cet appel tourne EN PARALLÈLE de chaque message envoyé dans le chat
+    // direct (voir Promise.all plus bas) — donc une fois par message, en plus
+    // de l'appel principal. Les consignes de classification sont identiques
+    // à chaque appel ; en les isolant dans un bloc "system" avec
+    // cache_control (même mécanisme que lib/aaron.ts), seul le message du
+    // commercial reste facturé en plein tarif à chaque tour.
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 200,
-        messages: [
+        system: [
           {
-            role: 'user',
-            content:
-              `Un commercial vient d'écrire ce message à Aaron (son copilote IA) :\n"""${message}"""\n\n` +
-              `Ce message contient-il une suggestion, une idée d'amélioration, une remarque ou une plainte destinée ` +
-              `au fondateur/à l'équipe (à propos de l'outil Meet Aaron, du produit, de l'organisation, etc.) — ` +
-              `et PAS juste une question opérationnelle sur un prospect, un RDV ou une campagne ?\n` +
+            type: 'text',
+            text:
+              `Un commercial vient d'écrire un message à Aaron (son copilote IA). Détermine si ce message contient une ` +
+              `suggestion, une idée d'amélioration, une remarque ou une plainte destinée au fondateur/à l'équipe (à ` +
+              `propos de l'outil Meet Aaron, du produit, de l'organisation, etc.) — et PAS juste une question ` +
+              `opérationnelle sur un prospect, un RDV ou une campagne.\n` +
               `Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour : ` +
               `{"is_suggestion": true|false, "summary": "résumé en une phrase si true, sinon null"}`,
+            cache_control: { type: 'ephemeral' },
           },
         ],
+        messages: [{ role: 'user', content: `Message du commercial :\n"""${message}"""` }],
       },
       companyId
     );
@@ -370,12 +414,21 @@ export async function POST(request: NextRequest) {
   if (user?.company_id) {
     const { data: company } = await supabaseAdmin
       .from('companies')
-      .select('business_summary')
+      .select('business_summary, public_link_url')
       .eq('id', user.company_id)
       .maybeSingle();
     if (company?.business_summary) {
       businessContext = `\n\nRésumé de l'activité de la société (généré précédemment à partir des documents et des explications du commercial) : ${company.business_summary}`;
     }
+    // Lien public à mentionner dans les emails de prospection (demande Alex,
+    // 27/08/2026) — voir migration_public_link_url_2026-08-27.sql. Tu ne
+    // peux PAS le modifier toi-même depuis ce chat (aucun outil pour ça) :
+    // si le commercial te demande d'ajouter/changer ce lien, dis-lui
+    // clairement de le faire dans Mon compte > Connexions plutôt que de
+    // prétendre l'avoir fait.
+    businessContext += company?.public_link_url
+      ? `\n\nLien public déjà configuré par le commercial (utilisé automatiquement par Aaron dans les emails de prospection quand pertinent) : ${company.public_link_url}`
+      : `\n\nAucun lien public n'est configuré pour l'instant (champ vide dans Mon compte > Connexions) — si le commercial te demande de "mettre le lien" dans les emails de prospection, explique-lui qu'il doit d'abord le renseigner lui-même à cet endroit, tu ne peux pas le faire à sa place depuis cette conversation.`;
   }
 
   const messages: any[] = [
