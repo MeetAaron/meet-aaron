@@ -145,20 +145,16 @@ function slidesFor(locale) {
       slug: 'connexions',
       icon: '🔗',
       title: t('tour.slide.connexions.title', locale),
+      // Le rappel "active les notifications push" (ajouté le 27/08/2026,
+      // push_subscriptions restait vide malgré la préférence "Push" cochée
+      // dans Mon compte > Préférences, voir PushNotificationManager.jsx)
+      // vivait d'abord dans une slide "push" séparée — mais la notification
+      // push n'est pas une rubrique à part entière du menu (retour Alex,
+      // 27/08/2026, docx "Modifs Aaron") : elle vit DANS l'onglet
+      // Préférences de "Mon compte". Le rappel est désormais fondu dans le
+      // texte de cette slide (voir tour.slide.connexions.text, lib/i18n.js)
+      // plutôt que présenté comme une rubrique de menu qui n'existe pas.
       text: t('tour.slide.connexions.text', locale),
-    },
-    // Ajout demandé par Alex (27/08/2026) : la visite guidée ne disait nulle
-    // part qu'il fallait activer les notifications push (bug remonté le même
-    // jour — push_subscriptions restait vide malgré la préférence "Push"
-    // cochée dans Mon compte > Préférences, voir PushNotificationManager.jsx
-    // — l'activation par appareil est une action séparée de cette
-    // préférence). Slide non filtrée par role : tout le monde (patron comme
-    // commercial) peut recevoir des rendez-vous à valider.
-    {
-      slug: 'push',
-      icon: '🔔',
-      title: t('tour.slide.push.title', locale),
-      text: t('tour.slide.push.text', locale),
     },
     {
       slug: 'team',
