@@ -292,18 +292,28 @@ export async function GET(request: NextRequest) {
 
   // Alerte ponctuelle, une seule fois par connexion (demande Alex, 27/08/2026,
   // suite au test réel avec Ludovic où le label n'est jamais apparu) : les
-  // comptes Google connectés AVANT le 25/08 n'ont pas le scope gmail.labels
-  // et Google ne le redonne jamais rétroactivement à un jeton déjà émis. Le
-  // badge d'avertissement + bouton "Reconnecter" existe déjà dans Connexions
+  // comptes Google connectés sans le bon scope n'ont pas le label et Google
+  // ne le redonne jamais rétroactivement à un jeton déjà émis. Le badge
+  // d'avertissement + bouton "Reconnecter" existe déjà dans Connexions
   // (app/app/connexions/page.jsx) mais ne se voit que si le commercial y
   // retourne — même angle mort déjà comblé pour SPF/DMARC (voir
   // lib/email-deliverability.ts). Best-effort : ne bloque jamais le
   // traitement des emails ci-dessous en cas d'échec.
+  //
+  // CORRECTION (27/08/2026, plus tard le même jour) : le scope vérifié ici
+  // était gmail.labels (ajouté le 25/08), qui s'est avéré INSUFFISANT — voir
+  // app/api/auth/google/route.ts pour l'explication complète (gmail.labels
+  // suffit pour lister/créer le label, mais pas pour l'appliquer à un fil,
+  // qui nécessite gmail.modify). On vérifie donc désormais gmail.modify.
+  // Voir reset_label_scope_notified_2026-08-27.sql : remet
+  // label_scope_notified_at à null pour les connexions déjà notifiées sous
+  // l'ancienne logique (gmail.labels) mais toujours sans gmail.modify, sinon
+  // elles ne seraient jamais re-notifiées malgré le vrai problème non résolu.
   for (const connection of connections || []) {
     if (
       connection.provider !== 'google' ||
       connection.label_scope_notified_at ||
-      (connection.scopes || []).includes('https://www.googleapis.com/auth/gmail.labels')
+      (connection.scopes || []).includes('https://www.googleapis.com/auth/gmail.modify')
     ) {
       continue;
     }
@@ -318,7 +328,7 @@ export async function GET(request: NextRequest) {
         .update({ label_scope_notified_at: new Date().toISOString() })
         .eq('id', connection.id);
     } catch (err: any) {
-      console.error('Erreur notification scope gmail.labels manquant (non bloquant):', err.message);
+      console.error('Erreur notification scope gmail.modify manquant (non bloquant):', err.message);
     }
   }
 
