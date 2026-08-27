@@ -350,6 +350,14 @@ export default function ConnexionsPage() {
   const [savingSummary, setSavingSummary] = useState(false);
   const [summarySaved, setSummarySaved] = useState(false);
   const [summaryDirty, setSummaryDirty] = useState(false);
+  // Demande Alex (27/08/2026) : le résumé d'activité (business_summary) peut
+  // faire plusieurs paragraphes (généré par le questionnaire de découverte) —
+  // dans un <textarea rows={6}> il paraissait "coupé" en plein milieu d'une
+  // phrase alors que le texte complet est bien là (juste besoin de scroller
+  // DANS le textarea, peu visible). On agrandit la zone visible ET on ajoute
+  // un agrandissement en plein écran pour relire/éditer le texte en entier
+  // confortablement.
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [signature, setSignature] = useState('');
   const [signatureLoaded, setSignatureLoaded] = useState(false);
   const [detectingSignature, setDetectingSignature] = useState(false);
@@ -1296,9 +1304,14 @@ export default function ConnexionsPage() {
         <div className="company-panel">
           {summaryLoaded && (
             <div className="company-section">
-              <h3 className="company-section-title">{t('preferences.businessProfileLabel', locale)}</h3>
+              <div className="header-row">
+                <h3 className="company-section-title">{t('preferences.businessProfileLabel', locale)}</h3>
+                <button type="button" className="expand-btn" onClick={() => setSummaryExpanded(true)} title={t('preferences.businessProfileExpandButton', locale)}>
+                  ⤢ {t('preferences.businessProfileExpandButton', locale)}
+                </button>
+              </div>
               <textarea
-                rows={6}
+                rows={12}
                 value={businessSummary}
                 onChange={(e) => {
                   setBusinessSummary(e.target.value);
@@ -1316,6 +1329,21 @@ export default function ConnexionsPage() {
                 </Link>
               </div>
             </div>
+          )}
+
+          {summaryExpanded && (
+            <BusinessSummaryExpandModal
+              locale={locale}
+              value={businessSummary}
+              onChange={(v) => {
+                setBusinessSummary(v);
+                setSummaryDirty(true);
+              }}
+              onClose={() => setSummaryExpanded(false)}
+              onSave={handleSaveSummary}
+              saving={savingSummary}
+              saved={summarySaved}
+            />
           )}
 
           {/* Lien public / site web (docx, retour Alex 27/08/2026) : vivait
@@ -2646,6 +2674,31 @@ export default function ConnexionsPage() {
           border-radius: 2px;
           background: var(--accent);
         }
+        .header-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.6rem;
+          margin-bottom: 0.9rem;
+        }
+        .header-row .company-section-title {
+          margin-bottom: 0;
+        }
+        .expand-btn {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.7rem;
+          font-size: 0.78rem;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .expand-btn:hover {
+          background: var(--surface-hover);
+          border-color: var(--accent);
+          color: var(--text);
+        }
         .company-panel .actions {
           display: flex;
           align-items: center;
@@ -3184,6 +3237,138 @@ function extractCustomCrmJson(text) {
   } catch {
     return { displayText, recap: null, topic };
   }
+}
+
+// Demande Alex (27/08/2026) : le résumé d'activité (business_summary,
+// généré par le questionnaire de découverte) peut faire plusieurs
+// paragraphes — trop long pour le <textarea rows={12}> affiché inline dans
+// l'onglet "Mon entreprise". Cette modale plein écran permet de relire/
+// éditer le texte en entier sans avoir à scroller dans une petite zone.
+// Édite le même state (value/onChange) que le textarea inline — les deux
+// vues restent donc toujours synchronisées, et "Enregistrer" ici déclenche
+// exactement le même handler (onSave = handleSaveSummary du parent).
+function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, saving, saved }) {
+  return (
+    <div className="summary-expand-overlay" onClick={onClose}>
+      <div className="summary-expand-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="summary-expand-header">
+          <h2>{t('preferences.businessProfileExpandModalTitle', locale)}</h2>
+          <button type="button" className="summary-expand-close" onClick={onClose}>✕</button>
+        </div>
+        <textarea
+          className="summary-expand-textarea"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={t('preferences.businessProfilePlaceholder', locale)}
+          autoFocus
+        />
+        <div className="summary-expand-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
+          <button type="button" className="btn-primary" onClick={onSave} disabled={saving}>
+            {saving ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
+          </button>
+          {saved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
+        </div>
+      </div>
+
+      <style jsx>{`
+        .summary-expand-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 200;
+          padding: 1.5rem;
+        }
+        .summary-expand-modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.6rem;
+          width: 720px;
+          max-width: 100%;
+          max-height: 88vh;
+          display: flex;
+          flex-direction: column;
+        }
+        .summary-expand-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        }
+        .summary-expand-header h2 {
+          font-family: var(--font-display);
+          margin: 0;
+          font-size: 1.1rem;
+        }
+        .summary-expand-close {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          width: 2rem;
+          height: 2rem;
+          cursor: pointer;
+        }
+        .summary-expand-textarea {
+          flex: 1;
+          min-height: 50vh;
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.9rem 1rem;
+          color: var(--text);
+          font-size: 0.9rem;
+          line-height: 1.5;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .summary-expand-textarea:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+        .summary-expand-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 0.6rem;
+          margin-top: 1rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: white;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.9rem;
+          font-weight: 600;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .btn-secondary {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .saved-msg {
+          color: var(--accent-green);
+          font-size: 0.82rem;
+        }
+      `}</style>
+    </div>
+  );
 }
 
 function CrmCustomChatModal({ userId, onClose, onSent }) {
