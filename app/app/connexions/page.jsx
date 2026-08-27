@@ -628,6 +628,7 @@ export default function ConnexionsPage() {
         default_first_email_enabled: prefs.default_first_email_enabled,
         default_first_email_subject: prefs.default_first_email_subject,
         default_first_email_body: prefs.default_first_email_body,
+        public_link_url: prefs.public_link_url,
       }),
     });
     setSaving(false);
@@ -1700,6 +1701,20 @@ export default function ConnexionsPage() {
             </div>
 
             <div className="field">
+              <label>{t('preferences.publicLinkLabel', locale)}</label>
+              <input
+                type="text"
+                className="cap-input"
+                placeholder={t('preferences.publicLinkPlaceholder', locale)}
+                value={prefs.public_link_url}
+                onChange={(e) => setPrefs({ ...prefs, public_link_url: e.target.value })}
+              />
+              <p className="collab-extra-hint">
+                {t('preferences.publicLinkHint', locale)}
+              </p>
+            </div>
+
+            <div className="field">
               <label>{t('preferences.defaultFirstEmailLabel', locale)}</label>
               <div className="options">
                 {DEFAULT_FIRST_EMAIL_OPTIONS.map((opt) => (
@@ -1755,6 +1770,15 @@ export default function ConnexionsPage() {
                     >
                       {t('preferences.defaultFirstEmailInsertSociete', locale)}
                     </button>
+                    {prefs.public_link_url && (
+                      <button
+                        type="button"
+                        className="token-btn"
+                        onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{lien}')}
+                      >
+                        {t('preferences.defaultFirstEmailInsertLien', locale)}
+                      </button>
+                    )}
                   </div>
                   <textarea
                     ref={defaultEmailBodyRef}
