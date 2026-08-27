@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { checkDomainHealth, isConsumerDomain } from '@/lib/email-deliverability';
+import { checkDomainHealth, isConsumerDomain, suggestedSpfRecord, suggestedDmarcRecord } from '@/lib/email-deliverability';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -33,7 +33,18 @@ export async function GET(request: NextRequest) {
           return { provider: c.provider, domain, consumer_domain: true, health: null };
         }
         const health = await checkDomainHealth(domain);
-        return { provider: c.provider, domain, consumer_domain: false, health };
+        // Enregistrements prêts à copier-coller (demande Alex, 27/08/2026) —
+        // affichés dans Connexions à la place d'une simple consigne texte,
+        // seulement pour ce qui manque réellement. rua du DMARC pointe vers
+        // l'adresse pro elle-même connectée (voir lib/email-deliverability.ts).
+        const suggested: { spf?: string; dmarc?: string } = {};
+        if (!health.spf.found) {
+          suggested.spf = suggestedSpfRecord(c.provider as 'google' | 'microsoft');
+        }
+        if (!health.dmarc.found) {
+          suggested.dmarc = suggestedDmarcRecord(c.provider_account_email);
+        }
+        return { provider: c.provider, domain, consumer_domain: false, health, suggested };
       })
   );
 
