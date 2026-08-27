@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret')
+    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret, public_link_url')
     .eq('id', user.company_id)
     .single();
 
@@ -57,6 +57,12 @@ export async function GET(request: NextRequest) {
       default_first_email_enabled: company?.default_first_email_enabled ?? false,
       default_first_email_subject: company?.default_first_email_subject || '',
       default_first_email_body: company?.default_first_email_body || '',
+      // Lien public à mentionner dans les emails de prospection (demande
+      // Alex, 27/08/2026, suite à l'absence de lien landing page dans le
+      // premier email à Ludovic) — voir migration_public_link_url_2026-08-27.sql
+      // et lib/aaron.ts. Jamais fabriqué par Aaron : vide tant que le
+      // commercial ne l'a pas renseigné explicitement.
+      public_link_url: company?.public_link_url || '',
       // Webhook générique de conversion prospect -> client (demande Alex,
       // 2026-08-26) — voir migration_external_conversion_webhook_2026-08-26.sql
       // et app/api/webhooks/external-conversion/[secret]/route.ts. Lecture
@@ -82,6 +88,7 @@ export async function PATCH(request: NextRequest) {
     default_first_email_enabled,
     default_first_email_subject,
     default_first_email_body,
+    public_link_url,
   } = await request.json();
 
   if (!user_id) {
@@ -129,6 +136,18 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Objectif de prospection invalide' }, { status: 400 });
   }
 
+  // Lien public (demande Alex, 27/08/2026) : validation basique côté serveur
+  // pour éviter qu'un texte libre non-URL se retrouve inséré tel quel dans un
+  // email envoyé à un prospect — vide autorisé (retire le lien).
+  if (public_link_url !== undefined && public_link_url) {
+    try {
+      const parsed = new URL(public_link_url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('protocol');
+    } catch {
+      return NextResponse.json({ error: 'Lien public invalide (doit être une URL complète, ex: https://...)' }, { status: 400 });
+    }
+  }
+
   if (
     collaboration_level !== undefined ||
     crm_provider !== undefined ||
@@ -137,7 +156,8 @@ export async function PATCH(request: NextRequest) {
     prospecting_goal_details !== undefined ||
     default_first_email_enabled !== undefined ||
     default_first_email_subject !== undefined ||
-    default_first_email_body !== undefined
+    default_first_email_body !== undefined ||
+    public_link_url !== undefined
   ) {
     const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', user_id).single();
     if (user) {
@@ -152,6 +172,7 @@ export async function PATCH(request: NextRequest) {
       if (default_first_email_enabled !== undefined) companyUpdates.default_first_email_enabled = default_first_email_enabled;
       if (default_first_email_subject !== undefined) companyUpdates.default_first_email_subject = default_first_email_subject || null;
       if (default_first_email_body !== undefined) companyUpdates.default_first_email_body = default_first_email_body || null;
+      if (public_link_url !== undefined) companyUpdates.public_link_url = public_link_url || null;
 
       await supabaseAdmin
         .from('companies')
