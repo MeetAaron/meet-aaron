@@ -14,6 +14,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
+  // Bug remonté par Alex (27/08/2026, compte de son père) : l'email de
+  // confirmation peut échouer à l'envoi (voir /api/auth/send-verification,
+  // dépend de la connexion Gmail d'un seul commercial — SYSTEM_EMAIL_SENDER_
+  // USER_ID) alors que le message de fin d'inscription affirme à tort qu'on
+  // peut se connecter tout de suite (voir /api/auth/verify-email, commentaire
+  // en tête de fichier) : tant que Supabase "Confirm email" est activé
+  // (réglage par défaut du projet), signInWithPassword échoue avec "Email not
+  // confirmed" tant que ce lien n'a pas été cliqué — et sans lui, la personne
+  // reste bloquée sans aucun moyen de s'en sortir seule. Ce nouvel état
+  // détecte précisément cette erreur pour proposer un renvoi immédiat.
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState(null);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMessage, setResendMessage] = useState(null);
 
   // Lu directement depuis window.location (plutôt que useSearchParams) pour
   // éviter d'avoir à englober la page dans un <Suspense> côté build Next.js.
@@ -48,6 +61,8 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     setMessage(null);
+    setUnconfirmedEmail(null);
+    setResendMessage(null);
 
     if (mode === 'signin') {
       setRememberMe(remember);
@@ -60,7 +75,16 @@ export default function LoginPage() {
       } catch (err) {}
       const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
       if (error) {
-        setError(error.message);
+        // "Email not confirmed" : message exact renvoyé par Supabase Auth
+        // (GoTrue) quand "Confirm email" est activé côté projet et que le
+        // lien de confirmation n'a jamais été cliqué (voir commentaire plus
+        // haut). On propose un renvoi immédiat plutôt que de laisser la
+        // personne bloquée avec une simple erreur.
+        if (/email not confirmed/i.test(error.message)) {
+          setUnconfirmedEmail(email);
+        } else {
+          setError(error.message);
+        }
         setLoading(false);
         return;
       }
@@ -94,6 +118,27 @@ export default function LoginPage() {
         }
       }
       setMessage(t('auth.signupSuccess', locale));
+    }
+  }
+
+  async function handleResendVerification() {
+    setResendBusy(true);
+    setResendMessage(null);
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: unconfirmedEmail }),
+      });
+      if (!res.ok) {
+        setResendMessage(t('auth.resendError', locale));
+      } else {
+        setResendMessage(t('auth.resendSuccess', locale));
+      }
+    } catch (err) {
+      setResendMessage(t('auth.resendError', locale));
+    } finally {
+      setResendBusy(false);
     }
   }
 
@@ -166,7 +211,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); }}>
+        <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
           {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
         </button>
 
@@ -181,6 +226,15 @@ export default function LoginPage() {
 
         {error && <p className="error">{error}</p>}
         {message && <p className="success">{message}</p>}
+        {unconfirmedEmail && (
+          <div className="unconfirmed-box">
+            <p className="error">{t('auth.unconfirmedError', locale)}</p>
+            <button type="button" className="link-toggle" onClick={handleResendVerification} disabled={resendBusy}>
+              {resendBusy ? t('common.loading', locale) : t('auth.resendButton', locale)}
+            </button>
+            {resendMessage && <p className="success">{resendMessage}</p>}
+          </div>
+        )}
       </div>
 
       <style jsx>{`
@@ -326,6 +380,16 @@ export default function LoginPage() {
           color: #3dd68c;
           font-size: 0.8rem;
           margin-top: 1rem;
+        }
+        .unconfirmed-box {
+          margin-top: 0.4rem;
+          text-align: center;
+        }
+        .unconfirmed-box .error {
+          margin-top: 0.2rem;
+        }
+        .unconfirmed-box .link-toggle {
+          margin-top: 0.4rem;
         }
       `}</style>
     </div>
