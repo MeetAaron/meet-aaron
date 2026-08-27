@@ -47,17 +47,48 @@ function extractGmailBody(payload: any): string {
 
 type NormalizedMessage = { id: string; fromEmail: string; bodyText: string; threadId?: string };
 
+// Rattrapage automatique après coupure/reconnexion (demande Alex, 27/08/2026,
+// suite à l'audit du comportement déco/reco avec Ludovic) : avant, la fenêtre
+// de lecture était toujours fixe ("il y a 5 minutes"), quelle que soit la
+// durée d'une éventuelle coupure de la boîte mail (token révoqué, commercial
+// déconnecté puis reconnecté...) — un prospect ayant répondu PENDANT cette
+// coupure n'était donc jamais rattrapé : le prochain passage du cron ne
+// regardait de nouveau que les 5 dernières minutes, pas la coupure entière.
+//
+// oauth_connections.last_checked_at mémorise l'heure de la DERNIÈRE lecture
+// RÉUSSIE de cette boîte mail (posée plus bas, uniquement quand
+// fetchNewMessagesForConnection n'a pas levé d'erreur). On l'utilise comme
+// point de départ réel au lieu d'un fixe "5 minutes" : après 20 minutes de
+// coupure, le premier passage réussi après reconnexion relit exactement les
+// 20 dernières minutes — ni plus (pas de retraitement inutile), ni moins
+// (pas de trou). Plafonné à 48h pour éviter de rebalayer des mois de boîte
+// mail si une connexion reste invalide très longtemps (voir
+// MAX_CATCHUP_LOOKBACK_MS) — au-delà, on rattrape au mieux les 48 dernières
+// heures et le reste est signalé comme non rattrapable (voir plus bas).
+const DEFAULT_LOOKBACK_MS = 5 * 60 * 1000;
+const MAX_CATCHUP_LOOKBACK_MS = 48 * 60 * 60 * 1000; // 48h
+
+function computeLookbackTimestamp(lastCheckedAt: string | null): number {
+  const now = Date.now();
+  if (!lastCheckedAt) return now - DEFAULT_LOOKBACK_MS;
+  const last = new Date(lastCheckedAt).getTime();
+  // Jamais moins de 5 minutes (petite dérive de planification du cron), et
+  // jamais plus de 48h de rattrapage.
+  return Math.min(now - DEFAULT_LOOKBACK_MS, Math.max(last, now - MAX_CATCHUP_LOOKBACK_MS));
+}
+
 // Normalise les nouveaux messages (Gmail ou Outlook) vers une forme commune,
 // pour que tout le traitement en aval (fiche prospect, réponse d'Aaron, etc.)
 // soit identique quel que soit le fournisseur du commercial.
 async function fetchNewMessagesForConnection(connection: {
   user_id: string;
   provider: string;
+  last_checked_at: string | null;
 }): Promise<NormalizedMessage[]> {
-  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+  const afterTimestamp = computeLookbackTimestamp(connection.last_checked_at);
 
   if (connection.provider === 'google') {
-    const newMessages = await listNewGmailMessages(connection.user_id, fiveMinutesAgo);
+    const newMessages = await listNewGmailMessages(connection.user_id, afterTimestamp);
     const detailed: NormalizedMessage[] = [];
     for (const msg of newMessages) {
       const full = await getGmailMessage(connection.user_id, msg.id);
@@ -70,7 +101,7 @@ async function fetchNewMessagesForConnection(connection: {
   }
 
   // Outlook / Microsoft Graph : réponse déjà en JSON simple, pas de MIME à décoder
-  const newMessages = await listNewOutlookMessages(connection.user_id, fiveMinutesAgo);
+  const newMessages = await listNewOutlookMessages(connection.user_id, afterTimestamp);
   const detailed: NormalizedMessage[] = [];
   for (const msg of newMessages) {
     const full = await getOutlookMessage(connection.user_id, msg.id);
@@ -97,7 +128,8 @@ async function handleWonCustomerMessage(
   prospect: { id: string; full_name: string; company_id: string | null; kickoff_call_proposed_at?: string | null },
   userId: string,
   fromEmail: string,
-  bodyText: string
+  bodyText: string,
+  providerMessageId: string
 ) {
   const { data: conversation } = await supabaseAdmin
     .from('conversations')
@@ -113,6 +145,9 @@ async function handleWonCustomerMessage(
       sender_email: fromEmail,
       recipient_email: '',
       body: bodyText,
+      // Nécessaire pour la sécurité anti-doublon du rattrapage automatique
+      // (voir plus bas dans GET) — avant, seul le flux prospection l'écrivait.
+      provider_message_id: providerMessageId,
     });
   }
 
@@ -252,7 +287,7 @@ export async function GET(request: NextRequest) {
 
   const { data: connections } = await supabaseAdmin
     .from('oauth_connections')
-    .select('id, user_id, provider, provider_account_email, scopes, label_scope_notified_at')
+    .select('id, user_id, provider, provider_account_email, scopes, label_scope_notified_at, last_checked_at')
     .in('provider', ['google', 'microsoft']);
 
   // Alerte ponctuelle, une seule fois par connexion (demande Alex, 27/08/2026,
@@ -291,10 +326,19 @@ export async function GET(request: NextRequest) {
 
   for (const connection of connections || []) {
     let newMessages: NormalizedMessage[] = [];
+    // Capturé AVANT la lecture (pas après) : si de nouveaux messages arrivent
+    // pendant le traitement de ce cycle, ils restent bien "après" ce repère et
+    // seront donc repris au cycle suivant plutôt que silencieusement sautés.
+    const checkStartedAt = new Date();
     try {
       newMessages = await fetchNewMessagesForConnection(connection);
     } catch (err: any) {
-      // Un token expiré/révoqué pour ce commercial ne doit pas bloquer les autres.
+      // Un token expiré/révoqué pour ce commercial ne doit pas bloquer les
+      // autres — et ne doit surtout PAS faire avancer last_checked_at : tant
+      // que la boîte reste injoignable, on veut continuer à repartir du même
+      // point (ou plus loin en arrière si la coupure dure), pour rattraper
+      // l'intégralité de la coupure une fois reconnecté (voir
+      // computeLookbackTimestamp plus haut).
       console.error(`Erreur lecture boîte mail (${connection.provider}) pour ${connection.user_id}:`, err.message);
       continue;
     }
@@ -303,6 +347,20 @@ export async function GET(request: NextRequest) {
       try {
       const { fromEmail, bodyText, threadId } = msg;
       if (!fromEmail) continue;
+
+      // Sécurité anti-doublon : avec le rattrapage automatique ci-dessus, la
+      // fenêtre relue après une coupure peut légèrement recouvrir une fenêtre
+      // déjà traitée avant la coupure. Un message déjà enregistré (même
+      // provider_message_id) ne doit jamais être retraité — sinon Aaron
+      // pourrait répondre deux fois au même prospect, ou écraser une note de
+      // check-in déjà enregistrée.
+      const { data: alreadyProcessed } = await supabaseAdmin
+        .from('messages')
+        .select('id')
+        .eq('provider_message_id', msg.id)
+        .limit(1)
+        .maybeSingle();
+      if (alreadyProcessed) continue;
 
       // GARANTIE DE PÉRIMÈTRE (demande Alex, 2026-08-26 : "garantis-moi
       // qu'aaron n'est capable que de prendre en charge les emails des
@@ -696,6 +754,22 @@ export async function GET(request: NextRequest) {
         // des autres messages/commerciaux de ce cycle.
         console.error(`Erreur traitement message pour ${connection.user_id}:`, err.message);
       }
+    }
+
+    // La boîte a été lue avec succès jusqu'ici (même si 0 nouveau message) :
+    // on avance le repère de rattrapage automatique (voir
+    // computeLookbackTimestamp en haut du fichier). Best-effort — un échec de
+    // cette seule mise à jour ne doit pas faire perdre les messages déjà
+    // traités ci-dessus ; au pire, le prochain cycle relira une fenêtre un
+    // peu plus large que nécessaire (sans trou, grâce à la sécurité
+    // anti-doublon sur provider_message_id).
+    try {
+      await supabaseAdmin
+        .from('oauth_connections')
+        .update({ last_checked_at: checkStartedAt.toISOString() })
+        .eq('id', connection.id);
+    } catch (err: any) {
+      console.error(`Erreur mise à jour last_checked_at pour ${connection.user_id}:`, err.message);
     }
   }
 
