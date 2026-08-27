@@ -143,9 +143,20 @@ export async function applyAaronCategory(userId: string, messageId: string | und
 // catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
 // récupère l'id du brouillon dès sa création, qui reste valable une fois le
 // message envoyé (déplacé de Brouillons vers Éléments envoyés).
-export async function sendOutlookEmail(userId: string, to: string, subject: string, body: string, opts?: { html?: boolean }) {
+export async function sendOutlookEmail(
+  userId: string,
+  to: string,
+  subject: string,
+  body: string,
+  opts?: { html?: boolean; attachment?: { filename: string; contentBase64: string; mimeType: string } }
+) {
   const accessToken = await getValidAccessToken(userId);
 
+  // Pièce jointe au premier email (demande Alex, 27/08/2026 — voir
+  // lib/first-email-attachment.ts) : contrairement à Gmail (MIME multipart
+  // à construire à la main), Graph accepte les pièces jointes directement
+  // dans le corps de création du brouillon, en base64 — pas de format
+  // spécial à gérer ici.
   const createRes = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
     method: 'POST',
     headers: {
@@ -156,6 +167,18 @@ export async function sendOutlookEmail(userId: string, to: string, subject: stri
       subject,
       body: { contentType: opts?.html ? 'HTML' : 'Text', content: body },
       toRecipients: [{ emailAddress: { address: to } }],
+      ...(opts?.attachment
+        ? {
+            attachments: [
+              {
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: opts.attachment.filename,
+                contentType: opts.attachment.mimeType,
+                contentBytes: opts.attachment.contentBase64,
+              },
+            ],
+          }
+        : {}),
     }),
   });
 

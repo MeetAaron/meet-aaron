@@ -145,12 +145,21 @@ async function incrementProspectingCounter(userId: string): Promise<void> {
 // DEFAULT_DAILY_PROSPECTING_CAP. Ne marquer 'prospecting' que les envois de
 // démarchage à froid (premier contact, relance automatique, sauvetage) —
 // jamais les emails transactionnels vers un contact déjà engagé.
+//
+// opts.attachment (demande Alex, 27/08/2026) : pièce jointe à inclure dans
+// cet envoi précis (ex : la plaquette Aaron sur le tout premier email d'un
+// prospect) — voir lib/first-email-attachment.ts pour la récupérer avant
+// d'appeler cette fonction. Transmise telle quelle à Gmail ou Outlook selon
+// le fournisseur connecté.
 export async function sendEmailForUser(
   userId: string,
   to: string,
   subject: string,
   body: string,
-  opts?: { emailType?: 'prospecting' | 'transactional' }
+  opts?: {
+    emailType?: 'prospecting' | 'transactional';
+    attachment?: { filename: string; contentBase64: string; mimeType: string };
+  }
 ) {
   const emailType = opts?.emailType || 'transactional';
   // Voir normalizeEmailBodyLineBreaks ci-dessus — corrige les retours à la
@@ -196,9 +205,9 @@ export async function sendEmailForUser(
 
   let result;
   if (providers.has('google')) {
-    result = await sendGmailEmail(userId, to, subject, fullBody, { html: isHtml });
+    result = await sendGmailEmail(userId, to, subject, fullBody, { html: isHtml, attachment: opts?.attachment });
   } else if (providers.has('microsoft')) {
-    result = await sendOutlookEmail(userId, to, subject, fullBody, { html: isHtml });
+    result = await sendOutlookEmail(userId, to, subject, fullBody, { html: isHtml, attachment: opts?.attachment });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }

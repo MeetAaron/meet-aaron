@@ -132,17 +132,62 @@ export async function applyAaronLabel(userId: string, threadId: string | undefin
   }
 }
 
-// Envoie un email via l'API Gmail (au nom du commercial connecté)
-export async function sendGmailEmail(userId: string, to: string, subject: string, body: string, opts?: { html?: boolean }) {
+// Pièce jointe au premier email (demande Alex, 27/08/2026 — voir
+// lib/first-email-attachment.ts) : contenu déjà encodé en base64 par
+// l'appelant (le fichier vient de Supabase Storage), on n'a plus qu'à
+// l'insérer dans le MIME.
+interface EmailAttachment {
+  filename: string;
+  contentBase64: string;
+  mimeType: string;
+}
+
+// Envoie un email via l'API Gmail (au nom du commercial connecté). Avec
+// opts.attachment, bascule sur un MIME multipart/mixed (corps + pièce
+// jointe) plutôt que le message à une seule partie utilisé jusqu'ici — les
+// deux formats sont acceptés par l'API Gmail sous la même route/paramètre
+// "raw", donc aucun autre changement n'est nécessaire côté appelant.
+export async function sendGmailEmail(
+  userId: string,
+  to: string,
+  subject: string,
+  body: string,
+  opts?: { html?: boolean; attachment?: EmailAttachment }
+) {
   const accessToken = await getValidAccessToken(userId);
 
-  const rawMessage = [
-    `To: ${to}`,
-    `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
-    opts?.html ? 'Content-Type: text/html; charset=utf-8' : 'Content-Type: text/plain; charset=utf-8',
-    '',
-    body,
-  ].join('\n');
+  const contentTypeHeader = opts?.html ? 'Content-Type: text/html; charset=utf-8' : 'Content-Type: text/plain; charset=utf-8';
+  const subjectHeader = `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+
+  let rawMessage: string;
+  if (opts?.attachment) {
+    const boundary = `aaron_boundary_${Date.now()}`;
+    // Découpe le base64 de la pièce jointe en lignes de 76 caractères
+    // (limite classique MIME/RFC 2045 — sans ça, certains clients mail
+    // affichent la pièce jointe corrompue ou refusent de l'ouvrir).
+    const attachmentBase64Wrapped = opts.attachment.contentBase64.replace(/(.{76})/g, '$1\n');
+    rawMessage = [
+      `To: ${to}`,
+      subjectHeader,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      contentTypeHeader,
+      '',
+      body,
+      '',
+      `--${boundary}`,
+      `Content-Type: ${opts.attachment.mimeType}; name="${opts.attachment.filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${opts.attachment.filename}"`,
+      '',
+      attachmentBase64Wrapped,
+      `--${boundary}--`,
+    ].join('\n');
+  } else {
+    rawMessage = [`To: ${to}`, subjectHeader, contentTypeHeader, '', body].join('\n');
+  }
 
   const encodedMessage = Buffer.from(rawMessage)
     .toString('base64')
