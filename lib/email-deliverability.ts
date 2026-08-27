@@ -72,3 +72,55 @@ const CONSUMER_DOMAINS = new Set([
 export function isConsumerDomain(domain: string): boolean {
   return CONSUMER_DOMAINS.has(domain.trim().toLowerCase());
 }
+
+// Suggestion de valeur SPF prête à copier-coller, selon le fournisseur
+// connecté — seul l'include change (Google Workspace vs Microsoft 365), le
+// reste de la syntaxe est standard. Ne sert que quand SPF est absent : si un
+// SPF existe déjà mais est mal formé, on ne tente pas de le corriger
+// automatiquement (risque de casser un include existant vers un autre
+// service d'envoi que le commercial utiliserait par ailleurs).
+export function suggestedSpfRecord(provider: 'google' | 'microsoft'): string {
+  return provider === 'microsoft'
+    ? 'v=spf1 include:spf.protection.outlook.com ~all'
+    : 'v=spf1 include:_spf.google.com ~all';
+}
+
+// Suggestion de valeur DMARC prête à copier-coller — rua pointe vers
+// l'adresse connectée elle-même (le commercial reçoit les rapports agrégés
+// sur la boîte qu'il vient de connecter, pas de configuration supplémentaire
+// nécessaire). p=quarantine est un bon compromis par défaut : protège sans
+// bloquer complètement en cas de faux positif pendant la mise en route.
+export function suggestedDmarcRecord(reportEmail: string): string {
+  return `v=DMARC1; p=quarantine; rua=mailto:${reportEmail}; adkim=r; aspf=r`;
+}
+
+// Best-effort, appelée juste après qu'un commercial connecte Gmail ou
+// Outlook (voir app/api/auth/google/callback et .../microsoft/callback) :
+// si son domaine pro n'a ni SPF ni DMARC correct, le prévient tout de suite
+// par notification push plutôt que de compter sur lui pour aller regarder le
+// badge dans Connexions — la majorité des utilisateurs ne reviennent jamais
+// sur cet écran une fois la connexion faite. Ne bloque jamais le flux OAuth
+// (fire-and-forget côté appelant) et ne fait rien pour un domaine grand
+// public (Gmail, Outlook.com...) puisque l'utilisateur n'en gère pas le DNS.
+export async function notifyIfDeliverabilityIssue(userId: string, email: string): Promise<void> {
+  try {
+    const domain = email.split('@')[1];
+    if (!domain || isConsumerDomain(domain)) return;
+
+    const health = await checkDomainHealth(domain);
+    if (health.spf.found && health.dmarc.found) return;
+
+    // Import différé pour éviter une dépendance circulaire potentielle
+    // (lib/push.ts n'importe pas ce fichier, mais on reste prudent puisque
+    // les deux vivent dans lib/ et pourraient évoluer).
+    const { sendPushNotification } = await import('./push');
+    const missing = [!health.spf.found && 'SPF', !health.dmarc.found && 'DMARC'].filter(Boolean).join(' et ');
+    await sendPushNotification(userId, {
+      title: 'Domaine à sécuriser',
+      body: `${domain} n'a pas de ${missing} configuré — tes emails de prospection risquent le spam. Aaron te propose le correctif dans Connexions.`,
+      url: '/app/connexions',
+    });
+  } catch (err: any) {
+    console.error('Erreur notification délivrabilité (non bloquant):', err.message);
+  }
+}
