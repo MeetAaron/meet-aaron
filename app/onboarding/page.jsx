@@ -210,7 +210,9 @@ export default function OnboardingPage() {
               <button type="button" className="role-btn" onClick={() => setPersonRole('patron')}>
                 <span className="role-title">Je suis fondateur(trice) / dirigeant(e)</span>
                 <span className="role-desc">
-                  Je crée l'espace Meet Aaron de mon entreprise et je configure l'abonnement (carte bancaire).
+                  Je crée l'espace Meet Aaron de mon entreprise et je configure l'abonnement (carte bancaire). Pas
+                  besoin d'inviter toute mon équipe dès maintenant : je pourrai ajouter les sessions de mes employés
+                  plus tard directement depuis l'application, au même prix.
                 </span>
               </button>
 
@@ -363,6 +365,7 @@ export default function OnboardingPage() {
             <p className="modules-hint">
               Chaque module fonctionne de façon indépendante — inutile de tout prendre dès aujourd'hui. Vous pourrez
               toujours activer ou résilier un module plus tard, depuis Préférences &amp; Abonnement dans l'application.
+              Comprenant les mises à jour et la maintenance, traitées sous quelques heures.
             </p>
             <div className="modules-grid">
               {AARON_MODULES.map((m) => {
@@ -417,6 +420,19 @@ export default function OnboardingPage() {
               </p>
             )}
           </div>
+
+          {/* Demande Alex (27/08/2026, docx "Modifs Aaron") : rassurer sur les
+              technos utilisées (Supabase/GitHub/Vercel — standards
+              professionnels sécurisés) et sur le fait que le partage de
+              données reste au choix de l'utilisateur, révocable à tout
+              moment — pour lever l'inquiétude au moment de cocher la case
+              juste en dessous. */}
+          <p className="field-hint">
+            Concrètement : tes données sont hébergées chez Supabase, le code de Meet Aaron est hébergé sur GitHub et
+            l'application tourne sur Vercel — des standards professionnels et sécurisés. Pas de panique : tu
+            choisiras toi-même quelles données partager avec Aaron, et tu pourras les retirer à tout moment (on
+            verra ça ensemble un peu plus tard, directement dans l'application).
+          </p>
 
           <label className="checkbox-row">
             <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
