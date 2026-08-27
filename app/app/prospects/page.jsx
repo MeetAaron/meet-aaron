@@ -1,7 +1,7 @@
 // app/app/prospects/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -10,6 +10,7 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
+import ContactInfoEditor from '@/components/ContactInfoEditor';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 // Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
@@ -281,6 +282,40 @@ export default function ProspectsPage() {
   const [threadProspect, setThreadProspect] = useState(null);
   const [pendingEmailProspect, setPendingEmailProspect] = useState(null);
 
+  // Demande Alex (27/08/2026) : "je suis obligé de descendre tout en bas"
+  // pour atteindre la barre de défilement horizontale du tableau (qui
+  // n'existait qu'en bas de .table-wrap, donc hors écran sur une longue
+  // liste). On ajoute une deuxième barre, fine, juste au-dessus du tableau
+  // (donc toujours visible sans scroller la page), synchronisée dans les
+  // deux sens avec le défilement réel du tableau via ces deux refs — un
+  // simple <div> vide dimensionné à la largeur réelle du contenu (scrollWidth)
+  // suffit à donner à cette barre du haut quelque chose à faire défiler.
+  const tableWrapRef = useRef(null);
+  const topScrollRef = useRef(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+
+  useEffect(() => {
+    function syncTableScrollWidth() {
+      if (tableWrapRef.current) {
+        setTableScrollWidth(tableWrapRef.current.scrollWidth);
+      }
+    }
+    syncTableScrollWidth();
+    window.addEventListener('resize', syncTableScrollWidth);
+    return () => window.removeEventListener('resize', syncTableScrollWidth);
+  }, [prospects, detailed, search, statusFilter]);
+
+  function handleTopScroll() {
+    if (tableWrapRef.current && topScrollRef.current) {
+      tableWrapRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  }
+  function handleTableWrapScroll() {
+    if (tableWrapRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableWrapRef.current.scrollLeft;
+    }
+  }
+
   async function loadProspects() {
     setLoading(true);
     const res = await fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json());
@@ -533,7 +568,11 @@ export default function ProspectsPage() {
           }
         />
       ) : (
-        <div className="table-wrap">
+        <>
+          <div className="table-scroll-top" ref={topScrollRef} onScroll={handleTopScroll}>
+            <div style={{ width: tableScrollWidth, height: 1 }} />
+          </div>
+          <div className="table-wrap" ref={tableWrapRef} onScroll={handleTableWrapScroll}>
           <table>
             <thead>
               <tr>
@@ -609,6 +648,14 @@ export default function ProspectsPage() {
                       </button>
                     </td>
                     <td className="row-actions-cell">
+                      <button
+                        type="button"
+                        className="action-btn edit"
+                        onClick={() => setThreadProspect(p)}
+                        title={t('prospects.editButtonTitle', locale)}
+                      >
+                        ✏️
+                      </button>
                       {p.pending_first_email_subject && (
                         <button
                           type="button"
@@ -682,7 +729,8 @@ export default function ProspectsPage() {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {linkedinProspect && (
@@ -888,6 +936,12 @@ export default function ProspectsPage() {
           height: 7px;
           border-radius: 50%;
         }
+        .table-scroll-top {
+          overflow-x: auto;
+          overflow-y: hidden;
+          height: 14px;
+          margin-bottom: 0.4rem;
+        }
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -1051,6 +1105,10 @@ export default function ProspectsPage() {
         }
         .action-btn.delete {
           color: var(--accent-red);
+        }
+        .action-btn.edit {
+          border-color: var(--border);
+          color: var(--text);
         }
         .overlay {
           position: fixed;
@@ -1427,6 +1485,10 @@ function ConversationModal({ prospect, onClose, onSaved }) {
           </div>
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
         </div>
+
+        <section className="detail-block">
+          <ContactInfoEditor prospect={prospect} locale={locale} onSaved={onSaved} />
+        </section>
 
         <section className="detail-block">
           <CompanyInfoEditor prospect={prospect} locale={locale} onSaved={onSaved} />
