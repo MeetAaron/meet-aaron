@@ -252,8 +252,40 @@ export async function GET(request: NextRequest) {
 
   const { data: connections } = await supabaseAdmin
     .from('oauth_connections')
-    .select('user_id, provider, provider_account_email')
+    .select('id, user_id, provider, provider_account_email, scopes, label_scope_notified_at')
     .in('provider', ['google', 'microsoft']);
+
+  // Alerte ponctuelle, une seule fois par connexion (demande Alex, 27/08/2026,
+  // suite au test réel avec Ludovic où le label n'est jamais apparu) : les
+  // comptes Google connectés AVANT le 25/08 n'ont pas le scope gmail.labels
+  // et Google ne le redonne jamais rétroactivement à un jeton déjà émis. Le
+  // badge d'avertissement + bouton "Reconnecter" existe déjà dans Connexions
+  // (app/app/connexions/page.jsx) mais ne se voit que si le commercial y
+  // retourne — même angle mort déjà comblé pour SPF/DMARC (voir
+  // lib/email-deliverability.ts). Best-effort : ne bloque jamais le
+  // traitement des emails ci-dessous en cas d'échec.
+  for (const connection of connections || []) {
+    if (
+      connection.provider !== 'google' ||
+      connection.label_scope_notified_at ||
+      (connection.scopes || []).includes('https://www.googleapis.com/auth/gmail.labels')
+    ) {
+      continue;
+    }
+    try {
+      await sendPushNotification(connection.user_id, {
+        title: 'Petite permission à redonner à Aaron',
+        body: "Le repère \"🤖 Géré par Aaron\" ne peut pas s'afficher dans ta boîte tant que tu n'as pas reconnecté Gmail — un clic dans Connexions suffit.",
+        url: '/app/connexions',
+      });
+      await supabaseAdmin
+        .from('oauth_connections')
+        .update({ label_scope_notified_at: new Date().toISOString() })
+        .eq('id', connection.id);
+    } catch (err: any) {
+      console.error('Erreur notification scope gmail.labels manquant (non bloquant):', err.message);
+    }
+  }
 
   const results = [];
 
