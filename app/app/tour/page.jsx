@@ -133,17 +133,19 @@ function slidesFor(locale) {
       title: t('tour.slide.chat.title', locale),
       text: t('tour.slide.chat.text', locale),
     },
+    // docx item 7 (2026-08-27) : la visite guidée référençait encore
+    // l'ancienne structure "Préférences" à 3 onglets (entreprise,
+    // notifications, abonnement) en tant que page séparée — obsolète depuis
+    // la fusion "Mon compte" du 25/08 (voir daf8d67 et
+    // app/app/preferences/page.jsx, qui n'est plus qu'une redirection). La
+    // slide "preferences" dédiée a été supprimée (100% redondante avec
+    // celle-ci) et ce texte couvre maintenant les 6 onglets réels de "Mon
+    // compte" (profil, entreprise, connexion, CRM, préférences, abonnement).
     {
       slug: 'connexions',
       icon: '🔗',
       title: t('tour.slide.connexions.title', locale),
       text: t('tour.slide.connexions.text', locale),
-    },
-    {
-      slug: 'preferences',
-      icon: '⚙️',
-      title: t('tour.slide.preferences.title', locale),
-      text: t('tour.slide.preferences.text', locale),
     },
     {
       slug: 'team',
@@ -229,7 +231,16 @@ export default function TourPage() {
             <span />
           )}
           {isLast ? (
-            <Link href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
+            // docx item 9 (2026-08-27) : après la dernière étape de la visite
+            // guidée, on redirige vers l'onglet Connexion de "Mon compte"
+            // (plutôt que directement le dashboard) pour enchaîner tout de
+            // suite sur la connexion de la boîte email — étape suivante
+            // naturelle de l'onboarding. La checklist du dashboard (déjà en
+            // place) prend ensuite le relais pour guider vers le premier
+            // prospect/la première campagne. "Passer" ci-dessous continue
+            // d'aller directement au dashboard, pour respecter le choix
+            // explicite de l'utilisateur de sauter la visite.
+            <Link href={`/app/connexions${userId ? `?user_id=${userId}&tab=connection` : '?tab=connection'}`} className="btn-primary">
               {t('tour.finish', locale)}
             </Link>
           ) : (
