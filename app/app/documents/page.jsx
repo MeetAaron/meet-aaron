@@ -129,6 +129,7 @@ export default function DocumentsPage() {
   const [rowError, setRowError] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
   const [categoryUpdatingId, setCategoryUpdatingId] = useState(null);
+  const [togglingAttachmentId, setTogglingAttachmentId] = useState(null);
   const [generatingAdviceId, setGeneratingAdviceId] = useState(null);
   const [adviceModalDoc, setAdviceModalDoc] = useState(null);
   // Demande Alex (2026-08-26, capture à l'appui) : la synthèse générée par
@@ -214,6 +215,27 @@ export default function DocumentsPage() {
       body: JSON.stringify({ linked_category: newCategory === 'general' ? null : newCategory }),
     });
     setCategoryUpdatingId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
+    load();
+  }
+
+  // Pièce jointe au premier email (demande Alex, 27/08/2026) : un seul
+  // document par société peut être marqué à la fois — le backend désactive
+  // automatiquement l'ancien (voir PATCH /api/documents/[id]), on recharge
+  // donc toute la liste après coup plutôt que de ne mettre à jour que la
+  // ligne cliquée.
+  async function handleToggleFirstEmailAttachment(doc) {
+    setTogglingAttachmentId(doc.id);
+    setRowError(null);
+    const res = await fetch(`/api/documents/${doc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attach_to_first_email: !doc.attach_to_first_email }),
+    });
+    setTogglingAttachmentId(null);
     if (!res.ok) {
       setRowError(t('documents.deleteError', locale));
       return;
@@ -432,6 +454,14 @@ export default function DocumentsPage() {
                       </button>
                       <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
                         📝 {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
+                      </button>
+                      <button
+                        type="button"
+                        className={`link-btn${d.attach_to_first_email ? ' attachment-on' : ''}`}
+                        disabled={togglingAttachmentId === d.id}
+                        onClick={() => handleToggleFirstEmailAttachment(d)}
+                      >
+                        📎 {d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
                       </button>
                       <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
                         🗑️ {t('documents.deleteButton', locale)}
@@ -688,6 +718,10 @@ export default function DocumentsPage() {
         }
         .link-btn.danger {
           color: var(--accent-red);
+        }
+        .link-btn.attachment-on {
+          color: var(--accent-green);
+          font-weight: 700;
         }
         .link-btn:disabled {
           opacity: 0.5;
