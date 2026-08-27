@@ -6,6 +6,16 @@ html, body {
   margin: 0;
   padding: 0;
   background: #F6F4EF;
+  /* Garde-fou mobile (demande Alex, 27/08/2026, captures iPhone à l'appui) :
+     plusieurs pages ont une rangée d'onglets/actions en flex sans
+     overflow-x contenu (voir .tabs dans app/app/connexions/page.jsx) — sur
+     un écran étroit, ça faisait déborder TOUTE la page horizontalement
+     (visible en scrollant à droite : un grand espace vide après le contenu,
+     et le dernier onglet "Supprimer mon compte" inatteignable). Ce
+     overflow-x: hidden empêche n'importe quel élément de faire déborder la
+     page entière ; chaque rangée qui doit rester scrollable (ex. .tabs)
+     gère son propre overflow-x: auto en interne, contenu dans sa largeur.*/
+  overflow-x: hidden;
   /* L'app est presque entièrement en thème sombre (voir les variables --bg
      etc. dans chaque page), mais sans cette déclaration, certains
      navigateurs (thème sombre automatique de Chrome/Android en particulier)
