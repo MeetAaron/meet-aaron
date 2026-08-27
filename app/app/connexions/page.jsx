@@ -1177,9 +1177,14 @@ export default function ConnexionsPage() {
   // donc le scope manquant à partir de connection.scopes (stocké tel quel depuis
   // la réponse OAuth de Google, voir app/api/auth/google/callback) et on
   // affiche un avertissement explicite avec un bouton de reconnexion.
+  // CORRECTION (27/08/2026) : le scope requis pour poser le label s'est
+  // avéré être gmail.modify, pas gmail.labels comme cru le 25/08 — voir
+  // app/api/auth/google/route.ts pour l'explication complète (labels.list
+  // fonctionnait déjà avec gmail.labels, mais pas threads.modify, l'appel
+  // qui pose réellement le label sur le fil).
   const googleMissingLabelScope =
     !!googleConnection &&
-    !(googleConnection.scopes || []).includes('https://www.googleapis.com/auth/gmail.labels');
+    !(googleConnection.scopes || []).includes('https://www.googleapis.com/auth/gmail.modify');
 
   return (
     <Shell active={t('nav.connections', locale)} userId={userId}>
