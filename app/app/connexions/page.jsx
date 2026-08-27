@@ -367,6 +367,16 @@ export default function ConnexionsPage() {
   const [legalInfoLoaded, setLegalInfoLoaded] = useState(false);
   const [savingLegalInfo, setSavingLegalInfo] = useState(false);
   const [legalInfoSaved, setLegalInfoSaved] = useState(false);
+  // docx (2026-08-27, retour Alex) : le "Lien public" vivait dans Préférences
+  // alors qu'il s'agit d'une info d'entreprise — déplacé dans l'onglet "Mon
+  // entreprise", avec sa propre sauvegarde dédiée (même patron que
+  // handleSaveLegalInfo ci-dessus) plutôt que de dépendre du gros bouton
+  // "Enregistrer" de Préférences qui soumettait aussi des réglages sans
+  // rapport. Le jeton {lien} dans l'éditeur d'email par défaut (Préférences)
+  // continue de lire prefs.public_link_url normalement, sans changement.
+  const [savingPublicLink, setSavingPublicLink] = useState(false);
+  const [publicLinkSaved, setPublicLinkSaved] = useState(false);
+  const [publicLinkError, setPublicLinkError] = useState(null);
   const [buyingCredits, setBuyingCredits] = useState(null);
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
@@ -541,6 +551,28 @@ export default function ConnexionsPage() {
       setLegalInfoSaved(true);
       setTimeout(() => setLegalInfoSaved(false), 2500);
     }
+  }
+
+  async function handleSavePublicLink() {
+    setSavingPublicLink(true);
+    setPublicLinkSaved(false);
+    setPublicLinkError(null);
+    const res = await fetch('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, public_link_url: prefs.public_link_url }),
+    });
+    setSavingPublicLink(false);
+    if (!res.ok) {
+      const body = await res.json();
+      // Corrigé au passage (27/08) : cette erreur utilisait par erreur
+      // setOfferError, un état affiché uniquement sur l'onglet Abonnement —
+      // un échec ici restait donc invisible sur "Mon entreprise".
+      setPublicLinkError(body.error);
+      return;
+    }
+    setPublicLinkSaved(true);
+    setTimeout(() => setPublicLinkSaved(false), 2500);
   }
 
   async function handleDetectSignature() {
@@ -1263,8 +1295,8 @@ export default function ConnexionsPage() {
       ) : activeTab === 'company' ? (
         <div className="company-panel">
           {summaryLoaded && (
-            <div className="field">
-              <label>{t('preferences.businessProfileLabel', locale)}</label>
+            <div className="company-section">
+              <h3 className="company-section-title">{t('preferences.businessProfileLabel', locale)}</h3>
               <textarea
                 rows={6}
                 value={businessSummary}
@@ -1286,9 +1318,37 @@ export default function ConnexionsPage() {
             </div>
           )}
 
+          {/* Lien public / site web (docx, retour Alex 27/08/2026) : vivait
+              dans Préférences alors qu'il s'agit d'une info d'entreprise —
+              déplacé ici, avec sa propre sauvegarde dédiée (handleSavePublicLink)
+              plutôt que de dépendre du gros bouton "Enregistrer" de Préférences
+              qui soumettait aussi des réglages sans rapport. Le jeton {lien}
+              dans l'éditeur d'email par défaut (Préférences) continue de lire
+              prefs.public_link_url normalement, sans changement. */}
+          <div className="company-section">
+            <h3 className="company-section-title">{t('preferences.publicLinkLabel', locale)}</h3>
+            <input
+              type="text"
+              className="cap-input"
+              value={prefs.public_link_url || ''}
+              onChange={(e) => setPrefs({ ...prefs, public_link_url: e.target.value })}
+              placeholder={t('preferences.publicLinkPlaceholder', locale)}
+            />
+            {publicLinkError && <p className="error">{publicLinkError}</p>}
+            <p className="collab-extra-hint">
+              {t('preferences.publicLinkHint', locale)}
+            </p>
+            <div className="actions">
+              <button className="btn-secondary" onClick={handleSavePublicLink} disabled={savingPublicLink}>
+                {savingPublicLink ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
+              </button>
+              {publicLinkSaved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
+            </div>
+          </div>
+
           {signatureLoaded && (
-            <div className="field">
-              <label>{t('preferences.signatureLabel', locale)}</label>
+            <div className="company-section">
+              <h3 className="company-section-title">{t('preferences.signatureLabel', locale)}</h3>
               <textarea
                 rows={4}
                 value={signature}
@@ -1345,8 +1405,8 @@ export default function ConnexionsPage() {
           )}
 
           {legalInfoLoaded && (
-            <div className="field">
-              <label>{t('preferences.legalInfoLabel', locale)}</label>
+            <div className="company-section">
+              <h3 className="company-section-title">{t('preferences.legalInfoLabel', locale)}</h3>
               <p className="collab-extra-hint">{t('preferences.legalInfoHint', locale)}</p>
               <div className="legal-grid">
                 <div className="legal-field">
@@ -1720,20 +1780,6 @@ export default function ConnexionsPage() {
             </div>
 
             <div className="field">
-              <label>{t('preferences.publicLinkLabel', locale)}</label>
-              <input
-                type="text"
-                className="cap-input"
-                placeholder={t('preferences.publicLinkPlaceholder', locale)}
-                value={prefs.public_link_url}
-                onChange={(e) => setPrefs({ ...prefs, public_link_url: e.target.value })}
-              />
-              <p className="collab-extra-hint">
-                {t('preferences.publicLinkHint', locale)}
-              </p>
-            </div>
-
-            <div className="field">
               <label>{t('preferences.defaultFirstEmailLabel', locale)}</label>
               <div className="options">
                 {DEFAULT_FIRST_EMAIL_OPTIONS.map((opt) => (
@@ -1749,7 +1795,7 @@ export default function ConnexionsPage() {
               {prefs.default_first_email_enabled && (
                 <div className="default-email-fields">
                   <div className="token-toolbar">
-                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabel', locale)}</span>
+                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelSubject', locale)}</span>
                     <button
                       type="button"
                       className="token-btn"
@@ -1774,7 +1820,7 @@ export default function ConnexionsPage() {
                     onChange={(e) => setPrefs({ ...prefs, default_first_email_subject: e.target.value })}
                   />
                   <div className="token-toolbar">
-                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabel', locale)}</span>
+                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelBody', locale)}</span>
                     <button
                       type="button"
                       className="token-btn"
@@ -2356,9 +2402,18 @@ export default function ConnexionsPage() {
           cursor: default;
         }
         .btn-secondary {
-          background: transparent;
+          /* Retour Alex 27/08/2026 ("pas de contraste") : un fond transparent
+             se confond avec le fond de la carte parente (souvent déjà
+             var(--surface)) — un fond plus sombre que la carte fait
+             ressortir le bouton comme un vrai bouton plutôt qu'un simple
+             contour de texte. */
+          background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
+        }
+        .btn-secondary:hover:not(:disabled) {
+          background: var(--surface-hover);
+          border-color: var(--accent);
         }
         .btn-secondary:disabled {
           opacity: 0.6;
@@ -2402,11 +2457,16 @@ export default function ConnexionsPage() {
           color: var(--accent-red);
           font-size: 0.9rem;
         }
+        /* Retour Alex 27/08/2026 ("pas de contraste") : ces champs vivent
+           presque toujours dans une carte déjà en var(--surface)
+           (.company-panel, .preferences-panel...) — un fond identique à leur
+           conteneur les fait se fondre dedans. var(--bg), plus sombre, les
+           fait ressortir comme un vrai champ "creusé" dans la carte. */
         select,
         textarea {
           width: 100%;
           box-sizing: border-box;
-          background: var(--surface);
+          background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
@@ -2414,11 +2474,17 @@ export default function ConnexionsPage() {
           font-size: 0.86rem;
           font-family: inherit;
         }
+        select:focus,
+        textarea:focus,
+        input:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
         .cap-input {
           width: 100%;
           max-width: 140px;
           box-sizing: border-box;
-          background: var(--surface);
+          background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
@@ -2437,7 +2503,7 @@ export default function ConnexionsPage() {
           width: 100%;
           max-width: 100%;
           box-sizing: border-box;
-          background: var(--surface);
+          background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
@@ -2446,7 +2512,8 @@ export default function ConnexionsPage() {
           font-family: inherit;
           resize: vertical;
         }
-        .field .cap-input[type='text'] {
+        .field .cap-input[type='text'],
+        .company-section .cap-input[type='text'] {
           max-width: 100%;
           margin-top: 0.6rem;
         }
@@ -2527,7 +2594,12 @@ export default function ConnexionsPage() {
           line-height: 1.4;
         }
 
-        /* Onglet Mon entreprise. */
+        /* Onglet Mon entreprise (retravaillé le 27/08/2026, retour Alex :
+           "pas très esthétique... pas de contraste") : chaque section
+           (profil, lien public, signature, infos légales) est désormais
+           clairement délimitée par un titre marqué (barre d'accent + police
+           de titre) et un séparateur, au lieu d'un simple <label> qui se
+           confondait avec le reste du texte. */
         .company-panel {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -2535,22 +2607,40 @@ export default function ConnexionsPage() {
           padding: 1.6rem;
           max-width: 640px;
         }
-        .company-panel .field {
-          margin-bottom: 1.8rem;
+        .company-section {
+          padding: 1.6rem 0;
+          border-bottom: 1px solid var(--border-soft);
         }
-        .company-panel .field:last-child {
-          margin-bottom: 0;
+        .company-section:first-child {
+          padding-top: 0;
         }
-        .company-panel .field label {
-          display: block;
-          font-size: 0.9rem;
-          margin-bottom: 0.7rem;
+        .company-section:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .company-section-title {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          font-family: var(--font-display);
+          font-size: 1.02rem;
+          font-weight: 600;
+          color: var(--text);
+          margin: 0 0 0.9rem;
+        }
+        .company-section-title::before {
+          content: '';
+          flex-shrink: 0;
+          width: 4px;
+          height: 1.05rem;
+          border-radius: 2px;
+          background: var(--accent);
         }
         .company-panel .actions {
           display: flex;
           align-items: center;
           gap: 0.8rem;
-          margin-top: 0.6rem;
+          margin-top: 0.9rem;
           flex-wrap: wrap;
         }
         .signature-image-block {
@@ -2591,7 +2681,7 @@ export default function ConnexionsPage() {
         .legal-field input {
           width: 100%;
           box-sizing: border-box;
-          background: var(--surface);
+          background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           padding: 0.55rem 0.7rem;
