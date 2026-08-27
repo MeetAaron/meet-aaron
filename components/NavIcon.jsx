@@ -27,6 +27,7 @@ import {
   Users,
   Lightbulb,
   Lock,
+  Bell,
 } from 'lucide-react';
 
 const NAV_ICON_BY_SLUG = {
@@ -44,6 +45,9 @@ const NAV_ICON_BY_SLUG = {
   preferences: Settings,
   team: Users,
   suggestions: Lightbulb,
+  // Nouvelle slide "push" de la visite guidée (/app/tour), voir slidesFor()
+  // dans app/app/tour/page.jsx (27/08/2026).
+  push: Bell,
 };
 
 // size en px (l'icône est centrée dans le conteneur .nav-icon existant, qui gère
