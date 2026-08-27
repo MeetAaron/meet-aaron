@@ -147,6 +147,19 @@ function slidesFor(locale) {
       title: t('tour.slide.connexions.title', locale),
       text: t('tour.slide.connexions.text', locale),
     },
+    // Ajout demandé par Alex (27/08/2026) : la visite guidée ne disait nulle
+    // part qu'il fallait activer les notifications push (bug remonté le même
+    // jour — push_subscriptions restait vide malgré la préférence "Push"
+    // cochée dans Mon compte > Préférences, voir PushNotificationManager.jsx
+    // — l'activation par appareil est une action séparée de cette
+    // préférence). Slide non filtrée par role : tout le monde (patron comme
+    // commercial) peut recevoir des rendez-vous à valider.
+    {
+      slug: 'push',
+      icon: '🔔',
+      title: t('tour.slide.push.title', locale),
+      text: t('tour.slide.push.text', locale),
+    },
     {
       slug: 'team',
       icon: '👥',
