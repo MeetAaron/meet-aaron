@@ -15,6 +15,7 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
+import ContactInfoEditor from '@/components/ContactInfoEditor';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 function useAuthedUser() {
@@ -679,6 +680,7 @@ export default function CustomerPage() {
                 )}
 
                 <section className="block">
+                  <ContactInfoEditor prospect={selectedCustomer} locale={locale} onSaved={load} />
                   <CompanyInfoEditor prospect={selectedCustomer} locale={locale} onSaved={load} />
                 </section>
 
