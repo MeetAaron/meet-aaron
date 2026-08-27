@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser, DailySendCapExceededError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -206,7 +207,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Ce premier email a déjà été envoyé ou traité' }, { status: 409 });
     }
 
-    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody, { emailType: 'prospecting' });
+    // Pièce jointe éventuelle (plaquette, etc.) sur ce vrai premier email —
+    // voir lib/first-email-attachment.ts. Best-effort : si aucun document
+    // n'est marqué (cas normal, la plupart des sociétés), retourne null et
+    // l'envoi se fait normalement sans pièce jointe.
+    const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id);
+    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody, {
+      emailType: 'prospecting',
+      attachment: firstEmailAttachment || undefined,
+    });
 
     const { data: conversation } = await supabaseAdmin
       .from('conversations')
