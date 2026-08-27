@@ -73,6 +73,20 @@ export async function POST(request: NextRequest) {
   // le champ est absent.
   const skipFirstContact = body.skip_first_contact === true;
 
+  // docx item 13 (2026-08-27, remonté par Alex) : "l'ajout manuel d'un
+  // prospect prend environ 1 minute" — cette route faisait tout de façon
+  // strictement synchrone (recherche web de la société + génération Claude
+  // du 1er email + envoi Gmail/Outlook réel) avant de répondre, bloquant le
+  // formulaire d'ajout pendant toute cette durée. `async_first_contact`
+  // (utilisé uniquement par le formulaire d'ajout manuel de
+  // app/app/prospects/page.jsx pour l'instant) fait sortir immédiatement
+  // après la création du prospect ; le frontend appelle ensuite séparément
+  // POST /api/prospects/[id]/generate-first-contact, SANS l'attendre, pour
+  // faire tout le travail lent en arrière-plan pendant que le prospect est
+  // déjà visible et utilisable dans la liste. Comportement strictement
+  // inchangé quand ce flag est absent (import CSV, Aaron Sales/Customer).
+  const asyncFirstContact = body.async_first_contact === true;
+
   if (!company_id || !assigned_user_id || !full_name || !email) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
   }
@@ -215,6 +229,13 @@ export async function POST(request: NextRequest) {
   // par le frontend plutôt qu'une 500 sans rollback.
   let aaronOutput = null;
   let emailWarning = null;
+
+  // Voir commentaire sur asyncFirstContact plus haut : sort immédiatement,
+  // AVANT même la recherche web de la société (elle aussi lente) — tout le
+  // travail lent est délégué à /api/prospects/[id]/generate-first-contact.
+  if (asyncFirstContact) {
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
+  }
 
   // MAÎTRISE + AUTO-COMPLÉTION DE LA SOCIÉTÉ CONTACTÉE (demande Alex,
   // 2026-08-26) : avant tout premier contact, Aaron doit connaître le vrai
