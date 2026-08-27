@@ -134,6 +134,15 @@ export default function ChatPage() {
   const [isWelcome, setIsWelcome] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryDone, setSummaryDone] = useState(false);
+  // Bug remonté par Alex (27/08/2026) : le bouton "Générer le résumé" se
+  // basait sur `isWelcome` seul — donc visible dès la 1ère question (jamais
+  // "à la toute fin" comme demandé), ET absent en régénération depuis Mon
+  // compte (ce flux ne passe jamais par `isWelcome`, voir restartRequested
+  // plus bas). `questionnaireDone` est mis à true UNIQUEMENT quand la
+  // dernière question du questionnaire vient d'être répondue (voir
+  // handleSend), pour les deux flux à la fois — donc jamais avant la fin,
+  // et toujours visible ensuite quel que soit le flux d'origine.
+  const [questionnaireDone, setQuestionnaireDone] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   // Bug remonté par Alex (2026-08-19, nouveau compte) : la page "Chat avec Aaron"
   // restait bloquée sur "Chargement…" indéfiniment. Cause : le message d'accueil
@@ -389,6 +398,7 @@ export default function ChatPage() {
     setOnboardingStep(0);
     setOnboardingAnswers([]);
     setSummaryDone(false);
+    setQuestionnaireDone(false);
     setRestartSeeded(true);
 
     fetch('/api/chat-history', {
@@ -657,6 +667,10 @@ export default function ChatPage() {
           const completion = t('chat.onboardingCompleteDocs', locale);
           assistantMessage = { role: 'assistant', content: reply ? `${reply}\n\n${completion}` : completion };
           setOnboardingStep(-1);
+          // Voir le commentaire sur questionnaireDone plus haut : dernière
+          // question tout juste répondue, donc c'est exactement ici (jamais
+          // avant) que le bouton "Générer le résumé" doit devenir visible.
+          setQuestionnaireDone(true);
         }
       }
 
@@ -840,6 +854,20 @@ export default function ChatPage() {
         </button>
       </header>
 
+      {/* Barre de progression du questionnaire de découverte (demande Alex,
+          27/08/2026, façon assistants campagnes/marketing) : discrète (6px,
+          "pas obligé de prendre autant de place"), visible uniquement
+          pendant le questionnaire lui-même (onboardingStep >= 0), pour les
+          deux flux (création initiale ET régénération depuis Mon compte). */}
+      {onboardingStep >= 0 && (
+        <div className="questionnaire-progress">
+          <div
+            className="questionnaire-progress-fill"
+            style={{ width: `${Math.round(((onboardingStep + 1) / getOnboardingQuestions(locale).length) * 100)}%` }}
+          />
+        </div>
+      )}
+
       {feedbackSent && <p className="feedback-sent">{t('chat.feedbackSentBanner', locale)}</p>}
 
       {showFeedback && (
@@ -879,7 +907,7 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        {isWelcome && !summaryDone && (
+        {questionnaireDone && !summaryDone && (
           <div className="welcome-actions">
             <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
               {summarizing ? t('chat.generatingSummary', locale) : t('chat.generateSummaryButton', locale)}
@@ -1046,6 +1074,19 @@ export default function ChatPage() {
           border-radius: var(--radius-md);
           font-size: 0.85rem;
           margin-bottom: 1rem;
+        }
+        .questionnaire-progress {
+          height: 6px;
+          background: var(--border);
+          border-radius: 999px;
+          overflow: hidden;
+          margin-bottom: 1rem;
+        }
+        .questionnaire-progress-fill {
+          height: 100%;
+          background: var(--accent);
+          border-radius: 999px;
+          transition: width 0.3s ease;
         }
         .feedback-form {
           background: var(--surface);
