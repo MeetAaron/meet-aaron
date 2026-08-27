@@ -215,7 +215,19 @@ export async function sendGmailEmail(
   // marque le fil comme "géré par Aaron" dans sa boîte (voir applyAaronLabel).
   // sendSystemEmail (confirmation de compte, etc.) passe aussi par ici mais ce
   // n'est pas un souci : ce ne sont pas des fils de prospection.
-  applyAaronLabel(userId, sent.threadId).catch(() => {});
+  //
+  // AWAIT nécessaire (bug réel constaté par Alex, 27/08/2026 : premier email
+  // envoyé, jamais étiqueté malgré un scope/permissions corrects) : cet appel
+  // était auparavant fire-and-forget ("applyAaronLabel(...).catch(() => {})"
+  // sans await). applyAaronLabel avale déjà ses propres erreurs en interne
+  // (voir sa définition) — l'await ci-dessous ne peut donc jamais faire
+  // échouer l'envoi — mais SANS l'attendre, la fonction serverless qui a
+  // appelé sendGmailEmail peut renvoyer sa réponse HTTP et être gelée/tuée
+  // par la plateforme avant que les 1-2 appels réseau internes à
+  // applyAaronLabel (lister/créer le label, puis poser le label sur le fil)
+  // aient eu le temps de se terminer — l'étiquette ne se pose alors jamais,
+  // sans la moindre erreur visible nulle part.
+  await applyAaronLabel(userId, sent.threadId);
 
   return sent;
 }
