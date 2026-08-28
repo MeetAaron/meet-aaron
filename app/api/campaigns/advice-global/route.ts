@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 350, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-haiku-4-5', max_tokens: 350, messages: [{ role: 'user', content: prompt }] },
       user.company_id, 'ap'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
