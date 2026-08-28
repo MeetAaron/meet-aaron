@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { summarizeDocument } from '@/lib/document-summary';
 
@@ -507,8 +507,12 @@ export async function POST(request: NextRequest) {
       : `\n\nAucun lien public n'est configuré pour l'instant (champ vide dans Mon compte > Connexions) — si le commercial te demande de "mettre le lien" dans les emails de prospection, explique-lui qu'il doit d'abord le renseigner lui-même à cet endroit, tu ne peux pas le faire à sa place depuis cette conversation.`;
   }
 
+  // Optimisation coût API (28/08/2026, demande Alex) : point de coupure de
+  // cache posé sur le dernier message de l'historique déjà envoyé — voir
+  // withCacheBreakpoint (lib/anthropic-client.ts). Sans incidence si le cache
+  // n'est pas touché (conversation reprise après une pause, etc.).
   const messages: any[] = [
-    ...(history || []).map((h: any) => ({ role: h.role, content: h.content })),
+    ...withCacheBreakpoint((history || []).map((h: any) => ({ role: h.role, content: h.content }))),
     { role: 'user', content: message },
   ];
 
