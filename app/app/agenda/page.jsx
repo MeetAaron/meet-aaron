@@ -215,6 +215,16 @@ export default function AgendaPage() {
   const [savingEditBlock, setSavingEditBlock] = useState(false);
   const [availError, setAvailError] = useState(null);
 
+  // Synchro calendrier externe (28/08/2026) — lien d'abonnement ICS chargé à
+  // la demande (pas au chargement de la page, pour ne pas ajouter un appel
+  // réseau systématique à une fonctionnalité que tout le monde n'utilisera
+  // pas) : le commercial déplie la section, on va chercher/génère le lien.
+  const [icsPanelOpen, setIcsPanelOpen] = useState(false);
+  const [icsLink, setIcsLink] = useState(null); // { httpsUrl, webcalUrl }
+  const [icsLoading, setIcsLoading] = useState(false);
+  const [icsRegenerating, setIcsRegenerating] = useState(false);
+  const [icsCopied, setIcsCopied] = useState(false);
+
   // Calendrier mensuel (#87) — vue type iPhone au-dessus des listes : jours
   // avec RDV en vert, jours avec indisponibilité en rouge, clic = détail du jour.
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -333,6 +343,41 @@ export default function AgendaPage() {
   async function handleDeleteBlock(id) {
     await fetch(`/api/availability/blocks/${id}?user_id=${userId}`, { method: 'DELETE' });
     setBlocks((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  // --- Lien d'abonnement calendrier (ICS/webcal, 28/08/2026) ---
+  async function toggleIcsPanel() {
+    const opening = !icsPanelOpen;
+    setIcsPanelOpen(opening);
+    if (opening && !icsLink) {
+      setIcsLoading(true);
+      try {
+        const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`);
+        const body = await res.json();
+        if (res.ok) setIcsLink(body);
+      } finally {
+        setIcsLoading(false);
+      }
+    }
+  }
+
+  async function regenerateIcsLink() {
+    setIcsRegenerating(true);
+    try {
+      const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`, { method: 'POST' });
+      const body = await res.json();
+      if (res.ok) setIcsLink(body);
+    } finally {
+      setIcsRegenerating(false);
+    }
+  }
+
+  function copyIcsLink() {
+    if (!icsLink) return;
+    navigator.clipboard?.writeText(icsLink.webcalUrl).then(() => {
+      setIcsCopied(true);
+      setTimeout(() => setIcsCopied(false), 2000);
+    });
   }
 
   // --- Modifier un créneau récurrent (docx AGENDA item A3) ---
@@ -864,8 +909,22 @@ export default function AgendaPage() {
                         {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                       </span>
                       {b.reason && <span className="block-reason">{b.reason}</span>}
-                      <button type="button" className="btn-edit" onClick={() => startEditBlock(b)} aria-label={t('common.edit', locale)}>✏️</button>
-                      <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
+                      {b.source === 'sync' ? (
+                        // Remontée automatiquement depuis Google/Outlook (voir
+                        // lib/calendar-sync.ts) : ni modifiable ni supprimable
+                        // depuis Aaron — ça reviendrait juste au prochain
+                        // passage du cron tant que l'événement existe côté
+                        // calendrier externe. Le badge explique pourquoi les
+                        // boutons habituels ne sont pas là.
+                        <span className="block-sync-badge" title={t('disponibilites.syncedHint', locale)}>
+                          🔄 {t('disponibilites.syncedBadge', locale)}
+                        </span>
+                      ) : (
+                        <>
+                          <button type="button" className="btn-edit" onClick={() => startEditBlock(b)} aria-label={t('common.edit', locale)}>✏️</button>
+                          <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
+                        </>
+                      )}
                     </li>
                   )
                 )}
@@ -888,6 +947,38 @@ export default function AgendaPage() {
             {availError && <p className="error">{availError}</p>}
           </div>
         )}
+      </section>
+
+      <section className="block">
+        <h2>{t('disponibilites.syncTitle', locale)}</h2>
+        <div className="panel">
+          <p className="muted small">{t('disponibilites.syncIntro', locale)}</p>
+          <button type="button" className="btn-secondary" onClick={toggleIcsPanel}>
+            {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
+          </button>
+          {icsPanelOpen && (
+            <div className="ics-panel">
+              {icsLoading ? (
+                <p className="muted small">{t('common.loading', locale)}</p>
+              ) : icsLink ? (
+                <>
+                  <code className="ics-url">{icsLink.webcalUrl}</code>
+                  <div className="ics-actions">
+                    <button type="button" className="btn-secondary" onClick={copyIcsLink}>
+                      {icsCopied ? t('disponibilites.syncCopied', locale) : t('disponibilites.syncCopy', locale)}
+                    </button>
+                    <button type="button" className="btn-edit" disabled={icsRegenerating} onClick={regenerateIcsLink}>
+                      {icsRegenerating ? t('common.saving', locale) : t('disponibilites.syncRegenerate', locale)}
+                    </button>
+                  </div>
+                  <p className="muted small">{t('disponibilites.syncHint', locale)}</p>
+                </>
+              ) : (
+                <p className="error">{t('disponibilites.syncError', locale)}</p>
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
       <style jsx>{`
@@ -1194,6 +1285,32 @@ export default function AgendaPage() {
         .block-reason {
           color: var(--muted);
           margin-left: 0.4rem;
+        }
+        .block-sync-badge {
+          margin-left: auto;
+          color: var(--muted);
+          font-size: 0.78rem;
+          white-space: nowrap;
+        }
+        .ics-panel {
+          margin-top: 0.9rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .ics-url {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          font-size: 0.8rem;
+          word-break: break-all;
+        }
+        .ics-actions {
+          display: flex;
+          gap: 0.6rem;
         }
         .btn-edit {
           margin-left: auto;
