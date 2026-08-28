@@ -242,6 +242,28 @@ export default function DashboardPage() {
   const [businessSummaryDone, setBusinessSummaryDone] = useState(true);
   const [emailConnected, setEmailConnected] = useState(true);
   const [onboardingChecklistOpen, setOnboardingChecklistOpen] = useState(true);
+  // Étape "notifications push" de la checklist (demande Alex, 28/08/2026 :
+  // "il faut ajouter une autre tache : activer les notifications push sur cet
+  // appareil [...] ca doit etre guidé par aaron") — même mécanisme
+  // d'abonnement que components/PushNotificationManager.jsx (utilisé dans
+  // Préférences), mais déclenché directement depuis la checklist plutôt que
+  // de renvoyer vers une autre page : pushSubscribed reflète l'état RÉEL du
+  // navigateur (Service Worker + PushManager), pas une simple préférence en
+  // base. pushJustEnabled déclenche le message d'Aaron ("C'est fait ! [...]")
+  // juste après une activation réussie dans CETTE session — ne persiste pas
+  // au rechargement (pas besoin : l'étape passe simplement à "fait" ensuite).
+  // Limite assumée : sur un navigateur/appareil qui ne supporte pas les
+  // notifications push (Safari desktop, iOS hors PWA installée...), cette
+  // étape ne peut structurellement jamais passer à "fait" — la checklist
+  // reste alors affichée avec 4/5 pour ces commerciaux. Accepté plutôt que de
+  // masquer l'étape ou de la faire compter à moitié : un clic dessus affiche
+  // toujours l'explication (même texte que PushNotificationManager) plutôt
+  // que d'échouer silencieusement.
+  const [pushSupported, setPushSupported] = useState(true);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState(null);
+  const [pushJustEnabled, setPushJustEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(true);
  const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -285,6 +307,69 @@ export default function DashboardPage() {
     if (!userId) return;
     loadAll();
   }, [userId]);
+
+  // Détecte l'état RÉEL de l'abonnement push de cet appareil (voir le
+  // commentaire sur les states plus haut) — même logique que
+  // components/PushNotificationManager.jsx.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushSupported(false);
+      return;
+    }
+    navigator.serviceWorker.register('/sw.js').then(async (registration) => {
+      const existing = await registration.pushManager.getSubscription();
+      setPushSubscribed(!!existing);
+    }).catch(() => {});
+  }, []);
+
+  function urlBase64ToUint8ArrayForPush(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  }
+
+  // Abonnement push déclenché directement depuis la checklist (guidé par
+  // Aaron — voir le commentaire sur les states plus haut). Sur succès,
+  // affiche le message d'Aaron recommandant de faire pareil sur les autres
+  // appareils du commercial.
+  async function enablePushFromChecklist() {
+    if (!pushSupported) {
+      setPushError(t('preferences.pushUnsupportedHint', locale));
+      return;
+    }
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        throw new Error('Notifications push pas encore configurées côté serveur.');
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        throw new Error(t('preferences.pushPermissionDenied', locale));
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8ArrayForPush(vapidPublicKey),
+      });
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
+      if (!res.ok) throw new Error("Échec de l'enregistrement côté serveur.");
+
+      setPushSubscribed(true);
+      setPushJustEnabled(true);
+    } catch (err) {
+      setPushError(err.message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   async function acknowledgeMissed(appointmentId) {
     setAcknowledging(appointmentId);
@@ -445,6 +530,15 @@ export default function DashboardPage() {
       label: t('dash.onboardingStepFirst', locale),
       href: '/app/prospects',
     },
+    {
+      key: 'push',
+      done: pushSubscribed,
+      label: pushBusy ? t('dash.onboardingStepPushBusy', locale) : t('dash.onboardingStepPush', locale),
+      // Pas de href : action guidée directement depuis la checklist (voir
+      // enablePushFromChecklist plus haut), pas une redirection vers une
+      // autre page.
+      action: enablePushFromChecklist,
+    },
   ];
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
   const onboardingComplete = onboardingDoneCount === onboardingSteps.length;
@@ -507,16 +601,35 @@ export default function DashboardPage() {
                   {onboardingSteps.map((step) =>
                     step.done ? (
                       <div key={step.key} className="onboarding-row done">
-                        <span className="onboarding-check">✓</span>
+                        <span className="onboarding-check done-check">✓</span>
                         <span className="onboarding-label">{step.label}</span>
                       </div>
+                    ) : step.action ? (
+                      <button
+                        key={step.key}
+                        type="button"
+                        className="onboarding-row onboarding-row-btn"
+                        onClick={step.action}
+                        disabled={pushBusy}
+                      >
+                        <span className="onboarding-check pending-check" aria-hidden="true" />
+                        <span className="onboarding-label">{step.label}</span>
+                        <span className="onboarding-cta">{t('dash.onboardingStepCta', locale)}</span>
+                      </button>
                     ) : (
                       <Link key={step.key} href={step.href} className="onboarding-row">
-                        <span className="onboarding-check pending">○</span>
+                        <span className="onboarding-check pending-check" aria-hidden="true" />
                         <span className="onboarding-label">{step.label}</span>
                         <span className="onboarding-cta">{t('dash.onboardingStepCta', locale)}</span>
                       </Link>
                     )
+                  )}
+                  {pushError && <p className="onboarding-push-error">{pushError}</p>}
+                  {pushJustEnabled && (
+                    <div className="onboarding-aaron-note">
+                      <span className="onboarding-aaron-avatar" aria-hidden="true">🤖</span>
+                      <span>{t('dash.onboardingPushDoneMessage', locale)}</span>
+                    </div>
                   )}
                 </div>
               )}
@@ -865,13 +978,25 @@ export default function DashboardPage() {
         }
         .onboarding-check {
           flex-shrink: 0;
+          width: 1.3rem;
+          height: 1.3rem;
+          box-sizing: border-box;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.72rem;
           font-weight: 700;
-          color: var(--accent-green, #2ecc71);
-          width: 1.2rem;
-          text-align: center;
+          line-height: 1;
         }
-        .onboarding-check.pending {
-          color: var(--muted);
+        .done-check {
+          background: var(--accent-green, #2ecc71);
+          color: #fff;
+        }
+        .pending-check {
+          background: transparent;
+          border: 2px solid var(--muted);
+          opacity: 0.6;
         }
         .onboarding-label {
           flex: 1 1 auto;
@@ -890,6 +1015,45 @@ export default function DashboardPage() {
           font-weight: 600;
           color: var(--accent);
           white-space: nowrap;
+        }
+        .onboarding-row-btn {
+          background: none;
+          border: none;
+          text-align: left;
+          font-family: inherit;
+          font-size: inherit;
+          color: var(--text);
+          cursor: pointer;
+        }
+        .onboarding-row-btn:hover {
+          background: rgba(59, 130, 246, 0.08);
+        }
+        .onboarding-row-btn:disabled {
+          cursor: wait;
+          opacity: 0.7;
+        }
+        .onboarding-push-error {
+          margin: 0;
+          padding: 0.6rem 1.3rem;
+          font-size: 0.8rem;
+          color: var(--accent-red, #e5484d);
+          background: rgba(229, 72, 77, 0.08);
+          border-top: 1px solid rgba(229, 72, 77, 0.2);
+        }
+        .onboarding-aaron-note {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.55rem;
+          padding: 0.8rem 1.3rem;
+          font-size: 0.85rem;
+          color: var(--text);
+          background: rgba(46, 204, 113, 0.1);
+          border-top: 1px solid rgba(46, 204, 113, 0.25);
+        }
+        .onboarding-aaron-avatar {
+          flex-shrink: 0;
+          font-size: 1.05rem;
+          line-height: 1.3;
         }
         .missed-panel {
           background: rgba(229, 72, 77, 0.08);
