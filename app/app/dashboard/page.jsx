@@ -525,12 +525,10 @@ export default function DashboardPage() {
       href: '/app/connexions?tab=connection',
     },
     {
-      key: 'first',
-      done: campaigns.length > 0 || prospects.length > 0,
-      label: t('dash.onboardingStepFirst', locale),
-      href: '/app/prospects',
-    },
-    {
+      // Ordre demandé par Alex (28/08/2026) : les notifications push doivent
+      // être activées AVANT le premier prospect/campagne dans le parcours
+      // guidé par Aaron — inversé par rapport à l'ordre d'implémentation
+      // initial (push ajoutée en dernier dans la liste).
       key: 'push',
       done: pushSubscribed,
       label: pushBusy ? t('dash.onboardingStepPushBusy', locale) : t('dash.onboardingStepPush', locale),
@@ -538,6 +536,12 @@ export default function DashboardPage() {
       // enablePushFromChecklist plus haut), pas une redirection vers une
       // autre page.
       action: enablePushFromChecklist,
+    },
+    {
+      key: 'first',
+      done: campaigns.length > 0 || prospects.length > 0,
+      label: t('dash.onboardingStepFirst', locale),
+      href: '/app/prospects',
     },
   ];
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
