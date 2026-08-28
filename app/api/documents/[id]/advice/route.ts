@@ -59,7 +59,7 @@ Donne un avis concret en 3-4 phrases maximum sur ce document : à quoi il sert c
   let advice: string;
   try {
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-haiku-4-5', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
       document.company_id
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
