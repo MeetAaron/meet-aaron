@@ -635,6 +635,15 @@ export default function DashboardPage() {
                       <span>{t('dash.onboardingPushDoneMessage', locale)}</span>
                     </div>
                   )}
+                  {pushJustEnabled && !emailConnected && (
+                    <div className="onboarding-aaron-note">
+                      <span className="onboarding-aaron-avatar" aria-hidden="true">🤖</span>
+                      <span>
+                        {t('dash.onboardingPushCalendarTip', locale)}{' '}
+                        <Link href="/app/connexions?tab=connection">{t('dash.onboardingStepCta', locale)}</Link>
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
