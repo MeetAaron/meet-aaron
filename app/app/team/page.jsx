@@ -180,6 +180,113 @@ export default function TeamPage() {
   const [reportGenerating, setReportGenerating] = useState(false);
   const [reportError, setReportError] = useState(null);
 
+  // Onglet "Abonnement équipes" (28/08/2026) — voir migration_team_seats_2026-08-28.sql
+  // et app/api/team/seats/*. Chargement paresseux comme l'onglet Résultats
+  // (loadResults ci-dessous) : seulement au premier passage sur l'onglet.
+  const [seats, setSeats] = useState([]);
+  const [seatsLoading, setSeatsLoading] = useState(false);
+  const [seatsError, setSeatsError] = useState(null);
+  const [seatsLoaded, setSeatsLoaded] = useState(false);
+  const [seatModalOpen, setSeatModalOpen] = useState(false);
+  const [editingSeat, setEditingSeat] = useState(null); // null = création, sinon siège en cours de modification
+  const [seatActionBusy, setSeatActionBusy] = useState(null); // id du siège en cours d'action (annuler/supprimer/envoyer le code)
+  const [seatActionError, setSeatActionError] = useState(null);
+
+  const [invoices, setInvoices] = useState(null);
+  const [invoicesError, setInvoicesError] = useState(null);
+  const [invoicesShowAll, setInvoicesShowAll] = useState(false);
+
+  function loadSeats() {
+    if (!userId) return;
+    setSeatsLoading(true);
+    setSeatsError(null);
+    fetch('/api/team/seats')
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        if (!ok) {
+          setSeatsError(body.error);
+        } else {
+          setSeats(body.seats || []);
+          setSeatsLoaded(true);
+        }
+        setSeatsLoading(false);
+      })
+      .catch(() => {
+        setSeatsError(t('preferences.loadError', locale));
+        setSeatsLoading(false);
+      });
+  }
+
+  useEffect(() => {
+    if (activeTab === 'subscription' && !seatsLoaded && userId) {
+      loadSeats();
+    }
+    if (activeTab === 'subscription' && invoices === null && userId) {
+      fetch(`/api/billing/invoices?user_id=${userId}`)
+        .then((r) => r.json())
+        .then((body) => setInvoices(body.invoices || []))
+        .catch(() => setInvoicesError(t('preferences.invoices.error', locale)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, userId]);
+
+  async function handleSendSeatCode(seatId) {
+    setSeatActionBusy(seatId);
+    setSeatActionError(null);
+    try {
+      const res = await fetch(`/api/team/seats/${seatId}/send-code`, { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setSeatActionError(body.error || t('team.seatActionErrorFallback', locale));
+      } else {
+        setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, email_sent_at: new Date().toISOString() } : s)));
+      }
+    } catch {
+      setSeatActionError(t('team.seatActionErrorFallback', locale));
+    }
+    setSeatActionBusy(null);
+  }
+
+  async function handleCancelSeat(seatId) {
+    if (!confirm(t('team.seatCancelConfirm', locale))) return;
+    setSeatActionBusy(seatId);
+    setSeatActionError(null);
+    try {
+      const res = await fetch(`/api/team/seats/${seatId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setSeatActionError(body.error || t('team.seatActionErrorFallback', locale));
+      } else {
+        setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, status: 'cancelled' } : s)));
+      }
+    } catch {
+      setSeatActionError(t('team.seatActionErrorFallback', locale));
+    }
+    setSeatActionBusy(null);
+  }
+
+  async function handleDeleteSeat(seatId) {
+    if (!confirm(t('team.seatDeleteConfirm', locale))) return;
+    setSeatActionBusy(seatId);
+    setSeatActionError(null);
+    try {
+      const res = await fetch(`/api/team/seats/${seatId}`, { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSeatActionError(body.error || t('team.seatActionErrorFallback', locale));
+      } else {
+        setSeats((prev) => prev.filter((s) => s.id !== seatId));
+      }
+    } catch {
+      setSeatActionError(t('team.seatActionErrorFallback', locale));
+    }
+    setSeatActionBusy(null);
+  }
+
   function loadTeam() {
     if (!userId) return;
     setLoading(true);
@@ -353,20 +460,13 @@ export default function TeamPage() {
         <h1>{t('team.title', locale)}</h1>
       </header>
 
-      {!loading && inviteCode && (
-        <div className="invite-box">
-          <div>
-            <p className="invite-label">{t('team.inviteLabel', locale)}</p>
-            <p className="invite-hint">{t('team.inviteHint', locale)}</p>
-          </div>
-          <div className="invite-code-row">
-            <code className="invite-code">{inviteCode}</code>
-            <button type="button" className="btn-copy" onClick={copyInviteCode}>
-              {copied ? t('team.copied', locale) : t('team.copy', locale)}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Code d'activation société (invite-box) retiré le 28/08/2026 —
+          remplacé par un code par siège commercial, voir l'onglet
+          "Abonnement équipes" (team_seats, migration_team_seats_2026-08-28.sql).
+          `inviteCode`/`copyInviteCode` restent utilisés nulle part ailleurs
+          dans ce fichier après ce retrait — code mort volontairement laissé
+          en l'état (état React + fetch existants, pas de risque) plutôt que
+          retiré en profondeur pour limiter la taille de ce diff. */}
 
       <div className="tabs">
         <button type="button" className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
@@ -377,6 +477,9 @@ export default function TeamPage() {
         </button>
         <button type="button" className={`tab-btn ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
           {t('team.tabReport', locale)}
+        </button>
+        <button type="button" className={`tab-btn ${activeTab === 'subscription' ? 'active' : ''}`} onClick={() => setActiveTab('subscription')}>
+          {t('team.tabSubscription', locale)}
         </button>
       </div>
 
@@ -529,6 +632,154 @@ export default function TeamPage() {
         </div>
       )}
 
+      {activeTab === 'subscription' && (
+        <div className="results-panel subscription-panel">
+          <div className="results-toolbar">
+            <p className="muted results-hint">{t('team.subscriptionIntro', locale)}</p>
+            <button type="button" className="btn-primary" onClick={() => { setEditingSeat(null); setSeatModalOpen(true); }}>
+              {t('team.addSeatButton', locale)}
+            </button>
+          </div>
+
+          {seatActionError && <p className="error">{seatActionError}</p>}
+
+          {seatsLoading ? (
+            <p className="muted">{t('common.loading', locale)}</p>
+          ) : seatsError ? (
+            <div>
+              <EmptyState title={t('preferences.loadError', locale)} body={seatsError} />
+              <button type="button" onClick={loadSeats} style={{ marginTop: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 1.2rem', fontSize: '0.86rem', cursor: 'pointer' }}>
+                {t('common.retry', locale)}
+              </button>
+            </div>
+          ) : seats.length === 0 ? (
+            <EmptyState title={t('team.seatsEmptyTitle', locale)} body={t('team.seatsEmptyBody', locale)} />
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('team.seatColName', locale)}</th>
+                    <th>{t('prospects.colJobTitle', locale)}</th>
+                    <th>{t('modal.email', locale)}</th>
+                    <th>{t('team.seatColModules', locale)}</th>
+                    <th>{t('team.seatColStatus', locale)}</th>
+                    <th>{t('team.seatColCode', locale)}</th>
+                    <th>{t('team.seatColActions', locale)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seats.map((s) => {
+                    const seatModules = [s.ap_active && 'AP', s.as_active && 'AS', s.ac_active && 'AC'].filter(Boolean);
+                    const busy = seatActionBusy === s.id;
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.first_name} {s.last_name}</td>
+                        <td className="muted">{s.job_title || '—'}</td>
+                        <td className="muted">{s.email}</td>
+                        <td className="muted">{seatModules.join(' · ') || '—'}</td>
+                        <td>
+                          <span className={`seat-status seat-status-${s.status}`}>
+                            {s.status === 'active' ? t('team.seatStatusActive', locale) : s.status === 'cancelled' ? t('team.seatStatusCancelled', locale) : t('team.seatStatusPending', locale)}
+                          </span>
+                        </td>
+                        <td>
+                          {s.status !== 'cancelled' && (
+                            <div className="seat-code-cell">
+                              <code className="seat-code">{s.activation_code}</code>
+                              {s.status === 'pending' && (
+                                <button type="button" className="btn-copy" disabled={busy} onClick={() => handleSendSeatCode(s.id)}>
+                                  {s.email_sent_at ? t('team.seatEmailSent', locale) : busy ? '…' : t('team.seatSendCode', locale)}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="seat-actions-cell">
+                            {s.status !== 'cancelled' && (
+                              <button type="button" className="link-btn" onClick={() => { setEditingSeat(s); setSeatModalOpen(true); }}>
+                                {t('team.seatModify', locale)}
+                              </button>
+                            )}
+                            {s.status !== 'cancelled' && (
+                              <a className="link-btn" href={`/app/connexions?user_id=${userId}&tab=subscription`}>
+                                {t('team.seatBoost', locale)}
+                              </a>
+                            )}
+                            {s.status !== 'cancelled' && (
+                              <button type="button" className="link-btn" disabled={busy} onClick={() => handleCancelSeat(s.id)}>
+                                {t('team.seatCancel', locale)}
+                              </button>
+                            )}
+                            <button type="button" className="link-btn link-btn-danger" disabled={busy} onClick={() => handleDeleteSeat(s.id)}>
+                              {t('team.seatDelete', locale)}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="field credits-field billing-section">
+            <label>{t('team.billingTitle', locale)}</label>
+            <div className="usage-box">
+              <p className="usage-hint">{t('team.billingHint', locale)}</p>
+              {invoicesError && <p className="error">{invoicesError}</p>}
+              {!invoicesError && invoices === null && (
+                <p className="usage-hint">{t('preferences.invoices.loading', locale)}</p>
+              )}
+              {!invoicesError && invoices && invoices.length === 0 && (
+                <p className="usage-hint">{t('preferences.invoices.empty', locale)}</p>
+              )}
+              {!invoicesError && invoices && invoices.length > 0 && (
+                <>
+                  <ul className="invoices-list">
+                    {(invoicesShowAll ? invoices : invoices.slice(0, 5)).map((inv) => (
+                      <li key={inv.id} className="invoice-row">
+                        <span>
+                          {new Date(inv.created * 1000).toLocaleDateString(locale)} —{' '}
+                          {(inv.amount_paid / 100).toFixed(2)} {(inv.currency || 'eur').toUpperCase()}
+                        </span>
+                        {(inv.invoice_pdf || inv.hosted_invoice_url) && (
+                          <a href={inv.invoice_pdf || inv.hosted_invoice_url} target="_blank" rel="noopener noreferrer" className="invoice-link">
+                            {t('preferences.invoices.downloadLink', locale)}
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {invoices.length > 5 && (
+                    <button type="button" className="btn-secondary crm-showmore" onClick={() => setInvoicesShowAll(!invoicesShowAll)}>
+                      {invoicesShowAll
+                        ? t('preferences.invoices.showLess', locale)
+                        : t('preferences.invoices.showMoreTemplate', locale).replace('{count}', invoices.length - 5)}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {seatModalOpen && (
+        <AddTeamSeatModal
+          seat={editingSeat}
+          locale={locale}
+          onClose={() => setSeatModalOpen(false)}
+          onSaved={(seat, isNew) => {
+            setSeatModalOpen(false);
+            if (isNew) setSeats((prev) => [...prev, seat]);
+            else setSeats((prev) => prev.map((s) => (s.id === seat.id ? { ...s, ...seat } : s)));
+          }}
+        />
+      )}
+
       <style jsx>{`
         .tabs {
           display: flex;
@@ -633,6 +884,122 @@ export default function TeamPage() {
         .btn-copy:disabled {
           opacity: 0.5;
           cursor: default;
+        }
+        .error {
+          color: var(--accent-red, #e5484d);
+          font-size: 0.82rem;
+          margin: 0;
+        }
+        .seat-status {
+          display: inline-block;
+          padding: 0.2rem 0.6rem;
+          border-radius: 999px;
+          font-size: 0.76rem;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .seat-status-pending {
+          background: rgba(245, 166, 35, 0.15);
+          color: #f5a623;
+        }
+        .seat-status-active {
+          background: rgba(46, 204, 113, 0.15);
+          color: var(--accent-green, #2ecc71);
+        }
+        .seat-status-cancelled {
+          background: rgba(229, 72, 77, 0.15);
+          color: var(--accent-red, #e5484d);
+        }
+        .seat-code-cell {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .seat-code {
+          font-size: 0.78rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.2rem 0.5rem;
+        }
+        .seat-actions-cell {
+          display: flex;
+          gap: 0.7rem;
+          flex-wrap: wrap;
+        }
+        .link-btn {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--accent);
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: none;
+        }
+        .link-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .link-btn-danger {
+          color: var(--accent-red, #e5484d);
+        }
+        .billing-section {
+          margin-top: 0.6rem;
+        }
+        .field label {
+          display: block;
+          font-size: 0.9rem;
+          margin-bottom: 0.7rem;
+        }
+        .usage-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 1rem;
+        }
+        .usage-hint {
+          font-size: 0.74rem;
+          color: var(--muted);
+          margin: 0;
+          line-height: 1.4;
+        }
+        .invoices-list {
+          list-style: none;
+          margin: 0.6rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+        .invoice-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.82rem;
+          padding: 0.4rem 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .invoice-row:last-child {
+          border-bottom: none;
+        }
+        .invoice-link {
+          color: var(--accent);
+          font-size: 0.78rem;
+          font-weight: 600;
+          white-space: nowrap;
+          margin-left: 0.8rem;
+        }
+        .crm-showmore {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 1.1rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+          margin-top: 1rem;
         }
       `}</style>
 
@@ -748,6 +1115,223 @@ export default function TeamPage() {
         }
       `}</style>
     </Shell>
+  );
+}
+
+// Modale "Ajouter un compte équipe" / modification d'un compte équipe
+// existant (28/08/2026) — voir app/api/team/seats/route.ts et
+// app/api/team/seats/[id]/route.ts. Reprend le style de la modale
+// "Ajouter un prospect" (app/app/prospects/page.jsx) pour rester cohérent
+// avec le reste de l'app plutôt que d'inventer un nouveau style de modale.
+function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
+  const isEditing = Boolean(seat);
+  const [firstName, setFirstName] = useState(seat?.first_name || '');
+  const [lastName, setLastName] = useState(seat?.last_name || '');
+  const [jobTitle, setJobTitle] = useState(seat?.job_title || '');
+  const [email, setEmail] = useState(seat?.email || '');
+  const [modules, setModules] = useState(() => {
+    if (!seat) return ['AP'];
+    return [seat.ap_active && 'AP', seat.as_active && 'AS', seat.ac_active && 'AC'].filter(Boolean);
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const MODULE_OPTIONS = [
+    { value: 'AP', label: t('preferences.offers.apLabel', locale) },
+    { value: 'AS', label: t('nav.opportunity', locale) },
+    { value: 'AC', label: t('nav.client', locale) },
+  ];
+
+  function toggleModule(value) {
+    setModules((prev) => (prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (modules.length === 0) {
+      setError(t('team.addSeatModulesRequired', locale));
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const body = { first_name: firstName, last_name: lastName, job_title: jobTitle, email, modules };
+    const res = await fetch(isEditing ? `/api/team/seats/${seat.id}` : '/api/team/seats', {
+      method: isEditing ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const resBody = await res.json().catch(() => ({}));
+    setSubmitting(false);
+
+    if (!res.ok) {
+      setError(resBody.error || t('team.seatActionErrorFallback', locale));
+      return;
+    }
+
+    onSaved(resBody.seat, !isEditing);
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <h2>{isEditing ? t('team.editSeatModalTitle', locale) : t('team.addSeatModalTitle', locale)}</h2>
+        <p className="hint">{t('team.addSeatModalHint', locale)}</p>
+
+        <div className="name-row">
+          <label>
+            {t('prospects.firstNameLabel', locale)}
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+          </label>
+          <label>
+            {t('prospects.lastNameLabel', locale)}
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+          </label>
+        </div>
+
+        <label>
+          {t('prospects.colJobTitle', locale)} {t('prospects.optionalSuffix', locale)}
+          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        </label>
+
+        <label>
+          {t('modal.email', locale)}
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </label>
+
+        <div className="seat-modules-field">
+          <p className="seat-modules-label">{t('team.addSeatModulesLabel', locale)}</p>
+          {MODULE_OPTIONS.map((opt) => (
+            <label key={opt.value} className="seat-module-checkbox">
+              <input type="checkbox" checked={modules.includes(opt.value)} onChange={() => toggleModule(opt.value)} />
+              {opt.label}
+            </label>
+          ))}
+          <p className="seat-modules-hint">{t('team.addSeatModulesHint', locale)}</p>
+        </div>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.cancel', locale)}</button>
+          <button type="submit" className="btn-primary" disabled={submitting}>
+            {submitting ? t('team.addSeatSubmitting', locale) : isEditing ? t('team.editSeatSubmit', locale) : t('team.addSeatSubmit', locale)}
+          </button>
+        </div>
+      </form>
+
+      <style jsx>{`
+        .overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+        .modal {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.8rem;
+          width: 420px;
+          max-width: 100%;
+          max-height: 88vh;
+          overflow-y: auto;
+        }
+        h2 {
+          font-family: var(--font-display);
+          margin: 0 0 0.6rem;
+        }
+        .hint {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin: 0 0 1.2rem;
+          line-height: 1.4;
+        }
+        label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin-bottom: 0.9rem;
+        }
+        input {
+          padding: 0.6rem 0.75rem;
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--border);
+          background: var(--bg);
+          color: var(--text);
+          font-size: 0.88rem;
+          font-family: inherit;
+        }
+        .name-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.8rem;
+        }
+        .seat-modules-field {
+          margin-bottom: 1rem;
+        }
+        .seat-modules-label {
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin: 0 0 0.5rem;
+        }
+        .seat-module-checkbox {
+          flex-direction: row;
+          align-items: center;
+          gap: 0.5rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          margin-bottom: 0.4rem;
+        }
+        .seat-module-checkbox input {
+          width: auto;
+        }
+        .seat-modules-hint {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0.4rem 0 0;
+          line-height: 1.4;
+        }
+        .error {
+          color: var(--accent-red, #e5484d);
+          font-size: 0.82rem;
+          margin: 0 0 0.8rem;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.6rem;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-sm);
+          padding: 0.65rem 1.2rem;
+          font-size: 0.86rem;
+          cursor: pointer;
+        }
+        .btn-primary {
+          background: var(--accent);
+          border: none;
+          color: #fff;
+          border-radius: var(--radius-sm);
+          padding: 0.65rem 1.2rem;
+          font-size: 0.86rem;
+          cursor: pointer;
+        }
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: wait;
+        }
+      `}</style>
+    </div>
   );
 }
 
