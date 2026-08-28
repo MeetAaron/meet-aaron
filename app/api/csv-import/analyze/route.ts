@@ -67,7 +67,7 @@ Réponds UNIQUEMENT avec un tableau JSON d'objets {"idx", "company_name_suggesti
   let suggestions: any;
   try {
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-haiku-4-5', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] },
       company_id,
       module
     );
