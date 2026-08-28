@@ -1931,7 +1931,7 @@ export default function ConnexionsPage() {
                 ))}
               </div>
               {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
-                <PushNotificationManager />
+                <PushNotificationManager emailConnected={!!(googleConnection || microsoftConnection)} />
               )}
             </div>
 
