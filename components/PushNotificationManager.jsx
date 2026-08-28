@@ -21,7 +21,13 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-export default function PushNotificationManager() {
+// Demande Alex (28/08/2026) : quand les push sont activés, expliquer pas à
+// pas que connecter sa boîte email rend l'agenda encore plus fonctionnel
+// (synchro RDV Aaron <-> calendrier iPhone/Google/Outlook). `emailConnected`
+// est passé par la page appelante (app/app/connexions/page.jsx, qui connaît
+// déjà googleConnection/microsoftConnection) — par défaut à true pour ne
+// jamais afficher le conseil à tort si un appelant futur oublie de le passer.
+export default function PushNotificationManager({ emailConnected = true }) {
   const [supported, setSupported] = useState(true);
   const [permission, setPermission] = useState('default');
   const [subscribed, setSubscribed] = useState(false);
@@ -123,6 +129,15 @@ export default function PushNotificationManager() {
         <p className="push-error">
           Les notifications sont bloquées pour ce site dans ton navigateur — débloque-les dans les réglages
           du site puis réessaie.
+        </p>
+      )}
+      {subscribed && !emailConnected && (
+        <p className="push-hint">
+          Astuce : pour que tes RDV se synchronisent aussi automatiquement avec l'agenda de ton téléphone,
+          connecte ta boîte email. Comment faire : 1) onglet « Connexion » ci-dessus, 2) clique sur
+          « Connecter » à côté de Gmail ou Outlook, 3) autorise l'accès. C'est tout : tes RDV Aaron
+          apparaîtront dans ton calendrier, et les événements que tu ajoutes sur ton téléphone remonteront
+          aussi vers Aaron.
         </p>
       )}
       {error && <p className="push-error">{error}</p>}
