@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 
 const CUSTOM_CRM_CHAT_SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA. Un commercial ou le fondateur d'une petite entreprise veut connecter un CRM qui n'est pas dans la liste des intégrations déjà proposées par l'application (HubSpot, Salesforce, Pipedrive, Jobber, Axonaut, Sellsy, Housecall Pro, Capsule CRM, ServiceM8). Ton rôle ici est UNIQUEMENT de récolter les informations nécessaires pour que l'équipe technique de l'application puisse ensuite construire cette intégration — tu ne peux pas la construire toi-même dans cette conversation, ne le promets jamais. Tutoie la personne, sois chaleureux et concret, comme un collègue technique qui aide à cadrer une demande.
@@ -70,11 +70,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
+  // Optimisation coût API (28/08/2026, demande Alex) : point de coupure de
+  // cache sur le dernier message de l'historique déjà envoyé, voir
+  // withCacheBreakpoint (lib/anthropic-client.ts) et le même mécanisme sur le
+  // "system" juste en dessous.
   const conversationMessages = [
-    ...(Array.isArray(history) ? history : []).map((m: any) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
+    ...withCacheBreakpoint(
+      (Array.isArray(history) ? history : []).map((m: any) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      }))
+    ),
     { role: 'user', content: message },
   ];
 
@@ -83,7 +89,9 @@ export async function POST(request: NextRequest) {
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 500,
-        system: buildSystemPrompt(authedUser.locale),
+        system: [
+          { type: 'text', text: buildSystemPrompt(authedUser.locale), cache_control: { type: 'ephemeral' } },
+        ],
         messages: conversationMessages,
       },
       user.company_id
