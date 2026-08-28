@@ -8,6 +8,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { createGoogleCalendarEvent } from '@/lib/google';
+import { createOutlookCalendarEvent } from '@/lib/microsoft';
+import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const body = await request.json();
@@ -22,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const { data: block } = await supabaseAdmin
     .from('availability_blocks')
-    .select('id, user_id')
+    .select('id, user_id, calendar_event_id, calendar_provider')
     .eq('id', params.id)
     .maybeSingle();
 
@@ -50,6 +53,38 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Répercute la modification sur Google/Outlook si cette indisponibilité y
+  // avait été poussée (28/08/2026). Pas d'API "update" dédiée utilisée ici :
+  // on supprime l'ancien événement et on en recrée un — plus simple que de
+  // gérer un endpoint PATCH distinct par provider pour un cas d'usage mineur
+  // (modifier une indispo déjà synchronisée reste rare). Best-effort, jamais
+  // bloquant pour la modification elle-même (déjà actée côté Aaron).
+  if (block.calendar_event_id && block.calendar_provider) {
+    try {
+      if (block.calendar_provider === 'google') {
+        await deleteGoogleCalendarEvent(userId, block.calendar_event_id);
+        const recreated = await createGoogleCalendarEvent(userId, {
+          title: updated.reason ? `Indisponible — ${updated.reason}` : 'Indisponible',
+          description: 'Indisponibilité ajoutée manuellement dans l\'agenda Meet Aaron.',
+          startISO: updated.start_at,
+          endISO: updated.end_at,
+        });
+        await supabaseAdmin.from('availability_blocks').update({ calendar_event_id: recreated.id }).eq('id', params.id);
+      } else if (block.calendar_provider === 'microsoft') {
+        await deleteOutlookCalendarEvent(userId, block.calendar_event_id);
+        const recreated = await createOutlookCalendarEvent(userId, {
+          title: updated.reason ? `Indisponible — ${updated.reason}` : 'Indisponible',
+          description: 'Indisponibilité ajoutée manuellement dans l\'agenda Meet Aaron.',
+          startISO: updated.start_at,
+          endISO: updated.end_at,
+        });
+        await supabaseAdmin.from('availability_blocks').update({ calendar_event_id: recreated.id }).eq('id', params.id);
+      }
+    } catch (calendarErr: any) {
+      console.error('Erreur mise à jour indisponibilité sur calendrier externe:', calendarErr.message);
+    }
+  }
+
   return NextResponse.json({ block: updated });
 }
 
@@ -65,7 +100,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const { data: block } = await supabaseAdmin
     .from('availability_blocks')
-    .select('id, user_id')
+    .select('id, user_id, calendar_event_id, calendar_provider')
     .eq('id', params.id)
     .maybeSingle();
 
@@ -77,6 +112,23 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Nettoie l'événement sur Google/Outlook si cette indisponibilité y avait
+  // été poussée (28/08/2026) — sinon elle resterait affichée sur le
+  // calendrier externe alors qu'elle n'existe plus côté Aaron. Best-effort :
+  // la suppression côté Aaron est déjà actée, un souci ici ne doit pas la
+  // faire échouer.
+  if (block.calendar_event_id && block.calendar_provider) {
+    try {
+      if (block.calendar_provider === 'google') {
+        await deleteGoogleCalendarEvent(userId, block.calendar_event_id);
+      } else if (block.calendar_provider === 'microsoft') {
+        await deleteOutlookCalendarEvent(userId, block.calendar_event_id);
+      }
+    } catch (calendarErr: any) {
+      console.error('Erreur suppression indisponibilité sur calendrier externe:', calendarErr.message);
+    }
   }
 
   return NextResponse.json({ success: true });
