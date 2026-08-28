@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
     const prompt = `Tu es Aaron, copilote commercial IA. Voici les performances de l'équipe commerciale de "${company?.name || 'la société'}" sur la période "${PERIOD_LABELS[periodMode]}" :\n\nTotaux société : ${totals.prospects_actifs} prospects actifs, ${totals.rdv_gagnes} RDV gagnés, ${totals.opportunites_actives} opportunités actives, ${totals.clients_gagnes} clients gagnés (${totals.clients_actifs} actifs / ${totals.clients_perdus} perdus).\n\nPar commercial :\n${lines.join('\n')}\n\nRédige un résumé exécutif en 4-6 phrases maximum, pour le fondateur de l'entreprise : ce qui se dégage de ces chiffres (points forts, signaux d'alerte comme un taux de clients perdus élevé ou un commercial en difficulté), et 1-2 recommandations concrètes. Sois direct et actionnable, sans jargon. Réponds uniquement avec ce texte, ${localeInstruction(authedUser.locale)}, sans préambule ni titre.`;
 
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-haiku-4-5', max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
       requester.company_id
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
