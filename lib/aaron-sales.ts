@@ -177,21 +177,40 @@ export async function generateAppointmentBrief(appointmentId: string): Promise<A
     })),
   };
 
+  // Demande Alex (28/08/2026) : "qu'Aaron soit le meilleur commercial du
+  // monde" — il maîtrise déjà Cialdini de façon explicite et détaillée dans
+  // le prompt d'Aaron Prospect (lib/aaron_system_prompt.md), mais CE prompt
+  // (Aaron Sales, brief pré-RDV) n'invoquait jusqu'ici aucune méthodologie
+  // nommée. Alex a explicitement refusé une maîtrise "implicite" — les deux
+  // méthodes ci-dessous sont donc définies en toutes lettres, comme les 7
+  // principes de Cialdini le sont dans aaron_system_prompt.md, plutôt que
+  // supposées connues par le modèle.
+  const SONCAS_CRAC_FRAMEWORK =
+    `MÉTHODE SONCAS (motivation d'achat, pour profil_personnalite) — 6 leviers à repérer dans l'historique des échanges : ` +
+    `Sécurité (cherche des garanties, de la fiabilité, des preuves), Orgueil (sensible au statut, à l'exclusivité, à la reconnaissance), ` +
+    `Nouveauté (attiré par l'innovation, les dernières évolutions), Confort (veut de la simplicité, ne pas se compliquer la vie), ` +
+    `Argent (focalisé sur le prix, le ROI, les économies), Sympathie (cherche une vraie relation humaine, se sent écouté). ` +
+    `Un prospect peut combiner plusieurs leviers ; identifie le ou les dominants s'ils sont détectables, sans en forcer un si les signaux sont trop faibles.\n\n` +
+    `MÉTHODE CRAC (traitement d'objection, pour objections_deja_soulevees) — 4 étapes à suggérer pour CHAQUE objection déjà soulevée : ` +
+    `Creuser (la vraie raison derrière l'objection, pas la formulation de surface), Reformuler (montrer qu'on a compris pour désamorcer la tension), ` +
+    `Argumenter (un élément concret et honnête qui répond à la vraie raison identifiée), Contrôler (une façon de vérifier en RDV que l'objection est vraiment levée avant d'avancer).`;
+
   const data = await callClaude(
     {
       model: 'claude-haiku-4-5',
-      max_tokens: 1000,
+      max_tokens: 1300,
       messages: [
         {
           role: 'user',
           content:
-            `Tu es Aaron, copilote commercial IA. Un commercial a un RDV ${appointment.type} bientôt avec ce prospect, ` +
+            `Tu es Aaron, copilote commercial IA — le meilleur commercial du monde. Un commercial a un RDV ${appointment.type} bientôt avec ce prospect, ` +
             `et compte sur toi pour préparer une fiche de brief express avant d'y aller. Rédige tout ce qui suit ` +
-            `${localeInstruction(locale)} — c'est une fiche interne, lue uniquement par le commercial.\n` +
+            `${localeInstruction(locale)} — c'est une fiche interne, lue uniquement par le commercial.\n\n` +
+            `${SONCAS_CRAC_FRAMEWORK}\n\n` +
             `Réponds UNIQUEMENT avec un objet JSON de cette forme exacte, sans texte avant/après ni balises markdown :\n` +
             `{"resume_historique": "résumé en 3-4 phrases des échanges jusqu'ici, ou une phrase indiquant qu'il n'y a pas encore d'historique", ` +
-            `"profil_personnalite": "explication courte du profil détecté et comment s'y adapter en RDV, ou null si aucun profil détecté", ` +
-            `"objections_deja_soulevees": ["liste des objections/réticences déjà exprimées par le prospect, tableau vide si aucune"], ` +
+            `"profil_personnalite": "profil comportemental détecté (style de communication) ET, si détectable, le ou les leviers de motivation SONCAS dominants (voir méthode ci-dessus) — explique concrètement comment s'y adapter en RDV, ou null si aucun profil détecté", ` +
+            `"objections_deja_soulevees": ["pour chaque objection/réticence déjà exprimée par le prospect : l'objection elle-même suivie d'une piste de réponse actionnable structurée selon la méthode CRAC ci-dessus (en 1-2 phrases, pas les 4 étapes détaillées une par une), tableau vide si aucune objection exprimée"], ` +
             `"info_entreprise": "1-2 phrases sur l'entreprise/le contexte si des infos sont disponibles dans les documents fournis, sinon null", ` +
             `"angle_approche_suggere": "1-2 phrases suggérant un angle d'approche concret pour ce RDV précis", ` +
             `"points_attention": ["2 à 3 points de coaching concrets et courts à garder en tête pendant le RDV"]}\n\n` +
