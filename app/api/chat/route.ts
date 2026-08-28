@@ -404,6 +404,10 @@ async function detectFounderSuggestion(
   companyId: string | null
 ): Promise<{ isSuggestion: boolean; summary: string | null }> {
   try {
+    // Modèle Haiku (28/08/2026, demande Alex : passer les tâches courtes/internes
+    // sur un modèle moins cher) : simple classification binaire + résumé d'une
+    // phrase, jamais montré au commercial ni à un prospect — pas d'enjeu de
+    // qualité perçue par un client, candidat idéal pour réduire le coût.
     // Prompt caching (demande Alex, 27/08/2026, coût API jugé trop élevé) :
     // cet appel tourne EN PARALLÈLE de chaque message envoyé dans le chat
     // direct (voir Promise.all plus bas) — donc une fois par message, en plus
@@ -413,7 +417,7 @@ async function detectFounderSuggestion(
     // commercial reste facturé en plein tarif à chaque tour.
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5',
         max_tokens: 200,
         system: [
           {
