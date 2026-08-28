@@ -133,7 +133,7 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
     try {
       const data = await callClaude(
         {
-          model: 'claude-sonnet-4-6',
+          model: 'claude-haiku-4-5',
           max_tokens: 150,
           messages: [
             {

@@ -402,7 +402,7 @@ export async function parseCheckinResponse(replyText: string, companyId: string 
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5',
         max_tokens: 150,
         messages: [
           {
@@ -492,7 +492,7 @@ export async function generateUpsellSuggestion(prospectId: string): Promise<stri
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5',
         max_tokens: 200,
         messages: [
           {
@@ -723,7 +723,7 @@ export async function parseKickoffResponse(replyText: string, companyId: string 
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5',
         max_tokens: 150,
         messages: [
           {
