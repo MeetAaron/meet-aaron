@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import QRCode from 'qrcode';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -224,6 +225,12 @@ export default function AgendaPage() {
   const [icsLoading, setIcsLoading] = useState(false);
   const [icsRegenerating, setIcsRegenerating] = useState(false);
   const [icsCopied, setIcsCopied] = useState(false);
+  // QR code du lien webcal (demande Alex, 28/08/2026) : scanné avec
+  // l'appareil photo de l'iPhone, il propose directement d'ajouter
+  // l'abonnement calendrier — évite de recopier l'URL à la main. Généré
+  // côté client (le lien contient le token secret de l'utilisateur, donc pas
+  // question de le faire transiter par un service tiers de génération de QR).
+  const [icsQrDataUrl, setIcsQrDataUrl] = useState(null);
 
   // Calendrier mensuel (#87) — vue type iPhone au-dessus des listes : jours
   // avec RDV en vert, jours avec indisponibilité en rouge, clic = détail du jour.
@@ -371,6 +378,24 @@ export default function AgendaPage() {
       setIcsRegenerating(false);
     }
   }
+
+  useEffect(() => {
+    if (!icsLink?.webcalUrl) {
+      setIcsQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(icsLink.webcalUrl, { width: 220, margin: 1 })
+      .then((dataUrl) => {
+        if (!cancelled) setIcsQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setIcsQrDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [icsLink]);
 
   function copyIcsLink() {
     if (!icsLink) return;
@@ -972,6 +997,12 @@ export default function AgendaPage() {
                     </button>
                   </div>
                   <p className="muted small">{t('disponibilites.syncHint', locale)}</p>
+                  {icsQrDataUrl && (
+                    <div className="ics-qr">
+                      <img src={icsQrDataUrl} alt={t('disponibilites.syncQrAlt', locale)} width={160} height={160} />
+                      <p className="muted small">{t('disponibilites.syncQrHint', locale)}</p>
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="error">{t('disponibilites.syncError', locale)}</p>
@@ -1311,6 +1342,18 @@ export default function AgendaPage() {
         .ics-actions {
           display: flex;
           gap: 0.6rem;
+        }
+        .ics-qr {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.4rem;
+        }
+        .ics-qr img {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: #fff;
+          padding: 0.5rem;
         }
         .btn-edit {
           margin-left: auto;
