@@ -217,3 +217,44 @@ export async function callClaude(
 
   return data;
 }
+
+// Optimisation coût API (demande Alex, 28/08/2026 : "optimise le code pour
+// minimiser mes coûts API sans que ça crée des erreurs") : point de coupure
+// de "prompt caching" Anthropic (cache_control ephemeral) posé sur le
+// DERNIER message d'un historique de conversation déjà construit — à utiliser
+// juste avant d'y ajouter le nouveau tour de l'utilisateur (voir
+// app/api/chat/route.ts, app/api/campaigns/chat/route.ts,
+// app/api/crm-connections/custom-chat/route.ts, qui renvoient tout
+// l'historique affiché à chaque message plutôt qu'un résumé). Convention
+// Anthropic : un appel qui renvoie exactement ce même préfixe (même contenu,
+// même point de coupure) dans les ~5 minutes qui suivent bénéficie d'un tarif
+// réduit sur tout ce qui précède la coupure — seul le nouveau tour reste
+// facturé plein tarif. Aucune incidence fonctionnelle si le cache a expiré
+// ou n'a jamais été écrit (première réponse, conversation reprise après une
+// pause...) : le comportement de l'appel est strictement identique, seul le
+// coût/latence change selon que le cache est touché ou non — donc rien à
+// craindre côté fiabilité en l'ajoutant largement sur les conversations
+// multi-tours.
+export function withCacheBreakpoint<T extends { role: string; content: any }>(messages: T[]): T[] {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+
+  const result = messages.slice();
+  const last = result[result.length - 1];
+
+  const blocks = typeof last.content === 'string'
+    ? [{ type: 'text', text: last.content }]
+    : Array.isArray(last.content)
+    ? last.content.slice()
+    : null;
+
+  // Forme de contenu inattendue (ni string ni tableau de blocs) : on renvoie
+  // l'historique tel quel plutôt que de risquer de casser l'appel pour un
+  // simple gain de coût.
+  if (!blocks || blocks.length === 0) return messages;
+
+  const lastBlockIndex = blocks.length - 1;
+  blocks[lastBlockIndex] = { ...blocks[lastBlockIndex], cache_control: { type: 'ephemeral' } };
+  result[result.length - 1] = { ...last, content: blocks } as T;
+
+  return result;
+}
