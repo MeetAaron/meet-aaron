@@ -277,7 +277,10 @@ export async function getOutlookMessage(userId: string, messageId: string) {
 // Crée un événement dans le calendrier Outlook du commercial
 export async function createOutlookCalendarEvent(
   userId: string,
-  params: { title: string; description: string; startISO: string; endISO: string; attendeeEmail: string }
+  // attendeeEmail optionnel (28/08/2026) : un RDV manuel avec un simple
+  // "contact_name" (sans email connu) ou une indisponibilité doivent pouvoir
+  // être poussés vers Outlook sans invité.
+  params: { title: string; description: string; startISO: string; endISO: string; attendeeEmail?: string }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -292,9 +295,9 @@ export async function createOutlookCalendarEvent(
       body: { contentType: 'Text', content: params.description },
       start: { dateTime: params.startISO, timeZone: 'UTC' },
       end: { dateTime: params.endISO, timeZone: 'UTC' },
-      attendees: [
-        { emailAddress: { address: params.attendeeEmail }, type: 'required' },
-      ],
+      ...(params.attendeeEmail
+        ? { attendees: [{ emailAddress: { address: params.attendeeEmail }, type: 'required' }] }
+        : {}),
     }),
   });
 
@@ -304,4 +307,62 @@ export async function createOutlookCalendarEvent(
   }
 
   return response.json(); // contient event.id -> à stocker dans appointments.calendar_event_id
+}
+
+// Supprime un événement du calendrier Outlook (RDV annulé côté Aaron, ou
+// indisponibilité supprimée). Tolérant aux statuts 404/410 (déjà supprimé,
+// ou introuvable — ex. le commercial l'a supprimé lui-même dans Outlook) :
+// le résultat visé (l'événement n'existe plus) est déjà atteint.
+export async function deleteOutlookCalendarEvent(userId: string, eventId: string): Promise<void> {
+  const accessToken = await getValidAccessToken(userId);
+
+  const response = await fetch(`https://graph.microsoft.com/v1.0/me/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    const err = await response.text();
+    throw new Error(`Erreur suppression événement Outlook: ${err}`);
+  }
+}
+
+// Liste les événements du calendrier Outlook du commercial sur la plage
+// demandée, avec leur titre (contrairement à getOutlookFreeBusy qui ne
+// renvoie que des plages horaires occupées) — nécessaire pour la synchro
+// Outlook -> agenda Aaron (voir lib/calendar-sync.ts), qui doit pouvoir
+// distinguer un rdv médical d'un rdv "classique" pour choisir le libellé
+// posé côté Aaron.
+export async function listOutlookCalendarEvents(
+  userId: string,
+  timeMinISO: string,
+  timeMaxISO: string
+): Promise<{ id: string; title: string; start: string; end: string }[]> {
+  const accessToken = await getValidAccessToken(userId);
+
+  const params = new URLSearchParams({ startDateTime: timeMinISO, endDateTime: timeMaxISO, $top: '250' });
+
+  const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendarView?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Prefer: 'outlook.timezone="UTC"',
+    },
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Erreur calendarView Outlook: ${err}`);
+  }
+
+  const data = await response.json();
+  // isAllDay : idem Google, on ignore les événements "journée entière" (pas
+  // de vraie plage horaire à bloquer dans l'agenda Aaron).
+  return (data.value || [])
+    .filter((e: any) => !e.isAllDay && !e.isCancelled)
+    .map((e: any) => ({
+      id: e.id,
+      title: e.subject || '',
+      start: e.start.dateTime.endsWith('Z') ? e.start.dateTime : `${e.start.dateTime}Z`,
+      end: e.end.dateTime.endsWith('Z') ? e.end.dateTime : `${e.end.dateTime}Z`,
+    }));
 }

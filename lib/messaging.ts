@@ -58,7 +58,9 @@ function normalizeEmailBodyLineBreaks(text: string): string {
     .join('\n\n');
 }
 
-async function getConnectedProviders(userId: string): Promise<Set<string>> {
+// Exportée (28/08/2026) pour être réutilisée par lib/calendar-sync.ts, qui a
+// besoin de savoir quel(s) provider(s) interroger sans dupliquer cette requête.
+export async function getConnectedProviders(userId: string): Promise<Set<string>> {
   const { data } = await supabaseAdmin
     .from('oauth_connections')
     .select('provider')

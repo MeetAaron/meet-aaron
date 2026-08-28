@@ -355,7 +355,11 @@ export async function createGoogleCalendarEvent(
     description: string;
     startISO: string;
     endISO: string;
-    attendeeEmail: string;
+    // Optionnel (28/08/2026) : un RDV ajouté manuellement dans l'agenda Aaron
+    // avec un simple "contact_name" (sans prospect_id, donc sans email connu)
+    // doit pouvoir être poussé vers Google Calendar quand même — juste sans
+    // invité. Idem pour une indisponibilité (jamais d'invité).
+    attendeeEmail?: string;
     // Si true (RDV de type "visio"), demande à Google de générer automatiquement
     // un lien Google Meet rattaché à l'événement.
     wantsMeetLink?: boolean;
@@ -368,9 +372,11 @@ export async function createGoogleCalendarEvent(
     description: params.description,
     start: { dateTime: params.startISO },
     end: { dateTime: params.endISO },
-    attendees: [{ email: params.attendeeEmail }],
     reminders: { useDefault: true },
   };
+  if (params.attendeeEmail) {
+    body.attendees = [{ email: params.attendeeEmail }];
+  }
 
   if (params.wantsMeetLink) {
     body.conferenceData = {
@@ -407,4 +413,75 @@ export async function createGoogleCalendarEvent(
     meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.find((e: any) => e.entryPointType === 'video')?.uri || null,
   };
   // contient event.id -> à stocker dans appointments.calendar_event_id, et meetLink si visio
+}
+
+// Supprime un événement du calendrier Google (RDV annulé côté Aaron, ou
+// indisponibilité supprimée). Tolérant : un événement déjà supprimé côté
+// Google (410 Gone) ou introuvable (404, ex. le commercial l'a supprimé
+// lui-même directement dans Google Calendar) n'est pas une erreur — le
+// résultat qu'on visait (l'événement n'existe plus) est déjà atteint.
+export async function deleteGoogleCalendarEvent(userId: string, eventId: string): Promise<void> {
+  const accessToken = await getValidAccessToken(userId);
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}?sendUpdates=all`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    const err = await response.text();
+    throw new Error(`Erreur suppression événement Google Calendar: ${err}`);
+  }
+}
+
+// Liste les événements du calendrier Google du commercial sur la plage
+// demandée (contrairement à getGoogleFreeBusy qui ne renvoie que des plages
+// horaires occupées, celle-ci renvoie aussi le titre — nécessaire pour la
+// synchro Google -> agenda Aaron, qui doit pouvoir distinguer un rdv médical
+// d'un rdv "classique" pour le libellé posé côté Aaron, voir lib/calendar-sync.ts).
+// singleEvents=true développe les événements récurrents en occurrences
+// individuelles (sinon un événement récurrent ne remonterait qu'une fois,
+// avec sa date de première occurrence).
+export async function listGoogleCalendarEvents(
+  userId: string,
+  timeMinISO: string,
+  timeMaxISO: string
+): Promise<{ id: string; title: string; start: string; end: string }[]> {
+  const accessToken = await getValidAccessToken(userId);
+
+  const params = new URLSearchParams({
+    timeMin: timeMinISO,
+    timeMax: timeMaxISO,
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '250',
+  });
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Erreur listing événements Google Calendar: ${err}`);
+  }
+
+  const data = await response.json();
+  return (data.items || [])
+    // Ignore les événements annulés (encore présents dans la réponse tant
+    // qu'on ne fixe pas showDeleted=false explicitement côté requête) et les
+    // événements "journée entière" (date seule, sans heure — typiquement des
+    // jours fériés/anniversaires importés, pas de vraies indisponibilités
+    // horaires à bloquer dans l'agenda Aaron).
+    .filter((e: any) => e.status !== 'cancelled' && e.start?.dateTime && e.end?.dateTime)
+    .map((e: any) => ({
+      id: e.id,
+      title: e.summary || '',
+      start: e.start.dateTime,
+      end: e.end.dateTime,
+    }));
 }
