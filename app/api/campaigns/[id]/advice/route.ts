@@ -77,7 +77,7 @@ Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resser
   let advice: string;
   try {
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-haiku-4-5', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
       campaign.company_id, 'ap'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
