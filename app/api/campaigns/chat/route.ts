@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
 import { localeInstruction } from '@/lib/locale-instruction';
 
@@ -77,11 +77,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
+  // Optimisation coût API (28/08/2026, demande Alex) : point de coupure de
+  // cache sur le dernier message de l'historique déjà envoyé, voir
+  // withCacheBreakpoint (lib/anthropic-client.ts) et le même mécanisme sur le
+  // "system" juste en dessous.
   const conversationMessages = [
-    ...(Array.isArray(history) ? history : []).map((m: any) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
+    ...withCacheBreakpoint(
+      (Array.isArray(history) ? history : []).map((m: any) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      }))
+    ),
     { role: 'user', content: message },
   ];
 
@@ -92,7 +98,9 @@ export async function POST(request: NextRequest) {
       {
         model: 'claude-sonnet-4-6',
         max_tokens: 700,
-        system: buildSystemPrompt(pastCampaignsSummary, authedUser.locale),
+        system: [
+          { type: 'text', text: buildSystemPrompt(pastCampaignsSummary, authedUser.locale), cache_control: { type: 'ephemeral' } },
+        ],
         messages: conversationMessages,
       },
       user.company_id, 'ap'
