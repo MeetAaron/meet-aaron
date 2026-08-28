@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
+import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
@@ -213,6 +214,22 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const alreadyPast = new Date(appointment.proposed_at) < new Date();
 
     await supabaseAdmin.from('appointments').update({ status: 'annulé', cancelled_by: 'commercial' }).eq('id', appointmentId);
+
+    // Nettoie l'événement calendrier Google/Outlook (28/08/2026) — sans ça,
+    // un RDV annulé côté Aaron restait affiché comme si de rien n'était sur
+    // le calendrier externe du commercial. Best-effort : l'annulation côté
+    // Aaron est déjà actée, un souci ici ne doit pas la faire échouer.
+    if (appointment.calendar_event_id && appointment.calendar_provider) {
+      try {
+        if (appointment.calendar_provider === 'google') {
+          await deleteGoogleCalendarEvent(userId, appointment.calendar_event_id);
+        } else if (appointment.calendar_provider === 'microsoft') {
+          await deleteOutlookCalendarEvent(userId, appointment.calendar_event_id);
+        }
+      } catch (calendarErr: any) {
+        console.error('Erreur suppression événement calendrier sur annulation:', calendarErr.message);
+      }
+    }
 
     // Bug remonté par Alex (2026-08-20) : annuler un RDV dont la date est déjà
     // passée envoyait quand même au prospect "je dois annuler notre rendez-
