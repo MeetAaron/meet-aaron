@@ -1006,16 +1006,19 @@ export default function DashboardPage() {
           color: var(--text);
           transition: background 0.15s;
           box-sizing: border-box;
-          /* Bug remonté par Alex (29/08/2026, capture à l'appui, "encore pire"
-             sur un écran plus petit/moins large) : seules les lignes "à
-             faire" ont un libellé CTA ("À faire →", voir .onboarding-cta
-             ci-dessous) — les lignes "faites" n'en ont pas. Sans hauteur
-             minimale commune, une ligne "à faire" dont le libellé se mettait
-             à passer à la ligne (voir white-space sur .onboarding-label plus
-             bas) devenait plus haute que les autres et cassait l'alignement
-             de la liste. min-height fixe une hauteur cohérente sur toutes
-             les lignes, faites ou non, quelle que soit la largeur d'écran. */
-          min-height: 2.9rem;
+          /* Bug remonté par Alex (29/08/2026, capture à l'appui) : la ligne
+             "à faire" (celle qui a le CTA "À faire →", voir .onboarding-cta
+             plus bas) s'affichait nettement plus haute que les autres —
+             comme si un espace vide s'ajoutait sous le texte. Un premier
+             correctif avec min-height n'a pas suffi (capture de suivi encore
+             "moche"), donc on verrouille cette fois une hauteur FIXE (pas
+             juste minimale) + overflow:hidden : quelle que soit la cause
+             exacte de ce surplus de hauteur (poussée par du contenu qui
+             déborde), la ligne ne peut plus dépasser cette taille — garantie
+             plus forte que min-height, qui ne fait qu'empêcher d'être plus
+             PETIT. */
+          height: 2.9rem;
+          overflow: hidden;
         }
         .onboarding-row:last-child {
           border-bottom: none;
