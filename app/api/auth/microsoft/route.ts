@@ -1,10 +1,15 @@
 // app/api/auth/microsoft/route.ts
 // Démarre le flux OAuth Microsoft pour Outlook (calendrier + email).
 // À activer une fois l'app Azure créée (Client ID / Secret Microsoft).
+//
+// Accepte aussi un paramètre ?qr=... (28/08/2026, voir app/api/auth/qr-token/
+// route.ts et le même commentaire côté app/api/auth/google/route.ts) : atteint
+// en scannant le QR code affiché dans Connexions, typiquement depuis le
+// téléphone du commercial.
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getAuthedUserFromToken } from '@/lib/auth-helpers';
+import { getAuthedUserFromToken, resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 
@@ -19,16 +24,26 @@ const SCOPES = [
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const token = searchParams.get('token');
+  const qrToken = searchParams.get('qr');
 
-  if (!token) {
+  // Même correctif que pour Google : l'identité vient du token vérifié (ou du
+  // jeton QR à usage unique), jamais d'un user_id brut passé par le client.
+  let authedUser;
+  if (qrToken) {
+    authedUser = await resolveAndConsumeQrToken(qrToken, 'microsoft');
+    if (!authedUser) {
+      return NextResponse.json(
+        { error: 'QR code expiré ou déjà utilisé — génère-en un nouveau depuis Connexions.' },
+        { status: 401 }
+      );
+    }
+  } else if (token) {
+    authedUser = await getAuthedUserFromToken(token);
+    if (!authedUser) {
+      return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
+    }
+  } else {
     return NextResponse.json({ error: 'token manquant' }, { status: 400 });
-  }
-
-  // Même correctif que pour Google : l'identité vient du token vérifié, jamais
-  // d'un user_id brut passé par le client.
-  const authedUser = await getAuthedUserFromToken(token);
-  if (!authedUser) {
-    return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/microsoft/callback`;
