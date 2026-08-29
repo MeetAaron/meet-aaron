@@ -36,18 +36,12 @@ function rtfEscape(text: string): string {
 }
 
 import { classifyBusinessProfileParagraph, splitBusinessProfileParagraphs } from './business-profile-format';
-import type { CompanyKeyStats } from './company-stats';
 
 export interface BusinessProfileDocData {
   companyName: string;
   legalLines: string[];
   bodyText: string; // texte brut du profil (companies.business_summary), paragraphes séparés par des lignes vides
   generatedAtLabel: string;
-  // Statistiques réelles calculées à l'export (lib/company-stats.ts) — null
-  // quand la société n'a encore aucune activité enregistrée. Rendues en
-  // liste texte ici (pas de graphique en RTF, voir lib/business-profile-pdf.ts
-  // pour la version avec un vrai graphique en barres, réservée au PDF).
-  stats?: CompanyKeyStats | null;
 }
 
 export function buildBusinessProfileRtf(data: BusinessProfileDocData): string {
@@ -82,31 +76,6 @@ export function buildBusinessProfileRtf(data: BusinessProfileDocData): string {
       parts.push(`\\pard\\f0\\fs24\\sa200\\cf2\\b ${rtfEscape(classified.label)}\\b0\\cf1 ${rtfEscape(classified.rest)}\\par`);
     } else {
       parts.push(`\\pard\\f0\\fs24\\sa200\\cf1 ${rtfEscape(classified.text)}\\par`);
-    }
-  }
-
-  if (data.stats) {
-    // Section "Statistiques clés" (demande Alex, 29/08/2026) — mêmes
-    // chiffres que l'export PDF, sans le graphique en barres (RTF texte pur,
-    // voir le commentaire d'en-tête de ce fichier sur ce choix de format).
-    parts.push(`\\pard\\f1\\fs30\\sb400\\sa160\\cf2\\b ${rtfEscape('Statistiques clés')}\\b0\\cf1\\par`);
-    const s = data.stats;
-    const statLine = [
-      `${s.prospectsDemarches} prospect${s.prospectsDemarches > 1 ? 's' : ''} démarché${s.prospectsDemarches > 1 ? 's' : ''}`,
-      `${s.clientsConvertis} client${s.clientsConvertis > 1 ? 's' : ''} converti${s.clientsConvertis > 1 ? 's' : ''}`,
-      `${s.tauxConversionRdv}% de taux de conversion en RDV`,
-      s.campagnesMenees > 0
-        ? `${s.campagnesMenees} campagne${s.campagnesMenees > 1 ? 's' : ''} de prospection menée${s.campagnesMenees > 1 ? 's' : ''}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join('   •   ');
-    parts.push(`\\pard\\f0\\fs24\\sa160\\cf1 ${rtfEscape(statLine)}\\par`);
-    if (s.pipelineParEtape.length > 0) {
-      parts.push(`\\pard\\f0\\fs20\\sa80\\cf3\\i ${rtfEscape('Répartition du pipeline commercial :')}\\i0\\cf1\\par`);
-      for (const stage of s.pipelineParEtape) {
-        parts.push(`\\pard\\f0\\fs24\\sa60\\cf1 ${rtfEscape(`– ${stage.label} : ${stage.count}`)}\\par`);
-      }
     }
   }
 
