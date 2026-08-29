@@ -39,6 +39,24 @@ export type BusinessProfileParagraph =
   | { type: 'marker'; label: string; rest: string }
   | { type: 'body'; text: string };
 
+// Aperçu court du profil (titres retirés, espaces normalisés, tronqué avec
+// "…") — utilisé partout où on affiche un extrait plutôt que le document
+// entier : le chat (message de fin de génération) et Mon compte > Mon
+// entreprise (demande Alex, 29/08/2026 : remplacer le pavé de texte brut par
+// un aperçu + bouton "voir le profil complet"). Factorisé ici pour que les
+// deux endroits tronquent exactement de la même façon.
+export const BUSINESS_PROFILE_PREVIEW_LENGTH = 280;
+
+export function buildBusinessProfilePreview(fullText: string, maxLength: number = BUSINESS_PROFILE_PREVIEW_LENGTH): string {
+  if (!fullText) return '';
+  const stripped = fullText
+    .replace(/^##\s+.+$/gm, '') // retire les titres de section markdown
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (stripped.length <= maxLength) return stripped;
+  return `${stripped.slice(0, maxLength).trimEnd()}…`;
+}
+
 export function classifyBusinessProfileParagraph(para: string): BusinessProfileParagraph {
   const headingMatch = para.match(BUSINESS_PROFILE_HEADING_RE);
   if (headingMatch) {
