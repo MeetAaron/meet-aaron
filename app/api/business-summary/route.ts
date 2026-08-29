@@ -161,53 +161,77 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Profil d'entreprise enrichi (demande Alex, 29/08/2026 : "tu es le
+  // meilleur commercial du monde, qu'est-ce qui devrait être dans une fiche
+  // entreprise pour qu'elle soit parfaite ? fais le"). Remplace l'ancien
+  // résumé court (5-9 phrases, un seul paragraphe) par un vrai document
+  // structuré en sections — chaque section a un double usage explicitement
+  // demandé par Alex : (1) c'est le contexte qu'Aaron relit pour prospecter
+  // en connaissant parfaitement la société qu'il représente, (2) c'est aussi
+  // un document que l'utilisateur peut télécharger et utiliser hors Aaron
+  // (CRM, banque, présentation) via l'export Word/PDF existant (voir
+  // app/api/business-summary/export/route.ts). Les 8 sections ci-dessous
+  // reprennent chaque thème du questionnaire de découverte guidé (voir
+  // ONBOARDING_QUESTION_KEYS, app/app/chat/page.jsx) — le modèle reçoit les
+  // questions/réponses en toutes lettres dans qaText et les range lui-même
+  // dans la bonne section, sans clé technique à faire correspondre. Chaque
+  // section est marquée par un titre "## " (voir lib/business-profile-format.ts,
+  // reconnu par les deux exports RTF/PDF pour un vrai rendu en titre) et doit
+  // être OMISE ENTIÈREMENT si aucune information ne permet de la remplir —
+  // jamais de placeholder "non renseigné" ni de généralité inventée pour
+  // combler une section vide (principe déjà en place pour "Légitimité :" et
+  // "Preuve sociale :", étendu ici à l'ensemble du document).
+  //
+  // Génération de graphiques et accès Internet en temps réel pour Aaron :
+  // explicitement hors scope de ce chantier (voir
+  // claude/statut-2026-08-29-chat-doc-typo-profil-entreprise.md, section 9) —
+  // sujets distincts à traiter séparément si Alex les confirme.
   const prompt =
-    `Tu es Aaron, copilote commercial IA. Voici ce qu'un commercial vient de te fournir pour que tu comprennes ` +
-    `mieux son métier :\n\n` +
-    (documentSummaries ? `Documents fournis (déjà résumés) :\n${documentSummaries}\n\n` : '') +
+    `Tu es Aaron, copilote commercial IA, et aussi le meilleur commercial du monde. Un commercial vient de te ` +
+    `fournir des informations sur son entreprise pour que tu rédiges sa "fiche profil d'entreprise" : un document ` +
+    `de référence complet qui te servira à toi (pour le représenter parfaitement en prospection) et à lui-même ` +
+    `(il pourra le télécharger et s'en servir dans son CRM, en banque, en présentation).\n\n` +
+    (documentSummaries ? `Documents fournis par le commercial (déjà résumés) :\n${documentSummaries}\n\n` : '') +
     (qaText ? `Réponses du commercial à un questionnaire de découverte :\n${qaText}\n\n` : '') +
     (description && !qaText ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
-    `Rédige un résumé clair et structuré de l'activité de cette société en 5 à 9 phrases : ce qu'elle vend, ` +
-    `les différents profils/types de clients (s'il y en a plusieurs), le produit ou service phare, l'argument de ` +
-    `vente qui fait le plus mouche, l'objection la plus fréquente et comment la lever, et le type de conclusion à ` +
-    `viser après un premier contact (RDV, devis, essai...). ` +
-    // 2026-08-25 (demande Alex, feedback sur des premiers emails jugés trop
-    // génériques) : si le commercial a donné des éléments concrets de
-    // légitimité/expertise (années d'expérience, certifications/labels,
-    // nombre de clients ou chantiers réalisés, spécialisation précise,
-    // références notables), fais-en une phrase À PART, clairement identifiable
-    // dans le résumé — c'est ce qu'Aaron utilise pour positionner le premier
-    // message comme venant d'un expert reconnu plutôt que d'un commercial
-    // générique (principe d'autorité de Cialdini, voir lib/aaron_system_prompt.md).
-    // N'invente RIEN : si aucun élément concret de ce type n'a été donné,
-    // n'ajoute pas cette phrase plutôt que d'en fabriquer une vague.
-    `Si le commercial a mentionné des éléments concrets prouvant son expérience/expertise/légitimité (années ` +
-    `d'expérience, certifications, nombre de clients ou de réalisations, spécialisation, références notables), ` +
-    `regroupe-les dans une phrase séparée et explicite commençant par "Légitimité :" — sans en inventer si aucun ` +
-    `n'a été fourni. ` +
-    // 2026-08-26 (suite demande Alex du 25/08) : même mécanique que
-    // "Légitimité :" ci-dessus, mais pour la preuve sociale (principe de
-    // Cialdini du même nom) — nourrie par la nouvelle question du
-    // questionnaire de découverte "as-tu un exemple concret de client
-    // satisfait..." (voir chat.onboardingQSocialProof, app/app/chat/page.jsx).
-    // Distincte de "Légitimité :" : la légitimité parle de QUI est le
-    // commercial/la société (expertise, ancienneté), la preuve sociale parle
-    // de CE QUE d'autres clients ont vécu/obtenu concrètement — les deux se
-    // complètent mais ne doivent pas être fusionnées dans la même phrase.
-    `Si le commercial a donné un exemple concret de client satisfait, un résultat chiffré ou une transformation ` +
-    `obtenue par un client (preuve sociale), regroupe cela dans une autre phrase séparée et explicite commençant ` +
-    `par "Preuve sociale :" — sans en inventer si rien de concret n'a été fourni. ` +
-    `Réponds uniquement avec ce résumé, ${localeInstruction(authedUser.locale)}, sans ` +
-    `préambule ni titre.`;
+    `Rédige cette fiche profil d'entreprise sous forme de sections, chacune précédée d'un titre au format ` +
+    `Markdown "## Titre de la section" sur sa propre ligne, suivi d'un paragraphe rédigé en prose (pas de puces). ` +
+    `Utilise autant que possible ces 8 sections, dans cet ordre :\n` +
+    `## Présentation de l'entreprise (secteur d'activité, ce qu'elle fait/vend, en une vue d'ensemble)\n` +
+    `## Clientèle cible (taille des clients visés, un profil homogène ou plusieurs profils distincts, ` +
+    `comportement/caractère de ces clients)\n` +
+    `## Offre phare (le produit ou service phare, en t'appuyant aussi sur les documents fournis type plaquette ` +
+    `ou catalogue si disponibles)\n` +
+    `## Ce qui différencie l'entreprise (par rapport à ses concurrents)\n` +
+    `## Légitimité et preuves concrètes (à l'intérieur de cette section uniquement : si le commercial a donné des ` +
+    `éléments concrets prouvant son expérience/expertise — années d'expérience, certifications, nombre de clients ` +
+    `ou réalisations, spécialisation, références notables — mets-les dans une phrase séparée commençant par ` +
+    `"Légitimité :" ; si le commercial a donné un exemple concret de client satisfait, un résultat chiffré ou une ` +
+    `transformation obtenue par un client, mets-le dans une autre phrase séparée commençant par "Preuve sociale :" ` +
+    `— ce sont deux choses différentes, ne les fusionne pas dans la même phrase)\n` +
+    `## Argumentaire commercial (l'argument de vente qui fait le plus mouche, et l'objection la plus fréquente ` +
+    `avec la manière de la lever)\n` +
+    `## Déclencheurs d'achat (ce qui pousse concrètement un prospect à passer à l'action)\n` +
+    `## Objectif de conversion (le type de conclusion à viser après un premier contact : RDV, devis, essai ` +
+    `gratuit, autre)\n\n` +
+    `RÈGLE ABSOLUE, la plus importante de toutes : n'invente RIEN. Si les informations fournies ne permettent pas ` +
+    `de remplir une section avec un contenu concret et vrai, SUPPRIME CETTE SECTION ENTIÈREMENT (son titre inclus) ` +
+    `plutôt que d'écrire une généralité vague ou un contenu fabriqué pour la remplir. Chaque phrase du document ` +
+    `doit pouvoir être reliée à une information réellement donnée par le commercial. ` +
+    `Réponds uniquement avec ce document, ${localeInstruction(authedUser.locale)}, sans préambule ni titre général ` +
+    `avant la première section "## ".`;
 
   try {
     const data = await callClaude(
       {
         model: 'claude-sonnet-4-6',
-        // Relevé de 400 à 500 (2026-08-26) : le résumé peut maintenant
-        // contenir jusqu'à deux phrases marqueurs supplémentaires
-        // ("Légitimité :" et "Preuve sociale :") en plus du corps principal.
-        max_tokens: 500,
+        // Relevé de 500 à 3500 (29/08/2026, passage au profil d'entreprise
+        // enrichi multi-sections) : jusqu'à 8 sections rédigées en prose,
+        // largement au-delà de l'ancien résumé de 5-9 phrases. La longueur
+        // réelle reste dictée par la richesse des réponses du commercial
+        // (règle "n'invente rien" ci-dessus) — ce plafond est un maximum, pas
+        // un objectif à atteindre.
+        max_tokens: 3500,
         messages: [{ role: 'user', content: prompt }],
       },
       user.company_id
