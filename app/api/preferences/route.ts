@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen')
+    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token')
     .eq('id', userId)
     .single();
 
@@ -32,9 +32,16 @@ export async function GET(request: NextRequest) {
     .eq('id', user.company_id)
     .single();
 
+  const { ics_feed_token, ...userWithoutIcsToken } = user;
+
   return NextResponse.json({
     preferences: {
-      ...user,
+      ...userWithoutIcsToken,
+      // Demande Alex (29/08/2026) : nouvelle étape "Agenda synchronisé" dans
+      // la checklist de mise en route (voir app/app/dashboard/page.jsx) —
+      // signal booléen uniquement, jamais le token brut lui-même (pas
+      // nécessaire côté frontend, et évite de l'exposer sans besoin).
+      ics_link_generated: !!ics_feed_token,
       require_first_email_approval: user.require_first_email_approval ?? false,
       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
       collaboration_level: company?.collaboration_level ?? 0,
