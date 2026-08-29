@@ -1648,7 +1648,25 @@ export default function ChatPage() {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={`bubble ${m.role}`}>
+            // Bug remonté par Alex (29/08/2026) : une sélection à la souris
+            // (clic gauche maintenu, pour copier un morceau de conversation)
+            // ne récupérait que les bulles Aaron, jamais les bulles
+            // utilisateur. Cause : chaque bulle était directement l'enfant
+            // flex de .messages, avec align-self:flex-end/flex-start pour la
+            // pousser à droite/gauche — l'espace vide à côté (ex. toute la
+            // moitié gauche de l'écran à côté d'une bulle utilisateur alignée
+            // à droite) n'appartient à AUCUN élément DOM. Le navigateur
+            // détermine une sélection glissée par la position du curseur, et
+            // sur cet espace vide il "accroche" parfois la ligne voisine au
+            // lieu du texte de la bulle utilisateur, qui saute donc la
+            // sélection. Correctif : chaque bulle est maintenant enveloppée
+            // dans une ligne .msg-row qui occupe TOUTE la largeur (voir CSS
+            // plus bas, justify-content au lieu de align-self) — il y a donc
+            // toujours un élément DOM sous le curseur, à n'importe quelle
+            // position horizontale de cette ligne, ce qui laisse le
+            // navigateur atteindre correctement le texte de la bulle.
+            <div key={i} className={`msg-row ${m.role}`}>
+            <div className={`bubble ${m.role}`}>
               {m.attachment && (
                 <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
               )}
@@ -1740,8 +1758,13 @@ export default function ChatPage() {
                 </button>
               )}
             </div>
+            </div>
           ))}
-          {sending && <div className="bubble assistant typing">{t('chat.aaronThinking', locale)}</div>}
+          {sending && (
+            <div className="msg-row assistant">
+              <div className="bubble assistant typing">{t('chat.aaronThinking', locale)}</div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 
@@ -2032,6 +2055,22 @@ export default function ChatPage() {
           text-align: center;
           margin-top: 2rem;
         }
+        /* .msg-row (bug sélection souris, voir commentaire JSX au-dessus) :
+           occupe toute la largeur de .messages, avec justify-content pour
+           pousser la bulle à droite (user) ou à gauche (assistant) — remplace
+           l'ancien align-self posé directement sur .bubble, qui laissait la
+           moitié de l'écran sans aucun élément DOM (donc pas de cible pour
+           une sélection glissée) à côté de chaque bulle. */
+        .msg-row {
+          display: flex;
+          width: 100%;
+        }
+        .msg-row.user {
+          justify-content: flex-end;
+        }
+        .msg-row.assistant {
+          justify-content: flex-start;
+        }
         .bubble {
           max-width: 70%;
           padding: 0.7rem 1rem;
@@ -2042,14 +2081,12 @@ export default function ChatPage() {
           overflow-wrap: break-word;
         }
         .bubble.user {
-          align-self: flex-end;
           background: var(--accent);
           color: white;
           border-bottom-right-radius: 4px;
         }
         .bubble.assistant {
           position: relative;
-          align-self: flex-start;
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
