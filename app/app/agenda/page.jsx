@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 import QRCode from 'qrcode';
 
 function useAuthedUser() {
@@ -1527,16 +1528,16 @@ function AppointmentDetailModal({ appointment, onClose }) {
             <p className="error">{briefError}</p>
           ) : brief ? (
             <div className="brief-box">
-              <p><strong>{t('agenda.briefSummaryLabel', locale)}</strong> {brief.resume_historique}</p>
-              {brief.profil_personnalite && <p><strong>{t('agenda.briefPersonalityLabel', locale)}</strong> {brief.profil_personnalite}</p>}
+              <p><strong>{t('agenda.briefSummaryLabel', locale)}</strong> {frenchTypography(brief.resume_historique)}</p>
+              {brief.profil_personnalite && <p><strong>{t('agenda.briefPersonalityLabel', locale)}</strong> {frenchTypography(brief.profil_personnalite)}</p>}
               {brief.objections_deja_soulevees?.length > 0 && (
-                <p><strong>{t('agenda.briefObjectionsLabel', locale)}</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+                <p><strong>{t('agenda.briefObjectionsLabel', locale)}</strong> {frenchTypography(brief.objections_deja_soulevees.join(' · '))}</p>
               )}
-              {brief.info_entreprise && <p><strong>{t('agenda.briefCompanyLabel', locale)}</strong> {brief.info_entreprise}</p>}
-              <p><strong>{t('agenda.briefApproachLabel', locale)}</strong> {brief.angle_approche_suggere}</p>
+              {brief.info_entreprise && <p><strong>{t('agenda.briefCompanyLabel', locale)}</strong> {frenchTypography(brief.info_entreprise)}</p>}
+              <p><strong>{t('agenda.briefApproachLabel', locale)}</strong> {frenchTypography(brief.angle_approche_suggere)}</p>
               {brief.points_attention?.length > 0 && (
                 <ul>
-                  {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
+                  {brief.points_attention.map((point, i) => <li key={i}>{frenchTypography(point)}</li>)}
                 </ul>
               )}
               <button type="button" className="btn-secondary regen-btn" onClick={() => loadBrief(true)}>
