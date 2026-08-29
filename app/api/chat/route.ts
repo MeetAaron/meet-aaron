@@ -59,7 +59,17 @@ tour.
 Lien public à mentionner dans les emails de prospection (voir aussi la note "Lien public" dans ton contexte plus bas) : tu
 n'as AUCUN outil pour le modifier depuis ce chat. Si le commercial te demande de l'ajouter/le changer, explique-lui
 clairement qu'il doit le faire lui-même dans Mon compte > Connexions — ne dis jamais que tu l'as "intégré" ou "mis" si tu
-n'as en réalité rien pu faire.`;
+n'as en réalité rien pu faire.
+
+Recherche web (demande Alex, 29/08/2026) : tu as un outil de recherche Internet en direct. Utilise-le de toi-même,
+SANS attendre qu'on te le demande, dès que ça rendrait ta réponse plus utile ou plus à jour — typiques : en savoir plus
+sur l'entreprise ou le secteur d'un prospect précis avant un RDV, vérifier une actualité récente d'un secteur, ou
+enrichir ta connaissance d'un sujet que le profil d'entreprise du commercial (voir ci-dessous) ne couvre pas entièrement.
+Le profil d'entreprise reste la source à privilégier pour tout ce qui concerne LE COMMERCIAL LUI-MÊME (son activité, son
+offre, ses clients) — ne le contredis jamais avec une recherche web, les deux sont complémentaires : le profil dit qui
+il est, Internet t'aide à mieux comprendre le monde autour de lui (ses prospects, son marché). Reste concis sur les
+résultats de recherche : résume ce qui est utile, ne recopie pas de longs extraits, et ne fais pas de recherche pour une
+question dont tu connais déjà la réponse avec certitude ou qui ne porte pas sur une info vérifiable/récente.`;
 
 const STATUS_LABELS: Record<string, string> = {
   vert: 'en bonne voie',
@@ -195,6 +205,27 @@ const CHAT_TOOLS = [
     },
   },
 ];
+
+// Recherche web en direct pour Aaron (demande Alex, 29/08/2026 : "il peut
+// utiliser cette fiche profil d'entreprise ainsi qu'internet pour maîtriser
+// parfaitement un sujet") — outil NATIF Anthropic ("server tool") : contrairement
+// à CHAT_TOOLS ci-dessus, Aaron ne nous demande jamais de l'exécuter (pas de
+// tool_use à traiter dans la boucle plus bas, pas de cas dans executeTool) —
+// Anthropic effectue la recherche lui-même côté serveur et renvoie directement
+// le texte final. Séparé de CHAT_TOOLS pour que ce soit visible d'un coup d'œil
+// que ce n'est pas un outil comme les autres.
+// - max_uses borne le nombre de recherches sur UN SEUL tour de conversation
+//   (protection anti-dérapage de coût/latence, indépendante du plafond de
+//   dépense mensuel/quotidien — voir lib/anthropic-client.ts).
+// - Coût : 10 $ / 1000 recherches EN PLUS des tokens habituels, facturé par
+//   Anthropic — intégralement pris en compte dans le plafond de dépense de la
+//   société (voir WEB_SEARCH_COST_PER_SEARCH_USD, lib/anthropic-client.ts) au
+//   même titre que le coût des tokens, pas un budget à part.
+const CHAT_WEB_SEARCH_TOOL = {
+  type: 'web_search_20250305',
+  name: 'web_search',
+  max_uses: 5,
+};
 
 async function runRechercheProspects(userId: string, query: string) {
   const { data: prospects, error } = await supabaseAdmin
@@ -598,7 +629,7 @@ export async function POST(request: NextRequest) {
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
           system: systemBlocks,
-          tools: CHAT_TOOLS,
+          tools: [...CHAT_TOOLS, CHAT_WEB_SEARCH_TOOL],
           messages,
         },
         user?.company_id || null
@@ -644,7 +675,7 @@ export async function POST(request: NextRequest) {
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
           system: systemBlocks,
-          tools: CHAT_TOOLS,
+          tools: [...CHAT_TOOLS, CHAT_WEB_SEARCH_TOOL],
           messages,
         },
         user?.company_id || null
@@ -675,7 +706,16 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const textBlock = data.content.find((b: any) => b.type === 'text');
+  // Dernier bloc "text" plutôt que le premier (changement du 29/08/2026, ajout
+  // de CHAT_WEB_SEARCH_TOOL ci-dessus) : quand Aaron fait une recherche web, la
+  // réponse peut contenir PLUSIEURS blocs "text" entrecoupés de blocs
+  // server_tool_use/web_search_tool_result (ex: un texte intermédiaire avant de
+  // relancer une recherche, puis le texte final) — prendre le premier renverrait
+  // un texte tronqué/prématuré au commercial. Sans recherche web, il n'y a
+  // normalement qu'un seul bloc "text" : ce changement ne modifie rien pour ce
+  // cas, qui reste le plus courant.
+  const textBlocks = data.content.filter((b: any) => b.type === 'text');
+  const textBlock = textBlocks[textBlocks.length - 1];
   // Filet de sécurité : si la limite de tours d'outils a été atteinte sans que le
   // modèle ait produit de texte final, on répond quand même quelque chose de
   // sensé plutôt qu'une bulle vide dans le chat.
