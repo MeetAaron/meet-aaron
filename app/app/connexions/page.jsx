@@ -8,6 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
+import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import PushNotificationManager from '@/components/PushNotificationManager';
 import QRCode from 'qrcode';
 
@@ -1561,39 +1562,38 @@ export default function ConnexionsPage() {
             <div className="company-section">
               <div className="header-row">
                 <h3 className="company-section-title">{t('preferences.businessProfileLabel', locale)}</h3>
-                <button type="button" className="expand-btn" onClick={() => setSummaryExpanded(true)} title={t('preferences.businessProfileExpandButton', locale)}>
-                  ⤢ {t('preferences.businessProfileExpandButton', locale)}
-                </button>
               </div>
-              <textarea
-                rows={12}
-                value={businessSummary}
-                onChange={(e) => {
-                  setBusinessSummary(e.target.value);
-                  setSummaryDirty(true);
-                }}
-                placeholder={t('preferences.businessProfilePlaceholder', locale)}
-              />
+
+              {/* Redesign (demande Alex, 29/08/2026 : "lorsqu'on est dans
+                  'mon entreprise' tu peux supprimer cette zone de texte. A
+                  la place, on peut voir un aperçu du doc. Avec un bouton
+                  'voir le profil complet' et quand on clique dessus ça
+                  agrandit le doc pour qu'on le voit.") : l'ancien
+                  <textarea rows={12}> éditable inline est remplacé par un
+                  aperçu en lecture seule (buildBusinessProfilePreview, même
+                  logique que la bulle de fin de génération dans le chat) —
+                  l'édition complète reste possible via BusinessSummaryExpandModal
+                  ("Voir le profil complet" ci-dessous), qui partage le même
+                  state businessSummary et le même handler d'enregistrement. */}
+              {businessSummary ? (
+                <p className="profile-preview-text">{buildBusinessProfilePreview(businessSummary)}</p>
+              ) : (
+                <p className="profile-empty-text">{t('preferences.businessProfilePlaceholder', locale)}</p>
+              )}
+
               <div className="actions">
-                <button className="btn-secondary" onClick={handleSaveSummary} disabled={savingSummary}>
-                  {savingSummary ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
+                <button type="button" className="btn-secondary" onClick={() => setSummaryExpanded(true)}>
+                  {t('preferences.viewFullProfileButton', locale)}
                 </button>
-                {summarySaved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
+                <BusinessProfileDownloadButton locale={locale} onExport={handleExportSummary} exportingFormat={exportingFormat} />
                 <Link href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
                   {t('preferences.retakeQuestionnaireButton', locale)}
                 </Link>
               </div>
 
-              {/* Export Word/PDF "à tout moment" + import d'une version
-                  modifiée (demande Alex, 27/08/2026) — voir
-                  app/api/business-summary/export et .../import. */}
+              {/* Import d'une version modifiée (demande Alex, 27/08/2026) —
+                  voir app/api/business-summary/import. */}
               <div className="profile-io-row">
-                <button type="button" className="btn-secondary" onClick={() => handleExportSummary('word')} disabled={exportingFormat !== null}>
-                  {exportingFormat === 'word' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportWordButton', locale)}
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => handleExportSummary('pdf')} disabled={exportingFormat !== null}>
-                  {exportingFormat === 'pdf' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportPdfButton', locale)}
-                </button>
                 <button type="button" className="btn-secondary" onClick={() => importFileInputRef.current?.click()} disabled={importUploading}>
                   {importUploading ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileImportButton', locale)}
                 </button>
@@ -1632,6 +1632,17 @@ export default function ConnexionsPage() {
                   <p>{analyzeChangeNote}</p>
                 </div>
               )}
+
+              {/* Historique des 5 derniers profils (demande Alex, 29/08/2026)
+                  — voir BusinessProfileHistory plus bas dans ce fichier. */}
+              <BusinessProfileHistory
+                locale={locale}
+                userId={userId}
+                onActivated={(newSummary) => {
+                  setBusinessSummary(newSummary);
+                  setSummaryDirty(false);
+                }}
+              />
             </div>
           )}
 
@@ -3068,6 +3079,29 @@ export default function ConnexionsPage() {
           border-top: 1px solid var(--border-soft);
           flex-wrap: wrap;
         }
+        /* Aperçu du profil (remplace le <textarea rows={12}> éditable
+           inline, demande Alex 29/08/2026 — voir le commentaire au-dessus du
+           JSX correspondant). */
+        .profile-preview-text {
+          margin: 0;
+          padding: 0.9rem 1rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--text);
+          font-size: 0.88rem;
+          line-height: 1.55;
+        }
+        .profile-empty-text {
+          margin: 0;
+          padding: 0.9rem 1rem;
+          background: var(--bg);
+          border: 1px dashed var(--border);
+          border-radius: var(--radius-sm);
+          color: var(--muted);
+          font-size: 0.86rem;
+          line-height: 1.5;
+        }
         .pending-import-banner {
           margin-top: 1rem;
           padding: 0.9rem 1rem;
@@ -3653,14 +3687,217 @@ function extractCustomCrmJson(text) {
   }
 }
 
+// Bouton "Télécharger" unique avec choix du format (demande Alex,
+// 29/08/2026 : "un seul bouton telecharger. puis ensuite il y aura la
+// proposition 'en pdf' ou 'en word'" — remplace les deux boutons distincts
+// affichés côte à côte jusqu'ici). Réutilisé dans le panneau inline "Mon
+// entreprise" et dans BusinessSummaryExpandModal ci-dessous : même
+// comportement partout, un seul endroit à maintenir.
+function BusinessProfileDownloadButton({ locale, onExport, exportingFormat }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div className="download-menu-wrap">
+      <button
+        type="button"
+        className="btn-secondary"
+        onClick={() => setMenuOpen((v) => !v)}
+        disabled={exportingFormat !== null}
+      >
+        {exportingFormat ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileDownloadButton', locale)}
+      </button>
+      {menuOpen && (
+        <div className="download-menu">
+          <button type="button" onClick={() => { setMenuOpen(false); onExport('word'); }}>
+            {t('preferences.businessProfileDownloadWordOption', locale)}
+          </button>
+          <button type="button" onClick={() => { setMenuOpen(false); onExport('pdf'); }}>
+            {t('preferences.businessProfileDownloadPdfOption', locale)}
+          </button>
+        </div>
+      )}
+      <style jsx>{`
+        .download-menu-wrap {
+          position: relative;
+          display: inline-block;
+        }
+        .download-menu {
+          position: absolute;
+          top: calc(100% + 0.3rem);
+          left: 0;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+          z-index: 10;
+          min-width: 140px;
+          overflow: hidden;
+        }
+        .download-menu button {
+          display: block;
+          width: 100%;
+          text-align: left;
+          padding: 0.55rem 0.8rem;
+          background: transparent;
+          border: none;
+          color: var(--text);
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .download-menu button:hover {
+          background: var(--bg);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Historique des 5 derniers profils d'entreprise (demande Alex, 29/08/2026,
+// voir le commentaire sur backupThenReplaceBusinessSummary dans
+// lib/business-summary-store.ts) : protège contre une "gaffe" (ex: relancer
+// le questionnaire de découverte par erreur) en gardant les versions
+// précédentes consultables et réactivables. N'affiche rien tant qu'il n'y a
+// pas encore eu de remplacement (versions.length === 0) — pas la peine
+// d'annoncer un historique vide à un utilisateur qui n'a généré son profil
+// qu'une seule fois.
+function BusinessProfileHistory({ locale, userId, onActivated }) {
+  const [versions, setVersions] = useState(null); // null = pas encore chargé
+  const [error, setError] = useState(null);
+  const [activatingId, setActivatingId] = useState(null);
+  const [activatedMsg, setActivatedMsg] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(`/api/business-summary/versions?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (!cancelled) setVersions(Array.isArray(res.versions) ? res.versions : []);
+      })
+      .catch(() => {
+        if (!cancelled) setError(t('preferences.businessProfileHistoryError', locale));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, reloadTick]);
+
+  async function handleActivate(versionId) {
+    setActivatingId(versionId);
+    setError(null);
+    try {
+      const res = await fetch('/api/business-summary/versions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, version_id: versionId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error || t('preferences.businessProfileHistoryError', locale));
+        return;
+      }
+      onActivated(body.summary);
+      setActivatedMsg(true);
+      setTimeout(() => setActivatedMsg(false), 2500);
+      setReloadTick((n) => n + 1);
+    } catch {
+      setError(t('preferences.businessProfileHistoryError', locale));
+    } finally {
+      setActivatingId(null);
+    }
+  }
+
+  if (!versions || versions.length === 0) return null;
+
+  return (
+    <div className="profile-history">
+      <h4 className="profile-history-title">{t('preferences.businessProfileHistoryTitle', locale)}</h4>
+      {error && <p className="crm-error">{error}</p>}
+      {activatedMsg && <span className="saved-msg">{t('preferences.businessProfileHistoryUsedMsg', locale)}</span>}
+      <ul className="profile-history-list">
+        {versions.map((v) => (
+          <li key={v.id} className="profile-history-item">
+            <div className="profile-history-meta">
+              <span className="profile-history-date">
+                {new Date(v.createdAt).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-US', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+              <span className="profile-history-preview">{v.preview}</span>
+            </div>
+            <button type="button" className="btn-secondary" onClick={() => handleActivate(v.id)} disabled={activatingId !== null}>
+              {activatingId === v.id ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileHistoryUseButton', locale)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <style jsx>{`
+        .profile-history {
+          margin-top: 1.2rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border-soft);
+        }
+        .profile-history-title {
+          margin: 0 0 0.6rem;
+          font-size: 0.85rem;
+          color: var(--muted);
+          font-weight: 600;
+        }
+        .profile-history-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .profile-history-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+          padding: 0.6rem 0.8rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          flex-wrap: wrap;
+        }
+        .profile-history-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          min-width: 0;
+        }
+        .profile-history-date {
+          font-size: 0.78rem;
+          color: var(--muted);
+        }
+        .profile-history-preview {
+          font-size: 0.82rem;
+          color: var(--text);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 340px;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // Demande Alex (27/08/2026) : le résumé d'activité (business_summary,
 // généré par le questionnaire de découverte) peut faire plusieurs
-// paragraphes — trop long pour le <textarea rows={12}> affiché inline dans
-// l'onglet "Mon entreprise". Cette modale plein écran permet de relire/
-// éditer le texte en entier sans avoir à scroller dans une petite zone.
-// Édite le même state (value/onChange) que le textarea inline — les deux
-// vues restent donc toujours synchronisées, et "Enregistrer" ici déclenche
-// exactement le même handler (onSave = handleSaveSummary du parent).
+// paragraphes — trop long pour l'aperçu affiché inline dans l'onglet "Mon
+// entreprise". Cette modale plein écran permet de relire/éditer le texte en
+// entier sans avoir à scroller dans une petite zone. Édite le même state
+// (value/onChange) que le parent — les deux vues restent donc toujours
+// synchronisées, et "Enregistrer" ici déclenche exactement le même handler
+// (onSave = handleSaveSummary du parent).
 function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, saving, saved, onExport, exportingFormat }) {
   return (
     <div className="summary-expand-overlay" onClick={onClose}>
@@ -3678,16 +3915,11 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
         />
         <div className="summary-expand-actions">
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
-          {onExport && (
-            <>
-              <button type="button" className="btn-secondary" onClick={() => onExport('word')} disabled={exportingFormat !== null}>
-                {exportingFormat === 'word' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportWordButton', locale)}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => onExport('pdf')} disabled={exportingFormat !== null}>
-                {exportingFormat === 'pdf' ? t('preferences.savingEllipsis', locale) : t('preferences.businessProfileExportPdfButton', locale)}
-              </button>
-            </>
-          )}
+          {/* Bouton "Télécharger" unique (demande Alex, 29/08/2026 : "un seul
+              bouton telecharger. puis ensuite il y aura la proposition 'en
+              pdf' ou 'en word'") — remplace les deux boutons distincts
+              affichés jusqu'ici, ici comme dans le panneau "Mon entreprise". */}
+          {onExport && <BusinessProfileDownloadButton locale={locale} onExport={onExport} exportingFormat={exportingFormat} />}
           <button type="button" className="btn-primary" onClick={onSave} disabled={saving}>
             {saving ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
           </button>
