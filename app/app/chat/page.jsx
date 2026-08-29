@@ -8,6 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { frenchTypography } from '@/lib/text-typography';
+import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -1188,16 +1189,10 @@ export default function ChatPage() {
   // cette fonction construit un court aperçu en prose (titres retirés, texte
   // tronqué) pour la bulle, le document complet restant consultable via le
   // bouton "Voir le profil de l'entreprise" (Mon compte > Mon entreprise).
-  const SUMMARY_PREVIEW_LENGTH = 280;
-  function buildSummaryPreview(fullText) {
-    if (!fullText) return '';
-    const stripped = fullText
-      .replace(/^##\s+.+$/gm, '') // retire les titres de section markdown
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (stripped.length <= SUMMARY_PREVIEW_LENGTH) return stripped;
-    return `${stripped.slice(0, SUMMARY_PREVIEW_LENGTH).trimEnd()}…`;
-  }
+  // buildBusinessProfilePreview vit maintenant dans lib/business-profile-format.ts
+  // (factorisé le 29/08/2026 pour être réutilisé aussi dans Mon compte > Mon
+  // entreprise, voir app/app/connexions/page.jsx) — comportement inchangé.
+  const buildSummaryPreview = buildBusinessProfilePreview;
 
   async function handleGenerateSummary() {
     if (summarizing) return;
@@ -1773,6 +1768,11 @@ export default function ChatPage() {
             <button type="button" className="btn-secondary" onClick={handleGenerateSummary} disabled={summarizing}>
               {summarizing ? t('chat.generatingSummary', locale) : t('chat.generateSummaryButton', locale)}
             </button>
+            {/* Demande Alex (29/08/2026) : la génération prend 1-2 minutes
+                (document long, plusieurs sections) — sans indication, on
+                dirait que le bouton est resté bloqué. Rassure l'utilisateur
+                plutôt que de le laisser deviner. */}
+            {summarizing && <span className="welcome-actions-hint">{t('chat.generatingSummaryHint', locale)}</span>}
           </div>
         )}
 
@@ -2158,6 +2158,11 @@ export default function ChatPage() {
           flex-wrap: wrap;
           gap: 0.6rem;
           padding: 0 1rem 1rem;
+        }
+        .welcome-actions-hint {
+          flex-basis: 100%;
+          color: var(--muted);
+          font-size: 0.82rem;
         }
         .btn-tour {
           text-decoration: none;
