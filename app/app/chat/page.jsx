@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -738,13 +739,32 @@ export default function ChatPage() {
   // Dépôt de document dans le chat (demande d'Alex, 22/08/2026) : pendingDocument
   // contient les métadonnées du document déjà uploadé (voir
   // app/api/chat/document/route.ts) mais pas encore sauvegardé dans "Mes
-  // documents" — renvoyé à chaque appel /api/chat tant qu'il reste affiché en
-  // chip au-dessus du champ de saisie (voir handleSend). Il disparaît soit
-  // parce qu'Aaron l'a sauvegardé (data.document_saved, voir handleSend), soit
-  // parce que le commercial le retire lui-même via le ✕ du chip.
+  // documents" — renvoyé à chaque appel /api/chat tant qu'il reste "joint",
+  // pour qu'Aaron continue d'avoir accès à son contenu sur plusieurs tours
+  // (ex: le temps qu'il demande confirmation de sauvegarde). Il disparaît
+  // uniquement quand Aaron l'a sauvegardé (data.document_saved, voir
+  // handleSend) ou quand le commercial le retire lui-même via le ✕ du chip.
+  //
+  // Bug remonté par Alex (29/08/2026) : une fois le document envoyé dans un
+  // message (visible dans la bulle, voir bubble-attachment plus bas), le chip
+  // flottant au-dessus du champ de saisie restait affiché tel quel — donnant
+  // l'impression que le document n'avait pas été envoyé (comme sur
+  // Claude.ai/ChatGPT, où le fichier "part" dans la conversation et
+  // disparaît de la zone de saisie). `pendingDocumentAlreadyInChat` (calculé
+  // plus bas, avant le rendu) détecte que ce document apparaît déjà dans un
+  // message envoyé et cache alors le chip flottant — le document continue
+  // néanmoins d'être transmis à Aaron en arrière-plan tant qu'il n'est pas
+  // sauvegardé/retiré, seul l'affichage change.
   const [pendingDocument, setPendingDocument] = useState(null);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [attachError, setAttachError] = useState(null);
+  // Demande Alex (29/08/2026) : une fois qu'Aaron a posé (une fois) la
+  // question "tu veux que je sauvegarde ce document ?", on affiche 2 boutons
+  // de réponse rapide (Oui/Non) sous SA réponse plutôt que de forcer le
+  // commercial à taper "oui"/"non" — voir le bloc offerSaveDocument dans
+  // handleSend. Remis à false à chaque nouveau document joint (voir
+  // handleFileSelected) pour pouvoir reproposer les boutons sur le suivant.
+  const [docSaveAsked, setDocSaveAsked] = useState(false);
   // Filet de sécurité sur l'appel /api/chat (l'appel principal, hors
   // questionnaire de découverte) : avant, aucun try/catch ici — une erreur
   // réseau ou un 500 sans JSON valide faisait planter handleSend en plein
@@ -1203,6 +1223,7 @@ export default function ChatPage() {
         return;
       }
       setPendingDocument(body.document);
+      setDocSaveAsked(false); // nouveau document -> on peut reproposer les boutons Oui/Non
     } catch {
       setAttachError(t('chat.attachError', locale));
     } finally {
@@ -1210,10 +1231,27 @@ export default function ChatPage() {
     }
   }
 
-  async function handleSend(e) {
-    e.preventDefault();
-    if (!input.trim() || sending) return;
+  // Demande Alex (29/08/2026) : refactor pour accepter un texte "en dur"
+  // (overrideText) en plus du contenu du champ de saisie — utilisé par les
+  // boutons de réponse rapide Oui/Non (voir plus bas) qui envoient
+  // directement une réponse sans passer par le <textarea>, contrairement aux
+  // "chips" de suggestion du questionnaire d'onboarding qui ne font eux que
+  // PRÉ-REMPLIR le champ (voir suggestion-chip plus haut, comportement
+  // inchangé).
+  async function handleSend(e, overrideText) {
+    if (e?.preventDefault) e.preventDefault();
+    const rawText = overrideText !== undefined ? overrideText : input;
+    // Bug remonté par Alex (29/08/2026) : impossible d'envoyer un document
+    // seul, sans texte — le bouton "Envoyer" restait grisé et cette garde
+    // bloquait l'envoi tant que le champ était vide, même avec un document
+    // joint. Un document joint suffit désormais à autoriser l'envoi (voir
+    // aussi btn-send plus bas, même condition).
+    if ((!rawText.trim() && !pendingDocument) || sending) return;
     setSendError(null);
+
+    // Texte de repli quand on envoie un document seul, sans rien écrire —
+    // voir chat.attachOnlyMessage (lib/i18n.js).
+    const messageContent = rawText.trim() || t('chat.attachOnlyMessage', locale);
 
     // UX pièce jointe (demande Alex, 27/08/2026, façon ChatGPT/Claude) : le
     // fichier joint s'affiche désormais comme un repère DANS la bulle de
@@ -1227,7 +1265,7 @@ export default function ChatPage() {
     // tour-ci, pour l'afficher dans sa bulle d'historique.
     const userMessage = {
       role: 'user',
-      content: input,
+      content: messageContent,
       ...(pendingDocument ? { attachment: { file_name: pendingDocument.file_name } } : {}),
     };
     const newMessages = [...messages, userMessage];
@@ -1350,8 +1388,27 @@ export default function ChatPage() {
       // confirme déjà l'action au commercial.
       if (data.document_saved) setPendingDocument(null);
 
+      // Boutons de réponse rapide Oui/Non (demande Alex, 29/08/2026) : un
+      // document reste joint et Aaron ne vient pas de le sauvegarder dans CE
+      // tour -> c'est très probablement le tour où il pose sa question "tu
+      // veux que je le sauvegarde ?" (il ne la pose qu'une fois par document,
+      // voir CHAT_SYSTEM_PROMPT côté serveur). On ne propose les boutons
+      // qu'une seule fois par document (docSaveAsked) pour ne pas les
+      // réafficher sur tous les tours suivants tant que le document reste
+      // attaché en arrière-plan.
+      const offerSaveDocument = !!pendingDocument && !data.document_saved && !docSaveAsked;
+      if (offerSaveDocument) setDocSaveAsked(true);
+
+      // Demande Alex (29/08/2026, "il manque un bouton je confirme") : même
+      // principe pour l'ajout au profil d'entreprise — voir l'outil
+      // proposer_ajout_profil (app/api/chat/route.ts), appelé par Aaron au
+      // moment où IL PROPOSE l'ajout (pas quand il l'exécute). Un signal
+      // explicite du serveur, pas une déduction du texte — fiable même si
+      // Aaron reformule sa question différemment d'une fois sur l'autre.
+      const profileProposal = data.profile_update_proposal || null;
+
       if (data.reply) {
-        setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+        setMessages([...newMessages, { role: 'assistant', content: data.reply, offerSaveDocument, profileProposal }]);
       } else {
         setSendError(t('chat.sendError', locale));
       }
@@ -1469,6 +1526,12 @@ export default function ChatPage() {
     );
   }
 
+  // Voir le commentaire sur pendingDocument plus haut : un document déjà
+  // visible dans un message envoyé (bulle) n'a plus besoin d'être répété
+  // comme chip flottant au-dessus du champ de saisie.
+  const pendingDocumentAlreadyInChat =
+    !!pendingDocument && messages.some((m) => m.role === 'user' && m.attachment?.file_name === pendingDocument.file_name);
+
   return (
     <Shell active={t('nav.chat', locale)} userId={userId}>
       <header className="header">
@@ -1547,7 +1610,59 @@ export default function ChatPage() {
               {m.attachment && (
                 <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
               )}
-              {m.content}
+              {/* Typographie (demande Alex, 29/08/2026, capture à l'appui) :
+                  seuls les textes GÉNÉRÉS PAR AARON passent par
+                  frenchTypography (espace insécable avant : ; ! ?, pour
+                  éviter la ponctuation orpheline en début de ligne) — jamais
+                  le texte tapé par le commercial lui-même, qu'on affiche tel
+                  quel. Voir lib/text-typography.js. */}
+              {m.role === 'assistant' ? frenchTypography(m.content) : m.content}
+              {/* Boutons de réponse rapide Oui/Non (demande Alex, 29/08/2026) :
+                  affichés uniquement sous le dernier message, quand Aaron
+                  vient de proposer de sauvegarder le document joint — un clic
+                  envoie directement la réponse, sans repasser par le champ de
+                  saisie (contrairement aux chips de suggestion de l'onboarding,
+                  qui ne font que pré-remplir le champ). */}
+              {m.offerSaveDocument && i === messages.length - 1 && !sending && (
+                <div className="quick-replies">
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-yes"
+                    onClick={() => handleSend(null, 'Oui, sauvegarde-le.')}
+                  >
+                    {t('chat.quickReplySaveYes', locale)}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-no"
+                    onClick={() => handleSend(null, "Non, ce n'est pas nécessaire.")}
+                  >
+                    {t('chat.quickReplySaveNo', locale)}
+                  </button>
+                </div>
+              )}
+              {/* Boutons de réponse rapide Confirmer/Annuler (demande Alex,
+                  29/08/2026, "il manque un bouton je confirme") — pour la
+                  proposition d'ajout au profil d'entreprise (voir
+                  proposer_ajout_profil côté serveur). */}
+              {m.profileProposal && i === messages.length - 1 && !sending && (
+                <div className="quick-replies">
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-yes"
+                    onClick={() => handleSend(null, 'Oui, je confirme, ajoute-le à mon profil.')}
+                  >
+                    {t('chat.quickReplyProfileYes', locale)}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-no"
+                    onClick={() => handleSend(null, 'Non, laisse tomber.')}
+                  >
+                    {t('chat.quickReplyProfileNo', locale)}
+                  </button>
+                </div>
+              )}
               {/* Haut-parleur (demande Alex, docx "Modifs Aaron") : sur tous
                   les messages d'Aaron — pas seulement pendant la création du
                   profil, où c'était explicitement demandé, mais aussi dans
@@ -1578,10 +1693,19 @@ export default function ChatPage() {
           </div>
         )}
 
-        {(pendingDocument || uploadingDocument || attachError || sendError) && (
+        {/* Bug remonté par Alex (29/08/2026) : ce chip restait affiché même
+            APRÈS l'envoi du document dans un message (déjà visible dans sa
+            bulle, voir bubble-attachment) — donnant l'impression qu'il
+            n'était pas parti. pendingDocumentAlreadyInChat détecte ce cas
+            (le document apparaît déjà dans un message envoyé) et cache alors
+            ce chip flottant, comme sur Claude.ai/ChatGPT une fois le fichier
+            envoyé. Il continue néanmoins d'être transmis à Aaron en
+            arrière-plan (voir pendingDocument plus haut) tant qu'il n'est
+            pas sauvegardé/retiré — seul l'affichage change. */}
+        {((pendingDocument && !pendingDocumentAlreadyInChat) || uploadingDocument || attachError || sendError) && (
           <div className="attach-row">
             {uploadingDocument && <span className="attach-chip attach-loading">{t('chat.attachUploading', locale)}</span>}
-            {pendingDocument && !uploadingDocument && (
+            {pendingDocument && !uploadingDocument && !pendingDocumentAlreadyInChat && (
               <span className="attach-chip">
                 📎 {pendingDocument.file_name}
                 <button
@@ -1653,7 +1777,10 @@ export default function ChatPage() {
             placeholder={t('chat.inputPlaceholder', locale)}
             disabled={sending}
           />
-          <button type="submit" className="btn-send" disabled={sending || !input.trim()}>
+          {/* Bug remonté par Alex (29/08/2026) : un document seul, sans texte,
+              devait pouvoir être envoyé (bouton grisé sinon) — voir la même
+              condition sur la garde en tête de handleSend. */}
+          <button type="submit" className="btn-send" disabled={sending || (!input.trim() && !pendingDocument)}>
             {t('chat.send', locale)}
           </button>
         </form>
@@ -1907,6 +2034,28 @@ export default function ChatPage() {
         .bubble.assistant .bubble-attachment {
           border-bottom-color: var(--border);
         }
+        .quick-replies {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 0.7rem;
+        }
+        .quick-reply-btn {
+          border-radius: var(--radius-sm);
+          padding: 0.45rem 0.9rem;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1px solid var(--border);
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--text);
+        }
+        .quick-reply-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+        .quick-reply-yes {
+          border-color: var(--accent);
+        }
         .welcome-actions {
           display: flex;
           flex-wrap: wrap;
@@ -2011,13 +2160,26 @@ export default function ChatPage() {
           text-align: center;
           margin-top: 0.8rem;
         }
+        /* Bug remonté par Alex (29/08/2026) : ce lien ("Voir comment
+           fonctionne l'appli") était un simple texte souligné discret
+           (couleur --muted, petite taille) — pas assez visible pour qu'on
+           comprenne qu'on peut cliquer dessus. Repris avec le même habillage
+           que .btn-secondary (bordure, fond au survol) pour qu'il se
+           reconnaisse clairement comme un bouton, tout en restant un <Link>
+           (navigation, pas d'action JS). */
         .tour-link {
-          color: var(--muted);
+          display: inline-block;
+          color: var(--text);
           font-size: 0.82rem;
-          text-decoration: underline;
+          font-weight: 600;
+          text-decoration: none;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 1rem;
         }
         .tour-link:hover {
-          color: var(--text);
+          background: rgba(255, 255, 255, 0.06);
+          border-color: var(--accent);
         }
         .attach-row {
           display: flex;
