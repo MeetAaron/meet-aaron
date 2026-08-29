@@ -10,31 +10,16 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
-
 // Filet de sécurité (demande Alex, 29/08/2026, suite à la perte du résumé du
-// compte "Open X") : business_summary est ici entièrement REMPLACÉ (pas
-// complété comme l'ajout via le chat, voir runMettreAJourProfilEntreprise
-// dans app/api/chat/route.ts) — avant chaque remplacement complet (POST
-// régénération ou PATCH correction manuelle), on copie l'ancienne valeur
-// dans business_summary_backup pour pouvoir la restaurer en cas d'erreur ou
-// de test malencontreux. Voir migration_business_summary_backup_2026-08-29.sql
-// (à exécuter par Alex). Best-effort : ne bloque jamais l'écriture si la
-// lecture de l'ancienne valeur échoue.
-async function backupThenReplaceBusinessSummary(companyId: string, newSummary: string) {
-  const { data: current } = await supabaseAdmin
-    .from('companies')
-    .select('business_summary')
-    .eq('id', companyId)
-    .maybeSingle();
-
-  const updates: Record<string, unknown> = { business_summary: newSummary };
-  if (current?.business_summary) {
-    updates.business_summary_backup = current.business_summary;
-    updates.business_summary_backup_at = new Date().toISOString();
-  }
-
-  return supabaseAdmin.from('companies').update(updates).eq('id', companyId);
-}
+// compte "Open X", étendu le même jour à un historique des 5 dernières
+// versions plutôt qu'une seule) : business_summary est ici entièrement
+// REMPLACÉ (pas complété comme l'ajout via le chat, voir
+// runMettreAJourProfilEntreprise dans app/api/chat/route.ts) — avant chaque
+// remplacement complet (POST régénération ou PATCH correction manuelle),
+// l'ancienne valeur est copiée dans business_summary_versions. Logique
+// partagée avec app/api/business-summary/versions/route.ts (réactivation
+// d'une ancienne version) — voir lib/business-summary-store.ts.
+import { backupThenReplaceBusinessSummary } from '@/lib/business-summary-store';
 
 // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
 // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
