@@ -1,10 +1,16 @@
 // app/api/auth/google/route.ts
 // Démarre le flux OAuth Google. Le commercial clique sur "Connecter Gmail"
 // dans l'app -> redirigé ici -> redirigé vers Google -> revient sur /callback.
+//
+// Accepte aussi un paramètre ?qr=... (28/08/2026, voir app/api/auth/qr-token/
+// route.ts) : atteint en scannant le QR code affiché dans Connexions,
+// typiquement depuis un AUTRE appareil (le téléphone du commercial) que
+// celui qui a généré le QR — le jeton à usage unique remplace alors le
+// token de session classique pour identifier le commercial.
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getAuthedUserFromToken } from '@/lib/auth-helpers';
+import { getAuthedUserFromToken, resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 
@@ -42,19 +48,29 @@ const SCOPES = [
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const token = searchParams.get('token');
-
-  if (!token) {
-    return NextResponse.json({ error: 'token manquant' }, { status: 400 });
-  }
+  const qrToken = searchParams.get('qr');
 
   // Sécurité : l'utilisateur Meet Aaron à qui la boîte mail sera liée est dérivé
-  // du token de session vérifié, jamais d'un user_id brut passé par le client —
-  // sinon un lien "Connecter Gmail" forgé aurait pu lier la boîte mail de la
-  // victime au compte Meet Aaron de l'attaquant (state n'est qu'un aller-retour,
-  // pas une preuve d'identité).
-  const authedUser = await getAuthedUserFromToken(token);
-  if (!authedUser) {
-    return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
+  // du token de session vérifié (ou du jeton QR à usage unique), jamais d'un
+  // user_id brut passé par le client — sinon un lien "Connecter Gmail" forgé
+  // aurait pu lier la boîte mail de la victime au compte Meet Aaron de
+  // l'attaquant (state n'est qu'un aller-retour, pas une preuve d'identité).
+  let authedUser;
+  if (qrToken) {
+    authedUser = await resolveAndConsumeQrToken(qrToken, 'google');
+    if (!authedUser) {
+      return NextResponse.json(
+        { error: 'QR code expiré ou déjà utilisé — génère-en un nouveau depuis Connexions.' },
+        { status: 401 }
+      );
+    }
+  } else if (token) {
+    authedUser = await getAuthedUserFromToken(token);
+    if (!authedUser) {
+      return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
+    }
+  } else {
+    return NextResponse.json({ error: 'token manquant' }, { status: 400 });
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/google/callback`;
