@@ -42,6 +42,16 @@ const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de token
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
 const DEFAULT_MONTHLY_CAP_USD = 20;
 const DAILY_CAP_DIVISOR = 15; // le budget mensuel doit tenir au moins 15 jours d'usage intensif
+// Recherche web en direct pour Aaron (demande Alex, 29/08/2026 : "il peut
+// utiliser cette fiche profil d'entreprise ainsi qu'internet") — tarif
+// Anthropic pour l'outil web_search natif : 10 $ pour 1000 recherches, EN
+// PLUS du coût normal des tokens (les résultats de recherche sont eux-mêmes
+// facturés comme des tokens d'entrée classiques, déjà couverts par
+// INPUT_COST_PER_MTOK_USD ci-dessus — seul le forfait par recherche est
+// spécifique et doit être ajouté à part). Voir app/api/chat/route.ts pour
+// l'outil lui-même (CHAT_WEB_SEARCH_TOOL) ; voir callClaude plus bas pour la
+// lecture de usage.server_tool_use.web_search_requests dans la réponse.
+const WEB_SEARCH_COST_PER_SEARCH_USD = 0.01;
 
 export class MonthlyCapExceededError extends Error {
   reason: 'monthly' | 'daily' | 'credits_exhausted';
@@ -119,12 +129,16 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
   return { exceeded: false };
 }
 
-function computeCostUsd(inputTokens: number, outputTokens: number): number {
-  return (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD + (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD;
+function computeCostUsd(inputTokens: number, outputTokens: number, webSearches: number = 0): number {
+  return (
+    (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD +
+    (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD +
+    webSearches * WEB_SEARCH_COST_PER_SEARCH_USD
+  );
 }
 
-async function recordUsage(companyId: string, inputTokens: number, outputTokens: number) {
-  const costUsd = computeCostUsd(inputTokens, outputTokens);
+async function recordUsage(companyId: string, inputTokens: number, outputTokens: number, webSearches: number = 0) {
+  const costUsd = computeCostUsd(inputTokens, outputTokens, webSearches);
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
@@ -203,14 +217,20 @@ export async function callClaude(
   if (companyId && data.usage) {
     const inputTokens = data.usage.input_tokens || 0;
     const outputTokens = data.usage.output_tokens || 0;
+    // Nombre de recherches web réellement effectuées par Aaron sur CET appel
+    // (l'outil web_search est "server-side" : Anthropic peut faire plusieurs
+    // recherches en une seule requête, jusqu'à max_uses défini sur l'outil —
+    // voir app/api/chat/route.ts) — 0 si l'outil n'a pas été utilisé sur ce
+    // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
+    const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
 
-    await recordUsage(companyId, inputTokens, outputTokens);
+    await recordUsage(companyId, inputTokens, outputTokens, webSearches);
 
     if (usingCredits) {
       // Écart de change ignoré (coût calculé en $, crédits en €), comme
       // documenté plus haut pour le plafond mensuel — tolérance acceptée pour
       // un garde-fou, pas pour une facturation exacte.
-      const costUsd = computeCostUsd(inputTokens, outputTokens);
+      const costUsd = computeCostUsd(inputTokens, outputTokens, webSearches);
       await spendCredits(companyId, costUsd, 'Appel API au-delà du plafond inclus dans l’abonnement', module);
     }
   }
