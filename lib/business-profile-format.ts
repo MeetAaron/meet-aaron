@@ -13,9 +13,40 @@
 // paragraphe reste simplement mis en forme proprement, marqueur ou non.
 export const BUSINESS_PROFILE_MARKER_RE = /^(Légitimité|Preuve sociale)\s*:/i;
 
+// Titres de section du "profil de l'entreprise" enrichi (demande Alex,
+// 29/08/2026 : "tu es le meilleur commercial du monde, qu'est ce qui devrait
+// être dans une fiche entreprise pour qu'elle soit parfaite ?"). Le prompt de
+// génération (app/api/business-summary/route.ts) écrit chaque titre de
+// section sur sa propre ligne au format Markdown "## Titre" — reconnu ici
+// pour être mis en forme comme un vrai titre (pas un paragraphe de plus) dans
+// les deux exports. Rétro-compatible : un ancien résumé généré avant ce
+// chantier (un seul paragraphe, sans "## ") ne matche jamais cette regex et
+// continue à s'afficher exactement comme avant.
+export const BUSINESS_PROFILE_HEADING_RE = /^##\s+(.+)$/;
+
 export function splitBusinessProfileParagraphs(text: string): string[] {
   return text
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+}
+
+// Classifie chaque paragraphe (déjà découpé par splitBusinessProfileParagraphs)
+// pour que les deux moteurs de rendu (RTF et PDF) appliquent la même logique
+// de mise en forme sans dupliquer les regex.
+export type BusinessProfileParagraph =
+  | { type: 'heading'; text: string }
+  | { type: 'marker'; label: string; rest: string }
+  | { type: 'body'; text: string };
+
+export function classifyBusinessProfileParagraph(para: string): BusinessProfileParagraph {
+  const headingMatch = para.match(BUSINESS_PROFILE_HEADING_RE);
+  if (headingMatch) {
+    return { type: 'heading', text: headingMatch[1].trim() };
+  }
+  const markerMatch = para.match(BUSINESS_PROFILE_MARKER_RE);
+  if (markerMatch) {
+    return { type: 'marker', label: para.slice(0, markerMatch[0].length), rest: para.slice(markerMatch[0].length).trim() };
+  }
+  return { type: 'body', text: para };
 }

@@ -6,7 +6,7 @@
 // souci en serverless Vercel, déjà une dépendance du projet).
 
 import PDFDocument from 'pdfkit';
-import { BUSINESS_PROFILE_MARKER_RE, splitBusinessProfileParagraphs } from './business-profile-format';
+import { classifyBusinessProfileParagraph, splitBusinessProfileParagraphs } from './business-profile-format';
 
 function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -48,16 +48,29 @@ export async function buildBusinessProfilePdf(data: BusinessProfileDocData): Pro
       doc.fontSize(11).fillColor(COLOR_MUTED).text('Aucun profil renseigné pour le moment.', { align: 'left' });
     }
     for (const para of paragraphs) {
-      const m = para.match(BUSINESS_PROFILE_MARKER_RE);
-      if (m) {
-        const label = para.slice(0, m[0].length);
-        const rest = para.slice(m[0].length).trim();
-        doc.fontSize(11).fillColor(COLOR_ACCENT).text(label, { continued: true, align: 'left' });
-        doc.fontSize(11).fillColor(COLOR_TEXT).text(' ' + rest, { align: 'left' });
+      const classified = classifyBusinessProfileParagraph(para);
+      if (classified.type === 'heading') {
+        // Titre de section (profil enrichi, 29/08/2026) : plus grand, gras,
+        // couleur accent, avec un filet horizontal dessous pour bien séparer
+        // les sections visuellement — cohérent avec le rendu Word.
+        doc.moveDown(0.6);
+        doc.fontSize(15).fillColor(COLOR_ACCENT).font('Helvetica-Bold').text(classified.text, { align: 'left' });
+        const lineY = doc.y + 2;
+        doc.moveTo(doc.page.margins.left, lineY)
+          .lineTo(doc.page.width - doc.page.margins.right, lineY)
+          .strokeColor(COLOR_ACCENT)
+          .lineWidth(0.75)
+          .stroke();
+        doc.font('Helvetica');
+        doc.moveDown(0.6);
+      } else if (classified.type === 'marker') {
+        doc.fontSize(11).fillColor(COLOR_ACCENT).text(classified.label, { continued: true, align: 'left' });
+        doc.fontSize(11).fillColor(COLOR_TEXT).text(' ' + classified.rest, { align: 'left' });
+        doc.moveDown(0.8);
       } else {
-        doc.fontSize(11).fillColor(COLOR_TEXT).text(para, { align: 'left' });
+        doc.fontSize(11).fillColor(COLOR_TEXT).text(classified.text, { align: 'left' });
+        doc.moveDown(0.8);
       }
-      doc.moveDown(0.8);
     }
 
     doc.moveDown(1);

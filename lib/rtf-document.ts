@@ -35,7 +35,7 @@ function rtfEscape(text: string): string {
   return out;
 }
 
-import { BUSINESS_PROFILE_MARKER_RE, splitBusinessProfileParagraphs } from './business-profile-format';
+import { classifyBusinessProfileParagraph, splitBusinessProfileParagraphs } from './business-profile-format';
 
 export interface BusinessProfileDocData {
   companyName: string;
@@ -66,13 +66,16 @@ export function buildBusinessProfileRtf(data: BusinessProfileDocData): string {
     parts.push(`\\pard\\f0\\fs24\\cf3\\i ${rtfEscape('Aucun profil renseigné pour le moment.')}\\i0\\cf1\\par`);
   }
   for (const para of paragraphs) {
-    const m = para.match(BUSINESS_PROFILE_MARKER_RE);
-    if (m) {
-      const label = para.slice(0, m[0].length);
-      const rest = para.slice(m[0].length);
-      parts.push(`\\pard\\f0\\fs24\\sa200\\cf2\\b ${rtfEscape(label)}\\b0\\cf1 ${rtfEscape(rest.trim())}\\par`);
+    const classified = classifyBusinessProfileParagraph(para);
+    if (classified.type === 'heading') {
+      // Titre de section (profil enrichi, 29/08/2026) : plus grand, en gras,
+      // couleur accent, avec un espacement avant/après généreux pour bien
+      // séparer les sections dans le document Word.
+      parts.push(`\\pard\\f1\\fs30\\sb400\\sa160\\cf2\\b ${rtfEscape(classified.text)}\\b0\\cf1\\par`);
+    } else if (classified.type === 'marker') {
+      parts.push(`\\pard\\f0\\fs24\\sa200\\cf2\\b ${rtfEscape(classified.label)}\\b0\\cf1 ${rtfEscape(classified.rest)}\\par`);
     } else {
-      parts.push(`\\pard\\f0\\fs24\\sa200\\cf1 ${rtfEscape(para)}\\par`);
+      parts.push(`\\pard\\f0\\fs24\\sa200\\cf1 ${rtfEscape(classified.text)}\\par`);
     }
   }
 
