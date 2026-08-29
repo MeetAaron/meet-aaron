@@ -1158,6 +1158,26 @@ export default function ChatPage() {
     window.speechSynthesis.speak(utterance);
   }
 
+  // Profil d'entreprise enrichi (demande Alex, 29/08/2026) : le document
+  // généré par /api/business-summary est désormais structuré en sections
+  // (titres "## ", voir lib/business-profile-format.ts) et peut être bien
+  // plus long que l'ancien résumé de 5-9 phrases. Alex a explicitement
+  // demandé de ne plus le déverser en entier dans la bulle de chat ("ca
+  // devait être un résumé style word... on en voit un aperçu de texte") —
+  // cette fonction construit un court aperçu en prose (titres retirés, texte
+  // tronqué) pour la bulle, le document complet restant consultable via le
+  // bouton "Voir le profil de l'entreprise" (Mon compte > Mon entreprise).
+  const SUMMARY_PREVIEW_LENGTH = 280;
+  function buildSummaryPreview(fullText) {
+    if (!fullText) return '';
+    const stripped = fullText
+      .replace(/^##\s+.+$/gm, '') // retire les titres de section markdown
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (stripped.length <= SUMMARY_PREVIEW_LENGTH) return stripped;
+    return `${stripped.slice(0, SUMMARY_PREVIEW_LENGTH).trimEnd()}…`;
+  }
+
   async function handleGenerateSummary() {
     if (summarizing) return;
     setSummarizing(true);
@@ -1193,8 +1213,9 @@ export default function ChatPage() {
       {
         role: 'assistant',
         content:
-          `${t('chat.summaryIntro', locale)}\n\n${data.summary}\n\n` +
+          `${t('chat.summaryIntro', locale)}\n\n${buildSummaryPreview(data.summary)}\n\n` +
           t('chat.summaryOutro', locale),
+        viewProfileLink: true,
       },
     ]);
   }
@@ -1661,6 +1682,24 @@ export default function ChatPage() {
                   >
                     {t('chat.quickReplyProfileNo', locale)}
                   </button>
+                </div>
+              )}
+              {/* Bouton "Voir le profil de l'entreprise" (demande Alex,
+                  29/08/2026 : "on en voit un aperçu de texte et on peut
+                  cliquer... et là on voit un super document") — le message
+                  n'affiche plus qu'un aperçu du document complet (voir
+                  handleGenerateSummary, buildSummaryPreview), ce bouton
+                  ouvre l'onglet "Mon entreprise" de Mon compte où le
+                  document entier est éditable, exportable en Word/PDF. Pas
+                  de garde sur i/sending : contrairement aux boutons de
+                  réponse rapide ci-dessus, c'est une simple navigation (pas
+                  une action ponctuelle), donc rester cliquable même sur un
+                  ancien message est voulu. */}
+              {m.viewProfileLink && (
+                <div className="tour-link-row">
+                  <Link href={`/app/connexions${userId ? `?user_id=${userId}&tab=company` : '?tab=company'}`} className="tour-link">
+                    {t('chat.viewBusinessProfileButton', locale)}
+                  </Link>
                 </div>
               )}
               {/* Haut-parleur (demande Alex, docx "Modifs Aaron") : sur tous
