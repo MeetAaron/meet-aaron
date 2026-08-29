@@ -9,7 +9,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { buildBusinessProfileRtf } from '@/lib/rtf-document';
 import { buildBusinessProfilePdf } from '@/lib/business-profile-pdf';
-import { computeCompanyKeyStats } from '@/lib/company-stats';
 
 function sanitizeForFilename(name: string): string {
   const cleaned = name
@@ -59,20 +58,11 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const generatedAtLabel = `Document généré automatiquement par Meet Aaron le ${now.toLocaleDateString('fr-FR')} à ${now.toLocaleTimeString('fr-FR')}`;
 
-  // Statistiques clés (demande Alex, 29/08/2026, "génération de graphiques
-  // dans le document") — voir lib/company-stats.ts : calculées en direct
-  // depuis les vraies données de la société à chaque export, jamais générées
-  // par le modèle. `stats` reste `null` quand la société n'a encore aucune
-  // activité (compte tout juste créé) pour que la section soit omise plutôt
-  // que d'afficher des zéros partout.
-  const companyStats = await computeCompanyKeyStats(user.company_id);
-
   const docData = {
     companyName: company.name || 'Profil de l’entreprise',
     legalLines,
     bodyText: company.business_summary || '',
     generatedAtLabel,
-    stats: companyStats.hasAnyData ? companyStats : null,
   };
 
   const baseFilename = `profil-entreprise-${sanitizeForFilename(company.name || 'meet-aaron')}-${now.toISOString().slice(0, 10)}`;
