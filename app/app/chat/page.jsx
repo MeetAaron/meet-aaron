@@ -930,6 +930,27 @@ export default function ChatPage() {
       .finally(() => setHistoryLoaded(true));
   }, [userId, activeConversationId]);
 
+  // Bug remonté par Alex (29/08/2026, "il va falloir que moi et Ludovic on
+  // répondent encore une fois au questionnaire ?") : questionnaireDone (voir
+  // plus haut) n'était mis à true QUE juste après avoir répondu à la
+  // dernière question EN DIRECT (handleSend) — jamais recalculé depuis
+  // l'historique déjà persisté en base (onboarding_step/onboarding_answers,
+  // hydratés par l'effet juste au-dessus). Un commercial ayant déjà terminé
+  // le questionnaire lors d'une session précédente ne revoyait donc JAMAIS
+  // le bouton "Générer le profil de l'entreprise" en revenant sur cette page
+  // plus tard — comme si le questionnaire n'avait jamais été fait, alors que
+  // ses réponses étaient bien là. onboarding_step === -1 ET au moins une
+  // réponse enregistrée = questionnaire déjà terminé (onboarding_step vaut
+  // aussi -1 avant le tout premier démarrage, d'où le ET sur les réponses
+  // pour ne pas confondre "jamais commencé" et "déjà fini"). Sans incidence
+  // sur "Reprendre le questionnaire" (repart avec onboarding_answers vide,
+  // donc cette condition ne redevient vraie qu'une fois réellement refini).
+  useEffect(() => {
+    if (onboardingStep === -1 && onboardingAnswers.length > 0) {
+      setQuestionnaireDone(true);
+    }
+  }, [onboardingStep, onboardingAnswers]);
+
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
     // On attend que le chargement du prénom soit TERMINÉ (succès ou échec, voir
