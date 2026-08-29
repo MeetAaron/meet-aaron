@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 
 function useAuthedUser() {
@@ -1483,12 +1484,12 @@ function ActionCardModal({ appointment, onClose, onDone }) {
                 {prospect?.personality_notes && (
                   <div className="fiche-row">
                     <span className="fiche-label">{t('modal.notes', locale)}</span>
-                    <span>{prospect.personality_notes}</span>
+                    <span>{frenchTypography(prospect.personality_notes)}</span>
                   </div>
                 )}
                 <div className="fiche-row">
                   <span className="fiche-label">{t('modal.aaronAdvice', locale)}</span>
-                  <span>{prospect?.aaron_advice || '—'}</span>
+                  <span>{prospect?.aaron_advice ? frenchTypography(prospect.aaron_advice) : '—'}</span>
                 </div>
               </div>
             )}
