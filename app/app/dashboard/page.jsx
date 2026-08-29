@@ -241,6 +241,11 @@ export default function DashboardPage() {
   const [onboardingTourSeen, setOnboardingTourSeen] = useState(true);
   const [businessSummaryDone, setBusinessSummaryDone] = useState(true);
   const [emailConnected, setEmailConnected] = useState(true);
+  // Étape "Agenda synchronisé" de la checklist (demande Alex, 29/08/2026) —
+  // voir onboardingSteps plus bas. true par défaut comme les autres flags de
+  // la checklist, pour ne jamais afficher l'étape comme "à faire" avant que
+  // /api/preferences ait répondu (évite un flash trompeur au chargement).
+  const [icsLinkGenerated, setIcsLinkGenerated] = useState(true);
   const [onboardingChecklistOpen, setOnboardingChecklistOpen] = useState(true);
   // Étape "notifications push" de la checklist (demande Alex, 28/08/2026 :
   // "il faut ajouter une autre tache : activer les notifications push sur cet
@@ -300,6 +305,7 @@ export default function DashboardPage() {
     setOnboardingTourSeen(prefs.onboarding_tour_seen === true);
     setBusinessSummaryDone(!!bsRes.summary);
     setEmailConnected((connRes.connections || []).length > 0);
+    setIcsLinkGenerated(prefs.ics_link_generated === true);
     setLoading(false);
   }
 
@@ -542,6 +548,23 @@ export default function DashboardPage() {
       done: campaigns.length > 0 || prospects.length > 0,
       label: t('dash.onboardingStepFirst', locale),
       href: '/app/prospects',
+    },
+    {
+      // Demande Alex (29/08/2026) : dernière étape de la checklist — connecter
+      // l'agenda du téléphone (iPhone/Android) à l'agenda Aaron. "Fait" dans
+      // deux cas : la boîte email est connectée (Google/Outlook, qui gère
+      // déjà la synchro calendrier bidirectionnelle, voir lib/calendar-
+      // sync.ts) OU le commercial a généré son lien d'abonnement ICS/webcal
+      // (voir app/app/agenda/page.jsx, section Synchronisation) — impossible
+      // de vérifier depuis le serveur qu'il l'a bien ajouté dans l'app
+      // Calendrier de son téléphone (aucune confirmation ne remonte jamais
+      // dans ce sens-là), donc on considère l'étape faite dès qu'il a généré
+      // ce lien, comme pour "Visite guidée" plus haut (fait = vu, pas fait =
+      // "prouvé qu'il a tout lu").
+      key: 'calendar',
+      done: emailConnected || icsLinkGenerated,
+      label: t('dash.onboardingStepCalendar', locale),
+      href: '/app/agenda',
     },
   ];
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
