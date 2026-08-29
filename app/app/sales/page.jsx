@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
@@ -563,16 +564,16 @@ export default function SalesPage() {
 
                       {brief && (
                         <div className="brief-box">
-                          <p><strong>{t('sales.briefSummaryLabel', locale)}</strong> {brief.resume_historique}</p>
-                          {brief.profil_personnalite && <p><strong>{t('sales.briefPersonalityLabel', locale)}</strong> {brief.profil_personnalite}</p>}
+                          <p><strong>{t('sales.briefSummaryLabel', locale)}</strong> {frenchTypography(brief.resume_historique)}</p>
+                          {brief.profil_personnalite && <p><strong>{t('sales.briefPersonalityLabel', locale)}</strong> {frenchTypography(brief.profil_personnalite)}</p>}
                           {brief.objections_deja_soulevees?.length > 0 && (
-                            <p><strong>{t('sales.briefObjectionsLabel', locale)}</strong> {brief.objections_deja_soulevees.join(' · ')}</p>
+                            <p><strong>{t('sales.briefObjectionsLabel', locale)}</strong> {frenchTypography(brief.objections_deja_soulevees.join(' · '))}</p>
                           )}
-                          {brief.info_entreprise && <p><strong>{t('sales.briefCompanyLabel', locale)}</strong> {brief.info_entreprise}</p>}
-                          <p><strong>{t('sales.briefAngleLabel', locale)}</strong> {brief.angle_approche_suggere}</p>
+                          {brief.info_entreprise && <p><strong>{t('sales.briefCompanyLabel', locale)}</strong> {frenchTypography(brief.info_entreprise)}</p>}
+                          <p><strong>{t('sales.briefAngleLabel', locale)}</strong> {frenchTypography(brief.angle_approche_suggere)}</p>
                           {brief.points_attention?.length > 0 && (
                             <ul>
-                              {brief.points_attention.map((point, i) => <li key={i}>{point}</li>)}
+                              {brief.points_attention.map((point, i) => <li key={i}>{frenchTypography(point)}</li>)}
                             </ul>
                           )}
                         </div>
