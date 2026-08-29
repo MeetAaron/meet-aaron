@@ -112,6 +112,19 @@ function providerMetaFor(locale) {
   };
 }
 
+// Statut 29/08/2026 : les 3 codes que app/api/auth/google/callback/route.ts
+// et app/api/auth/microsoft/callback/route.ts peuvent renvoyer eux-mêmes
+// (?oauth_error=...). Tout autre code (ex. "access_denied", renvoyé
+// directement par Google/Microsoft quand l'utilisateur refuse, ou un code
+// d'erreur d'admin Microsoft) tombe dans le message générique ci-dessous.
+const KNOWN_OAUTH_ERROR_CODES = ['state_mismatch', 'token_exchange_failed', 'db_error'];
+function getOauthErrorMessage(code, locale) {
+  if (KNOWN_OAUTH_ERROR_CODES.includes(code)) {
+    return t(`connexions.oauthErrorBanner.${code}`, locale);
+  }
+  return t('connexions.oauthErrorBanner.default', locale).replace('{error}', code);
+}
+
 // CHANGEMENTS A FAIRE (2026-08-16) : CRM à connexion directe (OAuth) — HubSpot
 // existait déjà, ajout de Salesforce et Pipedrive (même flux OAuth générique,
 // voir handleConnectCrm/handleDisconnectCrm/handleSyncCrm ci-dessous). Divalto
@@ -292,6 +305,15 @@ export default function ConnexionsPage() {
   // de la suite — "conseils pas à pas" demandés par Alex pour tout
   // l'enchaînement post-onboarding.
   const [oauthJustConnected, setOauthJustConnected] = useState(null);
+  // Statut 29/08/2026 : bug corrigé — jusqu'ici, un échec de connexion
+  // Google/Microsoft (ex. "state_mismatch" quand la validation d'admin
+  // Microsoft se termine dans une autre session/navigateur que celle qui a
+  // démarré la connexion, ou "token_exchange_failed"/"db_error") renvoyait
+  // bien ?oauth_error=... vers cette page, mais RIEN n'était affiché à
+  // l'utilisateur : il atterrissait silencieusement sur l'écran de choix
+  // Gmail/Outlook, comme si rien ne s'était passé. Voir le useEffect
+  // ci-dessous pour la lecture du paramètre.
+  const [oauthErrorBanner, setOauthErrorBanner] = useState(null);
 
   // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et
   // les autres CRM sans OAuth centralisé traités selon le même patron),
@@ -1089,6 +1111,8 @@ export default function ConnexionsPage() {
     if (oauthSuccessProvider === 'google' || oauthSuccessProvider === 'microsoft') {
       setOauthJustConnected(oauthSuccessProvider);
     }
+    const oauthErrorCode = params.get('oauth_error');
+    if (oauthErrorCode) setOauthErrorBanner(oauthErrorCode);
     if (params.get('oauth_success') || params.get('oauth_error') || crmOauthError || params.get('crm_oauth_success')) {
       window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
@@ -1786,6 +1810,11 @@ export default function ConnexionsPage() {
         </div>
       ) : activeTab === 'connection' ? (
         <div className="cards">
+          {oauthErrorBanner && (
+            <div className="oauth-error-banner">
+              <p>{getOauthErrorMessage(oauthErrorBanner, locale)}</p>
+            </div>
+          )}
           {oauthJustConnected && (
             <div className="oauth-success-banner">
               <p>{t('connexions.oauthSuccessBanner', locale)}</p>
@@ -3368,6 +3397,18 @@ export default function ConnexionsPage() {
         }
         .oauth-success-cta:hover {
           text-decoration: underline;
+        }
+        .oauth-error-banner {
+          grid-column: 1 / -1;
+          background: rgba(239, 68, 89, 0.1);
+          border: 1px solid rgba(239, 68, 89, 0.3);
+          border-radius: 10px;
+          padding: 0.9rem 1.1rem;
+        }
+        .oauth-error-banner p {
+          margin: 0;
+          font-size: 0.88rem;
+          color: var(--accent-red);
         }
         .cards + .category-title {
           margin-top: 2rem;
