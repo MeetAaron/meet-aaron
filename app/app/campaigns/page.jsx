@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 
 function useAuthedUser() {
@@ -404,7 +405,7 @@ export default function CampaignsPage() {
                   <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
                   {c.advice ? (
                     <>
-                      <p className="advice-text">{c.advice}</p>
+                      <p className="advice-text">{frenchTypography(c.advice)}</p>
                       <button
                         type="button"
                         className="link-btn"
@@ -2374,7 +2375,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
                 <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
                 {campaign.advice ? (
                   <>
-                    <p className="advice-text">{campaign.advice}</p>
+                    <p className="advice-text">{frenchTypography(campaign.advice)}</p>
                     <button type="button" className="link-btn" disabled={adviceGenerating} onClick={generateCampaignAdvice}>
                       {adviceGenerating ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
                     </button>
