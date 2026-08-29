@@ -11,6 +11,31 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 
+// Filet de sécurité (demande Alex, 29/08/2026, suite à la perte du résumé du
+// compte "Open X") : business_summary est ici entièrement REMPLACÉ (pas
+// complété comme l'ajout via le chat, voir runMettreAJourProfilEntreprise
+// dans app/api/chat/route.ts) — avant chaque remplacement complet (POST
+// régénération ou PATCH correction manuelle), on copie l'ancienne valeur
+// dans business_summary_backup pour pouvoir la restaurer en cas d'erreur ou
+// de test malencontreux. Voir migration_business_summary_backup_2026-08-29.sql
+// (à exécuter par Alex). Best-effort : ne bloque jamais l'écriture si la
+// lecture de l'ancienne valeur échoue.
+async function backupThenReplaceBusinessSummary(companyId: string, newSummary: string) {
+  const { data: current } = await supabaseAdmin
+    .from('companies')
+    .select('business_summary')
+    .eq('id', companyId)
+    .maybeSingle();
+
+  const updates: Record<string, unknown> = { business_summary: newSummary };
+  if (current?.business_summary) {
+    updates.business_summary_backup = current.business_summary;
+    updates.business_summary_backup_at = new Date().toISOString();
+  }
+
+  return supabaseAdmin.from('companies').update(updates).eq('id', companyId);
+}
+
 // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
 // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
 // juste après l'onboarding).
@@ -69,10 +94,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
-  const { error } = await supabaseAdmin
-    .from('companies')
-    .update({ business_summary: summary.trim() })
-    .eq('id', user.company_id);
+  const { error } = await backupThenReplaceBusinessSummary(user.company_id, summary.trim());
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -198,7 +220,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Réponse vide du modèle' }, { status: 502 });
     }
 
-    await supabaseAdmin.from('companies').update({ business_summary: summary }).eq('id', user.company_id);
+    await backupThenReplaceBusinessSummary(user.company_id, summary);
 
     return NextResponse.json({ summary });
   } catch (err: any) {
