@@ -47,11 +47,14 @@ ajouter une information à son profil d'entreprise (ex: "j'aimerais ajouter ça 
 "ajoute que je fais aussi..."). Dans ce cas, ne relance JAMAIS le questionnaire de découverte depuis le début pour ça —
 ce n'est pas ce qu'il te demande. Écoute ce qu'il veut ajouter, reformule-le en une synthèse claire et bien rédigée
 (améliore la formulation si besoin, dans le même style factuel que le reste du profil, sans changer le sens ni rien
-inventer), puis demande-lui de confirmer avant d'agir (ex: "je note ça dans ton profil : « ... » — je l'ajoute ?"). Ne
-touche RIEN tant qu'il n'a pas confirmé explicitement (oui, ok, vas-y, etc.) ; s'il ne confirme pas ou change de sujet,
-n'ajoute rien. Une fois confirmé, utilise l'outil mettre_a_jour_profil_entreprise avec cette synthèse (jamais son
-message brut tel quel s'il est mal formulé). IMPORTANT — ne dis JAMAIS "c'est ajouté à ton profil" ou une formule
-équivalente avant d'avoir reçu un résultat de succès de cet outil dans CE tour.
+inventer), puis demande-lui de confirmer avant d'agir (ex: "je note ça dans ton profil : « ... » — je l'ajoute ?") ET
+appelle SYSTÉMATIQUEMENT l'outil proposer_ajout_profil avec cette même synthèse DANS CE MÊME TOUR (permet d'afficher
+des boutons de confirmation rapide dans l'interface — n'écrit rien en base, purement informatif). Ne touche RIEN tant
+qu'il n'a pas confirmé explicitement (oui, ok, vas-y, etc.) ; s'il ne confirme pas ou change de sujet, n'ajoute rien.
+Une fois confirmé, utilise l'outil mettre_a_jour_profil_entreprise avec cette synthèse (jamais son message brut tel
+quel s'il est mal formulé). IMPORTANT — ne dis JAMAIS "c'est ajouté à ton profil" ou une formule équivalente avant
+d'avoir reçu un résultat de succès de CET outil (mettre_a_jour_profil_entreprise, pas proposer_ajout_profil) dans CE
+tour.
 
 Lien public à mentionner dans les emails de prospection (voir aussi la note "Lien public" dans ton contexte plus bas) : tu
 n'as AUCUN outil pour le modifier depuis ce chat. Si le commercial te demande de l'ajouter/le changer, explique-lui
@@ -160,6 +163,35 @@ const CHAT_TOOLS = [
         },
       },
       required: ['ajout'],
+    },
+  },
+  {
+    // Demande Alex (29/08/2026) : "il manque un bouton je confirme" — avant,
+    // la confirmation d'un ajout au profil (voir mettre_a_jour_profil_entreprise
+    // ci-dessus) ne pouvait se faire qu'en tapant "oui" dans le champ de
+    // texte, ce qui a mené Alex à devoir revalider une seconde fois après
+    // avoir cru — à tort — que la simple proposition d'Aaron avait suffi.
+    // Cet outil est appelé par Aaron AU MOMENT où il propose l'ajout (pas
+    // quand il l'exécute) — purement informatif, n'écrit rien en base — pour
+    // que le serveur puisse renvoyer cette synthèse au frontend
+    // (profile_update_proposal) et afficher 2 boutons de réponse rapide
+    // (Confirmer/Annuler) sous le message, qui envoient directement la
+    // réponse sans que le commercial ait à la taper.
+    name: 'proposer_ajout_profil',
+    description:
+      "À appeler EN MÊME TEMPS que tu proposes au commercial d'ajouter une synthèse à son profil d'entreprise " +
+      "(juste avant de lui demander confirmation dans ta réponse texte) — permet d'afficher des boutons de " +
+      "confirmation rapide dans l'interface. N'écrit rien en base : c'est mettre_a_jour_profil_entreprise, appelé " +
+      "seulement après confirmation explicite du commercial, qui fait l'ajout réel.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        synthese: {
+          type: 'string',
+          description: "La même synthèse que celle proposée dans ta réponse texte (identique à ce que tu comptes passer à mettre_a_jour_profil_entreprise si le commercial confirme).",
+        },
+      },
+      required: ['synthese'],
     },
   },
 ];
@@ -386,6 +418,11 @@ async function executeTool(
       return runSauvegarderDocument(attachedDocument, userId, companyId, toolInput, locale);
     case 'mettre_a_jour_profil_entreprise':
       return runMettreAJourProfilEntreprise(companyId, toolInput);
+    case 'proposer_ajout_profil':
+      // Purement informatif (voir la définition de l'outil plus haut) —
+      // n'écrit rien en base, juste un accusé de réception pour que la
+      // boucle outil ↔ modèle continue normalement.
+      return { success: true };
     default:
       return { error: `Outil inconnu : ${toolName}` };
   }
@@ -467,9 +504,15 @@ export async function POST(request: NextRequest) {
         }
       : null;
 
-  if (!user_id || !message) {
+  // Garde-fou (demande Alex, 29/08/2026) : le frontend envoie désormais
+  // toujours un texte de repli quand un document est joint sans rien écrit
+  // (voir chat.attachOnlyMessage, app/app/chat/page.jsx), mais on relâche
+  // quand même la validation ici — un document seul, sans texte, doit rester
+  // acceptable même si un futur appel client ne posait pas ce repli.
+  if (!user_id || (!message && !attachedDocument)) {
     return NextResponse.json({ error: 'user_id ou message manquant' }, { status: 400 });
   }
+  const effectiveMessage = message || 'Voici le document.';
   if (!conversation_id) {
     return NextResponse.json({ error: 'conversation_id manquant' }, { status: 400 });
   }
@@ -517,7 +560,7 @@ export async function POST(request: NextRequest) {
   // n'est pas touché (conversation reprise après une pause, etc.).
   const messages: any[] = [
     ...withCacheBreakpoint((history || []).map((h: any) => ({ role: h.role, content: h.content }))),
-    { role: 'user', content: message },
+    { role: 'user', content: effectiveMessage },
   ];
 
   // Voir le commentaire sur CHAT_SYSTEM_PROMPT plus haut : tant que le document
@@ -542,6 +585,10 @@ export async function POST(request: NextRequest) {
   // Utilisé côté client uniquement pour l'instant à titre informatif (pas
   // d'affichage dédié) — voir mettre_a_jour_profil_entreprise plus haut.
   let profileUpdated = false;
+  // Demande Alex (29/08/2026) : synthèse proposée via l'outil
+  // proposer_ajout_profil dans CE tour (voir plus haut) — renvoyée au
+  // frontend pour afficher les boutons de confirmation rapide.
+  let profileUpdateProposal: string | null = null;
   let data;
   let suggestion;
   try {
@@ -556,7 +603,7 @@ export async function POST(request: NextRequest) {
         },
         user?.company_id || null
       ),
-      detectFounderSuggestion(message, user?.company_id || null),
+      detectFounderSuggestion(effectiveMessage, user?.company_id || null),
     ]);
 
     // Boucle outil ↔ modèle : tant qu'Aaron demande à utiliser un outil, on
@@ -578,6 +625,9 @@ export async function POST(request: NextRequest) {
           }
           if (block.name === 'mettre_a_jour_profil_entreprise' && (result as any)?.success) {
             profileUpdated = true;
+          }
+          if (block.name === 'proposer_ajout_profil') {
+            profileUpdateProposal = String(block.input?.synthese || '').trim() || null;
           }
           return {
             type: 'tool_result',
@@ -619,9 +669,9 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin.from('feedback_messages').insert({
       user_id,
       company_id: user.company_id,
-      message: suggestion.summary || message,
+      message: suggestion.summary || effectiveMessage,
       source: 'chat_auto',
-      context: message,
+      context: effectiveMessage,
     });
   }
 
@@ -638,7 +688,7 @@ export async function POST(request: NextRequest) {
   // travail lancé après la réponse HTTP n'est pas garanti de s'exécuter jusqu'au
   // bout. Ne bloque jamais la réponse au commercial si cette écriture échoue.
   const rowsToInsert: { user_id: string; conversation_id: string; role: string; content: string }[] = [
-    { user_id, conversation_id, role: 'user', content: message },
+    { user_id, conversation_id, role: 'user', content: effectiveMessage },
   ];
   if (reply) rowsToInsert.push({ user_id, conversation_id, role: 'assistant', content: reply });
   const { error: historyError } = await supabaseAdmin.from('chat_messages').insert(rowsToInsert);
@@ -654,12 +704,17 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   const conversationUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
   if (existingConversation && !existingConversation.title) {
-    conversationUpdate.title = message.trim().slice(0, 60);
+    conversationUpdate.title = effectiveMessage.trim().slice(0, 60);
   }
   await supabaseAdmin.from('chat_conversations').update(conversationUpdate).eq('id', conversation_id);
 
   // document_saved indique au frontend (app/app/chat/page.jsx) qu'il peut
   // retirer le chip "document joint" — le document vient d'être écrit dans
   // company_documents par l'outil sauvegarder_document ci-dessus.
-  return NextResponse.json({ reply, document_saved: documentSaved, profile_updated: profileUpdated });
+  return NextResponse.json({
+    reply,
+    document_saved: documentSaved,
+    profile_updated: profileUpdated,
+    profile_update_proposal: profileUpdateProposal,
+  });
 }
