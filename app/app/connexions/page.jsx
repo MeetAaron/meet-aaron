@@ -9,6 +9,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import PushNotificationManager from '@/components/PushNotificationManager';
+import QRCode from 'qrcode';
 
 // Téléchargement d'un fichier généré côté serveur (export "Profil de
 // l'entreprise" en Word/PDF, demande Alex 27/08/2026) — même utilitaire que
@@ -252,6 +253,18 @@ export default function ConnexionsPage() {
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
   const [loading, setLoading] = useState(true);
+  // QR code de connexion depuis le téléphone (demande Alex, 28/08/2026) : le
+  // commercial scanne avec l'appareil photo de son téléphone plutôt que de
+  // devoir se reconnecter/retaper son mot de passe sur ordinateur. Voir
+  // migration_oauth_qr_tokens_2026-08-28.sql, app/api/auth/qr-token/route.ts
+  // et resolveAndConsumeQrToken (lib/auth-helpers.ts) côté serveur.
+  const [qrOpenProvider, setQrOpenProvider] = useState(null); // 'google' | 'microsoft' | null
+  const [qrDataUrl, setQrDataUrl] = useState(null);
+  const [qrExpired, setQrExpired] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState(null);
+  const qrPollRef = useRef(null);
+  const qrExpireTimerRef = useRef(null);
 
   // CHANGEMENTS A FAIRE #90 (2026-08-16) : nouvelle catégorie "CRMs et bases de
   // données" — la connexion HubSpot (connecter/déconnecter/synchroniser),
@@ -1258,6 +1271,82 @@ export default function ConnexionsPage() {
     window.location.href = `/api/auth/${provider}?token=${encodeURIComponent(session.access_token)}`;
   }
 
+  // --- QR code de connexion depuis le téléphone (28/08/2026) ---
+  function closeQrPanel() {
+    setQrOpenProvider(null);
+    setQrDataUrl(null);
+    setQrError(null);
+    setQrExpired(false);
+    if (qrPollRef.current) {
+      clearInterval(qrPollRef.current);
+      qrPollRef.current = null;
+    }
+    if (qrExpireTimerRef.current) {
+      clearTimeout(qrExpireTimerRef.current);
+      qrExpireTimerRef.current = null;
+    }
+  }
+
+  async function generateQr(provider) {
+    setQrLoading(true);
+    setQrError(null);
+    setQrExpired(false);
+    if (qrExpireTimerRef.current) {
+      clearTimeout(qrExpireTimerRef.current);
+      qrExpireTimerRef.current = null;
+    }
+    try {
+      const res = await fetch('/api/auth/qr-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setQrError(body.error || t('common.error', locale));
+        return;
+      }
+      const targetUrl = `${window.location.origin}/api/auth/${provider}?qr=${body.token}`;
+      const dataUrl = await QRCode.toDataURL(targetUrl, { width: 220, margin: 1 });
+      setQrDataUrl(dataUrl);
+      const msUntilExpiry = new Date(body.expiresAt).getTime() - Date.now();
+      qrExpireTimerRef.current = setTimeout(() => setQrExpired(true), Math.max(msUntilExpiry, 0));
+    } catch (err) {
+      setQrError(t('common.error', locale));
+    } finally {
+      setQrLoading(false);
+    }
+  }
+
+  function openQrPanel(provider) {
+    setQrOpenProvider(provider);
+    setQrDataUrl(null);
+    generateQr(provider);
+  }
+
+  // Pendant que le panneau QR est ouvert, on repasse toutes les 3s sur les
+  // connexions pour détecter automatiquement l'autorisation faite depuis le
+  // téléphone — le commercial n'a rien à recharger manuellement, et l'étape
+  // "Boîte email connectée" de la checklist (dashboard) se coche dès son
+  // prochain chargement, puisqu'elle reflète déjà cet état en base.
+  useEffect(() => {
+    if (!qrOpenProvider || !userId) return undefined;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json());
+        const conns = res.connections || [];
+        setConnections(conns);
+        if (conns.some((c) => c.provider === qrOpenProvider)) {
+          closeQrPanel();
+        }
+      } catch (err) {
+        // Blip réseau ponctuel — la prochaine itération du poll réessaiera.
+      }
+    }, 3000);
+    qrPollRef.current = interval;
+    return () => clearInterval(interval);
+  }, [qrOpenProvider, userId]);
+
   if (authLoading) {
     return (
       <div className="auth-loading">
@@ -1713,6 +1802,14 @@ export default function ConnexionsPage() {
             missingLabelScope={googleMissingLabelScope}
             onConnect={() => connectProvider('google')}
             onDisconnect={() => handleDisconnect(googleConnection.id)}
+            onShowQr={() => openQrPanel('google')}
+            qrOpen={qrOpenProvider === 'google'}
+            qrDataUrl={qrOpenProvider === 'google' ? qrDataUrl : null}
+            qrLoading={qrOpenProvider === 'google' && qrLoading}
+            qrExpired={qrOpenProvider === 'google' && qrExpired}
+            qrError={qrOpenProvider === 'google' ? qrError : null}
+            onQrRetry={() => generateQr('google')}
+            onQrClose={closeQrPanel}
           />
           <ConnectionCard
             title={PROVIDER_META.microsoft.name}
@@ -1721,6 +1818,14 @@ export default function ConnexionsPage() {
             health={emailHealth.find((h) => h.provider === 'microsoft')}
             onConnect={() => connectProvider('microsoft')}
             onDisconnect={() => handleDisconnect(microsoftConnection.id)}
+            onShowQr={() => openQrPanel('microsoft')}
+            qrOpen={qrOpenProvider === 'microsoft'}
+            qrDataUrl={qrOpenProvider === 'microsoft' ? qrDataUrl : null}
+            qrLoading={qrOpenProvider === 'microsoft' && qrLoading}
+            qrExpired={qrOpenProvider === 'microsoft' && qrExpired}
+            qrError={qrOpenProvider === 'microsoft' ? qrError : null}
+            onQrRetry={() => generateQr('microsoft')}
+            onQrClose={closeQrPanel}
           />
         </div>
       ) : activeTab === 'crm' ? (
@@ -4405,7 +4510,23 @@ function TwoFieldCrmConnectionCard({
   );
 }
 
-function ConnectionCard({ title, desc, connection, health, missingLabelScope, onConnect, onDisconnect }) {
+function ConnectionCard({
+  title,
+  desc,
+  connection,
+  health,
+  missingLabelScope,
+  onConnect,
+  onDisconnect,
+  onShowQr,
+  qrOpen,
+  qrDataUrl,
+  qrLoading,
+  qrExpired,
+  qrError,
+  onQrRetry,
+  onQrClose,
+}) {
   const [locale] = useLocale();
   const isConnected = !!connection;
   // Enregistrements DNS prêts à copier-coller (demande Alex, 27/08/2026,
@@ -4487,7 +4608,41 @@ function ConnectionCard({ title, desc, connection, health, missingLabelScope, on
           <button className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
         </>
       ) : (
-        <button className="btn-primary" onClick={onConnect}>{t('connexions.connectButtonPrefix', locale)} {title}</button>
+        <>
+          <button className="btn-primary" onClick={onConnect}>{t('connexions.connectButtonPrefix', locale)} {title}</button>
+          {!qrOpen ? (
+            <button type="button" className="btn-qr-toggle" onClick={onShowQr}>
+              {t('connexions.qrToggle', locale)}
+            </button>
+          ) : (
+            <div className="qr-panel">
+              {qrLoading && !qrDataUrl && <p className="muted small">{t('common.loading', locale)}</p>}
+              {qrError && <p className="error">{qrError}</p>}
+              {qrDataUrl && !qrExpired && (
+                <>
+                  <img src={qrDataUrl} alt={t('connexions.qrAlt', locale)} width={160} height={160} />
+                  <ol className="qr-steps">
+                    <li>{t('connexions.qrStep1', locale)}</li>
+                    <li>{t('connexions.qrStep2', locale)} {title}.</li>
+                    <li>{t('connexions.qrStep3', locale)}</li>
+                  </ol>
+                  <p className="muted small">{t('connexions.qrWaiting', locale)}</p>
+                </>
+              )}
+              {qrExpired && (
+                <>
+                  <p className="muted small">{t('connexions.qrExpired', locale)}</p>
+                  <button type="button" className="btn-secondary" onClick={onQrRetry}>
+                    {t('connexions.qrRegenerate', locale)}
+                  </button>
+                </>
+              )}
+              <button type="button" className="btn-qr-toggle" onClick={onQrClose}>
+                {t('connexions.qrClose', locale)}
+              </button>
+            </div>
+          )}
+        </>
       )}
       <style jsx>{`
         .health {
@@ -4649,6 +4804,42 @@ function ConnectionCard({ title, desc, connection, health, missingLabelScope, on
           padding: 0.6rem 1rem;
           font-size: 0.84rem;
           cursor: pointer;
+        }
+        .btn-qr-toggle {
+          display: block;
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.8rem;
+          cursor: pointer;
+          padding: 0.5rem 0 0;
+          text-align: left;
+        }
+        .qr-panel {
+          margin-top: 0.6rem;
+          padding: 0.8rem;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: var(--bg);
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.5rem;
+        }
+        .qr-panel img {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: #fff;
+          padding: 0.4rem;
+        }
+        .qr-steps {
+          margin: 0;
+          padding-left: 1.1rem;
+          font-size: 0.8rem;
+          color: var(--muted);
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
         }
       `}</style>
     </div>
