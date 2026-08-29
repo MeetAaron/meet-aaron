@@ -143,6 +143,13 @@ export default function DocumentsPage() {
   // à côté, pour une lecture en vrais paragraphes larges).
   const [summaryModalDoc, setSummaryModalDoc] = useState(null);
   const SUMMARY_TRUNCATE_LENGTH = 110;
+  // Demande Alex (29/08/2026, capture à l'appui) : même souci que la colonne
+  // Synthèse ci-dessus (voir commentaire juste au-dessus) mais sur la colonne
+  // Description cette fois — jamais traitée lors du correctif du 26/08. Même
+  // traitement exact : troncature dans la cellule + "Voir plus" ouvre une
+  // fenêtre dédiée (réutilise .advice-modal/.advice-modal-text).
+  const [descriptionModalDoc, setDescriptionModalDoc] = useState(null);
+  const DESCRIPTION_TRUNCATE_LENGTH = 110;
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur par
@@ -392,7 +399,23 @@ export default function DocumentsPage() {
               {documents.map((d) => (
                 <tr key={d.id}>
                   <td className="strong">{d.file_name}</td>
-                  <td className="muted">{d.description || '—'}</td>
+                  <td className="muted summary-cell">
+                    {d.description ? (
+                      d.description.length <= DESCRIPTION_TRUNCATE_LENGTH ? (
+                        d.description
+                      ) : (
+                        <>
+                          {`${d.description.slice(0, DESCRIPTION_TRUNCATE_LENGTH).trimEnd()}…`}
+                          {' '}
+                          <button type="button" className="link-btn" onClick={() => setDescriptionModalDoc(d)}>
+                            {t('common.seeMore', locale)}
+                          </button>
+                        </>
+                      )
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="muted summary-cell">
                     {d.summary ? (
                       d.summary.length <= SUMMARY_TRUNCATE_LENGTH ? (
@@ -482,6 +505,19 @@ export default function DocumentsPage() {
             <button type="button" className="close-btn" onClick={() => setSummaryModalDoc(null)}>✕</button>
             <h2>{t('documents.summaryModalTitle', locale)} — {summaryModalDoc.file_name}</h2>
             <p className="advice-modal-text">{frenchTypography(summaryModalDoc.summary)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Demande Alex (29/08/2026) : même fenêtre que Synthèse/Avis ci-dessus,
+          pour la colonne Description — texte saisi par le commercial lui-même
+          à l'upload (pas généré par Aaron), donc pas de frenchTypography ici. */}
+      {descriptionModalDoc && (
+        <div className="overlay" onClick={() => setDescriptionModalDoc(null)}>
+          <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="close-btn" onClick={() => setDescriptionModalDoc(null)}>✕</button>
+            <h2>{t('documents.descriptionModalTitle', locale)} — {descriptionModalDoc.file_name}</h2>
+            <p className="advice-modal-text">{descriptionModalDoc.description}</p>
           </div>
         </div>
       )}
