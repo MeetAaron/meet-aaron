@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
@@ -57,11 +58,14 @@ function daysSince(iso) {
 // ouvrant la conversation.
 function TruncatedText({ text, locale, onExpand, maxLength = TRUNCATE_LENGTH }) {
   if (!text) return <span className="muted">—</span>;
-  if (text.length <= maxLength) return <>{text}</>;
+  // Typographie (demande Alex, 29/08/2026) : texte généré par Aaron
+  // (notes_personnalite, avis) — voir lib/text-typography.js.
+  const displayText = frenchTypography(text);
+  if (text.length <= maxLength) return <>{displayText}</>;
 
   return (
     <>
-      {`${text.slice(0, maxLength).trimEnd()}…`}
+      {frenchTypography(`${text.slice(0, maxLength).trimEnd()}…`)}
       {' '}
       <button type="button" className="truncate-toggle" onClick={onExpand}>
         {t('common.seeMore', locale)}
@@ -1499,12 +1503,12 @@ function ConversationModal({ prospect, onClose, onSaved }) {
           {prospect.personality_type ? (
             <p className="advice-line">
               <span className="tag" style={personalityTagStyle(prospect.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
-              {prospect.personality_notes && <span> — {prospect.personality_notes}</span>}
+              {prospect.personality_notes && <span> — {frenchTypography(prospect.personality_notes)}</span>}
             </p>
           ) : (
             <p className="muted">{t('prospects.personalityNotYetDetected', locale)}</p>
           )}
-          {prospect.aaron_advice && <p className="advice-line">{prospect.aaron_advice}</p>}
+          {prospect.aaron_advice && <p className="advice-line">{frenchTypography(prospect.aaron_advice)}</p>}
         </section>
 
         <section className="detail-block">
