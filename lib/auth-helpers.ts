@@ -183,6 +183,46 @@ export async function getAuthedUserFromToken(token: string): Promise<AuthedUser 
   });
 }
 
+// Consomme un jeton QR OAuth à usage unique (demande Alex, 28/08/2026 : un QR
+// code à côté des boutons "Connecter" Google/Outlook dans Connexions, pour
+// lancer l'autorisation directement depuis le téléphone du commercial —
+// voir migration_oauth_qr_tokens_2026-08-28.sql et app/api/auth/qr-token/
+// route.ts pour la création du jeton).
+//
+// Volontairement une table dédiée à usage unique/courte durée plutôt que de
+// coder le token de session (Supabase access_token) dans le QR : ce dernier
+// reste valide plusieurs heures et donne accès à toute l'app — l'exposer
+// dans un QR affiché à l'écran (capture d'écran, partage) serait risqué.
+//
+// UPDATE...WHERE used_at IS NULL AND expires_at > now()...RETURNING est une
+// opération atomique côté Postgres : deux scans/consommations concurrentes
+// du même QR ne peuvent pas toutes les deux réussir.
+export async function resolveAndConsumeQrToken(
+  qrToken: string,
+  provider: 'google' | 'microsoft'
+): Promise<AuthedUser | null> {
+  const { data: row, error } = await supabaseAdmin
+    .from('oauth_qr_tokens')
+    .update({ used_at: new Date().toISOString() })
+    .eq('token', qrToken)
+    .eq('provider', provider)
+    .is('used_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .select('user_id')
+    .maybeSingle();
+
+  if (error || !row) return null;
+
+  const { data: user, error: userError } = await supabaseAdmin
+    .from('users')
+    .select('id, auth_user_id, company_id, role, email, locale')
+    .eq('id', row.user_id)
+    .maybeSingle();
+
+  if (userError || !user) return null;
+  return user as AuthedUser;
+}
+
 export function unauthorizedResponse() {
   return NextResponse.json({ error: 'Non authentifié — reconnecte-toi.' }, { status: 401 });
 }
