@@ -1006,6 +1006,16 @@ export default function DashboardPage() {
           color: var(--text);
           transition: background 0.15s;
           box-sizing: border-box;
+          /* Bug remonté par Alex (29/08/2026, capture à l'appui, "encore pire"
+             sur un écran plus petit/moins large) : seules les lignes "à
+             faire" ont un libellé CTA ("À faire →", voir .onboarding-cta
+             ci-dessous) — les lignes "faites" n'en ont pas. Sans hauteur
+             minimale commune, une ligne "à faire" dont le libellé se mettait
+             à passer à la ligne (voir white-space sur .onboarding-label plus
+             bas) devenait plus haute que les autres et cassait l'alignement
+             de la liste. min-height fixe une hauteur cohérente sur toutes
+             les lignes, faites ou non, quelle que soit la largeur d'écran. */
+          min-height: 2.9rem;
         }
         .onboarding-row:last-child {
           border-bottom: none;
@@ -1039,6 +1049,19 @@ export default function DashboardPage() {
           flex: 1 1 auto;
           min-width: 0;
           font-size: 0.9rem;
+          /* Bug remonté par Alex (29/08/2026) : sur les lignes "à faire", le
+             libellé partage la ligne avec la puce ronde ET le CTA "À faire →"
+             (qui, lui, ne rétrécit jamais — voir flex-shrink:0 sur
+             .onboarding-cta). Sans ceci, un libellé un peu long (ex: "Boîte
+             email connectée (Gmail ou Outlook)") se mettait à passer sur 2
+             lignes dès que l'écran était moins large qu'un grand bureau —
+             cassant l'alignement avec les lignes "faites" (qui n'ont pas de
+             CTA et ne wrappent donc presque jamais). On tronque proprement
+             avec "…" plutôt que de laisser le texte déborder sur 2 lignes.
+             Testé jusqu'à 320px de large (plus petit téléphone courant). */
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .onboarding-row.done .onboarding-label {
           color: var(--muted);
@@ -1091,6 +1114,37 @@ export default function DashboardPage() {
           flex-shrink: 0;
           font-size: 1.05rem;
           line-height: 1.3;
+        }
+        /* Checklist "mise en route du compte" trop serrée/mal calibrée sur
+           petit écran (demande Alex, 29/08/2026, capture à l'appui, "sur le
+           pc de mon père c'est encore pire") : en plus du correctif structurel
+           ci-dessus (min-height + troncature du libellé), on resserre le
+           padding et le CTA sous 480px pour laisser plus de place au libellé
+           avant que la troncature "…" n'intervienne. 480px couvre déjà tous
+           les téléphones courants (portrait ET la plupart des petits
+           bureaux/laptops zoomés) — pas seulement le viewport "mobile" au
+           sens strict, ce cas concret (PC avec petite résolution ou zoom
+           navigateur élevé) déclenche exactement la même largeur effective. */
+        @media (max-width: 480px) {
+          .onboarding-toggle {
+            padding: 0.85rem 1rem;
+            font-size: 0.85rem;
+          }
+          .onboarding-row {
+            padding: 0.7rem 1rem;
+            gap: 0.5rem;
+          }
+          .onboarding-check {
+            width: 1.15rem;
+            height: 1.15rem;
+          }
+          .onboarding-label {
+            font-size: 0.83rem;
+          }
+          .onboarding-cta {
+            font-size: 0.74rem;
+            padding-left: 0.4rem;
+          }
         }
         .missed-panel {
           background: rgba(229, 72, 77, 0.08);
