@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { frenchTypography } from '@/lib/text-typography';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -480,7 +481,7 @@ export default function DocumentsPage() {
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="close-btn" onClick={() => setSummaryModalDoc(null)}>✕</button>
             <h2>{t('documents.summaryModalTitle', locale)} — {summaryModalDoc.file_name}</h2>
-            <p className="advice-modal-text">{summaryModalDoc.summary}</p>
+            <p className="advice-modal-text">{frenchTypography(summaryModalDoc.summary)}</p>
           </div>
         </div>
       )}
@@ -490,7 +491,7 @@ export default function DocumentsPage() {
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="close-btn" onClick={() => setAdviceModalDoc(null)}>✕</button>
             <h2>{t('documents.adviceModalTitle', locale)} — {adviceModalDoc.file_name}</h2>
-            <p className="advice-modal-text">{adviceModalDoc.advice}</p>
+            <p className="advice-modal-text">{frenchTypography(adviceModalDoc.advice)}</p>
             <button
               type="button"
               className="btn-secondary regenerate-btn"
