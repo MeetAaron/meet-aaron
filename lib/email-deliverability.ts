@@ -14,6 +14,7 @@
 // recommandation générique plutôt qu'un faux résultat.
 
 import { promises as dns } from 'dns';
+import { supabaseAdmin } from './supabase-admin';
 
 export interface DomainHealthCheck {
   domain: string;
@@ -123,4 +124,61 @@ export async function notifyIfDeliverabilityIssue(userId: string, email: string)
   } catch (err: any) {
     console.error('Erreur notification délivrabilité (non bloquant):', err.message);
   }
+}
+
+// Demande Alex (30/08/2026, test réel : un email de prospection envoyé depuis
+// teamsystem-paris.fr, domaine sans DMARC, est parti tout droit en spam côté
+// prospect) : "je veux un vrai blocage... que j'utilise un email pro avec
+// google ou outlook je veux que ça fonctionne à chaque fois". Un email de
+// prospection qui part systématiquement en spam ne sert à rien et abîme la
+// réputation d'Aaron aux yeux du prospect — mieux vaut bloquer l'envoi et
+// rediriger vers le correctif DNS (Connexions) que d'envoyer dans le vide.
+//
+// Résultat mis en cache sur oauth_connections (domain_health_ok/
+// domain_health_checked_at, voir migration_domain_health_cache_2026-08-30.sql)
+// plutôt que vérifié en direct à CHAQUE envoi : une campagne peut contacter
+// des dizaines de prospects d'affilée, et interroger le DNS à chaque email
+// serait à la fois lent et fragile (un simple aléa réseau ferait passer un
+// domaine parfaitement sain pour en panne). Rafraîchi si absent ou vieux de
+// plus de 24h — largement suffisant, un enregistrement DNS ne change pas
+// d'une heure à l'autre.
+const DOMAIN_HEALTH_CACHE_MS = 24 * 60 * 60 * 1000; // 24h
+
+export async function isDomainHealthyForSending(connection: {
+  id: string;
+  provider_account_email: string;
+  domain_health_ok?: boolean | null;
+  domain_health_checked_at?: string | null;
+}): Promise<{ healthy: boolean; domain: string | null }> {
+  const domain = connection.provider_account_email?.split('@')[1] || null;
+  // Domaine grand public (gmail.com, outlook.com...) : jamais de blocage,
+  // l'utilisateur n'a de toute façon aucune main sur ce DNS — voir
+  // isConsumerDomain plus haut.
+  if (!domain || isConsumerDomain(domain)) return { healthy: true, domain };
+
+  const checkedAtMs = connection.domain_health_checked_at
+    ? new Date(connection.domain_health_checked_at).getTime()
+    : 0;
+  const isStale = Date.now() - checkedAtMs > DOMAIN_HEALTH_CACHE_MS;
+
+  if (!isStale && connection.domain_health_ok !== null && connection.domain_health_ok !== undefined) {
+    return { healthy: connection.domain_health_ok, domain };
+  }
+
+  const health = await checkDomainHealth(domain);
+  const healthy = health.spf.found && health.dmarc.found;
+
+  try {
+    await supabaseAdmin
+      .from('oauth_connections')
+      .update({ domain_health_ok: healthy, domain_health_checked_at: new Date().toISOString() })
+      .eq('id', connection.id);
+  } catch (err: any) {
+    // Non-bloquant : au pire le prochain envoi revérifiera en direct au lieu
+    // de lire un cache pas encore posé — jamais pire que le comportement
+    // "toujours en direct" d'avant cette fonctionnalité.
+    console.error('Erreur mise en cache santé domaine (non bloquant):', err.message);
+  }
+
+  return { healthy, domain };
 }

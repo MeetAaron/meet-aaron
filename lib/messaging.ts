@@ -9,6 +9,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { sendGmailEmail, getGoogleFreeBusy } from './google';
 import { sendOutlookEmail, getOutlookFreeBusy } from './microsoft';
+import { isDomainHealthyForSending } from './email-deliverability';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
 // les emails générés par Aaron sont parfois "wrappés à la main" par le
@@ -89,6 +90,21 @@ export class DailySendCapExceededError extends Error {
     super(`Plafond quotidien d'emails de prospection atteint (${cap}/jour) pour l'utilisateur ${userId}`);
     this.name = 'DailySendCapExceededError';
     this.cap = cap;
+  }
+}
+
+// Demande Alex (30/08/2026) : blocage strict des emails de prospection quand
+// le domaine pro connecté n'a pas SPF + DMARC en place — voir
+// lib/email-deliverability.ts::isDomainHealthyForSending pour le détail (et
+// pourquoi c'est mis en cache plutôt que vérifié en direct à chaque envoi).
+export class DomainNotDeliverableError extends Error {
+  domain: string;
+  constructor(domain: string) {
+    super(
+      `Domaine ${domain} sans SPF/DMARC valide — envoi de prospection bloqué pour protéger la délivrabilité (voir Connexions)`
+    );
+    this.name = 'DomainNotDeliverableError';
+    this.domain = domain;
   }
 }
 
@@ -203,6 +219,29 @@ export async function sendEmailForUser(
       .eq('id', userId)
       .maybeSingle();
     throw new DailySendCapExceededError(userId, user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP);
+  }
+
+  if (emailType === 'prospecting') {
+    // La connexion qui va réellement servir à l'envoi (même priorité Google
+    // > Microsoft que le choix de fournisseur plus bas) : c'est SON domaine
+    // qu'il faut vérifier, pas un domaine générique. Requête dédiée (plutôt
+    // que réutiliser getConnectedProviders, qui ne renvoie que les noms de
+    // fournisseurs) car il faut ici provider_account_email + le cache santé.
+    const { data: sendingConnections } = await supabaseAdmin
+      .from('oauth_connections')
+      .select('id, provider, provider_account_email, domain_health_ok, domain_health_checked_at')
+      .eq('user_id', userId)
+      .in('provider', ['google', 'microsoft']);
+    const sendingConnection =
+      (sendingConnections || []).find((c) => c.provider === 'google') ||
+      (sendingConnections || []).find((c) => c.provider === 'microsoft');
+
+    if (sendingConnection) {
+      const { healthy, domain } = await isDomainHealthyForSending(sendingConnection);
+      if (!healthy && domain) {
+        throw new DomainNotDeliverableError(domain);
+      }
+    }
   }
 
   const providers = await getConnectedProviders(userId);
