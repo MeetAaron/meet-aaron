@@ -68,7 +68,10 @@ export async function GET(request: NextRequest) {
 
         // Rafraîchit le cache lu par le blocage strict des envois (voir
         // isDomainHealthyForSending, lib/email-deliverability.ts). Best-effort.
-        const healthy = health.spf.found && health.dmarc.found;
+        // 31/08/2026 : seul SPF est bloquant (règles Gmail < 5000/jour :
+        // "SPF ou DKIM" — DMARC recommandé, pas requis) ; DMARC/DKIM sont
+        // des conseils non bloquants dans l'assistant.
+        const healthy = health.spf.found;
         try {
           await supabaseAdmin
             .from('oauth_connections')
