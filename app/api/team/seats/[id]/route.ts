@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { MODULE_CODES, ModuleCode, getModulePriceId } from '@/lib/subscription';
+import { MODULE_CODES, ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
 
 function moduleColumn(module: ModuleCode) {
   return {
@@ -133,8 +133,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           updates[cols.active] = true;
           updates[cols.item] = item.id;
         } catch (err: any) {
+          // Même bug que app/api/team/seats/route.ts (débrief "Modifs Aaron"
+          // section 7) : message Stripe brut illisible si le prix a été
+          // désactivé/archivé — traduit désormais via describeStripeSubscriptionError.
           console.error(`Modification siège ${params.id} : ajout ligne Stripe (module ${module}) a échoué`, err.message);
-          return NextResponse.json({ error: `Erreur Stripe en ajoutant le module ${module} : ${err.message}` }, { status: 500 });
+          return NextResponse.json({ error: describeStripeSubscriptionError(err, module) }, { status: 500 });
         }
       }
     }
