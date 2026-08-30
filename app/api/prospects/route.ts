@@ -367,6 +367,23 @@ export async function POST(request: NextRequest) {
         : err.message?.includes('Aucune boîte mail connectée')
         ? "Prospect ajouté, mais aucun email n'a été envoyé : connectez votre boîte mail dans \"Connexions\"."
         : "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+
+    // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
+    // 30/08/2026, test Outlook — voir
+    // migration_prospect_first_message_error_2026-08-30.sql), même schéma
+    // que generate-first-contact/route.ts et que
+    // send-verification/resend-verification pour l'email de confirmation.
+    try {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          first_message_send_error: String(err?.message || err),
+          first_message_send_error_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+    } catch (logErr: any) {
+      console.error('Erreur stockage first_message_send_error (non bloquant):', logErr.message);
+    }
   }
 
   return NextResponse.json({ prospect, aaronOutput, emailWarning });
