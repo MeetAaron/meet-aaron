@@ -25,7 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
 // Plafond par commercial et par passage, pour ne jamais déclencher une rafale
@@ -156,7 +156,15 @@ export async function GET(request: NextRequest) {
 
       contacted++;
     } catch (err: any) {
-      if (!(err instanceof MonthlyCapExceededError) && !(err instanceof DailySendCapExceededError)) {
+      // DomainNotDeliverableError : ce prospect reste sans message (voir
+      // lib/messaging.ts), donc ce même cron le retentera automatiquement au
+      // prochain passage — inutile de bruiter les logs tant qu'Alex n'a pas
+      // corrigé le DNS du domaine concerné (visible dans Connexions).
+      if (
+        !(err instanceof MonthlyCapExceededError) &&
+        !(err instanceof DailySendCapExceededError) &&
+        !(err instanceof DomainNotDeliverableError)
+      ) {
         console.error(`Erreur relance premier contact pour prospect ${prospect.id}:`, err.message);
       }
     }
