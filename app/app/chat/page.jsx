@@ -1818,8 +1818,35 @@ export default function ChatPage() {
                 type="button"
                 className="suggestion-chip"
                 onClick={() => {
-                  setInput(s.text);
-                  textareaRef.current?.focus();
+                  // Bug remonté par Alex (30/08/2026) : cliquer sur un chip
+                  // REMPLAÇAIT tout le texte déjà saisi (setInput(s.text) tout
+                  // court) — impossible de composer sa réponse en cliquant
+                  // plusieurs chips à la suite, ou d'écrire une phrase autour
+                  // d'un chip. Corrigé pour insérer le texte du chip À LA
+                  // POSITION DU CURSEUR (comme un vrai copier-coller) plutôt
+                  // que de tout écraser : le texte avant, après, ou entre deux
+                  // chips cliqués l'un après l'autre est désormais préservé.
+                  const el = textareaRef.current;
+                  const start = el && typeof el.selectionStart === 'number' ? el.selectionStart : input.length;
+                  const end = el && typeof el.selectionEnd === 'number' ? el.selectionEnd : input.length;
+                  const before = input.slice(0, start);
+                  const after = input.slice(end);
+                  // Espace de séparation si besoin, pour ne pas coller le chip
+                  // directement à un mot déjà présent avant/après le curseur.
+                  const needsSpaceBefore = before && !/\s$/.test(before);
+                  const needsSpaceAfter = after && !/^\s/.test(after);
+                  const insert = `${needsSpaceBefore ? ' ' : ''}${s.text}${needsSpaceAfter ? ' ' : ''}`;
+                  const newValue = before + insert + after;
+                  const newCursorPos = before.length + insert.length;
+                  setInput(newValue);
+                  // Repositionne le curseur juste après le texte inséré, une
+                  // fois que React a bien reporté newValue dans le DOM du
+                  // <textarea> contrôlé (value={input}) — sinon setSelectionRange
+                  // s'appliquerait encore sur l'ancienne valeur.
+                  requestAnimationFrame(() => {
+                    el?.focus();
+                    el?.setSelectionRange(newCursorPos, newCursorPos);
+                  });
                 }}
               >
                 {s.label}
