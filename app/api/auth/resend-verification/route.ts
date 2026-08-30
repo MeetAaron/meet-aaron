@@ -42,11 +42,11 @@ export async function POST(request: NextRequest) {
   }
 
   const token = crypto.randomBytes(32).toString('hex');
-  const { error: insertError } = await supabaseAdmin.from('email_verifications').insert({
-    auth_user_id: verification.auth_user_id,
-    email,
-    token,
-  });
+  const { data: verificationRow, error: insertError } = await supabaseAdmin
+    .from('email_verifications')
+    .insert({ auth_user_id: verification.auth_user_id, email, token })
+    .select('id')
+    .single();
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
@@ -63,10 +63,18 @@ export async function POST(request: NextRequest) {
     );
   } catch (err: any) {
     // Même cause possible que le premier envoi (voir sendSystemEmail) — on
-    // le signale clairement plutôt que de renvoyer un faux succès, pour que
-    // la personne sache qu'il faut réessayer plus tard plutôt que de croire
-    // qu'un email est parti.
+    // le signale clairement plutôt que de renvoyer un faux succès, et on
+    // stocke désormais le message d'erreur RÉEL (bug remonté par Alex,
+    // 30/08/2026, déjà vu la veille — voir
+    // migration_email_verification_error_log_2026-08-30.sql) pour
+    // diagnostiquer sans accès aux logs serveur.
     console.error('Erreur renvoi email de vérification:', err.message);
+    if (verificationRow?.id) {
+      await supabaseAdmin
+        .from('email_verifications')
+        .update({ send_error: String(err.message || err), send_error_at: new Date().toISOString() })
+        .eq('id', verificationRow.id);
+    }
     return NextResponse.json(
       { error: "Impossible d'envoyer l'email pour le moment — réessaie dans quelques minutes." },
       { status: 502 }
