@@ -270,20 +270,26 @@ export async function sendEmailForUser(
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('email_signature, email_signature_image_url')
+    .select('email_signature, email_signature_image_url, email_banner_image_url')
     .eq('id', userId)
     .maybeSingle();
 
   // Corps texte de référence (signature texte incluse) : sert de partie
   // text/plain du multipart/alternative. La version HTML est construite à
   // partir de lui par plainTextToEmailHtml (voir ci-dessus) — l'image de
-  // signature (carte de visite, demande Alex 2026-08-25) ne peut vivre que
-  // dans la partie HTML, elle est ajoutée en fragment final.
+  // signature (carte de visite, demande Alex 2026-08-25) et le bandeau
+  // publicitaire (docx Modifs Aaron "AJOUT signature", 30/08/2026) ne
+  // peuvent vivre que dans la partie HTML, ajoutés en fragments finaux
+  // (bandeau toujours SOUS la signature).
   const textBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
+  const signatureImageHtml = user?.email_signature_image_url
+    ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
+    : '';
+  const bannerImageHtml = user?.email_banner_image_url
+    ? `<img src="${user.email_banner_image_url}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
+    : '';
   const htmlBody = plainTextToEmailHtml(textBody, {
-    trailingHtml: user?.email_signature_image_url
-      ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
-      : '',
+    trailingHtml: `${signatureImageHtml}${bannerImageHtml}`,
   });
 
   let result;
