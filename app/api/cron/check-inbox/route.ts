@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
-import { sendEmailForUser } from '@/lib/messaging';
+import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
@@ -501,20 +501,40 @@ export async function GET(request: NextRequest) {
         aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
       if (hasEmailToSend) {
-        await sendEmailForUser(
-          connection.user_id,
-          fromEmail,
-          aaronOutput.email_draft.subject,
-          aaronOutput.email_draft.body
-        );
+        // Demande Alex (30/08/2026) : un email "long" envoyé 3 minutes après
+        // la réponse du prospect ne fait pas crédible — voir
+        // computeHumanReplyDelayMs (lib/messaging.ts). Les emails courts
+        // gardent le comportement historique (envoi immédiat, ci-dessous) ;
+        // les emails longs sont mis en attente dans pending_aaron_replies et
+        // envoyés plus tard par app/api/cron/send-pending-replies.
+        const delayMs = computeHumanReplyDelayMs(aaronOutput.email_draft.body);
 
-        await supabaseAdmin.from('messages').insert({
-          conversation_id: conversation.id,
-          direction: 'outbound',
-          sender_email: connection.provider_account_email,
-          recipient_email: fromEmail,
-          body: aaronOutput.email_draft.body,
-        });
+        if (delayMs > 0) {
+          await supabaseAdmin.from('pending_aaron_replies').insert({
+            conversation_id: conversation.id,
+            prospect_id: prospect.id,
+            user_id: connection.user_id,
+            to_email: fromEmail,
+            subject: aaronOutput.email_draft.subject,
+            body: aaronOutput.email_draft.body,
+            send_after: new Date(Date.now() + delayMs).toISOString(),
+          });
+        } else {
+          await sendEmailForUser(
+            connection.user_id,
+            fromEmail,
+            aaronOutput.email_draft.subject,
+            aaronOutput.email_draft.body
+          );
+
+          await supabaseAdmin.from('messages').insert({
+            conversation_id: conversation.id,
+            direction: 'outbound',
+            sender_email: connection.provider_account_email,
+            recipient_email: fromEmail,
+            body: aaronOutput.email_draft.body,
+          });
+        }
       }
 
       await supabaseAdmin
