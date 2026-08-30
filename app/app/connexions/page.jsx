@@ -399,6 +399,18 @@ export default function ConnexionsPage() {
   const [usage, setUsage] = useState(null);
   const [businessSummary, setBusinessSummary] = useState('');
   const [summaryLoaded, setSummaryLoaded] = useState(false);
+  // Bug remonté par Alex (30/08/2026) : l'aperçu affichait "Pas encore de
+  // résumé" alors que le profil existait bien en base (le Word/PDF, qui lit
+  // les mêmes données côté serveur, l'affichait correctement). Cause trouvée :
+  // loadBusinessSummary ci-dessous faisait `fetch(...).then(r => r.json())`
+  // SANS vérifier r.ok — une réponse d'erreur (403 si le user_id de l'URL
+  // n'était pas encore celui, vérifié, de la session au moment de l'appel,
+  // 404, 500...) est du JSON valide `{ error: "..." }`, donc `.then(r =>
+  // r.json())` ne déclenchait JAMAIS le `.catch()` : res.summary valait juste
+  // `undefined`, silencieusement traité comme "pas de profil". Ce state
+  // distingue maintenant "vraiment vide" de "échec du chargement" pour ne
+  // plus jamais afficher le mauvais message à l'utilisateur.
+  const [summaryLoadError, setSummaryLoadError] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [summarySaved, setSummarySaved] = useState(false);
   const [summaryDirty, setSummaryDirty] = useState(false);
@@ -556,14 +568,26 @@ export default function ConnexionsPage() {
   function loadBusinessSummary() {
     if (!userId) return;
     fetch(`/api/business-summary?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        setBusinessSummary(res.summary || '');
-        setPendingImport(res.pending || null);
+      .then((r) => r.json().then((body) => ({ ok: r.ok, status: r.status, body })))
+      .then(({ ok, status, body }) => {
+        if (!ok) {
+          // Voir le commentaire sur summaryLoadError plus haut : on ne
+          // traite plus une réponse d'erreur comme "profil vide".
+          console.error('Erreur chargement profil entreprise:', status, body?.error);
+          setSummaryLoadError(true);
+          setSummaryLoaded(true);
+          return;
+        }
+        setSummaryLoadError(false);
+        setBusinessSummary(body.summary || '');
+        setPendingImport(body.pending || null);
         setSummaryLoaded(true);
         setSummaryDirty(false);
       })
-      .catch(() => setSummaryLoaded(true));
+      .catch(() => {
+        setSummaryLoadError(true);
+        setSummaryLoaded(true);
+      });
   }
 
   useEffect(() => {
@@ -1575,7 +1599,14 @@ export default function ConnexionsPage() {
                   l'édition complète reste possible via BusinessSummaryExpandModal
                   ("Voir le profil complet" ci-dessous), qui partage le même
                   state businessSummary et le même handler d'enregistrement. */}
-              {businessSummary ? (
+              {summaryLoadError ? (
+                <p className="profile-empty-text profile-load-error">
+                  {t('preferences.businessProfileLoadError', locale)}{' '}
+                  <button type="button" className="retry-link-btn" onClick={loadBusinessSummary}>
+                    {t('preferences.retryButton', locale)}
+                  </button>
+                </p>
+              ) : businessSummary ? (
                 <p className="profile-preview-text">{buildBusinessProfilePreview(businessSummary)}</p>
               ) : (
                 <p className="profile-empty-text">{t('preferences.businessProfilePlaceholder', locale)}</p>
@@ -3101,6 +3132,19 @@ export default function ConnexionsPage() {
           color: var(--muted);
           font-size: 0.86rem;
           line-height: 1.5;
+        }
+        .profile-load-error {
+          border-color: var(--accent-red);
+          color: var(--accent-red);
+        }
+        .retry-link-btn {
+          background: transparent;
+          border: none;
+          padding: 0;
+          color: inherit;
+          text-decoration: underline;
+          font: inherit;
+          cursor: pointer;
         }
         .pending-import-banner {
           margin-top: 1rem;
