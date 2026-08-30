@@ -4858,6 +4858,33 @@ function ConnectionCard({
       setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 2000);
     });
   }
+
+  // "à chaque fois qu'un utilisateur aura ce message il devra faire tout ça ?"
+  // (Alex, 30/08/2026) : la plupart des commerciaux ne gèrent pas eux-mêmes
+  // le DNS de leur société — quelqu'un d'autre (informaticien, agence web,
+  // admin Google Workspace/Microsoft 365) s'en charge en général. Plutôt que
+  // d'exiger que CHAQUE utilisateur comprenne "zone DNS"/"TXT" lui-même, ce
+  // bouton compose un message prêt à copier-coller/transférer à cette
+  // personne, avec les deux enregistrements déjà dedans.
+  function copyDeliverabilityEmail() {
+    if (!health?.domain) return;
+    const lines = [
+      t('connexions.deliverabilityEmailGreeting', locale),
+      '',
+      `${t('connexions.deliverabilityEmailIntroPrefix', locale)} ${health.domain} ${t('connexions.deliverabilityEmailIntroSuffix', locale)}`,
+      '',
+    ];
+    let step = 1;
+    if (health.suggested?.spf) {
+      lines.push(`${step}) ${t('connexions.deliverabilityEmailSpfLabel', locale)}`, health.suggested.spf, '');
+      step += 1;
+    }
+    if (health.suggested?.dmarc) {
+      lines.push(`${step}) ${t('connexions.deliverabilityEmailDmarcLabel', locale)}`, health.suggested.dmarc, '');
+    }
+    lines.push(t('connexions.deliverabilityEmailThanks', locale));
+    copyRecord(lines.join('\n'), 'deliverability-email');
+  }
   return (
     <div className="card">
       <div className="card-head">
@@ -4896,6 +4923,7 @@ function ConnectionCard({
                   <p className="health-hint">
                     {t('connexions.healthHintPrefix', locale)} {health.domain} {t('connexions.healthHintSuffix', locale)}
                   </p>
+                  <p className="health-hint health-optional">{t('connexions.healthOptionalNote', locale)}</p>
                   {health.suggested?.spf && (
                     <div className="record-row">
                       <span className="record-label">SPF — {t('connexions.recordHost', locale)}: @</span>
@@ -4918,6 +4946,12 @@ function ConnectionCard({
                       </div>
                     </div>
                   )}
+                  <div className="record-row deliverability-email-row">
+                    <button type="button" className="btn-secondary" onClick={copyDeliverabilityEmail}>
+                      {copiedField === 'deliverability-email' ? t('team.copied', locale) : t('connexions.copyEmailForItButton', locale)}
+                    </button>
+                    <p className="health-hint">{t('connexions.copyEmailForItHint', locale)}</p>
+                  </div>
                 </>
               )}
             </div>
@@ -5007,8 +5041,20 @@ function ConnectionCard({
           color: var(--muted);
           overflow-wrap: break-word;
         }
+        .health-optional {
+          font-style: italic;
+        }
         .record-row {
           margin-top: 0.6rem;
+        }
+        .deliverability-email-row {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.35rem;
+        }
+        .deliverability-email-row .health-hint {
+          margin-top: 0;
         }
         .record-label {
           display: block;
