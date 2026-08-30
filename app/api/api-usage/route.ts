@@ -12,8 +12,11 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { getCreditBalance } from '@/lib/credits';
 import { stripe } from '@/lib/stripe';
 
-const DEFAULT_MONTHLY_CAP_USD = 20;
-const DAILY_CAP_DIVISOR = 15;
+// Aligné sur lib/anthropic-client.ts (docx Modifs Aaron, AJOUTS 30/08/26,
+// item 2) : 20 € PAR UTILISATEUR et par mois (21.5 USD au taux prudent),
+// répartis sur 30 jours — le plafond société = base × nombre d'utilisateurs.
+const DEFAULT_MONTHLY_CAP_USD = 21.5; // = 20 € par utilisateur et par mois
+const DAILY_CAP_DIVISOR = 30;
 
 function currentYearMonth(): string {
   const now = new Date();
@@ -45,13 +48,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 });
   }
 
-  const { data: company } = await supabaseAdmin
-    .from('companies')
-    .select('monthly_api_cap_usd, stripe_subscription_id')
-    .eq('id', user.company_id)
-    .single();
+  const [{ data: company }, { count: companyUserCount }] = await Promise.all([
+    supabaseAdmin
+      .from('companies')
+      .select('monthly_api_cap_usd, stripe_subscription_id')
+      .eq('id', user.company_id)
+      .single(),
+    supabaseAdmin
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', user.company_id),
+  ]);
 
-  const monthlyCapUsd = company?.monthly_api_cap_usd === undefined ? DEFAULT_MONTHLY_CAP_USD : company.monthly_api_cap_usd;
+  const perUserCapUsd = company?.monthly_api_cap_usd === undefined ? DEFAULT_MONTHLY_CAP_USD : company.monthly_api_cap_usd;
+  const monthlyCapUsd = perUserCapUsd === null ? null : perUserCapUsd * Math.max(1, companyUserCount || 0);
   const dailyCapUsd = monthlyCapUsd === null ? null : monthlyCapUsd / DAILY_CAP_DIVISOR;
 
   const { data: monthRow } = await supabaseAdmin
