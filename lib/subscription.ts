@@ -28,6 +28,25 @@ export function getModulePriceId(module: ModuleCode): string | null {
   return process.env[envKey] || null;
 }
 
+// Traduit une erreur Stripe brute (typiquement levée par
+// stripe.subscriptionItems.create quand le Price ID configuré n'existe plus
+// ou a été archivé) en un message clair et actionnable pour le fondateur —
+// bug remonté par Alex le 29/08/2026 (section 7 du débrief "Modifs Aaron") :
+// l'ajout d'un compte équipe plantait avec le message brut de Stripe
+// ("No such price...", "This price is no longer active..."), sans qu'on
+// sache ni pourquoi ni quoi faire. Utilisé par app/api/team/seats/route.ts
+// et app/api/team/seats/[id]/route.ts (même classe de bug dans les deux).
+export function describeStripeSubscriptionError(err: any, module: ModuleCode): string {
+  const raw = String(err?.message || err || '');
+  if (err?.code === 'resource_missing' || /no such price/i.test(raw)) {
+    return `Le prix Stripe du module ${module} n'existe plus côté Stripe (jamais créé, ou supprimé) — vérifie/recrée-le dans le tableau de bord Stripe, puis mets à jour la variable d'environnement correspondante (voir lib/subscription.ts, getModulePriceId).`;
+  }
+  if (/no longer active|archived/i.test(raw)) {
+    return `Le prix Stripe du module ${module} a été archivé côté Stripe — réactive-le, ou crée un nouveau prix et mets à jour la variable d'environnement correspondante (voir lib/subscription.ts, getModulePriceId).`;
+  }
+  return raw || 'Erreur Stripe';
+}
+
 function activeColumn(module: ModuleCode): string {
   return `offer_${module.toLowerCase()}_active`;
 }
