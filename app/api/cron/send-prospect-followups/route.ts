@@ -25,7 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
@@ -176,7 +176,11 @@ export async function GET(request: NextRequest) {
 
       followedUp++;
     } catch (err: any) {
-      if (!(err instanceof MonthlyCapExceededError) && !(err instanceof DailySendCapExceededError)) {
+      if (
+        !(err instanceof MonthlyCapExceededError) &&
+        !(err instanceof DailySendCapExceededError) &&
+        !(err instanceof DomainNotDeliverableError)
+      ) {
         console.error(`Erreur relance programmée pour prospect ${prospect.id}:`, err.message);
       }
     }
