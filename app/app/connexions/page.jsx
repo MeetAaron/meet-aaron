@@ -266,6 +266,13 @@ export default function ConnexionsPage() {
   const CRM_PROVIDERS_SELECT = crmProvidersFor(locale);
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
+  // Assistant délivrabilité (30/08/2026) : re-vérification à la demande des
+  // enregistrements DNS après correction par l'utilisateur. L'appel à
+  // /api/email-health rafraîchit aussi le cache domain_health_ok côté
+  // serveur, donc un résultat vert ici = envois de prospection débloqués
+  // immédiatement (voir lib/messaging.ts, DomainNotDeliverableError).
+  const [recheckingProvider, setRecheckingProvider] = useState(null);
+  const [recheckResult, setRecheckResult] = useState({});
   const [loading, setLoading] = useState(true);
   // QR code de connexion depuis le téléphone (demande Alex, 28/08/2026) : le
   // commercial scanne avec l'appareil photo de son téléphone plutôt que de
@@ -1063,6 +1070,25 @@ export default function ConnexionsPage() {
       .then((r) => r.json())
       .then((res) => setCrmConnections(res.connections || []))
       .catch(() => {});
+  }
+
+  // Bouton « Vérifier maintenant » de l'assistant délivrabilité : relance le
+  // diagnostic DNS complet et affiche immédiatement le résultat (débloqué ou
+  // propagation encore en cours). Voir commentaire sur recheckingProvider.
+  async function handleRecheckHealth(provider) {
+    setRecheckingProvider(provider);
+    setRecheckResult((r) => ({ ...r, [provider]: null }));
+    try {
+      const body = await fetch(`/api/email-health?user_id=${userId}`).then((r) => r.json());
+      const results = body.results || [];
+      setEmailHealth(results);
+      const mine = results.find((h) => h.provider === provider);
+      const ok = mine ? mine.consumer_domain || !mine.sending_blocked : false;
+      setRecheckResult((r) => ({ ...r, [provider]: ok ? 'ok' : 'still' }));
+    } catch {
+      setRecheckResult((r) => ({ ...r, [provider]: 'still' }));
+    }
+    setRecheckingProvider(null);
   }
 
   // Demande Alex (2026-08-22) : niveau de collaboration + fournisseur/notes
@@ -1871,6 +1897,9 @@ export default function ConnexionsPage() {
             connection={googleConnection}
             health={emailHealth.find((h) => h.provider === 'google')}
             missingLabelScope={googleMissingLabelScope}
+            onRecheck={() => handleRecheckHealth('google')}
+            rechecking={recheckingProvider === 'google'}
+            recheckResult={recheckResult.google}
             onConnect={() => connectProvider('google')}
             onDisconnect={() => handleDisconnect(googleConnection.id)}
             onShowQr={() => openQrPanel('google')}
@@ -1887,6 +1916,10 @@ export default function ConnexionsPage() {
             desc={PROVIDER_META.microsoft.desc}
             connection={microsoftConnection}
             health={emailHealth.find((h) => h.provider === 'microsoft')}
+            onRecheck={() => handleRecheckHealth('microsoft')}
+            rechecking={recheckingProvider === 'microsoft'}
+            recheckResult={recheckResult.microsoft}
+            showReportProblem
             onConnect={() => connectProvider('microsoft')}
             onDisconnect={() => handleDisconnect(microsoftConnection.id)}
             onShowQr={() => openQrPanel('microsoft')}
@@ -4833,6 +4866,10 @@ function ConnectionCard({
   connection,
   health,
   missingLabelScope,
+  onRecheck,
+  rechecking,
+  recheckResult,
+  showReportProblem,
   onConnect,
   onDisconnect,
   onShowQr,
@@ -4904,63 +4941,120 @@ function ConnectionCard({
               </button>
             </div>
           )}
-          {health && !health.consumer_domain && health.health && (
-            <div className="health">
-              <p className="health-title">{t('connexions.domainHealthPrefix', locale)} {health.domain}</p>
+          {/* État de la connexion (item 15 docx Modifs Aaron) : un retour
+              clair juste sous la connexion — « tout fonctionne » ou, si le
+              domaine pro n'a pas SPF/DMARC, l'assistant pas-à-pas pour
+              remettre les envois en route (les envois de prospection sont
+              bloqués dans ce cas — voir lib/messaging.ts). */}
+          {health && health.consumer_domain && (
+            <div className="health health-ok">
+              <p className="health-status-ok">{t('connexions.healthAllGoodTitle', locale)}</p>
+              <p className="health-hint">{t('connexions.consumerAllGoodBody', locale)}</p>
+            </div>
+          )}
+          {health && !health.consumer_domain && health.health && !health.sending_blocked && (
+            <div className="health health-ok">
+              <p className="health-status-ok">{t('connexions.healthAllGoodTitle', locale)}</p>
+              <p className="health-hint">
+                {t('connexions.healthAllGoodBodyPrefix', locale)} {health.domain}{t('connexions.healthAllGoodBodySuffix', locale)}
+              </p>
               <div className="health-badges">
-                <span className={`badge ${health.health.spf.found ? 'ok' : 'warn'}`}>
-                  {health.health.spf.found ? '✓' : '⚠️'} SPF
-                </span>
-                <span className={`badge ${health.health.dmarc.found ? 'ok' : 'warn'}`}>
-                  {health.health.dmarc.found ? '✓' : '⚠️'} DMARC
-                </span>
-                <span className="badge info" title={t('connexions.dkimTooltip', locale)}>
-                  {t('connexions.dkimBadge', locale)}
-                </span>
+                <span className="badge ok">✓ SPF</span>
+                <span className="badge ok">✓ DMARC</span>
+                {health.dkim?.found && <span className="badge ok">✓ DKIM</span>}
               </div>
-              {(!health.health.spf.found || !health.health.dmarc.found) && (
-                <>
-                  <p className="health-hint">
-                    {t('connexions.healthHintPrefix', locale)} {health.domain} {t('connexions.healthHintSuffix', locale)}
-                  </p>
-                  <p className="health-hint health-optional">{t('connexions.healthOptionalNote', locale)}</p>
-                  {health.suggested?.spf && (
-                    <div className="record-row">
-                      <span className="record-label">SPF — {t('connexions.recordHost', locale)}: @</span>
-                      <div className="record-value-row">
-                        <code className="record-value">{health.suggested.spf}</code>
-                        <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.spf, 'spf')}>
-                          {copiedField === 'spf' ? t('team.copied', locale) : t('team.copy', locale)}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {health.suggested?.dmarc && (
-                    <div className="record-row">
-                      <span className="record-label">DMARC — {t('connexions.recordHost', locale)}: _dmarc</span>
-                      <div className="record-value-row">
-                        <code className="record-value">{health.suggested.dmarc}</code>
-                        <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.dmarc, 'dmarc')}>
-                          {copiedField === 'dmarc' ? t('team.copied', locale) : t('team.copy', locale)}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="record-row deliverability-email-row">
-                    <button type="button" className="btn-secondary" onClick={copyDeliverabilityEmail}>
-                      {copiedField === 'deliverability-email' ? t('team.copied', locale) : t('connexions.copyEmailForItButton', locale)}
-                    </button>
-                    <p className="health-hint">{t('connexions.copyEmailForItHint', locale)}</p>
-                  </div>
-                </>
+              {health.dkim && !health.dkim.found && (
+                <p className="health-hint health-optional">
+                  💡 {t('connexions.dkimAdviceTitle', locale)} —{' '}
+                  {t(health.provider === 'microsoft' ? 'connexions.dkimAdviceMicrosoft' : 'connexions.dkimAdviceGoogle', locale)}
+                </p>
               )}
             </div>
+          )}
+          {health && !health.consumer_domain && health.health && health.sending_blocked && (
+            <div className="health">
+              <p className="health-status-blocked">{t('connexions.healthBlockedTitle', locale)}</p>
+              <p className="health-hint">
+                {t('connexions.healthBlockedBodyPrefix', locale)} {health.domain} {t('connexions.healthBlockedBodySuffix', locale)}
+              </p>
+              <ol className="health-steps">
+                <li>
+                  {t('connexions.healthStepDns', locale)}{' '}
+                  {health.dns_provider ? (
+                    <>
+                      {t('connexions.healthStepDnsAt', locale)}{' '}
+                      <a href={health.dns_provider.recordsUrl} target="_blank" rel="noreferrer" className="dns-provider-link">
+                        {health.dns_provider.name}
+                      </a>
+                    </>
+                  ) : (
+                    <span>{t('connexions.healthStepDnsUnknown', locale)}</span>
+                  )}
+                </li>
+                {health.suggested?.spf && (
+                  <li>
+                    {t('connexions.healthStepAddRecord', locale)} <strong>SPF</strong> ({t('connexions.recordHost', locale)}: @) :
+                    <div className="record-value-row">
+                      <code className="record-value">{health.suggested.spf}</code>
+                      <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.spf, 'spf')}>
+                        {copiedField === 'spf' ? t('team.copied', locale) : t('team.copy', locale)}
+                      </button>
+                    </div>
+                  </li>
+                )}
+                {health.suggested?.dmarc && (
+                  <li>
+                    {t('connexions.healthStepAddRecord', locale)} <strong>DMARC</strong> ({t('connexions.recordHost', locale)}: _dmarc) :
+                    <div className="record-value-row">
+                      <code className="record-value">{health.suggested.dmarc}</code>
+                      <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.dmarc, 'dmarc')}>
+                        {copiedField === 'dmarc' ? t('team.copied', locale) : t('team.copy', locale)}
+                      </button>
+                    </div>
+                  </li>
+                )}
+                <li>{t('connexions.healthStepVerify', locale)}</li>
+              </ol>
+              <div className="recheck-row">
+                <button type="button" className="btn-primary" onClick={onRecheck} disabled={rechecking}>
+                  {rechecking ? t('connexions.recheckChecking', locale) : t('connexions.recheckButton', locale)}
+                </button>
+                {recheckResult === 'still' && !rechecking && (
+                  <p className="health-hint">{t('connexions.recheckStillMissing', locale)}</p>
+                )}
+              </div>
+              <div className="record-row deliverability-email-row">
+                <button type="button" className="btn-secondary" onClick={copyDeliverabilityEmail}>
+                  {copiedField === 'deliverability-email' ? t('team.copied', locale) : t('connexions.copyEmailForItButton', locale)}
+                </button>
+                <p className="health-hint">{t('connexions.copyEmailForItHint', locale)}</p>
+              </div>
+            </div>
+          )}
+          {recheckResult === 'ok' && health && !health.consumer_domain && !health.sending_blocked && (
+            <p className="recheck-success">{t('connexions.recheckSuccess', locale)}</p>
+          )}
+          {showReportProblem && (
+            <a
+              className="report-problem-link"
+              href={`mailto:aaron@meetaaron.app?subject=${encodeURIComponent(t('connexions.reportProblemSubject', locale))}`}
+            >
+              {t('connexions.reportProblemButton', locale)}
+            </a>
           )}
           <button className="btn-danger" onClick={onDisconnect}>{t('connexions.disconnectButton', locale)}</button>
         </>
       ) : (
         <>
           <button className="btn-primary" onClick={onConnect}>{t('connexions.connectButtonPrefix', locale)} {title}</button>
+          {showReportProblem && (
+            <a
+              className="report-problem-link"
+              href={`mailto:aaron@meetaaron.app?subject=${encodeURIComponent(t('connexions.reportProblemSubject', locale))}`}
+            >
+              {t('connexions.reportProblemButton', locale)}
+            </a>
+          )}
           {!qrOpen ? (
             <button type="button" className="btn-qr-toggle" onClick={onShowQr}>
               {t('connexions.qrToggle', locale)}
@@ -5002,6 +5096,69 @@ function ConnectionCard({
           border-radius: var(--radius-md);
           padding: 0.7rem 0.8rem;
           margin: 0 0 1rem;
+          /* Garde-fous anti-débordement (bug "ça sort du cadre" remonté par
+             Alex, 30/08/2026, capture de l'encadré DMARC) : quoi qu'il
+             arrive, ce bloc et son contenu ne peuvent plus dépasser la
+             largeur de la carte. */
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow-wrap: anywhere;
+          overflow: hidden;
+        }
+        .health-ok {
+          background: rgba(61, 214, 140, 0.08);
+          border-color: rgba(61, 214, 140, 0.35) !important;
+        }
+        .health-status-ok {
+          margin: 0 0 0.35rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          color: var(--accent-green);
+        }
+        .health-status-blocked {
+          margin: 0 0 0.35rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          color: var(--accent-red);
+        }
+        .health-steps {
+          margin: 0.6rem 0 0;
+          padding-left: 1.2rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+          font-size: 0.78rem;
+        }
+        .health-steps li {
+          overflow-wrap: anywhere;
+        }
+        .dns-provider-link {
+          color: var(--accent);
+          text-decoration: underline;
+        }
+        .recheck-row {
+          margin-top: 0.75rem;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.35rem;
+        }
+        .recheck-row .health-hint {
+          margin-top: 0;
+        }
+        .recheck-success {
+          margin: 0 0 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          color: var(--accent-green);
+        }
+        .report-problem-link {
+          display: block;
+          margin: 0 0 0.9rem;
+          font-size: 0.78rem;
+          color: var(--muted);
+          text-decoration: underline;
+          cursor: pointer;
         }
         .health-title {
           margin: 0 0 0.5rem;
