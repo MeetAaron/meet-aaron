@@ -301,6 +301,12 @@ export default function ConnexionsPage() {
   // objets indexés par provider, pour que l'état d'une carte n'affecte pas les
   // autres cartes affichées en même temps.
   const [userRole, setUserRole] = useState(null);
+  // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
+  // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
+  // fondateur comme commercial) — même logique "fermé par défaut" que
+  // userRole ci-dessus. Produits est retiré pour tout le monde, et
+  // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
+  const [userEmail, setUserEmail] = useState(null);
   const [crmConnections, setCrmConnections] = useState([]);
   const [crmSyncing, setCrmSyncing] = useState({});
   const [crmSyncResult, setCrmSyncResult] = useState({});
@@ -459,6 +465,13 @@ export default function ConnexionsPage() {
   const [signatureImageFile, setSignatureImageFile] = useState(null);
   const [signatureImageUploading, setSignatureImageUploading] = useState(false);
   const [signatureImageError, setSignatureImageError] = useState(null);
+  // Bandeau publicitaire sous la signature (docx Modifs Aaron "AJOUT
+  // signature", 30/08/2026) — même mécanique que l'image de signature,
+  // via /api/signature/image avec kind=banner.
+  const [bannerImageUrl, setBannerImageUrl] = useState(null);
+  const [bannerImageFile, setBannerImageFile] = useState(null);
+  const [bannerImageUploading, setBannerImageUploading] = useState(false);
+  const [bannerImageError, setBannerImageError] = useState(null);
   const [legalInfo, setLegalInfo] = useState({ siret: '', legal_address: '', legal_form: '', vat_number: '', vat_exempt_mention: '' });
   const [legalInfoLoaded, setLegalInfoLoaded] = useState(false);
   const [savingLegalInfo, setSavingLegalInfo] = useState(false);
@@ -617,6 +630,7 @@ export default function ConnexionsPage() {
       .then((res) => {
         setSignature(res.signature || '');
         setSignatureImageUrl(res.signature_image_url || null);
+        setBannerImageUrl(res.banner_image_url || null);
         setSignatureLoaded(true);
       })
       .catch(() => setSignatureLoaded(true));
@@ -740,6 +754,35 @@ export default function ConnexionsPage() {
     const res = await fetch(`/api/signature/image?user_id=${userId}`, { method: 'DELETE' });
     setSignatureImageUploading(false);
     if (res.ok) setSignatureImageUrl(null);
+  }
+
+  // Bandeau publicitaire sous la signature — même route que l'image de
+  // signature avec kind=banner (voir app/api/signature/image/route.ts).
+  async function handleUploadBannerImage() {
+    if (!bannerImageFile) return;
+    setBannerImageUploading(true);
+    setBannerImageError(null);
+    const formData = new FormData();
+    formData.append('file', bannerImageFile);
+    formData.append('user_id', userId);
+    formData.append('kind', 'banner');
+    const res = await fetch('/api/signature/image', { method: 'POST', body: formData });
+    const body = await res.json();
+    setBannerImageUploading(false);
+    if (!res.ok) {
+      setBannerImageError(body.error || t('common.error', locale));
+      return;
+    }
+    setBannerImageUrl(body.url);
+    setBannerImageFile(null);
+  }
+
+  async function handleRemoveBannerImage() {
+    setBannerImageUploading(true);
+    setBannerImageError(null);
+    const res = await fetch(`/api/signature/image?user_id=${userId}&kind=banner`, { method: 'DELETE' });
+    setBannerImageUploading(false);
+    if (res.ok) setBannerImageUrl(null);
   }
 
   async function handleSaveSummary() {
@@ -1812,6 +1855,38 @@ export default function ConnexionsPage() {
                   </button>
                 </div>
                 {signatureImageError && <p className="error">{signatureImageError}</p>}
+              </div>
+
+              {/* Bandeau publicitaire (docx Modifs Aaron "AJOUT signature",
+                  30/08/2026) : image importée, affichée SOUS la signature
+                  dans les emails envoyés — voir lib/messaging.ts. */}
+              <div className="signature-image-block">
+                <label className="sub-label">{t('connexions.bannerImageLabel', locale)}</label>
+                <p className="collab-extra-hint">{t('connexions.bannerImageHint', locale)}</p>
+                {bannerImageUrl && (
+                  <div className="signature-image-preview">
+                    <img src={bannerImageUrl} alt="" />
+                    <button type="button" className="btn-secondary" onClick={handleRemoveBannerImage} disabled={bannerImageUploading}>
+                      {t('connexions.signatureImageRemoveButton', locale)}
+                    </button>
+                  </div>
+                )}
+                <div className="upload-row">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    onChange={(e) => setBannerImageFile(e.target.files?.[0] || null)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleUploadBannerImage}
+                    disabled={!bannerImageFile || bannerImageUploading}
+                  >
+                    {bannerImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
+                  </button>
+                </div>
+                {bannerImageError && <p className="error">{bannerImageError}</p>}
               </div>
             </div>
           )}
@@ -5425,6 +5500,7 @@ function Shell({ children, active, userId }) {
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        setUserEmail(prefs.email || null);
       })
       .catch(() => {});
     return () => {
@@ -5451,7 +5527,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
@@ -5460,7 +5535,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
-    { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -5505,7 +5579,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => (item.slug !== 'team' && item.slug !== 'suggestions') || userRole === 'patron').map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron') && (item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')).map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
