@@ -1,13 +1,31 @@
 // app/api/email-health/route.ts
-// GET -> diagnostic SPF/DMARC du domaine d'envoi de chaque boîte mail que le
-// commercial a connectée (Gmail/Outlook), affiché dans Connexions. Voir
-// lib/email-deliverability.ts pour ce qui est vérifié et pourquoi DKIM n'y
-// figure pas.
+// GET -> diagnostic complet de délivrabilité du domaine d'envoi de chaque
+// boîte mail connectée (Gmail/Outlook), affiché par l'assistant délivrabilité
+// de Connexions. Voir lib/email-deliverability.ts.
+//
+// Enrichi le 30/08/2026 (assistant "clé en main" demandé par Alex — un email
+// de prospection teamsystem sans DMARC est parti en spam, d'où le blocage
+// strict ajouté dans lib/messaging.ts) :
+//   - DKIM vérifié via les sélecteurs standards du fournisseur (conseil non
+//     bloquant, voir checkDkim) ;
+//   - détection de l'hébergeur DNS (NS lookup) pour guider "où cliquer" ;
+//   - ÉCRITURE DU CACHE domain_health_ok/domain_health_checked_at à chaque
+//     appel : le bouton "Vérifier maintenant" de Connexions passe par ici,
+//     donc dès que l'utilisateur a corrigé son DNS, un clic re-vérifie ET
+//     débloque immédiatement les envois (sendEmailForUser lit ce cache) —
+//     sans attendre l'expiration des 24h.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { checkDomainHealth, isConsumerDomain, suggestedSpfRecord, suggestedDmarcRecord } from '@/lib/email-deliverability';
+import {
+  checkDomainHealth,
+  checkDkim,
+  detectDnsProvider,
+  isConsumerDomain,
+  suggestedSpfRecord,
+  suggestedDmarcRecord,
+} from '@/lib/email-deliverability';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -21,7 +39,7 @@ export async function GET(request: NextRequest) {
 
   const { data: connections } = await supabaseAdmin
     .from('oauth_connections')
-    .select('provider, provider_account_email')
+    .select('id, provider, provider_account_email')
     .eq('user_id', userId);
 
   const results = await Promise.all(
@@ -32,19 +50,45 @@ export async function GET(request: NextRequest) {
         if (isConsumerDomain(domain)) {
           return { provider: c.provider, domain, consumer_domain: true, health: null };
         }
-        const health = await checkDomainHealth(domain);
-        // Enregistrements prêts à copier-coller (demande Alex, 27/08/2026) —
-        // affichés dans Connexions à la place d'une simple consigne texte,
-        // seulement pour ce qui manque réellement. rua du DMARC pointe vers
-        // l'adresse pro elle-même connectée (voir lib/email-deliverability.ts).
+        const provider = (c.provider === 'microsoft' ? 'microsoft' : 'google') as 'google' | 'microsoft';
+        const [health, dkim, dnsProvider] = await Promise.all([
+          checkDomainHealth(domain),
+          checkDkim(domain, provider),
+          detectDnsProvider(domain),
+        ]);
+
+        // Enregistrements prêts à copier-coller, seulement pour ce qui manque.
         const suggested: { spf?: string; dmarc?: string } = {};
         if (!health.spf.found) {
-          suggested.spf = suggestedSpfRecord(c.provider as 'google' | 'microsoft');
+          suggested.spf = suggestedSpfRecord(provider);
         }
         if (!health.dmarc.found) {
           suggested.dmarc = suggestedDmarcRecord(c.provider_account_email);
         }
-        return { provider: c.provider, domain, consumer_domain: false, health, suggested };
+
+        // Rafraîchit le cache lu par le blocage strict des envois (voir
+        // isDomainHealthyForSending, lib/email-deliverability.ts). Best-effort.
+        const healthy = health.spf.found && health.dmarc.found;
+        try {
+          await supabaseAdmin
+            .from('oauth_connections')
+            .update({ domain_health_ok: healthy, domain_health_checked_at: new Date().toISOString() })
+            .eq('id', c.id);
+        } catch {
+          // Non bloquant : la migration domain_health_cache peut ne pas encore
+          // être passée — le diagnostic reste affichable.
+        }
+
+        return {
+          provider: c.provider,
+          domain,
+          consumer_domain: false,
+          health,
+          dkim,
+          dns_provider: dnsProvider,
+          sending_blocked: !healthy,
+          suggested,
+        };
       })
   );
 
