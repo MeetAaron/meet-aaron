@@ -347,6 +347,9 @@ export default function TeamMemberDetailPage() {
 function Shell({ children, active, userId }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
+  // Rubrique Clients réservée à aaron@meetaaron.app (docx Modifs Aaron,
+  // 30/08/2026) — voir le même gating dans les autres pages.
+  const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
@@ -368,6 +371,7 @@ function Shell({ children, active, userId }) {
           sales: prefs.offer_as_active !== true,
           customer: prefs.offer_ac_active !== true,
         });
+        setUserEmail(prefs.email || null);
       })
       .catch(() => {});
     return () => {
@@ -394,7 +398,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
@@ -403,7 +406,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
-    { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -448,7 +450,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app').map((item) => (
             <Link
               key={item.label}
               href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
