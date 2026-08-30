@@ -177,16 +177,19 @@ export async function notifyIfDeliverabilityIssue(userId: string, email: string)
     if (!domain || isConsumerDomain(domain)) return;
 
     const health = await checkDomainHealth(domain);
-    if (health.spf.found && health.dmarc.found) return;
+    // Aligné sur le blocage (31/08/2026) : on ne notifie que le cas
+    // réellement bloquant (SPF absent). Un DMARC manquant reste visible en
+    // "petit conseil" dans Connexions, sans push — pas d'alarme pour un
+    // domaine qui fonctionne.
+    if (health.spf.found) return;
 
     // Import différé pour éviter une dépendance circulaire potentielle
     // (lib/push.ts n'importe pas ce fichier, mais on reste prudent puisque
     // les deux vivent dans lib/ et pourraient évoluer).
     const { sendPushNotification } = await import('./push');
-    const missing = [!health.spf.found && 'SPF', !health.dmarc.found && 'DMARC'].filter(Boolean).join(' et ');
     await sendPushNotification(userId, {
-      title: 'Domaine à sécuriser',
-      body: `${domain} n'a pas de ${missing} configuré — tes emails de prospection risquent le spam. Aaron te propose le correctif dans Connexions.`,
+      title: 'Domaine à configurer',
+      body: `${domain} n'a pas d'enregistrement SPF — tes emails de prospection partiraient en spam, Aaron les retient. Corrige en 5 min dans Connexions.`,
       url: '/app/connexions',
     });
   } catch (err: any) {
@@ -195,12 +198,26 @@ export async function notifyIfDeliverabilityIssue(userId: string, email: string)
 }
 
 // Demande Alex (30/08/2026, test réel : un email de prospection envoyé depuis
-// teamsystem-paris.fr, domaine sans DMARC, est parti tout droit en spam côté
-// prospect) : "je veux un vrai blocage... que j'utilise un email pro avec
-// google ou outlook je veux que ça fonctionne à chaque fois". Un email de
-// prospection qui part systématiquement en spam ne sert à rien et abîme la
-// réputation d'Aaron aux yeux du prospect — mieux vaut bloquer l'envoi et
-// rediriger vers le correctif DNS (Connexions) que d'envoyer dans le vide.
+// teamsystem-paris.fr, domaine sans SPF ni DMARC, est parti tout droit en
+// spam côté prospect) : "je veux un vrai blocage... que j'utilise un email
+// pro avec google ou outlook je veux que ça fonctionne à chaque fois". Un
+// email de prospection qui part systématiquement en spam ne sert à rien et
+// abîme la réputation d'Aaron aux yeux du prospect — mieux vaut bloquer
+// l'envoi et rediriger vers le correctif DNS (Connexions) que d'envoyer dans
+// le vide.
+//
+// Affiné le 31/08/2026 (retour Alex : "nous sommes un abonnement à 30 €,
+// donc il ne faut pas que l'utilisateur ait à contacter son informaticien") :
+// le blocage ne porte plus que sur SPF. Justification technique : les règles
+// expéditeurs officielles de Gmail n'exigent, sous 5000 emails/jour (Aaron
+// plafonne à 40/jour/utilisateur), QUE "SPF ou DKIM" — DMARC n'y est requis
+// que pour les gros volumes. Un domaine pro correctement installé sur Google
+// Workspace ou Microsoft 365 a déjà son SPF (posé à l'installation du
+// domaine), donc dans l'immense majorité des cas l'utilisateur n'a RIEN à
+// faire. SPF absent = installation cassée (le cas teamsystem : domaine sur
+// l'infrastructure grand public sans aucun SPF) = spam quasi garanti → seul
+// cas bloqué. DMARC et DKIM personnalisé restent affichés en "petit conseil,
+// non vital" dans l'assistant de Connexions.
 //
 // Résultat mis en cache sur oauth_connections (domain_health_ok/
 // domain_health_checked_at, voir migration_domain_health_cache_2026-08-30.sql)
@@ -234,7 +251,9 @@ export async function isDomainHealthyForSending(connection: {
   }
 
   const health = await checkDomainHealth(domain);
-  const healthy = health.spf.found && health.dmarc.found;
+  // SPF seul est bloquant — voir le commentaire au-dessus de
+  // DOMAIN_HEALTH_CACHE_MS (règles Gmail < 5000/jour : "SPF ou DKIM").
+  const healthy = health.spf.found;
 
   try {
     await supabaseAdmin
