@@ -481,6 +481,12 @@ export default function TeamPage() {
         <button type="button" className={`tab-btn ${activeTab === 'subscription' ? 'active' : ''}`} onClick={() => setActiveTab('subscription')}>
           {t('team.tabSubscription', locale)}
         </button>
+        {/* Docx Modifs Aaron (30/08/2026) : la rubrique Suggestions quitte la
+            barre latérale et devient cet onglet "Suggestions de l'équipe",
+            juste à droite d'Abonnement équipes. */}
+        <button type="button" className={`tab-btn ${activeTab === 'suggestions' ? 'active' : ''}`} onClick={() => setActiveTab('suggestions')}>
+          {t('team.tabSuggestions', locale)}
+        </button>
       </div>
 
       {(activeTab === 'overview' || activeTab === 'report') && (
@@ -766,6 +772,8 @@ export default function TeamPage() {
           </div>
         </div>
       )}
+
+      {activeTab === 'suggestions' && <TeamSuggestionsPanel userId={userId} locale={locale} />}
 
       {seatModalOpen && (
         <AddTeamSeatModal
@@ -1335,6 +1343,150 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
   );
 }
 
+// Onglet "Suggestions de l'équipe" (docx Modifs Aaron, 30/08/2026) : le
+// contenu de l'ancienne rubrique Suggestions de la barre latérale, déplacé
+// ici — même API /api/feedback, mêmes cartes, mêmes textes (clés
+// suggestions.* de lib/i18n.js). La page /app/suggestions d'origine reste
+// accessible par URL directe mais n'est plus dans la navigation.
+function TeamSuggestionsPanel({ userId, locale }) {
+  const [feedback, setFeedback] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [loadErrorStatus, setLoadErrorStatus] = useState(null);
+
+  function loadFeedback() {
+    if (!userId) return;
+    setLoading(true);
+    setLoadError(null);
+    setLoadErrorStatus(null);
+    fetch(`/api/feedback?user_id=${userId}`)
+      .then((r) => r.json().then((body) => ({ ok: r.ok, status: r.status, body })))
+      .then(({ ok, status, body }) => {
+        if (!ok) {
+          setLoadError(body.error);
+          setLoadErrorStatus(status);
+        } else {
+          setFeedback(body.feedback || []);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoadError(t('preferences.loadError', locale));
+        setLoadErrorStatus(null);
+        setLoading(false);
+      });
+  }
+
+  useEffect(() => {
+    loadFeedback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  return (
+    <div className="suggestions-panel">
+      <p className="panel-subtitle">{t('suggestions.subtitle', locale)}</p>
+      {loading ? (
+        <p className="muted">{t('common.loading', locale)}</p>
+      ) : loadError ? (
+        <div>
+          <EmptyState
+            title={loadErrorStatus === 403 ? t('suggestions.accessDenied', locale) : t('preferences.loadError', locale)}
+            body={loadError}
+          />
+          <button type="button" onClick={loadFeedback} style={{ marginTop: '0.8rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 'var(--radius-sm)', padding: '0.65rem 1.2rem', fontSize: '0.86rem', cursor: 'pointer' }}>
+            {t('common.retry', locale)}
+          </button>
+        </div>
+      ) : feedback.length === 0 ? (
+        <EmptyState title={t('suggestions.emptyTitle', locale)} body={t('suggestions.emptyBody', locale)} />
+      ) : (
+        <div className="list">
+          {feedback.map((f) => (
+            <div className="card" key={f.id}>
+              <div className="card-top">
+                <span className="author">{f.users?.full_name || t('suggestions.defaultAuthor', locale)}</span>
+                <span className={`source-badge ${f.source === 'chat_auto' ? 'auto' : 'manual'}`}>
+                  {f.source === 'chat_auto' ? t('suggestions.sourceAuto', locale) : t('suggestions.sourceManual', locale)}
+                </span>
+                <span className="date">{new Date(f.created_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              </div>
+              <p className="message">{f.message}</p>
+              {f.context && f.context !== f.message && (
+                <p className="context">« {f.context} »</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <style jsx>{`
+        .suggestions-panel {
+          margin-top: 0.4rem;
+        }
+        .panel-subtitle {
+          color: var(--muted);
+          font-size: 0.86rem;
+          max-width: 620px;
+          margin: 0 0 1.2rem;
+        }
+        .muted {
+          color: var(--muted);
+        }
+        .list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.8rem;
+          max-width: 720px;
+        }
+        .card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 1.1rem 1.3rem;
+        }
+        .card-top {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.6rem;
+          margin-bottom: 0.6rem;
+        }
+        .author {
+          font-weight: 600;
+          font-size: 0.88rem;
+        }
+        .source-badge {
+          font-size: 0.72rem;
+          padding: 0.2rem 0.6rem;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          color: var(--muted);
+        }
+        .source-badge.auto {
+          border-color: var(--accent);
+          color: var(--accent);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .date {
+          margin-left: auto;
+          font-size: 0.76rem;
+          color: var(--muted);
+        }
+        .message {
+          margin: 0 0 0.4rem;
+          font-size: 0.92rem;
+          line-height: 1.5;
+        }
+        .context {
+          margin: 0;
+          font-size: 0.8rem;
+          color: var(--muted);
+          font-style: italic;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function EmptyState({ title, body }) {
   return (
     <div className="empty">
@@ -1372,6 +1524,12 @@ function Shell({ children, active, userId }) {
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
+  // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
+  // fondateur comme commercial) — même logique "fermé par défaut" que
+  // userRole ci-dessus. Produits est retiré pour tout le monde, et
+  // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
+  const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
@@ -1394,6 +1552,7 @@ function Shell({ children, active, userId }) {
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        setUserEmail(prefs.email || null);
       })
       .catch(() => {});
     return () => {
@@ -1420,7 +1579,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
@@ -1429,7 +1587,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
-    { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -1474,7 +1631,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => (item.slug !== 'team' && item.slug !== 'suggestions') || userRole === 'patron').map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron') && (item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')).map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
