@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
 import { generateAaronResponse } from '@/lib/aaron';
-import { sendEmailForUser, hasReachedProspectingCap } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
@@ -176,8 +176,14 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
-    } catch (err) {
-      console.error(`Erreur lors du premier contact pour le prospect ${prospect.id}:`, err);
+    } catch (err: any) {
+      // DailySendCapExceededError / DomainNotDeliverableError : le prospect
+      // reste sans message, donc run-campaigns (ce lot) ou
+      // retry-uncontacted-prospects le retenteront automatiquement au
+      // prochain passage — inutile de bruiter les logs pour un cas déjà géré.
+      if (!(err instanceof DailySendCapExceededError) && !(err instanceof DomainNotDeliverableError)) {
+        console.error(`Erreur lors du premier contact pour le prospect ${prospect.id}:`, err);
+      }
     }
   }
 
