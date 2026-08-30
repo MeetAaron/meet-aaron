@@ -40,8 +40,15 @@ import { getCreditBalance, spendCredits, CreditModule } from './credits';
 
 const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
-const DEFAULT_MONTHLY_CAP_USD = 20;
-const DAILY_CAP_DIVISOR = 15; // le budget mensuel doit tenir au moins 15 jours d'usage intensif
+// Docx Modifs Aaron (AJOUTS 30/08/26, item 2) : "la limite par mois PAR
+// UTILISATEUR soit de 20 €. Pas dollars, euros. Et donc répartis sur 30
+// jours." — le suivi de coût reste en USD (tarifs Anthropic), donc 20 € sont
+// convertis avec un taux prudent (~1.075) : 21.5 USD ≈ 20 €. Le plafond de
+// la société = cette base × son nombre d'utilisateurs (voir
+// getMonthlyCapUsd) ; l'utilisateur, lui, ne voit jamais ces montants —
+// uniquement des crédits (décision Alex, même item).
+const DEFAULT_MONTHLY_CAP_USD = 21.5; // = 20 € par utilisateur et par mois
+const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien = mensuel / 30
 // Recherche web en direct pour Aaron (demande Alex, 29/08/2026 : "il peut
 // utiliser cette fiche profil d'entreprise ainsi qu'internet") — tarif
 // Anthropic pour l'outil web_search natif : 10 $ pour 1000 recherches, EN
@@ -82,15 +89,33 @@ function currentDateUTC(): string {
 // Un cap à `null` en base désactive volontairement le plafond (mensuel ET
 // quotidien) pour cette société (ex: compte interne Open X) — distinct de
 // "colonne absente/0".
+//
+// Docx Modifs Aaron (AJOUTS 30/08/26, item 2) : le plafond est PAR
+// UTILISATEUR (20 €/mois chacun) — une société de 3 commerciaux paie 3
+// abonnements et dispose donc de 3 × 20 € de budget API mensuel, partagé au
+// niveau société (le suivi d'usage reste par société, inchangé). La valeur
+// éventuellement configurée dans companies.monthly_api_cap_usd est elle
+// aussi traitée comme une base PAR UTILISATEUR, pour garder une seule
+// sémantique.
 async function getMonthlyCapUsd(companyId: string): Promise<number | null> {
-  const { data: company } = await supabaseAdmin
-    .from('companies')
-    .select('monthly_api_cap_usd')
-    .eq('id', companyId)
-    .maybeSingle();
+  const [{ data: company }, { count: userCount }] = await Promise.all([
+    supabaseAdmin
+      .from('companies')
+      .select('monthly_api_cap_usd')
+      .eq('id', companyId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId),
+  ]);
 
-  if (!company) return DEFAULT_MONTHLY_CAP_USD;
-  return company.monthly_api_cap_usd === undefined ? DEFAULT_MONTHLY_CAP_USD : company.monthly_api_cap_usd;
+  const perUserCap = !company || company.monthly_api_cap_usd === undefined
+    ? DEFAULT_MONTHLY_CAP_USD
+    : company.monthly_api_cap_usd;
+  if (perUserCap === null) return null; // plafond désactivé pour cette société
+
+  return perUserCap * Math.max(1, userCount || 0);
 }
 
 async function getCurrentMonthSpendUsd(companyId: string): Promise<number> {
