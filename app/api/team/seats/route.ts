@@ -16,7 +16,7 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { generateSeatActivationCode } from '@/lib/invite-code';
-import { MODULE_CODES, ModuleCode, getModulePriceId } from '@/lib/subscription';
+import { MODULE_CODES, ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
 
 function moduleColumn(module: ModuleCode) {
   return {
@@ -92,9 +92,18 @@ export async function POST(request: NextRequest) {
   // Crée une ligne Stripe par module choisi. Si l'une échoue en cours de
   // route, on retire celles déjà créées pour ne pas laisser le fondateur
   // payer des lignes orphelines sans siège correspondant en base.
+  //
+  // Bug remonté par Alex (29/08/2026, débrief "Modifs Aaron" section 7) :
+  // si le Price ID Stripe d'un module a été désactivé/archivé côté Stripe,
+  // l'erreur Stripe brute ("No such price...") remontait telle quelle à
+  // l'écran, incompréhensible. `failedModule` retient quel module était en
+  // cours de traitement au moment de l'erreur pour pouvoir produire un
+  // message clair via describeStripeSubscriptionError (lib/subscription.ts).
   const createdItems: { module: ModuleCode; itemId: string }[] = [];
+  let failedModule: ModuleCode | null = null;
   try {
     for (const module of selectedModules) {
+      failedModule = module;
       const priceId = getModulePriceId(module);
       if (!priceId) {
         throw new Error(`Module ${module} pas encore configuré côté serveur (Price ID Stripe manquant).`);
@@ -113,8 +122,9 @@ export async function POST(request: NextRequest) {
         console.error('Nettoyage ligne Stripe orpheline (création siège échouée) :', cleanupErr.message);
       }
     }
+    const friendlyMessage = failedModule ? describeStripeSubscriptionError(err, failedModule) : err.message || 'Erreur Stripe';
     console.error('Erreur création siège équipe (Stripe) :', err.message);
-    return NextResponse.json({ error: err.message || 'Erreur Stripe' }, { status: 500 });
+    return NextResponse.json({ error: friendlyMessage }, { status: 500 });
   }
 
   const row: Record<string, any> = {
