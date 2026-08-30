@@ -5,6 +5,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/send-pending-replies",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/appointment-reminders",
       "schedule": "* * * * *"
     },
