@@ -135,6 +135,33 @@ async function incrementProspectingCounter(userId: string): Promise<void> {
   }
 }
 
+// Demande Alex (30/08/2026) : "si aaron doit envoyer un long email, il ne
+// réponde pas en 5 minutes, ça fait quand même suspect non ?". Un email court
+// (accusé de réception, "merci, à bientôt"...) peut plausiblement être tapé en
+// quelques minutes — pas la peine de le retarder. Un email plus long/travaillé
+// arrivant 3 minutes après le message du prospect, en revanche, ne fait pas
+// crédible. Seuil au nombre de mots plutôt qu'au nombre de caractères (plus
+// stable face aux variations de ponctuation/mise en forme).
+//
+// Utilisée par app/api/cron/check-inbox/route.ts pour décider d'envoyer tout
+// de suite (comportement historique, emails courts) ou de passer par la file
+// pending_aaron_replies (emails longs, voir migration_pending_aaron_replies_
+// 2026-08-30.sql + app/api/cron/send-pending-replies/route.ts).
+export const LONG_EMAIL_WORD_THRESHOLD = 80;
+
+// Retourne le délai (en ms) avant lequel un email ne doit PAS être envoyé —
+// 0 si l'email est assez court pour partir tout de suite. Aléatoire dans une
+// fourchette large : un délai fixe (toujours "22 minutes pile") serait, à la
+// longue, tout aussi détectable/suspect qu'un envoi instantané.
+export function computeHumanReplyDelayMs(bodyText: string): number {
+  const wordCount = (bodyText || '').trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount <= LONG_EMAIL_WORD_THRESHOLD) return 0;
+
+  const MIN_DELAY_MS = 15 * 60 * 1000; // 15 min
+  const MAX_DELAY_MS = 90 * 60 * 1000; // 1h30
+  return MIN_DELAY_MS + Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS);
+}
+
 // Envoie un email depuis la boîte du commercial, en choisissant automatiquement
 // Gmail ou Outlook selon ce qu'il a connecté. Si les deux sont connectés,
 // Google reste prioritaire (comportement historique inchangé pour ces comptes).
