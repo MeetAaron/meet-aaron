@@ -2,6 +2,7 @@ import "./globals.css";
 import React from "react";
 import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
 
 export const metadata = {
     title: "Meet Aaron — Le copilote de votre commercial",
@@ -60,6 +61,7 @@ export default function RootLayout({ children }) {
             "body",
             null,
             React.createElement("script", { dangerouslySetInnerHTML: { __html: THEME_INIT_SCRIPT } }),
+            React.createElement("script", { dangerouslySetInnerHTML: { __html: CHUNK_ERROR_RECOVERY_SCRIPT } }),
             React.createElement(AuthFetchInterceptor, null),
             children
           )
