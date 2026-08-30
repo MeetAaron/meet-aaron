@@ -74,6 +74,74 @@ export function isConsumerDomain(domain: string): boolean {
   return CONSUMER_DOMAINS.has(domain.trim().toLowerCase());
 }
 
+// Vérification DKIM par sélecteurs connus (assistant délivrabilité,
+// 30/08/2026). Le commentaire en tête de fichier disait à raison qu'un
+// sélecteur DKIM n'est pas devinable "en général" — mais ici on connaît le
+// FOURNISSEUR de la boîte connectée, et chaque fournisseur utilise des
+// sélecteurs standards : "google" chez Google Workspace, "selector1"/
+// "selector2" chez Microsoft 365. dns.resolveTxt suit les CNAME, donc la
+// chaîne selector1._domainkey.domaine → ...onmicrosoft.com est résolue
+// jusqu'au TXT final. Résultat : found=true si un enregistrement DKIM
+// (v=DKIM1 / clé publique p=) répond pour au moins un sélecteur du
+// fournisseur. NON BLOQUANT : c'est le "petit conseil" affiché dans
+// Connexions (item 15 du docx Modifs Aaron) — SPF+DMARC alignés suffisent à
+// passer DMARC, DKIM personnalisé est le bonus qui solidifie.
+const DKIM_SELECTORS: Record<'google' | 'microsoft', string[]> = {
+  google: ['google'],
+  microsoft: ['selector1', 'selector2'],
+};
+
+export async function checkDkim(domain: string, provider: 'google' | 'microsoft'): Promise<{
+  found: boolean;
+  selector: string | null;
+}> {
+  const cleanDomain = domain.trim().toLowerCase();
+  for (const selector of DKIM_SELECTORS[provider]) {
+    const records = await lookupTxt(`${selector}._domainkey.${cleanDomain}`);
+    const dkim = records.find((r) => /v=DKIM1/i.test(r) || /(^|;)\s*p=/i.test(r));
+    if (dkim) return { found: true, selector };
+  }
+  return { found: false, selector: null };
+}
+
+// Détection de l'hébergeur DNS du domaine (via ses serveurs de noms) pour
+// afficher des instructions "où cliquer" personnalisées dans l'assistant
+// délivrabilité — un utilisateur non technique ne sait généralement même pas
+// chez qui son domaine est géré. Best-effort : null si les NS ne matchent
+// aucun hébergeur connu (l'assistant affiche alors les instructions
+// génériques).
+const DNS_PROVIDERS: { match: RegExp; name: string; recordsUrl: string }[] = [
+  { match: /ovh\.net$|ovh\.ca$/i, name: 'OVH', recordsUrl: 'https://www.ovh.com/manager/#/web/domain' },
+  { match: /gandi\.net$/i, name: 'Gandi', recordsUrl: 'https://admin.gandi.net/domain' },
+  { match: /ionos\.(com|fr|de)$|ui-dns\./i, name: 'IONOS (1&1)', recordsUrl: 'https://my.ionos.fr/domain-dns-settings' },
+  { match: /godaddy\.com$|domaincontrol\.com$/i, name: 'GoDaddy', recordsUrl: 'https://dcc.godaddy.com/manage/dns' },
+  { match: /cloudflare\.com$/i, name: 'Cloudflare', recordsUrl: 'https://dash.cloudflare.com' },
+  { match: /wixdns\.net$/i, name: 'Wix', recordsUrl: 'https://manage.wix.com/account/domains' },
+  { match: /o2switch\.net$/i, name: 'o2switch', recordsUrl: 'https://www.o2switch.fr/connexion-cpanel/' },
+  { match: /hostinger|niagahoster/i, name: 'Hostinger', recordsUrl: 'https://hpanel.hostinger.com/domains' },
+  { match: /infomaniak\.com$/i, name: 'Infomaniak', recordsUrl: 'https://manager.infomaniak.com' },
+  { match: /amen\.fr$|secureserver/i, name: 'Amen', recordsUrl: 'https://www.amen.fr/login/' },
+  { match: /namecheap|registrar-servers\.com$/i, name: 'Namecheap', recordsUrl: 'https://ap.www.namecheap.com/domains/list/' },
+  { match: /squarespacedns\.com$|googledomains\.com$/i, name: 'Squarespace Domains', recordsUrl: 'https://account.squarespace.com/domains' },
+  { match: /bookmyname\.com$/i, name: 'BookMyName', recordsUrl: 'https://www.bookmyname.com/manager.cgi' },
+  { match: /online\.net$|scaleway/i, name: 'Scaleway / Online.net', recordsUrl: 'https://console.scaleway.com/domains/external' },
+  { match: /azure-dns\./i, name: 'Azure DNS', recordsUrl: 'https://portal.azure.com' },
+  { match: /awsdns/i, name: 'Amazon Route 53', recordsUrl: 'https://console.aws.amazon.com/route53/' },
+];
+
+export async function detectDnsProvider(domain: string): Promise<{ name: string; recordsUrl: string } | null> {
+  try {
+    const ns = await dns.resolveNs(domain.trim().toLowerCase());
+    for (const server of ns) {
+      const found = DNS_PROVIDERS.find((p) => p.match.test(server.replace(/\.$/, '')));
+      if (found) return { name: found.name, recordsUrl: found.recordsUrl };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Suggestion de valeur SPF prête à copier-coller, selon le fournisseur
 // connecté — seul l'include change (Google Workspace vs Microsoft 365), le
 // reste de la syntaxe est standard. Ne sert que quand SPF est absent : si un

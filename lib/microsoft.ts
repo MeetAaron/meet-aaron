@@ -157,6 +157,12 @@ export async function sendOutlookEmail(
   // à construire à la main), Graph accepte les pièces jointes directement
   // dans le corps de création du brouillon, en base64 — pas de format
   // spécial à gérer ici.
+  //
+  // 30/08/2026 ("[Message tronqué]" côté Gmail destinataire, constaté par
+  // Alex) : sendEmailForUser passe désormais toujours un corps HTML construit
+  // par nos soins (plainTextToEmailHtml, lib/messaging.ts) plutôt qu'un corps
+  // 'Text' dont Exchange faisait sa propre conversion HTML à l'envoi — c'est
+  // cette conversion déléguée que Gmail affichait tronquée.
   const createRes = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
     method: 'POST',
     headers: {

@@ -147,46 +147,86 @@ interface EmailAttachment {
 // jointe) plutôt que le message à une seule partie utilisé jusqu'ici — les
 // deux formats sont acceptés par l'API Gmail sous la même route/paramètre
 // "raw", donc aucun autre changement n'est nécessaire côté appelant.
+//
+// Réécriture MIME (30/08/2026, "message tronqué" constaté par Alex côté
+// Gmail destinataire sur des emails pourtant minuscules) : l'ancienne
+// construction violait les RFC 5322/2045 — fins de ligne LF au lieu de CRLF,
+// et corps UTF-8 brut (accents = octets 8 bits) sans aucun
+// Content-Transfer-Encoding déclaré. Selon le serveur qui relit le message,
+// ces écarts produisent des rendus imprévisibles (affichage "[Message
+// tronqué]", accents cassés, pièce jointe illisible). Désormais : CRLF
+// partout, chaque partie texte/HTML encodée en base64 (lignes de 76 car.),
+// et si opts.textAlternative est fourni avec opts.html, un vrai
+// multipart/alternative texte + HTML — la même structure que produit le
+// composeur Gmail lui-même, la mieux acceptée par tous les clients mail.
 export async function sendGmailEmail(
   userId: string,
   to: string,
   subject: string,
   body: string,
-  opts?: { html?: boolean; attachment?: EmailAttachment }
+  opts?: { html?: boolean; textAlternative?: string; attachment?: EmailAttachment }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
-  const contentTypeHeader = opts?.html ? 'Content-Type: text/html; charset=utf-8' : 'Content-Type: text/plain; charset=utf-8';
+  const CRLF = '\r\n';
   const subjectHeader = `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+  // Encode un contenu texte en base64 découpé en lignes de 76 caractères
+  // (limite MIME/RFC 2045). Le base64 n'utilise jamais le caractère "-",
+  // donc aucune ligne encodée ne peut entrer en collision avec un "--boundary".
+  const base64Wrapped = (s: string) => Buffer.from(s, 'utf8').toString('base64').replace(/(.{76})/g, `$1${CRLF}`);
+
+  // Partie "contenu" du message : soit multipart/alternative (texte + HTML,
+  // cas nominal des envois d'Aaron), soit une partie unique.
+  let contentPart: string;
+  if (opts?.html && opts?.textAlternative) {
+    const altBoundary = `aaron_alt_${Date.now()}`;
+    contentPart = [
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Wrapped(opts.textAlternative),
+      `--${altBoundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Wrapped(body),
+      `--${altBoundary}--`,
+    ].join(CRLF);
+  } else {
+    contentPart = [
+      opts?.html ? 'Content-Type: text/html; charset=UTF-8' : 'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      base64Wrapped(body),
+    ].join(CRLF);
+  }
 
   let rawMessage: string;
   if (opts?.attachment) {
-    const boundary = `aaron_boundary_${Date.now()}`;
-    // Découpe le base64 de la pièce jointe en lignes de 76 caractères
-    // (limite classique MIME/RFC 2045 — sans ça, certains clients mail
-    // affichent la pièce jointe corrompue ou refusent de l'ouvrir).
-    const attachmentBase64Wrapped = opts.attachment.contentBase64.replace(/(.{76})/g, '$1\n');
+    const mixedBoundary = `aaron_mixed_${Date.now()}`;
+    const attachmentBase64Wrapped = opts.attachment.contentBase64.replace(/(.{76})/g, `$1${CRLF}`);
     rawMessage = [
       `To: ${to}`,
       subjectHeader,
       'MIME-Version: 1.0',
-      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
       '',
-      `--${boundary}`,
-      contentTypeHeader,
+      `--${mixedBoundary}`,
+      contentPart,
       '',
-      body,
-      '',
-      `--${boundary}`,
+      `--${mixedBoundary}`,
       `Content-Type: ${opts.attachment.mimeType}; name="${opts.attachment.filename}"`,
       'Content-Transfer-Encoding: base64',
       `Content-Disposition: attachment; filename="${opts.attachment.filename}"`,
       '',
       attachmentBase64Wrapped,
-      `--${boundary}--`,
-    ].join('\n');
+      `--${mixedBoundary}--`,
+    ].join(CRLF);
   } else {
-    rawMessage = [`To: ${to}`, subjectHeader, contentTypeHeader, '', body].join('\n');
+    rawMessage = [`To: ${to}`, subjectHeader, 'MIME-Version: 1.0', contentPart].join(CRLF);
   }
 
   const encodedMessage = Buffer.from(rawMessage)

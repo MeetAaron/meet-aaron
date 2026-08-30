@@ -178,6 +178,28 @@ export function computeHumanReplyDelayMs(bodyText: string): number {
   return MIN_DELAY_MS + Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS);
 }
 
+// Convertit un corps d'email texte brut en HTML minimal, dans le format
+// exact que produit le composeur Gmail lui-même (chaque ligne dans un <div>,
+// ligne vide = <div><br></div>, le tout dans un <div dir="ltr">) : c'est la
+// structure la plus banale et la mieux acceptée qui existe — elle ne
+// "sent" pas l'emailing marketing, ce qui compte pour la délivrabilité des
+// emails de prospection. opts.trailingHtml permet d'ajouter un fragment HTML
+// déjà construit à la toute fin (image de signature, futur bandeau...).
+//
+// Ajoutée le 30/08/2026 (correctif "[Message tronqué]" constaté par Alex sur
+// Gmail destinataire) : tous les envois passent désormais en
+// multipart/alternative texte + HTML construit PAR NOUS, au lieu de déléguer
+// la conversion texte→HTML au serveur d'envoi (Exchange la faisait pour les
+// envois Outlook, avec un résultat que Gmail affichait tronqué).
+export function plainTextToEmailHtml(text: string, opts?: { trailingHtml?: string }): string {
+  const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const htmlLines = text
+    .split('\n')
+    .map((line) => (line.trim().length === 0 ? '<div><br></div>' : `<div>${escapeHtml(line)}</div>`))
+    .join('');
+  return `<div dir="ltr">${htmlLines}${opts?.trailingHtml || ''}</div>`;
+}
+
 // Envoie un email depuis la boîte du commercial, en choisissant automatiquement
 // Gmail ou Outlook selon ce qu'il a connecté. Si les deux sont connectés,
 // Google reste prioritaire (comportement historique inchangé pour ces comptes).
@@ -252,30 +274,23 @@ export async function sendEmailForUser(
     .eq('id', userId)
     .maybeSingle();
 
-  // Signature avec image (carte de visite, demande Alex 2026-08-25) : un
-  // texte brut ne peut pas afficher d'image, on bascule donc TOUT le message
-  // en HTML uniquement dans ce cas précis — le chemin texte brut existant
-  // (immense majorité des envois, signature texte seule ou aucune signature)
-  // reste strictement inchangé pour ne rien casser ailleurs.
-  let fullBody = body;
-  let isHtml = false;
-  if (user?.email_signature_image_url) {
-    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const bodyHtml = escapeHtml(body).replace(/\n/g, '<br>');
-    const signatureHtml = user.email_signature
-      ? `<p style="margin:0 0 8px;">${escapeHtml(user.email_signature).replace(/\n/g, '<br>')}</p>`
-      : '';
-    fullBody = `<div>${bodyHtml}</div><br>${signatureHtml}<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;">`;
-    isHtml = true;
-  } else if (user?.email_signature) {
-    fullBody = `${body}\n\n${user.email_signature}`;
-  }
+  // Corps texte de référence (signature texte incluse) : sert de partie
+  // text/plain du multipart/alternative. La version HTML est construite à
+  // partir de lui par plainTextToEmailHtml (voir ci-dessus) — l'image de
+  // signature (carte de visite, demande Alex 2026-08-25) ne peut vivre que
+  // dans la partie HTML, elle est ajoutée en fragment final.
+  const textBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
+  const htmlBody = plainTextToEmailHtml(textBody, {
+    trailingHtml: user?.email_signature_image_url
+      ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
+      : '',
+  });
 
   let result;
   if (providers.has('google')) {
-    result = await sendGmailEmail(userId, to, subject, fullBody, { html: isHtml, attachment: opts?.attachment });
+    result = await sendGmailEmail(userId, to, subject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment });
   } else if (providers.has('microsoft')) {
-    result = await sendOutlookEmail(userId, to, subject, fullBody, { html: isHtml, attachment: opts?.attachment });
+    result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }
