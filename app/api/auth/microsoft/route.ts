@@ -16,6 +16,18 @@ const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0
 const SCOPES = [
   'offline_access', // nécessaire pour obtenir un refresh_token
   'Calendars.ReadWrite',
+  // Bug remonté par Alex (30/08/2026, test avec un compte Outlook TeamSystem) :
+  // "Erreur création du brouillon Outlook: ErrorAccessDenied / Access is
+  // denied." — lib/microsoft.ts::sendOutlookEmail crée d'abord un brouillon
+  // via POST /me/messages (ce qui nécessite Mail.ReadWrite, l'écriture dans
+  // un dossier de la boîte) PUIS l'envoie via POST /me/messages/{id}/send
+  // (ce qui nécessite Mail.Send). Mail.Send seul ne couvre PAS la création
+  // du brouillon — c'est exactement ce qui manquait ici. Les deux scopes
+  // sont donc nécessaires ensemble pour ce parcours en 2 étapes (voir le
+  // commentaire détaillé dans sendOutlookEmail sur le choix brouillon+envoi
+  // plutôt que /sendMail direct, nécessaire pour poser la catégorie "🤖 Géré
+  // par Aaron" après coup).
+  'Mail.ReadWrite',
   'Mail.Send', // envoi d'emails de prospection/relance au nom du commercial
   'Mail.Read', // lecture des réponses des prospects (cron check-inbox)
   'User.Read',
