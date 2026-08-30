@@ -30,6 +30,17 @@ const SCOPES = [
   'Mail.ReadWrite',
   'Mail.Send', // envoi d'emails de prospection/relance au nom du commercial
   'Mail.Read', // lecture des réponses des prospects (cron check-inbox)
+  // Bug remonté par Alex (30/08/2026, suite au tout premier envoi Outlook
+  // réussi) : aucune catégorie "🤖 Géré par Aaron" visible sur le message
+  // envoyé. Cause probable : ensureAaronCategoryExists (lib/microsoft.ts)
+  // crée/lit la liste des catégories du compte via
+  // /me/outlook/masterCategories, une route qui dépend de
+  // MailboxSettings.ReadWrite (pas Mail.ReadWrite, qui ne couvre que les
+  // messages eux-mêmes) — scope qui n'a jamais été demandé jusqu'ici. Sans
+  // lui, la création de la catégorie échoue silencieusement (catch interne,
+  // logué côté serveur seulement) et rien de coloré/nommé ne peut apparaître
+  // dans Outlook.
+  'MailboxSettings.ReadWrite',
   'User.Read',
 ].join(' ');
 
