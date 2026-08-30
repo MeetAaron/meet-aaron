@@ -174,12 +174,22 @@ export default function CampaignsPage() {
   // données à afficher).
   const [tab, setTab] = useState('prospection');
   const [customerModuleActive, setCustomerModuleActive] = useState(true);
+  // Docx Modifs Aaron (30/08/2026, bloc CAMPAGNE) : l'onglet Marketing est
+  // réservé au compte aaron@meetaaron.app — supprimé pour tous les autres
+  // comptes (fondateur comme commercial). null tant que l'email n'est pas
+  // chargé → onglet masqué par défaut (fermé par défaut, pas ouvert puis
+  // retiré après coup).
+  const [userEmail, setUserEmail] = useState(null);
 
   useEffect(() => {
     if (!userId) return;
     fetch(`/api/preferences?user_id=${userId}`)
       .then((r) => r.json())
-      .then((body) => setCustomerModuleActive((body.preferences || {}).offer_ac_active === true))
+      .then((body) => {
+        const prefs = body.preferences || {};
+        setCustomerModuleActive(prefs.offer_ac_active === true);
+        setUserEmail(prefs.email || null);
+      })
       .catch(() => {});
   }, [userId]);
 
@@ -309,14 +319,18 @@ export default function CampaignsPage() {
         >
           🎯 {t('marketing.tabProspection', locale)}
         </button>
-        <button
-          type="button"
-          className={`tab-btn ${tab === 'marketing' ? 'active' : ''}`}
-          onClick={() => setTab('marketing')}
-        >
-          📣 {t('marketing.tabMarketing', locale)}
-          {!customerModuleActive && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}
-        </button>
+        {/* Marketing réservé à aaron@meetaaron.app (docx Modifs Aaron,
+            30/08/2026, bloc CAMPAGNE) — masqué pour tous les autres comptes. */}
+        {userEmail === 'aaron@meetaaron.app' && (
+          <button
+            type="button"
+            className={`tab-btn ${tab === 'marketing' ? 'active' : ''}`}
+            onClick={() => setTab('marketing')}
+          >
+            📣 {t('marketing.tabMarketing', locale)}
+            {!customerModuleActive && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}
+          </button>
+        )}
         <button
           type="button"
           className={`tab-btn ${tab === 'reactivation' ? 'active' : ''}`}
@@ -2699,6 +2713,12 @@ function Shell({ children, active, userId }) {
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
+  // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
+  // fondateur comme commercial) — même logique "fermé par défaut" que
+  // userRole ci-dessus. Produits est retiré pour tout le monde, et
+  // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
+  const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
@@ -2721,6 +2741,7 @@ function Shell({ children, active, userId }) {
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        setUserEmail(prefs.email || null);
       })
       .catch(() => {});
     return () => {
@@ -2747,7 +2768,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.products', locale), slug: 'products', icon: '💰', locked: lockedModules.sales },
     { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
@@ -2756,7 +2776,6 @@ function Shell({ children, active, userId }) {
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
-    { label: t('nav.suggestions', locale), slug: 'suggestions', icon: '💡' },
   ];
   return (
     <div className="shell">
@@ -2801,7 +2820,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => (item.slug !== 'team' && item.slug !== 'suggestions') || userRole === 'patron').map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron') && (item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')).map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
