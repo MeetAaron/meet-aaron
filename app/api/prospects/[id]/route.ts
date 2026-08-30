@@ -5,7 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendEmailForUser, DailySendCapExceededError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
+import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
+import { isDomainHealthyForSending } from '@/lib/email-deliverability';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
@@ -104,6 +105,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           { status: 429 }
         );
       }
+      if (err instanceof DomainNotDeliverableError) {
+        return NextResponse.json(
+          { error: `Envoi bloqué : le domaine ${err.domain} n'a pas de SPF/DMARC valide, cet email partirait en spam. Corrige-le dans "Connexions" puis réessaie.` },
+          { status: 422 }
+        );
+      }
       throw err;
     }
 
@@ -187,6 +194,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         { error: `Plafond quotidien d'emails de prospection atteint (${cap}/jour) — le brouillon reste en attente, réessayez demain.` },
         { status: 429 }
       );
+    }
+
+    // Même logique que le contrôle du plafond ci-dessus : vérifié AVANT la
+    // réclamation, pour que le brouillon ne soit jamais effacé si l'envoi va
+    // de toute façon être bloqué (voir DomainNotDeliverableError,
+    // lib/messaging.ts). sendEmailForUser referait ce contrôle de toute façon,
+    // mais à ce moment-là le brouillon aurait déjà été réclamé (nullifié).
+    const { data: sendingConnections } = await supabaseAdmin
+      .from('oauth_connections')
+      .select('id, provider, provider_account_email, domain_health_ok, domain_health_checked_at')
+      .eq('user_id', prospect.assigned_user_id)
+      .in('provider', ['google', 'microsoft']);
+    const sendingConnection =
+      (sendingConnections || []).find((c) => c.provider === 'google') ||
+      (sendingConnections || []).find((c) => c.provider === 'microsoft');
+    if (sendingConnection) {
+      const { healthy, domain } = await isDomainHealthyForSending(sendingConnection);
+      if (!healthy && domain) {
+        return NextResponse.json(
+          { error: `Envoi bloqué : le domaine ${domain} n'a pas de SPF/DMARC valide, cet email partirait en spam. Corrige-le dans "Connexions" — le brouillon reste en attente, il partira automatiquement une fois réglé.` },
+          { status: 422 }
+        );
+      }
     }
 
     // Réclamation atomique AVANT l'envoi : le WHERE (pending_first_email_subject
