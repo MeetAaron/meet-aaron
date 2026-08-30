@@ -5031,13 +5031,33 @@ function ConnectionCard({
             <div className="health health-ok">
               <p className="health-status-ok">{t('connexions.healthAllGoodTitle', locale)}</p>
               <p className="health-hint">
-                {t('connexions.healthAllGoodBodyPrefix', locale)} {health.domain}{t('connexions.healthAllGoodBodySuffix', locale)}
+                {health.health.dmarc.found ? (
+                  <>{t('connexions.healthAllGoodBodyPrefix', locale)} {health.domain}{t('connexions.healthAllGoodBodySuffix', locale)}</>
+                ) : (
+                  <>{t('connexions.healthAllGoodSpfOnlyPrefix', locale)} {health.domain}{t('connexions.healthAllGoodSpfOnlySuffix', locale)}</>
+                )}
               </p>
               <div className="health-badges">
                 <span className="badge ok">✓ SPF</span>
-                <span className="badge ok">✓ DMARC</span>
+                {health.health.dmarc.found && <span className="badge ok">✓ DMARC</span>}
                 {health.dkim?.found && <span className="badge ok">✓ DKIM</span>}
               </div>
+              {/* DMARC absent : simple conseil (non bloquant — les règles
+                  Gmail n'exigent DMARC qu'au-delà de 5000 envois/jour), avec
+                  la valeur prête à coller. */}
+              {!health.health.dmarc.found && health.suggested?.dmarc && (
+                <div className="record-row">
+                  <p className="health-hint health-optional">
+                    💡 {t('connexions.dkimAdviceTitle', locale)} — {t('connexions.dmarcAdviceIntro', locale)} ({t('connexions.recordHost', locale)}: _dmarc)
+                  </p>
+                  <div className="record-value-row">
+                    <code className="record-value">{health.suggested.dmarc}</code>
+                    <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.dmarc, 'dmarc')}>
+                      {copiedField === 'dmarc' ? t('team.copied', locale) : t('team.copy', locale)}
+                    </button>
+                  </div>
+                </div>
+              )}
               {health.dkim && !health.dkim.found && (
                 <p className="health-hint health-optional">
                   💡 {t('connexions.dkimAdviceTitle', locale)} —{' '}
@@ -5079,7 +5099,7 @@ function ConnectionCard({
                 )}
                 {health.suggested?.dmarc && (
                   <li>
-                    {t('connexions.healthStepAddRecord', locale)} <strong>DMARC</strong> ({t('connexions.recordHost', locale)}: _dmarc) :
+                    {t('connexions.healthStepAddRecord', locale)} <strong>DMARC</strong> ({t('connexions.recordHost', locale)}: _dmarc) <em>{t('connexions.healthStepOptionalTag', locale)}</em> :
                     <div className="record-value-row">
                       <code className="record-value">{health.suggested.dmarc}</code>
                       <button type="button" className="btn-copy" onClick={() => copyRecord(health.suggested.dmarc, 'dmarc')}>
