@@ -8,6 +8,13 @@
 // email sont comme des cartes de visite, donc une image" — voir aussi
 // lib/messaging.ts (bascule en email HTML pour intégrer cette image) et
 // components AccountPage (app/app/connexions/page.jsx, onglet Mon entreprise).
+//
+// 30/08/2026 (docx Modifs Aaron, bloc "AJOUT signature") : la même route
+// gère désormais aussi le BANDEAU PUBLICITAIRE affiché sous la signature
+// dans les emails — champ "kind" ('signature' par défaut, ou 'banner') dans
+// le formData (POST) / la query (DELETE). Même bucket, même limite de
+// taille, colonne users.email_banner_image_url (voir
+// migration_email_banner_2026-08-31.sql).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -31,6 +38,8 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   const userId = formData.get('user_id') as string | null;
+  const kind = formData.get('kind') === 'banner' ? 'banner' : 'signature';
+  const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
 
   if (!file || !userId) {
     return NextResponse.json({ error: 'Fichier ou user_id manquant' }, { status: 400 });
@@ -53,7 +62,7 @@ export async function POST(request: NextRequest) {
   // "Signatures écriture par propriétaire" (storage.foldername(name))[1] =
   // auth.uid()) en cas d'écriture directe depuis le client — ici on passe par
   // la clé service_role, mais on garde la même convention de chemin.
-  const storagePath = `${userId}/${Date.now()}.${extensionFor(file.type)}`;
+  const storagePath = `${userId}/${Date.now()}${kind === 'banner' ? '-banner' : ''}.${extensionFor(file.type)}`;
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from(BUCKET)
@@ -68,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   const { error: updateError } = await supabaseAdmin
     .from('users')
-    .update({ email_signature_image_url: publicUrl })
+    .update({ [column]: publicUrl })
     .eq('id', userId);
 
   if (updateError) {
@@ -80,6 +89,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
+  const kind = request.nextUrl.searchParams.get('kind') === 'banner' ? 'banner' : 'signature';
+  const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
@@ -90,7 +101,7 @@ export async function DELETE(request: NextRequest) {
 
   const { error } = await supabaseAdmin
     .from('users')
-    .update({ email_signature_image_url: null })
+    .update({ [column]: null })
     .eq('id', userId);
 
   if (error) {
