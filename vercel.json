@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/sync-external-calendar",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/quote-reminders",
+      "schedule": "15 8 * * *"
     }
   ]
 }
