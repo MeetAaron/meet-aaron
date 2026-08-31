@@ -128,6 +128,46 @@ export function consumePostLoginNext(): string | null {
   }
 }
 
+// Identifiant d'appareil (docx Modifs Aaron 30/08/2026, item 3bis : "si
+// connexion via un autre PC, demander email de sécurité") : un UUID aléatoire
+// propre à ce navigateur, conservé dans localStorage. Envoyé une fois par
+// jour à /api/auth/link (voir AuthFetchInterceptor) qui prévient le
+// commercial par email quand un appareil jamais vu se connecte à son compte.
+// Aucune donnée personnelle : juste un jeton opaque, jamais réutilisé
+// ailleurs.
+const DEVICE_ID_KEY = 'aaron-device-id';
+const DEVICE_CHECK_KEY = 'aaron-device-checked';
+
+export function getDeviceId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    let id = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+      window.localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch (err) {
+    return null;
+  }
+}
+
+// true une seule fois par jour (heure locale) : suffisant pour détecter un
+// nouvel appareil sans refaire la vérification à chaque chargement de page.
+export function shouldCheckDeviceToday(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stamp = todayLocalDateString();
+    if (window.localStorage.getItem(DEVICE_CHECK_KEY) === stamp) return false;
+    window.localStorage.setItem(DEVICE_CHECK_KEY, stamp);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,

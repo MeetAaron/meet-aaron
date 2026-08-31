@@ -31,6 +31,12 @@ const OUTCOME_LABELS: Record<AppointmentOutcome, string> = {
   perdu: 'Perdu',
 };
 
+const MOOD_LABELS: Record<string, string> = {
+  bien: 'bien passé',
+  moyen: 'moyennement passé',
+  mal: 'mal passé',
+};
+
 // Statut du prospect (voir la légende dans app/app/prospects/page.jsx :
 // vert = en bonne voie, jaune = en cours, orange = risque de perdre,
 // rouge = perdu, bleu = RDV obtenu/opportunité). Une opportunité ou une
@@ -104,7 +110,25 @@ const STAGE_RANK: Record<string, number> = {
   perdu: -1,
 };
 
-export async function recordAppointmentOutcome(appointmentId: string, outcome: AppointmentOutcome) {
+// Docx Modifs Aaron 30/08/2026, items 3 et 7 : en plus de l'issue (outcome),
+// le commercial peut dire COMMENT ça s'est passé (mood : bien / moyen / mal)
+// et ajouter du contexte libre ou par chips ("points communs sur les
+// abeilles", "je lui envoie le devis dans la journée"...). Les deux
+// nourrissent la réaction d'Aaron et, si demandé, l'email de remerciement
+// (voir sendThankYouEmail plus bas). Colonnes outcome_mood / outcome_context :
+// migration_appointment_brief_2026-08-31.sql.
+export type AppointmentMood = 'bien' | 'moyen' | 'mal';
+
+export interface OutcomeDetails {
+  mood?: AppointmentMood | null;
+  context?: string | null;
+}
+
+export async function recordAppointmentOutcome(
+  appointmentId: string,
+  outcome: AppointmentOutcome,
+  details: OutcomeDetails = {}
+) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
     .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage, users(locale))')
@@ -141,6 +165,8 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
               content:
                 `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
                 `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
+                (details.mood ? `Son ressenti sur le RDV : ${MOOD_LABELS[details.mood]}.\n` : '') +
+                (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 600)}".\n` : '') +
                 `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
                 `Réponds uniquement avec ce message, ${localeInstruction(locale)}, sans préambule ni titre.`,
             },
@@ -160,10 +186,18 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
     }
   }
 
-  await supabaseAdmin
-    .from('appointments')
-    .update({ outcome, outcome_note: note, outcome_recorded_at: new Date().toISOString() })
-    .eq('id', appointmentId);
+  const outcomeUpdate: Record<string, any> = { outcome, outcome_note: note, outcome_recorded_at: new Date().toISOString() };
+  if (details.mood) outcomeUpdate.outcome_mood = details.mood;
+  if (details.context?.trim()) outcomeUpdate.outcome_context = details.context.trim().slice(0, 2000);
+  let { error: updateError } = await supabaseAdmin.from('appointments').update(outcomeUpdate).eq('id', appointmentId);
+  if (updateError && updateError.code === '42703') {
+    // Migration migration_appointment_brief_2026-08-31.sql pas encore passée :
+    // on enregistre au moins l'issue et la note, comme avant.
+    ({ error: updateError } = await supabaseAdmin
+      .from('appointments')
+      .update({ outcome, outcome_note: note, outcome_recorded_at: outcomeUpdate.outcome_recorded_at })
+      .eq('id', appointmentId));
+  }
 
   if (prospect?.id) {
     const now = new Date().toISOString();
@@ -196,4 +230,113 @@ export async function recordAppointmentOutcome(appointmentId: string, outcome: A
   }
 
   return { note };
+}
+
+
+// Item 7 (docx 30/08) : "Comment s'est passé le RDV ? Je renverrai un email
+// de remerciement." Aaron rédige un court email de remerciement au prospect,
+// à partir du ressenti/contexte donné par le commercial (ex. "points communs
+// sur les abeilles", "je lui envoie le devis dans la journée"), et l'envoie
+// depuis la boîte du commercial. Journalisé dans la conversation du prospect
+// (visible dans « Conversation »). Best-effort : renvoie false si rien n'a
+// été envoyé (pas d'email, plafond API, boîte non connectée...).
+export async function sendThankYouEmail(
+  appointmentId: string,
+  outcome: AppointmentOutcome,
+  details: OutcomeDetails = {}
+): Promise<{ sent: boolean; error?: string }> {
+  const { data: appointment } = await supabaseAdmin
+    .from('appointments')
+    .select('id, proposed_at, type, prospect_id, prospects(id, full_name, email, company_id, assigned_user_id, users(id, full_name, first_name, locale, email))')
+    .eq('id', appointmentId)
+    .single();
+  const prospect = (appointment as any)?.prospects;
+  const seller = prospect?.users;
+  if (!appointment || !prospect?.email || !seller?.id) return { sent: false, error: 'prospect sans email' };
+
+  const locale = normalizeLocale(seller.locale);
+  const { data: company } = await supabaseAdmin
+    .from('companies')
+    .select('name, business_summary')
+    .eq('id', prospect.company_id)
+    .maybeSingle();
+
+  const mentionsQuote = /devis|proposition|contrat|abonnement|tarif|quote|offer/i.test(details.context || '') || outcome === 'devis';
+
+  let subject = '';
+  let body = '';
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-haiku-4-5',
+        max_tokens: 500,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, l'assistant commercial de ${seller.first_name || seller.full_name || 'un commercial'}` +
+              `${company?.name ? ` (société ${company.name})` : ''}. ` +
+              `Un rendez-vous ${appointment.type ? `(${appointment.type}) ` : ''}vient d'avoir lieu avec le prospect "${prospect.full_name || ''}".\n` +
+              `Issue du RDV selon le commercial : "${OUTCOME_LABELS[outcome]}".\n` +
+              (details.mood ? `Ressenti du commercial : ${MOOD_LABELS[details.mood]}.\n` : '') +
+              (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 800)}".\n` : '') +
+              (company?.business_summary ? `Ce que vend la société (extrait) : ${company.business_summary.slice(0, 600)}\n` : '') +
+              `Rédige l'email de remerciement que le commercial enverra LUI-MÊME au prospect, à la première personne (je), ` +
+              `court (4 à 7 phrases), chaleureux et naturel, sans flatterie excessive, en reprenant 1 élément concret du contexte s'il y en a un ` +
+              `(un point commun personnel, un sujet abordé), et en confirmant la suite convenue` +
+              (mentionsQuote ? ` (le devis/la proposition sera envoyé(e) comme promis)` : '') +
+              `. Pas de formule "en tant qu'IA", pas de signature (elle est ajoutée automatiquement), pas de titre. ` +
+              `Réponds STRICTEMENT au format JSON : {"subject": "...", "body": "..."} ${localeInstruction(locale)}.`,
+          },
+        ],
+      },
+      prospect.company_id, 'as'
+    );
+    const textBlock = data.content.find((b: any) => b.type === 'text');
+    const raw = (textBlock?.text || '').trim();
+    const jsonText = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    const parsed = JSON.parse(jsonText);
+    subject = String(parsed.subject || '').trim();
+    body = String(parsed.body || '').trim();
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur rédaction email de remerciement post-RDV:', err?.message || err);
+    }
+    return { sent: false, error: 'rédaction impossible' };
+  }
+  if (!subject || !body) return { sent: false, error: 'email vide' };
+
+  try {
+    // Import dynamique pour ne pas créer de cycle lib/messaging ↔ lib/anthropic-client.
+    const { sendEmailForUser } = await import('./messaging');
+    await sendEmailForUser(seller.id, prospect.email, subject, body, { emailType: 'transactional' });
+  } catch (err: any) {
+    console.error('Erreur envoi email de remerciement post-RDV:', err?.message || err);
+    return { sent: false, error: err?.message || 'envoi impossible' };
+  }
+
+  // Journalise dans la conversation email du prospect (visible dans « Conversation »).
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('prospect_id', prospect.id)
+    .eq('channel', 'email')
+    .maybeSingle();
+  if (conversation) {
+    await supabaseAdmin.from('messages').insert({
+      conversation_id: conversation.id,
+      direction: 'outbound',
+      sender_email: seller.email || '',
+      recipient_email: prospect.email,
+      body: `${subject}\n\n${body}`,
+    });
+  }
+
+  await supabaseAdmin
+    .from('appointments')
+    .update({ thank_you_sent_at: new Date().toISOString() })
+    .eq('id', appointmentId)
+    .then(() => {}, () => {});
+
+  return { sent: true };
 }
