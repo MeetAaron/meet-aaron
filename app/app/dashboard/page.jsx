@@ -8,6 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
+import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
 import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 
@@ -666,6 +667,8 @@ export default function DashboardPage() {
         <ConnectionStatusBadge />
       </header>
 
+      <Stories userId={userId} locale={locale} onChanged={loadAll} />
+
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
@@ -758,85 +761,9 @@ export default function DashboardPage() {
             </section>
           )}
 
-          {missedAppointments.length > 0 && (
-            <section className="missed-panel">
-              <p className="missed-title">
-                <span className="dot" style={{ background: '#E5484D' }} />
-                {t('dash.missedActions', locale)} <span className="badge">{missedAppointments.length}</span>
-              </p>
-              <div className="missed-list">
-                {missedAppointments.map((a) => (
-                  <div key={a.id} className="missed-row">
-                    <span className="missed-label">
-                      {t('dash.missedApptLabel', locale).replace('{name}', a.prospects?.full_name || '')}
-                    </span>
-                    <div className="missed-actions">
-                      <button
-                        className="missed-open"
-                        onClick={() => setSelectedAppointment({ ...a, actionType: 'valider' })}
-                      >
-                        {t('modal.validate', locale)}
-                      </button>
-                      <button
-                        className="missed-ack"
-                        disabled={acknowledging === a.id}
-                        onClick={() => acknowledgeMissed(a.id)}
-                      >
-                        {t('dash.acknowledgeMissed', locale)}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-         <section className="actions-panel">
-            <button className="actions-toggle" onClick={() => setActionsOpen(!actionsOpen)}>
-              <span>
-                {t('dash.actionsRequired', locale)} {totalActions > 0 && <span className="badge">{totalActions}</span>}
-              </span>
-              <span className="chevron">{actionsOpen ? '▲' : '▼'}</span>
-            </button>
-            {actionsOpen && (
-              <div className="actions-list">
-                {totalActions === 0 ? (
-                  <p className="empty-actions">{t('dash.nothingToProcess', locale)}</p>
-                ) : (
-                  <>
-                    {pendingAppointments.map((a) => (
-                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'valider' })}>
-                        <span className="dot" style={{ background: '#F0914E' }} />
-                        <span className="action-label">{t('dash.apptToValidate', locale).replace('{name}', a.prospects?.full_name || '')}</span>
-                        <span className="action-arrow">→</span>
-                      </button>
-                    ))}
-{cancelledByClient.map((a) => (
-                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
-                        <span className="dot" style={{ background: '#E5484D' }} />
-                        <span className="action-label">{t('dash.apptCancelledByClient', locale).replace('{name}', a.prospects?.full_name || '')}</span>
-                        <span className="action-arrow">→</span>
-                      </button>
-                    ))}
-                    {needsReschedule.map((a) => (
-                      <button key={a.id} className="action-row" onClick={() => setSelectedAppointment({ ...a, actionType: 'annule' })}>
-                        <span className="dot" style={{ background: '#8B90A8' }} />
-                        <span className="action-label">{t('dash.apptNeedsReschedule', locale).replace('{name}', a.prospects?.full_name || '')}</span>
-                        <span className="action-arrow">→</span>
-                      </button>
-                    ))}
-                    {rescueProspects.map((p) => (
-                      <button key={p.id} className="action-row" onClick={() => setSelectedRescue(p)}>
-                        <span className="dot" style={{ background: '#8B90A8' }} />
-                        <span className="action-label">{t('dash.prospectLostRescue', locale).replace('{name}', p.full_name || '')}</span>
-                        <span className="action-arrow">→</span>
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-          </section>
+          {/* Actions requises et RDV manqués : remplacés par les stories de
+              notifications en haut de page (components/Stories.jsx, docx
+              « mon avis » 31/08/2026) — mêmes actions, une notif à la fois. */}
 
           {/* Réorganisation demandée par Alex (2026-08-25) : "Prochains
               rendez-vous" et "Campagnes en cours" remontent juste sous
@@ -2297,6 +2224,7 @@ function Shell({ children, active, userId }) {
         onMenu={() => setMobileOpen(true)}
         menuLabel={t('shell.openMenu', locale)}
         moreLabel={t('shell.more', locale)}
+        locale={locale}
       />
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
       <nav className={`sidebar${mobileOpen ? ' open' : ''}`}>
@@ -2325,7 +2253,7 @@ function Shell({ children, active, userId }) {
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -2336,18 +2264,21 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span><span className="nav-label">{item.label}</span>{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
             </Link>
           ))}
         </ul>
+        <div className="rail-bell">
+          <Stories mode="bell" userId={userId} locale={locale} />
+        </div>
         <div className="account-section">
           <div className="conn-status">
             <span className="conn-dot" />
-            {t('shell.connected', locale)}
+            <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
             <span className="nav-icon">🚪</span>
-            {t('common.logout', locale)}
+            <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
       </nav>
