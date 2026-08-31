@@ -143,7 +143,7 @@ export default function TeamMemberDetailPage() {
 
   return (
     <Shell active={t('nav.team', locale)} userId={userId}>
-      <Link href={`/app/team?user_id=${userId}`} className="back-link">← {t('teamDetail.backToTeam', locale)}</Link>
+      <a href={`/app/team?user_id=${userId}`} className="back-link">← {t('teamDetail.backToTeam', locale)}</a>
 
       <header className="header">
         <p className="eyebrow">{t('teamDetail.eyebrow', locale)}</p>
