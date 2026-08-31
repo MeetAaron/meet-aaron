@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { computeHealthScore, HEALTH_LABEL_META } from '@/lib/customer-health';
@@ -28,6 +29,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
+  // Lot API-1 (docx 30/08) : automatismes Clients réservés au compte interne.
+  const allowedCompanyIds = await getCustomerAutomationCompanyIds();
+  if (allowedCompanyIds.length === 0) {
+    return NextResponse.json({ skipped: true, reason: 'automatismes Clients désactivés' });
+  }
+
   const { data: customers, error } = await supabaseAdmin
     .from('prospects')
     .select(
@@ -35,7 +42,8 @@ export async function GET(request: NextRequest) {
        users (id, full_name, email, notify_channel), prospect_companies (name)`
     )
     // Client à part entière seulement (voir migration_first_order_confirmed_2026-08-14.sql).
-    .not('first_order_confirmed_at', 'is', null);
+    .not('first_order_confirmed_at', 'is', null)
+    .in('company_id', allowedCompanyIds);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
