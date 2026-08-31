@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       if (!user) continue;
 
       const message = `La facture ${invoice.invoice_number} (${(invoice.total_ttc_eur || 0).toFixed(2)} €) de ${prospect.full_name} a dépassé son échéance sans être marquée payée.`;
-      const url = `/app/customer?client_id=${invoice.prospect_id}`;
+      const url = `/app/prospects?contact=${invoice.prospect_id}`;
 
       const channel = user.notify_channel || 'email';
       if (channel === 'push' || channel === 'both') {
