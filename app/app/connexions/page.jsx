@@ -1961,9 +1961,9 @@ export default function ConnexionsPage() {
           {oauthJustConnected && (
             <div className="oauth-success-banner">
               <p>{t('connexions.oauthSuccessBanner', locale)}</p>
-              <Link href={`/app/prospects?user_id=${userId}`} className="oauth-success-cta">
+              <a href={`/app/prospects?user_id=${userId}`} className="oauth-success-cta">
                 {t('connexions.oauthSuccessCta', locale)} →
-              </Link>
+              </a>
             </div>
           )}
           <ConnectionCard
