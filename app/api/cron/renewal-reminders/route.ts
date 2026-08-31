@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       const renewalDate = new Date(customer.contract_renewal_date).toLocaleDateString('fr-FR', { dateStyle: 'medium' });
       const title = `Renouvellement à préparer : ${customer.full_name}`;
       const body = `${customer.full_name}${companyName ? ` (${companyName})` : ''} — contrat renouvelable le ${renewalDate}. Un email de relance est prêt à valider.`;
-      const url = `/app/customer?user_id=${customer.assigned_user_id}`;
+      const url = `/app/prospects?user_id=${customer.assigned_user_id}`;
       const channel = user.notify_channel || 'email';
 
       if (channel === 'email' || channel === 'both') {
