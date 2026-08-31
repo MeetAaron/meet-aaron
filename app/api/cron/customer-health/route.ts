@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
       const companyName = (customer as any).prospect_companies?.name;
       const title = `Client à risque : ${customer.full_name}`;
       const body = `${customer.full_name}${companyName ? ` (${companyName})` : ''} — ${HEALTH_LABEL_META[label].label.toLowerCase()} (score ${score}/100).`;
-      const url = `/app/customer?user_id=${customer.assigned_user_id}`;
+      const url = `/app/prospects?user_id=${customer.assigned_user_id}`;
 
       const channel = user.notify_channel || 'email';
 
