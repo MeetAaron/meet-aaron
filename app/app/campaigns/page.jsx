@@ -943,7 +943,11 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     {
       role: 'assistant',
       topic: 'secteur',
+      // Docx Modifs Aaron (30/08/2026, "PROSPECT/OPPORTUNITÉ") : Aaron
+      // recommande d'importer d'abord ses fichiers clients/opportunités/
+      // prospects pour éviter les doublons — message en tête de campagne.
       content:
+        t('campaigns.chatDedupeAdvice', locale) + '\n\n' +
         t('campaigns.chatWelcome1', locale) + '\n\n' +
         t('campaigns.chatWelcome2', locale),
     },
@@ -1457,6 +1461,8 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
           <div className="step-body">
             <p className="step-title">{t('campaigns.stepZoneTitle', locale)}</p>
             <p className="step-subtitle">{t('campaigns.zoneNameHint', locale)}</p>
+            {/* Recommandation anti-doublons (docx Modifs Aaron, 30/08/2026). */}
+            <p className="step-subtitle dedupe-advice">💡 {t('campaigns.chatDedupeAdvice', locale)}</p>
 
             <label>
               {t('campaigns.zoneNameLabel', locale)}
