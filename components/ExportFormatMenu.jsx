@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
 
-export default function ExportFormatMenu({ label, onChoose, disabled }) {
+export default function ExportFormatMenu({ label, onChoose, disabled, variant }) {
   const [locale] = useLocale();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -34,7 +34,7 @@ export default function ExportFormatMenu({ label, onChoose, disabled }) {
 
   return (
     <div className="export-format-menu" ref={wrapRef}>
-      <button type="button" className="trigger-btn" disabled={disabled} onClick={() => setOpen((o) => !o)}>
+      <button type="button" className={variant === 'link' ? 'trigger-link' : 'trigger-btn'} disabled={disabled} onClick={() => setOpen((o) => !o)}>
         {label}
       </button>
       {open && (
@@ -80,6 +80,18 @@ export default function ExportFormatMenu({ label, onChoose, disabled }) {
         .trigger-btn:disabled {
           opacity: 0.5;
           cursor: default;
+        }
+        /* variant="link" (fusion pipeline, 31/08/2026) : « modèle vierge »
+           en simple lien souligné sous le bouton d'import. */
+        .trigger-link {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--accent-light);
+          font-size: inherit;
+          font-family: inherit;
+          text-decoration: underline;
+          cursor: pointer;
         }
         .menu {
           position: absolute;
