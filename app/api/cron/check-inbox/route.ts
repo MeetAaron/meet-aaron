@@ -558,9 +558,13 @@ export async function GET(request: NextRequest) {
       if (aaronOutput.quote_requested) {
         try {
           await generateDevis(prospect.id);
+          // Renommage docx Modifs Aaron (30/08/2026, section Notifications) :
+          // « Devis prêt à valider » → « Devis en attente ». La génération
+          // automatique reste en place jusqu'au lot Pipeline Opportunité
+          // (dépôt du devis par le commercial), qui la remplacera.
           await sendPushNotification(connection.user_id, {
-            title: 'Devis prêt à valider',
-            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une proposition à relire dans Aaron Opportunité.`,
+            title: 'Devis en attente',
+            body: `${prospect.full_name} a demandé un devis. Une proposition t'attend dans Aaron Opportunité.`,
             url: `/app/sales?user_id=${connection.user_id}`,
           });
         } catch (err: any) {
