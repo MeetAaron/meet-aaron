@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
       const title = `Affaire au point mort : ${deal.full_name}`;
       const body =
         `${deal.full_name}${companyName ? ` (${companyName})` : ''} — étape "${stageLabel}" depuis ${daysSince} jours. ${suggestion}`;
-      const url = `/app/sales?user_id=${deal.assigned_user_id}`;
+      const url = `/app/prospects?user_id=${deal.assigned_user_id}`;
 
       if (!user) continue;
       const channel = user.notify_channel || 'email';
