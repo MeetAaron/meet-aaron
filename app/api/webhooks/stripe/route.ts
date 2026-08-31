@@ -149,9 +149,15 @@ export async function POST(request: NextRequest) {
           // 3), au lieu d'imposer Aaron Prospect seul comme avant — modules
           // toujours ajustables ensuite depuis Préférences & abonnement
           // (app/api/subscription/modules), voir lib/subscription.ts.
-          offer_ap_active: moduleList.includes('AP'),
-          offer_as_active: moduleList.includes('AS'),
-          offer_ac_active: moduleList.includes('AC'),
+          // Abonnement unique Aaron (décision Alex, 31/08/2026) : un seul
+          // abonnement à 30 € qui inclut tout — les 3 drapeaux passent à
+          // true quelle que soit la liste de modules reçue (anciennes
+          // sessions Checkout comprises). Les colonnes offer_*_active
+          // restent en base pour ne rien casser en aval, voir
+          // migration_single_plan_2026-08-31.sql pour les sociétés existantes.
+          offer_ap_active: true,
+          offer_as_active: true,
+          offer_ac_active: true,
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
           invite_code: generateInviteCode(company_name),
