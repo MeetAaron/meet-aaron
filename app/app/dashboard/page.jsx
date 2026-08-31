@@ -645,11 +645,21 @@ export default function DashboardPage() {
                         <span className="onboarding-cta">{t('dash.onboardingStepCta', locale)}</span>
                       </button>
                     ) : (
-                      <Link key={step.key} href={step.href} className="onboarding-row">
+                      // Élément <a> natif et non <Link> (correctif 31/08/2026,
+                      // capture Alex : puce décalée à gauche, CTA collé au
+                      // texte) : styled-jsx n'ajoute sa classe de scope
+                      // qu'aux éléments natifs, donc une ligne rendue via le
+                      // composant Link ne recevait AUCUN des styles
+                      // .onboarding-row/.onboarding-label/.onboarding-cta
+                      // ci-dessous — les lignes "faites" (div) et "push"
+                      // (button) étaient stylées, celle-ci jamais. Les
+                      // rustines de hauteur fixe du 29/08 compensaient ce
+                      // symptôme sans en voir la cause.
+                      <a key={step.key} href={step.href} className="onboarding-row">
                         <span className="onboarding-check pending-check" aria-hidden="true" />
                         <span className="onboarding-label">{step.label}</span>
                         <span className="onboarding-cta">{t('dash.onboardingStepCta', locale)}</span>
-                      </Link>
+                      </a>
                     )
                   )}
                   {pushError && <p className="onboarding-push-error">{pushError}</p>}
