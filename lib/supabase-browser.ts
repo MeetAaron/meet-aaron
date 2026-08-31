@@ -94,6 +94,40 @@ export function clearExplicitLogin() {
   } catch (err) {}
 }
 
+// Retour à la page demandée après connexion (31/08/2026) : quand la porte
+// d'entrée de /app (AuthFetchInterceptor) renvoie vers /login, elle passe la
+// page d'origine en ?next=… ; /login la mémorise ici et /onboarding (point
+// de passage unique après connexion, mot de passe comme OAuth) y renvoie au
+// lieu du dashboard. Cas d'usage principal : le QR code « active les
+// notifications sur ton téléphone » de la checklist Mise en route
+// (Mon compte > Connexion) — le téléphone scanne, se connecte, et retombe
+// directement sur la bonne ligne au lieu de devoir retrouver l'onglet.
+// Seules les pages de l'app (/app/…) sont acceptées : jamais une URL
+// externe (pas de redirection ouverte exploitable par un lien piégé).
+const POST_LOGIN_NEXT_KEY = 'aaron-post-login-next';
+
+export function isSafePostLoginNext(next: string | null | undefined): next is string {
+  return typeof next === 'string' && next.startsWith('/app/') && !next.startsWith('/app//') && !next.includes('://');
+}
+
+export function rememberPostLoginNext(next: string | null | undefined) {
+  if (typeof window === 'undefined' || !isSafePostLoginNext(next)) return;
+  try {
+    window.localStorage.setItem(POST_LOGIN_NEXT_KEY, next);
+  } catch (err) {}
+}
+
+export function consumePostLoginNext(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const next = window.localStorage.getItem(POST_LOGIN_NEXT_KEY);
+    window.localStorage.removeItem(POST_LOGIN_NEXT_KEY);
+    return isSafePostLoginNext(next) ? next : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
