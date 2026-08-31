@@ -213,14 +213,6 @@ function crmMetaFor(locale) {
 // 2026-08-25, demande Alex : "on va fusionner préférences et abonnements
 // dans compte, ça me paraît bien plus logique") — mêmes fonctions, copiées
 // telles quelles pour un rendu identique aux onglets Préférences/Abonnement.
-function channelOptionsFor(locale) {
-  return [
-    { value: 'email', label: t('preferences.channel.email', locale) },
-    { value: 'push', label: t('preferences.channel.push', locale) },
-    { value: 'both', label: t('preferences.channel.both', locale) },
-  ];
-}
-
 const DELAY_OPTIONS = [15, 30, 60];
 
 function firstEmailOptionsFor(locale) {
@@ -351,10 +343,16 @@ export default function ConnexionsPage() {
   // pointent vers ?tab=subscription (ex-page /app/preferences) — ouvre
   // directement le bon onglet plutôt que de forcer un clic supplémentaire.
   // Les valeurs reconnues correspondent 1:1 aux 7 clés d'activeTab.
+  // ?setup=push (31/08/2026) : QR code « active les notifications sur ton
+  // téléphone » de la checklist Mise en route — met en avant la ligne
+  // notifications (cadre + défilement) à l'arrivée sur le téléphone.
+  const [setupFocus, setSetupFocus] = useState(null);
   useEffect(() => {
-    const tabParam = new URLSearchParams(window.location.search).get('tab');
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
     const VALID_TABS = ['profile', 'company', 'connection', 'crm', 'preferences', 'subscription', 'delete'];
     if (tabParam && VALID_TABS.includes(tabParam)) setActiveTab(tabParam);
+    if (params.get('setup') === 'push') setSetupFocus('push');
   }, []);
   const [profileName, setProfileName] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -399,7 +397,6 @@ export default function ConnexionsPage() {
   // `prefs*`/`loadError` etc. déjà distincts des noms ci-dessus sauf `loading`
   // (renommé `prefsLoading` ici, `loading` plus haut reste réservé au
   // chargement des connexions comme avant).
-  const CHANNEL_OPTIONS = channelOptionsFor(locale);
   const FIRST_EMAIL_OPTIONS = firstEmailOptionsFor(locale);
   const PROSPECTING_GOAL_OPTIONS = prospectingGoalOptionsFor(locale);
   const DEFAULT_FIRST_EMAIL_OPTIONS = defaultFirstEmailOptionsFor(locale);
@@ -676,6 +673,29 @@ export default function ConnexionsPage() {
       setLegalInfoSaved(true);
       setTimeout(() => setLegalInfoSaved(false), 2500);
     }
+  }
+
+  // Checklist « Mise en route » (onglet Connexion) : case « me prévenir aussi
+  // par email » — enregistrée immédiatement (pas de bouton Enregistrer dans
+  // la checklist), même champ notify_channel que l'ancien réglage de
+  // Préférences ('both' = email + push, 'push' = appareils seulement).
+  async function handleNotifyChannelChange(channel) {
+    if (!prefs) return;
+    const previous = prefs.notify_channel;
+    setPrefs({ ...prefs, notify_channel: channel });
+    const res = await fetch('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, notify_channel: channel }),
+    });
+    if (!res.ok) setPrefs((p) => ({ ...p, notify_channel: previous }));
+  }
+
+  // Le lien d'abonnement ICS vient d'être généré depuis la checklist : la
+  // ligne « Agenda synchronisé » passe au vert sans recharger (même règle que
+  // la checklist du dashboard : ics_link_generated côté /api/preferences).
+  function handleIcsGenerated() {
+    setPrefs((p) => (p ? { ...p, ics_link_generated: true } : p));
   }
 
   async function handleSavePublicLink() {
@@ -1954,6 +1974,21 @@ export default function ConnexionsPage() {
           )}
         </div>
       ) : activeTab === 'connection' ? (
+        <>
+          <SetupChecklist
+            locale={locale}
+            userId={userId}
+            googleConnection={googleConnection}
+            microsoftConnection={microsoftConnection}
+            onConnect={connectProvider}
+            prefs={prefs}
+            onNotifyChannelChange={handleNotifyChannelChange}
+            onIcsGenerated={handleIcsGenerated}
+            focusPush={setupFocus === 'push'}
+          />
+          {/* docx 30/08 : "comment appeler ce bloc ? boîte email connectée" */}
+          <h2 className="cards-heading">{t('connexions.setupEmailCardsTitle', locale)}</h2>
+          <p className="cards-hint">{t('connexions.setupEmailCardsHint', locale)}</p>
         <div className="cards">
           {oauthErrorBanner && (
             <div className="oauth-error-banner">
@@ -2009,6 +2044,7 @@ export default function ConnexionsPage() {
             onQrClose={closeQrPanel}
           />
         </div>
+        </>
       ) : activeTab === 'crm' ? (
         <>
           {/* Demande Alex (2026-08-22) : niveau de collaboration (0-3) +
@@ -2203,22 +2239,18 @@ export default function ConnexionsPage() {
               </div>
             </div>
 
+            {/* docx Modifs Aaron 30/08/2026 : le choix du canal et l'activation
+                des notifications push vivent désormais dans la checklist
+                « Mise en route » de l'onglet Connexion (une ligne par
+                appareil + case email) — on laisse juste un renvoi ici. */}
             <div className="field">
               <label>{t('preferences.notifyChannelLabel', locale)}</label>
-              <div className="options">
-                {CHANNEL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={prefs.notify_channel === opt.value ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, notify_channel: opt.value })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              {(prefs.notify_channel === 'push' || prefs.notify_channel === 'both') && (
-                <PushNotificationManager emailConnected={!!(googleConnection || microsoftConnection)} />
-              )}
+              <p className="notify-moved">
+                {t('preferences.notifyMovedHint', locale)}{' '}
+                <button type="button" className="link-btn" onClick={() => setActiveTab('connection')}>
+                  {t('preferences.notifyMovedLink', locale)} →
+                </button>
+              </p>
             </div>
 
             <div className="field">
@@ -3552,6 +3584,30 @@ export default function ConnexionsPage() {
           font-size: 0.88rem;
           margin: 0;
           max-width: 60ch;
+        }
+        .cards-heading {
+          margin: 0 0 0.25rem;
+          font-family: var(--font-display);
+          font-size: 1.1rem;
+        }
+        .cards-hint {
+          margin: 0 0 0.8rem;
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+        .notify-moved {
+          margin: 0.3rem 0 0;
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+        .link-btn {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--accent);
+          font-size: inherit;
+          cursor: pointer;
+          text-decoration: underline;
         }
         .cards {
           display: grid;
@@ -5460,6 +5516,654 @@ function ConnectionCard({
         }
       `}</style>
     </div>
+  );
+}
+
+// Checklist « Mise en route » (docx Modifs Aaron 30/08/2026, onglet
+// Connexion) : "toutes les étapes nécessaires au bon fonctionnement d'Aaron
+// au même endroit — boîte email connectée ; notifications push sur cet
+// appareil (retirées de Préférences) ; agenda synchronisé sur téléphone —
+// qu'en 5 min max les trucs chiants soient faits et on n'en parle plus."
+// Trois lignes, chacune avec son action directe et sa coche verte :
+// 1) Boîte email — connectée dès qu'une carte Google/Microsoft ci-dessous
+//    l'est (boutons "Connecter" directement dans la ligne).
+// 2) Notifications — une sous-ligne par appareil (ordinateur ET téléphone :
+//    chaque navigateur/appareil a sa propre souscription push, techniquement
+//    incontournable, d'où le QR code qui ouvre cette même page sur le
+//    téléphone) + case "aussi par email" (prefs.notify_channel).
+//    L'état de l'AUTRE appareil vient de GET /api/push/subscribe (user-agent
+//    mémorisé à l'abonnement, migration_push_user_agent_2026-08-31.sql).
+// 3) Agenda — synchronisé tout seul si la boîte email est connectée
+//    (lib/calendar-sync.ts, deux sens) ; sinon lien d'abonnement ICS/webcal
+//    + QR (déplacé ici depuis Ton agenda, même API /api/agenda/ics-link).
+// Une fois les 3 en place : une seule ligne verte repliée, détail sur clic.
+function isMobileUserAgent(ua) {
+  return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua || '');
+}
+
+function SetupChecklist({
+  locale,
+  userId,
+  googleConnection,
+  microsoftConnection,
+  onConnect,
+  prefs,
+  onNotifyChannelChange,
+  onIcsGenerated,
+  focusPush,
+}) {
+  const emailConnection = googleConnection || microsoftConnection;
+  const emailDone = !!emailConnection;
+
+  // --- Notifications : cet appareil + l'autre + email ---
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    setIsMobile(isMobileUserAgent(navigator.userAgent) || navigator.userAgentData?.mobile === true);
+  }, []);
+  const [thisDeviceSubscribed, setThisDeviceSubscribed] = useState(false);
+  const [devices, setDevices] = useState([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  async function loadDevices() {
+    try {
+      const res = await fetch('/api/push/subscribe');
+      if (!res.ok) return;
+      const body = await res.json();
+      setDevices(body.devices || []);
+    } catch (err) {
+      // Non bloquant : la ligne "autre appareil" restera simplement "à faire".
+    } finally {
+      setDevicesLoaded(true);
+    }
+  }
+  useEffect(() => {
+    if (userId) loadDevices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+  function handleThisDeviceStatus(subscribed) {
+    setThisDeviceSubscribed(subscribed);
+    // Rafraîchit la liste des appareils après une (dés)activation — l'état
+    // initial (au montage) ne déclenche pas d'appel supplémentaire.
+    if (devicesLoaded) loadDevices();
+  }
+  const otherKindDone = devices.some((d) => d.user_agent && isMobileUserAgent(d.user_agent) !== isMobile);
+  const emailNotify = prefs?.notify_channel === 'email' || prefs?.notify_channel === 'both';
+  const pushDone = thisDeviceSubscribed && otherKindDone;
+  const pushPartial = !pushDone && (thisDeviceSubscribed || otherKindDone);
+
+  // QR code « active les notifications sur ton téléphone » : ouvre cette
+  // page (onglet Connexion, ligne notifications mise en avant via ?setup=push)
+  // sur le téléphone. Pas connecté là-bas ? /login?next=… le ramène ici après
+  // connexion (voir AuthFetchInterceptor + lib/supabase-browser.ts).
+  const [phoneQrOpen, setPhoneQrOpen] = useState(false);
+  const [phoneQrDataUrl, setPhoneQrDataUrl] = useState(null);
+  useEffect(() => {
+    if (!phoneQrOpen) return undefined;
+    let cancelled = false;
+    const target = `${window.location.origin}/app/connexions?tab=connection&setup=push`;
+    QRCode.toDataURL(target, { width: 220, margin: 1 })
+      .then((dataUrl) => {
+        if (!cancelled) setPhoneQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneQrDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [phoneQrOpen]);
+
+  // --- Agenda : lien d'abonnement ICS/webcal (porté depuis Ton agenda) ---
+  const icsGenerated = prefs?.ics_link_generated === true;
+  const agendaDone = emailDone || icsGenerated;
+  const [icsPanelOpen, setIcsPanelOpen] = useState(false);
+  const [icsLink, setIcsLink] = useState(null); // { httpsUrl, webcalUrl }
+  const [icsLoading, setIcsLoading] = useState(false);
+  const [icsRegenerating, setIcsRegenerating] = useState(false);
+  const [icsCopied, setIcsCopied] = useState(false);
+  const [icsQrDataUrl, setIcsQrDataUrl] = useState(null);
+  async function toggleIcsPanel() {
+    const opening = !icsPanelOpen;
+    setIcsPanelOpen(opening);
+    if (opening && !icsLink) {
+      setIcsLoading(true);
+      try {
+        const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`);
+        const body = await res.json();
+        if (res.ok) {
+          setIcsLink(body);
+          if (typeof onIcsGenerated === 'function') onIcsGenerated();
+        }
+      } finally {
+        setIcsLoading(false);
+      }
+    }
+  }
+  async function regenerateIcsLink() {
+    setIcsRegenerating(true);
+    try {
+      const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`, { method: 'POST' });
+      const body = await res.json();
+      if (res.ok) setIcsLink(body);
+    } finally {
+      setIcsRegenerating(false);
+    }
+  }
+  useEffect(() => {
+    if (!icsLink?.webcalUrl) {
+      setIcsQrDataUrl(null);
+      return undefined;
+    }
+    let cancelled = false;
+    // Généré côté client : le lien contient le jeton secret du commercial,
+    // pas question de le faire transiter par un service tiers de QR.
+    QRCode.toDataURL(icsLink.webcalUrl, { width: 220, margin: 1 })
+      .then((dataUrl) => {
+        if (!cancelled) setIcsQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setIcsQrDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [icsLink]);
+  function copyIcsLink() {
+    if (!icsLink) return;
+    navigator.clipboard?.writeText(icsLink.webcalUrl).then(() => {
+      setIcsCopied(true);
+      setTimeout(() => setIcsCopied(false), 2000);
+    });
+  }
+
+  // --- Vue d'ensemble ---
+  const doneCount = [emailDone, pushDone, agendaDone].filter(Boolean).length;
+  const allDone = doneCount === 3;
+  const [expanded, setExpanded] = useState(false);
+  const showDetails = !allDone || expanded || focusPush;
+  const pushRowRef = useRef(null);
+  useEffect(() => {
+    if (!focusPush || !pushRowRef.current) return;
+    pushRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusPush]);
+
+  function statusIcon(state) {
+    if (state === 'done') return <span className="status done" aria-hidden="true">✓</span>;
+    if (state === 'partial') return <span className="status partial" aria-hidden="true">½</span>;
+    return <span className="status todo" aria-hidden="true" />;
+  }
+  const pushState = pushDone ? 'done' : pushPartial ? 'partial' : 'todo';
+  const thisDeviceLabel = isMobile ? t('connexions.setupThisPhone', locale) : t('connexions.setupThisComputer', locale);
+  const otherDeviceLabel = isMobile ? t('connexions.setupOtherComputer', locale) : t('connexions.setupOtherPhone', locale);
+  const providerName = googleConnection ? 'Google' : microsoftConnection ? 'Outlook' : '';
+
+  return (
+    <section className={`setup${allDone ? ' setup-complete' : ''}`}>
+      <div className="setup-head">
+        <div>
+          <h2 className="setup-title">{t('connexions.setupTitle', locale)}</h2>
+          <p className="setup-subtitle">
+            {allDone ? t('connexions.setupAllDone', locale) : t('connexions.setupSubtitle', locale)}
+          </p>
+        </div>
+        <div className="setup-progress" aria-label={`${doneCount}/3`}>
+          <span className="setup-count">{doneCount}/3</span>
+          <span className="setup-bar"><span className="setup-bar-fill" style={{ width: `${(doneCount / 3) * 100}%` }} /></span>
+          {allDone && (
+            <button type="button" className="setup-toggle" onClick={() => setExpanded((v) => !v)}>
+              {showDetails ? t('connexions.setupHideDetails', locale) : t('connexions.setupShowDetails', locale)}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showDetails && (
+        <ol className="setup-steps">
+          {/* 1. Boîte email */}
+          <li className={emailDone ? 'step step-done' : 'step'}>
+            {statusIcon(emailDone ? 'done' : 'todo')}
+            <div className="step-body">
+              <p className="step-title">{t('connexions.setupStepEmailTitle', locale)}</p>
+              {emailDone ? (
+                <p className="step-desc">
+                  {t('connexions.setupStepEmailDone', locale)} <strong>{emailConnection.provider_account_email}</strong>
+                </p>
+              ) : (
+                <>
+                  <p className="step-desc">{t('connexions.setupStepEmailDesc', locale)}</p>
+                  <div className="step-actions">
+                    <button type="button" className="btn-primary" onClick={() => onConnect('google')}>
+                      {t('connexions.setupConnectGoogle', locale)}
+                    </button>
+                    <button type="button" className="btn-primary" onClick={() => onConnect('microsoft')}>
+                      {t('connexions.setupConnectMicrosoft', locale)}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </li>
+
+          {/* 2. Notifications */}
+          <li className={`step${pushDone ? ' step-done' : ''}${focusPush ? ' step-focus' : ''}`} ref={pushRowRef} id="setup-push">
+            {statusIcon(pushState)}
+            <div className="step-body">
+              <p className="step-title">{t('connexions.setupStepPushTitle', locale)}</p>
+              <p className="step-desc">{t('connexions.setupStepPushDesc', locale)}</p>
+              <div className="devices">
+                <div className={thisDeviceSubscribed ? 'device device-done' : 'device'}>
+                  <div className="device-head">
+                    <span className="device-icon" aria-hidden="true">{isMobile ? '📱' : '💻'}</span>
+                    <span className="device-label">{thisDeviceLabel}</span>
+                    <span className={thisDeviceSubscribed ? 'device-state on' : 'device-state'}>
+                      {thisDeviceSubscribed ? t('connexions.setupDeviceDone', locale) : t('connexions.setupDeviceTodo', locale)}
+                    </span>
+                  </div>
+                  <PushNotificationManager emailConnected={emailDone} onStatusChange={handleThisDeviceStatus} />
+                </div>
+
+                <div className={otherKindDone ? 'device device-done' : 'device'}>
+                  <div className="device-head">
+                    <span className="device-icon" aria-hidden="true">{isMobile ? '💻' : '📱'}</span>
+                    <span className="device-label">{otherDeviceLabel}</span>
+                    <span className={otherKindDone ? 'device-state on' : 'device-state'}>
+                      {otherKindDone ? t('connexions.setupDeviceDone', locale) : t('connexions.setupDeviceTodo', locale)}
+                    </span>
+                  </div>
+                  {!otherKindDone && !isMobile && (
+                    <>
+                      <button type="button" className="btn-secondary" onClick={() => setPhoneQrOpen((v) => !v)}>
+                        {phoneQrOpen ? t('connexions.setupPhoneHideQr', locale) : t('connexions.setupPhoneShowQr', locale)}
+                      </button>
+                      {phoneQrOpen && (
+                        <div className="qr-box">
+                          {phoneQrDataUrl ? (
+                            <img src={phoneQrDataUrl} alt={t('connexions.setupPhoneQrAlt', locale)} width={160} height={160} />
+                          ) : (
+                            <p className="hint">{t('common.loading', locale)}</p>
+                          )}
+                          <ol className="qr-steps">
+                            <li>{t('connexions.setupPhoneStep1', locale)}</li>
+                            <li>{t('connexions.setupPhoneStep2', locale)}</li>
+                            <li>{t('connexions.setupPhoneStep3', locale)}</li>
+                          </ol>
+                          <p className="hint">{t('connexions.setupPhoneIphoneNote', locale)}</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!otherKindDone && isMobile && <p className="hint">{t('connexions.setupComputerHint', locale)}</p>}
+                </div>
+
+                <label className="email-too">
+                  <input
+                    type="checkbox"
+                    checked={emailNotify}
+                    onChange={(e) => onNotifyChannelChange(e.target.checked ? 'both' : 'push')}
+                  />
+                  <span>
+                    {t('connexions.setupEmailToo', locale)}
+                    <span className="hint-inline"> — {t('connexions.setupEmailTooHint', locale)}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </li>
+
+          {/* 3. Agenda */}
+          <li className={agendaDone ? 'step step-done' : 'step'}>
+            {statusIcon(agendaDone ? 'done' : 'todo')}
+            <div className="step-body">
+              <p className="step-title">{t('connexions.setupStepAgendaTitle', locale)}</p>
+              {emailDone ? (
+                <p className="step-desc">
+                  {t('connexions.setupAgendaDoneEmailPrefix', locale)} {providerName}
+                  {t('connexions.setupAgendaDoneEmailSuffix', locale)}
+                </p>
+              ) : icsGenerated ? (
+                <p className="step-desc">{t('connexions.setupAgendaDoneIcs', locale)}</p>
+              ) : (
+                <p className="step-desc">{t('connexions.setupAgendaTodo', locale)}</p>
+              )}
+              {emailDone && <p className="hint">{t('connexions.setupAgendaOtherCalendar', locale)}</p>}
+              <div className="step-actions">
+                <button type="button" className={emailDone ? 'btn-link' : 'btn-secondary'} onClick={toggleIcsPanel}>
+                  {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
+                </button>
+              </div>
+              {icsPanelOpen && (
+                <div className="ics-panel">
+                  {icsLoading ? (
+                    <p className="hint">{t('common.loading', locale)}</p>
+                  ) : icsLink ? (
+                    <>
+                      <code className="ics-url">{icsLink.webcalUrl}</code>
+                      <div className="step-actions">
+                        <button type="button" className="btn-secondary" onClick={copyIcsLink}>
+                          {icsCopied ? t('disponibilites.syncCopied', locale) : t('disponibilites.syncCopy', locale)}
+                        </button>
+                        <button type="button" className="btn-link" disabled={icsRegenerating} onClick={regenerateIcsLink}>
+                          {icsRegenerating ? t('common.saving', locale) : t('disponibilites.syncRegenerate', locale)}
+                        </button>
+                      </div>
+                      <p className="hint">{t('disponibilites.syncHint', locale)}</p>
+                      {icsQrDataUrl && (
+                        <div className="qr-box">
+                          <img src={icsQrDataUrl} alt={t('disponibilites.syncQrAlt', locale)} width={160} height={160} />
+                          <p className="hint">{t('disponibilites.syncQrHint', locale)}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="error">{t('disponibilites.syncError', locale)}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </li>
+        </ol>
+      )}
+
+      <style jsx>{`
+        .setup {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.2rem 1.3rem;
+          margin-bottom: 1.2rem;
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow-wrap: anywhere;
+        }
+        .setup-complete {
+          border-color: rgba(61, 214, 140, 0.4);
+          background: rgba(61, 214, 140, 0.06);
+        }
+        .setup-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+        .setup-title {
+          margin: 0 0 0.25rem;
+          font-family: var(--font-display);
+          font-size: 1.15rem;
+        }
+        .setup-subtitle {
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.86rem;
+        }
+        .setup-complete .setup-subtitle {
+          color: var(--accent-green);
+          font-weight: 600;
+        }
+        .setup-progress {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          min-width: 160px;
+        }
+        .setup-count {
+          font-weight: 700;
+          font-size: 0.9rem;
+          white-space: nowrap;
+        }
+        .setup-bar {
+          flex: 1;
+          height: 8px;
+          min-width: 80px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          overflow: hidden;
+        }
+        .setup-bar-fill {
+          display: block;
+          height: 100%;
+          background: var(--accent-green);
+          border-radius: 999px;
+          transition: width var(--fast);
+        }
+        .setup-toggle {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.8rem;
+          cursor: pointer;
+          text-decoration: underline;
+          padding: 0;
+          white-space: nowrap;
+        }
+        .setup-steps {
+          list-style: none;
+          margin: 1.1rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.8rem;
+        }
+        .step {
+          display: flex;
+          gap: 0.8rem;
+          align-items: flex-start;
+          padding: 0.9rem 1rem;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          background: var(--bg);
+        }
+        .step-done {
+          border-color: rgba(61, 214, 140, 0.35);
+        }
+        .step-focus {
+          box-shadow: 0 0 0 2px var(--accent);
+        }
+        .status {
+          flex: 0 0 auto;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.85rem;
+          font-weight: 700;
+          margin-top: 0.05rem;
+        }
+        .status.done {
+          background: var(--accent-green);
+          color: #fff;
+        }
+        .status.partial {
+          background: #f5a524;
+          color: #fff;
+        }
+        .status.todo {
+          border: 2px solid var(--border);
+          box-sizing: border-box;
+        }
+        .step-body {
+          flex: 1;
+          min-width: 0;
+        }
+        .step-title {
+          margin: 0 0 0.25rem;
+          font-weight: 600;
+          font-size: 0.95rem;
+        }
+        .step-desc {
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+        .step-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 0.6rem;
+        }
+        .btn-primary {
+          background: var(--accent);
+          color: #fff;
+          border: none;
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.9rem;
+          font-weight: 600;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .btn-secondary {
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+        }
+        .btn-link {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-size: 0.8rem;
+          cursor: pointer;
+          padding: 0.4rem 0;
+          text-decoration: underline;
+        }
+        .btn-link:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .devices {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+        }
+        .device {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.7rem 0.8rem;
+          background: var(--surface);
+        }
+        .device-done {
+          border-color: rgba(61, 214, 140, 0.35);
+        }
+        .device-head {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .device-icon {
+          font-size: 1rem;
+        }
+        .device-label {
+          font-weight: 600;
+          font-size: 0.86rem;
+        }
+        .device-state {
+          margin-left: auto;
+          font-size: 0.76rem;
+          color: var(--muted);
+          white-space: nowrap;
+        }
+        .device-state.on {
+          color: var(--accent-green);
+          font-weight: 600;
+        }
+        .device .btn-secondary {
+          margin-top: 0.5rem;
+        }
+        .qr-box {
+          margin-top: 0.6rem;
+          padding: 0.8rem;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: var(--bg);
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.5rem;
+        }
+        .qr-box img {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: #fff;
+          padding: 0.4rem;
+        }
+        .qr-steps {
+          margin: 0;
+          padding-left: 1.1rem;
+          font-size: 0.8rem;
+          color: var(--muted);
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+        }
+        .hint {
+          margin: 0.4rem 0 0;
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+        .hint-inline {
+          color: var(--muted);
+          font-weight: 400;
+        }
+        .email-too {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.5rem;
+          font-size: 0.84rem;
+          cursor: pointer;
+          padding: 0.2rem 0.1rem;
+        }
+        .email-too input {
+          margin-top: 0.2rem;
+          accent-color: var(--accent);
+        }
+        .ics-panel {
+          margin-top: 0.7rem;
+          padding-top: 0.7rem;
+          border-top: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .ics-url {
+          display: block;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          font-size: 0.78rem;
+          word-break: break-all;
+        }
+        .error {
+          color: var(--accent-red);
+          font-size: 0.82rem;
+          margin: 0;
+        }
+        @media (max-width: 560px) {
+          .setup {
+            padding: 1rem;
+          }
+          .step {
+            padding: 0.75rem 0.7rem;
+            gap: 0.6rem;
+          }
+          .setup-progress {
+            width: 100%;
+          }
+          .step-actions .btn-primary,
+          .step-actions .btn-secondary {
+            width: 100%;
+            text-align: center;
+          }
+        }
+      `}</style>
+    </section>
   );
 }
 
