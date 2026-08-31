@@ -115,3 +115,23 @@ export async function resolveSubscriptionItemId(company: CompanyRow, module: Mod
 }
 
 export { activeColumn, itemColumn };
+
+
+// Docx Modifs Aaron 30/08/2026 : la rubrique Clients (et ses automatismes :
+// check-ins, santé client, signaux d'upsell, rappels de renouvellement,
+// relance après RDV de lancement) est réservée au compte aaron@meetaaron.app
+// — supprimée pour tous les autres comptes, fondateur comme commercial.
+// Lot API-1 : ces 5 crons consomment de l'API Claude pour une fonction qui
+// n'est plus proposée, donc on ne les fait tourner QUE pour la société du
+// compte interne. Renvoie la liste (éventuellement vide) des sociétés
+// autorisées ; les crons s'arrêtent immédiatement si elle est vide.
+export const INTERNAL_ACCOUNT_EMAIL = 'aaron@meetaaron.app';
+
+export async function getCustomerAutomationCompanyIds(): Promise<string[]> {
+  const { data } = await supabaseAdmin
+    .from('users')
+    .select('company_id')
+    .eq('email', INTERNAL_ACCOUNT_EMAIL)
+    .not('company_id', 'is', null);
+  return Array.from(new Set((data || []).map((row: any) => row.company_id as string)));
+}
