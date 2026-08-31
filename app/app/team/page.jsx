@@ -549,9 +549,9 @@ export default function TeamPage() {
                 {members.map((m) => (
                   <tr key={m.id}>
                     <td>
-                      <Link href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
+                      <a href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
                         {m.full_name}
-                      </Link>
+                      </a>
                     </td>
                     <td className="muted">{m.email}</td>
                     <td className="muted">{m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}</td>
@@ -676,14 +676,13 @@ export default function TeamPage() {
                 </thead>
                 <tbody>
                   {seats.map((s) => {
-                    const seatModules = [s.ap_active && 'AP', s.as_active && 'AS', s.ac_active && 'AC'].filter(Boolean);
                     const busy = seatActionBusy === s.id;
                     return (
                       <tr key={s.id}>
                         <td>{s.first_name} {s.last_name}</td>
                         <td className="muted">{s.job_title || '—'}</td>
                         <td className="muted">{s.email}</td>
-                        <td className="muted">{seatModules.join(' · ') || '—'}</td>
+                        <td className="muted">{t('team.seatPlanAaron', locale)}</td>
                         <td>
                           <span className={`seat-status seat-status-${s.status}`}>
                             {s.status === 'active' ? t('team.seatStatusActive', locale) : s.status === 'cancelled' ? t('team.seatStatusCancelled', locale) : t('team.seatStatusPending', locale)}
@@ -1137,33 +1136,19 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
   const [lastName, setLastName] = useState(seat?.last_name || '');
   const [jobTitle, setJobTitle] = useState(seat?.job_title || '');
   const [email, setEmail] = useState(seat?.email || '');
-  const [modules, setModules] = useState(() => {
-    if (!seat) return ['AP'];
-    return [seat.ap_active && 'AP', seat.as_active && 'AS', seat.ac_active && 'AC'].filter(Boolean);
-  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const MODULE_OPTIONS = [
-    { value: 'AP', label: t('preferences.offers.apLabel', locale) },
-    { value: 'AS', label: t('nav.opportunity', locale) },
-    { value: 'AC', label: t('nav.client', locale) },
-  ];
-
-  function toggleModule(value) {
-    setModules((prev) => (prev.includes(value) ? prev.filter((m) => m !== value) : [...prev, value]));
-  }
-
+  // Abonnement unique Aaron (docx Modifs Aaron, 30/08/2026 + décision Alex
+  // 31/08 : "on ne garde que l'abonnement aaron à 30 €") : plus de choix de
+  // modules par siège — chaque compte équipe = un abonnement Aaron complet,
+  // le serveur (app/api/team/seats/route.ts) ne lit plus `modules`.
   async function handleSubmit(e) {
     e.preventDefault();
-    if (modules.length === 0) {
-      setError(t('team.addSeatModulesRequired', locale));
-      return;
-    }
     setSubmitting(true);
     setError(null);
 
-    const body = { first_name: firstName, last_name: lastName, job_title: jobTitle, email, modules };
+    const body = { first_name: firstName, last_name: lastName, job_title: jobTitle, email };
     const res = await fetch(isEditing ? `/api/team/seats/${seat.id}` : '/api/team/seats', {
       method: isEditing ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1207,16 +1192,7 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
 
-        <div className="seat-modules-field">
-          <p className="seat-modules-label">{t('team.addSeatModulesLabel', locale)}</p>
-          {MODULE_OPTIONS.map((opt) => (
-            <label key={opt.value} className="seat-module-checkbox">
-              <input type="checkbox" checked={modules.includes(opt.value)} onChange={() => toggleModule(opt.value)} />
-              {opt.label}
-            </label>
-          ))}
-          <p className="seat-modules-hint">{t('team.addSeatModulesHint', locale)}</p>
-        </div>
+        {!isEditing && <p className="seat-plan-line">{t('team.addSeatPlanLine', locale)}</p>}
 
         {error && <p className="error">{error}</p>}
 
@@ -1244,10 +1220,27 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
           padding: 1.8rem;
-          width: 420px;
-          max-width: 100%;
+          /* Capture Alex (31/08/2026) : modale coupée à gauche sur écran
+             étroit — 420px + padding sans box-sizing dépassait la largeur
+             disponible et l'overlay centré rendait le début invisible. */
+          box-sizing: border-box;
+          width: min(420px, 100%);
           max-height: 88vh;
           overflow-y: auto;
+        }
+        @media (max-width: 480px) {
+          .modal {
+            padding: 1.2rem 1rem;
+          }
+          .name-row {
+            grid-template-columns: 1fr;
+          }
+        }
+        .seat-plan-line {
+          font-size: 0.82rem;
+          color: var(--muted);
+          margin: 0 0 1rem;
+          line-height: 1.4;
         }
         h2 {
           font-family: var(--font-display);
@@ -1275,36 +1268,14 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
           color: var(--text);
           font-size: 0.88rem;
           font-family: inherit;
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
         }
         .name-row {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 0.8rem;
-        }
-        .seat-modules-field {
-          margin-bottom: 1rem;
-        }
-        .seat-modules-label {
-          font-size: 0.82rem;
-          color: var(--muted);
-          margin: 0 0 0.5rem;
-        }
-        .seat-module-checkbox {
-          flex-direction: row;
-          align-items: center;
-          gap: 0.5rem;
-          color: var(--text);
-          font-size: 0.86rem;
-          margin-bottom: 0.4rem;
-        }
-        .seat-module-checkbox input {
-          width: auto;
-        }
-        .seat-modules-hint {
-          font-size: 0.76rem;
-          color: var(--muted);
-          margin: 0.4rem 0 0;
-          line-height: 1.4;
         }
         .error {
           color: var(--accent-red, #e5484d);
