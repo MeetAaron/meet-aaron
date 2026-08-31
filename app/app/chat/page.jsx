@@ -854,6 +854,53 @@ export default function ChatPage() {
       .finally(() => setUserInfoLoaded(true));
   }, [userId]);
 
+  // Item 6 (docx Modifs Aaron 30/08/2026) : "lorsque le commercial se connecte
+  // via un code envoyé par le fondateur, Aaron ajoute automatiquement le
+  // profil entreprise — pas besoin pour le salarié de recréer la fiche".
+  // Le profil vit déjà sur la société (companies.business_summary, partagé
+  // par tous les comptes de la même société) ; il restait à ne PAS relancer
+  // le questionnaire à l'arrivée d'un commercial dont la société a déjà son
+  // profil (sinon ses réponses auraient écrasé celui du fondateur). Chargé
+  // uniquement sur l'accueil (?welcome=1), seul endroit où ça se décide.
+  const [companyProfileExists, setCompanyProfileExists] = useState(null); // null = pas encore su
+  useEffect(() => {
+    if (!userId || !isWelcome) return;
+    fetch(`/api/business-summary?user_id=${userId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => setCompanyProfileExists(!!res?.summary))
+      .catch(() => setCompanyProfileExists(false));
+  }, [userId, isWelcome]);
+
+  // Item 11 (docx Modifs Aaron 30/08/2026) : "au bout de 24 h la conversation
+  // est classée en historique — mais pas 24 h après le DÉBUT : imagine
+  // l'utilisateur qui utilise le chat pendant 2 h et hop, classé." La règle
+  // est donc l'INACTIVITÉ : 24 h sans aucun message (updated_at de la
+  // conversation, remis à jour à chaque message par /api/chat-history et
+  // /api/chat). Au-delà, une nouvelle conversation démarre automatiquement
+  // et l'ancienne reste dans la liste (rien n'est supprimé). Exceptions :
+  // conversation encore vide (on la réutilise), questionnaire de profil en
+  // cours (on ne coupe pas le fil des questions), et réouverture manuelle
+  // d'une ancienne conversation (voir inactivityCheckPendingRef).
+  const CONVERSATION_INACTIVITY_MS = 24 * 60 * 60 * 1000;
+  const inactivityCheckPendingRef = useRef(false);
+  async function rotateInactiveConversation() {
+    const res = await fetch('/api/chat-conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    }).catch(() => null);
+    const body = res ? await res.json().catch(() => null) : null;
+    if (!body?.conversation) return false;
+    setConversations((prev) => [body.conversation, ...prev]);
+    setActiveConversationId(body.conversation.id);
+    try {
+      window.localStorage.setItem(`meetaaron_chat_active_conversation_${userId}`, body.conversation.id);
+    } catch {
+      // Voir draftStorageKey plus haut.
+    }
+    return true;
+  }
+
   // Résout la conversation à afficher (voir migration_chat_conversations_2026-08-25.sql) :
   // reprend la dernière conversation ouverte par ce commercial sur cet appareil
   // (localStorage, même principe que draftStorageKey plus haut), sinon la plus
@@ -898,6 +945,10 @@ export default function ChatPage() {
         }
 
         if (chosen) {
+          // Item 11 (docx 30/08) : la vérification "24 h sans échange" ne se
+          // fait qu'à l'arrivée sur la page, jamais quand le commercial
+          // rouvre lui-même une vieille conversation depuis la liste.
+          inactivityCheckPendingRef.current = true;
           setActiveConversationId(chosen.id);
           try {
             window.localStorage.setItem(activeKey, chosen.id);
@@ -912,6 +963,7 @@ export default function ChatPage() {
     return () => { cancelled = true; };
   }, [userId]);
 
+
   // Rapatrie l'historique déjà persisté (voir migration_chat_history_2026-08-13.sql
   // et app/api/chat-history/route.ts) avant toute décision d'afficher l'accueil —
   // sans ça, revenir sur cette page après être parti ailleurs (ex: "Mes documents")
@@ -922,17 +974,33 @@ export default function ChatPage() {
     if (!userId || !activeConversationId) return;
     setHistoryLoaded(false);
     setMessages([]);
+    let rotated = false;
     fetch(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`)
       .then((r) => r.json())
-      .then((res) => {
-        if (Array.isArray(res.messages) && res.messages.length > 0) {
+      .then(async (res) => {
+        const hasMessages = Array.isArray(res.messages) && res.messages.length > 0;
+        const step = typeof res.onboarding_step === 'number' ? res.onboarding_step : -1;
+        if (inactivityCheckPendingRef.current) {
+          inactivityCheckPendingRef.current = false;
+          const conv = conversations.find((c) => c.id === activeConversationId);
+          const lastActivity = conv?.updated_at ? new Date(conv.updated_at).getTime() : Date.now();
+          const inactiveForTooLong = Date.now() - lastActivity > CONVERSATION_INACTIVITY_MS;
+          if (hasMessages && inactiveForTooLong && step < 0 && !isWelcome && !restartRequested) {
+            rotated = await rotateInactiveConversation();
+            if (rotated) return; // l'effet se relance sur la nouvelle conversation (vide)
+          }
+        }
+        if (hasMessages) {
           setMessages(res.messages);
-          setOnboardingStep(typeof res.onboarding_step === 'number' ? res.onboarding_step : -1);
+          setOnboardingStep(step);
           setOnboardingAnswers(Array.isArray(res.onboarding_answers) ? res.onboarding_answers : []);
         }
       })
       .catch(() => {})
-      .finally(() => setHistoryLoaded(true));
+      .finally(() => {
+        if (!rotated) setHistoryLoaded(true);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, activeConversationId]);
 
   // Bug remonté par Alex (29/08/2026, "il va falloir que moi et Ludovic on
@@ -965,19 +1033,40 @@ export default function ChatPage() {
     // On attend de savoir si un historique existe déjà en base avant de semer
     // l'accueil, pour ne pas écraser une conversation/un questionnaire en cours.
     if (!historyLoaded) return;
+    // Item 6 : on attend de savoir si la société a déjà son profil.
+    if (companyProfileExists === null) return;
     const firstName = userInfo ? (userInfo.first_name || (userInfo.full_name || '').split(' ')[0] || '') : '';
     const onboardingQuestions = getOnboardingQuestions(locale);
+    const intro =
+      `${t('chat.welcomeGreeting', locale).replace('{firstName}', firstName ? ' ' + firstName : '')}\n\n` +
+      `• ${t('chat.welcomeBullet1', locale)}\n` +
+      `• ${t('chat.welcomeBullet2', locale)}\n` +
+      `• ${t('chat.welcomeBullet3', locale)}\n\n` +
+      `${t('chat.welcomeNotDoing', locale)}\n\n`;
+
+    if (companyProfileExists) {
+      // Commercial qui rejoint une société déjà profilée (item 6) : pas de
+      // questionnaire, le profil de l'équipe s'applique à lui.
+      const welcomeMessages = [{ role: 'assistant', content: intro + t('chat.welcomeProfileAlreadyDone', locale) }];
+      setMessages(welcomeMessages);
+      setOnboardingStep(-1);
+      setSummaryDone(true);
+      fetch('/api/chat-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          conversation_id: activeConversationId,
+          messages: welcomeMessages,
+          onboarding_step: -1,
+          onboarding_answers: [],
+        }),
+      }).catch(() => {});
+      return;
+    }
+
     const welcomeMessages = [
-      {
-        role: 'assistant',
-        content:
-          `${t('chat.welcomeGreeting', locale).replace('{firstName}', firstName ? ' ' + firstName : '')}\n\n` +
-          `• ${t('chat.welcomeBullet1', locale)}\n` +
-          `• ${t('chat.welcomeBullet2', locale)}\n` +
-          `• ${t('chat.welcomeBullet3', locale)}\n\n` +
-          `${t('chat.welcomeNotDoing', locale)}\n\n` +
-          t('chat.welcomeBeforeStart', locale),
-      },
+      { role: 'assistant', content: intro + t('chat.welcomeBeforeStart', locale) },
       {
         role: 'assistant',
         content: onboardingQuestions[0],
@@ -999,7 +1088,7 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [isWelcome, messages.length, userInfo, userInfoLoaded, historyLoaded, userId, locale, activeConversationId]);
+  }, [isWelcome, messages.length, userInfo, userInfoLoaded, historyLoaded, userId, locale, activeConversationId, companyProfileExists]);
 
   // Relance du questionnaire (voir restartRequested plus haut) : ajoute une
   // courte intro + la première question à la suite de la conversation
@@ -1012,6 +1101,14 @@ export default function ChatPage() {
     // résultat non-nul) pour ne jamais bloquer indéfiniment.
     if (!userInfoLoaded) return;
     if (!historyLoaded) return;
+    // Item 13 (31/08/2026) : le tableau de bord renvoie ici chaque jour tant
+    // que le profil n'est pas généré — si un questionnaire est DÉJÀ en cours
+    // (étape >= 0), on le reprend là où il en était au lieu de l'effacer et
+    // de tout recommencer.
+    if (onboardingStep >= 0) {
+      setRestartSeeded(true);
+      return;
+    }
 
     const onboardingQuestions = getOnboardingQuestions(locale);
     const restartMessages = [
@@ -1036,7 +1133,7 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale, activeConversationId]);
+  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale, activeConversationId, onboardingStep]);
 
   // docx item A3 : scroller uniquement la liste de messages elle-même (pas
   // toute la page) à chaque nouveau message. `scrollIntoView` sans option
@@ -1045,10 +1142,32 @@ export default function ChatPage() {
   // ce qui produisait le "la page descend toute seule" remonté par Alex — on
   // manipule directement `scrollTop` du conteneur scrollable pour rester
   // strictement local à la boîte de chat.
+  //
+  // Item 14 (docx Modifs Aaron 30/08/2026) : "parfois Aaron écrit 2 messages
+  // à la suite — dans ce cas, ancrer la première ligne du premier message,
+  // car là ça descend tout en bas et on ne comprend pas". Quand ce sont des
+  // messages d'Aaron qui arrivent, on cale donc le haut de la boîte sur le
+  // DÉBUT du premier nouveau message (le commercial lit de haut en bas,
+  // comme sur ChatGPT) ; quand c'est le commercial qui vient d'envoyer, ou
+  // pendant qu'Aaron "écrit", on reste tout en bas comme avant.
+  const previousMessageCountRef = useRef(0);
   useEffect(() => {
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    const el = messagesRef.current;
+    if (!el) return;
+    const previousCount = previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+    const appended = messages.length - previousCount;
+    if (!sending && appended > 0 && previousCount > 0 && messages[messages.length - 1]?.role === 'assistant') {
+      let first = messages.length - 1;
+      while (first - 1 >= previousCount && messages[first - 1]?.role === 'assistant') first -= 1;
+      const rows = el.querySelectorAll('.msg-row');
+      const target = rows[first];
+      if (target) {
+        el.scrollTop = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 6;
+        return;
+      }
     }
+    el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
 
   // docx item A1 : restaure le brouillon non envoyé dès que l'utilisateur est
@@ -1250,6 +1369,19 @@ export default function ChatPage() {
   // (factorisé le 29/08/2026 pour être réutilisé aussi dans Mon compte > Mon
   // entreprise, voir app/app/connexions/page.jsx) — comportement inchangé.
   const buildSummaryPreview = buildBusinessProfilePreview;
+
+  // Item 12 : tant que le profil se génère, le navigateur demande
+  // confirmation avant de fermer/quitter l'onglet (message générique imposé
+  // par les navigateurs — impossible de le personnaliser).
+  useEffect(() => {
+    if (!summarizing) return undefined;
+    const guard = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [summarizing]);
 
   async function handleGenerateSummary() {
     if (summarizing) return;
@@ -1686,6 +1818,23 @@ export default function ChatPage() {
             </button>
           </div>
         </form>
+      )}
+
+      {/* Item 12 (docx Modifs Aaron 30/08/2026) : pendant la génération du
+          profil (1-2 min), une fenêtre bloquante — "comme ça l'utilisateur
+          comprend qu'il ne peut pas quitter tant que ce n'est pas terminé".
+          Doublée d'un garde-fou beforeunload (voir l'effet plus haut) si
+          malgré tout il ferme l'onglet. */}
+      {summarizing && (
+        <div className="gen-overlay" role="dialog" aria-modal="true" aria-live="polite">
+          <div className="gen-card">
+            <div className="gen-spinner" aria-hidden="true" />
+            <h2 className="gen-title">{t('chat.generatingModalTitle', locale)}</h2>
+            <p className="gen-body">{t('chat.generatingModalBody', locale)}</p>
+            <div className="gen-bar" aria-hidden="true"><span /></div>
+            <p className="gen-hint">{t('chat.generatingModalHint', locale)}</p>
+          </div>
+        </div>
       )}
 
       <div className="chat-box">
@@ -2242,6 +2391,80 @@ export default function ChatPage() {
           flex-wrap: wrap;
           gap: 0.6rem;
           padding: 0 1rem 1rem;
+        }
+        .gen-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 120;
+          background: rgba(5, 6, 12, 0.72);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+        }
+        .gen-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-xl);
+          padding: 2rem 1.8rem;
+          width: min(440px, 100%);
+          text-align: center;
+          box-shadow: var(--shadow-lg);
+        }
+        .gen-spinner {
+          width: 44px;
+          height: 44px;
+          margin: 0 auto 1rem;
+          border-radius: 50%;
+          border: 3px solid var(--border);
+          border-top-color: var(--accent-light);
+          animation: gen-spin 0.9s linear infinite;
+        }
+        @keyframes gen-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .gen-title {
+          margin: 0 0 0.5rem;
+          font-family: var(--font-display);
+          font-size: 1.2rem;
+        }
+        .gen-body {
+          margin: 0 0 1rem;
+          color: var(--muted);
+          font-size: 0.9rem;
+          line-height: 1.5;
+        }
+        .gen-bar {
+          height: 6px;
+          border-radius: 999px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          overflow: hidden;
+          margin-bottom: 0.8rem;
+        }
+        .gen-bar span {
+          display: block;
+          height: 100%;
+          width: 40%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, var(--accent), var(--accent-light));
+          animation: gen-slide 1.6s ease-in-out infinite;
+        }
+        @keyframes gen-slide {
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(260%);
+          }
+        }
+        .gen-hint {
+          margin: 0;
+          font-size: 0.78rem;
+          color: var(--muted-soft);
         }
         .welcome-actions-hint {
           flex-basis: 100%;
