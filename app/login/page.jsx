@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabaseBrowser, setRememberMe, markExplicitLoginToday } from '@/lib/supabase-browser';
+import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 export default function LoginPage() {
@@ -31,12 +31,16 @@ export default function LoginPage() {
   // Lu directement depuis window.location (plutôt que useSearchParams) pour
   // éviter d'avoir à englober la page dans un <Suspense> côté build Next.js.
   useEffect(() => {
-    const verified = new URLSearchParams(window.location.search).get('verified');
+    const params = new URLSearchParams(window.location.search);
+    const verified = params.get('verified');
     if (verified === '1') {
       setMessage(t('auth.verifiedMessage', locale));
     } else if (verified === 'error') {
       setError(t('auth.verifyError', locale));
     }
+    // ?next=/app/… (posé par AuthFetchInterceptor) : page à rouvrir après
+    // connexion — consommée par /onboarding, voir lib/supabase-browser.ts.
+    rememberPostLoginNext(params.get('next'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
