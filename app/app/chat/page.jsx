@@ -1731,9 +1731,9 @@ export default function ChatPage() {
                   ancien message est voulu. */}
               {m.viewProfileLink && (
                 <div className="tour-link-row">
-                  <Link href={`/app/connexions${userId ? `?user_id=${userId}&tab=company` : '?tab=company'}`} className="tour-link">
+                  <a href={`/app/connexions${userId ? `?user_id=${userId}&tab=company` : '?tab=company'}`} className="tour-link">
                     {t('chat.viewBusinessProfileButton', locale)}
-                  </Link>
+                  </a>
                 </div>
               )}
               {/* Haut-parleur (demande Alex, docx "Modifs Aaron") : sur tous
@@ -1950,9 +1950,9 @@ export default function ChatPage() {
           l'onboarding, et plus dans le pied de page de Préférences — voir
           app/app/preferences/page.jsx). */}
       <div className="tour-link-row">
-        <Link href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="tour-link">
+        <a href={`/app/tour${userId ? `?user_id=${userId}` : ''}`} className="tour-link">
           {t('chat.viewTourButton', locale)}
-        </Link>
+        </a>
       </div>
 
       <style jsx>{`
