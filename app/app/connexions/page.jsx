@@ -699,6 +699,37 @@ export default function ConnexionsPage() {
     setPrefs((p) => (p ? { ...p, ics_link_generated: true } : p));
   }
 
+  // Item 6 (docx 30/08) : partage du profil entreprise par email (PDF).
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareSending, setShareSending] = useState(false);
+  const [shareResult, setShareResult] = useState(null); // 'ok' | message d'erreur | null
+  async function handleShareProfile(e) {
+    e.preventDefault();
+    if (shareSending || !shareEmail.trim()) return;
+    setShareSending(true);
+    setShareResult(null);
+    try {
+      const res = await fetch('/api/business-summary/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, email: shareEmail.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setShareResult(body.error || t('common.error', locale));
+        return;
+      }
+      setShareResult('ok');
+      setShareEmail('');
+      setTimeout(() => setShareResult(null), 4000);
+    } catch (err) {
+      setShareResult(t('common.error', locale));
+    } finally {
+      setShareSending(false);
+    }
+  }
+
   async function handleSavePublicLink() {
     setSavingPublicLink(true);
     setPublicLinkSaved(false);
@@ -1709,10 +1740,36 @@ export default function ConnexionsPage() {
                   {t('preferences.viewFullProfileButton', locale)}
                 </button>
                 <BusinessProfileDownloadButton locale={locale} onExport={handleExportSummary} exportingFormat={exportingFormat} />
-                <Link href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
+                <button type="button" className="btn-secondary" onClick={() => setShareOpen((v) => !v)} disabled={!businessSummary}>
+                  {t('preferences.shareProfileButton', locale)}
+                </button>
+                {/* Élément <a> natif et non <Link> : styled-jsx ne scope que
+                    les éléments natifs (voir dashboard, correctif 31/08). */}
+                <a href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
                   {t('preferences.retakeQuestionnaireButton', locale)}
-                </Link>
+                </a>
               </div>
+
+              {/* Item 6 (docx 30/08) : partager le profil en PDF par email —
+                  le fondateur tape simplement l'adresse, Aaron envoie depuis
+                  sa boîte (app/api/business-summary/share). */}
+              {shareOpen && (
+                <form className="share-row" onSubmit={handleShareProfile}>
+                  <input
+                    type="email"
+                    required
+                    value={shareEmail}
+                    onChange={(e) => setShareEmail(e.target.value)}
+                    placeholder={t('preferences.shareProfilePlaceholder', locale)}
+                    className="share-input"
+                  />
+                  <button type="submit" className="btn-primary" disabled={shareSending || !shareEmail.trim()}>
+                    {shareSending ? t('preferences.shareProfileSending', locale) : t('preferences.shareProfileSend', locale)}
+                  </button>
+                  {shareResult === 'ok' && <span className="profile-saved">{t('preferences.shareProfileSent', locale)}</span>}
+                  {shareResult && shareResult !== 'ok' && <span className="share-error">{shareResult}</span>}
+                </form>
+              )}
 
               {/* Import d'une version modifiée (demande Alex, 27/08/2026) —
                   voir app/api/business-summary/import. */}
@@ -2205,14 +2262,17 @@ export default function ConnexionsPage() {
               maintenant directement au chat Aaron avec un message pré-rempli
               (demande Alex 2026-08-22) plutôt que d'ouvrir une conversation
               dédiée dans une fenêtre à part. */}
-          <Link
+          {/* <a> natif et non <Link> (31/08/2026) : styled-jsx ne scope que
+              les éléments natifs — rendu via Link, ce panneau ne recevait
+              aucun des styles .add-crm-panel ci-dessous. */}
+          <a
             href={`/app/chat?user_id=${userId}&prefill=${encodeURIComponent(t('connexions.addOtherCrmPrefillMessage', locale))}`}
             className="add-crm-panel add-crm-panel-link"
           >
             <h3>{t('connexions.addOtherCrmTitle', locale)}</h3>
             <p className="add-crm-hint">{t('connexions.addOtherCrmHint', locale)}</p>
             <span className="btn-secondary add-crm-cta">{t('connexions.crmChatOpenButton', locale)}</span>
-          </Link>
+          </a>
         </>
       ) : activeTab === 'preferences' ? (
         loadError ? (
@@ -3585,6 +3645,28 @@ export default function ConnexionsPage() {
           font-size: 0.88rem;
           margin: 0;
           max-width: 60ch;
+        }
+        .share-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.5rem;
+          margin-top: 0.7rem;
+        }
+        .share-input {
+          flex: 1 1 240px;
+          min-width: 0;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.8rem;
+          font-size: 0.88rem;
+          box-sizing: border-box;
+        }
+        .share-error {
+          color: var(--accent-red);
+          font-size: 0.8rem;
         }
         .cards-heading {
           margin: 0 0 0.25rem;
