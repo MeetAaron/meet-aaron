@@ -565,7 +565,10 @@ export default function DashboardPage() {
       key: 'calendar',
       done: emailConnected || icsLinkGenerated,
       label: t('dash.onboardingStepCalendar', locale),
-      href: '/app/agenda',
+      // 31/08/2026 : le lien d'abonnement calendrier vit désormais dans la
+      // checklist « Mise en route » de Mon compte > Connexion (docx 30/08),
+      // plus dans Ton agenda.
+      href: '/app/connexions?tab=connection',
     },
   ];
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
