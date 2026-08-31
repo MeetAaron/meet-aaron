@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
       const companyName = (customer as any).prospect_companies?.name;
       const title = `Piste d'upsell : ${customer.full_name}`;
       const body = `${customer.full_name}${companyName ? ` (${companyName})` : ''} — client en excellente santé. ${suggestion}`;
-      const url = `/app/customer?user_id=${customer.assigned_user_id}`;
+      const url = `/app/prospects?user_id=${customer.assigned_user_id}`;
       const channel = user.notify_channel || 'email';
 
       if (channel === 'email' || channel === 'both') {
