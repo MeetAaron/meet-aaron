@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale } from '@/lib/i18n';
@@ -249,17 +248,17 @@ export default function TourPage() {
             // prospect/la première campagne. "Passer" ci-dessous continue
             // d'aller directement au dashboard, pour respecter le choix
             // explicite de l'utilisateur de sauter la visite.
-            <Link href={`/app/connexions${userId ? `?user_id=${userId}&tab=connection` : '?tab=connection'}`} className="btn-primary">
+            <a href={`/app/connexions${userId ? `?user_id=${userId}&tab=connection` : '?tab=connection'}`} className="btn-primary">
               {t('tour.finish', locale)}
-            </Link>
+            </a>
           ) : (
             <button className="btn-primary" onClick={() => setStep(step + 1)}>{t('tour.next', locale)} →</button>
           )}
         </div>
 
-        <Link href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="skip">
+        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="skip">
           {t('tour.skip', locale)}
-        </Link>
+        </a>
       </div>
 
       <style jsx>{`
