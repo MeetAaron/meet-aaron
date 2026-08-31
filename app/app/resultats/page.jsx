@@ -473,6 +473,19 @@ function EvolutionMetric({ label, current, previous, suffix }) {
 export default function ResultatsPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
+  // Docx Modifs Aaron (30/08/2026, "Mes résultats") : la section Clients est
+  // supprimée pour tous les comptes sauf aaron@meetaaron.app (client = étape
+  // ultime d'Opportunité). null tant que l'email n'est pas chargé → masqué
+  // par défaut.
+  const [userEmail, setUserEmail] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/preferences?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((body) => setUserEmail((body.preferences || {}).email || null))
+      .catch(() => {});
+  }, [userId]);
+  const showClientsSection = userEmail === 'aaron@meetaaron.app';
   const [prospects, setProspects] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -806,6 +819,7 @@ export default function ResultatsPage() {
             />
           </section>
 
+          {showClientsSection && (
           <section className="panel category-panel">
             <div className="category-head">
               <h2>{t('dash.clientsTitle', locale)}</h2>
@@ -836,6 +850,7 @@ export default function ResultatsPage() {
               locale={locale}
             />
           </section>
+          )}
 
           <section className="panel">
             <div className="category-head">
