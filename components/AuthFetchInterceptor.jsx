@@ -14,7 +14,7 @@
 
 'use client';
 
-import { supabaseBrowser, isExplicitlyLoggedInToday } from '@/lib/supabase-browser';
+import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
 
 // Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
 // 2026-08-20) : même avec une session Supabase encore valide et persistée
@@ -87,6 +87,14 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     }
 
     const opts = init ? { ...init } : {};
+
+    // Item 3bis (docx 30/08) : signale l'appareil à /api/auth/link une fois
+    // par jour — le serveur envoie un email de sécurité au commercial si cet
+    // appareil n'a jamais été vu sur son compte (voir lib/supabase-browser.ts).
+    if (/\/api\/auth\/link(\?|$)/.test(url) && shouldCheckDeviceToday()) {
+      const deviceId = getDeviceId();
+      if (deviceId) opts.headers = { ...(opts.headers || {}), 'x-aaron-device': deviceId };
+    }
 
     try {
       let { data } = await supabaseBrowser.auth.getSession();
