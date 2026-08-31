@@ -9,6 +9,7 @@ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError,
 import { isDomainHealthyForSending } from '@/lib/email-deliverability';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -399,6 +400,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (first_order_confirmed) {
       triggerAutomaticOnboarding(prospectId).catch(() => {});
     }
+    // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08, onglet
+    // CRM) — fire-and-forget, voir lib/crm-sync.ts.
+    autoSyncWonProspect(prospectId).catch(() => {});
 
     return NextResponse.json({ success: true, status: 'gagne' });
   }
