@@ -88,7 +88,10 @@ export async function buildNotifications(userId: string, now: Date = new Date())
   const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
   const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at';
   async function loadProspects() {
-    let res = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
+    // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
+    // incompatibles entre les trois variantes (GenericStringError), alors que
+    // la forme runtime est identique.
+    let res: any = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
     if (res.error && res.error.code === '42703') {
       res = await supabaseAdmin.from('prospects').select(baseCols + ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason').eq('assigned_user_id', userId);
     }
