@@ -550,6 +550,12 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', prospect.id);
 
+      // Lot 3 « Devis » : le contact a répondu → la relance quotidienne
+      // « devis à faire », mise en pause par le commercial (quote_paused_at,
+      // migration_devis_upload_2026-09-01.sql), reprend. Appel séparé et
+      // best-effort : colonne optionnelle tant que la migration n'est pas passée.
+      await supabaseAdmin.from('prospects').update({ quote_paused_at: null }).eq('id', prospect.id).then(() => {}, () => {});
+
       // Demande de devis détectée par Aaron dans le message reçu : on prépare
       // automatiquement une proposition chiffrée (catalogue produits +
       // historique des devis déjà envoyés à ce prospect, voir
