@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 
 const FOLLOWUP_DELAY_DAYS = 4;
@@ -31,9 +32,16 @@ export async function GET(request: NextRequest) {
 
   const cutoff = new Date(Date.now() - FOLLOWUP_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
+  // Lot API-1 (docx 30/08) : automatismes Clients réservés au compte interne.
+  const allowedCompanyIds = await getCustomerAutomationCompanyIds();
+  if (allowedCompanyIds.length === 0) {
+    return NextResponse.json({ skipped: true, reason: 'automatismes Clients désactivés' });
+  }
+
   const { data: candidates, error } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, email, assigned_user_id, kickoff_call_subject, kickoff_call_body')
+    .in('company_id', allowedCompanyIds)
     .not('kickoff_call_proposed_at', 'is', null)
     .is('kickoff_call_followup_sent_at', null)
     .lte('kickoff_call_proposed_at', cutoff)
