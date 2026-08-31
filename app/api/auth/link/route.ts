@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+import { sendSystemEmail } from '@/lib/google';
 
 // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
 // la durée de l'abonnement le client ne pourra plus accéder à rien. Il
@@ -49,6 +50,12 @@ export async function POST(request: NextRequest) {
     const inactiveError = await subscriptionInactiveError(alreadyLinked.company_id);
     if (inactiveError) {
       return NextResponse.json({ error: inactiveError }, { status: 403 });
+    }
+    // Item 3bis (docx 30/08) : appareil signalé par le navigateur (une fois
+    // par jour, voir AuthFetchInterceptor) — email de sécurité si jamais vu.
+    const deviceId = request.headers.get('x-aaron-device');
+    if (deviceId) {
+      registerDeviceAndNotify(alreadyLinked.id, alreadyLinked.email || email, alreadyLinked.first_name, deviceId, request.headers.get('user-agent') || '').catch(() => {});
     }
     // Changement d'email depuis "Mon compte" (demande Alex 2026-08-25) :
     // supabaseBrowser.auth.updateUser({ email }) envoie un lien de
@@ -97,4 +104,66 @@ export async function POST(request: NextRequest) {
     { error: "Aucun profil Meet Aaron n'est associé à cette adresse email. Contactez votre administrateur." },
     { status: 404 }
   );
+}
+
+
+// Item 3bis (docx Modifs Aaron 30/08/2026) : "si connexion via un autre PC,
+// demander email de sécurité". Chaque navigateur envoie un identifiant
+// opaque (localStorage, voir lib/supabase-browser.ts) ; la table user_devices
+// (migration_user_devices_2026-08-31.sql) mémorise ceux déjà vus par compte.
+// Un appareil inconnu déclenche un email d'alerte au commercial — sauf pour
+// le tout premier appareil enregistré (mise en place de la table : on
+// n'alerte pas tous les comptes existants d'un coup). Best-effort : jamais
+// bloquant pour la connexion.
+function describeUserAgent(ua: string): string {
+  const os = /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Android/i.test(ua) ? 'Android' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'appareil inconnu';
+  const browser = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : 'navigateur inconnu';
+  return `${browser} sur ${os}`;
+}
+
+async function registerDeviceAndNotify(userId: string, userEmail: string | null, firstName: string | null, deviceId: string, userAgent: string) {
+  const safeId = deviceId.slice(0, 128);
+  const { data: known, error: knownError } = await supabaseAdmin
+    .from('user_devices')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('device_id', safeId)
+    .maybeSingle();
+  if (knownError) return; // table absente (migration pas encore passée) : on ne fait rien
+
+  const now = new Date().toISOString();
+  if (known) {
+    await supabaseAdmin.from('user_devices').update({ last_seen_at: now }).eq('id', known.id);
+    return;
+  }
+
+  const { count } = await supabaseAdmin
+    .from('user_devices')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  await supabaseAdmin.from('user_devices').insert({
+    user_id: userId,
+    device_id: safeId,
+    user_agent: userAgent.slice(0, 500),
+    first_seen_at: now,
+    last_seen_at: now,
+  });
+
+  if (!count || !userEmail) return; // premier appareil : enregistrement silencieux
+
+  const when = new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Paris' });
+  const body =
+    `Bonjour${firstName ? ' ' + firstName : ''},\n\n` +
+    `Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :\n` +
+    `• ${describeUserAgent(userAgent)}\n` +
+    `• le ${when} (heure de Paris)\n\n` +
+    `Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.\n\n` +
+    `Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.\n\n` +
+    `Aaron`;
+  try {
+    await sendSystemEmail(userEmail, 'Nouvelle connexion à ton compte Meet Aaron', body);
+  } catch (err: any) {
+    console.error('Email de sécurité nouvel appareil non envoyé:', err?.message || err);
+  }
 }
