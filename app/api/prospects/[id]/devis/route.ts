@@ -80,18 +80,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // devis_file_* : devis déposé par le commercial (migration_devis_upload_
   // 2026-09-01.sql), envoyé en pièce jointe. Colonnes optionnelles tant que
   // la migration n'est pas passée → deuxième lecture sans elles sur 42703.
-  let { data: prospect, error } = await supabaseAdmin
+  let res: any = await supabaseAdmin
     .from('prospects')
     .select('id, assigned_user_id, full_name, email, deal_stage, devis_subject, devis_body, devis_recap, devis_sent_at, devis_file_path, devis_file_name, devis_file_type')
     .eq('id', prospectId)
     .single();
-  if (error && error.code === '42703') {
-    ({ data: prospect, error } = await supabaseAdmin
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
       .from('prospects')
       .select('id, assigned_user_id, full_name, email, deal_stage, devis_subject, devis_body, devis_recap, devis_sent_at')
       .eq('id', prospectId)
-      .single());
+      .single();
   }
+  const prospect: any = res.data;
+  const error = res.error;
 
   if (error || !prospect) {
     return NextResponse.json({ error: 'Prospect introuvable' }, { status: 404 });
