@@ -1,8 +1,10 @@
 // components/PushNotificationManager.jsx
-// Petit widget affiché dans /app/preferences quand le commercial choisit un
-// canal de notification incluant "push". Gère tout le cycle : enregistrement
-// du service worker, demande de permission navigateur, création de
-// l'abonnement Web Push, et envoi au serveur (app/api/push/subscribe).
+// Widget « Activer les notifications push sur cet appareil », affiché dans la
+// checklist « Mise en route » de Mon compte > Connexion (docx Modifs Aaron
+// 30/08/2026 — auparavant dans l'onglet Préférences). Gère tout le cycle :
+// enregistrement du service worker, demande de permission navigateur,
+// création de l'abonnement Web Push, et envoi au serveur
+// (app/api/push/subscribe).
 //
 // Ce composant ne fait AUCUN appel à un service tiers (pas de SDK Firebase/
 // OneSignal) : tout passe par l'API Push standard du navigateur + notre propre
@@ -11,6 +13,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { t, useLocale } from '@/lib/i18n';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -27,7 +30,13 @@ function urlBase64ToUint8Array(base64String) {
 // est passé par la page appelante (app/app/connexions/page.jsx, qui connaît
 // déjà googleConnection/microsoftConnection) — par défaut à true pour ne
 // jamais afficher le conseil à tort si un appelant futur oublie de le passer.
-export default function PushNotificationManager({ emailConnected = true }) {
+//
+// `onStatusChange(subscribed)` (31/08/2026) : remonte l'état réel de CET
+// appareil à la checklist « Mise en route », qui affiche la coche verte de
+// la ligne « Sur cet ordinateur / ce téléphone » et rafraîchit la liste des
+// appareils (GET /api/push/subscribe) après chaque activation/désactivation.
+export default function PushNotificationManager({ emailConnected = true, onStatusChange }) {
+  const [locale] = useLocale();
   const [supported, setSupported] = useState(true);
   const [permission, setPermission] = useState('default');
   const [subscribed, setSubscribed] = useState(false);
@@ -48,18 +57,23 @@ export default function PushNotificationManager({ emailConnected = true }) {
     });
   }, []);
 
+  useEffect(() => {
+    if (typeof onStatusChange === 'function') onStatusChange(subscribed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subscribed]);
+
   async function enable() {
     setBusy(true);
     setError(null);
     try {
       if (!VAPID_PUBLIC_KEY) {
-        throw new Error('Notifications push pas encore configurées côté serveur.');
+        throw new Error(t('push.notConfigured', locale));
       }
 
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm !== 'granted') {
-        throw new Error("Permission refusée — active les notifications dans les réglages du navigateur.");
+        throw new Error(t('push.permissionRefused', locale));
       }
 
       const registration = await navigator.serviceWorker.ready;
@@ -73,7 +87,7 @@ export default function PushNotificationManager({ emailConnected = true }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subscription: subscription.toJSON() }),
       });
-      if (!res.ok) throw new Error("Échec de l'enregistrement côté serveur.");
+      if (!res.ok) throw new Error(t('push.serverError', locale));
 
       setSubscribed(true);
     } catch (err) {
@@ -106,11 +120,38 @@ export default function PushNotificationManager({ emailConnected = true }) {
   }
 
   if (!supported) {
+    // Cas typique : Safari iPhone hors app installée — les notifications
+    // web n'y existent QUE depuis l'écran d'accueil (iOS 16.4+). Pas à pas
+    // plutôt qu'une phrase vague : c'est l'étape où les commerciaux
+    // abandonnent le plus souvent.
     return (
-      <p className="push-hint">
-        Ton navigateur ne supporte pas les notifications push (sur iPhone : ajoute Meet Aaron à l'écran
-        d'accueil depuis Safari, puis réessaie depuis l'app installée).
-      </p>
+      <div className="push-manager">
+        <p className="push-hint">{t('push.unsupportedIntro', locale)}</p>
+        <ol className="push-steps">
+          <li>{t('push.unsupportedStep1', locale)}</li>
+          <li>{t('push.unsupportedStep2', locale)}</li>
+          <li>{t('push.unsupportedStep3', locale)}</li>
+        </ol>
+        <style jsx>{`
+          .push-manager {
+            margin-top: 0.4rem;
+          }
+          .push-hint {
+            color: var(--muted);
+            font-size: 0.78rem;
+            margin: 0 0 0.3rem;
+          }
+          .push-steps {
+            margin: 0;
+            padding-left: 1.1rem;
+            color: var(--muted);
+            font-size: 0.78rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+          }
+        `}</style>
+      </div>
     );
   }
 
@@ -118,45 +159,38 @@ export default function PushNotificationManager({ emailConnected = true }) {
     <div className="push-manager">
       {subscribed ? (
         <button type="button" className="push-btn active" onClick={disable} disabled={busy}>
-          {busy ? '…' : '✓ Notifications push activées sur cet appareil'}
+          {busy ? '…' : `✓ ${t('push.enabledOnDevice', locale)}`}
         </button>
       ) : (
         <button type="button" className="push-btn" onClick={enable} disabled={busy}>
-          {busy ? 'Activation…' : 'Activer les notifications push sur cet appareil'}
+          {busy ? t('push.enabling', locale) : t('push.enableOnDevice', locale)}
         </button>
       )}
-      {permission === 'denied' && (
-        <p className="push-error">
-          Les notifications sont bloquées pour ce site dans ton navigateur — débloque-les dans les réglages
-          du site puis réessaie.
-        </p>
-      )}
-      {subscribed && !emailConnected && (
-        <p className="push-hint">
-          Astuce : pour que tes RDV se synchronisent aussi automatiquement avec l'agenda de ton téléphone,
-          connecte ta boîte email. Comment faire : 1) onglet « Connexion » ci-dessus, 2) clique sur
-          « Connecter » à côté de Gmail ou Outlook, 3) autorise l'accès. C'est tout : tes RDV Aaron
-          apparaîtront dans ton calendrier, et les événements que tu ajoutes sur ton téléphone remonteront
-          aussi vers Aaron.
-        </p>
-      )}
+      {permission === 'denied' && <p className="push-error">{t('push.blockedInBrowser', locale)}</p>}
+      {subscribed && !emailConnected && <p className="push-hint">{t('push.emailTip', locale)}</p>}
       {error && <p className="push-error">{error}</p>}
       <style jsx>{`
         .push-manager {
-          margin-top: 0.6rem;
+          margin-top: 0.4rem;
         }
         .push-btn {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          color: var(--muted);
+          background: var(--accent);
+          border: 1px solid var(--accent);
+          color: #fff;
           border-radius: 8px;
           padding: 0.55rem 0.9rem;
           font-size: 0.84rem;
+          font-weight: 600;
           cursor: pointer;
+          max-width: 100%;
+          white-space: normal;
+          text-align: left;
         }
         .push-btn.active {
+          background: transparent;
           border-color: var(--accent-green);
           color: var(--accent-green);
+          font-weight: 500;
         }
         .push-btn:disabled {
           opacity: 0.6;

@@ -40,7 +40,11 @@ if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
   const path = window.location.pathname;
   if (path === '/app' || path.startsWith('/app/')) {
     if (!isExplicitlyLoggedInToday()) {
-      window.location.href = '/login';
+      // ?next= : revenir sur la page demandée une fois connecté (ex. QR code
+      // « notifications sur ton téléphone » de Mon compte > Connexion) —
+      // voir rememberPostLoginNext/consumePostLoginNext (lib/supabase-browser.ts).
+      const next = path.startsWith('/app/') ? `${path}${window.location.search || ''}` : '';
+      window.location.href = next ? `/login?next=${encodeURIComponent(next)}` : '/login';
     }
   }
 }
