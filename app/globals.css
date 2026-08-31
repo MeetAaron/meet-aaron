@@ -137,6 +137,13 @@ html[data-theme='light'] {
     text-overflow: ellipsis;
     color: var(--text);
   }
+  .mobile-topbar-bell {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    color: var(--text);
+  }
   .mobile-topbar-menu {
     flex: 0 0 auto;
     width: 44px;
@@ -411,5 +418,132 @@ html[data-theme='light'] {
   }
   .mobile-tab-icon {
     height: 34px;
+  }
+}
+
+
+/* =====================================================================
+   Rail d'icônes « à la Instagram » sur ordinateur (docx « mon avis » d'Alex,
+   31/08/2026) : la barre latérale ne montre que les icônes, le libellé
+   apparaît en info-bulle au survol. Même principe que la couche mobile
+   ci-dessus : ces règles s'appliquent aux 14 Shells dupliqués (styled-jsx
+   scopé) grâce à !important, sans toucher chaque page. Le tiroir mobile
+   (≤900px) garde les libellés. La cloche (.rail-bell) ouvre le lecteur de
+   notifications (components/Stories.jsx).
+   ===================================================================== */
+.rail-bell {
+  display: none;
+}
+@media (min-width: 901px) {
+  .shell {
+    grid-template-columns: 78px 1fr !important;
+  }
+  .shell > .sidebar {
+    padding: 1.1rem 0.55rem 1rem !important;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: visible;
+  }
+  .sidebar .brand {
+    justify-content: center !important;
+    margin-bottom: 1rem !important;
+    padding: 0 !important;
+  }
+  .sidebar .brand span {
+    display: none !important;
+  }
+  .sidebar .lang-switcher {
+    width: 100% !important;
+    padding: 0.35rem 0.1rem !important;
+    font-size: 0.68rem !important;
+    text-align: center;
+    text-align-last: center;
+    margin-bottom: 0.9rem !important;
+  }
+  .sidebar .nav-list li {
+    justify-content: center !important;
+    padding: 0.55rem 0 !important;
+  }
+  .sidebar .nav-list li:hover {
+    transform: none !important;
+  }
+  .sidebar .nav-icon {
+    width: 2.5em !important;
+    height: 2.5em !important;
+    font-size: 0.98rem !important;
+    border-radius: 12px !important;
+  }
+  .sidebar .nav-list li.active::before {
+    left: -0.55rem !important;
+  }
+  .sidebar .lock-badge {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    margin: 0 !important;
+  }
+  .sidebar .nav-label {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%) translateX(-4px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.4rem 0.7rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 90;
+    box-shadow: var(--shadow-md);
+  }
+  .sidebar .nav-list li:hover .nav-label,
+  .sidebar .logout-btn:hover .nav-label,
+  .sidebar .nav-list li:focus-within .nav-label {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  .sidebar .account-section {
+    margin-top: auto !important;
+  }
+  .sidebar .conn-status {
+    justify-content: center !important;
+    padding: 0.3rem 0 0.4rem !important;
+  }
+  .sidebar .conn-status .nav-label {
+    display: none;
+  }
+  .sidebar .logout-btn {
+    position: relative;
+    justify-content: center !important;
+    padding: 0.55rem 0 !important;
+  }
+  .rail-bell {
+    display: flex;
+    justify-content: center;
+    margin: 0.5rem 0 0;
+  }
+  .rail-bell > button {
+    width: 2.5em !important;
+    height: 2.5em !important;
+    border-radius: 12px;
+    background: rgba(244, 241, 234, 0.04);
+    color: var(--muted);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .rail-bell > button:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+  .shell > main.content {
+    padding: 2.2rem 2.6rem !important;
   }
 }
