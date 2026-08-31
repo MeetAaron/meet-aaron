@@ -227,7 +227,7 @@ async function handleWonCustomerMessage(
           await sendPushNotification(userId, {
             title: 'Client insatisfait',
             body: `${prospect.full_name} a répondu avec une note de ${parsed.score}/10 à un check-in. Un contact personnel peut aider.`,
-            url: `/app/customer?user_id=${userId}`,
+            url: `/app/prospects?user_id=${userId}`,
           });
         }
 
@@ -240,7 +240,7 @@ async function handleWonCustomerMessage(
             await sendPushNotification(userId, {
               title: 'Client promoteur — demande de témoignage prête',
               body: `${prospect.full_name} a mis ${parsed.score}/10. Un email de demande de témoignage est prêt à valider dans Aaron Customer.`,
-              url: `/app/customer?user_id=${userId}`,
+              url: `/app/prospects?user_id=${userId}`,
             });
           } catch (err: any) {
             console.error(`Erreur génération demande de témoignage pour prospect ${prospect.id}:`, err.message);
@@ -274,7 +274,7 @@ async function handleWonCustomerMessage(
       body: draft.is_simple
         ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
         : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
-      url: `/app/customer?user_id=${userId}`,
+      url: `/app/prospects?user_id=${userId}`,
     });
   } catch (err: any) {
     console.error(`Erreur triage support pour prospect ${prospect.id}:`, err.message);
@@ -557,16 +557,29 @@ export async function GET(request: NextRequest) {
       // commercial la relit et valide dans Aaron Opportunité. Best-effort : un
       // échec ici ne doit pas empêcher le reste du traitement du message.
       if (aaronOutput.quote_requested) {
+        // Fusion pipeline (docx « mon avis », 31/08/2026) : la demande de
+        // devis fait passer le contact en « proposition demandée » sur la
+        // ligne de progression (quote_requested_at, voir lib/pipeline.ts) et
+        // alimente la notification « Devis à faire » (story du tableau de
+        // bord + badge « ! » dans le tableau). Colonne optionnelle tant que
+        // migration_pipeline_fusion_2026-09-01.sql n'est pas passée.
+        const quoteNow = new Date().toISOString();
+        const quoteUpdate: Record<string, any> = { quote_requested_at: quoteNow };
+        if (!(prospect as any).deal_stage || (prospect as any).deal_stage === 'perdu') {
+          quoteUpdate.deal_stage = 'rdv_fait';
+          quoteUpdate.deal_stage_updated_at = quoteNow;
+        }
+        const { error: quoteErr } = await supabaseAdmin.from('prospects').update(quoteUpdate).eq('id', prospect.id);
+        if (quoteErr && quoteErr.code === '42703') {
+          const { quote_requested_at, ...rest } = quoteUpdate;
+          if (Object.keys(rest).length > 0) await supabaseAdmin.from('prospects').update(rest).eq('id', prospect.id);
+        }
         try {
           await generateDevis(prospect.id);
-          // Renommage docx Modifs Aaron (30/08/2026, section Notifications) :
-          // « Devis prêt à valider » → « Devis en attente ». La génération
-          // automatique reste en place jusqu'au lot Pipeline Opportunité
-          // (dépôt du devis par le commercial), qui la remplacera.
           await sendPushNotification(connection.user_id, {
-            title: 'Devis en attente',
-            body: `${prospect.full_name} a demandé un devis. Une proposition t'attend dans Aaron Opportunité.`,
-            url: `/app/sales?user_id=${connection.user_id}`,
+            title: 'Devis à faire',
+            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une base de proposition sur sa fiche — dépose ton devis quand il est prêt.`,
+            url: `/app/prospects?user_id=${connection.user_id}&contact=${prospect.id}`,
           });
         } catch (err: any) {
           console.error(`Erreur génération devis automatique pour prospect ${prospect.id}:`, err.message);
@@ -602,9 +615,9 @@ export async function GET(request: NextRequest) {
             await sendPushNotification(connection.user_id, {
               title: 'Nouvelle opportunité !',
               body: offer_as_active
-                ? `${prospect.full_name} vient de basculer en opportunité — tu peux la suivre dès maintenant dans Aaron Opportunités. Je m'occupe de la faire avancer.`
-                : `Bonne nouvelle : ${prospect.full_name} vient de basculer en opportunité ! Abonne-toi à Aaron Opportunités pour la suivre jusqu'à la signature.`,
-              url: `/app/sales?user_id=${connection.user_id}`,
+                ? `${prospect.full_name} vient de basculer en opportunité — tu la retrouves dans ton tableau Prospects, côté opportunités. Je m'occupe de la faire avancer.`
+                : `Bonne nouvelle : ${prospect.full_name} vient de basculer en opportunité ! Tu la retrouves dans ton tableau Prospects, côté opportunités.`,
+              url: `/app/prospects?user_id=${connection.user_id}`,
             });
           }
         } catch (err: any) {
@@ -641,15 +654,15 @@ export async function GET(request: NextRequest) {
               body: reason
                 ? `${prospect.full_name} — Aaron détecte une vraie dynamique de négociation : ${reason} (confiance ${score}/100).`
                 : `${prospect.full_name} montre des signes clairs de négociation active (confiance ${score}/100).`,
-              url: `/app/sales?user_id=${connection.user_id}`,
+              url: `/app/prospects?user_id=${connection.user_id}`,
             });
           } else if (score >= 40) {
             await sendPushNotification(connection.user_id, {
               title: 'Signal de négociation détecté',
               body: reason
-                ? `${prospect.full_name} — ${reason} (confiance ${score}/100, à confirmer toi-même dans Aaron Opportunités).`
+                ? `${prospect.full_name} — ${reason} (confiance ${score}/100, à confirmer toi-même sur sa fiche).`
                 : `${prospect.full_name} montre un signal de négociation à confirmer (confiance ${score}/100).`,
-              url: `/app/sales?user_id=${connection.user_id}`,
+              url: `/app/prospects?user_id=${connection.user_id}`,
             });
           }
         } catch (err: any) {
@@ -688,9 +701,9 @@ export async function GET(request: NextRequest) {
           await sendPushNotification(connection.user_id, {
             title: 'Devis signé 🎉',
             body: offer_ac_active
-              ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
-              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
-            url: `/app/customer?user_id=${connection.user_id}`,
+              ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, je m'occupe de son accueil.`
+              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau.`,
+            url: `/app/prospects?user_id=${connection.user_id}`,
           });
 
           // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature —
