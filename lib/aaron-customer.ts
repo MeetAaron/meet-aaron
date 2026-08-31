@@ -324,7 +324,7 @@ export async function triggerAutomaticOnboarding(prospectId: string): Promise<vo
       body: kickoffSent
         ? `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et proposé un premier appel de lancement.`
         : `Aaron a envoyé l'email de bienvenue à ${prospect.full_name} et préparé un plan d'accueil dans Aaron Client.`,
-      url: `/app/customer?user_id=${prospect.assigned_user_id}`,
+      url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
     });
   } catch (err: any) {
     console.error(`Erreur onboarding automatique pour prospect ${prospectId}:`, err.message);

@@ -211,11 +211,18 @@ export async function recordAppointmentOutcome(
       // qu'un simple "rdv_fait"), "opportunite" à l'étape de départ — sans
       // jamais faire reculer une affaire déjà plus avancée (ex: RDV de suivi
       // sur une négociation en cours).
-      const targetStage = outcome === 'devis' ? 'devis_envoye' : 'rdv_fait';
+      // Fusion pipeline (docx « mon avis », 31/08/2026) : « demande de
+      // devis » = étape « proposition demandée » (quote_requested_at), PAS
+      // « devis envoyé » — c'est l'envoi du devis par le commercial qui fait
+      // passer en négociation. Voir lib/pipeline.ts.
+      const targetStage = 'rdv_fait';
       const currentRank = prospect.deal_stage ? STAGE_RANK[prospect.deal_stage] ?? -1 : -1;
       if (currentRank < STAGE_RANK[targetStage]) {
         prospectUpdate.deal_stage = targetStage;
         prospectUpdate.deal_stage_updated_at = now;
+      }
+      if (outcome === 'devis') {
+        prospectUpdate.quote_requested_at = now;
       }
     } else if (outcome === 'perdu') {
       prospectUpdate.deal_stage = 'perdu';
@@ -226,7 +233,12 @@ export async function recordAppointmentOutcome(
     // "a_continuer" : bon RDV mais pas encore une opportunité formelle — on ne
     // touche pas au deal_stage, le prospect reste suivi depuis la page Prospects.
 
-    await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
+    const { error: prospectUpdateError } = await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
+    if (prospectUpdateError && prospectUpdateError.code === '42703') {
+      // Migration fusion pas encore passée : on enregistre sans quote_requested_at.
+      const { quote_requested_at, ...withoutQuote } = prospectUpdate;
+      await supabaseAdmin.from('prospects').update(withoutQuote).eq('id', prospect.id);
+    }
   }
 
   return { note };
