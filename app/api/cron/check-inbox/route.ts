@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
@@ -677,6 +678,8 @@ export async function GET(request: NextRequest) {
               won_reason: aaronOutput.deal_approved.reason || null,
             })
             .eq('id', prospect.id);
+          // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+          autoSyncWonProspect(prospect.id).catch(() => {});
 
           // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent
           // selon que le commercial a déjà l'abonnement Aaron Clients.
