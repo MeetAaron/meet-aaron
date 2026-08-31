@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
-import { MODULE_CODES, ModuleCode, getModulePriceId } from '@/lib/subscription';
+import { ModuleCode, getModulePriceId } from '@/lib/subscription';
 
 // Configurable via Vercel (STRIPE_PRICE_ID_AARON_PROSPECT) pour basculer test/live
 // ou changer de tarif sans redéploiement de code — la valeur actuelle reste le
@@ -58,10 +58,12 @@ export async function POST(request: NextRequest) {
   // Repli sur ['AP'] seul si le payload n'envoie rien de reconnu (ancien
   // frontend pas encore redéployé, ou appel externe) — comportement identique
   // à avant cette évolution.
-  const selectedModules: ModuleCode[] = Array.isArray(modules)
-    ? (modules.filter((m: string) => MODULE_CODES.includes(m as ModuleCode)) as ModuleCode[])
-    : [];
-  if (selectedModules.length === 0) selectedModules.push('AP');
+  // Abonnement unique Aaron (décision Alex, 31/08/2026) : quel que soit le
+  // choix envoyé par le frontend (ancienne sélection de modules), le
+  // Checkout ne vend plus qu'UNE ligne — le prix Aaron à 30 €/mois (ex prix
+  // "AP"). Le webhook active ensuite les 3 drapeaux de modules.
+  void modules;
+  const selectedModules: ModuleCode[] = ['AP'];
 
   const lineItems: { price: string; quantity: number }[] = [];
   for (const mod of selectedModules) {
