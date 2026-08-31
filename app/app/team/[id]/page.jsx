@@ -398,8 +398,6 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
-    { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
