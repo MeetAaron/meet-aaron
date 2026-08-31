@@ -325,6 +325,48 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
 
   const [planCall, setPlanCall] = useState(false);
   const [planAt, setPlanAt] = useState('');
+  const [replyMode, setReplyMode] = useState(null); // null | 'choose' | 'missing' | 'draft'
+  const [missingInfo, setMissingInfo] = useState('');
+  const [draft, setDraft] = useState({ subject: '', body: '' });
+
+  useEffect(() => {
+    setReplyMode(null);
+    setMissingInfo('');
+    setDraft({ subject: '', body: '' });
+    setPlanCall(false);
+  }, [item?.id]);
+
+  async function quoteReply(payload, resolveAfter) {
+    setActing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/prospects/${item.prospect_id}/quote-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || t('stories.actionError', locale));
+        return null;
+      }
+      if (resolveAfter) {
+        setReplyMode(null);
+        onResolved();
+      }
+      return json;
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function draftMissingInfo() {
+    const json = await quoteReply({ action: 'draft_missing_info', details: missingInfo }, false);
+    if (json && json.subject) {
+      setDraft({ subject: json.subject, body: json.body || '' });
+      setReplyMode('draft');
+    }
+  }
 
   // Crée un RDV téléphonique manuel (validé) pour ce contact ; si l'appel a
   // déjà eu lieu, enchaîne directement sur la page de bilan.
@@ -374,16 +416,57 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   let actions = null;
   switch (item.type) {
     case 'devis_a_faire':
+      // Lot 3 « Devis » : « Répondre » → soit Aaron rédige un email pour
+      // demander les infos manquantes (modifiable avant envoi), soit « je lui
+      // écris moi-même sous 24h » (relance quotidienne en pause).
       body = (
         <>
           <p className="lead">{t('stories.devisLead', locale).replace('{name}', item.prospect_name).replace('{days}', item.days_waiting ?? 0)}</p>
-          <p className="advice">💬 {t(`stories.devisAdvice${item.meta?.advice_level ?? 0}`, locale)}</p>
-          {item.meta?.has_draft && <p className="hint">{t('stories.devisDraftHint', locale)}</p>}
+          {item.meta?.paused ? (
+            <p className="hint">⏸ {t('stories.devisPausedHint', locale)}</p>
+          ) : (
+            <p className="advice">💬 {t(`stories.devisAdvice${item.meta?.advice_level ?? 0}`, locale)}</p>
+          )}
+          {item.meta?.has_draft && !replyMode && <p className="hint">{t('stories.devisDraftHint', locale)}</p>}
+          {replyMode === 'choose' && (
+            <div className="reply-box">
+              <button type="button" className="reply-opt" onClick={() => setReplyMode('missing')}>
+                <strong>{t('stories.replyMissingTitle', locale)}</strong>
+                <span>{t('stories.replyMissingHint', locale)}</span>
+              </button>
+              <button type="button" className="reply-opt" disabled={acting} onClick={() => quoteReply({ action: 'pause' }, true)}>
+                <strong>{t('stories.replySelfTitle', locale)}</strong>
+                <span>{t('stories.replySelfHint', locale)}</span>
+              </button>
+            </div>
+          )}
+          {replyMode === 'missing' && (
+            <div className="reply-box">
+              <textarea rows={3} className="reply-input" placeholder={t('stories.replyMissingPlaceholder', locale)} value={missingInfo} onChange={(e) => setMissingInfo(e.target.value)} />
+              <div className="reply-row">
+                <button type="button" className="btn-primary" disabled={acting || !missingInfo.trim()} onClick={draftMissingInfo}>{acting ? t('sales.generating', locale) : t('stories.replyDraft', locale)}</button>
+                <button type="button" className="btn-secondary" onClick={() => setReplyMode('choose')}>{t('common.back', locale)}</button>
+              </div>
+            </div>
+          )}
+          {replyMode === 'draft' && (
+            <div className="reply-box">
+              <input className="reply-input" value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
+              <textarea rows={7} className="reply-input" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+              <div className="reply-row">
+                <button type="button" className="btn-primary" disabled={acting || !draft.subject.trim() || !draft.body.trim()} onClick={() => quoteReply({ action: 'send', subject: draft.subject, body: draft.body }, true)}>{acting ? t('sales.sending', locale) : t('stories.send', locale)}</button>
+                <button type="button" className="btn-secondary" onClick={() => setReplyMode('missing')}>{t('common.back', locale)}</button>
+              </div>
+            </div>
+          )}
         </>
       );
-      actions = (
-        <button type="button" className="btn-primary" onClick={openContact}>{t('stories.openCardQuote', locale)}</button>
-      );
+      actions = !replyMode ? (
+        <>
+          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.openCardQuote', locale)}</button>
+          <button type="button" className="btn-secondary" onClick={() => setReplyMode('choose')}>{t('stories.reply', locale)}</button>
+        </>
+      ) : null;
       break;
     case 'rdv_a_valider':
       body = (
@@ -632,6 +715,48 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           margin: 0 0 0.6rem;
         }
         .body :global(.hint) { font-size: 0.78rem; color: var(--muted); margin: 0; }
+        .body :global(.reply-box) { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem; }
+        .body :global(.reply-opt) {
+          text-align: left;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.7rem 0.9rem;
+          cursor: pointer;
+          color: var(--text);
+          font-family: inherit;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+        }
+        .body :global(.reply-opt:hover) { border-color: var(--accent); }
+        .body :global(.reply-opt strong) { font-size: 0.86rem; }
+        .body :global(.reply-opt span) { font-size: 0.76rem; color: var(--muted); }
+        .body :global(.reply-input) {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.55rem 0.7rem;
+          font-size: 16px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        .body :global(.reply-row) { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .body :global(.reply-row .btn-primary), .body :global(.reply-row .btn-secondary) {
+          border-radius: var(--radius-md);
+          padding: 0.55rem 0.9rem;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1px solid var(--border);
+          font-family: inherit;
+        }
+        .body :global(.reply-row .btn-primary) { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .body :global(.reply-row .btn-secondary) { background: var(--surface); color: var(--text); }
+        .body :global(.reply-row button:disabled) { opacity: 0.6; cursor: not-allowed; }
         .body :global(.plan-row) { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
         .body :global(.plan-input) {
           flex: 1;

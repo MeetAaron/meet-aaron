@@ -29,6 +29,13 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
   const [devisError, setDevisError] = useState(null);
   const [sendingDevis, setSendingDevis] = useState(false);
 
+  // Lot 3 « Devis » : dépôt du devis + email d'accompagnement modifiable.
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [quoteSubject, setQuoteSubject] = useState(prospect.devis_file_name ? prospect.devis_subject || '' : '');
+  const [quoteBody, setQuoteBody] = useState(prospect.devis_file_name ? prospect.devis_body || '' : '');
+
   const [signatureInput, setSignatureInput] = useState('');
   const [signatureSaving, setSignatureSaving] = useState(false);
   const [signatureSending, setSignatureSending] = useState(false);
@@ -42,6 +49,10 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
     setDevis(null);
     setDevisError(null);
     setSignatureInput('');
+    setUploadResult(null);
+    setUploadError(null);
+    setQuoteSubject(prospect.devis_file_name ? prospect.devis_subject || '' : '');
+    setQuoteBody(prospect.devis_file_name ? prospect.devis_body || '' : '');
   }, [prospect.id]);
 
   const appt = prospect.latest_appointment || null;
@@ -105,16 +116,45 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
     setDevis(body);
   }
 
-  async function handleSendDevis() {
+  async function handleUploadQuote(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/prospects/${prospect.id}/devis/upload`, { method: 'POST', body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUploadError(body.error || t('stories.actionError', locale));
+        return;
+      }
+      setUploadResult(body);
+      setQuoteSubject(body.email_subject || '');
+      setQuoteBody(body.email_body || '');
+      onChanged && onChanged();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSendDevis(useAaronDraft) {
     setSendingDevis(true);
     setDevisError(null);
-    const res = await fetch(`/api/prospects/${prospect.id}/devis`, { method: 'POST' });
+    const res = await fetch(`/api/prospects/${prospect.id}/devis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(useAaronDraft === true ? {} : { subject: quoteSubject, body: quoteBody }),
+    });
     const body = await res.json();
     setSendingDevis(false);
     if (!res.ok) {
       setDevisError(body.error || t('sales.quoteSendError', locale));
       return;
     }
+    setUploadResult(null);
     onChanged && onChanged();
   }
 
@@ -235,51 +275,111 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
 
       <section className="block">
         <h3>{t('sales.quoteTitle', locale)}</h3>
-        {prospect.devis_sent_at ? (
-          <p className="sent-note">{t('sales.quoteSentNote', locale)}</p>
-        ) : devis ? (
-          <div className="email-preview">
-            <p className="email-subject">{devis.objet}</p>
-            <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
-            {devis.recapitulatif?.length > 0 && (
-              <>
-                {devis.a_des_postes_sans_prix && (
-                  <p className="recap-note">{t('sales.missingPricesPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.missingPricesLinkText', locale)}</a> {t('sales.missingPricesSuffix', locale)}</p>
-                )}
-                <ul className="recap-list">
-                  {devis.recapitulatif.map((r, i) => (
-                    <li key={i}>
-                      <div className="recap-label">
-                        <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
-                      </div>
-                      <div className="recap-price">
-                        {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">{t('sales.priceToDefine', locale)}</span>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {devis.total_eur != null && (
-                  <p className="recap-total">{t('sales.totalLabel', locale)}{devis.a_des_postes_sans_prix ? ` ${t('sales.totalPartialNote', locale)}` : ''} : {devis.total_eur.toFixed(2)} €</p>
-                )}
-              </>
-            )}
-            {devisError && <p className="error">{devisError}</p>}
-            <div className="row">
-              <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(true)} disabled={devisLoading}>
-                {devisLoading ? t('sales.regenerating', locale) : t('sales.regenerate', locale)}
-              </button>
-              <button type="button" className="btn-primary" onClick={handleSendDevis} disabled={sendingDevis}>
-                {sendingDevis ? t('sales.sending', locale) : t('sales.sendQuoteToProspect', locale)}
-              </button>
-            </div>
-          </div>
+        {/* Lot 3 « Devis » (docx « mon avis », 31/08/2026) : le commercial
+            dépose SON devis ; Aaron vérifie le client, lit le montant et
+            propose l'email d'accompagnement (aperçu/modif ou envoi direct). */}
+        {prospect.devis_sent_at && !uploadResult ? (
+          <>
+            <p className="sent-note">{t('sales.quoteSentNote', locale)}{prospect.devis_file_name ? ` — ${prospect.devis_file_name}` : ''}</p>
+            <label className="upload-btn small">
+              {uploading ? t('quote.uploading', locale) : t('quote.uploadAgain', locale)}
+              <input type="file" accept=".pdf,.doc,.docx,.rtf,.txt" onChange={handleUploadQuote} disabled={uploading} hidden />
+            </label>
+            {uploadError && <p className="error">{uploadError}</p>}
+          </>
         ) : (
           <>
-            <p className="muted">{t('sales.quotePrepPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.quotePrepLinkText', locale)}</a> {t('sales.quotePrepSuffix', locale)}</p>
-            <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(false)} disabled={devisLoading}>
-              {devisLoading ? t('sales.generating', locale) : prospect.devis_generated_at ? t('sales.viewQuote', locale) : t('sales.generateQuote', locale)}
-            </button>
-            {devisError && <p className="error">{devisError}</p>}
+            {!(uploadResult || prospect.devis_file_name) && (
+              <p className="muted">{t('quote.uploadIntro', locale)}</p>
+            )}
+            <label className={`upload-btn${uploadResult || prospect.devis_file_name ? ' small' : ''}`}>
+              {uploading ? t('quote.uploading', locale) : uploadResult || prospect.devis_file_name ? t('quote.uploadAgain', locale) : t('quote.uploadButton', locale)}
+              <input type="file" accept=".pdf,.doc,.docx,.rtf,.txt" onChange={handleUploadQuote} disabled={uploading} hidden />
+            </label>
+            {uploadError && <p className="error">{uploadError}</p>}
+
+            {(uploadResult || prospect.devis_file_name) && (
+              <>
+                {(() => {
+                  const check = uploadResult?.check || prospect.devis_check || {};
+                  const ok = check.matches_prospect;
+                  return (
+                    <div className={`check-box${ok === false ? ' warn' : ok === true ? ' ok' : ''}`}>
+                      <p className="check-title">
+                        {ok === true ? '✅ ' : ok === false ? '⚠️ ' : 'ℹ️ '}
+                        {ok === true ? t('quote.checkOk', locale) : ok === false ? t('quote.checkMismatch', locale) : t('quote.checkUnknown', locale)}
+                      </p>
+                      <p className="check-line">📎 {uploadResult?.file_name || prospect.devis_file_name}</p>
+                      {(check.detected_client || check.detected_company) && (
+                        <p className="check-line">{t('quote.checkDetected', locale)} {[check.detected_client, check.detected_company].filter(Boolean).join(' — ')}</p>
+                      )}
+                      {check.total_ttc_eur != null && <p className="check-line">{t('quote.checkAmount', locale)} {Number(check.total_ttc_eur).toLocaleString(locale, { style: 'currency', currency: 'EUR' })}</p>}
+                      {check.reason && <p className="check-reason">{frenchTypography(check.reason)}</p>}
+                    </div>
+                  );
+                })()}
+                <p className="muted small">{t('quote.emailIntro', locale)}</p>
+                <input className="mail-subject" value={quoteSubject} onChange={(e) => setQuoteSubject(e.target.value)} placeholder={t('quote.subjectPlaceholder', locale)} />
+                <textarea rows={7} value={quoteBody} onChange={(e) => setQuoteBody(e.target.value)} />
+                {devisError && <p className="error">{devisError}</p>}
+                <div className="row">
+                  <button type="button" className="btn-primary" onClick={handleSendDevis} disabled={sendingDevis || !quoteSubject.trim() || !quoteBody.trim()}>
+                    {sendingDevis ? t('sales.sending', locale) : t('quote.sendNow', locale)}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!(uploadResult || prospect.devis_file_name) && (
+              <details className="fallback">
+                <summary>{t('quote.aaronDraftSummary', locale)}</summary>
+                {devis ? (
+                  <div className="email-preview">
+                    <p className="email-subject">{devis.objet}</p>
+                    <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
+                    {devis.recapitulatif?.length > 0 && (
+                      <>
+                        {devis.a_des_postes_sans_prix && (
+                          <p className="recap-note">{t('sales.missingPricesPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.missingPricesLinkText', locale)}</a> {t('sales.missingPricesSuffix', locale)}</p>
+                        )}
+                        <ul className="recap-list">
+                          {devis.recapitulatif.map((r, i) => (
+                            <li key={i}>
+                              <div className="recap-label">
+                                <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
+                              </div>
+                              <div className="recap-price">
+                                {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">{t('sales.priceToDefine', locale)}</span>}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                        {devis.total_eur != null && (
+                          <p className="recap-total">{t('sales.totalLabel', locale)}{devis.a_des_postes_sans_prix ? ` ${t('sales.totalPartialNote', locale)}` : ''} : {devis.total_eur.toFixed(2)} €</p>
+                        )}
+                      </>
+                    )}
+                    {devisError && <p className="error">{devisError}</p>}
+                    <div className="row">
+                      <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(true)} disabled={devisLoading}>
+                        {devisLoading ? t('sales.regenerating', locale) : t('sales.regenerate', locale)}
+                      </button>
+                      <button type="button" className="btn-primary" onClick={() => handleSendDevis(true)} disabled={sendingDevis}>
+                        {sendingDevis ? t('sales.sending', locale) : t('sales.sendQuoteToProspect', locale)}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="muted">{t('sales.quotePrepPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.quotePrepLinkText', locale)}</a> {t('sales.quotePrepSuffix', locale)}</p>
+                    <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(false)} disabled={devisLoading}>
+                      {devisLoading ? t('sales.generating', locale) : prospect.devis_generated_at ? t('sales.viewQuote', locale) : t('sales.generateQuote', locale)}
+                    </button>
+                    {devisError && <p className="error">{devisError}</p>}
+                  </>
+                )}
+              </details>
+            )}
           </>
         )}
       </section>
@@ -416,6 +516,47 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
         .recap-label strong { color: var(--text); }
         .recap-price { flex-shrink: 0; font-weight: 600; white-space: nowrap; }
         .recap-total { text-align: right; font-weight: 600; font-size: 0.86rem; margin: 0.4rem 0 0.6rem; }
+        .upload-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          background: var(--accent);
+          color: #fff;
+          border-radius: var(--radius-md);
+          padding: 0.65rem 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          cursor: pointer;
+          margin: 0.2rem 0 0.6rem;
+        }
+        .upload-btn.small { background: var(--bg); color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+        .check-box {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.7rem 0.9rem;
+          margin: 0.4rem 0 0.8rem;
+        }
+        .check-box.ok { border-color: rgba(61, 214, 140, 0.5); }
+        .check-box.warn { border-color: var(--accent-amber); background: rgba(245, 166, 35, 0.08); }
+        .check-title { font-weight: 600; font-size: 0.86rem; margin: 0 0 0.3rem; }
+        .check-line { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.2rem; }
+        .check-reason { font-size: 0.8rem; margin: 0.3rem 0 0; line-height: 1.45; }
+        .mail-subject {
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.55rem 0.7rem;
+          font-size: 16px;
+          font-family: inherit;
+          font-weight: 600;
+          margin-bottom: 0.5rem;
+        }
+        .fallback { margin-top: 0.6rem; }
+        .fallback summary { font-size: 0.8rem; color: var(--muted); cursor: pointer; margin-bottom: 0.5rem; }
         .signature-input {
           flex: 1;
           min-width: 0;
