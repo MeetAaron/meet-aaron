@@ -23,23 +23,67 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
-  const { data: prospects, error } = await supabaseAdmin
+  // Fusion Prospects + Opportunités + Clients (docx « mon avis », 31/08/2026,
+  // voir lib/pipeline.ts) : ?scope=all renvoie TOUS les contacts du
+  // commercial, clients à part entière compris (first_order_confirmed_at
+  // renseigné), pour l'unique tableau de app/app/prospects/page.jsx. Sans ce
+  // paramètre, comportement historique (clients exclus) conservé pour les
+  // autres appelants.
+  const scope = request.nextUrl.searchParams.get('scope');
+
+  let query = supabaseAdmin
     .from('prospects')
     .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
-    .eq('assigned_user_id', userId)
+    .eq('assigned_user_id', userId);
+  if (scope !== 'all') {
     // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
     // prospect "gagné" (is_won=true) mais sans commande confirmée reste donc
     // ici sous le badge "🏆 Gagné — en attente de 1ère commande" au lieu de
     // disparaître immédiatement vers Clients (voir
     // migration_first_order_confirmed_2026-08-14.sql).
-    .is('first_order_confirmed_at', null)
-    .order('updated_at', { ascending: false });
+    query = query.is('first_order_confirmed_at', null);
+  }
+  const { data: prospects, error } = await query.order('updated_at', { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ prospects });
+  if (scope !== 'all') {
+    return NextResponse.json({ prospects });
+  }
+
+  // Dernier RDV commercial par contact (brief / bilan / relance depuis la
+  // fiche — repris de l'ancien app/api/sales/pipeline) + prochain RDV à
+  // venir (colonne « Prochaine étape » du tableau).
+  const ids = (prospects || []).map((p) => p.id);
+  const latestByProspect: Record<string, any> = {};
+  const nextByProspect: Record<string, any> = {};
+  if (ids.length > 0) {
+    const { data: appointments } = await supabaseAdmin
+      .from('appointments')
+      .select('id, prospect_id, proposed_at, type, status, outcome, debrief_summary, debrief_email_subject, debrief_email_body, debrief_email_sent_at')
+      .in('prospect_id', ids)
+      .eq('purpose', 'commercial')
+      .order('proposed_at', { ascending: false });
+    const nowMs = Date.now();
+    for (const appt of appointments || []) {
+      if (!latestByProspect[appt.prospect_id]) latestByProspect[appt.prospect_id] = appt;
+      const at = new Date(appt.proposed_at).getTime();
+      if (at >= nowMs && appt.status !== 'annulé' && appt.status !== 'refusé') {
+        // Trié décroissant : le dernier rencontré ≥ maintenant est le plus proche.
+        nextByProspect[appt.prospect_id] = appt;
+      }
+    }
+  }
+
+  const enriched = (prospects || []).map((p) => ({
+    ...p,
+    latest_appointment: latestByProspect[p.id] || null,
+    next_appointment: nextByProspect[p.id] ? { id: nextByProspect[p.id].id, proposed_at: nextByProspect[p.id].proposed_at, type: nextByProspect[p.id].type } : null,
+  }));
+
+  return NextResponse.json({ prospects: enriched });
 }
 
 export async function POST(request: NextRequest) {
