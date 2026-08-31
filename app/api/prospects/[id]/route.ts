@@ -11,6 +11,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
+import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
+import { sendPushNotification } from '@/lib/push';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -73,6 +75,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     email,
     phone,
     job_title,
+    stage,
+    lost_reason,
+    risk,
   } = await request.json();
   const prospectId = params.id;
 
@@ -302,18 +307,134 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (!authedUser) return unauthorizedResponse();
     if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
 
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        status: 'rouge',
-        status_updated_at: new Date().toISOString(),
-        is_lost: true,
-        lost_at: new Date().toISOString(),
-        rescue_proposal_pending: false,
-      })
-      .eq('id', prospectId);
+    // Fusion pipeline (docx « mon avis », 31/08/2026) : un seul « Perdu »,
+    // qui garde l'étape d'arrêt (point rouge sur la ligne de progression) et
+    // le motif choisi par le commercial — base d'une future réactivation.
+    // Colonnes pipeline_* optionnelles tant que la migration fusion n'est
+    // pas passée (retry sans elles sur 42703).
+    const now = new Date().toISOString();
+    const stopStage = derivePipelinePosition(prospect).stage;
+    const base: Record<string, any> = {
+      status: 'rouge',
+      status_updated_at: now,
+      is_lost: true,
+      lost_at: now,
+      rescue_proposal_pending: false,
+    };
+    const withPipeline = {
+      ...base,
+      pipeline_lost_at_stage: stopStage,
+      pipeline_lost_reason: (LOST_REASONS as string[]).includes(lost_reason) ? lost_reason : null,
+      pipeline_risk: false,
+    };
+    const { error: lostError } = await supabaseAdmin.from('prospects').update(withPipeline).eq('id', prospectId);
+    if (lostError && lostError.code === '42703') {
+      await supabaseAdmin.from('prospects').update(base).eq('id', prospectId);
+    }
 
     return NextResponse.json({ success: true, status: 'perdu' });
+  }
+
+  // Fusion pipeline — bouton « Déplacer » de la fiche contact : le commercial
+  // force une étape de la ligne de progression pour un évènement qu'Aaron ne
+  // contrôle pas (RDV pris par téléphone, devis refusé → retour en RDV
+  // obtenu, client déclaré à la main, retour en arrière…). On écrit l'étape
+  // forcée ET les colonnes historiques équivalentes (status / deal_stage /
+  // is_won…) pour que crons, stats et anciennes pages restent cohérents.
+  if (action === 'set_pipeline_stage') {
+    if (!isPipelineStage(stage)) {
+      return NextResponse.json({ error: 'Étape invalide' }, { status: 400 });
+    }
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    const now = new Date().toISOString();
+    const legacy = legacyColumnsForStage(stage, now);
+    const wasClient = !!prospect.first_order_confirmed_at;
+    if (stage === 'client') {
+      // Déplacé à la main en client : commande réelle → 1ère commande confirmée.
+      legacy.first_order_confirmed_at = prospect.first_order_confirmed_at || now;
+    } else if (wasClient) {
+      // Retour en arrière depuis client : on retire le statut de client à
+      // part entière pour qu'il ne compte plus dans les clients gagnés.
+      legacy.first_order_confirmed_at = null;
+    }
+    const full = { ...legacy, pipeline_stage: stage, pipeline_stage_updated_at: now, pipeline_lost_at_stage: null, pipeline_lost_reason: null };
+    let { error: stageError } = await supabaseAdmin.from('prospects').update(full).eq('id', prospectId);
+    if (stageError && stageError.code === '42703') {
+      const { quote_requested_at, ...legacyOnly } = legacy;
+      ({ error: stageError } = await supabaseAdmin.from('prospects').update(legacyOnly).eq('id', prospectId));
+    }
+    if (stageError) {
+      return NextResponse.json({ error: stageError.message }, { status: 500 });
+    }
+
+    if (stage === 'client' && !wasClient) {
+      triggerAutomaticOnboarding(prospectId).catch(() => {});
+      autoSyncWonProspect(prospectId).catch(() => {});
+    }
+
+    return NextResponse.json({ success: true, stage });
+  }
+
+  // Fusion pipeline — drapeau « risque de perdre » (indépendant de l'étape).
+  if (action === 'set_pipeline_risk') {
+    if (typeof risk !== 'boolean') {
+      return NextResponse.json({ error: 'risk doit être un booléen' }, { status: 400 });
+    }
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    const now = new Date().toISOString();
+    // status 'orange' reste la représentation historique du risque pour un
+    // prospect (crons de relance) ; pour une opportunité/un client on ne
+    // touche pas au status de couleur.
+    const legacy: Record<string, any> = {};
+    if (risk && (prospect.status === 'jaune' || prospect.status === 'vert')) {
+      legacy.status = 'orange';
+      legacy.status_updated_at = now;
+    } else if (!risk && prospect.status === 'orange') {
+      legacy.status = 'jaune';
+      legacy.status_updated_at = now;
+    }
+    const { error: riskError } = await supabaseAdmin.from('prospects').update({ ...legacy, pipeline_risk: risk }).eq('id', prospectId);
+    if (riskError && riskError.code === '42703') {
+      await supabaseAdmin.from('prospects').update(legacy).eq('id', prospectId);
+    }
+    return NextResponse.json({ success: true, risk });
+  }
+
+  // Fusion pipeline — « Il m'a demandé un devis » : le client a demandé un
+  // devis par un canal qu'Aaron ne voit pas (SMS, appel, en face à face). Le
+  // contact passe en « proposition demandée » et une notification « Devis à
+  // faire » est créée (push + story sur le tableau de bord, voir
+  // app/api/notifications).
+  if (action === 'quote_requested') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    const now = new Date().toISOString();
+    const update: Record<string, any> = { quote_requested_at: now, is_lost: false };
+    if (!prospect.deal_stage || prospect.deal_stage === 'perdu') {
+      update.deal_stage = 'rdv_fait';
+      update.deal_stage_updated_at = now;
+      update.status = 'bleu';
+      update.status_updated_at = now;
+    }
+    const { error: quoteError } = await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
+    if (quoteError) {
+      return NextResponse.json({ error: quoteError.code === '42703' ? 'Lance d\'abord la migration migration_pipeline_fusion_2026-09-01.sql' : quoteError.message }, { status: 500 });
+    }
+    sendPushNotification(prospect.assigned_user_id, {
+      title: 'Devis à faire',
+      body: `${prospect.full_name} attend ta proposition. Dépose ton devis sur sa fiche quand il est prêt.`,
+      url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospectId}`,
+    }).catch(() => {});
+
+    return NextResponse.json({ success: true });
   }
 
   // CHANGEMENTS A FAIRE — Mon équipe (item 1, 2026-08-16) : "clients perdus"
