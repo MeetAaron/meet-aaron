@@ -8,7 +8,6 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import { frenchTypography } from '@/lib/text-typography';
-import QRCode from 'qrcode';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -217,22 +216,6 @@ export default function AgendaPage() {
   const [savingEditBlock, setSavingEditBlock] = useState(false);
   const [availError, setAvailError] = useState(null);
 
-  // Synchro calendrier externe (28/08/2026) — lien d'abonnement ICS chargé à
-  // la demande (pas au chargement de la page, pour ne pas ajouter un appel
-  // réseau systématique à une fonctionnalité que tout le monde n'utilisera
-  // pas) : le commercial déplie la section, on va chercher/génère le lien.
-  const [icsPanelOpen, setIcsPanelOpen] = useState(false);
-  const [icsLink, setIcsLink] = useState(null); // { httpsUrl, webcalUrl }
-  const [icsLoading, setIcsLoading] = useState(false);
-  const [icsRegenerating, setIcsRegenerating] = useState(false);
-  const [icsCopied, setIcsCopied] = useState(false);
-  // QR code du lien webcal (demande Alex, 28/08/2026) : scanné avec
-  // l'appareil photo de l'iPhone, il propose directement d'ajouter
-  // l'abonnement calendrier — évite de recopier l'URL à la main. Généré
-  // côté client (le lien contient le token secret de l'utilisateur, donc pas
-  // question de le faire transiter par un service tiers de génération de QR).
-  const [icsQrDataUrl, setIcsQrDataUrl] = useState(null);
-
   // Calendrier mensuel (#87) — vue type iPhone au-dessus des listes : jours
   // avec RDV en vert, jours avec indisponibilité en rouge, clic = détail du jour.
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -351,59 +334,6 @@ export default function AgendaPage() {
   async function handleDeleteBlock(id) {
     await fetch(`/api/availability/blocks/${id}?user_id=${userId}`, { method: 'DELETE' });
     setBlocks((prev) => prev.filter((b) => b.id !== id));
-  }
-
-  // --- Lien d'abonnement calendrier (ICS/webcal, 28/08/2026) ---
-  async function toggleIcsPanel() {
-    const opening = !icsPanelOpen;
-    setIcsPanelOpen(opening);
-    if (opening && !icsLink) {
-      setIcsLoading(true);
-      try {
-        const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`);
-        const body = await res.json();
-        if (res.ok) setIcsLink(body);
-      } finally {
-        setIcsLoading(false);
-      }
-    }
-  }
-
-  async function regenerateIcsLink() {
-    setIcsRegenerating(true);
-    try {
-      const res = await fetch(`/api/agenda/ics-link?user_id=${userId}`, { method: 'POST' });
-      const body = await res.json();
-      if (res.ok) setIcsLink(body);
-    } finally {
-      setIcsRegenerating(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!icsLink?.webcalUrl) {
-      setIcsQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    QRCode.toDataURL(icsLink.webcalUrl, { width: 220, margin: 1 })
-      .then((dataUrl) => {
-        if (!cancelled) setIcsQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setIcsQrDataUrl(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [icsLink]);
-
-  function copyIcsLink() {
-    if (!icsLink) return;
-    navigator.clipboard?.writeText(icsLink.webcalUrl).then(() => {
-      setIcsCopied(true);
-      setTimeout(() => setIcsCopied(false), 2000);
-    });
   }
 
   // --- Modifier un créneau récurrent (docx AGENDA item A3) ---
@@ -975,43 +905,15 @@ export default function AgendaPage() {
         )}
       </section>
 
-      <section className="block">
-        <h2>{t('disponibilites.syncTitle', locale)}</h2>
-        <div className="panel">
-          <p className="muted small">{t('disponibilites.syncIntro', locale)}</p>
-          <button type="button" className="btn-secondary" onClick={toggleIcsPanel}>
-            {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
-          </button>
-          {icsPanelOpen && (
-            <div className="ics-panel">
-              {icsLoading ? (
-                <p className="muted small">{t('common.loading', locale)}</p>
-              ) : icsLink ? (
-                <>
-                  <code className="ics-url">{icsLink.webcalUrl}</code>
-                  <div className="ics-actions">
-                    <button type="button" className="btn-secondary" onClick={copyIcsLink}>
-                      {icsCopied ? t('disponibilites.syncCopied', locale) : t('disponibilites.syncCopy', locale)}
-                    </button>
-                    <button type="button" className="btn-edit" disabled={icsRegenerating} onClick={regenerateIcsLink}>
-                      {icsRegenerating ? t('common.saving', locale) : t('disponibilites.syncRegenerate', locale)}
-                    </button>
-                  </div>
-                  <p className="muted small">{t('disponibilites.syncHint', locale)}</p>
-                  {icsQrDataUrl && (
-                    <div className="ics-qr">
-                      <img src={icsQrDataUrl} alt={t('disponibilites.syncQrAlt', locale)} width={160} height={160} />
-                      <p className="muted small">{t('disponibilites.syncQrHint', locale)}</p>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="error">{t('disponibilites.syncError', locale)}</p>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+      {/* Synchronisation calendrier (lien ICS/webcal + QR) : déplacée le
+          31/08/2026 dans la checklist « Mise en route » de Mon compte >
+          Connexion (docx Modifs Aaron 30/08 — "toutes les étapes nécessaires
+          au bon fonctionnement d'Aaron au même endroit"). On laisse juste un
+          renvoi pour ne pas perdre ceux qui la cherchaient ici. */}
+      <p className="sync-moved muted small">
+        {t('disponibilites.syncMovedHint', locale)}{' '}
+        <a href={`/app/connexions?tab=connection${userId ? `&user_id=${userId}` : ''}`}>{t('disponibilites.syncMovedLink', locale)} →</a>
+      </p>
 
       <style jsx>{`
         .header {
@@ -1324,37 +1226,12 @@ export default function AgendaPage() {
           font-size: 0.78rem;
           white-space: nowrap;
         }
-        .ics-panel {
-          margin-top: 0.9rem;
-          padding-top: 0.9rem;
-          border-top: 1px solid var(--border);
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
+        .sync-moved {
+          margin: 0.4rem 0 0;
         }
-        .ics-url {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.6rem 0.8rem;
-          font-size: 0.8rem;
-          word-break: break-all;
-        }
-        .ics-actions {
-          display: flex;
-          gap: 0.6rem;
-        }
-        .ics-qr {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 0.4rem;
-        }
-        .ics-qr img {
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          background: #fff;
-          padding: 0.5rem;
+        .sync-moved a {
+          color: var(--accent);
+          text-decoration: underline;
         }
         .btn-edit {
           margin-left: auto;
