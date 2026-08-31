@@ -291,8 +291,16 @@ export default function CustomerPage() {
 
   async function load() {
     const res = await fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json());
-    setCustomers(res.customers || []);
+    const list = res.customers || [];
+    setCustomers(list);
     setLoading(false);
+    // Fusion pipeline (31/08/2026) : cette page n'est plus dans le menu, on y
+    // arrive depuis la fiche contact (bouton « Outils client ») avec
+    // ?client_id=… — on présélectionne directement le client demandé.
+    try {
+      const wanted = new URLSearchParams(window.location.search).get('client_id');
+      if (wanted && list.some((c) => c.id === wanted)) setSelectedId(wanted);
+    } catch {}
   }
 
   async function loadSupportDrafts() {
@@ -1447,8 +1455,6 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
-    { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
@@ -1501,7 +1507,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron') && (item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')).map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron')).map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
