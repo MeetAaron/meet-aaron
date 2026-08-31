@@ -8,6 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
+import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
@@ -379,6 +380,8 @@ export default function ProspectsPage() {
           </button>
         </div>
       </header>
+
+      <Stories userId={userId} locale={locale} onChanged={loadProspects} onOpenContact={(id) => setSelectedId(id)} />
 
       {showHelp && (
         <div className="help-box">
@@ -1694,6 +1697,7 @@ function Shell({ children, active, userId }) {
         onMenu={() => setMobileOpen(true)}
         menuLabel={t('shell.openMenu', locale)}
         moreLabel={t('shell.more', locale)}
+        locale={locale}
       />
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
       <nav className={`sidebar${mobileOpen ? ' open' : ''}`}>
@@ -1722,7 +1726,7 @@ function Shell({ children, active, userId }) {
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -1733,18 +1737,21 @@ function Shell({ children, active, userId }) {
               className="nav-link"
               onClick={() => setMobileOpen(false)}
             >
-              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span>{item.label}{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
+              <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span><span className="nav-label">{item.label}</span>{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
             </Link>
           ))}
         </ul>
+        <div className="rail-bell">
+          <Stories mode="bell" userId={userId} locale={locale} />
+        </div>
         <div className="account-section">
           <div className="conn-status">
             <span className="conn-dot" />
-            {t('shell.connected', locale)}
+            <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
             <span className="nav-icon">🚪</span>
-            {t('common.logout', locale)}
+            <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
       </nav>
