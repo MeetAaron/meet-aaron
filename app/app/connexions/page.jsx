@@ -249,11 +249,13 @@ function defaultFirstEmailOptionsFor(locale) {
   ];
 }
 
+// Abonnement unique Aaron (docx Modifs Aaron 30/08/2026 + décision Alex
+// 31/08/2026) : une seule offre affichée dans l'onglet Abonnement — le prix
+// Stripe reste techniquement l'ancien "AP" (voir lib/subscription.ts), les
+// modules Opportunités/Clients sont inclus et ne se gèrent plus séparément.
 function offersFor(locale) {
   return [
-    { value: 'AP', label: t('preferences.offers.apLabel', locale), desc: t('preferences.offers.apDesc', locale), available: true },
-    { value: 'AS', label: t('nav.opportunity', locale), desc: t('preferences.offers.asDesc', locale), available: true },
-    { value: 'AC', label: t('nav.client', locale), desc: t('preferences.offers.acDesc', locale), available: true },
+    { value: 'AP', label: t('team.seatPlanAaron', locale), desc: t('preferences.offers.aaronDesc', locale), available: true },
   ];
 }
 
