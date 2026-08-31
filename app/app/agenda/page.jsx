@@ -645,6 +645,15 @@ export default function AgendaPage() {
                     <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
                       {meta.label}
                     </span>
+                    {/* Docx 30/08, items 3 et 7 : le bilan (ressenti + suite +
+                        contexte + email de remerciement) est accessible
+                        directement depuis l'agenda pour tout RDV passé, pas
+                        seulement depuis la notification. */}
+                    {new Date(a.proposed_at) < new Date() && a.prospect_id && a.status !== 'annulé' && (
+                      <a href={`/app/agenda/rdv/${a.id}/bilan`} className={a.outcome ? 'btn-bilan done' : 'btn-bilan'}>
+                        {a.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}
+                      </a>
+                    )}
                     {new Date(a.proposed_at) < new Date() && (
                       <button
                         type="button"
@@ -1246,6 +1255,20 @@ export default function AgendaPage() {
         }
         .btn-edit:hover {
           color: var(--accent);
+        }
+        .btn-bilan {
+          border: 1px solid var(--accent);
+          color: var(--accent-light);
+          border-radius: var(--radius-sm);
+          padding: 0.35rem 0.7rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+        .btn-bilan.done {
+          border-color: rgba(61, 214, 140, 0.4);
+          color: var(--accent-green);
         }
         .btn-remove {
           background: none;
