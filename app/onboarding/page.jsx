@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
 import { useLocale } from '@/lib/i18n';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
@@ -89,7 +89,9 @@ export default function OnboardingPage() {
       });
 
       if (res.ok) {
-        router.push('/app/dashboard');
+        // Page demandée avant la connexion (?next=… sur /login), sinon le
+        // dashboard — voir rememberPostLoginNext dans lib/supabase-browser.ts.
+        router.push(consumePostLoginNext() || '/app/dashboard');
         return;
       }
 
