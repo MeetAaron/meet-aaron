@@ -574,6 +574,57 @@ export default function DashboardPage() {
   ];
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
   const onboardingComplete = onboardingDoneCount === onboardingSteps.length;
+  // Item 13 (docx Modifs Aaron 30/08/2026) : "Aaron oblige à suivre les
+  // étapes dans l'ordre" — seule la première étape non faite est
+  // actionnable, les suivantes attendent leur tour (verrouillées).
+  const firstPendingStep = onboardingSteps.find((step) => !step.done) || null;
+
+  // Item 13 (suite) : "si l'utilisateur se déconnecte, quand il se reconnecte
+  // il retombe sur la dernière étape qu'il devait faire". À la première
+  // visite du tableau de bord de la journée (même repère que la connexion
+  // explicite quotidienne, voir lib/supabase-browser.ts), on l'emmène
+  // directement sur la page de l'étape en attente — une fois par jour et par
+  // appareil, pour ne pas l'enfermer hors du tableau de bord si une étape
+  // reste bloquée (ex. notifications impossibles sur ce navigateur). L'étape
+  // "push" se fait ici même : dans ce cas on reste sur place, checklist
+  // ouverte.
+  useEffect(() => {
+    if (loading || !userId || onboardingComplete || !firstPendingStep?.href) return;
+    const d = new Date();
+    const key = `aaron-onboarding-redirect-${userId}-${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    try {
+      if (window.localStorage.getItem(key)) return;
+      window.localStorage.setItem(key, '1');
+    } catch (err) {
+      return;
+    }
+    window.location.href = firstPendingStep.href;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, userId, onboardingComplete, firstPendingStep?.key]);
+
+  // Item 13 (fin) : "une fois toutes les étapes faites, une fenêtre s'ouvre :
+  // Félicitations ! tu es maintenant prêt à utiliser Aaron". Affichée une
+  // seule fois, et seulement pour un compte qui a vu la checklist incomplète
+  // sur cet appareil (les comptes déjà installés de longue date ne la
+  // voient pas surgir sans raison).
+  const [congratsOpen, setCongratsOpen] = useState(false);
+  useEffect(() => {
+    if (loading || !userId) return;
+    const seenKey = `aaron-onboarding-incomplete-seen-${userId}`;
+    const shownKey = `aaron-onboarding-congrats-shown-${userId}`;
+    try {
+      if (!onboardingComplete) {
+        window.localStorage.setItem(seenKey, '1');
+        return;
+      }
+      if (window.localStorage.getItem(seenKey) && !window.localStorage.getItem(shownKey)) {
+        window.localStorage.setItem(shownKey, '1');
+        setCongratsOpen(true);
+      }
+    } catch (err) {
+      // Stockage indisponible : pas de fenêtre, rien de bloquant.
+    }
+  }, [loading, userId, onboardingComplete]);
 
   if (authLoading) {
     return (
@@ -619,6 +670,18 @@ export default function DashboardPage() {
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
+          {congratsOpen && (
+            <div className="congrats-overlay" role="dialog" aria-modal="true">
+              <div className="congrats-card">
+                <div className="congrats-emoji" aria-hidden="true">🎉</div>
+                <h2 className="congrats-title">{t('dash.onboardingCongratsTitle', locale)}</h2>
+                <p className="congrats-body">{t('dash.onboardingCongratsBody', locale)}</p>
+                <button type="button" className="congrats-btn" onClick={() => setCongratsOpen(false)}>
+                  {t('dash.onboardingCongratsButton', locale)}
+                </button>
+              </div>
+            </div>
+          )}
           {!onboardingComplete && (
             <section className="onboarding-panel">
               <button className="onboarding-toggle" onClick={() => setOnboardingChecklistOpen(!onboardingChecklistOpen)}>
@@ -635,6 +698,14 @@ export default function DashboardPage() {
                       <div key={step.key} className="onboarding-row done">
                         <span className="onboarding-check done-check">✓</span>
                         <span className="onboarding-label">{step.label}</span>
+                      </div>
+                    ) : firstPendingStep && step.key !== firstPendingStep.key ? (
+                      // Item 13 : étape verrouillée tant que la précédente
+                      // n'est pas faite (ordre imposé, une chose à la fois).
+                      <div key={step.key} className="onboarding-row locked" aria-disabled="true">
+                        <span className="onboarding-check locked-check" aria-hidden="true">🔒</span>
+                        <span className="onboarding-label">{step.label}</span>
+                        <span className="onboarding-cta onboarding-cta-locked">{t('dash.onboardingStepLocked', locale)}</span>
                       </div>
                     ) : step.action ? (
                       <button
@@ -1083,6 +1154,64 @@ export default function DashboardPage() {
         .onboarding-row.done .onboarding-label {
           color: var(--muted);
           text-decoration: line-through;
+        }
+        .onboarding-row.locked {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+        .locked-check {
+          font-size: 0.8rem;
+          width: 22px;
+          text-align: center;
+        }
+        .onboarding-cta-locked {
+          color: var(--muted) !important;
+          font-weight: 500 !important;
+        }
+        .congrats-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 130;
+          background: rgba(5, 6, 12, 0.7);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+        }
+        .congrats-card {
+          background: var(--surface);
+          border: 1px solid rgba(61, 214, 140, 0.4);
+          border-radius: var(--radius-xl);
+          padding: 2.2rem 1.9rem;
+          width: min(460px, 100%);
+          text-align: center;
+          box-shadow: var(--shadow-lg), 0 0 60px rgba(61, 214, 140, 0.15);
+        }
+        .congrats-emoji {
+          font-size: 2.6rem;
+          margin-bottom: 0.6rem;
+        }
+        .congrats-title {
+          margin: 0 0 0.6rem;
+          font-family: var(--font-display);
+          font-size: 1.45rem;
+        }
+        .congrats-body {
+          margin: 0 0 1.4rem;
+          color: var(--muted);
+          font-size: 0.92rem;
+          line-height: 1.5;
+        }
+        .congrats-btn {
+          background: var(--accent);
+          color: #fff;
+          border: none;
+          border-radius: var(--radius-md);
+          padding: 0.8rem 1.4rem;
+          font-weight: 600;
+          font-size: 0.95rem;
+          cursor: pointer;
         }
         .onboarding-cta {
           flex-shrink: 0;
