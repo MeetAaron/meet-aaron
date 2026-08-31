@@ -7,7 +7,11 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 
 export default function LoginPage() {
   const [locale, setLocale] = useLocale();
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
+  // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
+  // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
+  const [resetToken, setResetToken] = useState(null);
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
@@ -41,6 +45,11 @@ export default function LoginPage() {
     // ?next=/app/… (posé par AuthFetchInterceptor) : page à rouvrir après
     // connexion — consommée par /onboarding, voir lib/supabase-browser.ts.
     rememberPostLoginNext(params.get('next'));
+    const reset = params.get('reset');
+    if (reset && /^[a-f0-9]{64}$/.test(reset)) {
+      setResetToken(reset);
+      setMode('reset');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -146,6 +155,65 @@ export default function LoginPage() {
     }
   }
 
+  async function handleForgotSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/auth/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error || t('auth.resetGenericError', locale));
+      } else {
+        setMessage(t('auth.resetLinkSent', locale));
+      }
+    } catch (err) {
+      setError(t('auth.resetGenericError', locale));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetSubmit(e) {
+    e.preventDefault();
+    if (password !== passwordConfirm) {
+      setError(t('auth.resetMismatch', locale));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error || t('auth.resetGenericError', locale));
+      } else {
+        setMessage(t('auth.resetDone', locale));
+        setMode('signin');
+        setPassword('');
+        setPasswordConfirm('');
+        setResetToken(null);
+        try {
+          window.history.replaceState(null, '', '/login');
+        } catch (err) {}
+      }
+    } catch (err) {
+      setError(t('auth.resetGenericError', locale));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleOAuth(provider) {
     setLoading(true);
     setError(null);
@@ -179,9 +247,58 @@ export default function LoginPage() {
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
         <h1>Meet Aaron</h1>
         <p className="subtitle">
-          {mode === 'signin' ? t('auth.taglineSignin', locale) : t('auth.taglineSignup', locale)}
+          {mode === 'signin'
+            ? t('auth.taglineSignin', locale)
+            : mode === 'signup'
+            ? t('auth.taglineSignup', locale)
+            : mode === 'forgot'
+            ? t('auth.forgotTagline', locale)
+            : t('auth.resetTagline', locale)}
         </p>
 
+        {mode === 'forgot' && (
+          <form onSubmit={handleForgotSubmit} className="form">
+            <input
+              type="email"
+              placeholder={t('auth.emailLabel', locale)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? t('common.loading', locale) : t('auth.forgotSubmit', locale)}
+            </button>
+          </form>
+        )}
+
+        {mode === 'reset' && (
+          <form onSubmit={handleResetSubmit} className="form">
+            <input
+              type="password"
+              placeholder={t('auth.resetNewPassword', locale)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <input
+              type="password"
+              placeholder={t('auth.resetConfirmPassword', locale)}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? t('common.loading', locale) : t('auth.resetSubmit', locale)}
+            </button>
+          </form>
+        )}
+
+        {(mode === 'signin' || mode === 'signup') && (
         <form onSubmit={handleEmailSubmit} className="form">
           <input
             type="email"
@@ -214,19 +331,36 @@ export default function LoginPage() {
             {loading ? t('common.loading', locale) : mode === 'signin' ? t('auth.signIn', locale) : t('auth.signUp', locale)}
           </button>
         </form>
+        )}
 
-        <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
-          {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
-        </button>
+        {mode === 'signin' && (
+          <button className="link-toggle forgot-link" onClick={() => { setMode('forgot'); setError(null); setMessage(null); }}>
+            {t('auth.forgotLink', locale)}
+          </button>
+        )}
 
-        <div className="divider"><span>{t('auth.or', locale)}</span></div>
+        {(mode === 'forgot' || mode === 'reset') ? (
+          <button className="link-toggle" onClick={() => { setMode('signin'); setError(null); setMessage(null); }}>
+            {t('auth.backToSignin', locale)}
+          </button>
+        ) : (
+          <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
+            {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
+          </button>
+        )}
 
-        <button className="btn-oauth" onClick={() => handleOAuth('google')} disabled={loading}>
-          {t('auth.continueWithGoogle', locale)}
-        </button>
-        <button className="btn-oauth" onClick={() => handleOAuth('azure')} disabled={loading}>
-          {t('auth.continueWithMicrosoft', locale)}
-        </button>
+        {(mode === 'signin' || mode === 'signup') && (
+          <>
+            <div className="divider"><span>{t('auth.or', locale)}</span></div>
+
+            <button className="btn-oauth" onClick={() => handleOAuth('google')} disabled={loading}>
+              {t('auth.continueWithGoogle', locale)}
+            </button>
+            <button className="btn-oauth" onClick={() => handleOAuth('azure')} disabled={loading}>
+              {t('auth.continueWithMicrosoft', locale)}
+            </button>
+          </>
+        )}
 
         {error && <p className="error">{error}</p>}
         {message && <p className="success">{message}</p>}
@@ -288,6 +422,10 @@ export default function LoginPage() {
           color: #8b90a8;
           font-size: 0.86rem;
           margin: 0 0 1.4rem;
+        }
+        .forgot-link {
+          margin-top: -0.3rem;
+          font-size: 0.8rem;
         }
         .form {
           display: flex;
