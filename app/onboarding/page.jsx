@@ -357,68 +357,32 @@ export default function OnboardingPage() {
             <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="ex: France" required />
           </label>
 
+          {/* Abonnement unique Aaron (docx Modifs Aaron 30/08/2026 + décision
+              Alex 31/08/2026) : plus de choix de modules à l'inscription —
+              une seule offre à 30 €/mois qui inclut prospection,
+              opportunités et suivi client. selectedModules reste ['AP']
+              (le prix Aaron côté Stripe est l'ancien prix "AP"). */}
           <div className="modules-field">
-            <span className="modules-label">Modules Aaron souhaités</span>
-            {/* docx AJOUT GLOBAL item A3 : préciser que chaque module
-                fonctionne seul (pas besoin des 3) et reste modifiable après
-                coup, pour rassurer avant le choix. */}
-            <p className="modules-hint">
-              Chaque module fonctionne de façon indépendante — inutile de tout prendre dès aujourd'hui. Vous pourrez
-              toujours activer ou résilier un module plus tard, depuis Préférences &amp; Abonnement dans l'application.
-              Comprenant les mises à jour et la maintenance, traitées sous quelques heures.
-            </p>
+            <span className="modules-label">Votre abonnement</span>
             <div className="modules-grid">
-              {AARON_MODULES.map((m) => {
-                const selected = selectedModules.includes(m.value);
-                return (
-                  <div key={m.value} className={`module-card${selected ? ' selected' : ''}`}>
-                    {/* div (pas <button>) car elle contient elle-même le bouton "?" —
-                        deux <button> imbriqués sont invalides en HTML et cassent le
-                        rendu. role="button"/tabIndex/onKeyDown pour rester utilisable
-                        au clavier malgré tout. */}
-                    <div
-                      className="module-toggle"
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={selected}
-                      onClick={() => toggleModule(m.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          toggleModule(m.value);
-                        }
-                      }}
-                    >
-                      <span className="module-check" aria-hidden="true">{selected ? '✓' : ''}</span>
-                      <span className="module-main">
-                        <span className="module-title-row">
-                          <span className="module-title">{m.label}</span>
-                          <button
-                            type="button"
-                            className="info-btn"
-                            aria-label={`En savoir plus sur ${m.label}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenInfo(openInfo === m.value ? null : m.value);
-                            }}
-                          >
-                            ?
-                          </button>
-                        </span>
-                        <span className="module-desc">{m.desc}</span>
-                      </span>
-                      <span className="module-price">{m.price}</span>
-                    </div>
-                    {openInfo === m.value && <p className="module-info">{m.info}</p>}
-                  </div>
-                );
-              })}
+              <div className="module-card selected">
+                <div className="module-toggle" aria-pressed="true">
+                  <span className="module-check" aria-hidden="true">✓</span>
+                  <span className="module-main">
+                    <span className="module-title-row">
+                      <span className="module-title">Aaron</span>
+                    </span>
+                    <span className="module-desc">
+                      Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
+                    </span>
+                  </span>
+                  <span className="module-price">30€ / mois</span>
+                </div>
+              </div>
             </div>
-            {selectedModules.length > 0 && (
-              <p className="modules-total">
-                Total : {selectedModules.length * 30}€ / mois pour {selectedModules.length} module{selectedModules.length > 1 ? 's' : ''}
-              </p>
-            )}
+            <p className="modules-hint">
+              Sans engagement, résiliable à tout moment depuis l'application. Mises à jour et maintenance comprises.
+            </p>
           </div>
 
           {/* Demande Alex (27/08/2026, docx "Modifs Aaron") : rassurer sur les
