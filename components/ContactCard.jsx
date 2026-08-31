@@ -374,7 +374,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
 
         <div className="actions">
           {!isClient && !position.lost && (
-            <button type="button" className="act won" disabled={acting} onClick={() => setPanel(panel === 'won' ? null : 'won')}>🏆 {t('prospects.wonButtonLabel', locale)}</button>
+            <button type="button" className="act won" disabled={acting} onClick={() => setPanel(panel === 'won' ? null : 'won')}>{t('prospects.wonButtonLabel', locale)}</button>
           )}
           {!position.lost && (
             <button type="button" className="act lost" disabled={acting} onClick={() => setPanel(panel === 'lost' ? null : 'lost')}>✕ {t('pipeline.lostLabel', locale)}</button>
