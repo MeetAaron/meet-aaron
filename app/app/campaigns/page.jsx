@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import MobileChrome from '@/components/MobileChrome';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 
@@ -2785,16 +2786,17 @@ function Shell({ children, active, userId }) {
   ];
   return (
     <div className="shell">
-      <button
-        type="button"
-        className="mobile-menu-btn"
-        aria-label={t('shell.openMenu', locale)}
-        onClick={() => setMobileOpen(true)}
-      >
-        <span className="bar" />
-        <span className="bar" />
-        <span className="bar" />
-      </button>
+      {/* Habillage téléphone/tablette : barre du haut + barre d'onglets du
+          bas (components/MobileChrome.jsx, styles dans app/globals.css) —
+          remplace l'ancien bouton hamburger flottant (docx 30/08, item 8). */}
+      <MobileChrome
+        title={active}
+        items={NAV_ITEMS}
+        userId={userId}
+        onMenu={() => setMobileOpen(true)}
+        menuLabel={t('shell.openMenu', locale)}
+        moreLabel={t('shell.more', locale)}
+      />
       {mobileOpen && <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />}
       <nav className={`sidebar${mobileOpen ? ' open' : ''}`}>
         <div className="brand">
