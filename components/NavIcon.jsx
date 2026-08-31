@@ -13,6 +13,7 @@
 
 import {
   BarChart3,
+  Home,
   Target,
   Handshake,
   Coins,
@@ -31,7 +32,9 @@ import {
 } from 'lucide-react';
 
 const NAV_ICON_BY_SLUG = {
-  dashboard: BarChart3,
+  // Docx « mon avis » (31/08/2026) : maison pour le tableau de bord, la
+  // courbe (TrendingUp) reste pour Mes résultats.
+  dashboard: Home,
   prospects: Target,
   sales: Handshake,
   products: Coins,

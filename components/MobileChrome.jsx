@@ -20,12 +20,13 @@
 
 import Link from 'next/link';
 import { NavIcon } from '@/components/NavIcon';
+import Stories from '@/components/Stories';
 
 // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
 // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
 const TAB_SLUGS = ['dashboard', 'prospects', 'agenda', 'chat'];
 
-export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel }) {
+export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel, locale }) {
   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);
   const q = userId ? `?user_id=${userId}` : '';
 
@@ -34,6 +35,10 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
       <header className="mobile-topbar">
         <img src="/icon.png" alt="" className="mobile-topbar-mark" aria-hidden="true" />
         <span className="mobile-topbar-title">{title}</span>
+        {/* Cloche de notifications (stories, docx « mon avis » 31/08/2026). */}
+        <span className="mobile-topbar-bell">
+          <Stories mode="bell" userId={userId} locale={locale} />
+        </span>
         <button type="button" className="mobile-topbar-menu" aria-label={menuLabel} onClick={onMenu}>
           <span className="bar" />
           <span className="bar" />
