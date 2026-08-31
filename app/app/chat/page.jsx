@@ -789,6 +789,9 @@ export default function ChatPage() {
   // sans dépendance ni appel serveur. speakingIndex pointe l'index du
   // message actuellement lu (au plus un à la fois), null si aucun.
   const [speakingIndex, setSpeakingIndex] = useState(null);
+  // Lecteur audio de la voix naturelle (voir speakMessage / app/api/tts) —
+  // une seule instance, réutilisée, pour pouvoir couper la lecture.
+  const ttsAudioRef = useRef(null);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
@@ -1153,31 +1156,84 @@ export default function ChatPage() {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
+      stopTtsAudio();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function speakMessage(text, index) {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  function stopTtsAudio() {
+    const audio = ttsAudioRef.current;
+    if (audio) {
+      audio.pause();
+      if (audio.src && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
+      audio.src = '';
+      ttsAudioRef.current = null;
+    }
+  }
+
+  // Voix du navigateur (window.speechSynthesis) — utilisée uniquement en
+  // repli si la voix naturelle n'est pas configurée côté serveur
+  // (OPENAI_API_KEY absente → /api/tts répond 501) ou en cas d'erreur.
+  function speakWithBrowserVoice(text, index) {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      setSpeakingIndex(null);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = SPEECH_LANG_BY_LOCALE[locale] || 'fr-FR';
+    utterance.onend = () => setSpeakingIndex((current) => (current === index ? null : current));
+    utterance.onerror = () => setSpeakingIndex((current) => (current === index ? null : current));
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Docx Modifs Aaron (AJOUTS 30/08/26, item 10 — retour Alex 31/08 : "on
+  // dirait un robot, je veux quelque chose de plus moderne comme la voix
+  // ChatGPT") : lecture via /api/tts (voix naturelle OpenAI), repli sur la
+  // voix du navigateur si non configurée.
+  async function speakMessage(text, index) {
+    if (typeof window === 'undefined') return;
 
     // Un second clic sur le message en cours de lecture l'arrête (bascule
     // haut-parleur actif ⇄ silencieux), plutôt que de relancer la lecture
     // depuis le début.
     if (speakingIndex === index) {
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      stopTtsAudio();
       setSpeakingIndex(null);
       return;
     }
 
     // Une seule lecture à la fois : on coupe toute lecture précédente avant
     // d'en démarrer une nouvelle.
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = SPEECH_LANG_BY_LOCALE[locale] || 'fr-FR';
-    utterance.onend = () => setSpeakingIndex((current) => (current === index ? null : current));
-    utterance.onerror = () => setSpeakingIndex((current) => (current === index ? null : current));
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopTtsAudio();
     setSpeakingIndex(index);
-    window.speechSynthesis.speak(utterance);
+
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, locale }),
+      });
+      if (!res.ok) {
+        speakWithBrowserVoice(text, index);
+        return;
+      }
+      const blob = await res.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      ttsAudioRef.current = audio;
+      audio.onended = () => {
+        setSpeakingIndex((current) => (current === index ? null : current));
+        stopTtsAudio();
+      };
+      audio.onerror = () => {
+        setSpeakingIndex((current) => (current === index ? null : current));
+        stopTtsAudio();
+      };
+      await audio.play();
+    } catch {
+      speakWithBrowserVoice(text, index);
+    }
   }
 
   // Profil d'entreprise enrichi (demande Alex, 29/08/2026) : le document
