@@ -357,7 +357,7 @@ export default function ProspectsPage() {
         <div>
           <p className="eyebrow">{t('prospects.eyebrow', locale)}</p>
           <h1>{t('prospects.title', locale)}</h1>
-          <p className="subtitle">{t('pipeline.subtitle', locale)} <button type="button" className="link-btn" onClick={() => setShowHelp((v) => !v)}>{showHelp ? t('pipeline.helpHide', locale) : t('pipeline.helpShow', locale)}</button></p>
+          <p className="subtitle">{t('pipeline.fusionSubtitle', locale)} <button type="button" className="link-btn" onClick={() => setShowHelp((v) => !v)}>{showHelp ? t('pipeline.helpHide', locale) : t('pipeline.helpShow', locale)}</button></p>
         </div>
         <div className="header-actions">
           <ExportFormatMenu
