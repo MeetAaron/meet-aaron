@@ -51,6 +51,13 @@ export const metadata = {
 // séparé de `metadata` pour themeColor (avertissement de build sinon).
 export const viewport = {
     themeColor: "#0b0e1a",
+    // Couche mobile (app/globals.css, components/MobileChrome.jsx) :
+    // viewport-fit=cover permet aux barres fixes du haut/du bas d'utiliser
+    // env(safe-area-inset-*) sur iPhone (encoche, barre d'accueil) au lieu
+    // de laisser une bande vide ou de passer dessous.
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
 };
 
 export default function RootLayout({ children }) {

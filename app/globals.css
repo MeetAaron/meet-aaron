@@ -62,3 +62,354 @@ html[data-theme='light'] {
   --shadow-md: 0 8px 24px rgba(20, 21, 31, 0.1);
   --shadow-lg: 0 16px 48px rgba(20, 21, 31, 0.14);
 }
+
+/* =====================================================================
+   Couche mobile (docx Modifs Aaron 30/08/2026, items 8 et 9) — "la version
+   app fait peur, ça fait amateur ; la version PC est cool ; fais-le pour
+   chaque résolution". Tout ce qui suit ne s'applique qu'en dessous de 900px
+   (le seuil où le Shell de chaque page replie déjà la barre latérale en
+   tiroir) : la version ordinateur ne change pas.
+
+   Pourquoi ici et pas dans chaque page : les 14 pages dupliquent le même
+   Shell (convention du projet) avec des styles styled-jsx scopés par un
+   hachage propre à chaque page. Un seul fichier global évite 14 copies —
+   et comme les règles scopées ont une spécificité plus élevée que les
+   sélecteurs simples, les surcharges ci-dessous utilisent soit un
+   sélecteur plus spécifique (.shell > main.content), soit !important, de
+   façon assumée et documentée. Les classes .mobile-topbar / .mobile-tabbar
+   (components/MobileChrome.jsx) n'existent que dans ce fichier.
+   ===================================================================== */
+
+/* Barre du haut et barre d'onglets : invisibles sur ordinateur. */
+.mobile-topbar,
+.mobile-tabbar {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  /* --- Zone de contenu : dégagée sous la barre du haut, au-dessus de la
+     barre d'onglets, marges resserrées (une page = une colonne). --- */
+  .shell > main.content {
+    padding: calc(60px + env(safe-area-inset-top, 0px)) 1rem calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  /* L'ancien bouton hamburger flottant (se superposait aux titres). */
+  .shell > .mobile-menu-btn {
+    display: none !important;
+  }
+
+  /* --- Barre du haut --- */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 55;
+    height: 52px;
+    padding: env(safe-area-inset-top, 0px) 0.6rem 0 1rem;
+    box-sizing: content-box;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-soft);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .mobile-topbar-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    flex: 0 0 auto;
+  }
+  .mobile-topbar-title {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+  .mobile-topbar-menu {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-topbar-menu .bar {
+    display: block;
+    width: 18px;
+    height: 2px;
+    margin: 0 auto;
+    background: var(--text);
+    border-radius: 1px;
+  }
+
+  /* --- Barre d'onglets du bas --- */
+  .mobile-tabbar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 55;
+    height: 62px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: content-box;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-soft);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .mobile-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    padding: 6px 2px 4px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    text-decoration: none;
+    font-family: var(--font-body);
+    font-size: 0.66rem;
+    font-weight: 500;
+    line-height: 1.1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--fast);
+  }
+  .mobile-tab.active {
+    color: var(--accent-light);
+  }
+  .mobile-tab-icon {
+    width: 40px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    transition: background var(--fast);
+  }
+  .mobile-tab.active .mobile-tab-icon {
+    background: rgba(75, 57, 239, 0.18);
+  }
+  .mobile-tab-label {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mobile-tab-more {
+    flex-direction: row;
+    gap: 3px;
+  }
+  .mobile-tab-more span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* --- Tiroir latéral (menu « Plus ») : largeur adaptée aux petits écrans,
+     zone tactile confortable, bas dégagé de la barre système. --- */
+  .shell > nav.sidebar {
+    width: min(300px, 86vw) !important;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)) !important;
+    box-sizing: border-box;
+  }
+  .shell > nav.sidebar .nav-list li {
+    min-height: 44px;
+  }
+
+  /* --- Typographie : une hiérarchie plus compacte, sans veuves sur les
+     titres (une ligne, ou deux bien équilibrées). --- */
+  .shell > main.content h1 {
+    font-size: 1.5rem !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+  .shell > main.content h2 {
+    font-size: 1.12rem !important;
+    line-height: 1.25 !important;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+  .shell > main.content h3 {
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+  .shell > main.content p,
+  .shell > main.content li {
+    overflow-wrap: anywhere;
+  }
+  /* Orphelins : pas de mot seul en dernière ligne d'un paragraphe court. */
+  .shell > main.content p {
+    text-wrap: pretty;
+  }
+
+  /* --- Champs de saisie : 16px minimum, sinon iOS zoome toute la page au
+     focus (effet "ça saute", très visible sur iPhone). --- */
+  .shell input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']),
+  .shell select,
+  .shell textarea {
+    font-size: 16px !important;
+  }
+
+  /* --- En-tête de page : le "eyebrow" (nom de la rubrique) fait doublon
+     avec le titre de la barre du haut sur téléphone. --- */
+  .shell > main.content .header .eyebrow {
+    display: none !important;
+  }
+
+  /* --- Boutons principaux : hauteur tactile confortable. --- */
+  .shell > main.content .btn-primary,
+  .shell > main.content .btn-secondary,
+  .shell > main.content .btn-danger {
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* --- Fenêtres modales : feuille qui monte du bas, pleine largeur, comme
+     sur iOS, au lieu d'une boîte centrée rognée. --- */
+  .overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .overlay > * {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 40px - env(safe-area-inset-top, 0px)) !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
+    border-radius: 20px 20px 0 0 !important;
+    padding: 1.3rem 1.1rem calc(1.3rem + env(safe-area-inset-bottom, 0px)) !important;
+    animation: sheet-up 0.28s var(--ease);
+  }
+  .overlay > * h2 {
+    font-size: 1.2rem !important;
+    line-height: 1.25;
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  /* --- Grilles de cartes : une colonne (les pages en gèrent la plupart
+     elles-mêmes ; ceci couvre les oublis). --- */
+  .shell > main.content .cards,
+  .shell > main.content .grid-two {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* --- En-tête de page : le titre sur toute la largeur, les boutons
+     d'action en dessous (au lieu de se serrer à côté du titre). --- */
+  .shell > main.content .header {
+    flex-wrap: wrap !important;
+    gap: 0.8rem !important;
+  }
+  .shell > main.content .header-actions,
+  .shell > main.content .header-row {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .shell > main.content .header-actions > .btn-primary,
+  .shell > main.content .header-actions > .btn-secondary {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  /* --- Rangées de boutons/onglets : passent à la ligne ou défilent, mais
+     ne débordent jamais de l'écran. --- */
+  .shell > main.content .actions,
+  .shell > main.content .actions-row,
+  .shell > main.content .step-actions,
+  .shell > main.content .form-actions,
+  .shell > main.content .chip-row,
+  .shell > main.content .upload-row {
+    flex-wrap: wrap;
+  }
+  /* Tableaux : chaque tableau de l'app est déjà dans un .table-wrap qui
+     défile horizontalement ; on s'assure juste qu'il ne dépasse jamais. */
+  .shell > main.content .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .shell > main.content .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .shell > main.content .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .shell > main.content .tab {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .shell > main.content {
+    padding-left: 0.85rem !important;
+    padding-right: 0.85rem !important;
+  }
+  .shell > main.content h1 {
+    font-size: 1.38rem !important;
+  }
+  /* Indicateurs du tableau de bord : deux par ligne (assez de place pour un
+     chiffre + un libellé court), plutôt qu'une colonne interminable. */
+  .shell > main.content .stat-row {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.6rem !important;
+  }
+  .shell > main.content .stat-card {
+    padding: 0.8rem 0.85rem !important;
+  }
+  .mobile-tab {
+    font-size: 0.62rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .mobile-tab {
+    font-size: 0.56rem;
+  }
+}
+
+@media (max-width: 330px) {
+  .mobile-tab-label {
+    display: none;
+  }
+  .mobile-tab-icon {
+    height: 34px;
+  }
+}
