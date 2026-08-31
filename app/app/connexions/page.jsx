@@ -170,32 +170,6 @@ const TWO_FIELD_CRM_PROVIDERS = ['sellsy'];
 // notes CRM déplacés depuis Préférences vers ici — mêmes listes, copiées
 // telles quelles depuis app/app/preferences/page.jsx (collaborationLevelsFor /
 // crmProvidersFor) pour un rendu identique.
-function collaborationLevelsFor(locale) {
-  return [
-    { value: 0, label: t('preferences.crm.level0Label', locale), desc: t('preferences.crm.level0Desc', locale) },
-    { value: 1, label: t('preferences.crm.level1Label', locale), desc: t('preferences.crm.level1Desc', locale) },
-    { value: 2, label: t('preferences.crm.level2Label', locale), desc: t('preferences.crm.level2Desc', locale) },
-    { value: 3, label: t('preferences.crm.level3Label', locale), desc: t('preferences.crm.level3Desc', locale) },
-  ];
-}
-
-function crmProvidersFor(locale) {
-  return [
-    { value: '', label: t('preferences.crm.selectPlaceholder', locale) },
-    { value: 'divalto', label: 'Divalto' },
-    { value: 'salesforce', label: 'Salesforce' },
-    { value: 'hubspot', label: 'HubSpot' },
-    { value: 'pipedrive', label: 'Pipedrive' },
-    { value: 'axonaut', label: 'Axonaut' },
-    { value: 'sellsy', label: 'Sellsy' },
-    { value: 'jobber', label: 'Jobber' },
-    { value: 'housecallpro', label: 'Housecall Pro' },
-    { value: 'capsulecrm', label: 'Capsule CRM' },
-    { value: 'servicem8', label: 'ServiceM8' },
-    { value: 'autre', label: t('preferences.crm.otherProvider', locale) },
-  ];
-}
-
 function crmMetaFor(locale) {
   return {
     hubspot: { name: 'HubSpot', desc: t('connexions.hubspotDesc', locale) },
@@ -257,8 +231,6 @@ export default function ConnexionsPage() {
   const [locale] = useLocale();
   const PROVIDER_META = providerMetaFor(locale);
   const CRM_META = crmMetaFor(locale);
-  const COLLABORATION_LEVELS = collaborationLevelsFor(locale);
-  const CRM_PROVIDERS_SELECT = crmProvidersFor(locale);
   const [connections, setConnections] = useState([]);
   const [emailHealth, setEmailHealth] = useState([]);
   // Assistant délivrabilité (30/08/2026) : re-vérification à la demande des
@@ -389,9 +361,6 @@ export default function ConnexionsPage() {
   const [collabPrefs, setCollabPrefs] = useState(null); // { collaboration_level, crm_provider, crm_connection_notes }
   const [collabSaving, setCollabSaving] = useState(false);
   const [collabSaved, setCollabSaved] = useState(false);
-  const [collabUploadFile, setCollabUploadFile] = useState(null);
-  const [collabUploading, setCollabUploading] = useState(false);
-  const [collabUploadDone, setCollabUploadDone] = useState(false);
 
   // --- Portés depuis app/app/preferences/page.jsx (fusion "Mon compte",
   // 2026-08-25) : onglets Mon entreprise / Préférences / Abonnement. Préfixés
@@ -1193,44 +1162,31 @@ export default function ConnexionsPage() {
   // CRM). Même route PATCH /api/preferences que Préférences utilisait déjà
   // pour ces 3 champs (voir app/api/preferences/route.ts) — comportement de
   // sauvegarde identique, seul l'emplacement change.
-  async function handleSaveCollab() {
+  // Synchro CRM automatique un sens (docx 30/08) : enregistrée au clic.
+  async function handleToggleCrmAutoSync(enabled) {
     if (!collabPrefs) return;
+    const previous = collabPrefs.crm_auto_sync;
+    setCollabPrefs({ ...collabPrefs, crm_auto_sync: enabled });
     setCollabSaving(true);
     setCollabSaved(false);
     try {
       const res = await fetch('/api/preferences', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          collaboration_level: collabPrefs.collaboration_level,
-          crm_provider: collabPrefs.crm_provider,
-          crm_connection_notes: collabPrefs.crm_connection_notes,
-        }),
+        body: JSON.stringify({ user_id: userId, crm_auto_sync: enabled }),
       });
       if (res.ok) {
         setCollabSaved(true);
         setTimeout(() => setCollabSaved(false), 2500);
+      } else {
+        setCollabPrefs((p) => ({ ...p, crm_auto_sync: previous }));
       }
     } finally {
       setCollabSaving(false);
     }
   }
 
-  async function handleCollabUpload() {
-    if (!collabUploadFile) return;
-    setCollabUploading(true);
-    const formData = new FormData();
-    formData.append('file', collabUploadFile);
-    formData.append('user_id', userId);
-    formData.append('description', 'Historique clients gagnés/perdus (niveau 1 CRM)');
-    const res = await fetch('/api/documents', { method: 'POST', body: formData });
-    setCollabUploading(false);
-    if (res.ok) {
-      setCollabUploadDone(true);
-      setCollabUploadFile(null);
-    }
-  }
+
 
   useEffect(() => {
     if (!userId) return;
@@ -1244,6 +1200,7 @@ export default function ConnexionsPage() {
           collaboration_level: res.preferences?.collaboration_level ?? 0,
           crm_provider: res.preferences?.crm_provider || null,
           crm_connection_notes: res.preferences?.crm_connection_notes || '',
+          crm_auto_sync: res.preferences?.crm_auto_sync !== false,
         });
       })
       .catch(() => {});
@@ -2105,64 +2062,28 @@ export default function ConnexionsPage() {
         </>
       ) : activeTab === 'crm' ? (
         <>
-          {/* Demande Alex (2026-08-22) : niveau de collaboration (0-3) +
-              fournisseur/notes CRM, déplacés depuis Préférences vers ici —
-              juste au-dessus de la liste des CRM, à côté des cartes de
-              connexion elles-mêmes. */}
+          {/* Docx Modifs Aaron 30/08/2026 (onglet CRM) : les "niveaux de
+              collaboration" 0-3 n'ont plus de sens — un seul réglage : la
+              synchronisation automatique, À SENS UNIQUE (Aaron → CRM). Dès
+              qu'un prospect devient client, Aaron l'ajoute dans le CRM
+              connecté ; rien ne remonte jamais du CRM vers Aaron. Voir
+              autoSyncWonProspect (lib/crm-sync.ts) et
+              migration_crm_auto_sync_2026-08-31.sql. */}
           {collabPrefs && (
             <div className="collab-panel">
-              <h2 className="category-title collab-heading">{t('preferences.crm.collabLevelLabel', locale)}</h2>
-              <div className="collab-options">
-                {COLLABORATION_LEVELS.map((lvl) => (
-                  <button
-                    key={lvl.value}
-                    type="button"
-                    className={collabPrefs.collaboration_level === lvl.value ? 'collab-card active' : 'collab-card'}
-                    onClick={() => setCollabPrefs({ ...collabPrefs, collaboration_level: lvl.value })}
-                  >
-                    <span className="collab-card-title">{lvl.label}</span>
-                    <span className="collab-card-desc">{lvl.desc}</span>
-                  </button>
-                ))}
-              </div>
-
-              {collabPrefs.collaboration_level === 1 && (
-                <div className="collab-extra">
-                  <p className="crm-directory-hint">{t('preferences.crm.uploadHint', locale)}</p>
-                  <div className="upload-row">
-                    <input type="file" accept=".xls,.xlsx,.csv,.pdf,.txt" onChange={(e) => setCollabUploadFile(e.target.files?.[0] || null)} />
-                    <button type="button" className="btn-secondary" onClick={handleCollabUpload} disabled={!collabUploadFile || collabUploading}>
-                      {collabUploading ? t('preferences.crm.uploadingEllipsis', locale) : t('preferences.crm.uploadButton', locale)}
-                    </button>
-                  </div>
-                  {collabUploadDone && <p className="profile-saved">{t('preferences.crm.uploadDoneMsg', locale)}</p>}
-                </div>
-              )}
-
-              {(collabPrefs.collaboration_level === 2 || collabPrefs.collaboration_level === 3) && (
-                <div className="collab-extra">
-                  <label className="profile-label">{t('preferences.crm.whichCrmLabel', locale)}</label>
-                  <select
-                    className="profile-input"
-                    value={collabPrefs.crm_provider || ''}
-                    onChange={(e) => setCollabPrefs({ ...collabPrefs, crm_provider: e.target.value || null })}
-                  >
-                    {CRM_PROVIDERS_SELECT.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                  </select>
-                  <label className="profile-label">{t('preferences.crm.notesLabel', locale)}</label>
-                  <textarea
-                    className="profile-input add-crm-textarea"
-                    rows={3}
-                    value={collabPrefs.crm_connection_notes || ''}
-                    onChange={(e) => setCollabPrefs({ ...collabPrefs, crm_connection_notes: e.target.value })}
-                    placeholder={t('preferences.crm.notesPlaceholder', locale)}
-                  />
-                </div>
-              )}
-
-              <button type="button" className="btn-primary collab-save" onClick={handleSaveCollab} disabled={collabSaving}>
-                {collabSaving ? t('connexions.profileSaving', locale) : t('connexions.profileSaveButton', locale)}
-              </button>
+              <label className="autosync-row">
+                <input
+                  type="checkbox"
+                  checked={collabPrefs.crm_auto_sync !== false}
+                  onChange={(e) => handleToggleCrmAutoSync(e.target.checked)}
+                  disabled={collabSaving}
+                />
+                <span>
+                  <span className="autosync-title">{t('preferences.crm.autoSyncLabel', locale)}</span>
+                  <span className="autosync-desc">{t('preferences.crm.autoSyncDesc', locale)}</span>
+                  <span className="autosync-oneway">{t('preferences.crm.autoSyncOneWay', locale)}</span>
+                </span>
+              </label>
               {collabSaved && <p className="profile-saved">{t('connexions.profileSaved', locale)}</p>}
             </div>
           )}
@@ -3645,6 +3566,41 @@ export default function ConnexionsPage() {
           font-size: 0.88rem;
           margin: 0;
           max-width: 60ch;
+        }
+        .autosync-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.8rem;
+          cursor: pointer;
+        }
+        .autosync-row input {
+          margin-top: 0.25rem;
+          width: 18px;
+          height: 18px;
+          accent-color: var(--accent);
+          flex: none;
+        }
+        .autosync-title {
+          display: block;
+          font-weight: 600;
+          font-size: 0.95rem;
+          margin-bottom: 0.2rem;
+        }
+        .autosync-desc {
+          display: block;
+          color: var(--muted);
+          font-size: 0.84rem;
+          line-height: 1.45;
+        }
+        .autosync-oneway {
+          display: inline-block;
+          margin-top: 0.5rem;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: var(--accent-light);
+          border: 1px solid rgba(124, 110, 245, 0.4);
+          border-radius: 999px;
+          padding: 0.15rem 0.6rem;
         }
         .share-row {
           display: flex;
