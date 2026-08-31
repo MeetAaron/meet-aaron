@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret, public_link_url')
+    .select('crm_auto_sync, collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret, public_link_url')
     .eq('id', user.company_id)
     .single();
 
@@ -55,6 +55,10 @@ export async function GET(request: NextRequest) {
       offer_as_active: company?.offer_as_active ?? false,
       offer_ac_active: company?.offer_ac_active ?? false,
       crm_provider: company?.crm_provider ?? null,
+      // Synchro CRM automatique un sens (docx 30/08) — true par défaut
+      // (migration_crm_auto_sync_2026-08-31.sql), y compris tant que la
+      // colonne n'existe pas encore.
+      crm_auto_sync: company?.crm_auto_sync !== false,
       crm_connection_notes: company?.crm_connection_notes ?? null,
       // Objectif de prospection + email de premier contact par défaut (demande
       // Alex, 2026-08-26) — voir migration_prospecting_goal_default_email_2026-08-26.sql,
@@ -88,6 +92,7 @@ export async function PATCH(request: NextRequest) {
     require_first_email_approval,
     daily_prospecting_email_cap,
     collaboration_level,
+    crm_auto_sync,
     crm_provider,
     crm_connection_notes,
     prospecting_goal,
@@ -157,6 +162,7 @@ export async function PATCH(request: NextRequest) {
 
   if (
     collaboration_level !== undefined ||
+    crm_auto_sync !== undefined ||
     crm_provider !== undefined ||
     crm_connection_notes !== undefined ||
     prospecting_goal !== undefined ||
@@ -170,6 +176,7 @@ export async function PATCH(request: NextRequest) {
     if (user) {
       const companyUpdates: Record<string, unknown> = {};
       if (collaboration_level !== undefined) companyUpdates.collaboration_level = collaboration_level;
+      if (crm_auto_sync !== undefined) companyUpdates.crm_auto_sync = !!crm_auto_sync;
       if (crm_provider !== undefined) companyUpdates.crm_provider = crm_provider;
       if (crm_connection_notes !== undefined) companyUpdates.crm_connection_notes = crm_connection_notes;
       if (prospecting_goal !== undefined) companyUpdates.prospecting_goal = prospecting_goal;
