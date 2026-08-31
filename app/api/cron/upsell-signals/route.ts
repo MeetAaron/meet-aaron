@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { generateUpsellSuggestion } from '@/lib/aaron-customer';
@@ -28,9 +29,16 @@ export async function GET(request: NextRequest) {
 
   const tenureCutoff = new Date(Date.now() - MIN_TENURE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
+  // Lot API-1 (docx 30/08) : automatismes Clients réservés au compte interne.
+  const allowedCompanyIds = await getCustomerAutomationCompanyIds();
+  if (allowedCompanyIds.length === 0) {
+    return NextResponse.json({ skipped: true, reason: 'automatismes Clients désactivés' });
+  }
+
   const { data: candidates, error } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, assigned_user_id, won_at, customer_health_score, users(id, full_name, email, notify_channel), prospect_companies(name)')
+    .in('company_id', allowedCompanyIds)
     // Client à part entière seulement — pas un prospect juste "gagné" en
     // attente de 1ère commande (voir migration_first_order_confirmed_2026-08-14.sql).
     .not('first_order_confirmed_at', 'is', null)
