@@ -857,6 +857,10 @@ export default function ResultatsPage() {
             <div className="category-head">
               <h2>{t('results.reportHistoryTitle', locale)}</h2>
             </div>
+            {/* Docx 30/08 : "précise qu'il s'agit d'un rapport qui concerne
+                les prospects ET les opportunités — chaque rapport contient
+                les 2 éléments". */}
+            <p className="muted report-scope-hint">{t('results.reportHistoryScope', locale)}</p>
             <div className="report-tabs">
               {['day', 'week', 'month'].map((ty) => (
                 <button
@@ -1109,6 +1113,10 @@ export default function ResultatsPage() {
           .stat-grid {
             grid-template-columns: repeat(2, 1fr);
           }
+        }
+        .report-scope-hint {
+          margin: -0.2rem 0 0.7rem;
+          font-size: 0.84rem;
         }
         .report-tabs {
           display: flex;
