@@ -9,6 +9,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
 import { frenchTypography } from '@/lib/text-typography';
 import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 
@@ -281,7 +282,7 @@ export default function DashboardPage() {
   async function loadAll() {
     setLoading(true);
     const [pRes, cRes, aRes, dRes, cuRes, prefRes, bsRes, connRes] = await Promise.all([
-      fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/prospects?user_id=${userId}&scope=all`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
@@ -408,6 +409,24 @@ export default function DashboardPage() {
     ).length;
     return acc;
   }, {});
+
+  // Lot 4 « Résultats du jour » (docx « mon avis », 31/08/2026) : 4 chiffres
+  // clés du jour + entonnoir global du pipeline fusionné (lib/pipeline.ts).
+  const prospectsContactesToday = prospects.filter((p) => p.created_at && new Date(p.created_at) >= startOfToday).length;
+  const propositionsToday = prospects.filter((p) => p.quote_requested_at && new Date(p.quote_requested_at) >= startOfToday).length;
+  const clientsGagnesToday = prospects.filter((p) => p.won_at && p.first_order_confirmed_at && new Date(p.won_at) >= startOfToday).length;
+  const pipelineCounts = countPipeline(prospects);
+  const funnelActive = prospects.filter((p) => !derivePipelinePosition(p).lost);
+  const funnelContacts = funnelActive.length;
+  const funnelRdv = funnelActive.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 2).length;
+  const funnelPropositions = funnelActive.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 3).length;
+  const funnelClients = pipelineCounts.byCategory.client;
+  const funnelSteps = [
+    { key: 'contacts', label: t('dash.funnelContacts', locale), value: funnelContacts, color: PIPELINE_COLORS.prospect },
+    { key: 'rdv', label: t('pipeline.stage.rdvObtenu', locale), value: funnelRdv, color: PIPELINE_COLORS.opportunite },
+    { key: 'propositions', label: t('dash.funnelPropositions', locale), value: funnelPropositions, color: '#b07cf5' },
+    { key: 'clients', label: t('pipeline.cat.clients', locale), value: funnelClients, color: PIPELINE_COLORS.client },
+  ];
 
   // #5 — au moins les 20 prochains RDV validés, regroupés par jour.
   const upcomingAppointments = appointments
@@ -821,111 +840,58 @@ export default function DashboardPage() {
               revient dans la même rangée que le pipeline Prospect, en
               première position (à gauche de "En bonne voie"), comme avant
               le découpage en bloc séparé du 2026-08-23. */}
-          <section className="panel category-panel">
-            <h2>{t('dash.prospectsTitle', locale)}</h2>
+          <section className="panel today-panel">
+            <h2>{t('dash.todayResultsTitle', locale)}</h2>
             <div className="category-row">
+              <div className="stat-card">
+                <span className="dot" style={{ background: PIPELINE_COLORS.prospect }} />
+                <span className="stat-number">{prospectsContactesToday}</span>
+                <span className="stat-label">{t('dash.todayProspects', locale)}</span>
+              </div>
               <div className="stat-card rdv-obtenu-card">
                 <span className="dot" style={{ background: '#4B9EF0' }} />
                 <span className="stat-number">{rdvObtenus24h.length}</span>
-                <span className="stat-label">{t('status.bleu', locale)}</span>
+                <span className="stat-label">{t('dash.todayRdv', locale)}</span>
                 <span className="stat-sublabel">
                   <span className="rdv-type"><span className="rdv-type-icon">💻</span>{t('agenda.kindVideo', locale)} {rdvObtenusByType.visio}</span>
                   <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
                   <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
                 </span>
-                {rdvObtenus24h.length > 0 && (
-                  <div className="rdv-type-chart">
-                    <HorizontalBarChart
-                      data={[
-                        { key: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
-                        { key: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
-                        { key: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
-                      ]}
-                      barColor="#4B9EF0"
-                    />
-                  </div>
-                )}
               </div>
               <div className="stat-card">
-                <span className="dot" style={{ background: STATUS_META.vert.color }} />
-                <span className="stat-number">{statusCounts.vert || 0}</span>
-                <span className="stat-label">{STATUS_META.vert.label}</span>
+                <span className="dot" style={{ background: '#b07cf5' }} />
+                <span className="stat-number">{propositionsToday}</span>
+                <span className="stat-label">{t('dash.todayPropositions', locale)}</span>
               </div>
-              {['jaune', 'orange', 'rouge'].map((key) => (
-                <div className="stat-card" key={key}>
-                  <span className="dot" style={{ background: STATUS_META[key].color }} />
-                  <span className="stat-number">{statusCounts[key] || 0}</span>
-                  <span className="stat-label">{STATUS_META[key].label}</span>
-                </div>
-              ))}
+              <div className="stat-card">
+                <span className="dot" style={{ background: PIPELINE_COLORS.client }} />
+                <span className="stat-number">{clientsGagnesToday}</span>
+                <span className="stat-label">{t('dash.todayClients', locale)}</span>
+              </div>
             </div>
-          </section>
 
-          {/* "pour opportuntié et client merci d'afficher la pipeline comme
-              pour prospect" (Alex, 2026-08-25) : la rangée de statuts
-              s'affiche désormais toujours (avec des 0), comme Prospect —
-              seul le cas "module non inclus dans l'abonnement" garde son
-              propre message dédié. */}
-          <section className="panel category-panel">
-            <h2>{t('dash.opportunitiesTitle', locale)}</h2>
-            {!salesModuleActive ? (
-              <EmptyState title={t('dash.salesLockedTitle', locale)} body={t('dash.salesLockedBody', locale)} compact />
-            ) : (
-              <>
-                <div className="category-row">
-                  {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
-                    <div className="stat-card" key={key}>
-                      <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
-                      <span className="stat-number">{opportunityCounts[key] || 0}</span>
-                      <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
+            {/* Entonnoir du pipeline complet (fusion, lib/pipeline.ts) : où en
+                sont TOUS les contacts actifs, avec le taux de passage entre
+                chaque étape. Cliquable → tableau Prospects. */}
+            <a className="funnel" href={`/app/prospects?user_id=${userId}`}>
+              {funnelSteps.map((step, i) => {
+                const prev = i > 0 ? funnelSteps[i - 1].value : null;
+                const rate = prev ? Math.round((step.value / prev) * 100) : null;
+                const width = funnelContacts > 0 ? Math.max(8, Math.round((step.value / funnelContacts) * 100)) : 8;
+                return (
+                  <div className="funnel-step" key={step.key}>
+                    <div className="funnel-head">
+                      <span className="funnel-label">{step.label}</span>
+                      {rate != null && <span className="funnel-rate">→ {rate} %</span>}
                     </div>
-                  ))}
-                </div>
-                {deals.length > 0 && (
-                  <div className="stat-chart">
-                    <HorizontalBarChart
-                      data={['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => ({
-                        key,
-                        label: OPPORTUNITY_META[key].label,
-                        value: opportunityCounts[key] || 0,
-                        color: OPPORTUNITY_META[key].color,
-                      }))}
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-
-          <section className="panel category-panel">
-            <h2>{t('dash.clientsTitle', locale)}</h2>
-            {!customerModuleActive ? (
-              <EmptyState title={t('dash.clientsLockedTitle', locale)} body={t('dash.clientsLockedBody', locale)} compact />
-            ) : (
-              <>
-                <div className="category-row">
-                  {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
-                    <div className="stat-card" key={key}>
-                      <span className="dot" style={{ background: HEALTH_META[key].color }} />
-                      <span className="stat-number">{healthCounts[key] || 0}</span>
-                      <span className="stat-label">{HEALTH_META[key].label}</span>
+                    <div className="funnel-bar-track">
+                      <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
                     </div>
-                  ))}
-                </div>
-                {customers.length > 0 && (
-                  <div className="stat-chart">
-                    <HorizontalBarChart
-                      data={['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => ({
-                        key,
-                        label: HEALTH_META[key].label,
-                        value: healthCounts[key] || 0,
-                        color: HEALTH_META[key].color,
-                      }))}
-                    />
                   </div>
-                )}
-              </>
-            )}
+                );
+              })}
+              <span className="funnel-hint">{t('dash.funnelHint', locale)} · {pipelineCounts.risk > 0 ? `⚠ ${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()} · ` : ''}{pipelineCounts.lost} {t('pipeline.lostLabel', locale).toLowerCase()}</span>
+            </a>
           </section>
         </>
       )}
@@ -1444,6 +1410,36 @@ export default function DashboardPage() {
           color: var(--accent);
           margin: 0 0 0.5rem;
         }
+        .today-panel h2 { margin-bottom: 1rem; }
+        .funnel {
+          display: block;
+          margin-top: 1.4rem;
+          text-decoration: none;
+          color: inherit;
+          border-top: 1px solid var(--border);
+          padding-top: 1.1rem;
+        }
+        .funnel-step { margin-bottom: 0.55rem; }
+        .funnel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.25rem; }
+        .funnel-label { font-size: 0.78rem; color: var(--muted); }
+        .funnel-rate { font-size: 0.74rem; font-family: var(--font-mono); color: var(--text); }
+        .funnel-bar-track { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+        .funnel-bar {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          min-width: 2.2rem;
+          height: 22px;
+          border-radius: 999px;
+          color: #0a0c17;
+          font-size: 0.76rem;
+          font-weight: 700;
+          padding: 0 0.6rem;
+          box-sizing: border-box;
+          transition: width 0.4s var(--ease);
+        }
+        .funnel-hint { display: block; margin-top: 0.6rem; font-size: 0.72rem; color: var(--muted); }
+        .funnel:hover .funnel-label { color: var(--text); }
         .category-panel {
           margin-top: 1.25rem;
         }
