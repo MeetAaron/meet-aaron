@@ -106,7 +106,11 @@ function formatSize(bytes, locale) {
 // Catégories de rattachement (#89) — NULL/'general' = exposé à tous les
 // modules d'Aaron, sinon réservé au module correspondant (voir
 // lib/aaron.ts / lib/aaron-sales.ts / lib/aaron-customer.ts).
-const CATEGORIES = ['general', 'prospects', 'opportunites', 'clients'];
+// Docx Modifs Aaron (30/08/2026, "Mes documents") : l'option « client » est
+// retirée à l'ajout d'un document — "désormais client sera nul" (la rubrique
+// Clients disparaît pour tous les comptes sauf aaron@). Un document déjà
+// rangé en « clients » s'affiche comme « général » dans le sélecteur.
+const CATEGORIES = ['general', 'prospects', 'opportunites'];
 
 function categoryLabelsFor(locale) {
   return {
@@ -436,7 +440,7 @@ export default function DocumentsPage() {
                   <td>
                     <select
                       className="category-select-inline"
-                      value={d.linked_category || 'general'}
+                      value={d.linked_category === 'clients' ? 'general' : d.linked_category || 'general'}
                       disabled={categoryUpdatingId === d.id}
                       onChange={(e) => handleCategoryChange(d, e.target.value)}
                     >
