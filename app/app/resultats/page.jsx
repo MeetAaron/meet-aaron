@@ -14,6 +14,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
+import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
@@ -489,6 +490,9 @@ export default function ResultatsPage() {
   }, [userId]);
   const showClientsSection = userEmail === 'aaron@meetaaron.app';
   const [prospects, setProspects] = useState([]);
+  // Fusion pipeline (lot 4) : TOUS les contacts (clients inclus) pour
+  // l'entonnoir et la vitesse par étape — sans toucher aux stats existantes.
+  const [allContacts, setAllContacts] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [deals, setDeals] = useState([]);
@@ -544,13 +548,15 @@ export default function ResultatsPage() {
     const sinceParam = prospectsRange.start ? `&since=${encodeURIComponent(prospectsRange.start.toISOString())}` : '';
     Promise.all([
       fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json()),
+      fetch(`/api/prospects?user_id=${userId}&scope=all`).then((r) => r.json()).catch(() => ({})),
       fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/sales/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/customers/pipeline?user_id=${userId}`).then((r) => r.json()),
       fetch(`/api/reply-rate?user_id=${userId}${sinceParam}`).then((r) => r.json()),
-    ]).then(([pRes, aRes, cRes, dRes, cuRes, rRes]) => {
+    ]).then(([pRes, allRes, aRes, cRes, dRes, cuRes, rRes]) => {
       setProspects(pRes.prospects || []);
+      setAllContacts((allRes && allRes.prospects) || []);
       setAppointments(aRes.appointments || []);
       setCampaigns(cRes.campaigns || []);
       setDeals(dRes.deals || []);
@@ -856,6 +862,73 @@ export default function ResultatsPage() {
 
           <section className="panel">
             <div className="category-head">
+              <h2>{t('results.funnelTitle', locale)}</h2>
+            </div>
+            <p className="muted report-scope-hint">{t('results.funnelHint', locale)}</p>
+            {(() => {
+              const active = allContacts.filter((p) => !derivePipelinePosition(p).lost);
+              const counts = countPipeline(allContacts);
+              const steps = [
+                { key: 'contacts', label: t('dash.funnelContacts', locale), value: active.length, color: PIPELINE_COLORS.prospect },
+                { key: 'rdv', label: t('pipeline.stage.rdvObtenu', locale), value: active.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 2).length, color: PIPELINE_COLORS.opportunite },
+                { key: 'propositions', label: t('dash.funnelPropositions', locale), value: active.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 3).length, color: '#b07cf5' },
+                { key: 'clients', label: t('pipeline.cat.clients', locale), value: counts.byCategory.client, color: PIPELINE_COLORS.client },
+              ];
+              const max = steps[0].value || 1;
+              const avgDays = (pairs) => {
+                const vals = pairs.filter(([a, b]) => a && b).map(([a, b]) => (new Date(b) - new Date(a)) / 86400000).filter((d) => d >= 0);
+                if (vals.length === 0) return null;
+                return Math.round((vals.reduce((x, y) => x + y, 0) / vals.length) * 10) / 10;
+              };
+              const firstApptByProspect = {};
+              for (const a of appointments) {
+                if (a.purpose === 'lancement' || !a.prospect_id) continue;
+                if (!firstApptByProspect[a.prospect_id] || new Date(a.proposed_at) < new Date(firstApptByProspect[a.prospect_id])) {
+                  firstApptByProspect[a.prospect_id] = a.proposed_at;
+                }
+              }
+              const speeds = [
+                { key: 'toRdv', label: t('results.speedToRdv', locale), days: avgDays(allContacts.map((p) => [p.created_at, firstApptByProspect[p.id]])) },
+                { key: 'toProposition', label: t('results.speedToProposition', locale), days: avgDays(allContacts.map((p) => [firstApptByProspect[p.id], p.quote_requested_at])) },
+                { key: 'toEnvoi', label: t('results.speedToEnvoi', locale), days: avgDays(allContacts.map((p) => [p.quote_requested_at, p.devis_sent_at])) },
+                { key: 'toClient', label: t('results.speedToClient', locale), days: avgDays(allContacts.filter((p) => p.first_order_confirmed_at).map((p) => [p.devis_sent_at || p.quote_requested_at || firstApptByProspect[p.id] || p.created_at, p.won_at])) },
+              ];
+              return (
+                <>
+                  <div className="funnel-block">
+                    {steps.map((step, i) => {
+                      const prev = i > 0 ? steps[i - 1].value : null;
+                      const rate = prev ? Math.round((step.value / prev) * 100) : null;
+                      const width = Math.max(8, Math.round((step.value / max) * 100));
+                      return (
+                        <div className="funnel-step" key={step.key}>
+                          <div className="funnel-head">
+                            <span className="funnel-label">{step.label}</span>
+                            {rate != null && <span className="funnel-rate">→ {rate} %</span>}
+                          </div>
+                          <div className="funnel-bar-track">
+                            <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="speed-row">
+                    {speeds.map((sp) => (
+                      <div className="speed-card" key={sp.key}>
+                        <span className="speed-number">{sp.days == null ? '—' : `${sp.days} j`}</span>
+                        <span className="speed-label">{sp.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="muted speed-hint">{t('results.speedHint', locale)}</p>
+                </>
+              );
+            })()}
+          </section>
+
+          <section className="panel">
+            <div className="category-head">
               <h2>{t('results.reportHistoryTitle', locale)}</h2>
             </div>
             {/* Docx 30/08 : "précise qu'il s'agit d'un rapport qui concerne
@@ -1119,6 +1192,38 @@ export default function ResultatsPage() {
           margin: -0.2rem 0 0.7rem;
           font-size: 0.84rem;
         }
+        .funnel-block { margin-bottom: 1.2rem; }
+        .funnel-step { margin-bottom: 0.55rem; }
+        .funnel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.25rem; }
+        .funnel-label { font-size: 0.78rem; color: var(--muted); }
+        .funnel-rate { font-size: 0.74rem; font-family: var(--font-mono); color: var(--text); }
+        .funnel-bar-track { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+        .funnel-bar {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          min-width: 2.2rem;
+          height: 22px;
+          border-radius: 999px;
+          color: #0a0c17;
+          font-size: 0.76rem;
+          font-weight: 700;
+          padding: 0 0.6rem;
+          box-sizing: border-box;
+        }
+        .speed-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; }
+        .speed-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.7rem 0.8rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+        }
+        .speed-number { font-family: var(--font-display); font-size: 1.25rem; font-weight: 700; }
+        .speed-label { font-size: 0.72rem; color: var(--muted); line-height: 1.25; }
+        .speed-hint { font-size: 0.72rem; margin: 0.6rem 0 0; }
         .report-tabs {
           display: flex;
           gap: 0.4rem;
