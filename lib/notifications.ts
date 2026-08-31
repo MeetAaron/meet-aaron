@@ -83,13 +83,22 @@ export async function buildNotifications(userId: string, now: Date = new Date())
   startOfToday.setHours(0, 0, 0, 0);
   const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
 
+  // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
+  // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
+  const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
+  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at';
+  async function loadProspects() {
+    let res = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
+    if (res.error && res.error.code === '42703') {
+      res = await supabaseAdmin.from('prospects').select(baseCols + ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason').eq('assigned_user_id', userId);
+    }
+    if (res.error && res.error.code === '42703') {
+      res = await supabaseAdmin.from('prospects').select(baseCols).eq('assigned_user_id', userId);
+    }
+    return res;
+  }
   const [{ data: prospects }, { data: appointments }] = await Promise.all([
-    supabaseAdmin
-      .from('prospects')
-      .select(
-        'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, quote_requested_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, aaron_advice, prospect_companies(name)'
-      )
-      .eq('assigned_user_id', userId),
+    loadProspects(),
     supabaseAdmin
       .from('appointments')
       .select('id, prospect_id, proposed_at, type, status, outcome, purpose, cancelled_by, client_cancel_acknowledged, missed_action_acknowledged, meet_link, prospects(full_name, personality_type, prospect_companies(name))')
@@ -120,7 +129,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
         type: 'devis_a_faire',
         at: p.quote_requested_at,
         days_waiting: days,
-        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_generated_at },
+        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_generated_at, paused: !!p.quote_paused_at },
       });
     }
     if (p.rescue_proposal_pending) {
