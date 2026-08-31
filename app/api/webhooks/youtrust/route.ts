@@ -28,6 +28,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { sendPushNotification } from '@/lib/push';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 
@@ -93,6 +94,8 @@ export async function POST(request: NextRequest) {
         won_reason: 'Devis signé électroniquement via Youtrust.',
       })
       .eq('id', prospect.id);
+    // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+    autoSyncWonProspect(prospect.id).catch(() => {});
 
     // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
     // que le commercial a déjà l'abonnement Aaron Clients.
