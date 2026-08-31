@@ -16,7 +16,7 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { generateSeatActivationCode } from '@/lib/invite-code';
-import { MODULE_CODES, ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
+import { ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
 
 function moduleColumn(module: ModuleCode) {
   return {
@@ -47,18 +47,17 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { first_name, last_name, job_title, email, modules } = await request.json();
+  const { first_name, last_name, job_title, email } = await request.json();
 
   if (!first_name || !last_name || !email) {
     return NextResponse.json({ error: 'Prénom, nom et email sont requis' }, { status: 400 });
   }
 
-  const selectedModules: ModuleCode[] = Array.isArray(modules)
-    ? (modules.filter((m: string) => MODULE_CODES.includes(m as ModuleCode)) as ModuleCode[])
-    : [];
-  if (selectedModules.length === 0) {
-    return NextResponse.json({ error: 'Choisis au moins un module pour ce compte équipe' }, { status: 400 });
-  }
+  // Abonnement unique Aaron (décision Alex, 31/08/2026) : un siège = UNE
+  // ligne Stripe au prix Aaron (l'ancien prix "AP", 30 €/mois) et l'accès
+  // complet à l'app. Le paramètre `modules` envoyé par d'anciennes versions
+  // de la modale est ignoré.
+  const selectedModules: ModuleCode[] = ['AP'];
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -140,6 +139,10 @@ export async function POST(request: NextRequest) {
     row[cols.active] = true;
     row[cols.item] = itemId;
   }
+  // Accès complet (Opportunités + Clients inclus dans l'abonnement unique) —
+  // sans ligne Stripe supplémentaire.
+  row.as_active = true;
+  row.ac_active = true;
 
   const { data: seat, error: insertError } = await supabaseAdmin
     .from('team_seats')
