@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       body: company?.offer_ac_active
         ? `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
         : `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
-      url: `/app/customer?user_id=${prospect.assigned_user_id}`,
+      url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
     });
 
     // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature — voir
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     await sendPushNotification(prospect.assigned_user_id, {
       title: 'Signature refusée',
       body: `${prospect.full_name} a refusé de signer le devis envoyé.`,
-      url: `/app/sales?user_id=${prospect.assigned_user_id}`,
+      url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
     });
   }
 
