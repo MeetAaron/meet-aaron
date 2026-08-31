@@ -40,6 +40,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { triggerAutomaticOnboarding } from './aaron-customer';
+import { autoSyncWonProspect } from './crm-sync';
 
 export async function convertMatchingProspectsToClients(
   signupEmail: string,
@@ -97,6 +98,8 @@ export async function convertMatchingProspectsToClients(
       triggerAutomaticOnboarding(prospect.id).catch((err) => {
         console.error(`Erreur onboarding automatique (conversion auto) pour prospect ${prospect.id}:`, err.message);
       });
+      // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+      autoSyncWonProspect(prospect.id).catch(() => {});
     }
   } catch (err: any) {
     console.error('Erreur convertMatchingProspectsToClients:', err.message);

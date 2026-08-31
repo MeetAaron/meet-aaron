@@ -1248,6 +1248,51 @@ const SYNC_BY_PROVIDER: Record<string, (companyId: string, prospect: WonProspect
   servicem8: syncWonProspectToServiceM8,
 };
 
+// Docx Modifs Aaron 30/08/2026 (onglet CRM) : "possibilité de synchroniser
+// automatiquement — dès qu'il y a un ajout de client, ça se met directement
+// dans le CRM de l'utilisateur. Mais ça ne va que dans un sens : d'Aaron
+// vers le CRM." Appelé (fire-and-forget) à chaque endroit où un prospect
+// devient gagné/client : action « Gagné » (app/api/prospects/[id]/route.ts),
+// détection d'un accord dans la boîte mail (cron check-inbox), signature
+// Yousign (webhook), conversion par paiement (lib/prospect-conversion.ts).
+// Remplace les anciens "niveaux de collaboration" 0-3 (synchro toutes les X
+// heures) — un seul réglage : companies.crm_auto_sync (migration
+// migration_crm_auto_sync_2026-08-31.sql, activé par défaut). Ne remonte
+// JAMAIS rien du CRM vers Aaron. Best-effort : ne lève jamais.
+const AUTO_SYNC_PROVIDERS = Object.keys(SYNC_BY_PROVIDER);
+
+export async function autoSyncWonProspect(prospectId: string): Promise<void> {
+  try {
+    const { data: prospect } = await supabaseAdmin
+      .from('prospects')
+      .select('id, full_name, email, job_title, company_id, crm_synced_at, prospect_companies(name)')
+      .eq('id', prospectId)
+      .maybeSingle();
+    if (!prospect || !prospect.company_id || prospect.crm_synced_at || !prospect.email) return;
+
+    const { data: company } = await supabaseAdmin
+      .from('companies')
+      .select('crm_auto_sync')
+      .eq('id', prospect.company_id)
+      .maybeSingle();
+    // Colonne absente (migration pas encore exécutée) = undefined → on
+    // considère la synchro active, comme la valeur par défaut de la migration.
+    if (company && company.crm_auto_sync === false) return;
+
+    const { data: connections } = await supabaseAdmin
+      .from('crm_connections')
+      .select('provider')
+      .eq('company_id', prospect.company_id)
+      .in('provider', AUTO_SYNC_PROVIDERS);
+    const provider = connections?.[0]?.provider;
+    if (!provider) return;
+
+    await syncWonProspectToCrm(prospect.company_id, provider, prospect as any);
+  } catch (err: any) {
+    console.error('Synchro CRM automatique (un sens) échouée pour le prospect', prospectId, ':', err?.message || err);
+  }
+}
+
 export async function syncWonProspectToCrm(companyId: string, provider: string, prospect: WonProspect): Promise<{ contact_id: string; deal_id: string | null }> {
   const syncFn = SYNC_BY_PROVIDER[provider];
   if (!syncFn) {
