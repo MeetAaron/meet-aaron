@@ -1,7 +1,7 @@
 // app/app/prospects/page.jsx
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -11,69 +11,10 @@ import MobileChrome from '@/components/MobileChrome';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
-import CompanyInfoEditor from '@/components/CompanyInfoEditor';
-import ContactInfoEditor from '@/components/ContactInfoEditor';
+import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
-
-// Étapes du pipeline Aaron Opportunité (voir NON_TERMINAL_STAGES dans
-// app/app/sales/page.jsx) considérées "en cours de traitement" : un
-// prospect qui y entre est désormais suivi dans Aaron Opportunité et ne
-// doit plus apparaître dans la liste brute des prospects, pour éviter le
-// doublon d'affichage entre les deux pages. Les étapes terminales (signé /
-// perdu) restent visibles ici, cohérent avec le badge "🏆 Gagné" existant
-// et avec le traitement des prospects perdus depuis cette page elle-même
-// (action marquer_perdu, qui ne touche pas deal_stage).
-const NON_TERMINAL_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
-
-// Demande d'Alex (docx CHANGEMENTS A FAIRE, item A1, 2026-08-20) : dans les
-// tableaux, le texte long (avis d'Aaron, notes de personnalité) s'affichait
-// en entier — "indigeste" selon ses mots. On n'affiche donc plus qu'un
-// échantillon du début, avec un bouton pour dérouler le texte complet si le
-// commercial le souhaite.
-const TRUNCATE_LENGTH = 90;
-// docx item 14 (2026-08-27, remonté par Alex) : "Conseil d'Aaron" prenait
-// encore trop de lignes dans la vue tableau compacte/globale malgré la
-// troncature ci-dessus (90 caractères ~= 4 lignes vu la largeur de colonne
-// .advice, max-width: 26ch). Longueur dédiée, plus courte, pour cette seule
-// colonne — le panneau détaillé "Voir plus" (ligne ~1438) continue d'afficher
-// le texte intégral, inchangé, comme Alex le souhaite explicitement.
-const ADVICE_TRUNCATE_LENGTH = 55;
-
-// Demande Alex (2026-08-22) : voir depuis quand un prospect est dans sa
-// catégorie actuelle (colonne "Depuis") — même helper que sales/page.jsx et
-// customer/page.jsx (daysSince), appliqué ici à prospects.status_updated_at
-// (nouvelle colonne, voir migration_status_updated_at_2026-08-22.sql).
-function daysSince(iso) {
-  if (!iso) return null;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
-}
-
-// Demande Alex (2026-08-26, capture d'écran à l'appui) : l'ancienne version
-// dépliait le texte complet EN PLACE, dans la même cellule de tableau large
-// de 26ch (voir .advice ci-dessous) — résultat illisible, une quasi-phrase
-// par ligne. "Voir plus" ouvre désormais la fiche complète du prospect
-// (ConversationModal, déjà utilisée par le bouton "Conversation" — voir
-// setThreadProspect passé ici via onExpand), qui affiche ce même texte dans
-// un cadre large de 600px et sans contrainte de largeur (.advice-line) :
-// beaucoup plus lisible, et cohérent avec ce que le commercial voit déjà en
-// ouvrant la conversation.
-function TruncatedText({ text, locale, onExpand, maxLength = TRUNCATE_LENGTH }) {
-  if (!text) return <span className="muted">—</span>;
-  // Typographie (demande Alex, 29/08/2026) : texte généré par Aaron
-  // (notes_personnalite, avis) — voir lib/text-typography.js.
-  const displayText = frenchTypography(text);
-  if (text.length <= maxLength) return <>{displayText}</>;
-
-  return (
-    <>
-      {frenchTypography(`${text.slice(0, maxLength).trimEnd()}…`)}
-      {' '}
-      <button type="button" className="truncate-toggle" onClick={onExpand}>
-        {t('common.seeMore', locale)}
-      </button>
-    </>
-  );
-}
+import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
+import { contactAlerts } from '@/lib/contact-alerts';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -176,27 +117,6 @@ function personalityLabelsFor(locale) {
   return Object.fromEntries(PERSONALITY_KEYS.map((key) => [key, t(`personality.${key}`, locale)]));
 }
 
-// Couleurs DISC standard (méthode des 4 couleurs) — reprises pour que le
-// profil de personnalité ressentie se reconnaisse visuellement d'un coup
-// d'œil, sans avoir à lire le libellé : Dominant = rouge, Influent = jaune,
-// Stable = vert, Consciencieux = bleu.
-const PERSONALITY_COLORS = {
-  dominant: '#E5484D',
-  influent: '#E5B93A',
-  stable: '#3DA35D',
-  consciencieux: '#4B9EF0',
-};
-
-function personalityTagStyle(type) {
-  const color = PERSONALITY_COLORS[type];
-  if (!color) return undefined;
-  return { border: `1px solid ${color}`, color };
-}
-
-function personalityColorLegendFor(locale) {
-  return t('prospects.personalityColorLegend', locale);
-}
-
 const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
   'prospects.colName',
   'prospects.colCompany',
@@ -223,6 +143,7 @@ function exportProspectsToCsv(prospects, locale, format) {
   const statusMeta = statusMetaFor(locale);
   const personalityLabels = personalityLabelsFor(locale);
   const headers = [
+    t('pipeline.colProgress', locale),
     t('prospects.colStatus', locale),
     t('prospects.colName', locale),
     t('prospects.colCompany', locale),
@@ -240,6 +161,10 @@ function exportProspectsToCsv(prospects, locale, format) {
     t('prospects.templateColManaged', locale),
   ];
   const rows = prospects.map((p) => [
+    (() => {
+      const pos = derivePipelinePosition(p);
+      return pos.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(pos.stage)].labelKey, locale);
+    })(),
     statusMeta[p.status]?.label || p.status,
     p.full_name,
     p.prospect_companies?.name || '',
@@ -270,62 +195,31 @@ function downloadBlankProspectsTemplate(locale, format) {
 export default function ProspectsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
-  const STATUS_META = statusMetaFor(locale);
   const PERSONALITY_LABELS = personalityLabelsFor(locale);
-  const PERSONALITY_COLOR_LEGEND = personalityColorLegendFor(locale);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('tous');
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [linkedinProspect, setLinkedinProspect] = useState(null);
-  const [wonProspect, setWonProspect] = useState(null);
-  const [actingOn, setActingOn] = useState(null);
-  const [search, setSearch] = useState('');
-  const [detailed, setDetailed] = useState(false);
-  const [threadProspect, setThreadProspect] = useState(null);
   const [pendingEmailProspect, setPendingEmailProspect] = useState(null);
-
-  // Demande Alex (27/08/2026) : "je suis obligé de descendre tout en bas"
-  // pour atteindre la barre de défilement horizontale du tableau (qui
-  // n'existait qu'en bas de .table-wrap, donc hors écran sur une longue
-  // liste). On ajoute une deuxième barre, fine, juste au-dessus du tableau
-  // (donc toujours visible sans scroller la page), synchronisée dans les
-  // deux sens avec le défilement réel du tableau via ces deux refs — un
-  // simple <div> vide dimensionné à la largeur réelle du contenu (scrollWidth)
-  // suffit à donner à cette barre du haut quelque chose à faire défiler.
-  const tableWrapRef = useRef(null);
-  const topScrollRef = useRef(null);
-  const [tableScrollWidth, setTableScrollWidth] = useState(0);
-
-  useEffect(() => {
-    function syncTableScrollWidth() {
-      if (tableWrapRef.current) {
-        setTableScrollWidth(tableWrapRef.current.scrollWidth);
-      }
-    }
-    syncTableScrollWidth();
-    window.addEventListener('resize', syncTableScrollWidth);
-    return () => window.removeEventListener('resize', syncTableScrollWidth);
-  }, [prospects, detailed, search, statusFilter]);
-
-  function handleTopScroll() {
-    if (tableWrapRef.current && topScrollRef.current) {
-      tableWrapRef.current.scrollLeft = topScrollRef.current.scrollLeft;
-    }
-  }
-  function handleTableWrapScroll() {
-    if (tableWrapRef.current && topScrollRef.current) {
-      topScrollRef.current.scrollLeft = tableWrapRef.current.scrollLeft;
-    }
-  }
+  const [search, setSearch] = useState('');
+  // Fusion Prospects + Opportunités + Clients (docx « mon avis » d'Alex,
+  // 31/08/2026) : un seul tableau, filtré par catégorie (prospects +
+  // opportunités par défaut, clients à la demande), par étape de la ligne
+  // de progression, et par raccourcis « risque » / « perdus » / « gérés par
+  // Aaron ». La fiche contact (components/ContactCard.jsx) s'ouvre en
+  // panneau latéral (feuille plein écran sur téléphone).
+  const [categories, setCategories] = useState(['prospect', 'opportunite']);
+  const [stageFilter, setStageFilter] = useState(null);
+  const [extraFilter, setExtraFilter] = useState(null); // 'risk' | 'lost' | null
+  const [aaronOnly, setAaronOnly] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   async function loadProspects() {
-    setLoading(true);
-    const res = await fetch(`/api/prospects?user_id=${userId}`).then((r) => r.json());
-    const all = res.prospects || [];
-    setProspects(all.filter((p) => !NON_TERMINAL_DEAL_STAGES.includes(p.deal_stage)));
+    const res = await fetch(`/api/prospects?user_id=${userId}&scope=all`).then((r) => r.json());
+    setProspects(res.prospects || []);
     setLoading(false);
   }
 
@@ -337,105 +231,89 @@ export default function ProspectsPage() {
       .then((res) => {
         if (res.user) setCompanyId(res.user.company_id);
       });
+    // Lien direct vers une fiche (notification push « Devis à faire », story
+    // du tableau de bord…) : /app/prospects?contact=<id>.
+    try {
+      const wanted = new URLSearchParams(window.location.search).get('contact');
+      if (wanted) setSelectedId(wanted);
+    } catch {}
   }, [userId]);
 
-  async function handleDelete(prospect) {
-    if (!window.confirm(t('prospects.confirmDeleteProspect', locale).replace('{name}', prospect.full_name))) {
-      return;
-    }
-    setActingOn(prospect.id);
-    await fetch(`/api/prospects/${prospect.id}`, { method: 'DELETE' });
-    setActingOn(null);
-    loadProspects();
+  const rows = prospects.map((p) => ({ p, position: derivePipelinePosition(p), alerts: contactAlerts(p) }));
+  const counts = countPipeline(prospects);
+  const aaronManagedCount = rows.filter((r) => r.p.ai_managed !== false && !r.position.lost).length;
+
+  function toggleCategory(cat) {
+    setExtraFilter(null);
+    setCategories((prev) => (prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]));
+  }
+  function toggleExtra(key) {
+    setExtraFilter((prev) => (prev === key ? null : key));
+    setStageFilter(null);
+  }
+  function toggleStage(stage) {
+    setExtraFilter(null);
+    setStageFilter((prev) => (prev === stage ? null : stage));
+    const cat = categoryOfStage(stage);
+    setCategories((prev) => (prev.includes(cat) ? prev : [...prev, cat]));
   }
 
-  // Bascule "Aaron s'en charge" par prospect (demande Alex, 2026-08-26) —
-  // même endpoint que le contrôle équivalent déjà utilisé pour Aaron Client
-  // (voir app/app/customer/page.jsx, handleToggleAiManaged), étendu par
-  // app/api/prospects/[id]/route.ts et app/api/cron/check-inbox/route.ts à
-  // tout prospect, plus seulement aux clients gagnés. Quand ai_managed passe
-  // à false, Aaron n'ouvre plus les messages de ce contact : ni relance
-  // automatique, ni brouillon de réponse.
-  async function handleToggleAiManaged(prospect) {
-    const nextManaged = prospect.ai_managed === false;
-    setActingOn(prospect.id);
-    await fetch(`/api/prospects/${prospect.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set_ai_managed', ai_managed: nextManaged }),
-    });
-    setActingOn(null);
-    loadProspects();
-  }
-
-  async function handleMarkLost(prospect) {
-    if (!window.confirm(t('prospects.confirmMarkLost', locale).replace('{name}', prospect.full_name))) {
-      return;
-    }
-    setActingOn(prospect.id);
-    await fetch(`/api/prospects/${prospect.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'marquer_perdu' }),
-    });
-    setActingOn(null);
-    loadProspects();
-  }
-
-  // firstOrderConfirmed = false : le prospect reste visible ici sous "🏆
-  // Gagné — en attente de 1ère commande" jusqu'à confirmation ultérieure
-  // (voir migration_first_order_confirmed_2026-08-14.sql). true : bascule
-  // directement en client (Résultats > Clients gagnés, Aaron Customer).
-  async function handleConfirmWon(firstOrderConfirmed) {
-    setActingOn(wonProspect.id);
-    await fetch(`/api/prospects/${wonProspect.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'marquer_gagne', first_order_confirmed: firstOrderConfirmed }),
-    });
-    setActingOn(null);
-    setWonProspect(null);
-    loadProspects();
-  }
-
-  async function handleConfirmFirstOrder(prospect) {
-    setActingOn(prospect.id);
-    await fetch(`/api/prospects/${prospect.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'confirmer_premiere_commande' }),
-    });
-    setActingOn(null);
-    loadProspects();
-  }
-
-  const pendingFirstEmails = prospects.filter((p) => p.pending_first_email_subject);
-
-  const statusFiltered = statusFilter === 'tous' ? prospects : prospects.filter((p) => p.status === statusFilter);
   const searchTerm = search.trim().toLowerCase();
-  const filtered = searchTerm
-    ? statusFiltered.filter((p) => {
-        const haystack = [
-          p.full_name,
-          p.email,
-          p.phone,
-          p.job_title,
-          p.prospect_companies?.name,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(searchTerm);
-      })
-    : statusFiltered;
+  const filtered = rows
+    .filter(({ p, position }) => {
+      if (extraFilter === 'lost') return position.lost;
+      if (position.lost) return false;
+      if (extraFilter === 'risk') return position.risk;
+      if (!categories.includes(position.category)) return false;
+      if (stageFilter && position.stage !== stageFilter) return false;
+      if (aaronOnly && p.ai_managed === false) return false;
+      return true;
+    })
+    .filter(({ p }) => {
+      if (!searchTerm) return true;
+      const haystack = [p.full_name, p.email, p.phone, p.job_title, p.prospect_companies?.name].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(searchTerm);
+    })
+    .sort((a, b) => {
+      const ua = a.alerts.some((x) => x.level === 'urgent') ? 0 : a.alerts.length > 0 ? 1 : 2;
+      const ub = b.alerts.some((x) => x.level === 'urgent') ? 0 : b.alerts.length > 0 ? 1 : 2;
+      if (ua !== ub) return ua - ub;
+      return 0;
+    });
 
-  // Compte, sur l'ensemble des prospects (pas seulement ceux affichés), combien
-  // de contacts existent par société — pour repérer d'un coup d'œil les sociétés
-  // où plusieurs interlocuteurs sont déjà en pipeline.
+  const selected = selectedId ? prospects.find((p) => p.id === selectedId) : null;
+
   const contactsPerCompany = {};
   for (const p of prospects) {
     if (!p.prospect_company_id) continue;
     contactsPerCompany[p.prospect_company_id] = (contactsPerCompany[p.prospect_company_id] || 0) + 1;
+  }
+
+  function nextStepFor({ p, position, alerts }) {
+    if (alerts.length > 0) {
+      return { text: t(alerts[0].labelKey, locale), level: alerts[0].level };
+    }
+    if (p.next_appointment) {
+      const d = new Date(p.next_appointment.proposed_at);
+      return { text: `${t('pipeline.next.rdv', locale)} ${d.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`, level: 'info' };
+    }
+    if (position.lost) {
+      return { text: position.lostReason ? t(`pipeline.lostReason.${position.lostReason}`, locale) : t('pipeline.lostLabel', locale), level: 'muted' };
+    }
+    if (position.stage === 'client') {
+      return { text: t('pipeline.next.client', locale), level: 'muted' };
+    }
+    if (p.aaron_advice) {
+      const short = p.aaron_advice.length > 70 ? `${p.aaron_advice.slice(0, 70).trimEnd()}…` : p.aaron_advice;
+      return { text: frenchTypography(short), level: 'muted' };
+    }
+    return { text: t(PIPELINE_STAGES[stageOrder(position.stage)].hintKey, locale), level: 'muted' };
+  }
+
+  function originLabel(p) {
+    if (p.origin === 'amene_par_aaron') return { icon: '🤖', text: t('pipeline.origin.aaron', locale) };
+    if (p.origin === 'reactive_par_aaron') return { icon: '♻️', text: t('pipeline.origin.reactivated', locale) };
+    return { icon: '👤', text: t('pipeline.origin.you', locale) };
   }
 
   if (authLoading) {
@@ -467,55 +345,105 @@ export default function ProspectsPage() {
     );
   }
 
+  const CATEGORY_DEFS = [
+    { key: 'prospect', label: t('pipeline.cat.prospects', locale), hint: t('pipeline.cat.prospectsHint', locale) },
+    { key: 'opportunite', label: t('pipeline.cat.opportunities', locale), hint: t('pipeline.cat.opportunitiesHint', locale) },
+    { key: 'client', label: t('pipeline.cat.clients', locale), hint: t('pipeline.cat.clientsHint', locale) },
+  ];
+
   return (
     <Shell active={t('nav.prospects', locale)} userId={userId}>
       <header className="header">
         <div>
           <p className="eyebrow">{t('prospects.eyebrow', locale)}</p>
           <h1>{t('prospects.title', locale)}</h1>
+          <p className="subtitle">{t('pipeline.subtitle', locale)} <button type="button" className="link-btn" onClick={() => setShowHelp((v) => !v)}>{showHelp ? t('pipeline.helpHide', locale) : t('pipeline.helpShow', locale)}</button></p>
         </div>
         <div className="header-actions">
-          {prospects.length > 0 && (
-            <button
-              className={detailed ? 'btn-secondary active' : 'btn-secondary'}
-              onClick={() => setDetailed((d) => !d)}
-            >
-              {detailed ? t('prospects.viewSimple', locale) : t('prospects.viewDetailed', locale)}
-            </button>
-          )}
-          {/* Bug remonté par Alex (25/08/2026) : ce bouton (téléchargement de
-              la base de prospects gérée par Aaron) était masqué tant qu'il
-              n'y avait aucun prospect — ce qui le faisait passer pour
-              "manquant" sur un compte encore vide. Toujours visible
-              maintenant, comme "Télécharger un modèle vierge" juste à côté ;
-              désactivé (plutôt que masqué) quand il n'y a réellement rien à
-              exporter, pour rester cohérent visuellement. */}
           <ExportFormatMenu
-            label={t('prospects.exportCsv', locale)}
+            label={t('pipeline.exportFile', locale)}
             disabled={filtered.length === 0}
-            onChoose={(format) => exportProspectsToCsv(filtered, locale, format)}
+            onChoose={(format) => exportProspectsToCsv(filtered.map((r) => r.p), locale, format)}
           />
-          <ExportFormatMenu
-            label={t('prospects.downloadTemplate', locale)}
-            onChoose={(format) => downloadBlankProspectsTemplate(locale, format)}
-          />
-          <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
-            {t('csvImport.button', locale)}
-          </button>
+          <div className="import-group">
+            <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
+              {t('pipeline.importFile', locale)}
+            </button>
+            <span className="import-note">
+              {t('pipeline.importNote', locale)}{' '}
+              <ExportFormatMenu label={t('pipeline.blankTemplate', locale)} variant="link" onChoose={(format) => downloadBlankProspectsTemplate(locale, format)} />
+            </span>
+          </div>
           <button className="btn-primary" onClick={() => setShowAddForm(true)}>
-            {t('prospects.addButton', locale)}
+            {t('pipeline.addManually', locale)}
           </button>
         </div>
       </header>
 
-      {pendingFirstEmails.length > 0 && (
-        <div className="pending-banner">
-          {t('prospects.pendingEmailsBanner', locale).replace('{count}', pendingFirstEmails.length)}
-          <button type="button" className="pending-banner-btn" onClick={() => setPendingEmailProspect(pendingFirstEmails[0])}>
-            {t('prospects.reviewNow', locale)}
-          </button>
+      {showHelp && (
+        <div className="help-box">
+          <p>{t('pipeline.helpIntro', locale)}</p>
+          <ul>
+            {PIPELINE_STAGES.map((s) => (
+              <li key={s.key}><strong>{CATEGORY_ICONS[s.category]} {t(s.labelKey, locale)}</strong> — {t(s.hintKey, locale)}</li>
+            ))}
+            <li><strong style={{ color: PIPELINE_COLORS.risk }}>⚠ {t('pipeline.riskLabel', locale)}</strong> — {t('pipeline.riskHint', locale)}</li>
+            <li><strong style={{ color: PIPELINE_COLORS.lost }}>✕ {t('pipeline.lostLabel', locale)}</strong> — {t('pipeline.lostHint', locale)}</li>
+          </ul>
         </div>
       )}
+
+      <div className="cat-row">
+        {CATEGORY_DEFS.map((c) => {
+          const on = extraFilter === null && categories.includes(c.key);
+          return (
+            <button
+              key={c.key}
+              type="button"
+              className={`cat-chip${on ? ' on' : ''}`}
+              style={on ? { borderColor: PIPELINE_COLORS[c.key], color: PIPELINE_COLORS[c.key], background: `${PIPELINE_COLORS[c.key]}18` } : undefined}
+              onClick={() => toggleCategory(c.key)}
+              title={c.hint}
+            >
+              <span className="cat-ic">{CATEGORY_ICONS[c.key]}</span>
+              {c.label}
+              <span className="cat-count">{counts.byCategory[c.key]}</span>
+            </button>
+          );
+        })}
+        <span className="cat-sep" />
+        <button type="button" className={`cat-chip small${extraFilter === 'risk' ? ' on risk' : ''}`} onClick={() => toggleExtra('risk')} title={t('pipeline.riskHint', locale)}>
+          ⚠ {t('pipeline.riskLabel', locale)} <span className="cat-count">{counts.risk}</span>
+        </button>
+        <button type="button" className={`cat-chip small${extraFilter === 'lost' ? ' on lost' : ''}`} onClick={() => toggleExtra('lost')} title={t('pipeline.lostHint', locale)}>
+          ✕ {t('pipeline.lostLabel', locale)} <span className="cat-count">{counts.lost}</span>
+        </button>
+        <button type="button" className={`cat-chip small${aaronOnly ? ' on aaron' : ''}`} onClick={() => setAaronOnly((v) => !v)} title={t('pipeline.aaronOnlyHint', locale)}>
+          🤖 {t('pipeline.aaronOnly', locale)} <span className="cat-count">{aaronManagedCount}</span>
+        </button>
+      </div>
+
+      <div className="stage-bar">
+        {PIPELINE_STAGES.map((s, i) => {
+          const on = stageFilter === s.key;
+          const color = PIPELINE_COLORS[s.category];
+          return (
+            <button
+              key={s.key}
+              type="button"
+              className={`stage-btn${on ? ' on' : ''}`}
+              style={on ? { borderColor: color, background: `${color}18` } : undefined}
+              onClick={() => toggleStage(s.key)}
+              title={t(s.hintKey, locale)}
+            >
+              {i > 0 && <span className="stage-link" />}
+              <span className="stage-dot" style={{ background: color }} />
+              <span className="stage-count">{counts.byStage[s.key]}</span>
+              <span className="stage-label">{t(s.labelKey, locale)}</span>
+            </button>
+          );
+        })}
+      </div>
 
       {prospects.length > 0 && (
         <div className="search-row">
@@ -534,31 +462,6 @@ export default function ProspectsPage() {
         </div>
       )}
 
-      <div className="filters">
-        <button className={statusFilter === 'tous' ? 'chip active' : 'chip'} onClick={() => setStatusFilter('tous')}>
-          {t('prospects.allFilter', locale).replace('{count}', prospects.length)}
-        </button>
-        {Object.entries(STATUS_META).map(([key, meta]) => {
-          const count = prospects.filter((p) => p.status === key).length;
-          return (
-            <button
-              key={key}
-              className={statusFilter === key ? 'chip active' : 'chip'}
-              onClick={() => setStatusFilter(key)}
-            >
-              <span className="chip-dot" style={{ background: meta.color }} />
-              {meta.label} ({count})
-            </button>
-          );
-        })}
-      </div>
-
-      {searchTerm && (
-        <p className="search-result-count muted">
-          {t('prospects.searchResultCount', locale).replace('{count}', filtered.length).replace('{query}', search.trim())}
-        </p>
-      )}
-
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : filtered.length === 0 ? (
@@ -574,176 +477,134 @@ export default function ProspectsPage() {
         />
       ) : (
         <>
-          <div className="table-scroll-top" ref={topScrollRef} onScroll={handleTopScroll}>
-            <div style={{ width: tableScrollWidth, height: 1 }} />
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('pipeline.colProgress', locale)}</th>
+                  <th>{t('prospects.colContact', locale)}</th>
+                  <th>{t('pipeline.colConviction', locale)}</th>
+                  <th>{t('pipeline.colOrigin', locale)}</th>
+                  <th>{t('pipeline.colNextStep', locale)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => {
+                  const { p, position, alerts } = row;
+                  const urgent = alerts.some((a) => a.level === 'urgent');
+                  const next = nextStepFor(row);
+                  const origin = originLabel(p);
+                  const conviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+                  const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
+                  const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
+                  return (
+                    <tr key={p.id} className={`row${selectedId === p.id ? ' selected' : ''}`} onClick={() => setSelectedId(p.id)}>
+                      <td className="progress-cell">
+                        <div className="progress-inner">
+                          <span className="cat-badge" style={{ background: `${catColor}22`, color: catColor }}>{position.lost ? '✕' : CATEGORY_ICONS[position.category]}</span>
+                          <div>
+                            <ProgressLine position={position} locale={locale} compact />
+                            <span className="stage-name" style={{ color: catColor }}>
+                              {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
+                              {position.risk && <span className="risk-flag" title={t('pipeline.riskLabel', locale)}> ⚠</span>}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="contact-cell">
+                        <div className="name-line">
+                          <span className="name">{p.full_name}</span>
+                          <DiscBadge type={p.personality_type} locale={locale} />
+                          {alerts.length > 0 && <span className={`alert-dot${urgent ? ' urgent' : ''}`} title={t(alerts[0].labelKey, locale)}>!</span>}
+                          {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}>⏸</span>}
+                        </div>
+                        <div className="company-line muted">
+                          {p.prospect_companies?.name || p.email}
+                          {p.job_title ? ` · ${p.job_title}` : ''}
+                          {otherContacts > 0 && (
+                            <button
+                              type="button"
+                              className="company-badge"
+                              title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
+                              onClick={(e) => { e.stopPropagation(); setSearch(p.prospect_companies?.name || ''); }}
+                            >
+                              +{otherContacts}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="conviction-cell">
+                        {conviction != null ? (
+                          <div className="conviction" title={p.conviction_reason || p.negotiation_confidence_reason || ''}>
+                            <span className="bar"><span style={{ width: `${Math.max(0, Math.min(100, conviction))}%`, background: conviction >= 70 ? PIPELINE_COLORS.client : conviction >= 40 ? PIPELINE_COLORS.wonPending : PIPELINE_COLORS.lost }} /></span>
+                            <span className="score">{conviction}</span>
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="origin-cell muted"><span title={origin.text}>{origin.icon} {origin.text}</span></td>
+                      <td className={`next-cell ${next.level}`}>{next.text}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          <div className="table-wrap" ref={tableWrapRef} onScroll={handleTableWrapScroll}>
-          <table>
-            <thead>
-              <tr>
-                <th>{t('prospects.colStatus', locale)}</th>
-                <th>{t('prospects.colStatusSince', locale)}</th>
-                <th>{t('prospects.colName', locale)}</th>
-                <th>{t('prospects.colCompany', locale)}</th>
-                {detailed && <th>{t('prospects.colJobTitle', locale)}</th>}
-                <th>{t('prospects.colPersonality', locale)}</th>
-                <th>{t('modal.aaronAdvice', locale)}</th>
-                <th>{t('prospects.colContact', locale)}</th>
-                <th>{t('prospects.colActions', locale)}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => {
-                const meta = STATUS_META[p.status] || STATUS_META.jaune;
-                const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
-                const wonUnconfirmed = p.is_won && !p.first_order_confirmed_at;
-                return (
-                  <tr key={p.id}>
-                    <td>
-                      {wonUnconfirmed ? (
-                        <span className="status-pill" style={{ color: '#D4A017', borderColor: '#D4A017' }} title={t('prospects.wonPendingTitle', locale)}>
-                          <span className="dot" style={{ background: '#D4A017' }} />
-                          {t('prospects.wonPendingLabel', locale)}
-                        </span>
-                      ) : (
-                        <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>
-                          <span className="dot" style={{ background: meta.color }} />
-                          {meta.label}
-                        </span>
-                      )}
-                    </td>
-                    <td className="muted since-cell">
-                      {p.status_updated_at ? (
-                        <span title={new Date(p.status_updated_at).toLocaleString(locale)}>
-                          {daysSince(p.status_updated_at)} {t('sales.daysSuffix', locale)}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="strong">{p.full_name}</td>
-                    <td className="muted">
-                      {p.prospect_companies?.name || '—'}
-                      {otherContacts > 0 && (
-                        <button
-                          type="button"
-                          className="company-badge"
-                          title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
-                          onClick={() => setSearch(p.prospect_companies?.name || '')}
-                        >
-                          +{otherContacts}
-                        </button>
-                      )}
-                    </td>
-                    {detailed && <td className="muted">{p.job_title || '—'}</td>}
-                    <td>
-                      {p.personality_type ? (
-                        <span className="tag" style={personalityTagStyle(p.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[p.personality_type] || p.personality_type}</span>
-                      ) : (
-                        <span className="muted">{t('personality.notDetected', locale)}</span>
-                      )}
-                      {p.personality_notes && <p className="notes"><TruncatedText text={p.personality_notes} locale={locale} onExpand={() => setThreadProspect(p)} /></p>}
-                    </td>
-                    <td className="advice"><TruncatedText text={p.aaron_advice} locale={locale} onExpand={() => setThreadProspect(p)} maxLength={ADVICE_TRUNCATE_LENGTH} /></td>
-                    <td className="contact">
-                      <div>{p.email}</div>
-                      {p.phone && <div className="muted">{p.phone}</div>}
-                      <button type="button" className="li-btn" onClick={() => setLinkedinProspect(p)}>
-                        {t('prospects.linkedinMessageButton', locale)}
-                      </button>
-                    </td>
-                    <td className="row-actions-cell">
-                      <button
-                        type="button"
-                        className="action-btn edit"
-                        onClick={() => setThreadProspect(p)}
-                        title={t('prospects.editButtonTitle', locale)}
-                      >
-                        ✏️
-                      </button>
-                      {p.pending_first_email_subject && (
-                        <button
-                          type="button"
-                          className="action-btn pending-email"
-                          onClick={() => setPendingEmailProspect(p)}
-                          title={t('prospects.validateFirstEmailTitle', locale)}
-                        >
-                          {t('prospects.validateFirstEmailButton', locale)}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="action-btn thread"
-                        onClick={() => setThreadProspect(p)}
-                        title={t('prospects.conversationTitle', locale)}
-                      >
-                        {t('prospects.conversationButton', locale)}
-                      </button>
-                      {wonUnconfirmed ? (
-                        <button
-                          type="button"
-                          className="action-btn won"
-                          disabled={actingOn === p.id}
-                          onClick={() => handleConfirmFirstOrder(p)}
-                          title={t('prospects.confirmOrderTitle', locale)}
-                        >
-                          {t('prospects.confirmOrderButton', locale)}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="action-btn won"
-                            disabled={actingOn === p.id}
-                            onClick={() => setWonProspect(p)}
-                            title={t('prospects.wonButtonTitle', locale)}
-                          >
-                            {t('prospects.wonButtonLabel', locale)}
-                          </button>
-                          <button
-                            type="button"
-                            className="action-btn lost"
-                            disabled={actingOn === p.id}
-                            onClick={() => handleMarkLost(p)}
-                            title={t('prospects.lostButtonTitle', locale)}
-                          >
-                            {t('status.rouge', locale)}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className={`action-btn ai-managed-toggle${p.ai_managed === false ? ' off' : ' on'}`}
-                        disabled={actingOn === p.id}
-                        onClick={() => handleToggleAiManaged(p)}
-                        title={p.ai_managed === false ? t('prospects.aiManagedOffTitle', locale) : t('prospects.aiManagedOnTitle', locale)}
-                      >
-                        {p.ai_managed === false ? `⏸️ ${t('prospects.aiManagedOffLabel', locale)}` : `🤖 ${t('prospects.aiManagedOnLabel', locale)}`}
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn delete"
-                        disabled={actingOn === p.id}
-                        onClick={() => handleDelete(p)}
-                      >
-                        🗑
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+          <div className="cards">
+            {filtered.map((row) => {
+              const { p, position, alerts } = row;
+              const urgent = alerts.some((a) => a.level === 'urgent');
+              const next = nextStepFor(row);
+              const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
+              const conviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+              return (
+                <button type="button" key={p.id} className="mcard" onClick={() => setSelectedId(p.id)}>
+                  <span className="cat-badge" style={{ background: `${catColor}22`, color: catColor }}>{position.lost ? '✕' : CATEGORY_ICONS[position.category]}</span>
+                  <div className="mcard-body">
+                    <div className="name-line">
+                      <span className="name">{p.full_name}</span>
+                      <DiscBadge type={p.personality_type} locale={locale} />
+                      {alerts.length > 0 && <span className={`alert-dot${urgent ? ' urgent' : ''}`}>!</span>}
+                    </div>
+                    <div className="company-line muted">{p.prospect_companies?.name || p.email}</div>
+                    <div className="mcard-progress">
+                      <ProgressLine position={position} locale={locale} compact />
+                      <span className="stage-name" style={{ color: catColor }}>
+                        {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
+                        {position.risk && ' ⚠'}
+                      </span>
+                      {conviction != null && <span className="mcard-score">{conviction}/100</span>}
+                    </div>
+                    <div className={`mcard-next ${next.level}`}>{next.text}</div>
+                  </div>
+                  <span className="chev">›</span>
+                </button>
+              );
+            })}
           </div>
         </>
       )}
 
-      {linkedinProspect && (
-        <LinkedInDraftModal prospect={linkedinProspect} onClose={() => setLinkedinProspect(null)} />
+      {selected && (
+        <ContactCard
+          prospect={selected}
+          locale={locale}
+          userId={userId}
+          onClose={() => setSelectedId(null)}
+          onChanged={loadProspects}
+          onValidateEmail={(p) => setPendingEmailProspect(p)}
+          onLinkedin={(p) => setLinkedinProspect(p)}
+          onDeleted={() => {
+            setSelectedId(null);
+            loadProspects();
+          }}
+        />
       )}
 
-      {threadProspect && (
-        <ConversationModal prospect={threadProspect} onClose={() => setThreadProspect(null)} onSaved={loadProspects} />
+      {linkedinProspect && (
+        <LinkedInDraftModal prospect={linkedinProspect} onClose={() => setLinkedinProspect(null)} />
       )}
 
       {pendingEmailProspect && (
@@ -757,28 +618,6 @@ export default function ProspectsPage() {
         />
       )}
 
-      {wonProspect && (
-        <div className="overlay" onClick={() => setWonProspect(null)}>
-          <div className="won-modal" onClick={(e) => e.stopPropagation()}>
-            <p className="won-title">{t('prospects.wonModalTitle', locale)}</p>
-            <p className="won-body">
-              {t('prospects.wonModalBodyLine1', locale).replace('{name}', wonProspect.full_name)}
-              <br />
-              {t('prospects.wonModalBodyLine2', locale)}
-            </p>
-            <p className="won-hint">
-              {t('prospects.wonModalHintLine1', locale).replace('{name}', wonProspect.full_name)}<br />
-              {t('prospects.wonModalHintLine2', locale)}
-            </p>
-            <div className="won-actions">
-              <button type="button" className="btn-secondary" onClick={() => setWonProspect(null)}>{t('common.cancel', locale)}</button>
-              <button type="button" className="btn-secondary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(false)}>{t('prospects.wonModalNotYet', locale)}</button>
-              <button type="button" className="btn-primary" disabled={actingOn === wonProspect.id} onClick={() => handleConfirmWon(true)}>{t('prospects.wonModalConfirmed', locale)}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showAddForm && (
         <AddProspectModal
           userId={userId}
@@ -789,12 +628,6 @@ export default function ProspectsPage() {
             loadProspects();
           }}
           onFirstContactSettled={(emailWarning) => {
-            // docx item 13 (2026-08-27) : le prospect apparaît déjà dans la
-            // liste (onCreated ci-dessus) — cet appel arrive un peu plus
-            // tard, une fois qu'Aaron a fini de préparer/envoyer le premier
-            // message en arrière-plan. On rafraîchit la liste pour refléter
-            // le statut/conseil final, et on affiche l'avertissement s'il y
-            // en a un (mêmes messages qu'avant, juste asynchrones).
             loadProspects();
             if (emailWarning) {
               window.alert(emailWarning);
@@ -821,14 +654,17 @@ export default function ProspectsPage() {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
-          margin-bottom: 1.5rem;
+          gap: 1rem;
+          margin-bottom: 1.3rem;
         }
         .header-actions {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           flex-wrap: wrap;
           gap: 0.6rem;
         }
+        .import-group { display: flex; flex-direction: column; gap: 0.25rem; }
+        .import-note { font-size: 0.72rem; color: var(--muted); max-width: 22ch; line-height: 1.3; }
         .btn-secondary {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -837,57 +673,27 @@ export default function ProspectsPage() {
           padding: 0.7rem 1.1rem;
           font-size: 0.86rem;
           cursor: pointer;
+          font-family: inherit;
         }
-        .btn-secondary.active {
-          border-color: var(--accent);
-          color: var(--accent);
-          background: rgba(75, 57, 239, 0.1);
-        }
-        .search-row {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          margin-bottom: 1rem;
-        }
-        .search-input {
-          flex: 1;
-          min-width: 0;
-          width: 100%;
-          box-sizing: border-box;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: 0.65rem 1rem;
-          color: var(--text);
-          font-size: 0.86rem;
-        }
-        .search-input::placeholder {
-          color: var(--muted);
-        }
-        .search-clear {
-          background: none;
-          border: 1px solid var(--border);
-          color: var(--muted);
-          border-radius: var(--radius-md);
-          padding: 0.6rem 0.9rem;
-          font-size: 0.82rem;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .search-result-count {
-          font-size: 0.8rem;
-          margin: -0.6rem 0 1rem;
-        }
-        .company-badge {
-          display: inline-block;
-          margin-left: 0.4rem;
-          background: rgba(75, 57, 239, 0.16);
-          color: var(--text);
+        .btn-primary {
+          background: var(--accent);
+          color: white;
           border: none;
-          border-radius: 999px;
-          padding: 0.1rem 0.5rem;
-          font-size: 0.7rem;
-          font-family: var(--font-mono);
+          border-radius: var(--radius-md);
+          padding: 0.7rem 1.1rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .link-btn {
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--accent-light);
+          font-size: inherit;
+          font-family: inherit;
+          text-decoration: underline;
           cursor: pointer;
         }
         .eyebrow {
@@ -903,50 +709,111 @@ export default function ProspectsPage() {
           font-size: 1.9rem;
           margin: 0;
         }
-        .btn-primary {
-          background: var(--accent);
-          color: white;
-          border: none;
-          border-radius: var(--radius-md);
-          padding: 0.7rem 1.1rem;
-          font-size: 0.86rem;
-          font-weight: 600;
-          cursor: pointer;
+        .subtitle { color: var(--muted); font-size: 0.86rem; margin: 0.4rem 0 0; max-width: 60ch; }
+        .help-box {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1rem 1.2rem;
+          margin-bottom: 1.2rem;
+          font-size: 0.84rem;
+          line-height: 1.5;
         }
-        .filters {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-          margin-bottom: 1.5rem;
-        }
-        .chip {
-          display: flex;
+        .help-box p { margin: 0 0 0.5rem; color: var(--muted); }
+        .help-box ul { margin: 0; padding-left: 1.1rem; }
+        .help-box li { margin-bottom: 0.25rem; }
+        .cat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; }
+        .cat-sep { width: 1px; height: 1.6rem; background: var(--border); margin: 0 0.3rem; }
+        .cat-chip {
+          display: inline-flex;
           align-items: center;
-          gap: 0.4rem;
+          gap: 0.45rem;
           background: var(--surface);
           border: 1px solid var(--border);
           color: var(--muted);
           border-radius: 999px;
-          padding: 0.45rem 0.9rem;
-          font-size: 0.8rem;
+          padding: 0.5rem 0.95rem;
+          font-size: 0.84rem;
+          font-weight: 600;
           cursor: pointer;
+          font-family: inherit;
+          transition: border-color var(--fast), color var(--fast), background var(--fast);
         }
-        .chip.active {
-          border-color: var(--accent);
+        .cat-chip.small { font-weight: 500; font-size: 0.78rem; padding: 0.4rem 0.8rem; }
+        .cat-chip.on.risk { border-color: ${PIPELINE_COLORS.risk}; color: ${PIPELINE_COLORS.risk}; background: ${PIPELINE_COLORS.risk}18; }
+        .cat-chip.on.lost { border-color: ${PIPELINE_COLORS.lost}; color: ${PIPELINE_COLORS.lost}; background: ${PIPELINE_COLORS.lost}18; }
+        .cat-chip.on.aaron { border-color: var(--accent); color: var(--accent-light); background: rgba(75, 57, 239, 0.14); }
+        .cat-ic { font-size: 0.95rem; }
+        .cat-count {
+          background: rgba(244, 241, 234, 0.08);
+          color: inherit;
+          border-radius: 999px;
+          padding: 0.05rem 0.5rem;
+          font-size: 0.72rem;
+          font-family: var(--font-mono);
+        }
+        .stage-bar {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 0;
+          margin-bottom: 1.1rem;
+        }
+        .stage-btn {
+          position: relative;
+          background: transparent;
+          border: 1px solid transparent;
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.3rem 0.5rem;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.25rem;
+          cursor: pointer;
+          font-family: inherit;
+          color: var(--muted);
+          transition: border-color var(--fast), background var(--fast);
+        }
+        .stage-btn:hover { background: var(--surface); }
+        .stage-btn.on { color: var(--text); }
+        .stage-link {
+          position: absolute;
+          top: calc(0.6rem + 6px);
+          left: -50%;
+          width: 100%;
+          height: 2px;
+          background: var(--border);
+          z-index: 0;
+        }
+        .stage-dot { position: relative; z-index: 1; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 3px var(--bg); }
+        .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
+        .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
+        .search-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+        .search-input {
+          flex: 1;
+          min-width: 0;
+          width: 100%;
+          box-sizing: border-box;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.65rem 1rem;
           color: var(--text);
-          background: rgba(75, 57, 239, 0.14);
+          font-size: 0.86rem;
+          font-family: inherit;
         }
-        .chip-dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
+        .search-input::placeholder { color: var(--muted); }
+        .search-clear {
+          background: none;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          border-radius: var(--radius-md);
+          padding: 0.6rem 0.9rem;
+          font-size: 0.82rem;
+          cursor: pointer;
+          white-space: nowrap;
+          font-family: inherit;
         }
-        .table-scroll-top {
-          overflow-x: auto;
-          overflow-y: hidden;
-          height: 14px;
-          margin-bottom: 0.4rem;
-        }
+        .muted { color: var(--muted); }
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -954,209 +821,114 @@ export default function ProspectsPage() {
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
         }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.86rem;
-        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
         thead th {
           text-align: left;
-          padding: 0.9rem 1.1rem;
-          font-size: 0.72rem;
+          padding: 0.8rem 1rem;
+          font-size: 0.7rem;
           text-transform: uppercase;
           letter-spacing: 0.06em;
           color: var(--muted);
           border-bottom: 1px solid var(--border);
+          white-space: nowrap;
         }
-        tbody td {
-          padding: 0.9rem 1.1rem;
-          border-bottom: 1px solid var(--border);
-          vertical-align: top;
-        }
-        tbody tr:last-child td {
-          border-bottom: none;
-        }
-        .strong {
-          font-weight: 600;
-        }
-        .muted {
-          color: var(--muted);
-        }
-        .status-pill {
+        tbody td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tbody tr:last-child td { border-bottom: none; }
+        .row { cursor: pointer; transition: background var(--fast); }
+        .row:hover { background: var(--surface-hover); }
+        .row.selected { background: rgba(75, 57, 239, 0.1); }
+        .progress-cell { width: 150px; }
+        .progress-inner { display: flex; align-items: center; gap: 0.6rem; }
+        .cat-badge {
+          width: 1.9rem;
+          height: 1.9rem;
+          border-radius: 10px;
           display: inline-flex;
           align-items: center;
-          gap: 0.4rem;
-          border: 1px solid;
-          border-radius: 999px;
-          padding: 0.25rem 0.7rem;
-          font-size: 0.76rem;
-          white-space: nowrap;
+          justify-content: center;
+          font-size: 0.95rem;
+          flex-shrink: 0;
         }
-        .dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-        }
-        .tag {
-          background: rgba(75, 57, 239, 0.16);
-          color: var(--text);
-          padding: 0.2rem 0.6rem;
-          border-radius: var(--radius-sm);
-          font-size: 0.78rem;
-        }
-        .notes {
-          margin: 0.35rem 0 0;
-          color: var(--muted);
-          font-size: 0.78rem;
-          max-width: 22ch;
-        }
-        .advice {
-          max-width: 26ch;
-          color: var(--text);
-          overflow-wrap: break-word;
-        }
-        .contact {
-          font-size: 0.82rem;
-          white-space: nowrap;
-        }
-        .li-btn {
-          display: block;
-          margin-top: 0.35rem;
-          background: transparent;
-          border: 1px solid var(--border);
-          color: var(--accent);
-          border-radius: var(--radius-sm);
-          padding: 0.25rem 0.55rem;
-          font-size: 0.72rem;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .truncate-toggle {
-          background: none;
-          border: none;
-          padding: 0;
-          color: var(--accent);
-          font-size: inherit;
-          font-family: inherit;
-          text-decoration: underline;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .row-actions-cell {
-          white-space: nowrap;
-        }
-        .action-btn {
-          display: inline-block;
-          margin: 0 0.3rem 0.3rem 0;
-          background: transparent;
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.3rem 0.55rem;
-          font-size: 0.74rem;
-          cursor: pointer;
-          color: var(--text);
-        }
-        .action-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .action-btn.won {
-          border-color: var(--accent-green);
-          color: var(--accent-green);
-        }
-        .action-btn.lost {
-          border-color: var(--accent-red);
-          color: var(--accent-red);
-        }
-        .action-btn.thread {
-          border-color: var(--accent);
-          color: var(--accent);
-        }
-        .action-btn.pending-email {
-          border-color: var(--accent-amber);
-          color: var(--accent-amber);
-          font-weight: 600;
-        }
-        .action-btn.ai-managed-toggle.on {
-          border-color: var(--accent);
-          color: var(--accent);
-        }
-        .action-btn.ai-managed-toggle.off {
-          border-color: var(--muted);
-          color: var(--muted);
-        }
-        .pending-banner {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 0.8rem;
-          background: rgba(212, 160, 23, 0.12);
-          border: 1px solid var(--accent-amber);
-          color: var(--text);
-          border-radius: var(--radius-md);
-          padding: 0.8rem 1.1rem;
-          font-size: 0.86rem;
-          margin-bottom: 1.2rem;
-        }
-        .pending-banner-btn {
-          background: var(--accent-amber);
-          color: var(--bg-elevated);
-          border: none;
-          border-radius: var(--radius-sm);
-          padding: 0.4rem 0.9rem;
-          font-size: 0.8rem;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .action-btn.delete {
-          color: var(--accent-red);
-        }
-        .action-btn.edit {
-          border-color: var(--border);
-          color: var(--text);
-        }
-        .overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.6);
-          display: flex;
+        .stage-name { display: block; font-size: 0.7rem; margin-top: 0.3rem; white-space: nowrap; }
+        .risk-flag { color: ${PIPELINE_COLORS.risk}; }
+        .name-line { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+        .name { font-weight: 600; }
+        .alert-dot {
+          display: inline-flex;
           align-items: center;
           justify-content: center;
-          z-index: 100;
-          padding: 1rem;
+          width: 1.1rem;
+          height: 1.1rem;
+          border-radius: 50%;
+          background: var(--accent-amber);
+          color: #1a1400;
+          font-size: 0.7rem;
+          font-weight: 800;
+          flex-shrink: 0;
         }
-        .won-modal {
-          background: var(--surface);
-          border: 1px solid var(--accent-green);
-          border-radius: var(--radius-lg);
-          padding: 1.8rem;
-          width: 420px;
-          max-width: 100%;
-          max-height: 88vh;
-          overflow-y: auto;
-        }
-        .won-title {
-          font-family: var(--font-display);
-          font-size: 1.3rem;
-          margin: 0 0 0.8rem;
-        }
-        .won-body {
+        .alert-dot.urgent { background: var(--accent-red); color: #fff; animation: pulse 1.6s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 89, 0.5); } 50% { box-shadow: 0 0 0 5px rgba(239, 68, 89, 0); } }
+        .paused { color: var(--muted); font-size: 0.75rem; }
+        .company-line { font-size: 0.78rem; margin-top: 0.15rem; }
+        .company-badge {
+          display: inline-block;
+          margin-left: 0.4rem;
+          background: rgba(75, 57, 239, 0.16);
           color: var(--text);
-          font-size: 0.9rem;
-          line-height: 1.5;
-          margin: 0 0 0.6rem;
+          border: none;
+          border-radius: 999px;
+          padding: 0.1rem 0.5rem;
+          font-size: 0.7rem;
+          font-family: var(--font-mono);
+          cursor: pointer;
         }
-        .won-hint {
-          color: var(--muted);
-          font-size: 0.8rem;
-          line-height: 1.5;
-          margin: 0 0 1.4rem;
-        }
-        .won-actions {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          gap: 0.6rem;
+        .conviction-cell { width: 130px; }
+        .conviction { display: flex; align-items: center; gap: 0.5rem; }
+        .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; display: block; }
+        .bar span { display: block; height: 100%; border-radius: 999px; }
+        .score { font-family: var(--font-mono); font-size: 0.76rem; width: 2ch; text-align: right; }
+        .origin-cell { white-space: nowrap; font-size: 0.8rem; }
+        .next-cell { font-size: 0.82rem; max-width: 30ch; }
+        .next-cell.urgent { color: var(--accent-red); font-weight: 700; }
+        .next-cell.todo { color: var(--accent-amber); font-weight: 600; }
+        .next-cell.info { color: var(--text); font-weight: 500; }
+        .next-cell.muted { color: var(--muted); }
+        .cards { display: none; }
+        @media (max-width: 900px) {
+          .header { flex-direction: column; gap: 0.8rem; }
+          .header-actions { width: 100%; }
+          .header-actions > :global(*) { flex: 1 1 100%; }
+          .import-note { max-width: none; }
+          .stage-bar { grid-template-columns: repeat(6, minmax(58px, 1fr)); overflow-x: auto; }
+          .stage-label { font-size: 0.62rem; }
+          .table-wrap { display: none; }
+          .cards { display: flex; flex-direction: column; gap: 0.6rem; }
+          .mcard {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            text-align: left;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 0.85rem 0.9rem;
+            cursor: pointer;
+            font-family: inherit;
+            color: var(--text);
+          }
+          .mcard:active { background: var(--surface-hover); }
+          .mcard-body { flex: 1; min-width: 0; }
+          .mcard .cat-badge { width: 2.2rem; height: 2.2rem; font-size: 1.05rem; }
+          .mcard-progress { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+          .mcard-progress .stage-name { margin-top: 0; }
+          .mcard-score { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+          .mcard-next { font-size: 0.8rem; margin-top: 0.35rem; }
+          .mcard-next.urgent { color: var(--accent-red); font-weight: 700; }
+          .mcard-next.todo { color: var(--accent-amber); font-weight: 600; }
+          .mcard-next.info { color: var(--text); }
+          .mcard-next.muted { color: var(--muted); }
+          .chev { color: var(--muted); font-size: 1.4rem; }
         }
       `}</style>
     </Shell>
@@ -1450,219 +1222,6 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
 // le commercial. Chaque message sortant est marqué "🤖 Généré par Aaron" pour
 // que le commercial distingue clairement ce qui a été écrit/envoyé
 // automatiquement (tout l'outbound, dans ce produit) des réponses du prospect.
-function ConversationModal({ prospect, onClose, onSaved }) {
-  const [locale] = useLocale();
-  const PERSONALITY_LABELS = personalityLabelsFor(locale);
-  const PERSONALITY_COLOR_LEGEND = personalityColorLegendFor(locale);
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/prospects/${prospect.id}`);
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || t('prospects.loadErrorFallback', locale));
-        if (!cancelled) setMessages(body.messages || []);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [prospect.id]);
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h2>{prospect.full_name}</h2>
-            <p className="hint">{prospect.prospect_companies?.name || prospect.email}</p>
-          </div>
-          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
-        </div>
-
-        <section className="detail-block">
-          <ContactInfoEditor prospect={prospect} locale={locale} onSaved={onSaved} />
-        </section>
-
-        <section className="detail-block">
-          <CompanyInfoEditor prospect={prospect} locale={locale} onSaved={onSaved} />
-        </section>
-
-        <section className="detail-block">
-          <h3>{t('prospects.aaronOpinionTitle', locale)}</h3>
-          {prospect.personality_type ? (
-            <p className="advice-line">
-              <span className="tag" style={personalityTagStyle(prospect.personality_type)} title={PERSONALITY_COLOR_LEGEND}>{PERSONALITY_LABELS[prospect.personality_type] || prospect.personality_type}</span>
-              {prospect.personality_notes && <span> — {frenchTypography(prospect.personality_notes)}</span>}
-            </p>
-          ) : (
-            <p className="muted">{t('prospects.personalityNotYetDetected', locale)}</p>
-          )}
-          {prospect.aaron_advice && <p className="advice-line">{frenchTypography(prospect.aaron_advice)}</p>}
-        </section>
-
-        <section className="detail-block">
-          <h3>{t('modal.historyTab', locale)}</h3>
-          {loading ? (
-            <p className="muted">{t('common.loading', locale)}</p>
-          ) : error ? (
-            <p className="error">{error}</p>
-          ) : messages.length === 0 ? (
-            <p className="muted">{t('modal.noExchangeYet', locale)}</p>
-          ) : (
-            <div className="thread">
-              {messages.map((m, i) => (
-                <div className={`msg msg-${m.direction}`} key={i}>
-                  <p className="msg-meta">
-                    {m.direction === 'outbound' ? (
-                      <span className="ai-badge" title={t('prospects.outboundBadgeTitle', locale)}>{t('prospects.outboundBadge', locale)}</span>
-                    ) : (
-                      t('prospects.inboundLabel', locale)
-                    )}
-                    {' — '}
-                    {new Date(m.sent_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                  </p>
-                  <p className="msg-body">{m.body}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <style jsx>{`
-        .overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.6);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-          padding: 1rem;
-        }
-        .modal {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: 1.8rem;
-          width: 600px;
-          max-width: 100%;
-          max-height: 88vh;
-          overflow-y: auto;
-        }
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 1rem;
-          margin-bottom: 0.5rem;
-        }
-        h2 {
-          font-family: var(--font-display);
-          font-size: 1.2rem;
-          margin: 0;
-        }
-        .hint {
-          color: var(--muted);
-          font-size: 0.84rem;
-          margin: 0.2rem 0 0;
-        }
-        .btn-secondary {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          color: var(--text);
-          border-radius: var(--radius-sm);
-          padding: 0.45rem 0.8rem;
-          font-size: 0.8rem;
-          cursor: pointer;
-          flex-shrink: 0;
-        }
-        .muted {
-          color: var(--muted);
-        }
-        .error {
-          color: var(--accent-red);
-          font-size: 0.84rem;
-        }
-        .detail-block {
-          margin-top: 1.3rem;
-          padding-top: 1.1rem;
-          border-top: 1px solid var(--border);
-        }
-        .detail-block h3 {
-          font-size: 0.9rem;
-          margin: 0 0 0.6rem;
-        }
-        .advice-line {
-          font-size: 0.85rem;
-          line-height: 1.5;
-          margin: 0 0 0.5rem;
-          overflow-wrap: break-word;
-        }
-        .tag {
-          background: rgba(75, 57, 239, 0.16);
-          color: var(--text);
-          padding: 0.2rem 0.6rem;
-          border-radius: var(--radius-sm);
-          font-size: 0.78rem;
-        }
-        .thread {
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
-          max-height: 320px;
-          overflow-y: auto;
-        }
-        .msg {
-          border-radius: var(--radius-md);
-          padding: 0.7rem 0.9rem;
-          font-size: 0.82rem;
-          border: 1px solid var(--border);
-        }
-        .msg-outbound {
-          background: rgba(75, 57, 239, 0.1);
-          margin-left: 1.5rem;
-        }
-        .msg-inbound {
-          background: var(--bg);
-          margin-right: 1.5rem;
-        }
-        .msg-meta {
-          color: var(--muted);
-          font-size: 0.72rem;
-          margin: 0 0 0.35rem;
-        }
-        .ai-badge {
-          display: inline-block;
-          background: rgba(75, 57, 239, 0.16);
-          color: var(--text);
-          border-radius: 999px;
-          padding: 0.1rem 0.5rem;
-          font-size: 0.7rem;
-          font-weight: 600;
-        }
-        .msg-body {
-          margin: 0;
-          white-space: pre-line;
-          overflow-wrap: break-word;
-        }
-      `}</style>
-    </div>
-  );
-}
-
 // Écran de relecture du tout premier email généré par Aaron, affiché
 // uniquement si le commercial a activé "Je valide avant envoi" dans
 // Préférences (voir migration_first_email_approval_2026-08-15.sql). Le
@@ -2115,8 +1674,6 @@ function Shell({ children, active, userId }) {
   const NAV_ITEMS = [
     { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
-    { label: t('nav.opportunity', locale), slug: 'sales', icon: '🤝', locked: lockedModules.sales },
-    { label: t('nav.client', locale), slug: 'customer', icon: '🌟', locked: lockedModules.customer },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
@@ -2169,7 +1726,7 @@ function Shell({ children, active, userId }) {
           ))}
         </select>
         <ul className="nav-list">
-          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron') && (item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')).map((item) => (
+          {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron')).map((item) => (
             <Link
               key={item.label}
               href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
