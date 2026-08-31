@@ -19,7 +19,24 @@ export const MODULE_CODES: ModuleCode[] = ['AP', 'AS', 'AC'];
 // pour pouvoir basculer test/live ou changer de tarif sans redéploiement.
 // Alex doit créer les 2 nouveaux prix (Aaron Opportunités, Aaron Clients)
 // dans son Dashboard Stripe et fournir les Price ID — voir statut projet.
+// Abonnement unique "Aaron" à 30 €/mois (docx Modifs Aaron 30/08/2026 +
+// décision Alex 31/08/2026 : "on ne garde que l'abonnement aaron à 30 €",
+// les anciens abonnés multi-modules passent sur l'offre unique). Le prix
+// Stripe de l'ancien module Aaron Prospect EST ce prix à 30 € — il devient
+// le seul prix vendu. Même valeur par défaut que app/api/checkout/route.ts,
+// pour que l'ajout d'un compte équipe fonctionne même sans variable
+// d'environnement (bug capturé par Alex le 31/08 : "Module AP pas encore
+// configuré côté serveur (Price ID Stripe manquant)" — la variable
+// STRIPE_PRICE_ID_AARON_PROSPECT n'est pas définie sur Vercel alors que le
+// checkout, lui, avait ce repli).
+export const DEFAULT_AARON_PRICE_ID = 'price_1U28xj7srPu7DrXAy07EdRs7';
+
+export function getAaronPriceId(): string {
+  return process.env.STRIPE_PRICE_ID_AARON_PROSPECT || DEFAULT_AARON_PRICE_ID;
+}
+
 export function getModulePriceId(module: ModuleCode): string | null {
+  if (module === 'AP') return getAaronPriceId();
   const envKey = {
     AP: 'STRIPE_PRICE_ID_AARON_PROSPECT',
     AS: 'STRIPE_PRICE_ID_AARON_SALES',
