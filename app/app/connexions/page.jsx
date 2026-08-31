@@ -5865,6 +5865,15 @@ function SetupChecklist({
                 <p className="step-desc">{t('connexions.setupAgendaTodo', locale)}</p>
               )}
               {emailDone && <p className="hint">{t('connexions.setupAgendaOtherCalendar', locale)}</p>}
+              {/* Lot 5 (docx « mon avis », 31/08/2026) : synchronisation avec
+                  l'agenda du téléphone dans les DEUX sens — rien à coder, il
+                  suffit que le compte Google/Outlook soit ajouté au
+                  calendrier du téléphone. Une phrase d'explication règle
+                  90 % des cas. */}
+              <p className="hint phone-cal-hint">
+                <strong>📱 {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
+                {t('connexions.setupPhoneCalendarBody', locale)}
+              </p>
               <div className="step-actions">
                 <button type="button" className={emailDone ? 'btn-link' : 'btn-secondary'} onClick={toggleIcsPanel}>
                   {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
