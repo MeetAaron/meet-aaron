@@ -7,7 +7,7 @@ export default function PrivacyPage() {
         <a href="/app/preferences" className="back-link">← Retour aux préférences</a>
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
         <h1>Politique de confidentialité</h1>
-        <p className="updated">Dernière mise à jour : 8 août 2026</p>
+        <p className="updated">Dernière mise à jour : 1er septembre 2026</p>
 
         <p>
           Meet Aaron ("nous", "notre service") est un assistant commercial basé sur l'intelligence
@@ -71,20 +71,46 @@ export default function PrivacyPage() {
         </ul>
         <p>Chacun de ces prestataires est soumis à ses propres engagements de confidentialité et de sécurité.</p>
 
-        <h2>5. Conservation des données</h2>
+        <h2>5. Utilisation limitée des données Google et Microsoft</h2>
+        <p>
+          L'utilisation et le transfert par Meet Aaron des informations reçues des API Google
+          respectent la{' '}
+          <a
+            href="https://developers.google.com/terms/api-services-user-data-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Google API Services User Data Policy
+          </a>
+          , y compris ses exigences d'utilisation limitée (<em>Limited Use</em>). Le même
+          engagement s'applique aux données reçues des API Microsoft. Concrètement, les
+          contenus de votre messagerie et de votre agenda :
+        </p>
+        <ul>
+          <li>ne servent qu'à fournir les fonctions que vous avez activées dans l'application ;</li>
+          <li>ne sont jamais vendus ni transmis à des tiers à des fins publicitaires ou de courtage de données ;</li>
+          <li>ne sont jamais utilisés pour entraîner des modèles d'intelligence artificielle généralistes ;</li>
+          <li>
+            ne sont lus par un humain que dans trois cas : si vous nous le demandez expressément
+            pour résoudre un problème, si la loi nous y oblige, ou pour des raisons de sécurité
+            (détection d'un abus).
+          </li>
+        </ul>
+
+        <h2>6. Conservation des données</h2>
         <p>
           Vos données sont conservées tant que votre compte est actif. Vous pouvez demander la
           suppression de votre compte et des données associées à tout moment en nous contactant
-          (voir section 8).
+          (voir section 9).
         </p>
 
-        <h2>6. Sécurité</h2>
+        <h2>7. Sécurité</h2>
         <p>
           Les jetons d'accès à vos comptes Gmail/Outlook sont chiffrés avant d'être stockés. L'accès
           à la base de données est restreint et protégé.
         </p>
 
-        <h2>7. Vos droits</h2>
+        <h2>8. Vos droits</h2>
         <p>
           Vous pouvez à tout moment consulter, corriger ou supprimer vos données, et déconnecter
           l'accès de Meet Aaron à votre Gmail/Outlook depuis l'écran "Connexions" de l'application,
@@ -92,7 +118,7 @@ export default function PrivacyPage() {
           Google ou Microsoft.
         </p>
 
-        <h2>8. Contact</h2>
+        <h2>9. Contact</h2>
         <p>
           Pour toute question concernant cette politique ou vos données, contactez-nous à :{' '}
           <a href="mailto:aaron@meetaaron.app">aaron@meetaaron.app</a>.
@@ -100,6 +126,7 @@ export default function PrivacyPage() {
 
         <p className="footer-note">
           Cette politique peut être mise à jour. Nous vous informerons de tout changement important.
+          {' '}Voir aussi nos <a href="/terms">conditions générales d'utilisation</a>.
         </p>
       </div>
 
