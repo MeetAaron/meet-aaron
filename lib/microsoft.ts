@@ -266,9 +266,20 @@ export async function sendOutlookEmail(
     throw new Error(`Erreur envoi Outlook: ${err}`);
   }
 
-  // Best-effort : marque le message comme "géré par Aaron" une fois envoyé
-  // (voir applyAaronCategory) — ne doit jamais faire échouer l'envoi lui-même.
-  applyAaronCategory(userId, draft.id).catch(() => {});
+  // Marque le message comme "géré par Aaron" une fois envoyé.
+  //
+  // AWAIT nécessaire (01/09/2026) — même bug que celui déjà corrigé côté
+  // Gmail le 27/08 : sans await, la fonction serverless peut renvoyer sa
+  // réponse HTTP et être gelée par la plateforme avant que les appels
+  // internes d'applyAaronCategory (lister/créer la catégorie, puis la poser
+  // sur le message) n'aient abouti — la catégorie ne se pose alors jamais,
+  // sans la moindre erreur visible. applyAaronCategory avale déjà ses
+  // propres erreurs, l'await ne peut donc pas faire échouer l'envoi.
+  //
+  // Doit aussi rester AVANT le déplacement éventuel dans le dossier « Géré
+  // par Aaron » (voir sendEmailForUser) : le libellé doit être posé sur
+  // CHAQUE email, rangé ou non (demande Alex, 01/09/2026).
+  await applyAaronCategory(userId, draft.id);
 
   // On garde { sent: true } pour rester compatible avec l'appelant existant
   // (sendEmailForUser dans lib/messaging.ts n'utilisait jusqu'ici que ce

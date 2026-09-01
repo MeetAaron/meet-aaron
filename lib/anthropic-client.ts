@@ -140,9 +140,41 @@ async function getCurrentDaySpendUsd(companyId: string): Promise<number> {
   return data?.cost_usd || 0;
 }
 
+// Boosts de crédits actifs (migration_credit_boosts_2026-09-01.sql).
+//
+// Un boost est une COUCHE au-dessus de l'abonnement : il ne touche pas aux
+// crédits inclus, qui restent étalés sur le mois, et court sur sa PROPRE
+// fenêtre d'un mois depuis son achat (un boost pris le 12 vaut jusqu'au 12
+// du mois suivant, pas jusqu'au 31). Plusieurs boosts se cumulent.
+//
+// Renvoie 0 si la table n'existe pas encore (migration pas passée) : le
+// plafond retombe simplement sur celui de l'abonnement, sans rien casser.
+export async function getActiveBoostCapUsd(companyId: string): Promise<number> {
+  try {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabaseAdmin
+      .from('credit_boosts')
+      .select('cap_usd')
+      .eq('company_id', companyId)
+      .lte('starts_at', nowIso)
+      .gt('ends_at', nowIso);
+    if (error) return 0;
+    return (data || []).reduce((sum: number, row: any) => sum + Number(row.cap_usd || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
 async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; reason?: 'monthly' | 'daily' }> {
-  const monthlyCap = await getMonthlyCapUsd(companyId);
-  if (monthlyCap === null) return { exceeded: false }; // plafond désactivé pour cette société
+  const subscriptionCap = await getMonthlyCapUsd(companyId);
+  if (subscriptionCap === null) return { exceeded: false }; // plafond désactivé pour cette société
+
+  // Le boost s'ajoute au plafond mensuel ET au plafond quotidien : sans ça,
+  // un commercial qui vient d'acheter un boost pour lancer une grosse
+  // campagne resterait bloqué par la limite journalière de son abonnement —
+  // exactement ce qu'il cherchait à débloquer en payant.
+  const boostCap = await getActiveBoostCapUsd(companyId);
+  const monthlyCap = subscriptionCap + boostCap;
 
   const monthSpend = await getCurrentMonthSpendUsd(companyId);
   if (monthSpend >= monthlyCap) return { exceeded: true, reason: 'monthly' };
