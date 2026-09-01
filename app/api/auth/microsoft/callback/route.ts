@@ -20,8 +20,34 @@ export async function GET(request: NextRequest) {
   const returnedState = searchParams.get('state');
   const error = searchParams.get('error');
 
+  // Retour du flux "consentement administrateur" (voir
+  // app/api/auth/microsoft/admin-consent/route.ts) : Microsoft renvoie ici
+  // avec ?admin_consent=True&tenant=... et SANS code — l'admin a autorisé
+  // Aaron pour toute l'entreprise, il ne reste au commercial qu'à cliquer
+  // "Connecter" normalement.
+  if (searchParams.get('admin_consent')) {
+    return redirectClearingCookie(
+      `${process.env.APP_URL}/app/connexions?admin_consent=${error ? 'refused' : 'granted'}&tab=connection`
+    );
+  }
+
   if (error) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}&tab=connection`);
+    // Microsoft 365 : quand le locataire (tenant) interdit le consentement
+    // utilisateur, l'employé reçoit "Approbation de l'administrateur requise"
+    // et Microsoft nous renvoie error=access_denied avec un code AADSTS précis
+    // dans error_description. Sans ce tri, l'utilisateur ne voyait qu'un
+    // "access_denied" brut, incompréhensible et sans issue. On le distingue
+    // pour afficher la marche à suivre (lien à envoyer à l'administrateur).
+    //   AADSTS65004  : l'utilisateur a refusé lui-même
+    //   AADSTS90094  : l'octroi nécessite une autorisation d'administrateur
+    //   AADSTS900941 : consentement administrateur requis (variante)
+    //   AADSTS530003/1000000 : politiques de conformité du locataire
+    const description = searchParams.get('error_description') || '';
+    const needsAdmin =
+      error === 'consent_required' ||
+      /AADSTS90094|AADSTS900941|admin(istrator)?[ _]?(approval|consent)|approbation de l'administrateur/i.test(description);
+    const code = needsAdmin ? 'admin_consent_required' : error;
+    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${code}&tab=connection`);
   }
 
   if (!code || !returnedState) {
