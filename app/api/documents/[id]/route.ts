@@ -53,6 +53,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Catégorie invalide' }, { status: 400 });
     }
     update.linked_category = body.linked_category;
+    // Correction manuelle : Aaron ne « gère » plus le classement de ce
+    // document (colonne « Géré par Aaron » de Mes documents, 01/09/2026).
+    update.category_auto = false;
   }
 
   if (typeof body.commercial_note === 'string') {
@@ -83,12 +86,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
   }
 
-  const { data: updated, error } = await supabaseAdmin
+  let { data: updated, error } = await supabaseAdmin
     .from('company_documents')
     .update(update)
     .eq('id', documentId)
     .select()
     .single();
+
+  // Colonne category_auto absente (migration_documents_auto_category_
+  // 2026-09-01.sql pas encore passée) : on rejoue sans elle.
+  if (error && (error as any).code === '42703' && 'category_auto' in update) {
+    const { category_auto, ...withoutFlag } = update;
+    ({ data: updated, error } = await supabaseAdmin
+      .from('company_documents')
+      .update(withoutFlag)
+      .eq('id', documentId)
+      .select()
+      .single());
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
