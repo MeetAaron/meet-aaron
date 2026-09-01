@@ -1438,7 +1438,21 @@ export default function ChatPage() {
         const ackRes = await fetch('/api/chat/onboarding-ack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, question: askedQuestion, answer: userMessage.content }),
+          // previous_answers (01/09/2026) : sans elles, l'appel ne voyait
+          // QUE la question posée et la réponse brute, sans savoir ce que
+          // vend la société — Aaron comblait le vide avec un mot plausible
+          // mais faux ("cabinet" pour un distributeur de portes de garage,
+          // signalé par le père d'Alex). Les réponses déjà données dans ce
+          // même questionnaire sont le seul contexte fiable disponible à ce
+          // stade (business_summary n'existe pas encore, il est justement
+          // généré à la fin) — on les transmet pour qu'Aaron accuse
+          // réception dans les mots du commercial, pas dans les siens.
+          body: JSON.stringify({
+            user_id: userId,
+            question: askedQuestion,
+            answer: userMessage.content,
+            previous_answers: onboardingAnswers,
+          }),
         });
         const ackData = await ackRes.json();
         isAnswer = ackData.is_answer !== false;
