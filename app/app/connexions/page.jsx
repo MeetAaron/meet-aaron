@@ -950,6 +950,7 @@ export default function ConnexionsPage() {
         notify_channel: prefs.notify_channel,
         notify_before_appointment_minutes: prefs.notify_before_appointment_minutes,
         require_first_email_approval: prefs.require_first_email_approval,
+        aaron_archive_threads: prefs.aaron_archive_threads !== false,
         daily_prospecting_email_cap: prefs.daily_prospecting_email_cap,
         prospecting_goal: prefs.prospecting_goal,
         prospecting_goal_details: prefs.prospecting_goal_details,
@@ -2335,6 +2336,29 @@ export default function ConnexionsPage() {
               <p className="collab-extra-hint">
                 {t('preferences.firstEmailHint', locale)}
               </p>
+            </div>
+
+            {/* « Aaron range les fils qu'il gère » (décision Alex,
+                01/09/2026, suite à la question des commerciaux : « doit-on
+                supprimer les emails traités par Aaron ? »). Activée par
+                défaut. Le texte d'aide dit d'abord l'interdit (ne jamais
+                SUPPRIMER — Aaron perdrait le fil), puis propose l'archivage
+                comme la réponse au besoin réel : une boîte propre. */}
+            <div className="field">
+              <label>{t('preferences.archiveThreadsLabel', locale)}</label>
+              <div className="options">
+                {[true, false].map((value) => (
+                  <button
+                    key={String(value)}
+                    type="button"
+                    className={(prefs.aaron_archive_threads !== false) === value ? 'option active' : 'option'}
+                    onClick={() => setPrefs({ ...prefs, aaron_archive_threads: value })}
+                  >
+                    {value ? t('common.yes', locale) : t('common.no', locale)}
+                  </button>
+                ))}
+              </div>
+              <p className="collab-extra-hint">{t('preferences.archiveThreadsHint', locale)}</p>
             </div>
 
             <div className="field">
