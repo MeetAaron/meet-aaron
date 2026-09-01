@@ -6032,10 +6032,18 @@ function SetupChecklist({
                   suffit que le compte Google/Outlook soit ajouté au
                   calendrier du téléphone. Une phrase d'explication règle
                   90 % des cas. */}
-              <p className="hint phone-cal-hint">
-                <strong>📱 {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
-                {t('connexions.setupPhoneCalendarBody', locale)}
-              </p>
+              {/* Affiché UNIQUEMENT si aucune boîte n'est connectée (Alex,
+                  01/09/2026 : « mal expliqué ? »). Quand le compte Google ou
+                  Outlook EST déjà connecté, ce paragraphe répétait mot pour
+                  mot ce que la ligne d'état juste au-dessus vient de dire, et
+                  demandait à l'utilisateur de faire une manipulation déjà
+                  faite — d'où l'impression de contradiction. */}
+              {!emailDone && (
+                <p className="hint phone-cal-hint">
+                  <strong>📱 {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
+                  {t('connexions.setupPhoneCalendarBody', locale)}
+                </p>
+              )}
               <div className="step-actions">
                 <button type="button" className={emailDone ? 'btn-link' : 'btn-secondary'} onClick={toggleIcsPanel}>
                   {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
