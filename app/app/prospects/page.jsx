@@ -119,6 +119,13 @@ function personalityLabelsFor(locale) {
 }
 
 const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
+  // Colonne d'étape en tête du modèle (demande Alex, 01/09/2026) : le
+  // fichier d'un commercial mélange presque toujours ses clients actuels,
+  // ses affaires en cours et ses contacts perdus. Sans elle, tout entrait en
+  // « en cours » et un client existant pouvait recevoir un email de
+  // prospection à froid. Valeurs reconnues (FR et EN, casse et accents
+  // indifférents) : voir STAGE_VALUE_ALIASES dans lib/csv-import.ts.
+  'prospects.templateColStage',
   'prospects.colName',
   'prospects.colCompany',
   'prospects.colJobTitle',
