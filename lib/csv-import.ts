@@ -14,7 +14,7 @@
 // SUGGESTION affichée dans un champ éditable, jamais appliqué en silence :
 // l'import final passe toujours par une relecture humaine avant écriture.
 
-export const IMPORT_FIELDS = ['full_name', 'first_name', 'last_name', 'email', 'phone', 'company_name', 'job_title'];
+export const IMPORT_FIELDS = ['full_name', 'first_name', 'last_name', 'email', 'phone', 'company_name', 'job_title', 'pipeline_stage'];
 
 // Alias déterministes (minuscules, sans accents) pour l'auto-mapping des
 // en-têtes du fichier importé — aucune IA impliquée ici, juste une liste de
@@ -27,7 +27,42 @@ const HEADER_ALIASES = {
   phone: ['telephone', 'tel', 'phone', 'numero de telephone', 'mobile', 'portable', 'tel.'],
   company_name: ['entreprise', 'societe', 'company', 'company name', 'organisation', 'organization'],
   job_title: ['poste', 'fonction', 'job title', 'titre', 'position', 'metier'],
+  // Colonne d'étape (demande Alex, 01/09/2026) : le fichier d'un commercial
+  // contient rarement que des prospects froids — il mélange ses clients
+  // actuels (à ne JAMAIS redémarcher), ses affaires en cours et ses contacts
+  // perdus. Sans cette colonne, tout entrait en « en cours » et Aaron
+  // risquait d'envoyer un email de prospection à un client existant.
+  pipeline_stage: ['progression', 'etape', 'statut', 'stage', 'status', 'categorie', 'category', 'type de contact', 'pipeline'],
 };
+
+// Valeurs acceptées dans la colonne d'étape, en français et en anglais.
+// Tout ce qui n'est pas reconnu est ignoré (la ligne part en « en cours »,
+// comportement historique) — jamais d'erreur bloquante sur un import.
+const STAGE_VALUE_ALIASES: { match: string[]; stage: string; lost?: boolean }[] = [
+  { match: ['perdu', 'perdus', 'perdue', 'lost', 'closed lost', 'abandonne', 'abandon'], stage: 'en_cours', lost: true },
+  { match: ['client', 'clients', 'customer', 'gagne', 'gagnes', 'won', 'closed won', 'signe'], stage: 'client' },
+  { match: ['en negociation', 'negociation', 'negotiation', 'negotiating'], stage: 'en_negociation' },
+  { match: ['proposition demandee', 'proposition', 'devis demande', 'devis', 'quote', 'quote requested', 'proposal'], stage: 'proposition_demandee' },
+  { match: ['rdv obtenu', 'rdv', 'rendez vous', 'meeting', 'meeting booked', 'appointment'], stage: 'rdv_obtenu' },
+  { match: ['en bonne voie', 'bonne voie', 'interesse', 'engaged', 'warm', 'opportunite', 'opportunity'], stage: 'en_bonne_voie' },
+  { match: ['en cours', 'prospect', 'prospects', 'nouveau', 'new', 'cold', 'froid', 'jamais contacte'], stage: 'en_cours' },
+];
+
+// Traduit la valeur brute d'une cellule d'étape en { stage, lost }.
+// Renvoie null si la colonne est absente, vide ou non reconnue.
+export function parsePipelineStageValue(raw: string): { stage: string; lost: boolean } | null {
+  const v = normalizeHeader(raw);
+  if (!v) return null;
+  // Correspondance exacte d'abord (« client » ne doit pas matcher
+  // « ancien client perdu »), puis partielle.
+  for (const entry of STAGE_VALUE_ALIASES) {
+    if (entry.match.includes(v)) return { stage: entry.stage, lost: !!entry.lost };
+  }
+  for (const entry of STAGE_VALUE_ALIASES) {
+    if (entry.match.some((a) => v.includes(a))) return { stage: entry.stage, lost: !!entry.lost };
+  }
+  return null;
+}
 
 function normalizeHeader(h) {
   return (h || '')
@@ -174,6 +209,8 @@ export function buildMappedRows(rawRows, mapping) {
       phone: get('phone'),
       company_name: get('company_name'),
       job_title: get('job_title'),
+      // null si colonne absente/vide/non reconnue -> comportement historique.
+      pipeline: parsePipelineStageValue(get('pipeline_stage')),
     };
     return { ...row, errors: validateRow(row) };
   });
