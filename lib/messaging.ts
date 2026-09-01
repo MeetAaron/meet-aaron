@@ -281,7 +281,14 @@ export async function sendEmailForUser(
   // publicitaire (docx Modifs Aaron "AJOUT signature", 30/08/2026) ne
   // peuvent vivre que dans la partie HTML, ajoutés en fragments finaux
   // (bandeau toujours SOUS la signature).
-  const textBody = user?.email_signature ? `${body}\n\n${user.email_signature}` : body;
+  // La signature passe par la même normalisation que le corps (01/09/2026) :
+  // elle est saisie à la main dans Préférences et contient souvent des lignes
+  // vides en trop, qui devenaient autant de <div><br></div> en fin de message.
+  // Un bloc de lignes vides en fin d'email fait partie de ce que Gmail replie
+  // derrière son bouton « … / Afficher le message complet », ce qui donne au
+  // destinataire l'impression d'un message tronqué — donc d'un spam.
+  const signatureText = user?.email_signature ? normalizeEmailBodyLineBreaks(user.email_signature) : '';
+  const textBody = signatureText ? `${body}\n\n${signatureText}` : body;
   const signatureImageHtml = user?.email_signature_image_url
     ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';
