@@ -395,6 +395,7 @@ export default function DocumentsPage() {
                 <th>{t('documents.colDescription', locale)}</th>
                 <th>{t('documents.colSummary', locale)}</th>
                 <th>{t('documents.colCategory', locale)}</th>
+                <th>{t('documents.colManagedByAaron', locale)}</th>
                 <th>{t('documents.colAaron', locale)}</th>
                 <th>{t('documents.colSize', locale)}</th>
                 <th>{t('documents.colAddedAt', locale)}</th>
@@ -450,6 +451,22 @@ export default function DocumentsPage() {
                         <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
                       ))}
                     </select>
+                  </td>
+                  {/* Colonne « Géré par Aaron » (demande Alex, 01/09/2026) :
+                      dit qui a rangé le document. Aaron classe tout seul à
+                      l'upload ; dès que le commercial corrige la catégorie
+                      ci-contre, la ligne repasse en « Toi » et Aaron n'y
+                      touche plus. */}
+                  <td>
+                    {d.category_auto ? (
+                      <span className="managed-badge auto" title={t('documents.managedByAaronHint', locale)}>
+                        🤖 {t('documents.managedByAaron', locale)}
+                      </span>
+                    ) : (
+                      <span className="managed-badge manual" title={t('documents.managedByYouHint', locale)}>
+                        {t('documents.managedByYou', locale)}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <button
@@ -714,6 +731,22 @@ export default function DocumentsPage() {
           font-size: 0.82rem;
           font-family: inherit;
         }
+        .managed-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          border-radius: 999px;
+          padding: 0.18rem 0.6rem;
+          font-size: 0.74rem;
+          white-space: nowrap;
+          border: 1px solid var(--border);
+        }
+        .managed-badge.auto {
+          border-color: var(--accent);
+          color: var(--accent-light);
+          background: rgba(75, 57, 239, 0.12);
+        }
+        .managed-badge.manual { color: var(--muted); }
         .category-select-inline {
           background: var(--bg);
           border: 1px solid var(--border);
