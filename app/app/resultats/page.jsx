@@ -798,9 +798,18 @@ export default function ResultatsPage() {
                   href={`/app/prospects?stage=${stage.key}`}
                   title={t(stage.hintKey, locale)}
                 >
-                  <span className="progress-icon" style={{ background: PIPELINE_COLORS[stage.category] }}>
-                    {CATEGORY_ICONS[stage.category]}
-                  </span>
+                  {/* Même traitement que la ligne de progression de Contacts
+                      (01/09/2026) : pastille creuse, pleine seulement si des
+                      contacts sont à cette étape. */}
+                  <span
+                    className="progress-icon"
+                    style={
+                      (pipelineCounts.byStage[stage.key] || 0) > 0
+                        ? { background: PIPELINE_COLORS[stage.category], borderColor: PIPELINE_COLORS[stage.category] }
+                        : undefined
+                    }
+                    aria-hidden="true"
+                  />
                   <span className="stat-number">{pipelineCounts.byStage[stage.key] || 0}</span>
                   <span className="stat-label">{t(stage.labelKey, locale)}</span>
                 </a>
@@ -1283,19 +1292,20 @@ export default function ResultatsPage() {
           transform: translateY(-1px);
         }
         .progress-icon {
-          width: 26px;
-          height: 26px;
+          width: 14px;
+          height: 14px;
           border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.78rem;
-          line-height: 1;
-          margin-bottom: 0.25rem;
+          border: 2px solid var(--border);
+          background: transparent;
+          margin-bottom: 0.45rem;
         }
         .progress-icon-flat {
+          width: auto;
+          height: auto;
+          border: 0;
           background: transparent;
           font-size: 0.95rem;
+          line-height: 1;
         }
         .progress-card-alert .stat-label {
           color: var(--muted);
