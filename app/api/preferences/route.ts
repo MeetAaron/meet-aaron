@@ -16,11 +16,28 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
-  const { data: user, error } = await supabaseAdmin
+  // `any` : les deux variantes de chaîne de colonnes donnent des types
+  // Postgrest incompatibles, alors que la forme runtime est identique.
+  //
+  // Repli sur 42703 : sans lui, une colonne optionnelle pas encore créée en
+  // base (ici aaron_archive_threads,
+  // migration_aaron_archive_threads_2026-09-01.sql) ferait échouer TOUTE la
+  // requête, et l'écran Préférences répondrait « Utilisateur introuvable » —
+  // exactement le bug rencontré le 01/09/2026 sur le profil d'entreprise.
+  let res: any = await supabaseAdmin
     .from('users')
-    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token')
+    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token, aaron_archive_threads')
     .eq('id', userId)
     .single();
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
+      .from('users')
+      .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token')
+      .eq('id', userId)
+      .single();
+  }
+  const user: any = res.data;
+  const error = res.error;
 
   if (error || !user) {
     return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 });
@@ -43,6 +60,10 @@ export async function GET(request: NextRequest) {
       // nécessaire côté frontend, et évite de l'exposer sans besoin).
       ics_link_generated: !!ics_feed_token,
       require_first_email_approval: user.require_first_email_approval ?? false,
+      // « Aaron range les fils qu'il gère hors de ma boîte de réception »
+      // (01/09/2026) — activée par défaut, y compris tant que la colonne
+      // n'existe pas encore (migration_aaron_archive_threads_2026-09-01.sql).
+      aaron_archive_threads: (user as any).aaron_archive_threads !== false,
       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
       collaboration_level: company?.collaboration_level ?? 0,
       offer: company?.offer ?? 'AP',
@@ -90,6 +111,7 @@ export async function PATCH(request: NextRequest) {
     notify_channel,
     notify_before_appointment_minutes,
     require_first_email_approval,
+    aaron_archive_threads,
     daily_prospecting_email_cap,
     collaboration_level,
     crm_auto_sync,
@@ -117,6 +139,7 @@ export async function PATCH(request: NextRequest) {
   // Booléen : garde le check "!== undefined" (pas "if (x)") pour pouvoir
   // repasser l'option à false, contrairement aux champs texte ci-dessus.
   if (require_first_email_approval !== undefined) updates.require_first_email_approval = require_first_email_approval;
+  if (aaron_archive_threads !== undefined) updates.aaron_archive_threads = aaron_archive_threads;
   // Plafond quotidien d'emails de prospection (protection délivrabilité, voir
   // lib/messaging.ts) — bornes larges mais réelles pour éviter une valeur
   // absurde saisie par erreur (0 bloquerait toute prospection, un nombre
@@ -130,7 +153,17 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error } = await supabaseAdmin.from('users').update(updates).eq('id', user_id);
+    let { error } = await supabaseAdmin.from('users').update(updates).eq('id', user_id);
+    // Même repli qu'en lecture : on rejoue sans la colonne optionnelle
+    // plutôt que de perdre l'enregistrement de TOUTES les préférences.
+    if (error && (error as any).code === '42703' && 'aaron_archive_threads' in updates) {
+      const { aaron_archive_threads: _ignored, ...withoutArchive } = updates;
+      if (Object.keys(withoutArchive).length > 0) {
+        ({ error } = await supabaseAdmin.from('users').update(withoutArchive).eq('id', user_id));
+      } else {
+        error = null;
+      }
+    }
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
