@@ -153,6 +153,9 @@ export default function TeamPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [activeTab, setActiveTab] = useState('overview');
   const [members, setMembers] = useState([]);
+  // Jauge de crédits par commercial (demande Alex, 01/09/2026) — voir
+  // migration_api_usage_per_user_2026-09-01.sql et app/api/team/route.ts.
+  const [credits, setCredits] = useState(null);
   const [inviteCode, setInviteCode] = useState(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -304,6 +307,7 @@ export default function TeamPage() {
         } else {
           setMembers(body.members || []);
           setInviteCode(body.invite_code || null);
+          setCredits(body.credits || null);
         }
         setLoading(false);
       })
@@ -532,6 +536,62 @@ export default function TeamPage() {
         ) : members.length === 0 ? (
           <EmptyState title={t('team.noMembersTitle', locale)} body={t('team.noMembersBody', locale)} />
         ) : (
+          <>
+          {/* Jauge de crédits par commercial (01/09/2026) : qui consomme le
+              budget API mensuel inclus dans l'abonnement. Le plafond reste
+              commun à la société — c'est une répartition, pas un quota
+              individuel, et c'est dit explicitement sous la jauge. */}
+          {credits?.available && credits.company_total_usd > 0 && (
+            <section className="credits-panel">
+              <div className="credits-head">
+                <h2>{t('team.creditsTitle', locale)}</h2>
+                <span className="credits-total">
+                  {formatEur(credits.company_total_usd)}
+                  {credits.cap_usd ? ` / ${formatEur(credits.cap_usd)}` : ''}
+                </span>
+              </div>
+              <p className="muted credits-hint">{t('team.creditsHint', locale)}</p>
+              {(() => {
+                const base = credits.cap_usd || credits.company_total_usd || 1;
+                const rows = [
+                  ...members
+                    .map((m) => ({ id: m.id, label: m.full_name, value: m.credits_used_usd || 0, shared: false }))
+                    .filter((r) => r.value > 0)
+                    .sort((a, b) => b.value - a.value),
+                  ...(credits.shared_usd > 0
+                    ? [{ id: '__shared', label: t('team.creditsShared', locale), value: credits.shared_usd, shared: true }]
+                    : []),
+                ];
+                const colors = ['#4b39ef', '#7c6ef5', '#4b9ef0', '#3dd68c', '#f5a623', '#b07cf5'];
+                return (
+                  <>
+                    <div className="credits-bar" role="img" aria-label={t('team.creditsTitle', locale)}>
+                      {rows.map((r, i) => (
+                        <span
+                          key={r.id}
+                          className={`credits-seg${r.shared ? ' shared' : ''}`}
+                          style={{ width: `${Math.min(100, (r.value / base) * 100)}%`, background: r.shared ? undefined : colors[i % colors.length] }}
+                          title={`${r.label} — ${formatEur(r.value)}`}
+                        />
+                      ))}
+                    </div>
+                    <ul className="credits-legend">
+                      {rows.map((r, i) => (
+                        <li key={r.id}>
+                          <span className={`credits-dot${r.shared ? ' shared' : ''}`} style={{ background: r.shared ? undefined : colors[i % colors.length] }} />
+                          <span className="credits-name">{r.label}</span>
+                          <span className="credits-value">{formatEur(r.value)}</span>
+                          {credits.cap_usd ? (
+                            <span className="credits-pct">{Math.round((r.value / credits.cap_usd) * 100)} %</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                );
+              })()}
+            </section>
+          )}
           <div className="table-wrap">
             <table>
               <thead>
@@ -545,6 +605,7 @@ export default function TeamPage() {
                   <th>{t('team.colWonClients', locale)}</th>
                   <th>{t('team.colActiveClients', locale)}</th>
                   <th>{t('team.colLostClients', locale)}</th>
+                  {credits?.available && <th>{t('team.colCredits', locale)}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -563,11 +624,13 @@ export default function TeamPage() {
                     <td>{m.clients_gagnes}</td>
                     <td>{m.clients_actifs}</td>
                     <td>{m.clients_perdus}</td>
+                    {credits?.available && <td className="muted">{formatEur(m.credits_used_usd || 0)}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )
       )}
 
@@ -1083,6 +1146,75 @@ export default function TeamPage() {
           cursor: pointer;
           white-space: nowrap;
         }
+        .credits-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.1rem 1.3rem;
+          margin-bottom: 1.2rem;
+        }
+        .credits-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 1rem;
+        }
+        .credits-head h2 {
+          font-size: 0.95rem;
+          margin: 0;
+          font-family: var(--font-display);
+        }
+        .credits-total {
+          font-family: var(--font-mono);
+          font-size: 0.86rem;
+          color: var(--text);
+        }
+        .credits-hint {
+          font-size: 0.76rem;
+          margin: 0.3rem 0 0.8rem;
+          line-height: 1.45;
+        }
+        .credits-bar {
+          display: flex;
+          height: 14px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: var(--bg);
+          border: 1px solid var(--border);
+        }
+        .credits-seg {
+          display: block;
+          height: 100%;
+          transition: width 0.4s var(--ease);
+        }
+        .credits-seg.shared {
+          background: repeating-linear-gradient(45deg, var(--muted-soft), var(--muted-soft) 4px, transparent 4px, transparent 8px);
+        }
+        .credits-legend {
+          list-style: none;
+          margin: 0.8rem 0 0;
+          padding: 0;
+          display: grid;
+          gap: 0.35rem;
+        }
+        .credits-legend li {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.82rem;
+        }
+        .credits-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 3px;
+          flex-shrink: 0;
+        }
+        .credits-dot.shared {
+          background: repeating-linear-gradient(45deg, var(--muted-soft), var(--muted-soft) 3px, transparent 3px, transparent 6px);
+        }
+        .credits-name { flex: 1; min-width: 0; }
+        .credits-value { font-family: var(--font-mono); font-size: 0.78rem; }
+        .credits-pct { font-size: 0.74rem; color: var(--muted); width: 3.5em; text-align: right; }
         .table-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -1458,6 +1590,16 @@ function TeamSuggestionsPanel({ userId, locale }) {
       `}</style>
     </div>
   );
+}
+
+// Coût API affiché en euros (les coûts Anthropic sont calculés en dollars,
+// voir lib/anthropic-client.ts) — conversion volontairement approximative et
+// fixe : cette jauge sert à voir QUI consomme, pas à facturer au centime.
+const USD_TO_EUR = 0.92;
+function formatEur(usd) {
+  const eur = (Number(usd) || 0) * USD_TO_EUR;
+  if (eur > 0 && eur < 0.01) return '< 0,01 €';
+  return eur.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
 }
 
 function EmptyState({ title, body }) {
