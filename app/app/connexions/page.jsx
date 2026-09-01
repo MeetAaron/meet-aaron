@@ -2049,6 +2049,23 @@ export default function ConnexionsPage() {
                     </a>
                   </div>
                   <p className="admin-consent-hint">{t('connexions.adminConsentHint', locale)}</p>
+                  {/* Demande Alex (01/09/2026) : expliquer aussi le cas du
+                      locataire réglé sur « éditeurs vérifiés uniquement » —
+                      ce réglage bloque le consentement de l'EMPLOYÉ, jamais
+                      celui de l'administrateur, donc le lien ci-dessus reste
+                      la solution. Détail replié pour ne pas noyer le message
+                      principal. */}
+                  <details className="admin-consent-details">
+                    <summary>{t('connexions.adminConsentStepsSummary', locale)}</summary>
+                    <ol className="admin-consent-steps">
+                      <li>{t('connexions.adminConsentStep1', locale)}</li>
+                      <li>{t('connexions.adminConsentStep2', locale)}</li>
+                      <li>{t('connexions.adminConsentStep3', locale)}</li>
+                      <li>{t('connexions.adminConsentStep4', locale)}</li>
+                    </ol>
+                    <p className="admin-consent-hint">{t('connexions.adminConsentVerifiedOnly', locale)}</p>
+                    <p className="admin-consent-hint">{t('connexions.adminConsentRevoke', locale)}</p>
+                  </details>
                 </div>
               )}
             </div>
@@ -3771,6 +3788,25 @@ export default function ConnexionsPage() {
         }
         .admin-consent-btn:hover {
           border-color: var(--accent);
+        }
+        .admin-consent-details {
+          margin-top: 0.7rem;
+        }
+        .admin-consent-details summary {
+          font-size: 0.8rem;
+          color: var(--accent-light);
+          cursor: pointer;
+          font-weight: 600;
+        }
+        .admin-consent-steps {
+          margin: 0.6rem 0 0;
+          padding-left: 1.2rem;
+          font-size: 0.78rem;
+          line-height: 1.5;
+          color: var(--text);
+        }
+        .admin-consent-steps li {
+          margin-bottom: 0.35rem;
         }
         .admin-consent-hint {
           font-size: 0.76rem;
