@@ -463,14 +463,18 @@ export default function ProspectsPage() {
               title={t(s.hintKey, locale)}
             >
               {i > 0 && <span className="stage-link" />}
-              {/* Pastille = l'icône de la catégorie (🎯 prospect / 🤝
-                  opportunité / ⭐ client) plutôt qu'un simple point coloré
-                  (demande Alex, 01/09/2026) : on relit la ligne de
-                  progression sans avoir à décoder les couleurs, et ça
-                  raccroche visuellement aux chips du dessus. */}
-              <span className="stage-dot" style={{ background: color, boxShadow: `0 0 0 3px var(--bg)` }} aria-hidden="true">
-                {CATEGORY_ICONS[s.category]}
-              </span>
+              {/* Pastille creuse par défaut, PLEINE dès qu'au moins un
+                  contact se trouve à cette étape (demande Alex, 01/09/2026 :
+                  « j'aurais préféré qu'ils se fondent dans le fond, donc
+                  transparent où on ne voit que les lignes ; et si c'est vert
+                  dedans ça veut dire qu'on en est à cette étape »). Les
+                  emojis de catégorie ont été retirés : ils surchargeaient la
+                  ligne, alors que l'information utile est « où en suis-je ». */}
+              <span
+                className={`stage-dot${(counts.byStage[s.key] || 0) > 0 ? ' reached' : ''}`}
+                style={{ borderColor: (counts.byStage[s.key] || 0) > 0 ? color : undefined, background: (counts.byStage[s.key] || 0) > 0 ? color : 'transparent' }}
+                aria-hidden="true"
+              />
               <span className="stage-count">{counts.byStage[s.key]}</span>
               <span className="stage-label">{t(s.labelKey, locale)}</span>
             </button>
@@ -820,15 +824,16 @@ export default function ProspectsPage() {
         .stage-dot {
           position: relative;
           z-index: 1;
-          width: 26px;
-          height: 26px;
+          width: 14px;
+          height: 14px;
           border-radius: 50%;
-          box-shadow: 0 0 0 3px var(--bg);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.78rem;
-          line-height: 1;
+          border: 2px solid var(--border);
+          background: transparent;
+          box-shadow: 0 0 0 4px var(--bg);
+          transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .stage-btn:hover .stage-dot {
+          border-color: var(--muted);
         }
         .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
         .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
