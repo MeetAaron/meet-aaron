@@ -85,5 +85,65 @@ export async function GET(request: NextRequest) {
     }),
   }));
 
-  return NextResponse.json({ members: membersWithStats, invite_code: inviteCode });
+  // Jauge de crédits par commercial (demande Alex, 01/09/2026) : combien du
+  // budget API mensuel inclus dans l'abonnement chaque commercial a
+  // consommé ce mois-ci. Le PLAFOND reste commun à la société (personne
+  // n'est coupé à cause d'un collègue) — c'est une répartition, pas un
+  // quota individuel. Table optionnelle : tant que
+  // migration_api_usage_per_user_2026-09-01.sql n'est pas passée, on renvoie
+  // simplement des montants nuls et l'écran masque la section.
+  const yearMonth = new Date().toISOString().slice(0, 7);
+  let creditsByMember: Record<string, number> = {};
+  let creditsAvailable = false;
+  try {
+    const { data: usageRows, error: usageError } = await supabaseAdmin
+      .from('api_usage_user_monthly')
+      .select('user_id, cost_usd')
+      .eq('company_id', requester.company_id)
+      .eq('year_month', yearMonth);
+    if (!usageError) {
+      creditsAvailable = true;
+      for (const row of usageRows || []) {
+        creditsByMember[(row as any).user_id] = Number((row as any).cost_usd) || 0;
+      }
+    }
+  } catch {
+    // table absente : jauge simplement non affichée
+  }
+
+  const [{ data: companyUsage }, { data: companyRow }] = await Promise.all([
+    supabaseAdmin
+      .from('api_usage_monthly')
+      .select('cost_usd')
+      .eq('company_id', requester.company_id)
+      .eq('year_month', yearMonth)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('companies')
+      .select('monthly_api_cap_usd')
+      .eq('id', requester.company_id)
+      .maybeSingle(),
+  ]);
+
+  const membersWithCredits = membersWithStats.map((m: any) => ({
+    ...m,
+    credits_used_usd: creditsByMember[m.id] || 0,
+  }));
+
+  const companyTotal = Number((companyUsage as any)?.cost_usd) || 0;
+  const attributed = Object.values(creditsByMember).reduce((a, b) => a + b, 0);
+
+  return NextResponse.json({
+    members: membersWithCredits,
+    invite_code: inviteCode,
+    credits: {
+      available: creditsAvailable,
+      year_month: yearMonth,
+      cap_usd: Number((companyRow as any)?.monthly_api_cap_usd) || null,
+      company_total_usd: companyTotal,
+      // Part non rattachable à un commercial (crons société, traitements
+      // globaux) — affichée à part plutôt qu'attribuée au hasard.
+      shared_usd: Math.max(0, companyTotal - attributed),
+    },
+  });
 }
