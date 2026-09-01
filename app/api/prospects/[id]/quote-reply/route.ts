@@ -79,7 +79,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           ],
         },
         prospect.company_id,
-        'as'
+        'as',
+        authedUser.id
       );
       const text = data.content.find((b: any) => b.type === 'text')?.text || '';
       const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
