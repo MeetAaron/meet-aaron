@@ -6,8 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
-import { listNewGmailMessages, getGmailMessage, applyAaronLabel } from '@/lib/google';
-import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory } from '@/lib/microsoft';
+import { listNewGmailMessages, getGmailMessage, applyAaronLabel, archiveGmailThread } from '@/lib/google';
+import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
@@ -291,6 +291,31 @@ export async function GET(request: NextRequest) {
     .select('id, user_id, provider, provider_account_email, scopes, label_scope_notified_at, last_checked_at')
     .in('provider', ['google', 'microsoft']);
 
+  // Préférence « Aaron range les fils qu'il gère hors de ma boîte de
+  // réception » (users.aaron_archive_threads, activée par défaut — voir
+  // migration_aaron_archive_threads_2026-09-01.sql). Chargée UNE fois pour
+  // tous les commerciaux plutôt qu'une requête par message.
+  //
+  // Colonne absente (migration pas encore passée) : la requête échoue avec
+  // 42703, on repart sur un objet vide — et comme le test en aval est
+  // `!== false`, le comportement par défaut (archiver) s'applique quand
+  // même, sans jamais faire échouer le cron.
+  const archiveThreadsByUser: Record<string, boolean> = {};
+  try {
+    const userIds = Array.from(new Set((connections || []).map((c: any) => c.user_id)));
+    if (userIds.length > 0) {
+      const { data: prefRows } = await supabaseAdmin
+        .from('users')
+        .select('id, aaron_archive_threads')
+        .in('id', userIds);
+      for (const row of (prefRows || []) as any[]) {
+        archiveThreadsByUser[row.id] = row.aaron_archive_threads !== false;
+      }
+    }
+  } catch (err: any) {
+    console.error('Préférence archivage illisible (archivage par défaut appliqué):', err?.message);
+  }
+
   // Alerte ponctuelle, une seule fois par connexion (demande Alex, 27/08/2026,
   // suite au test réel avec Ludovic où le label n'est jamais apparu) : les
   // comptes Google connectés sans le bon scope n'ont pas le label et Google
@@ -427,6 +452,21 @@ export async function GET(request: NextRequest) {
         await applyAaronLabel(connection.user_id, threadId);
       } else if (connection.provider === 'microsoft') {
         await applyAaronCategory(connection.user_id, msg.id);
+      }
+
+      // Rangement hors boîte de réception (option activée par défaut, voir
+      // migration_aaron_archive_threads_2026-09-01.sql). Toujours APRÈS la
+      // pose du libellé, pour que le fil sorte de la boîte déjà marqué
+      // « Géré par Aaron ». Aaron ne supprime JAMAIS un email : il archive,
+      // ce qui est réversible et ramène le fil en boîte de réception dès la
+      // prochaine réponse du prospect (Gmail) ou dépose la réponse suivante
+      // en boîte de réception (Outlook).
+      if (archiveThreadsByUser[connection.user_id] !== false) {
+        if (connection.provider === 'google') {
+          await archiveGmailThread(connection.user_id, threadId);
+        } else if (connection.provider === 'microsoft') {
+          await archiveOutlookMessage(connection.user_id, msg.id);
+        }
       }
 
       // is_won : le prospect est déjà client — Aaron Prospect (relance de
