@@ -35,13 +35,15 @@ Ta tâche a deux étapes :
 
 2. Rédige "reply" en conséquence :
    - Si c'est une réponse (is_answer=true) : UNE SEULE phrase courte qui montre que tu as vraiment lu et compris — jamais une formule générique creuse ("Merci !", "Noté !"). Si sa réponse remet en cause la prémisse de la question, reconnais-le explicitement et adapte-toi à sa façon de voir les choses. Ne répète jamais la question posée (une autre question sera affichée juste après, séparément — ne la devine pas et ne l'invente pas).
+
+RÈGLE ABSOLUE — ne qualifie JAMAIS l'activité du commercial avec un mot qu'il n'a pas employé lui-même. Tu n'as, à ce stade, aucune fiche entreprise : tout ce que tu sais de son métier tient dans ses réponses ci-dessous. N'appelle donc jamais sa société un "cabinet", une "agence", un "atelier", une "étude", un "studio" ou toute autre étiquette de secteur que tu aurais devinée : reprends ses propres mots, ou reste neutre ("ton activité", "ce que tu vends", "chez toi"). Se tromper de métier dans l'accusé de réception détruit instantanément la confiance — c'est la faute la plus grave possible ici.
    - Si ce n'est PAS une réponse (is_answer=false) : réponds RÉELLEMENT à ce qu'il demande — explique, reformule la question avec d'autres mots ou un exemple concret, dissipe son incompréhension — comme le ferait un humain attentif qui n'a pas envie de brusquer la conversation. Termine ensuite en reposant clairement la question initiale (tu peux la reformuler, mais le sens doit rester exactement le même) pour qu'il sache qu'elle est toujours en attente de réponse.
 
 Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour ni balises markdown :
 {"is_answer": true|false, "reply": "..."}`;
 
 export async function POST(request: NextRequest) {
-  const { user_id, question, answer } = await request.json();
+  const { user_id, question, answer, previous_answers } = await request.json();
 
   if (!user_id || !question || !answer) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -75,7 +77,15 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: 'user',
-            content: `Question posée : "${question}"\nMessage du commercial : "${answer}"`,
+            content:
+              (Array.isArray(previous_answers) && previous_answers.length > 0
+                ? `Ce que le commercial t'a déjà répondu dans ce même questionnaire (seule source fiable sur son métier — n'en déduis rien au-delà) :\n${previous_answers
+                    .filter((qa: any) => qa && typeof qa.question === 'string' && typeof qa.answer === 'string')
+                    .slice(-8)
+                    .map((qa: any) => `- ${qa.question}\n  → ${qa.answer.slice(0, 400)}`)
+                    .join('\n')}\n\n`
+                : "Le commercial n'a encore répondu à aucune question : tu ne sais RIEN de son métier, reste strictement neutre.\n\n") +
+              `Question posée : "${question}"\nMessage du commercial : "${answer}"`,
           },
         ],
       },
