@@ -250,6 +250,9 @@
     text-align:center;padding:34px 6vw 56px;color:var(--muted);font-size:12.5px;
     border-top:1px solid var(--border);
   }
+  .footer-links{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;}
+  .footer-links a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;}
+  .footer-links a:hover{color:#f4f1ea;border-bottom-color:currentColor;}
 </style>
 </head>
 <body>
@@ -399,6 +402,13 @@
 
 <footer>
   Meet Aaron — meetaaron.app
+  <div class="footer-links">
+    <a href="/privacy">Politique de confidentialité</a>
+    <span aria-hidden="true">·</span>
+    <a href="/terms">Conditions d'utilisation</a>
+    <span aria-hidden="true">·</span>
+    <a href="mailto:aaron@meetaaron.app">Nous écrire</a>
+  </div>
 </footer>
 
 <script>

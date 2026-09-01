@@ -3,6 +3,7 @@ Allow: /$
 Allow: /landing.html
 Allow: /login
 Allow: /privacy
+Allow: /terms
 Disallow: /app/
 Disallow: /api/
 Disallow: /onboarding
