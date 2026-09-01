@@ -8,7 +8,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { sendGmailEmail, getGoogleFreeBusy } from './google';
-import { sendOutlookEmail, getOutlookFreeBusy } from './microsoft';
+import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './microsoft';
 import { isDomainHealthyForSending } from './email-deliverability';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
@@ -277,11 +277,23 @@ export async function sendEmailForUser(
 
   const providers = await getConnectedProviders(userId);
 
-  const { data: user } = await supabaseAdmin
+  // `any` : les deux variantes de chaîne de colonnes donnent des types
+  // Postgrest incompatibles, alors que la forme runtime est identique.
+  // Repli sur 42703 tant que migration_aaron_archive_threads_2026-09-01.sql
+  // n'est pas passée — sinon plus AUCUN email ne partirait.
+  let userRes: any = await supabaseAdmin
     .from('users')
-    .select('email_signature, email_signature_image_url, email_banner_image_url')
+    .select('email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads')
     .eq('id', userId)
     .maybeSingle();
+  if (userRes.error && userRes.error.code === '42703') {
+    userRes = await supabaseAdmin
+      .from('users')
+      .select('email_signature, email_signature_image_url, email_banner_image_url')
+      .eq('id', userId)
+      .maybeSingle();
+  }
+  const user: any = userRes.data;
 
   // Corps texte de référence (signature texte incluse) : sert de partie
   // text/plain du multipart/alternative. La version HTML est construite à
@@ -315,6 +327,20 @@ export async function sendEmailForUser(
     result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
+  }
+
+  // Rangement de l'email QU'AARON VIENT D'ENVOYER (01/09/2026, demande
+  // Alex : « tous les échanges avec ce client, que ce soit d'Aaron ou du
+  // client, partent dans le dossier Géré par Aaron »).
+  //
+  // Gmail : rien à faire — le message envoyé appartient au même fil, qui
+  // porte déjà le libellé et n'est pas en boîte de réception.
+  // Outlook : les catégories ne sont pas des dossiers, l'email envoyé reste
+  // dans « Éléments envoyés » ; on le déplace donc explicitement dans le
+  // dossier « 🤖 Géré par Aaron » pour que le commercial retrouve TOUT
+  // l'échange au même endroit, ses propres envois compris.
+  if (user?.aaron_archive_threads !== false && providers.has('microsoft') && !providers.has('google')) {
+    await archiveOutlookMessage(userId, (result as any)?.id);
   }
 
   if (emailType === 'prospecting') {
