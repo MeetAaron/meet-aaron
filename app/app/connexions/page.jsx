@@ -2486,6 +2486,15 @@ export default function ConnexionsPage() {
               </button>
               {saved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
             </div>
+
+            {/* Liens legaux (01/09/2026). Balises <a> natives et non <Link> :
+                styled-jsx n'applique pas la classe de scope au className d'un
+                <Link>, le style serait perdu. */}
+            <div className="legal-links">
+              <a href="/privacy" target="_blank" rel="noopener noreferrer">{t('preferences.legalPrivacy', locale)}</a>
+              <span aria-hidden="true">·</span>
+              <a href="/terms" target="_blank" rel="noopener noreferrer">{t('preferences.legalTerms', locale)}</a>
+            </div>
           </div>
         )
       ) : activeTab === 'subscription' ? (
@@ -3064,6 +3073,27 @@ export default function ConnexionsPage() {
           font-size: 0.8rem;
           margin-top: 0.5rem;
           overflow-wrap: break-word;
+        }
+        /* Liens legaux du bas de l'onglet Preferences (01/09/2026). */
+        .legal-links {
+          margin-top: 1.6rem;
+          padding-top: 1.1rem;
+          border-top: 1px solid var(--border);
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          align-items: center;
+          font-size: 0.8rem;
+          color: var(--muted);
+        }
+        .legal-links a {
+          color: var(--muted);
+          text-decoration: none;
+          border-bottom: 1px solid transparent;
+        }
+        .legal-links a:hover {
+          color: var(--text);
+          border-bottom-color: currentColor;
         }
         .sub-label {
           display: block;
