@@ -14,7 +14,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
-import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
+import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS, PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
@@ -601,6 +601,11 @@ export default function ResultatsPage() {
     visio: t('results.typeVideo', locale),
   };
 
+  // Compteurs de la ligne de progression, sur TOUS les contacts (pas
+  // seulement la fenêtre de période) : la question posée par cette section
+  // est « où en est mon portefeuille aujourd'hui », pas « qu'ai-je fait ce
+  // mois-ci » — c'est le rôle des bilans et de l'évolution juste en dessous.
+  const pipelineCounts = countPipeline(allContacts);
   const OPPORTUNITY_META = opportunityBucketMetaFor(locale);
   const HEALTH_META = healthBucketMetaFor(locale);
   const prospectsRange = periodRangeFor(periods.prospects, customRanges.prospects);
@@ -793,29 +798,47 @@ export default function ResultatsPage() {
             />
           </section>
 
+          {/* Fusion de la pipeline (docx « mon avis », 31/08/2026) : cette
+              section remplace l'ancien bloc « Opportunités » qui comptait
+              encore par deal_stage (signe / en_negociation / perdu) — un
+              modèle qui n'existe plus depuis que prospects et opportunités
+              vivent sur UNE seule ligne en 6 étapes. On compte désormais avec
+              countPipeline/derivePipelinePosition, exactement comme la page
+              Contacts, pour que les deux écrans ne puissent plus se
+              contredire. Chaque carte est cliquable et ouvre la liste filtrée
+              sur cette étape. */}
           <section className="panel category-panel">
             <div className="category-head">
-              <h2>{t('dash.opportunitiesTitle', locale)}</h2>
-              <PeriodPicker
-                value={periods.opportunities}
-                custom={customRanges.opportunities}
-                onChange={(v) => updatePeriod('opportunities', v)}
-                onCustomChange={(field, v) => updateCustomRange('opportunities', field, v)}
-                locale={locale}
-              />
+              <h2>{t('results.progressTitle', locale)}</h2>
             </div>
-            <p className="category-hint">{t('results.opportunitiesPeriodHint', locale)}</p>
-            {/* Item 24 : la grille doit s'afficher avec des 0 même sans
-                donnée sur la période, exactement comme "Prospects" — avant,
-                seule cette dernière le faisait correctement. */}
-            <div className="category-row">
-              {['signe', 'bonneVoie', 'enCours', 'risque', 'perdu'].map((key) => (
-                <div className="cat-stat-card" key={key}>
-                  <span className="dot" style={{ background: OPPORTUNITY_META[key].color }} />
-                  <span className="stat-number">{opportunityCounts[key] || 0}</span>
-                  <span className="stat-label">{OPPORTUNITY_META[key].label}</span>
-                </div>
+            <p className="category-hint">{t('results.progressHint', locale)}</p>
+            <div className="progress-row">
+              {PIPELINE_STAGES.map((stage) => (
+                <a
+                  className="progress-card"
+                  key={stage.key}
+                  href={`/app/prospects?stage=${stage.key}`}
+                  title={t(stage.hintKey, locale)}
+                >
+                  <span className="progress-icon" style={{ background: PIPELINE_COLORS[stage.category] }}>
+                    {CATEGORY_ICONS[stage.category]}
+                  </span>
+                  <span className="stat-number">{pipelineCounts.byStage[stage.key] || 0}</span>
+                  <span className="stat-label">{t(stage.labelKey, locale)}</span>
+                </a>
               ))}
+            </div>
+            <div className="progress-row progress-row-extra">
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
+                <span className="progress-icon progress-icon-flat">⚠️</span>
+                <span className="stat-number">{pipelineCounts.risk}</span>
+                <span className="stat-label">{t('results.progressRisk', locale)}</span>
+              </a>
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
+                <span className="progress-icon progress-icon-flat">✕</span>
+                <span className="stat-number">{pipelineCounts.lost}</span>
+                <span className="stat-label">{t('results.progressLost', locale)}</span>
+              </a>
             </div>
 
             <BilanRow
@@ -1167,6 +1190,64 @@ export default function ResultatsPage() {
           display: flex;
           flex-direction: column;
           gap: 0.3rem;
+        }
+        /* Ligne de progression en 6 étapes (01/09/2026) — remplace l'ancienne
+           grille « Opportunités » par deal_stage. Cartes cliquables : <a>
+           natif et non <Link>, car styled-jsx n'applique pas la classe de
+           scope au className d'un <Link>. */
+        .progress-row {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 0.6rem;
+        }
+        .progress-row-extra {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          max-width: 340px;
+          margin-top: 0.6rem;
+        }
+        .progress-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.85rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          text-decoration: none;
+          color: inherit;
+          transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+        .progress-card:hover {
+          border-color: var(--accent);
+          transform: translateY(-1px);
+        }
+        .progress-icon {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          line-height: 1;
+          margin-bottom: 0.25rem;
+        }
+        .progress-icon-flat {
+          background: transparent;
+          font-size: 0.95rem;
+        }
+        .progress-card-alert .stat-label {
+          color: var(--muted);
+        }
+        @media (max-width: 900px) {
+          .progress-row {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 520px) {
+          .progress-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
         .dot {
           width: 8px;
