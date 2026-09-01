@@ -606,6 +606,39 @@ export default function ResultatsPage() {
   // est « où en est mon portefeuille aujourd'hui », pas « qu'ai-je fait ce
   // mois-ci » — c'est le rôle des bilans et de l'évolution juste en dessous.
   const pipelineCounts = countPipeline(allContacts);
+
+  // Valeur du portefeuille (01/09/2026) : seule source de montant fiable et
+  // non inventée — le total TTC qu'Aaron a relevé sur le devis DÉPOSÉ par le
+  // commercial (prospects.devis_check.total_ttc_eur, voir
+  // app/api/prospects/[id]/devis/upload). Aucune estimation, aucune
+  // extrapolation : un contact sans devis déposé ne compte pour rien, et si
+  // aucun montant n'est connu on affiche une explication plutôt qu'un 0 €
+  // trompeur.
+  const contactAmount = (p) => {
+    const v = p?.devis_check?.total_ttc_eur;
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const pipelineValue = (() => {
+    let signed = 0;
+    let signedCount = 0;
+    let inPlay = 0;
+    let known = 0;
+    for (const p of allContacts) {
+      const amount = contactAmount(p);
+      if (amount > 0) known += 1;
+      const pos = derivePipelinePosition(p);
+      if (pos.lost) continue;
+      if (pos.stage === 'client') {
+        signed += amount;
+        if (amount > 0) signedCount += 1;
+      } else if (pos.category === 'opportunite') {
+        inPlay += amount;
+      }
+    }
+    return { signed, inPlay, known, average: signedCount > 0 ? Math.round(signed / signedCount) : 0 };
+  })();
+  const formatEur = (n) =>
+    new Intl.NumberFormat(locale === 'en' ? 'en-GB' : locale, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n || 0);
   const OPPORTUNITY_META = opportunityBucketMetaFor(locale);
   const HEALTH_META = healthBucketMetaFor(locale);
   const prospectsRange = periodRangeFor(periods.prospects, customRanges.prospects);
@@ -743,9 +776,89 @@ export default function ResultatsPage() {
         <p className="muted">{t('common.loading', locale)}</p>
       ) : (
         <>
+          {/* Fusion de la pipeline (docx « mon avis », 31/08/2026) : cette
+              section remplace l'ancien bloc « Opportunités » qui comptait
+              encore par deal_stage (signe / en_negociation / perdu) — un
+              modèle qui n'existe plus depuis que prospects et opportunités
+              vivent sur UNE seule ligne en 6 étapes. On compte désormais avec
+              countPipeline/derivePipelinePosition, exactement comme la page
+              Contacts, pour que les deux écrans ne puissent plus se
+              contredire. Chaque carte est cliquable et ouvre la liste filtrée
+              sur cette étape. */}
           <section className="panel category-panel">
             <div className="category-head">
-              <h2>{t('results.categoryProspects', locale)}</h2>
+              <h2>{t('results.progressTitle', locale)}</h2>
+            </div>
+            <p className="category-hint">{t('results.progressHint', locale)}</p>
+            <div className="progress-row">
+              {PIPELINE_STAGES.map((stage) => (
+                <a
+                  className="progress-card"
+                  key={stage.key}
+                  href={`/app/prospects?stage=${stage.key}`}
+                  title={t(stage.hintKey, locale)}
+                >
+                  <span className="progress-icon" style={{ background: PIPELINE_COLORS[stage.category] }}>
+                    {CATEGORY_ICONS[stage.category]}
+                  </span>
+                  <span className="stat-number">{pipelineCounts.byStage[stage.key] || 0}</span>
+                  <span className="stat-label">{t(stage.labelKey, locale)}</span>
+                </a>
+              ))}
+            </div>
+            {/* Valeur du portefeuille — la question que se pose vraiment un
+                commercial devant une page « Résultats ». Affichée dans la
+                même section que la ligne de progression parce qu'elle en est
+                la lecture en euros. */}
+            <div className="value-block">
+              <p className="value-title">{t('results.valueTitle', locale)}</p>
+              {pipelineValue.known === 0 ? (
+                <p className="muted value-empty">{t('results.valueEmpty', locale)}</p>
+              ) : (
+                <>
+                  <div className="value-row">
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.signed)}</span>
+                      <span className="stat-label">{t('results.valueSigned', locale)}</span>
+                    </div>
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.inPlay)}</span>
+                      <span className="stat-label">{t('results.valueInPlay', locale)}</span>
+                    </div>
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.average)}</span>
+                      <span className="stat-label">{t('results.valueAverage', locale)}</span>
+                    </div>
+                  </div>
+                  <p className="muted value-empty">{t('results.valueHint', locale)}</p>
+                </>
+              )}
+            </div>
+
+            <div className="progress-row progress-row-extra">
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
+                <span className="progress-icon progress-icon-flat">⚠️</span>
+                <span className="stat-number">{pipelineCounts.risk}</span>
+                <span className="stat-label">{t('results.progressRisk', locale)}</span>
+              </a>
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
+                <span className="progress-icon progress-icon-flat">✕</span>
+                <span className="stat-number">{pipelineCounts.lost}</span>
+                <span className="stat-label">{t('results.progressLost', locale)}</span>
+              </a>
+            </div>
+
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricOpportunitesGagnees', locale)}`}
+              type={bilanTypes.opportunities}
+              onTypeChange={(v) => updateBilanType('opportunities', v)}
+              rows={bilanOpportunities}
+              locale={locale}
+            />
+          </section>
+          <section className="panel category-panel">
+            <div className="category-head">
+              <h2>{t('results.activityTitle', locale)}</h2>
               <PeriodPicker
                 value={periods.prospects}
                 custom={customRanges.prospects}
@@ -794,58 +907,6 @@ export default function ResultatsPage() {
               type={bilanTypes.prospects}
               onTypeChange={(v) => updateBilanType('prospects', v)}
               rows={bilanProspects}
-              locale={locale}
-            />
-          </section>
-
-          {/* Fusion de la pipeline (docx « mon avis », 31/08/2026) : cette
-              section remplace l'ancien bloc « Opportunités » qui comptait
-              encore par deal_stage (signe / en_negociation / perdu) — un
-              modèle qui n'existe plus depuis que prospects et opportunités
-              vivent sur UNE seule ligne en 6 étapes. On compte désormais avec
-              countPipeline/derivePipelinePosition, exactement comme la page
-              Contacts, pour que les deux écrans ne puissent plus se
-              contredire. Chaque carte est cliquable et ouvre la liste filtrée
-              sur cette étape. */}
-          <section className="panel category-panel">
-            <div className="category-head">
-              <h2>{t('results.progressTitle', locale)}</h2>
-            </div>
-            <p className="category-hint">{t('results.progressHint', locale)}</p>
-            <div className="progress-row">
-              {PIPELINE_STAGES.map((stage) => (
-                <a
-                  className="progress-card"
-                  key={stage.key}
-                  href={`/app/prospects?stage=${stage.key}`}
-                  title={t(stage.hintKey, locale)}
-                >
-                  <span className="progress-icon" style={{ background: PIPELINE_COLORS[stage.category] }}>
-                    {CATEGORY_ICONS[stage.category]}
-                  </span>
-                  <span className="stat-number">{pipelineCounts.byStage[stage.key] || 0}</span>
-                  <span className="stat-label">{t(stage.labelKey, locale)}</span>
-                </a>
-              ))}
-            </div>
-            <div className="progress-row progress-row-extra">
-              <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
-                <span className="progress-icon progress-icon-flat">⚠️</span>
-                <span className="stat-number">{pipelineCounts.risk}</span>
-                <span className="stat-label">{t('results.progressRisk', locale)}</span>
-              </a>
-              <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
-                <span className="progress-icon progress-icon-flat">✕</span>
-                <span className="stat-number">{pipelineCounts.lost}</span>
-                <span className="stat-label">{t('results.progressLost', locale)}</span>
-              </a>
-            </div>
-
-            <BilanRow
-              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricOpportunitesGagnees', locale)}`}
-              type={bilanTypes.opportunities}
-              onTypeChange={(v) => updateBilanType('opportunities', v)}
-              rows={bilanOpportunities}
               locale={locale}
             />
           </section>
@@ -1238,6 +1299,45 @@ export default function ResultatsPage() {
         }
         .progress-card-alert .stat-label {
           color: var(--muted);
+        }
+        .value-block {
+          margin-top: 1.2rem;
+          padding-top: 1.1rem;
+          border-top: 1px solid var(--border);
+        }
+        .value-title {
+          font-size: 0.86rem;
+          font-weight: 600;
+          margin: 0 0 0.7rem;
+        }
+        .value-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.6rem;
+        }
+        .value-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.85rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .value-amount {
+          font-family: var(--font-mono);
+          font-size: 1.25rem;
+          font-weight: 600;
+        }
+        .value-empty {
+          font-size: 0.8rem;
+          line-height: 1.5;
+          margin: 0.6rem 0 0;
+        }
+        @media (max-width: 620px) {
+          .value-row {
+            grid-template-columns: 1fr;
+          }
         }
         @media (max-width: 900px) {
           .progress-row {
