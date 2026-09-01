@@ -133,6 +133,33 @@ export async function applyAaronCategory(userId: string, messageId: string | und
   }
 }
 
+// Sort un message de la boîte de réception Outlook (option « Aaron range les
+// fils qu'il gère », migration_aaron_archive_threads_2026-09-01.sql).
+//
+// Graph n'a pas d'« archivage » au sens Gmail : on DÉPLACE le message vers le
+// dossier bien connu `archive`. Rien n'est supprimé, et les réponses
+// suivantes du prospect arrivent normalement en boîte de réception — le
+// commercial reprend donc la main dès qu'il se passe quelque chose, comme
+// côté Gmail.
+//
+// Échec silencieux, comme applyAaronCategory.
+export async function archiveOutlookMessage(userId: string, messageId: string | undefined | null) {
+  if (!messageId) return;
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}/move`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ destinationId: 'archive' }),
+    });
+  } catch (err: any) {
+    console.error('Erreur archivage du message Outlook:', err.message);
+  }
+}
+
 // Envoie un email via Microsoft Graph (boîte Outlook du commercial), pour que
 // Outlook soit un vrai second fournisseur au même titre que Gmail (prospection,
 // relances, annulations...) et pas seulement pour la création de RDV.

@@ -132,6 +132,34 @@ export async function applyAaronLabel(userId: string, threadId: string | undefin
   }
 }
 
+// Sort un fil de la boîte de réception Gmail (option « Aaron range les fils
+// qu'il gère », migration_aaron_archive_threads_2026-09-01.sql).
+//
+// Archiver = retirer le libellé INBOX. Rien n'est supprimé, le fil reste
+// entièrement consultable et recherchable, et — c'est le point important —
+// Gmail le REMET automatiquement en boîte de réception dès qu'un nouveau
+// message y arrive. Le commercial reprend donc la main tout seul dès que le
+// prospect répond, sans rien avoir à faire.
+//
+// Échec silencieux, comme applyAaronLabel : un problème de rangement ne doit
+// jamais empêcher le traitement du message.
+export async function archiveGmailThread(userId: string, threadId: string | undefined | null) {
+  if (!threadId) return;
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['INBOX'] }),
+    });
+  } catch (err: any) {
+    console.error('Erreur archivage du fil Gmail:', err.message);
+  }
+}
+
 // Pièce jointe au premier email (demande Alex, 27/08/2026 — voir
 // lib/first-email-attachment.ts) : contenu déjà encodé en base64 par
 // l'appelant (le fichier vient de Supabase Storage), on n'a plus qu'à
