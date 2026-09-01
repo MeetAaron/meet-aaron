@@ -79,6 +79,8 @@ export function useNotifications(userId, { refreshMs = 60000 } = {}) {
 export default function Stories({ userId, locale, mode = 'strip', onOpenContact, onChanged }) {
   const { groups, total, loaded, reload } = useNotifications(userId);
   const [open, setOpen] = useState(null); // { deck: NotificationItem[], index }
+  // Panneau « rien à traiter » de la cloche (01/09/2026) — voir openAll.
+  const [emptyOpen, setEmptyOpen] = useState(false);
 
   function openGroup(type) {
     const ordered = [...groups.filter((g) => g.type === type), ...groups.filter((g) => g.type !== type)];
@@ -89,7 +91,14 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
 
   function openAll() {
     const deck = groups.flatMap((g) => g.items);
-    if (deck.length === 0) return;
+    // File vide : avant (01/09/2026) le clic ne faisait STRICTEMENT rien —
+    // Alex a légitimement cru la cloche cassée. On affiche maintenant un
+    // petit panneau « rien à traiter » qui explique ce qui atterrira ici.
+    if (deck.length === 0) {
+      setEmptyOpen((v) => !v);
+      return;
+    }
+    setEmptyOpen(false);
     setOpen({ deck, index: 0 });
   }
 
@@ -117,8 +126,47 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
           {total > 0 && <span className="bell-badge">{total > 99 ? '99+' : total}</span>}
         </button>
+        {emptyOpen && (
+          <div className="bell-empty" role="dialog">
+            <strong>{t('stories.emptyTitle', locale)}</strong>
+            <p>{t('stories.emptyBody', locale)}</p>
+          </div>
+        )}
         {open && <StoryViewer state={open} setState={setOpen} locale={locale} userId={userId} onResolved={resolveCurrent} onOpenContact={onOpenContact} />}
         <style jsx>{`
+          .bell-empty {
+            position: absolute;
+            z-index: 60;
+            left: 100%;
+            margin-left: 0.6rem;
+            top: 0;
+            width: 240px;
+            padding: 0.85rem 0.95rem;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--card, var(--bg));
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+          }
+          .bell-empty strong {
+            display: block;
+            font-size: 0.86rem;
+            margin-bottom: 0.3rem;
+          }
+          .bell-empty p {
+            margin: 0;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            color: var(--muted);
+          }
+          @media (max-width: 900px) {
+            .bell-empty {
+              left: auto;
+              right: 0;
+              top: 100%;
+              margin-left: 0;
+              margin-top: 0.5rem;
+            }
+          }
           .bell {
             position: relative;
             background: transparent;

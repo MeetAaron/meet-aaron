@@ -260,7 +260,17 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
       // lui imposer des contraintes" — voir doc pipeline). 'prospects' :
       // choix du commercial via la case à cocher. Sinon (sales/customer) :
       // jamais de 1er email à froid (relation déjà établie).
-      const skipFirstContact = context === 'reactivation' ? false : context === 'prospects' ? !autoContact : true;
+      let skipFirstContact = context === 'reactivation' ? false : context === 'prospects' ? !autoContact : true;
+      // Colonne « Progression » du fichier (demande Alex, 01/09/2026) : un
+      // contact importé comme CLIENT ne doit jamais recevoir d'email de
+      // prospection à froid, quel que soit le contexte d'import — c'est
+      // l'accident que le commercial redoute le plus en déposant sa base.
+      // Un contact importé comme PERDU n'est pas recontacté non plus par cet
+      // import : il est enregistré tel quel, et c'est la réactivation qui
+      // décidera plus tard de le relancer.
+      if (row.pipeline && (row.pipeline.stage === 'client' || row.pipeline.lost)) {
+        skipFirstContact = true;
+      }
       try {
         const res = await fetch('/api/prospects', {
           method: 'POST',
@@ -283,7 +293,19 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
           rowResults.push({ idx: row.idx, full_name: row.full_name, success: false, error: body.error || 'Erreur inconnue' });
         } else {
           let patchError = null;
-          if (context === 'sales') {
+          // L'étape lue dans le fichier prime sur l'étape déduite du
+          // contexte d'import : elle vient explicitement du commercial.
+          if (row.pipeline) {
+            const patchBody = row.pipeline.lost
+              ? { action: 'marquer_perdu', lost_reason: 'autre' }
+              : { action: 'set_pipeline_stage', stage: row.pipeline.stage };
+            const patchRes = await fetch(`/api/prospects/${body.prospect.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patchBody),
+            });
+            if (!patchRes.ok) patchError = (await patchRes.json()).error || 'Erreur inconnue';
+          } else if (context === 'sales') {
             const patchRes = await fetch(`/api/prospects/${body.prospect.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
