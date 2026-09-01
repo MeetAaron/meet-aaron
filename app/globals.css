@@ -139,6 +139,7 @@ html[data-theme='light'] {
   }
   .mobile-topbar-bell {
     flex: 0 0 auto;
+    position: relative; /* ancre de .bell-empty (Stories.jsx) */
     width: 40px;
     height: 40px;
     display: inline-flex;
@@ -530,6 +531,9 @@ html[data-theme='light'] {
     display: flex;
     justify-content: center;
     margin: 0.5rem 0 0;
+    /* Ancre du panneau « rien à traiter » de la cloche (01/09/2026,
+       .bell-empty dans components/Stories.jsx). */
+    position: relative;
   }
   .rail-bell > button {
     width: 2.5em !important;
