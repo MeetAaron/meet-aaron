@@ -246,8 +246,20 @@ export default function ProspectsPage() {
     // Lien direct vers une fiche (notification push « Devis à faire », story
     // du tableau de bord…) : /app/prospects?contact=<id>.
     try {
-      const wanted = new URLSearchParams(window.location.search).get('contact');
+      const params = new URLSearchParams(window.location.search);
+      const wanted = params.get('contact');
       if (wanted) setSelectedId(wanted);
+      // Liens profonds depuis la page Résultats (01/09/2026) :
+      // ?stage=<etape> ouvre la liste filtrée sur une étape,
+      // ?filter=risk|lost sur les raccourcis « à risque » / « perdus ».
+      const stage = params.get('stage');
+      if (stage && PIPELINE_STAGES.some((x) => x.key === stage)) {
+        setStageFilter([stage]);
+        const cat = categoryOfStage(stage);
+        setCategories((prev) => (prev.includes(cat) ? prev : [...prev, cat]));
+      }
+      const extra = params.get('filter');
+      if (extra === 'risk' || extra === 'lost') setExtraFilter(extra);
     } catch {}
   }, [userId]);
 
