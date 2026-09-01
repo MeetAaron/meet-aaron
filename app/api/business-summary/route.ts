@@ -39,13 +39,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
-  const { data: company } = await supabaseAdmin
+  // `any` : les deux variantes de chaîne de colonnes donnent des types
+  // Postgrest incompatibles, alors que la forme runtime est identique.
+  //
+  // Repli sur 42703 (01/09/2026, bug remonté par Alex : « Mon entreprise »
+  // affichait "Pas encore de résumé" alors que le PDF téléchargé contenait
+  // bien le profil). Cause : si les colonnes business_summary_pending_*
+  // n'existent pas encore en base (migration_business_profile_pending_
+  // 2026-08-27.sql pas passée), TOUTE la requête échoue — `company` vaut
+  // null — et la route répondait alors 200 avec summary: null, donc un
+  // profil parfaitement présent s'affichait comme vide. L'export PDF, lui,
+  // ne demandait pas ces colonnes et fonctionnait : d'où l'incohérence.
+  let res: any = await supabaseAdmin
     .from('companies')
     .select(
       'business_summary, business_summary_pending_text, business_summary_pending_file_name, business_summary_pending_uploaded_at'
     )
     .eq('id', user.company_id)
     .single();
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
+      .from('companies')
+      .select('business_summary')
+      .eq('id', user.company_id)
+      .single();
+  }
+  // Une erreur qui n'est PAS "colonne absente" (droits, panne réseau...) ne
+  // doit surtout pas être rendue comme "profil vide" : l'UI sait afficher un
+  // vrai message d'erreur (summaryLoadError) sur un statut non-200.
+  if (res.error) {
+    return NextResponse.json({ error: res.error.message }, { status: 500 });
+  }
+  const company: any = res.data;
 
   // pending : présent uniquement si un document modifié a été importé et
   // n'a pas encore été traité ("Ne pas analyser" ou "Faire analyser par
