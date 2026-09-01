@@ -241,20 +241,52 @@ export async function getOutlookFreeBusy(userId: string, timeMinISO: string, tim
 }
 
 // Liste les nouveaux messages reçus depuis une date donnée (pour le cron de lecture)
+//
+// /me/messages (toute la boîte) et non /me/mailFolders/inbox/messages
+// (01/09/2026) — même correctif que côté Gmail (voir listNewGmailMessages) :
+// un email déplacé dans un dossier, archivé ou supprimé par le commercial
+// avant le passage du cron disparaissait de la vue d'Aaron, et la réponse du
+// prospect était perdue sans aucun signal. /me/messages couvre tous les
+// dossiers, y compris Éléments supprimés et Archive.
+//
+// Les Éléments envoyés et les Brouillons y sont aussi : on les écarte par
+// isDraft eq false, et le traitement en aval ne retient de toute façon que
+// les messages dont l'expéditeur correspond à un prospect connu (un email
+// envoyé PAR le commercial ne matche personne). Aucun risque de
+// retraitement non plus : le cron ignore tout id déjà en base
+// (messages.provider_message_id).
 export async function listNewOutlookMessages(userId: string, afterTimestamp: number) {
   const accessToken = await getValidAccessToken(userId);
   const afterISO = new Date(afterTimestamp).toISOString();
 
   const params = new URLSearchParams({
-    $filter: `receivedDateTime ge ${afterISO}`,
+    $filter: `receivedDateTime ge ${afterISO} and isDraft eq false`,
     $select: 'id',
     $orderby: 'receivedDateTime desc',
+    $top: '100',
   });
 
-  const response = await fetch(
-    `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?${params.toString()}`,
+  let response = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+
+  // Repli sur l'ancienne requête (boîte de réception seule) si Graph refuse
+  // la requête toute-boîte : selon le locataire, la combinaison
+  // $filter + $orderby peut être rejetée. Mieux vaut relire au moins la
+  // boîte de réception que de ne rien relire du tout et perdre le passage
+  // du cron pour ce commercial.
+  if (!response.ok) {
+    const inboxParams = new URLSearchParams({
+      $filter: `receivedDateTime ge ${afterISO}`,
+      $select: 'id',
+      $orderby: 'receivedDateTime desc',
+    });
+    response = await fetch(
+      `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?${inboxParams.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+  }
 
   if (!response.ok) {
     throw new Error('Erreur lecture messages Outlook');

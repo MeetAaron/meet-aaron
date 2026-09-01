@@ -321,9 +321,27 @@ export async function getGoogleFreeBusy(userId: string, timeMinISO: string, time
 }
 
 // Liste les nouveaux messages reçus depuis une date donnée (pour le cron de lecture)
+//
+// « in:anywhere » et non « in:inbox » (01/09/2026, question remontée par les
+// commerciaux du père d'Alex : « on nous demande de supprimer les emails
+// traités, doit-on faire pareil avec ceux d'Aaron ? »). Avec « in:inbox », un
+// email archivé ou mis à la corbeille par le commercial AVANT le passage du
+// cron (fenêtre de 5 min, ou bien plus après une coupure de connexion —
+// voir computeLookbackTimestamp) devenait invisible pour Aaron : la réponse
+// du prospect était perdue pour toujours, sans le moindre signal d'erreur.
+// « in:anywhere » couvre la boîte de réception, les archives, la corbeille et
+// les spams — le commercial peut donc ranger sa boîte comme il veut sans
+// jamais casser le suivi. On exclut explicitement ses propres envois et
+// brouillons, seuls dossiers que « in:inbox » excluait utilement (un message
+// dont l'expéditeur est le commercial ne correspondrait de toute façon à
+// aucun prospect en aval, mais autant ne pas les rapatrier du tout).
+//
+// Aucun risque de retraitement : le cron ignore tout message dont l'id est
+// déjà en base (messages.provider_message_id — voir
+// app/api/cron/check-inbox/route.ts).
 export async function listNewGmailMessages(userId: string, afterTimestamp: number) {
   const accessToken = await getValidAccessToken(userId);
-  const query = `after:${Math.floor(afterTimestamp / 1000)} in:inbox`;
+  const query = `after:${Math.floor(afterTimestamp / 1000)} in:anywhere -in:sent -in:draft -in:chats`;
 
   const response = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}`,
