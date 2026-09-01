@@ -173,6 +173,10 @@ async function buildContext(prospectId: string) {
 
   return {
     company_id: prospect.company_id,
+    // Imputation de l'appel API au commercial du prospect (jauge Mon équipe,
+    // 01/09/2026) — préfixé "_" comme les autres champs internes, retiré du
+    // contexte envoyé à Claude par la déstructuration dans generateAaronResponse.
+    _assignedUserId: prospect.assigned_user_id,
     commercial: {
       nom: prospect.users.full_name,
       email: prospect.users.email,
@@ -255,7 +259,7 @@ function fillTemplateTokens(
 }
 
 export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
-  const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, ...context } = await buildContext(prospectId);
+  const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, _assignedUserId: assignedUserId, ...context } = await buildContext(prospectId);
 
   // Email de premier contact par défaut (demande Alex, 2026-08-26) : si
   // activé ET qu'il s'agit bien du tout premier contact (aucun message dans
@@ -306,7 +310,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
         },
       ],
     },
-    companyId, 'ap'
+    companyId, 'ap', assignedUserId
   );
 
   const textBlock = data.content.find((block: any) => block.type === 'text');

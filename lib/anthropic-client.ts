@@ -162,7 +162,12 @@ function computeCostUsd(inputTokens: number, outputTokens: number, webSearches: 
   );
 }
 
-async function recordUsage(companyId: string, inputTokens: number, outputTokens: number, webSearches: number = 0) {
+// userId (01/09/2026) : optionnel. Quand l'appel est déclenché pour un
+// commercial identifié (chat, email de prospection, devis…), on enregistre
+// aussi sa part dans api_usage_user_monthly — c'est ce qui alimente la jauge
+// de crédits par commercial dans Mon équipe. Les appels non rattachables
+// (crons société) restent comptés au niveau société uniquement.
+async function recordUsage(companyId: string, inputTokens: number, outputTokens: number, webSearches: number = 0, userId?: string | null) {
   const costUsd = computeCostUsd(inputTokens, outputTokens, webSearches);
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
@@ -185,6 +190,33 @@ async function recordUsage(companyId: string, inputTokens: number, outputTokens:
       { onConflict: 'company_id,date' }
     ),
   ]);
+
+  // Part du commercial — best-effort et jamais bloquant : si la migration
+  // migration_api_usage_per_user_2026-09-01.sql n'est pas encore passée
+  // (42P01 : table absente), on ignore silencieusement, l'appel API a déjà
+  // eu lieu et le compteur société est à jour.
+  if (userId) {
+    try {
+      const { data: existing } = await supabaseAdmin
+        .from('api_usage_user_monthly')
+        .select('cost_usd')
+        .eq('user_id', userId)
+        .eq('year_month', currentYearMonth())
+        .maybeSingle();
+      await supabaseAdmin.from('api_usage_user_monthly').upsert(
+        {
+          company_id: companyId,
+          user_id: userId,
+          year_month: currentYearMonth(),
+          cost_usd: Number(existing?.cost_usd || 0) + costUsd,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,year_month' }
+      );
+    } catch {
+      // table absente ou indisponible : on n'alimente pas la jauge, c'est tout.
+    }
+  }
 }
 
 // Remplace fetch('https://api.anthropic.com/v1/messages', ...) partout dans le
@@ -203,7 +235,10 @@ async function recordUsage(companyId: string, inputTokens: number, outputTokens:
 export async function callClaude(
   body: Record<string, any>,
   companyId: string | null,
-  module?: CreditModule
+  module?: CreditModule,
+  // userId (01/09/2026) : le commercial à qui imputer cet appel dans la
+  // jauge de Mon équipe. Optionnel — omis pour les traitements société.
+  userId?: string | null
 ): Promise<any> {
   let usingCredits = false;
 
@@ -249,7 +284,7 @@ export async function callClaude(
     // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
     const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
 
-    await recordUsage(companyId, inputTokens, outputTokens, webSearches);
+    await recordUsage(companyId, inputTokens, outputTokens, webSearches, userId);
 
     if (usingCredits) {
       // Écart de change ignoré (coût calculé en $, crédits en €), comme
