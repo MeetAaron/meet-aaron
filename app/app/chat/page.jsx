@@ -696,6 +696,16 @@ const SPEECH_LANG_BY_LOCALE = {
   nl: 'nl-NL',
 };
 
+// Libellé de séparateur de jour dans le fil (refonte messagerie
+// 01/09/2026) : « Aujourd'hui » / « Hier » / date complète, comme Messenger.
+function dayLabel(date, locale) {
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  if (date.toDateString() === today.toDateString()) return t('chat.dayToday', locale);
+  if (date.toDateString() === yesterday.toDateString()) return t('chat.dayYesterday', locale);
+  return date.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
 export default function ChatPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
@@ -784,17 +794,9 @@ export default function ChatPage() {
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [conversationsError, setConversationsError] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState(null);
-  // Lecture à voix haute des messages d'Aaron (demande Alex, 27/08/2026,
-  // docx "Modifs Aaron" : "durant la création du profil, que l'on puisse
-  // cliquer sur un haut-parleur et Aaron dit les messages en haut-parleur")
-  // — via l'API Web Speech native du navigateur (window.speechSynthesis),
-  // sans dépendance ni appel serveur. speakingIndex pointe l'index du
-  // message actuellement lu (au plus un à la fois), null si aucun.
-  const [speakingIndex, setSpeakingIndex] = useState(null);
-  // Lecteur audio de la voix naturelle (voir speakMessage / app/api/tts) —
-  // une seule instance, réutilisée, pour pouvoir couper la lecture.
-  const ttsAudioRef = useRef(null);
   const [creatingConversation, setCreatingConversation] = useState(false);
+  // Tiroir « mes conversations » (refonte messagerie 01/09/2026).
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const bottomRef = useRef(null);
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
@@ -1139,7 +1141,7 @@ export default function ChatPage() {
   // docx item A3 : scroller uniquement la liste de messages elle-même (pas
   // toute la page) à chaque nouveau message. `scrollIntoView` sans option
   // `block: 'nearest'` peut aussi faire défiler des ancêtres qui montrent
-  // déjà l'élément (ex: la page entière si `.chat-box` dépasse la fenêtre),
+  // déjà l'élément (ex: la page entière si le fil dépasse la fenêtre),
   // ce qui produisait le "la page descend toute seule" remonté par Alex — on
   // manipule directement `scrollTop` du conteneur scrollable pour rester
   // strictement local à la boîte de chat.
@@ -1268,94 +1270,6 @@ export default function ChatPage() {
     el.style.height = 'auto';
     if (input) el.style.height = `${el.scrollHeight}px`;
   }, [input]);
-
-  // Coupe la lecture en cours si la page/le composant est démonté (ex:
-  // changement de rubrique) — sinon window.speechSynthesis continuerait de
-  // parler en arrière-plan indéfiniment.
-  useEffect(() => {
-    return () => {
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-      stopTtsAudio();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function stopTtsAudio() {
-    const audio = ttsAudioRef.current;
-    if (audio) {
-      audio.pause();
-      if (audio.src && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
-      audio.src = '';
-      ttsAudioRef.current = null;
-    }
-  }
-
-  // Voix du navigateur (window.speechSynthesis) — utilisée uniquement en
-  // repli si la voix naturelle n'est pas configurée côté serveur
-  // (OPENAI_API_KEY absente → /api/tts répond 501) ou en cas d'erreur.
-  function speakWithBrowserVoice(text, index) {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-      setSpeakingIndex(null);
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = SPEECH_LANG_BY_LOCALE[locale] || 'fr-FR';
-    utterance.onend = () => setSpeakingIndex((current) => (current === index ? null : current));
-    utterance.onerror = () => setSpeakingIndex((current) => (current === index ? null : current));
-    window.speechSynthesis.speak(utterance);
-  }
-
-  // Docx Modifs Aaron (AJOUTS 30/08/26, item 10 — retour Alex 31/08 : "on
-  // dirait un robot, je veux quelque chose de plus moderne comme la voix
-  // ChatGPT") : lecture via /api/tts (voix naturelle OpenAI), repli sur la
-  // voix du navigateur si non configurée.
-  async function speakMessage(text, index) {
-    if (typeof window === 'undefined') return;
-
-    // Un second clic sur le message en cours de lecture l'arrête (bascule
-    // haut-parleur actif ⇄ silencieux), plutôt que de relancer la lecture
-    // depuis le début.
-    if (speakingIndex === index) {
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      stopTtsAudio();
-      setSpeakingIndex(null);
-      return;
-    }
-
-    // Une seule lecture à la fois : on coupe toute lecture précédente avant
-    // d'en démarrer une nouvelle.
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    stopTtsAudio();
-    setSpeakingIndex(index);
-
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, locale }),
-      });
-      if (!res.ok) {
-        speakWithBrowserVoice(text, index);
-        return;
-      }
-      const blob = await res.blob();
-      const audio = new Audio(URL.createObjectURL(blob));
-      ttsAudioRef.current = audio;
-      audio.onended = () => {
-        setSpeakingIndex((current) => (current === index ? null : current));
-        stopTtsAudio();
-      };
-      audio.onerror = () => {
-        setSpeakingIndex((current) => (current === index ? null : current));
-        stopTtsAudio();
-      };
-      await audio.play();
-    } catch {
-      speakWithBrowserVoice(text, index);
-    }
-  }
 
   // Profil d'entreprise enrichi (demande Alex, 29/08/2026) : le document
   // généré par /api/business-summary est désormais structuré en sections
@@ -1692,6 +1606,7 @@ export default function ChatPage() {
   }
 
   function handleSwitchConversation(conversationId) {
+    setDrawerOpen(false);
     if (conversationId === activeConversationId) return;
     setActiveConversationId(conversationId);
     try {
@@ -1761,13 +1676,46 @@ export default function ChatPage() {
 
   return (
     <Shell active={t('nav.chat', locale)} userId={userId}>
-      <header className="header">
-        <div>
-          <p className="eyebrow">{t('chat.eyebrow', locale)}</p>
-          <h1>{t('chat.title', locale)}</h1>
+      {/* Refonte 01/09/2026 (demande Alex : « dans le chat Aaron, ça doit
+          ressembler à Messenger ou Insta ; là on dirait un forum des années
+          2000 ») : plus de titre de page ni d'encadré de 60vh au milieu de
+          l'écran — une vraie fenêtre de messagerie plein écran, avec la
+          barre d'en-tête (avatar + nom + statut), le fil au centre et la
+          zone de saisie collée en bas. La liste des conversations passe
+          dans un tiroir latéral, comme sur Messenger. */}
+      <header className="mg-head">
+        <span className="mg-avatar"><img src="/icon.png" alt="" /></span>
+        <div className="mg-id">
+          <p className="mg-name">Aaron</p>
+          <p className="mg-status"><span className="mg-dot" aria-hidden="true" />{t('chat.headerStatus', locale)}</p>
         </div>
-        <button className="btn-feedback" onClick={() => setShowFeedback(!showFeedback)}>
-          {t('chat.feedbackButton', locale)}
+        <button
+          type="button"
+          className="mg-icon-btn"
+          onClick={handleNewConversation}
+          disabled={creatingConversation}
+          title={t('chat.newConversation', locale)}
+          aria-label={t('chat.newConversation', locale)}
+        >
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <button
+          type="button"
+          className="mg-icon-btn"
+          onClick={() => setDrawerOpen(true)}
+          title={t('chat.conversationsTitle', locale)}
+          aria-label={t('chat.conversationsTitle', locale)}
+        >
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+        </button>
+        <button
+          type="button"
+          className="mg-icon-btn"
+          onClick={() => setShowFeedback(!showFeedback)}
+          title={t('chat.feedbackButton', locale)}
+          aria-label={t('chat.feedbackButton', locale)}
+        >
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z" /></svg>
         </button>
       </header>
 
@@ -1838,8 +1786,8 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="chat-box">
-        <div className="messages" ref={messagesRef}>
+      <div className="messenger">
+        <div className="mg-messages" ref={messagesRef}>
           {messages.length === 0 && (
             <div className="intro">
               <p>
@@ -1849,7 +1797,27 @@ export default function ChatPage() {
               </p>
             </div>
           )}
-          {messages.map((m, i) => (
+          {messages.map((m, i) => {
+            // Regroupement façon Messenger (01/09/2026) : les messages
+            // consécutifs du même interlocuteur se collent, seul le DERNIER
+            // du groupe porte la petite pointe et l'avatar d'Aaron, et
+            // l'heure ne s'affiche qu'une fois par groupe. Un séparateur de
+            // jour est inséré quand on change de date (created_at renvoyé
+            // par /api/chat-history ; absent sur un message tout juste
+            // envoyé côté client, on retombe silencieusement sur "pas de
+            // séparateur, pas d'heure").
+            const prev = messages[i - 1];
+            const next = messages[i + 1];
+            const firstOfGroup = !prev || prev.role !== m.role;
+            const lastOfGroup = !next || next.role !== m.role;
+            const at = m.created_at ? new Date(m.created_at) : null;
+            const prevAt = prev?.created_at ? new Date(prev.created_at) : null;
+            const newDay = at && (!prevAt || at.toDateString() !== prevAt.toDateString());
+            return (
+            <div key={`w${i}`} className="mg-group-wrap">
+            {newDay && (
+              <div className="mg-day"><span>{dayLabel(at, locale)}</span></div>
+            )}
             // Bug remonté par Alex (29/08/2026) : une sélection à la souris
             // (clic gauche maintenu, pour copier un morceau de conversation)
             // ne récupérait que les bulles Aaron, jamais les bulles
@@ -1867,7 +1835,12 @@ export default function ChatPage() {
             // toujours un élément DOM sous le curseur, à n'importe quelle
             // position horizontale de cette ligne, ce qui laisse le
             // navigateur atteindre correctement le texte de la bulle.
-            <div key={i} className={`msg-row ${m.role}`}>
+            <div className={`msg-row ${m.role}${firstOfGroup ? ' first' : ''}${lastOfGroup ? ' last' : ''}`}>
+            {m.role === 'assistant' && (
+              <span className={`mg-msg-avatar${lastOfGroup ? '' : ' hidden'}`} aria-hidden="true">
+                <img src="/icon.png" alt="" />
+              </span>
+            )}
             <div className={`bubble ${m.role}`}>
               {m.attachment && (
                 <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
@@ -1943,28 +1916,20 @@ export default function ChatPage() {
                   </a>
                 </div>
               )}
-              {/* Haut-parleur (demande Alex, docx "Modifs Aaron") : sur tous
-                  les messages d'Aaron — pas seulement pendant la création du
-                  profil, où c'était explicitement demandé, mais aussi dans
-                  le reste du chat, souvent utile pour les descriptions
-                  longues (prospect/opportunité/client) qu'Aaron y renvoie. */}
-              {m.role === 'assistant' && (
-                <button
-                  type="button"
-                  className={`btn-speak${speakingIndex === i ? ' speaking' : ''}`}
-                  onClick={() => speakMessage(m.content, i)}
-                  title={t('chat.speakButton', locale)}
-                  aria-label={t('chat.speakButton', locale)}
-                >
-                  {speakingIndex === i ? '⏸' : '🔊'}
-                </button>
-              )}
             </div>
             </div>
-          ))}
+            {lastOfGroup && at && (
+              <div className={`mg-time ${m.role}`}>{at.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</div>
+            )}
+            </div>
+            );
+          })}
           {sending && (
-            <div className="msg-row assistant">
-              <div className="bubble assistant typing">{t('chat.aaronThinking', locale)}</div>
+            <div className="msg-row assistant first last">
+              <span className="mg-msg-avatar" aria-hidden="true"><img src="/icon.png" alt="" /></span>
+              <div className="bubble assistant typing" aria-label={t('chat.aaronThinking', locale)}>
+                <span className="mg-typing"><i /><i /><i /></span>
+              </div>
             </div>
           )}
           <div ref={bottomRef} />
@@ -2062,7 +2027,7 @@ export default function ChatPage() {
           </div>
         )}
 
-        <form className="input-row" onSubmit={handleSend}>
+        <form className="mg-composer" onSubmit={handleSend}>
           <input
             ref={fileInputRef}
             type="file"
@@ -2072,17 +2037,17 @@ export default function ChatPage() {
           />
           <button
             type="button"
-            className="btn-attach"
+            className="mg-attach"
             onClick={() => fileInputRef.current?.click()}
             disabled={sending || uploadingDocument}
             title={t('chat.attachButton', locale)}
             aria-label={t('chat.attachButton', locale)}
           >
-            📎
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.2-9.2a3.67 3.67 0 0 1 5.18 5.19l-9.2 9.19a1.83 1.83 0 0 1-2.59-2.59l8.5-8.49" /></svg>
           </button>
           <textarea
             ref={textareaRef}
-            className="chat-textarea"
+            className="mg-input"
             value={input}
             rows={1}
             onChange={(e) => setInput(e.target.value)}
@@ -2097,8 +2062,16 @@ export default function ChatPage() {
           {/* Bug remonté par Alex (29/08/2026) : un document seul, sans texte,
               devait pouvoir être envoyé (bouton grisé sinon) — voir la même
               condition sur la garde en tête de handleSend. */}
-          <button type="submit" className="btn-send" disabled={sending || (!input.trim() && !pendingDocument)}>
-            {t('chat.send', locale)}
+          {/* Bouton rond fléché, comme dans une messagerie — le libellé
+              « Envoyer » reste en aria-label pour l'accessibilité. */}
+          <button
+            type="submit"
+            className="mg-send"
+            disabled={sending || (!input.trim() && !pendingDocument)}
+            title={t('chat.send', locale)}
+            aria-label={t('chat.send', locale)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
           </button>
         </form>
       </div>
@@ -2109,13 +2082,18 @@ export default function ChatPage() {
           migration_chat_conversations_2026-08-25.sql) : le favori sert
           uniquement à épingler en haut de liste, rien n'est jamais supprimé
           automatiquement. */}
-      <div className="conversations-panel">
+      {/* Tiroir « mes conversations » (refonte messagerie 01/09/2026) : la
+          liste ne s'empile plus sous le fil (effet forum), elle glisse
+          depuis la droite comme la liste de discussions d'une messagerie. */}
+      {drawerOpen && <div className="mg-drawer-overlay" onClick={() => setDrawerOpen(false)} />}
+      <aside className={`conversations-panel${drawerOpen ? ' open' : ''}`}>
         <div className="conversations-head">
           <h2>{t('chat.conversationsTitle', locale)}</h2>
-          <button type="button" className="btn-secondary" onClick={handleNewConversation} disabled={creatingConversation}>
-            + {t('chat.newConversation', locale)}
-          </button>
+          <button type="button" className="mg-icon-btn" onClick={() => setDrawerOpen(false)} aria-label={t('common.close', locale)}>✕</button>
         </div>
+        <button type="button" className="mg-new-conv" onClick={handleNewConversation} disabled={creatingConversation}>
+          + {t('chat.newConversation', locale)}
+        </button>
         <p className="conversations-hint">{t('chat.conversationsHint', locale)}</p>
         {conversationsError && conversations.length === 0 ? (
           <p className="conversations-error">{t('chat.conversationsLoadError', locale)}</p>
@@ -2150,7 +2128,7 @@ export default function ChatPage() {
             ))}
           </ul>
         )}
-      </div>
+      </aside>
 
       {/* docx AJOUT GLOBAL item A8 : "revoir la visite guidée" doit rester
           accessible en permanence juste sous le chat (pas seulement pendant
@@ -2266,90 +2244,177 @@ export default function ChatPage() {
           border: 1px solid var(--border);
           color: var(--muted);
         }
-        .chat-box {
+        /* ============ Fenêtre de messagerie (refonte 01/09/2026) ============
+           Demande d'Alex : « dans le chat Aaron ça doit ressembler à
+           Messenger ou Insta ; là on dirait un forum des années 2000 ».
+           La colonne prend toute la hauteur disponible, l'en-tête et la
+           saisie sont fixes, seul le fil défile. */
+        /* Fil centré et borné, comme une messagerie : sur un grand écran une
+           ligne de texte qui traverse 1500 px est illisible. */
+        .mg-head {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 0 0.2rem 0.9rem;
+          border-bottom: 1px solid var(--border-soft);
+          max-width: 940px;
+          margin: 0 auto;
+          width: 100%;
+        }
+        .mg-avatar {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          overflow: hidden;
+          flex-shrink: 0;
           background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
+          box-shadow: 0 0 0 2px rgba(75, 57, 239, 0.35);
+        }
+        .mg-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .mg-id { flex: 1; min-width: 0; }
+        .mg-name {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.02rem;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+        }
+        .mg-status {
+          margin: 0.1rem 0 0;
+          font-size: 0.76rem;
+          color: var(--muted);
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .mg-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--accent-green);
+          box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18);
+        }
+        .mg-icon-btn {
+          width: 36px;
+          height: 36px;
+          flex-shrink: 0;
+          border-radius: 50%;
+          border: none;
+          background: transparent;
+          color: var(--muted);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.9rem;
+          transition: background var(--fast), color var(--fast);
+        }
+        .mg-icon-btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+        .mg-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .messenger {
           display: flex;
           flex-direction: column;
-          height: 60vh;
-          overflow: hidden;
+          height: calc(100vh - 13rem);
+          min-height: 420px;
+          max-width: 940px;
+          margin: 0 auto;
+          width: 100%;
         }
-        .messages {
+        .mg-messages {
           flex: 1;
           overflow-y: auto;
-          padding: 1.4rem;
+          padding: 1.1rem 0.4rem 0.6rem;
           display: flex;
           flex-direction: column;
-          gap: 0.8rem;
+          gap: 0.12rem;
         }
+        .mg-group-wrap { display: contents; }
         .intro {
           color: var(--muted);
           font-size: 0.9rem;
           text-align: center;
           margin-top: 2rem;
         }
-        /* .msg-row (bug sélection souris, voir commentaire JSX au-dessus) :
-           occupe toute la largeur de .messages, avec justify-content pour
-           pousser la bulle à droite (user) ou à gauche (assistant) — remplace
-           l'ancien align-self posé directement sur .bubble, qui laissait la
-           moitié de l'écran sans aucun élément DOM (donc pas de cible pour
-           une sélection glissée) à côté de chaque bulle. */
+        .mg-day {
+          display: flex;
+          justify-content: center;
+          margin: 1rem 0 0.7rem;
+        }
+        .mg-day span {
+          background: var(--surface);
+          border: 1px solid var(--border-soft);
+          color: var(--muted);
+          font-size: 0.7rem;
+          padding: 0.2rem 0.75rem;
+          border-radius: 999px;
+          text-transform: capitalize;
+        }
         .msg-row {
           display: flex;
           width: 100%;
+          align-items: flex-end;
+          gap: 0.45rem;
         }
-        .msg-row.user {
-          justify-content: flex-end;
+        .msg-row.user { justify-content: flex-end; }
+        .msg-row.assistant { justify-content: flex-start; }
+        .msg-row.first { margin-top: 0.55rem; }
+        .mg-msg-avatar {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          overflow: hidden;
+          flex-shrink: 0;
+          align-self: flex-end;
         }
-        .msg-row.assistant {
-          justify-content: flex-start;
-        }
+        .mg-msg-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .mg-msg-avatar.hidden { visibility: hidden; }
         .bubble {
-          max-width: 70%;
-          padding: 0.7rem 1rem;
-          border-radius: var(--radius-lg);
-          font-size: 0.9rem;
+          max-width: min(70%, 620px);
+          padding: 0.62rem 0.95rem;
+          border-radius: 20px;
+          font-size: 0.92rem;
           line-height: 1.45;
           white-space: pre-wrap;
           overflow-wrap: break-word;
         }
-        .bubble.user {
-          background: var(--accent);
-          color: white;
-          border-bottom-right-radius: 4px;
+        /* Coins « collés » à l'intérieur d'un groupe : le repère visuel des
+           messageries — un seul bloc quand on enchaîne plusieurs messages. */
+        .msg-row.user .bubble {
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          border-bottom-right-radius: 6px;
         }
-        .bubble.assistant {
+        .msg-row.user:not(.first) .bubble { border-top-right-radius: 6px; }
+        .msg-row.assistant .bubble {
           position: relative;
-          background: var(--bg);
-          border: 1px solid var(--border);
+          background: var(--surface);
+          border: 1px solid var(--border-soft);
           color: var(--text);
-          border-bottom-left-radius: 4px;
-          padding-right: 2.3rem;
+          border-bottom-left-radius: 6px;
         }
-        .bubble.typing {
-          color: var(--muted);
-          font-style: italic;
+        .msg-row.assistant:not(.first) .bubble { border-top-left-radius: 6px; }
+        .mg-time {
+          font-size: 0.66rem;
+          color: var(--muted-soft);
+          margin: 0.15rem 0 0.1rem;
+          padding: 0 0.3rem;
         }
-        .btn-speak {
-          position: absolute;
-          top: 0.35rem;
-          right: 0.4rem;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          font-size: 0.8rem;
-          line-height: 1;
-          padding: 0.2rem;
-          opacity: 0.55;
-          color: var(--muted);
+        .mg-time.user { text-align: right; }
+        .mg-time.assistant { text-align: left; padding-left: 2.1rem; }
+        .bubble.typing { padding: 0.75rem 1rem; }
+        .mg-typing { display: inline-flex; gap: 4px; align-items: center; }
+        .mg-typing i {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--muted);
+          animation: mg-blink 1.2s infinite ease-in-out;
         }
-        .btn-speak:hover {
-          opacity: 1;
-        }
-        .btn-speak.speaking {
-          opacity: 1;
-          color: var(--accent);
+        .mg-typing i:nth-child(2) { animation-delay: 0.18s; }
+        .mg-typing i:nth-child(3) { animation-delay: 0.36s; }
+        @keyframes mg-blink {
+          0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+          40% { opacity: 1; transform: translateY(-2px); }
         }
         .bubble-attachment {
           display: flex;
@@ -2477,13 +2542,39 @@ export default function ChatPage() {
           display: inline-flex;
           align-items: center;
         }
+        /* Tiroir latéral (refonte messagerie) : masqué par défaut, glisse
+           depuis la droite au clic sur l'icône « liste » de l'en-tête. */
         .conversations-panel {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: 1.2rem 1.4rem;
-          margin-top: 1.25rem;
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          width: min(340px, 88vw);
+          z-index: 119;
+          background: var(--bg-elevated);
+          border-left: 1px solid var(--border);
+          box-shadow: var(--shadow-lg);
+          padding: 1.2rem 1.2rem calc(1.2rem + env(safe-area-inset-bottom));
+          overflow-y: auto;
+          transform: translateX(100%);
+          transition: transform 0.25s var(--ease);
+          box-sizing: border-box;
         }
+        .conversations-panel.open { transform: translateX(0); }
+        .mg-new-conv {
+          width: 100%;
+          background: var(--accent);
+          color: #fff;
+          border: none;
+          border-radius: var(--radius-md);
+          padding: 0.6rem 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          font-family: inherit;
+          cursor: pointer;
+          margin-bottom: 0.7rem;
+        }
+        .mg-new-conv:disabled { opacity: 0.5; cursor: not-allowed; }
         .conversations-head {
           display: flex;
           align-items: center;
@@ -2649,66 +2740,73 @@ export default function ChatPage() {
           color: var(--accent-red);
           font-size: 0.8rem;
         }
-        .file-input-hidden {
-          display: none;
-        }
-        .btn-attach {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          color: var(--muted);
-          border-radius: var(--radius-md);
-          width: 2.6rem;
-          height: 2.6rem;
-          flex-shrink: 0;
-          font-size: 1rem;
-          cursor: pointer;
-        }
-        .btn-attach:hover {
-          color: var(--text);
-          border-color: var(--accent);
-        }
-        .btn-attach:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .input-row {
+        .mg-composer {
           display: flex;
           align-items: flex-end;
-          gap: 0.6rem;
-          padding: 1rem;
-          border-top: 1px solid var(--border);
+          gap: 0.4rem;
+          padding: 0.6rem 0.2rem 0.2rem;
+          border-top: 1px solid var(--border-soft);
         }
-        .chat-textarea {
-          flex: 1;
-          background: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: 0.7rem 1rem;
-          color: var(--text);
-          font-size: 0.9rem;
-          font-family: inherit;
-          line-height: 1.4;
-          resize: none;
-          /* docx item A2 : s'agrandit avec le contenu (voir l'effet JS qui
-             ajuste style.height) jusqu'à ~6 lignes, puis défile — comme un
-             champ de saisie WhatsApp, sans jamais avaler toute la page. */
-          min-height: 2.6rem;
-          max-height: 9rem;
-          overflow-y: auto;
-        }
-        .btn-send {
-          background: var(--accent);
-          color: white;
+        .file-input-hidden { display: none; }
+        .mg-attach, .mg-send {
+          width: 40px;
+          height: 40px;
+          flex-shrink: 0;
+          border-radius: 50%;
           border: none;
-          border-radius: var(--radius-md);
-          padding: 0.7rem 1.2rem;
-          font-weight: 600;
-          font-size: 0.86rem;
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: background var(--fast), color var(--fast), transform var(--fast);
         }
-        .btn-send:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
+        .mg-attach { background: transparent; color: var(--muted); }
+        .mg-attach:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+        .mg-send { background: var(--accent); color: #fff; }
+        .mg-send:hover:not(:disabled) { background: var(--accent-light); transform: scale(1.05); }
+        .mg-attach:disabled, .mg-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .mg-input {
+          flex: 1;
+          min-width: 0;
+          max-height: 140px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 22px;
+          padding: 0.68rem 1.05rem;
+          color: var(--text);
+          /* 16px : évite le zoom automatique de Safari iOS à la mise au point */
+          font-size: 16px;
+          font-family: inherit;
+          line-height: 1.45;
+          resize: none;
+          overflow-y: auto;
+          transition: border-color var(--fast);
+        }
+        .mg-input:focus { outline: none; border-color: var(--accent); }
+        .mg-input::placeholder { color: var(--muted); }
+        .mg-input:disabled { opacity: 0.6; }
+
+        /* Tiroir des conversations + adaptation téléphone */
+        .mg-drawer-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(5, 6, 12, 0.55);
+          backdrop-filter: blur(2px);
+          z-index: 118;
+        }
+        @media (max-width: 900px) {
+          .messenger {
+            height: calc(100dvh - 52px - 62px - 7.5rem);
+            min-height: 340px;
+          }
+          .mg-head { padding-bottom: 0.7rem; }
+          .bubble { max-width: 82%; font-size: 0.95rem; }
+          .mg-composer {
+            position: sticky;
+            bottom: 0;
+            background: var(--bg);
+            padding-bottom: 0.4rem;
+          }
         }
       `}</style>
     </Shell>
