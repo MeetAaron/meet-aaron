@@ -120,7 +120,7 @@ function providerMetaFor(locale) {
 // (?oauth_error=...). Tout autre code (ex. "access_denied", renvoyé
 // directement par Google/Microsoft quand l'utilisateur refuse, ou un code
 // d'erreur d'admin Microsoft) tombe dans le message générique ci-dessous.
-const KNOWN_OAUTH_ERROR_CODES = ['state_mismatch', 'token_exchange_failed', 'db_error'];
+const KNOWN_OAUTH_ERROR_CODES = ['state_mismatch', 'token_exchange_failed', 'db_error', 'admin_consent_required'];
 function getOauthErrorMessage(code, locale) {
   if (KNOWN_OAUTH_ERROR_CODES.includes(code)) {
     return t(`connexions.oauthErrorBanner.${code}`, locale);
@@ -296,6 +296,16 @@ export default function ConnexionsPage() {
   // Gmail/Outlook, comme si rien ne s'était passé. Voir le useEffect
   // ci-dessous pour la lecture du paramètre.
   const [oauthErrorBanner, setOauthErrorBanner] = useState(null);
+  // Microsoft 365 : retour du flux de consentement administrateur (voir
+  // app/api/auth/microsoft/admin-consent/route.ts) — 'granted' | 'refused'.
+  const [adminConsentResult, setAdminConsentResult] = useState(null);
+  const [adminLinkCopied, setAdminLinkCopied] = useState(false);
+  // Lien public à transmettre à l'administrateur Microsoft 365 (aucun jeton
+  // dedans : c'est l'admin qui l'ouvre, il n'a pas de compte Meet Aaron).
+  const adminConsentUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/auth/microsoft/admin-consent`
+      : 'https://meetaaron.app/api/auth/microsoft/admin-consent';
 
   // Suite 15 — état propre au formulaire de connexion par clé API (Axonaut et
   // les autres CRM sans OAuth centralisé traités selon le même patron),
@@ -1219,7 +1229,9 @@ export default function ConnexionsPage() {
     }
     const oauthErrorCode = params.get('oauth_error');
     if (oauthErrorCode) setOauthErrorBanner(oauthErrorCode);
-    if (params.get('oauth_success') || params.get('oauth_error') || crmOauthError || params.get('crm_oauth_success')) {
+    const adminConsent = params.get('admin_consent');
+    if (adminConsent === 'granted' || adminConsent === 'refused') setAdminConsentResult(adminConsent);
+    if (params.get('oauth_success') || params.get('oauth_error') || adminConsent || crmOauthError || params.get('crm_oauth_success')) {
       window.history.replaceState({}, '', window.location.pathname + '?user_id=' + userId);
     }
   }, [userId]);
@@ -2009,6 +2021,45 @@ export default function ConnexionsPage() {
           {oauthErrorBanner && (
             <div className="oauth-error-banner">
               <p>{getOauthErrorMessage(oauthErrorBanner, locale)}</p>
+              {/* Microsoft 365 : l'employé ne peut rien faire seul, c'est son
+                  administrateur qui doit autoriser Aaron pour l'entreprise.
+                  On lui donne le lien exact à transmettre, plus un message
+                  prêt à copier — sinon la connexion reste bloquée sans issue. */}
+              {oauthErrorBanner === 'admin_consent_required' && (
+                <div className="admin-consent-box">
+                  <code className="admin-consent-link">{adminConsentUrl}</code>
+                  <div className="admin-consent-actions">
+                    <button
+                      type="button"
+                      className="admin-consent-btn"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(
+                            `${t('connexions.adminConsentMessage', locale)}\n\n${adminConsentUrl}`
+                          );
+                          setAdminLinkCopied(true);
+                          setTimeout(() => setAdminLinkCopied(false), 2500);
+                        } catch {}
+                      }}
+                    >
+                      {adminLinkCopied ? t('connexions.adminConsentCopied', locale) : t('connexions.adminConsentCopy', locale)}
+                    </button>
+                    <a className="admin-consent-btn" href={adminConsentUrl} target="_blank" rel="noopener noreferrer">
+                      {t('connexions.adminConsentOpen', locale)}
+                    </a>
+                  </div>
+                  <p className="admin-consent-hint">{t('connexions.adminConsentHint', locale)}</p>
+                </div>
+              )}
+            </div>
+          )}
+          {adminConsentResult && (
+            <div className={adminConsentResult === 'granted' ? 'oauth-success-banner' : 'oauth-error-banner'}>
+              <p>
+                {adminConsentResult === 'granted'
+                  ? t('connexions.adminConsentGranted', locale)
+                  : t('connexions.adminConsentRefused', locale)}
+              </p>
             </div>
           )}
           {oauthJustConnected && (
@@ -3681,6 +3732,51 @@ export default function ConnexionsPage() {
         }
         .oauth-success-cta:hover {
           text-decoration: underline;
+        }
+        .admin-consent-box {
+          margin-top: 0.7rem;
+          padding-top: 0.7rem;
+          border-top: 1px solid rgba(239, 68, 89, 0.35);
+        }
+        .admin-consent-link {
+          display: block;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.6rem;
+          font-size: 0.74rem;
+          font-family: var(--font-mono);
+          color: var(--text);
+          overflow-wrap: anywhere;
+        }
+        .admin-consent-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 0.6rem;
+        }
+        .admin-consent-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-md);
+          padding: 0.5rem 0.9rem;
+          font-size: 0.8rem;
+          font-family: inherit;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+        }
+        .admin-consent-btn:hover {
+          border-color: var(--accent);
+        }
+        .admin-consent-hint {
+          font-size: 0.76rem;
+          color: var(--muted);
+          margin: 0.6rem 0 0;
+          line-height: 1.45;
         }
         .oauth-error-banner {
           grid-column: 1 / -1;
