@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { extractDocumentText } from '@/lib/document-extraction';
-import { summarizeDocument } from '@/lib/document-summary';
+import { analyzeDocument } from '@/lib/document-summary';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 
 const BUCKET = 'documents';
@@ -93,26 +93,48 @@ export async function POST(request: NextRequest) {
   }
 
   const extractedText = await extractDocumentText(buffer, file.type);
-  const summary = extractedText
-    ? await summarizeDocument(file.name, extractedText, user.company_id, authedUser.locale)
-    : null;
+  // Classement automatique (demande Alex, 01/09/2026) : Aaron lit déjà le
+  // document pour la synthèse, il en déduit la catégorie dans le même appel.
+  // Il ne classe QUE si le commercial n'a rien choisi lui-même — un choix
+  // manuel n'est jamais écrasé (voir aussi le PATCH, qui repasse
+  // category_auto à false dès que le commercial corrige).
+  const analysis = extractedText
+    ? await analyzeDocument(file.name, extractedText, user.company_id, authedUser.locale, userId)
+    : { summary: null, category: null };
+  const autoCategory = !linkedCategory && analysis.category && analysis.category !== 'general' ? analysis.category : null;
 
-  const { data: doc, error: dbError } = await supabaseAdmin
+  const insertRow: Record<string, any> = {
+    company_id: user.company_id,
+    uploaded_by: userId,
+    file_name: file.name,
+    storage_path: storagePath,
+    file_type: file.type,
+    file_size_bytes: file.size,
+    description,
+    extracted_text: extractedText,
+    summary: analysis.summary,
+    linked_category: linkedCategory || autoCategory,
+    category_auto: !!autoCategory,
+  };
+
+  let { data: doc, error: dbError } = await supabaseAdmin
     .from('company_documents')
-    .insert({
-      company_id: user.company_id,
-      uploaded_by: userId,
-      file_name: file.name,
-      storage_path: storagePath,
-      file_type: file.type,
-      file_size_bytes: file.size,
-      description,
-      extracted_text: extractedText,
-      summary,
-      linked_category: linkedCategory,
-    })
+    .insert(insertRow)
     .select()
     .single();
+
+  // Colonne category_auto absente (migration_documents_auto_category_
+  // 2026-09-01.sql pas encore passée) : on réinsère sans elle plutôt que de
+  // faire échouer l'upload — le classement reste appliqué, seul le marqueur
+  // « classé par Aaron » manque.
+  if (dbError && (dbError as any).code === '42703') {
+    const { category_auto, ...withoutFlag } = insertRow;
+    ({ data: doc, error: dbError } = await supabaseAdmin
+      .from('company_documents')
+      .insert(withoutFlag)
+      .select()
+      .single());
+  }
 
   if (dbError) {
     return NextResponse.json({ error: dbError.message }, { status: 500 });
