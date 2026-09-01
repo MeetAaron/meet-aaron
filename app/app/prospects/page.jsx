@@ -212,7 +212,11 @@ export default function ProspectsPage() {
   // Aaron ». La fiche contact (components/ContactCard.jsx) s'ouvre en
   // panneau latéral (feuille plein écran sur téléphone).
   const [categories, setCategories] = useState(['prospect', 'opportunite']);
-  const [stageFilter, setStageFilter] = useState(null);
+  // Tableau et non valeur unique (demande Alex, 01/09/2026) : cliquer sur
+  // « En cours » PUIS « En bonne voie » affiche les deux étapes cumulées,
+  // jusqu'à ce qu'on reclique dessus pour les retirer. Tableau vide = aucun
+  // filtre d'étape (toutes les étapes des catégories cochées).
+  const [stageFilter, setStageFilter] = useState([]);
   const [extraFilter, setExtraFilter] = useState(null); // 'risk' | 'lost' | null
   const [aaronOnly, setAaronOnly] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -250,11 +254,11 @@ export default function ProspectsPage() {
   }
   function toggleExtra(key) {
     setExtraFilter((prev) => (prev === key ? null : key));
-    setStageFilter(null);
+    setStageFilter([]);
   }
   function toggleStage(stage) {
     setExtraFilter(null);
-    setStageFilter((prev) => (prev === stage ? null : stage));
+    setStageFilter((prev) => (prev.includes(stage) ? prev.filter((x) => x !== stage) : [...prev, stage]));
     const cat = categoryOfStage(stage);
     setCategories((prev) => (prev.includes(cat) ? prev : [...prev, cat]));
   }
@@ -266,7 +270,7 @@ export default function ProspectsPage() {
       if (position.lost) return false;
       if (extraFilter === 'risk') return position.risk;
       if (!categories.includes(position.category)) return false;
-      if (stageFilter && position.stage !== stageFilter) return false;
+      if (stageFilter.length > 0 && !stageFilter.includes(position.stage)) return false;
       if (aaronOnly && p.ai_managed === false) return false;
       return true;
     })
@@ -428,7 +432,7 @@ export default function ProspectsPage() {
 
       <div className="stage-bar">
         {PIPELINE_STAGES.map((s, i) => {
-          const on = stageFilter === s.key;
+          const on = stageFilter.includes(s.key);
           const color = PIPELINE_COLORS[s.category];
           return (
             <button
@@ -440,7 +444,14 @@ export default function ProspectsPage() {
               title={t(s.hintKey, locale)}
             >
               {i > 0 && <span className="stage-link" />}
-              <span className="stage-dot" style={{ background: color }} />
+              {/* Pastille = l'icône de la catégorie (🎯 prospect / 🤝
+                  opportunité / ⭐ client) plutôt qu'un simple point coloré
+                  (demande Alex, 01/09/2026) : on relit la ligne de
+                  progression sans avoir à décoder les couleurs, et ça
+                  raccroche visuellement aux chips du dessus. */}
+              <span className="stage-dot" style={{ background: color, boxShadow: `0 0 0 3px var(--bg)` }} aria-hidden="true">
+                {CATEGORY_ICONS[s.category]}
+              </span>
               <span className="stage-count">{counts.byStage[s.key]}</span>
               <span className="stage-label">{t(s.labelKey, locale)}</span>
             </button>
@@ -787,7 +798,19 @@ export default function ProspectsPage() {
           background: var(--border);
           z-index: 0;
         }
-        .stage-dot { position: relative; z-index: 1; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 3px var(--bg); }
+        .stage-dot {
+          position: relative;
+          z-index: 1;
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          box-shadow: 0 0 0 3px var(--bg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          line-height: 1;
+        }
         .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
         .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
         .search-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
