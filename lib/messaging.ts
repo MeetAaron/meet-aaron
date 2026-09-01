@@ -193,8 +193,17 @@ export function computeHumanReplyDelayMs(bodyText: string): number {
 // envois Outlook, avec un résultat que Gmail affichait tronqué).
 export function plainTextToEmailHtml(text: string, opts?: { trailingHtml?: string }): string {
   const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const htmlLines = text
-    .split('\n')
+  // Filet de sécurité (01/09/2026) : aucune ligne vide en tête ni en fin de
+  // message, quelle que soit la provenance du texte. normalizeEmailBodyLineBreaks
+  // le garantit déjà pour les envois passant par sendEmailForUser, mais cette
+  // fonction est publique et le <div><br></div> résiduel qu'une ligne vide
+  // finale produirait fait partie de ce que Gmail replie derrière son bouton
+  // « … / Afficher le message complet » — ce qui donne au destinataire
+  // l'impression d'un message tronqué, donc d'un spam.
+  const lines = text.split('\n');
+  while (lines.length > 0 && lines[0].trim() === '') lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+  const htmlLines = lines
     .map((line) => (line.trim().length === 0 ? '<div><br></div>' : `<div>${escapeHtml(line)}</div>`))
     .join('');
   return `<div dir="ltr">${htmlLines}${opts?.trailingHtml || ''}</div>`;
