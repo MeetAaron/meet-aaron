@@ -292,7 +292,13 @@ export default function DashboardPage() {
       // deux appels de plus, déjà légers et déjà utilisés ailleurs dans
       // l'appli (Préférences, Mon compte > Connexion) — pas de nouvelle route
       // nécessaire.
-      fetch(`/api/business-summary?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      // ok: false remonté explicitement (01/09/2026) : sur une erreur de la
+      // route, on ne doit PAS conclure "profil business non complété" et
+      // afficher une étape à faire alors que le profil existe — bug remonté
+      // par Alex (checklist "à faire" alors que le PDF contenait le profil).
+      fetch(`/api/business-summary?user_id=${userId}`)
+        .then((r) => r.json().then((b) => ({ ...b, _ok: r.ok })))
+        .catch(() => ({ _ok: false })),
       fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
     ]);
     setProspects(pRes.prospects || []);
@@ -307,7 +313,9 @@ export default function DashboardPage() {
     setSalesModuleActive(prefs.offer_as_active === true);
     setCustomerModuleActive(prefs.offer_ac_active === true);
     setOnboardingTourSeen(prefs.onboarding_tour_seen === true);
-    setBusinessSummaryDone(!!bsRes.summary);
+    // Sur erreur (_ok false), on laisse la valeur optimiste par défaut
+    // (true) plutôt que d'inventer une étape à faire.
+    if (bsRes._ok !== false) setBusinessSummaryDone(!!bsRes.summary);
     setEmailConnected((connRes.connections || []).length > 0);
     setIcsLinkGenerated(prefs.ics_link_generated === true);
     setLoading(false);
