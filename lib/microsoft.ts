@@ -143,17 +143,52 @@ export async function applyAaronCategory(userId: string, messageId: string | und
 // côté Gmail.
 //
 // Échec silencieux, comme applyAaronCategory.
+// Récupère (ou crée) le dossier Outlook « 🤖 Géré par Aaron ».
+//
+// Outlook n'a pas de libellés comme Gmail : pour que le commercial retrouve
+// ses échanges à un endroit qui porte un nom parlant — et pas noyés dans
+// l'Archive générique avec tout le reste — on crée un vrai dossier de premier
+// niveau au même nom que la catégorie posée sur les messages.
+async function getOrCreateAaronFolderId(userId: string): Promise<string | null> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const listRes = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=100&$select=id,displayName', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (listRes.ok) {
+      const { value } = await listRes.json();
+      const existing = value?.find((f: any) => f.displayName === AARON_CATEGORY_NAME);
+      if (existing) return existing.id;
+    }
+    const createRes = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: AARON_CATEGORY_NAME }),
+    });
+    if (!createRes.ok) return null;
+    const created = await createRes.json();
+    return created.id;
+  } catch (err: any) {
+    console.error('Erreur récupération/création du dossier Outlook Aaron:', err.message);
+    return null;
+  }
+}
+
 export async function archiveOutlookMessage(userId: string, messageId: string | undefined | null) {
   if (!messageId) return;
   try {
     const accessToken = await getValidAccessToken(userId);
+    // Dossier nommé si on arrive à l'obtenir, Archive standard sinon : mieux
+    // vaut ranger dans l'Archive que laisser le message en boîte de réception
+    // alors que le commercial a demandé qu'elle reste propre.
+    const destinationId = (await getOrCreateAaronFolderId(userId)) || 'archive';
     await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}/move`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ destinationId: 'archive' }),
+      body: JSON.stringify({ destinationId }),
     });
   } catch (err: any) {
     console.error('Erreur archivage du message Outlook:', err.message);
