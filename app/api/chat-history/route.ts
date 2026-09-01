@@ -71,7 +71,10 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    messages: (messagesDesc || []).slice().reverse().map((m) => ({ role: m.role, content: m.content })),
+    // created_at renvoyé depuis le 01/09/2026 : le chat façon messagerie
+    // (bulles groupées, séparateurs de jour, heure sous le dernier message
+    // d'un groupe) en a besoin — voir app/app/chat/page.jsx.
+    messages: (messagesDesc || []).slice().reverse().map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })),
     onboarding_step: user?.onboarding_step ?? -1,
     onboarding_answers: user?.onboarding_answers ?? [],
   });
