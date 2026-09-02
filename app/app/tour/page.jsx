@@ -109,6 +109,17 @@ function slidesFor(locale) {
       title: t('tour.slide.documents.title', locale),
       text: t('tour.slide.documents.text', locale),
     },
+    // Règle de la boîte mail (demande Alex, 01/09/2026 : « préviens juste
+    // l'utilisateur lors de la création du compte »). Placée avant le chat :
+    // c'est la seule consigne de la visite où mal faire a une conséquence
+    // réelle (un email supprimé = un suivi de contact cassé), donc elle mérite
+    // sa propre étape plutôt qu'une ligne noyée ailleurs.
+    {
+      slug: 'mailbox',
+      icon: '📬',
+      title: t('tour.slide.mailbox.title', locale),
+      text: t('tour.slide.mailbox.text', locale),
+    },
     {
       slug: 'chat',
       icon: '💬',
