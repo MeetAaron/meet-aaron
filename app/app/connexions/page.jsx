@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { BOOST_TIERS } from '@/lib/credit-boosts';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -472,15 +473,12 @@ export default function ConnexionsPage() {
   const [billingPortalError, setBillingPortalError] = useState(null);
   const [invoices, setInvoices] = useState(null);
   const [invoicesError, setInvoicesError] = useState(null);
-  const [customCreditsByModule, setCustomCreditsByModule] = useState({ ap: '', as: '', ac: '' });
-  const [customCredits, setCustomCredits] = useState('');
   const [moduleBusy, setModuleBusy] = useState(null);
   const [moduleError, setModuleError] = useState(null);
   // Redesign onglet Abonnement (demande Alex 2026-08-25) : date de
   // renouvellement lue en direct depuis Stripe (usage.renewal_date, voir
   // app/api/api-usage), et un seul bloc "Crédits" avec 3 onglets
   // Prospect/Opportunités/Clients au lieu de 4 blocs empilés.
-  const [creditsModuleTab, setCreditsModuleTab] = useState('ap');
   const [invoicesShowAll, setInvoicesShowAll] = useState(false);
 
   // Vraie page profil (demande Alex 2026-08-25) : email + mot de passe,
@@ -1005,15 +1003,17 @@ export default function ConnexionsPage() {
     }
   }
 
-  async function handleBuyCredits(credits, module) {
-    const buyingKey = `${module || 'general'}:${credits}`;
-    setBuyingCredits(buyingKey);
+  // Achat d'un boost (01/09/2026) — remplace handleBuyCredits/l'ancien
+  // solde par module. Le palier est un identifiant du catalogue
+  // (lib/credit-boosts.ts) : le prix n'est jamais envoyé par le client.
+  async function handleBuyBoost(tierId) {
+    setBuyingCredits(tierId);
     setCreditsError(null);
     try {
-      const res = await fetch('/api/checkout/credits', {
+      const res = await fetch('/api/credits/boost', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(module ? { credits, module } : { credits }),
+        body: JSON.stringify({ tier: tierId, locale }),
       });
       const body = await res.json();
       if (!res.ok || !body.url) {
@@ -1028,23 +1028,7 @@ export default function ConnexionsPage() {
     }
   }
 
-  function handleBuyCustomCredits() {
-    const credits = Number(customCredits);
-    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
-      setCreditsError(t('preferences.credits.invalidCustom', locale));
-      return;
-    }
-    handleBuyCredits(credits);
-  }
 
-  function handleBuyCustomCreditsForModule(module) {
-    const credits = Number(customCreditsByModule[module]);
-    if (!Number.isFinite(credits) || credits < 1 || credits > 5000 || !Number.isInteger(credits)) {
-      setCreditsError(t('preferences.credits.invalidCustom', locale));
-      return;
-    }
-    handleBuyCredits(credits, module);
-  }
 
   async function handleOpenBillingPortal() {
     setOpeningBillingPortal(true);
@@ -2586,85 +2570,85 @@ export default function ConnexionsPage() {
                 ensuite par module via 3 onglets, à la place des 3 cartes
                 séparées qui s'empilaient auparavant. */}
             {usage && (
+              <>
+              {/* Bandeau de relance de paiement (01/09/2026). Volontairement
+                  placé EN TÊTE de l'onglet Abonnement, et pas en pied : quand
+                  une carte est refusée, c'est la première chose que le client
+                  doit voir. Le ton reste rassurant — pendant la grâce rien
+                  n'est coupé, et même après, aucune donnée n'est perdue. */}
+              {(usage.subscription_status === 'past_due' || usage.subscription_status === 'unpaid') && (
+                <div className={`billing-alert${usage.subscription_status === 'unpaid' ? ' hard' : ''}`}>
+                  <strong>
+                    {usage.subscription_status === 'unpaid'
+                      ? t('billing.unpaidTitle', locale)
+                      : t('billing.pastDueTitle', locale)}
+                  </strong>
+                  <p>
+                    {usage.subscription_status === 'unpaid'
+                      ? t('billing.unpaidBody', locale)
+                      : t('billing.pastDueBody', locale).replace('{days}', String(usage.subscription_grace_days_left ?? 0))}
+                  </p>
+                  {usage.subscription_failure_reason && (
+                    <p className="billing-reason">{usage.subscription_failure_reason}</p>
+                  )}
+                  <button type="button" className="btn-primary" onClick={handleOpenBillingPortal} disabled={openingBillingPortal}>
+                    {openingBillingPortal ? '…' : t('billing.updateCard', locale)}
+                  </button>
+                  {billingPortalError && <p className="error">{billingPortalError}</p>}
+                </div>
+              )}
+
               <div className="field credits-field">
                 <label>{t('connexions.creditsTitle', locale)}</label>
                 <div className="usage-box">
                   <div className="usage-row">
                     <span>{t('connexions.creditsBalanceLabel', locale)}</span>
                     <strong>
-                      {Math.max(0, Math.round((usage.monthly_cap_usd || 0) - (usage.month_cost_usd || 0) + (usage.credit_balance_eur || 0)))} {t('connexions.creditsUnit', locale)}
+                      {Math.max(0, Math.round((usage.monthly_cap_usd || 0) - (usage.month_cost_usd || 0)))} {t('connexions.creditsUnit', locale)}
                     </strong>
                   </div>
+                  {(usage.boost_credits || 0) > 0 && (
+                    <div className="usage-row">
+                      <span>{t('boost.activeLabel', locale)}</span>
+                      <strong>+{usage.boost_credits} {t('connexions.creditsUnit', locale)}</strong>
+                    </div>
+                  )}
                   <p className="usage-hint">
-                    {t('connexions.creditsExplanation', locale).replace('{cap}', Math.round(usage.monthly_cap_usd || 0))}
+                    {t('connexions.creditsExplanation', locale).replace('{cap}', Math.round(usage.subscription_cap_usd ?? usage.monthly_cap_usd ?? 0))}
                   </p>
                   {creditsError && <p className="error">{creditsError}</p>}
 
-                  {prefs.role === 'patron' && (
+                  {/* Boosts (décision Alex, 01/09/2026) : 4 paliers fixes qui
+                      REMPLACENT l'ancien solde de crédits achetable au détail
+                      par module. Un boost s'ajoute au plafond de l'abonnement
+                      et court sur sa propre fenêtre d'un mois depuis l'achat ;
+                      les crédits inclus ne sont jamais entamés. Voir
+                      lib/credit-boosts.ts. */}
+                  {prefs?.role === 'patron' && (
                     <>
-                      <p className="sub-label">{t('connexions.creditsBoostSectionLabel', locale)}</p>
-                      <div className="tabs credits-module-tabs">
-                        {OFFERS.map((o) => (
+                      <p className="sub-label">{t('boost.sectionLabel', locale)}</p>
+                      <p className="usage-hint">{t('boost.sectionHint', locale)}</p>
+                      <div className="boost-row">
+                        {BOOST_TIERS.map((tier) => (
                           <button
-                            key={o.value}
+                            key={tier.id}
                             type="button"
-                            className={creditsModuleTab === o.value.toLowerCase() ? 'tab active' : 'tab'}
-                            onClick={() => setCreditsModuleTab(o.value.toLowerCase())}
+                            className={`boost-card${tier.highlight ? ' highlight' : ''}`}
+                            disabled={buyingCredits === tier.id}
+                            onClick={() => handleBuyBoost(tier.id)}
                           >
-                            {o.label}
+                            {tier.highlight && <span className="boost-badge">{t('boost.popular', locale)}</span>}
+                            <span className="boost-credits">+{tier.credits}</span>
+                            <span className="boost-unit">{t('connexions.creditsUnit', locale)}</span>
+                            <span className="boost-price">{buyingCredits === tier.id ? '…' : `${tier.priceEur} €`}</span>
                           </button>
                         ))}
                       </div>
-                      {(() => {
-                        const moduleKey = creditsModuleTab;
-                        const moduleBalance = Number(usage[`credit_balance_${moduleKey}_eur`] || 0);
-                        return (
-                          <div className="credits-module-panel">
-                            <div className="usage-row">
-                              <span>{t('preferences.credits.moduleLabelPrefix', locale)}</span>
-                              <strong>{Math.round(moduleBalance)} {t('connexions.creditsUnit', locale)}</strong>
-                            </div>
-                            <div className="credits-buy-row">
-                              {[20, 40, 60, 80, 100].map((credits) => (
-                                <button
-                                  key={credits}
-                                  type="button"
-                                  className="btn-secondary"
-                                  disabled={buyingCredits !== null}
-                                  onClick={() => handleBuyCredits(credits, moduleKey)}
-                                >
-                                  {buyingCredits === `${moduleKey}:${credits}` ? '…' : `+${credits} (${(credits * 1.5).toFixed(0)} €)`}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="upload-row">
-                              <input
-                                type="number"
-                                min={1}
-                                max={5000}
-                                className="cap-input"
-                                placeholder={t('preferences.credits.customPlaceholder', locale)}
-                                value={customCreditsByModule[moduleKey]}
-                                onChange={(e) =>
-                                  setCustomCreditsByModule((prev) => ({ ...prev, [moduleKey]: e.target.value }))
-                                }
-                              />
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                disabled={buyingCredits !== null || !customCreditsByModule[moduleKey]}
-                                onClick={() => handleBuyCustomCreditsForModule(moduleKey)}
-                              >
-                                {t('preferences.credits.customButton', locale)}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()}
                     </>
                   )}
                 </div>
               </div>
+              </>
             )}
 
             {/* Redesign (demande Alex 2026-08-25) : le bloc "Facturation"
@@ -3602,6 +3586,96 @@ export default function ConnexionsPage() {
           color: var(--muted);
           margin: 0;
           line-height: 1.4;
+        }
+        .billing-alert {
+          border: 1px solid #f0914e;
+          background: rgba(240, 145, 78, 0.08);
+          border-radius: var(--radius-md);
+          padding: 1rem 1.1rem;
+          margin-bottom: 1.2rem;
+        }
+        .billing-alert.hard {
+          border-color: var(--accent-red);
+          background: rgba(229, 72, 77, 0.08);
+        }
+        .billing-alert strong {
+          display: block;
+          font-size: 0.92rem;
+          margin-bottom: 0.4rem;
+        }
+        .billing-alert p {
+          font-size: 0.84rem;
+          line-height: 1.55;
+          color: var(--muted);
+          margin: 0 0 0.7rem;
+        }
+        .billing-reason {
+          font-style: italic;
+        }
+        /* Paliers de boost (01/09/2026) — remplacent .credits-buy-row. */
+        .boost-row {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+        }
+        .boost-card {
+          position: relative;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 0.6rem 0.8rem;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.15rem;
+          cursor: pointer;
+          color: inherit;
+          transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+        .boost-card:hover:not(:disabled) {
+          border-color: var(--accent);
+          transform: translateY(-1px);
+        }
+        .boost-card:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .boost-card.highlight {
+          border-color: var(--accent);
+        }
+        .boost-badge {
+          position: absolute;
+          top: -9px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: var(--accent);
+          color: #fff;
+          font-size: 0.62rem;
+          font-weight: 600;
+          padding: 0.1rem 0.45rem;
+          border-radius: 999px;
+          white-space: nowrap;
+        }
+        .boost-credits {
+          font-family: var(--font-mono);
+          font-size: 1.3rem;
+          font-weight: 600;
+          line-height: 1.1;
+        }
+        .boost-unit {
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .boost-price {
+          margin-top: 0.35rem;
+          font-size: 0.86rem;
+          font-weight: 600;
+        }
+        @media (max-width: 620px) {
+          .boost-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
         .credits-buy-row {
           display: flex;
