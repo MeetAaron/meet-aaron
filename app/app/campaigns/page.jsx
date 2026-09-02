@@ -959,6 +959,9 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   const [recap, setRecap] = useState(null);
   const [error, setError] = useState(null);
   const [launching, setLaunching] = useState(false);
+  // Avertissement de budget avant lancement (01/09/2026) — null tant qu'il
+  // n'y a rien à signaler, sinon { covered, target }.
+  const [budgetWarning, setBudgetWarning] = useState(null);
   // AJOUT GLOBAL (langue Aaron) : même champ que dans le formulaire
   // classique — voir NewCampaignModal plus haut pour le détail.
   const [chatTargetLocale, setChatTargetLocale] = useState('');
@@ -1004,8 +1007,28 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
   const currentTopic = recap ? null : lastAssistantMessage?.topic || null;
 
-  async function handleLaunch() {
+  // Vérification de budget AVANT lancement (décision Alex, 01/09/2026).
+  // Purement informative : on prévient, on ne bloque pas. Si le commercial
+  // confirme (force = true), on lance sans repasser par le contrôle.
+  async function handleLaunch(force) {
     if (!recap) return;
+    if (!force) {
+      try {
+        const target = Number(recap.target_count) || 20;
+        const res = await fetch(`/api/campaigns/budget-check?target_count=${target}`);
+        if (res.ok) {
+          const body = await res.json();
+          if (body && body.sufficient === false) {
+            setBudgetWarning({ covered: body.covered_count, target });
+            return;
+          }
+        }
+      } catch {
+        // Contrôle best-effort : une erreur ici ne doit jamais empêcher de
+        // lancer une campagne.
+      }
+    }
+    setBudgetWarning(null);
     setLaunching(true);
     setError(null);
     const res = await fetch('/api/campaigns', {
@@ -1124,7 +1147,25 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
             </label>
             <p className="recap-hint">{t('campaigns.targetLocaleHint', locale)}</p>
             <p className="recap-hint">{t('campaigns.recapHint', locale)}</p>
-            <button type="button" className="btn-primary" onClick={handleLaunch} disabled={launching}>
+            {budgetWarning && (
+              <div className="budget-warning">
+                <strong>{t('campaigns.budgetShortTitle', locale)}</strong>
+                <p>
+                  {t('campaigns.budgetShortBody', locale)
+                    .replace('{covered}', String(budgetWarning.covered))
+                    .replace('{target}', String(budgetWarning.target))}
+                </p>
+                <div className="budget-warning-actions">
+                  <a className="btn-primary" href="/app/connexions?tab=subscription">
+                    {t('team.creditsAddCta', locale)}
+                  </a>
+                  <button type="button" className="btn-secondary" onClick={() => handleLaunch(true)} disabled={launching}>
+                    {t('campaigns.budgetLaunchAnyway', locale)}
+                  </button>
+                </div>
+              </div>
+            )}
+            <button type="button" className="btn-primary" onClick={() => handleLaunch(false)} disabled={launching}>
               {launching ? t('campaigns.launching', locale) : t('campaigns.launchCampaign', locale)}
             </button>
           </div>
@@ -1261,6 +1302,36 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           margin: 0.25rem 0;
           color: var(--text);
         }
+        .budget-warning {
+          border: 1px solid rgba(240, 145, 78, 0.6);
+          background: rgba(240, 145, 78, 0.1);
+          border-radius: 12px;
+          padding: 0.9rem 1rem;
+          margin: 0.8rem 0;
+        }
+        .budget-warning strong {
+          display: block;
+          font-size: 0.9rem;
+          margin-bottom: 0.35rem;
+        }
+        .budget-warning p {
+          font-size: 0.82rem;
+          line-height: 1.55;
+          color: var(--muted);
+          margin: 0 0 0.7rem;
+        }
+        .budget-warning-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          align-items: center;
+        }
+        .budget-warning-actions .btn-primary {
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+        }
+
         .recap-hint {
           color: var(--muted) !important;
           font-size: 0.78rem;
