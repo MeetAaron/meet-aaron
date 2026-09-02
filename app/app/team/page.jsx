@@ -551,6 +551,30 @@ export default function TeamPage() {
                 </span>
               </div>
               <p className="muted credits-hint">{t('team.creditsHint', locale)}</p>
+
+              {/* Alertes à 70 / 90 / 100 % (décision Alex, 01/09/2026). Trois
+                  seuils et non un seul : une alerte unique arrive toujours
+                  trop tard pour éviter la coupure en pleine campagne. Le
+                  pourcentage est calculé sur le plafond RÉEL (abonnement +
+                  boosts actifs), sinon un boost fraîchement acheté afficherait
+                  encore « 100 % consommé ». */}
+              {(() => {
+                const cap = credits.cap_usd || 0;
+                if (!cap) return null;
+                const pct = (credits.company_total_usd / cap) * 100;
+                if (pct < 70) return null;
+                const level = pct >= 100 ? 'critical' : pct >= 90 ? 'high' : 'soft';
+                const messageKey =
+                  pct >= 100 ? 'team.creditsWarn100' : pct >= 90 ? 'team.creditsWarn90' : 'team.creditsWarn70';
+                return (
+                  <div className={`credits-warn ${level}`}>
+                    <span>{t(messageKey, locale)}</span>
+                    <a className="credits-warn-cta" href="/app/connexions?tab=subscription">
+                      {t('team.creditsAddCta', locale)}
+                    </a>
+                  </div>
+                );
+              })()}
               {(() => {
                 const base = credits.cap_usd || credits.company_total_usd || 1;
                 const rows = [
@@ -574,7 +598,25 @@ export default function TeamPage() {
                           title={`${r.label} — ${formatEur(r.value)}`}
                         />
                       ))}
+                      {/* Repère de fin des crédits inclus (01/09/2026) :
+                          au-delà de ce trait, on puise dans la réserve de
+                          boost. Le client voit ainsi d'un coup d'œil sur
+                          quelle poche il consomme, sans avoir à lire un
+                          chiffre. */}
+                      {(credits.boost_cap_usd || 0) > 0 && credits.subscription_cap_usd > 0 && (
+                        <span
+                          className="credits-boost-mark"
+                          style={{ left: `${Math.min(100, (credits.subscription_cap_usd / base) * 100)}%` }}
+                          title={`${t('team.creditsBoostSegment', locale)} : +${credits.boost_credits}`}
+                        />
+                      )}
                     </div>
+                    {(credits.boost_cap_usd || 0) > 0 && (
+                      <p className="muted credits-hint credits-boost-note">
+                        {formatEur(credits.subscription_cap_usd)} + {t('team.creditsBoostSegment', locale)}{' '}
+                        {formatEur(credits.boost_cap_usd)} (+{credits.boost_credits})
+                      </p>
+                    )}
                     <ul className="credits-legend">
                       {rows.map((r, i) => (
                         <li key={r.id}>
@@ -1146,6 +1188,53 @@ export default function TeamPage() {
           cursor: pointer;
           white-space: nowrap;
         }
+        .credits-boost-mark {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          width: 2px;
+          background: var(--text);
+          opacity: 0.55;
+          border-radius: 2px;
+        }
+        .credits-boost-note {
+          margin-top: 0.35rem;
+        }
+        .credits-warn {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.6rem;
+          justify-content: space-between;
+          border-radius: 10px;
+          padding: 0.7rem 0.9rem;
+          margin: 0.2rem 0 0.9rem;
+          font-size: 0.82rem;
+          line-height: 1.45;
+          border: 1px solid;
+        }
+        .credits-warn.soft {
+          border-color: rgba(212, 160, 23, 0.5);
+          background: rgba(212, 160, 23, 0.08);
+        }
+        .credits-warn.high {
+          border-color: rgba(240, 145, 78, 0.6);
+          background: rgba(240, 145, 78, 0.1);
+        }
+        .credits-warn.critical {
+          border-color: rgba(229, 72, 77, 0.6);
+          background: rgba(229, 72, 77, 0.1);
+        }
+        .credits-warn-cta {
+          flex: 0 0 auto;
+          font-weight: 600;
+          text-decoration: none;
+          color: var(--accent);
+          white-space: nowrap;
+        }
+        .credits-warn-cta:hover {
+          text-decoration: underline;
+        }
         .credits-panel {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -1175,6 +1264,7 @@ export default function TeamPage() {
           line-height: 1.45;
         }
         .credits-bar {
+          position: relative; /* ancre du repère de fin des crédits inclus */
           display: flex;
           height: 14px;
           border-radius: 999px;
