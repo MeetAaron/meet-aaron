@@ -14,6 +14,12 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateInviteCode } from '@/lib/invite-code';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { computeStatsForMembers, periodRangeFor } from '@/lib/team-stats';
+import { listActiveBoosts } from '@/lib/credit-boosts';
+
+// Même valeur que DEFAULT_MONTHLY_CAP_USD dans lib/anthropic-client.ts
+// (21,5 USD ≈ 20 € par utilisateur et par mois) — utilisée quand la société
+// n'a pas de plafond personnalisé en base.
+const DEFAULT_PER_USER_CAP_USD = 21.5;
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -133,13 +139,31 @@ export async function GET(request: NextRequest) {
   const companyTotal = Number((companyUsage as any)?.cost_usd) || 0;
   const attributed = Object.values(creditsByMember).reduce((a, b) => a + b, 0);
 
+  // Plafond RÉEL de la société (01/09/2026). Deux corrections ici :
+  //   1. companies.monthly_api_cap_usd est une base PAR UTILISATEUR (voir
+  //      getMonthlyCapUsd dans lib/anthropic-client.ts) : l'afficher tel quel
+  //      face à une consommation de toute la société donnait un pourcentage
+  //      faux dès qu'une équipe comptait plus d'un commercial.
+  //   2. les boosts actifs s'ajoutent au plafond — sans eux, une société qui
+  //      vient d'acheter un boost se serait vue à 130 % de son plafond.
+  const perUserCap = Number((companyRow as any)?.monthly_api_cap_usd) || DEFAULT_PER_USER_CAP_USD;
+  const subscriptionCapUsd = perUserCap * Math.max(1, membersWithStats.length);
+  const activeBoosts = await listActiveBoosts(requester.company_id);
+  const boostCapUsd = activeBoosts.reduce((n, b) => n + Number(b.cap_usd || 0), 0);
+  const boostCredits = activeBoosts.reduce((n, b) => n + (b.credits || 0), 0);
+
   return NextResponse.json({
     members: membersWithCredits,
     invite_code: inviteCode,
     credits: {
       available: creditsAvailable,
       year_month: yearMonth,
-      cap_usd: Number((companyRow as any)?.monthly_api_cap_usd) || null,
+      // cap_usd = ce dont la société dispose réellement, boosts compris.
+      cap_usd: subscriptionCapUsd + boostCapUsd,
+      subscription_cap_usd: subscriptionCapUsd,
+      boost_cap_usd: boostCapUsd,
+      boost_credits: boostCredits,
+      active_boosts: activeBoosts,
       company_total_usd: companyTotal,
       // Part non rattachable à un commercial (crons société, traitements
       // globaux) — affichée à part plutôt qu'attribuée au hasard.
