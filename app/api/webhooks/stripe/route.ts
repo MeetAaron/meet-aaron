@@ -22,7 +22,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateInviteCode } from '@/lib/invite-code';
-import { addCredits } from '@/lib/credits';
+import { boostEndsAt } from '@/lib/credit-boosts';
+import { getSubscriptionState, setSubscriptionState, graceEndFrom } from '@/lib/subscription-status';
 import { convertMatchingProspectsToClients } from '@/lib/prospect-conversion';
 
 export async function POST(request: NextRequest) {
@@ -42,26 +43,6 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
-
-    // Achat de crédits ("boost") : paiement unique, pas une création de
-    // société/compte — traité à part de l'onboarding ci-dessous. addCredits
-    // est idempotent sur session.id (voir lib/credits.ts) : un retry Stripe
-    // du même événement ne crédite pas deux fois.
-    if (session.metadata?.purpose === 'credits_purchase') {
-      const { company_id, amount_eur, module } = session.metadata;
-      const moduleKey = module === 'ap' || module === 'as' || module === 'ac' ? module : undefined;
-      const result = await addCredits(
-        company_id,
-        parseFloat(amount_eur),
-        `Achat de ${amount_eur} crédits (Stripe)`,
-        session.id,
-        moduleKey
-      );
-      if (!result.added) {
-        console.log(`Achat de crédits déjà traité pour la session Stripe ${session.id}, ignoré.`);
-      }
-      return NextResponse.json({ received: true });
-    }
 
     // Réactivation d'un abonnement pour une société qui avait désactivé son
     // DERNIER module (voir app/api/subscription/modules/route.ts) : pas une
@@ -217,5 +198,73 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Paiements récurrents (question Alex, 01/09/2026 : « et si le paiement
+  // est refusé ? »). Avant, ces événements n'étaient pas traités du tout : un
+  // client dont la carte expirait gardait un accès complet indéfiniment, sans
+  // que personne — lui compris — ne soit prévenu. Voir
+  // migration_subscription_dunning_2026-09-01.sql et lib/subscription-status.ts.
+
+  // Prélèvement refusé : on ne coupe RIEN tout de suite. Une période de grâce
+  // de 7 jours démarre, pendant laquelle Stripe relance automatiquement la
+  // carte et le client voit un bandeau l'invitant à la mettre à jour.
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object as any;
+    const companyId = await companyIdFromStripeCustomer(invoice.customer);
+    if (companyId) {
+      const state = await getSubscriptionState(companyId);
+      // Si la grâce court déjà (2e, 3e relance échouée), on NE la redémarre
+      // pas : sinon un client en échec permanent aurait une grâce infinie.
+      const startedAt = state.pastDueSince ? new Date(state.pastDueSince) : new Date();
+      await setSubscriptionState(companyId, {
+        status: 'past_due',
+        pastDueSince: startedAt.toISOString(),
+        graceEndsAt: graceEndFrom(startedAt).toISOString(),
+        failureReason: invoice.last_finalization_error?.message || 'Le paiement a été refusé.',
+      });
+    }
+    return NextResponse.json({ received: true });
+  }
+
+  // Paiement passé (relance automatique réussie, ou nouvelle carte saisie) :
+  // retour à la normale, sans aucune action du client.
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object as any;
+    const companyId = await companyIdFromStripeCustomer(invoice.customer);
+    if (companyId) {
+      await setSubscriptionState(companyId, {
+        status: 'active',
+        pastDueSince: null,
+        graceEndsAt: null,
+        failureReason: null,
+      });
+    }
+    return NextResponse.json({ received: true });
+  }
+
+  // Abonnement annulé côté Stripe (par le client via le portail, ou après
+  // épuisement des relances).
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as any;
+    const companyId = await companyIdFromStripeCustomer(subscription.customer);
+    if (companyId) {
+      await setSubscriptionState(companyId, { status: 'canceled' });
+    }
+    return NextResponse.json({ received: true });
+  }
+
   return NextResponse.json({ received: true });
+}
+
+// Retrouve la société à partir de l'identifiant client Stripe présent dans
+// l'événement. Renvoie null si aucune correspondance (client Stripe créé
+// hors application, société supprimée...) — dans ce cas on ignore
+// l'événement plutôt que de faire échouer le webhook.
+async function companyIdFromStripeCustomer(customerId: string | null | undefined): Promise<string | null> {
+  if (!customerId) return null;
+  const { data } = await supabaseAdmin
+    .from('companies')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  return (data as any)?.id || null;
 }
