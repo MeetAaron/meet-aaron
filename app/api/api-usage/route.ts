@@ -9,7 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { getCreditBalance } from '@/lib/credits';
+import { listActiveBoosts } from '@/lib/credit-boosts';
+import { getSubscriptionState } from '@/lib/subscription-status';
 import { stripe } from '@/lib/stripe';
 
 // Aligné sur lib/anthropic-client.ts (docx Modifs Aaron, AJOUTS 30/08/26,
@@ -85,12 +86,13 @@ export async function GET(request: NextRequest) {
 
   // Tâche #140 : en plus du pool général, un solde par module payant (Aaron
   // Prospect / Sales / Customer) — voir lib/credits.ts.
-  const [creditBalanceEur, creditBalanceApEur, creditBalanceAsEur, creditBalanceAcEur] = await Promise.all([
-    getCreditBalance(user.company_id),
-    getCreditBalance(user.company_id, 'ap'),
-    getCreditBalance(user.company_id, 'as'),
-    getCreditBalance(user.company_id, 'ac'),
-  ]);
+  // Boosts actifs (01/09/2026) — remplacent l'ancien solde de crédits par
+  // module, retiré le même jour. Un boost s'ajoute au plafond de
+  // l'abonnement et court sur sa propre fenêtre d'un mois.
+  const activeBoosts = await listActiveBoosts(user.company_id);
+  const subscriptionState = await getSubscriptionState(user.company_id);
+  const boostCredits = activeBoosts.reduce((n, b) => n + (b.credits || 0), 0);
+  const boostCapUsd = activeBoosts.reduce((n, b) => n + Number(b.cap_usd || 0), 0);
 
   // Date de renouvellement (demande Alex 2026-08-25, onglet Abonnement) — pas
   // stockée en base, lue en direct depuis Stripe à chaque appel. Best-effort :
@@ -121,14 +123,24 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     month_cost_usd: monthRow?.cost_usd || 0,
-    monthly_cap_usd: monthlyCapUsd,
+    // monthly_cap_usd = ce dont la société dispose RÉELLEMENT ce mois-ci,
+    // boosts actifs compris (c'est ce que le plafond de lib/anthropic-client
+    // applique). subscription_cap_usd isole la part incluse dans
+    // l'abonnement, pour pouvoir afficher les deux segments séparément.
+    monthly_cap_usd: monthlyCapUsd + boostCapUsd,
+    subscription_cap_usd: monthlyCapUsd,
     daily_cap_usd: dailyCapUsd,
     today_cost_usd: byDate[todayDate] || 0,
     last_7_days: last7Days,
-    credit_balance_eur: creditBalanceEur,
-    credit_balance_ap_eur: creditBalanceApEur,
-    credit_balance_as_eur: creditBalanceAsEur,
-    credit_balance_ac_eur: creditBalanceAcEur,
+    // Paiement (01/09/2026) : sert au bandeau « ta carte a été refusée »
+    // de Mon compte. Voir lib/subscription-status.ts.
+    subscription_status: subscriptionState.status,
+    subscription_grace_ends_at: subscriptionState.graceEndsAt,
+    subscription_grace_days_left: subscriptionState.graceDaysLeft,
+    subscription_failure_reason: subscriptionState.failureReason,
+    boost_credits: boostCredits,
+    boost_cap_usd: boostCapUsd,
+    active_boosts: activeBoosts,
     renewal_date: renewalDate,
   });
 }
