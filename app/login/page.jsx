@@ -353,9 +353,21 @@ export default function LoginPage() {
           <>
             <div className="divider"><span>{t('auth.or', locale)}</span></div>
 
-            <button className="btn-oauth" onClick={() => handleOAuth('google')} disabled={loading}>
-              {t('auth.continueWithGoogle', locale)}
-            </button>
+            {/* « Continuer avec Google » retiré le 02/09/2026.
+                Raison : ce parcours passait par Supabase Auth, donc par
+                l'URL ftssujspaoliheynbhpq.supabase.co/auth/v1/callback. Google
+                exige que tout domaine utilisé par une redirection figure dans
+                les « domaines autorisés » de l'écran de consentement — et la
+                VÉRIFICATION de l'application (scopes restreints Gmail) exige
+                de prouver la propriété de chacun de ces domaines via Search
+                Console. Impossible pour supabase.co : ce domaine bloquait donc
+                la vérification à terme.
+                La connexion Gmail/Agenda d'Aaron n'est PAS concernée : elle a
+                son propre parcours OAuth sur meetaaron.app/api/auth/google/
+                callback (voir app/api/auth/google/route.ts), qui reste actif.
+                Pour rétablir ce bouton un jour : prendre le domaine
+                personnalisé Supabase (auth.meetaaron.app), puis remettre ce
+                bloc et réactiver le fournisseur Google côté Supabase. */}
             <button className="btn-oauth" onClick={() => handleOAuth('azure')} disabled={loading}>
               {t('auth.continueWithMicrosoft', locale)}
             </button>
