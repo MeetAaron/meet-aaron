@@ -332,9 +332,13 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   const accessToken = await getValidAccessToken(userId);
   const afterISO = new Date(afterTimestamp).toISOString();
 
+  // $select inclut `from` (01/09/2026, optimisation coût) : l'expéditeur
+  // arrive donc avec la liste, et le cron sait immédiatement si le message
+  // concerne un contact géré par Aaron — sans AUCUNE requête supplémentaire.
+  // Le corps n'est téléchargé que pour les messages qui correspondent.
   const params = new URLSearchParams({
     $filter: `receivedDateTime ge ${afterISO} and isDraft eq false`,
-    $select: 'id',
+    $select: 'id,from',
     $orderby: 'receivedDateTime desc',
     $top: '100',
   });
@@ -352,7 +356,7 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   if (!response.ok) {
     const inboxParams = new URLSearchParams({
       $filter: `receivedDateTime ge ${afterISO}`,
-      $select: 'id',
+      $select: 'id,from',
       $orderby: 'receivedDateTime desc',
     });
     response = await fetch(
@@ -366,7 +370,7 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   }
 
   const data = await response.json();
-  return (data.value || []) as { id: string }[]; // même forme que listNewGmailMessages
+  return (data.value || []) as { id: string; from?: any }[]; // id + expéditeur
 }
 
 // Récupère le contenu complet d'un message Outlook

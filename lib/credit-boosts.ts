@@ -80,3 +80,42 @@ export async function listActiveBoosts(companyId: string): Promise<ActiveBoost[]
     return [];
   }
 }
+
+// ── Estimation de consommation d'une campagne ───────────────────────────────
+//
+// Sert à prévenir le commercial AVANT qu'il ne lance une campagne trop grosse
+// pour ses crédits restants (décision Alex, 01/09/2026) — c'est le seul moment
+// vraiment utile pour l'alerter : une fois la campagne partie, s'arrêter à
+// mi-parcours laisse des prospects contactés une fois et jamais relancés,
+// ce qui est pire que de ne pas les avoir contactés du tout.
+//
+// Coût moyen constaté par prospect démarché, en USD de budget API. Couvre la
+// recherche de l'entreprise, la génération du premier email, et la marge de
+// relances/réponses habituelle sur la durée de vie du contact. Volontairement
+// prudent : mieux vaut surestimer et voir le commercial acheter un boost dont
+// il n'avait pas strictement besoin que le laisser tomber en panne sèche au
+// milieu d'une campagne.
+export const ESTIMATED_USD_PER_PROSPECT = 0.35;
+
+export function estimateCampaignCostUsd(targetCount: number): number {
+  return Math.max(0, targetCount) * ESTIMATED_USD_PER_PROSPECT;
+}
+
+export interface CampaignBudgetCheck {
+  estimated_usd: number;
+  remaining_usd: number;
+  sufficient: boolean;
+  // Nombre de prospects réellement couverts par ce qu'il reste.
+  covered_count: number;
+}
+
+export function checkCampaignBudget(targetCount: number, capUsd: number, spentUsd: number): CampaignBudgetCheck {
+  const estimated = estimateCampaignCostUsd(targetCount);
+  const remaining = Math.max(0, capUsd - spentUsd);
+  return {
+    estimated_usd: Math.round(estimated * 100) / 100,
+    remaining_usd: Math.round(remaining * 100) / 100,
+    sufficient: estimated <= remaining,
+    covered_count: Math.floor(remaining / ESTIMATED_USD_PER_PROSPECT),
+  };
+}

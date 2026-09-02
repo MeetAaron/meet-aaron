@@ -36,7 +36,12 @@
 // solde de crédits est également épuisé.
 
 import { supabaseAdmin } from './supabase-admin';
-import { getCreditBalance, spendCredits, CreditModule } from './credits';
+import { getSubscriptionState } from './subscription-status';
+// Module payant concerné par un appel (ap = Aaron Prospect, as = Aaron
+// Opportunités, ac = Aaron Clients) — sert au suivi d'usage par module.
+// Rapatrié ici le 01/09/2026 : c'était le dernier usage de lib/credits.ts,
+// supprimé avec l'ancien système de solde de crédits.
+export type CreditModule = 'ap' | 'as' | 'ac';
 
 const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
 const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
@@ -59,6 +64,18 @@ const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien = 
 // l'outil lui-même (CHAT_WEB_SEARCH_TOOL) ; voir callClaude plus bas pour la
 // lecture de usage.server_tool_use.web_search_requests dans la réponse.
 const WEB_SEARCH_COST_PER_SEARCH_USD = 0.01;
+
+// Abonnement impayé au-delà de la période de grâce (01/09/2026) : les
+// fonctions d'IA sont suspendues, l'application reste consultable et aucune
+// donnée n'est touchée. Voir lib/subscription-status.ts.
+export class SubscriptionUnpaidError extends Error {
+  constructor(companyId: string) {
+    super(
+      `Abonnement impayé pour la société ${companyId} : la période de grâce est écoulée. Les fonctions d'IA sont suspendues jusqu'à la régularisation du paiement.`
+    );
+    this.name = 'SubscriptionUnpaidError';
+  }
+}
 
 export class MonthlyCapExceededError extends Error {
   reason: 'monthly' | 'daily' | 'credits_exhausted';
@@ -272,20 +289,29 @@ export async function callClaude(
   // jauge de Mon équipe. Optionnel — omis pour les traitements société.
   userId?: string | null
 ): Promise<any> {
-  let usingCredits = false;
 
   if (companyId) {
+    // Paiement en échec au-delà de la grâce de 7 jours : on s'arrête AVANT
+    // de dépenser de l'API. Pendant la grâce, aiAllowed reste true et rien
+    // ne change pour le client (voir lib/subscription-status.ts).
+    const subscription = await getSubscriptionState(companyId);
+    if (!subscription.aiAllowed) {
+      throw new SubscriptionUnpaidError(companyId);
+    }
+
     const status = await getBudgetStatus(companyId);
     if (status.exceeded) {
-      // Plafond inclus dans l'abonnement atteint : on continue quand même SI
-      // la société a un solde de crédits ("boost", voir lib/credits.ts), en
-      // débitant le coût réel de CET appel de ce solde. Sinon on bloque comme
-      // avant.
-      const creditBalance = await getCreditBalance(companyId, module);
-      if (creditBalance <= 0) {
-        throw new MonthlyCapExceededError(companyId, 'credits_exhausted');
-      }
-      usingCredits = true;
+      // Plafond atteint — boosts actifs COMPRIS (getBudgetStatus additionne
+      // déjà getActiveBoostCapUsd au plafond de l'abonnement). Il n'y a donc
+      // plus rien à débiter en dernier recours : on bloque.
+      //
+      // 01/09/2026 : l'ancien mécanisme de solde (lib/credits.ts,
+      // credit_balance_*_eur) qui prenait le relais ici a été retiré sur
+      // décision d'Alex. Il faisait doublon avec les boosts et suivait une
+      // logique différente (solde débité à l'appel, sans étalement ni date
+      // de fin), ce qui rendait impossible d'expliquer simplement au client
+      // ce qu'il lui restait.
+      throw new MonthlyCapExceededError(companyId, 'credits_exhausted');
     }
   }
 
@@ -318,13 +344,6 @@ export async function callClaude(
 
     await recordUsage(companyId, inputTokens, outputTokens, webSearches, userId);
 
-    if (usingCredits) {
-      // Écart de change ignoré (coût calculé en $, crédits en €), comme
-      // documenté plus haut pour le plafond mensuel — tolérance acceptée pour
-      // un garde-fou, pas pour une facturation exacte.
-      const costUsd = computeCostUsd(inputTokens, outputTokens, webSearches);
-      await spendCredits(companyId, costUsd, 'Appel API au-delà du plafond inclus dans l’abonnement', module);
-    }
   }
 
   return data;

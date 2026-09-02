@@ -384,6 +384,29 @@ export async function listNewGmailMessages(userId: string, afterTimestamp: numbe
   return data.messages || []; // liste de { id, threadId } — à récupérer en détail ensuite
 }
 
+// En-têtes seuls d'un message Gmail (01/09/2026, optimisation coût) :
+// quelques centaines d'octets au lieu du message entier avec ses pièces
+// jointes. Le cron de lecture s'en sert pour savoir QUI écrit avant de
+// décider s'il vaut la peine de télécharger le corps — la très grande
+// majorité des messages d'une boîte (newsletters, notifications, spam) ne
+// correspond à aucun contact géré par Aaron et n'a donc pas à être
+// téléchargée. Renvoie null en cas d'échec : le cron passe simplement au
+// message suivant.
+export async function getGmailMessageMetadata(userId: string, messageId: string) {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=From`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) return null;
+    return await response.json(); // { id, threadId, payload: { headers: [{ name: 'From', value }] } }
+  } catch (err: any) {
+    console.error('Erreur lecture des en-têtes Gmail:', err.message);
+    return null;
+  }
+}
+
 // Récupère le contenu complet d'un message Gmail
 export async function getGmailMessage(userId: string, messageId: string) {
   const accessToken = await getValidAccessToken(userId);
