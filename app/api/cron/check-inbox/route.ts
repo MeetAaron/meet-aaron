@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
-import { listNewGmailMessages, getGmailMessage, applyAaronLabel, archiveGmailThread } from '@/lib/google';
+import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { generateAaronResponse } from '@/lib/aaron';
@@ -46,7 +46,13 @@ function extractGmailBody(payload: any): string {
   return '';
 }
 
-type NormalizedMessage = { id: string; fromEmail: string; bodyText: string; threadId?: string };
+// bodyText est rempli PARESSEUSEMENT (01/09/2026, question coût d'Alex) :
+// le corps d'un email n'est téléchargé que si son expéditeur correspond à un
+// contact géré par Aaron. Avant, chaque message de la fenêtre était
+// intégralement téléchargé — newsletters, notifications, spam compris — pour
+// être jeté juste après faute de correspondance. Voir
+// fetchNewMessagesForConnection et la boucle principale plus bas.
+type NormalizedMessage = { id: string; fromEmail: string; bodyText: string | null; threadId?: string };
 
 // Rattrapage automatique après coupure/reconnexion (demande Alex, 27/08/2026,
 // suite à l'audit du comportement déco/reco avec Ludovic) : avant, la fenêtre
@@ -92,27 +98,27 @@ async function fetchNewMessagesForConnection(connection: {
     const newMessages = await listNewGmailMessages(connection.user_id, afterTimestamp);
     const detailed: NormalizedMessage[] = [];
     for (const msg of newMessages) {
-      const full = await getGmailMessage(connection.user_id, msg.id);
-      const headers = full.payload.headers;
+      // format=metadata : quelques centaines d'octets au lieu du message
+      // entier (pièces jointes et corps HTML compris). Le corps sera
+      // téléchargé plus tard, uniquement si l'expéditeur est un contact géré.
+      const meta = await getGmailMessageMetadata(connection.user_id, msg.id);
+      const headers = meta?.payload?.headers || [];
       const fromHeader = headers.find((h: any) => h.name === 'From')?.value || '';
       const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
-      detailed.push({ id: msg.id, fromEmail, bodyText: extractGmailBody(full.payload), threadId: full.threadId });
+      detailed.push({ id: msg.id, fromEmail, bodyText: null, threadId: meta?.threadId });
     }
     return detailed;
   }
 
-  // Outlook / Microsoft Graph : réponse déjà en JSON simple, pas de MIME à décoder
+  // Outlook / Microsoft Graph : l'expéditeur est déjà renvoyé par la liste
+  // ($select=id,from), donc AUCUNE requête supplémentaire n'est nécessaire
+  // pour savoir si le message nous concerne.
   const newMessages = await listNewOutlookMessages(connection.user_id, afterTimestamp);
-  const detailed: NormalizedMessage[] = [];
-  for (const msg of newMessages) {
-    const full = await getOutlookMessage(connection.user_id, msg.id);
-    detailed.push({
-      id: msg.id,
-      fromEmail: full.from?.emailAddress?.address || '',
-      bodyText: full.body?.content || '',
-    });
-  }
-  return detailed;
+  return newMessages.map((msg) => ({
+    id: msg.id,
+    fromEmail: (msg as any).from?.emailAddress?.address || '',
+    bodyText: null,
+  }));
 }
 
 // Traite un email reçu d'un client déjà gagné (is_won = true). Contrairement
@@ -381,7 +387,8 @@ export async function GET(request: NextRequest) {
 
     for (const msg of newMessages) {
       try {
-      const { fromEmail, bodyText, threadId } = msg;
+      const { fromEmail } = msg;
+      let { bodyText, threadId } = msg;
       if (!fromEmail) continue;
 
       // Sécurité anti-doublon : avec le rattrapage automatique ci-dessus, la
@@ -432,6 +439,29 @@ export async function GET(request: NextRequest) {
       // précisément ce qu'Alex a demandé : "comment savoir quel email aaron
       // prend en charge et quel il ne prend pas en charge ?").
       if (prospect.ai_managed === false) continue;
+
+      // Téléchargement du corps SEULEMENT maintenant (01/09/2026) : on sait
+      // désormais que ce message vient bien d'un contact géré par Aaron.
+      // Tous les autres — newsletters, notifications, spam, emails
+      // personnels — n'auront jamais été téléchargés, seulement leur
+      // en-tête. Aucun changement de coût côté Anthropic (le nombre de
+      // messages soumis à Claude est identique, il dépend du filtre
+      // ci-dessus) ; c'est le trafic vers Gmail/Graph qui baisse.
+      if (bodyText === null) {
+        try {
+          if (connection.provider === 'google') {
+            const full = await getGmailMessage(connection.user_id, msg.id);
+            bodyText = extractGmailBody(full.payload);
+            threadId = full.threadId;
+          } else {
+            const full = await getOutlookMessage(connection.user_id, msg.id);
+            bodyText = full.body?.content || '';
+          }
+        } catch (err: any) {
+          console.error(`Erreur lecture du corps du message ${msg.id}:`, err.message);
+          continue;
+        }
+      }
 
       // Marque le message comme "géré par Aaron" dès la réception, avant même
       // de générer la réponse — si la génération échoue plus bas, le
