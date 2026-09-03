@@ -15,6 +15,7 @@ import ExportFormatMenu from '@/components/ExportFormatMenu';
 import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
+import PipelineIcon from '@/components/PipelineIcon';
 import { contactAlerts } from '@/lib/contact-alerts';
 
 function useAuthedUser() {
@@ -452,6 +453,7 @@ export default function ProspectsPage() {
         {PIPELINE_STAGES.map((s, i) => {
           const on = stageFilter.includes(s.key);
           const color = PIPELINE_COLORS[s.category];
+          const reached = (counts.byStage[s.key] || 0) > 0;
           return (
             <button
               key={s.key}
@@ -461,19 +463,26 @@ export default function ProspectsPage() {
               onClick={() => toggleStage(s.key)}
               title={t(s.hintKey, locale)}
             >
-              {i > 0 && <span className="stage-link" />}
-              {/* Pastille creuse par défaut, PLEINE dès qu'au moins un
-                  contact se trouve à cette étape (demande Alex, 01/09/2026 :
-                  « j'aurais préféré qu'ils se fondent dans le fond, donc
-                  transparent où on ne voit que les lignes ; et si c'est vert
-                  dedans ça veut dire qu'on en est à cette étape »). Les
-                  emojis de catégorie ont été retirés : ils surchargeaient la
-                  ligne, alors que l'information utile est « où en suis-je ». */}
+              {i > 0 && <span className="stage-link" style={reached ? { background: color } : undefined} />}
+              {/* Symboles de catégorie, variante B validée par Alex le
+                  04/09/2026 : 🎯 cible pour les étapes prospect, 🤝 poignée de
+                  main pour les opportunités, ⭐ étoile pour client — dessinés
+                  en SVG (voir components/PipelineIcon.jsx) parce qu'un emoji
+                  ne peut être ni évidé ni recoloré, alors que toute la règle
+                  demandée tient dans ce changement d'état :
+                    · aucun contact à l'étape  -> contour seul, gris éteint
+                    · au moins un contact      -> symbole et pastille dans la
+                      couleur de la FAMILLE (bleu prospect, violet
+                      opportunité, vert client)
+                  La pastille porte un `box-shadow` de la couleur du fond :
+                  c'est lui qui « perce » la ligne de liaison, pour qu'elle ne
+                  traverse jamais le symbole (demande explicite d'Alex). */}
               <span
-                className={`stage-dot${(counts.byStage[s.key] || 0) > 0 ? ' reached' : ''}`}
-                style={{ borderColor: (counts.byStage[s.key] || 0) > 0 ? color : undefined, background: (counts.byStage[s.key] || 0) > 0 ? color : 'transparent' }}
-                aria-hidden="true"
-              />
+                className={`stage-icon${reached ? ' reached' : ''}`}
+                style={reached ? { color, borderColor: `${color}99`, background: `${color}28` } : undefined}
+              >
+                <PipelineIcon category={s.category} size={17} filled={reached} />
+              </span>
               <span className="stage-count">{counts.byStage[s.key]}</span>
               <span className="stage-label">{t(s.labelKey, locale)}</span>
             </button>
@@ -551,7 +560,18 @@ export default function ProspectsPage() {
                         <div className="name-line">
                           <span className="name">{p.full_name}</span>
                           <DiscBadge type={p.personality_type} locale={locale} />
-                          {alerts.length > 0 && <span className={`alert-dot${urgent ? ' urgent' : ''}`} title={t(alerts[0].labelKey, locale)}>!</span>}
+                          {/* Alerte à côté du nom (demande Alex, 04/09/2026 :
+                              « genre en rouge envoyer devis ! ou au moins un
+                              point d'exclamation […] ça sert à rien de polluer
+                              pour rien »). Compromis retenu : seules les
+                              alertes URGENTES portent leur libellé en rouge —
+                              c'est là que la phrase fait gagner du temps. Les
+                              autres restent une simple pastille « ! », pour ne
+                              pas transformer la colonne en mur de texte. */}
+                          {alerts.length > 0 && (urgent
+                            ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
+                            : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
+                          )}
                           {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}>⏸</span>}
                         </div>
                         <div className="company-line muted">
@@ -602,7 +622,10 @@ export default function ProspectsPage() {
                     <div className="name-line">
                       <span className="name">{p.full_name}</span>
                       <DiscBadge type={p.personality_type} locale={locale} />
-                      {alerts.length > 0 && <span className={`alert-dot${urgent ? ' urgent' : ''}`}>!</span>}
+                      {alerts.length > 0 && (urgent
+                        ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
+                        : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
+                      )}
                     </div>
                     <div className="company-line muted">{p.prospect_companies?.name || p.email}</div>
                     <div className="mcard-progress">
@@ -811,28 +834,36 @@ export default function ProspectsPage() {
         }
         .stage-btn:hover { background: var(--surface); }
         .stage-btn.on { color: var(--text); }
+        /* La ligne s'arrête AVANT chaque pastille au lieu de la traverser
+           (demande Alex, 04/09/2026). La pastille fait 30 px, soit 15 px de
+           rayon ; on retire 15 + 5 px de respiration de chaque côté. */
         .stage-link {
           position: absolute;
-          top: calc(0.6rem + 6px);
-          left: -50%;
-          width: 100%;
+          top: calc(0.6rem + 15px);
+          left: calc(-50% + 20px);
+          width: calc(100% - 40px);
           height: 2px;
           background: var(--border);
           z-index: 0;
         }
-        .stage-dot {
+        .stage-icon {
           position: relative;
           z-index: 1;
-          width: 14px;
-          height: 14px;
+          width: 30px;
+          height: 30px;
           border-radius: 50%;
-          border: 2px solid var(--border);
+          border: 1.5px solid var(--border);
           background: transparent;
-          box-shadow: 0 0 0 4px var(--bg);
-          transition: background 0.15s ease, border-color 0.15s ease;
+          color: #4a5070;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+          transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
         }
-        .stage-btn:hover .stage-dot {
+        .stage-btn:hover .stage-icon:not(.reached) {
           border-color: var(--muted);
+          color: var(--muted);
         }
         .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
         .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
@@ -916,6 +947,22 @@ export default function ProspectsPage() {
           flex-shrink: 0;
         }
         .alert-dot.urgent { background: var(--accent-red); color: #fff; animation: pulse 1.6s ease-in-out infinite; }
+        .alert-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          background: rgba(239, 68, 89, 0.14);
+          border: 1px solid rgba(239, 68, 89, 0.5);
+          color: #ff8a95;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          padding: 0.1rem 0.5rem;
+          border-radius: 999px;
+          white-space: nowrap;
+          flex-shrink: 0;
+          animation: pulse 1.6s ease-in-out infinite;
+        }
         @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 89, 0.5); } 50% { box-shadow: 0 0 0 5px rgba(239, 68, 89, 0); } }
         .paused { color: var(--muted); font-size: 0.75rem; }
         .company-line { font-size: 0.78rem; margin-top: 0.15rem; }
@@ -949,6 +996,8 @@ export default function ProspectsPage() {
           .header-actions > :global(*) { flex: 1 1 100%; }
           .import-note { max-width: none; }
           .stage-bar { grid-template-columns: repeat(6, minmax(58px, 1fr)); overflow-x: auto; }
+          .stage-icon { width: 26px; height: 26px; }
+          .stage-link { top: calc(0.6rem + 13px); left: calc(-50% + 18px); width: calc(100% - 36px); }
           .stage-label { font-size: 0.62rem; }
           .table-wrap { display: none; }
           .cards { display: flex; flex-direction: column; gap: 0.6rem; }
@@ -1726,8 +1775,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
-    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
   ];
