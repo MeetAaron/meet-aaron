@@ -1832,23 +1832,22 @@ export default function ChatPage() {
             {newDay && (
               <div className="mg-day"><span>{dayLabel(at, locale)}</span></div>
             )}
-            // Bug remonté par Alex (29/08/2026) : une sélection à la souris
-            // (clic gauche maintenu, pour copier un morceau de conversation)
-            // ne récupérait que les bulles Aaron, jamais les bulles
-            // utilisateur. Cause : chaque bulle était directement l'enfant
-            // flex de .messages, avec align-self:flex-end/flex-start pour la
-            // pousser à droite/gauche — l'espace vide à côté (ex. toute la
-            // moitié gauche de l'écran à côté d'une bulle utilisateur alignée
-            // à droite) n'appartient à AUCUN élément DOM. Le navigateur
-            // détermine une sélection glissée par la position du curseur, et
-            // sur cet espace vide il "accroche" parfois la ligne voisine au
-            // lieu du texte de la bulle utilisateur, qui saute donc la
-            // sélection. Correctif : chaque bulle est maintenant enveloppée
-            // dans une ligne .msg-row qui occupe TOUTE la largeur (voir CSS
-            // plus bas, justify-content au lieu de align-self) — il y a donc
-            // toujours un élément DOM sous le curseur, à n'importe quelle
-            // position horizontale de cette ligne, ce qui laisse le
-            // navigateur atteindre correctement le texte de la bulle.
+            {/* Bug remonté par Alex (29/08/2026) : une sélection à la souris
+                (clic gauche maintenu, pour copier un morceau de conversation)
+                ne récupérait que les bulles Aaron, jamais les bulles
+                utilisateur. Cause : chaque bulle était directement l'enfant
+                flex de .messages, avec align-self pour la pousser à
+                droite/gauche — l'espace vide à côté n'appartenait à AUCUN
+                élément DOM, et le navigateur y accrochait la ligne voisine.
+                Correctif : chaque bulle est enveloppée dans une ligne
+                .msg-row qui occupe TOUTE la largeur (justify-content au lieu
+                d'align-self), donc il y a toujours un élément sous le curseur.
+
+                03/09/2026 : ce bloc était écrit en commentaire `//` au milieu
+                du JSX — donc rendu comme du TEXTE dans la conversation, sous
+                les yeux de l'utilisateur. En JSX, un commentaire placé entre
+                des balises doit être une accolade contenant un commentaire de
+                bloc ; la syntaxe // ne commente rien à cet endroit. */}
             <div className={`msg-row ${m.role}${firstOfGroup ? ' first' : ''}${lastOfGroup ? ' last' : ''}`}>
             {m.role === 'assistant' && (
               <span className={`mg-msg-avatar${lastOfGroup ? '' : ' hidden'}`} aria-hidden="true">
