@@ -19,14 +19,35 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { BOOST_TIERS, boostTierById, capUsdForCredits, listActiveBoosts } from '@/lib/credit-boosts';
+import { boostPrice, currencyForCountry } from '@/lib/boost-tiers';
+
+
+// Pays de facturation de la société, renseigné automatiquement au premier
+// paiement par le webhook Stripe (voir migration_billing_country_2026-09-04.sql).
+// Colonne absente ou vide -> null, et currencyForCountry retombe sur l'euro.
+async function billingCountryFor(companyId: string | null | undefined): Promise<string | null> {
+  if (!companyId) return null;
+  const { data, error } = await supabaseAdmin
+    .from('companies')
+    .select('billing_country')
+    .eq('id', companyId)
+    .maybeSingle();
+  // 42703 = colonne inexistante : la migration n'a pas encore été passée.
+  if (error) return null;
+  return (data as any)?.billing_country || null;
+}
 
 export async function GET(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
   const boosts = await listActiveBoosts(authedUser.company_id);
+  const currency = currencyForCountry(await billingCountryFor(authedUser.company_id));
   return NextResponse.json({
-    tiers: BOOST_TIERS,
+    // Chaque palier repart avec SON prix dans la devise de l'entreprise —
+    // l'interface n'a rien à convertir ni à deviner.
+    tiers: BOOST_TIERS.map((t) => ({ ...t, price: boostPrice(t.id, currency), currency })),
+    currency,
     active_boosts: boosts,
     active_credits: boosts.reduce((n, b) => n + (b.credits || 0), 0),
   });
@@ -50,17 +71,29 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   const origin = request.nextUrl.origin;
+  const currency = currencyForCountry(await billingCountryFor(authedUser.company_id));
+  const amount = boostPrice(tier.id, currency);
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: user?.email || undefined,
+      // CORRECTION 04/09/2026 (Alex : « et la facture ne se télécharge pas ?
+      // ça doit être une facture stripe non ? »).
+      //
+      // C'était la cause exacte : en mode `payment`, Stripe ne crée AUCUNE
+      // facture par défaut — seul le mode `subscription` en génère. Un achat
+      // de boost ne laissait donc rien à télécharger, et la liste des factures
+      // de l'onglet Abonnement restait désespérément vide côté boosts.
+      // `invoice_creation` demande à Stripe d'émettre une vraie facture,
+      // numérotée et téléchargeable en PDF, pour chaque paiement unique.
+      invoice_creation: { enabled: true },
       line_items: [
         {
           quantity: 1,
           price_data: {
-            currency: 'eur',
-            unit_amount: Math.round(tier.priceEur * 100),
+            currency,
+            unit_amount: Math.round(amount * 100),
             product_data: {
               name: `Meet Aaron — ${tier.credits} crédits`,
               description: `Boost de ${tier.credits} crédits, valable 1 mois à compter de l'achat. S'ajoute aux crédits inclus dans ton abonnement, qui ne sont pas entamés.`,
@@ -81,7 +114,8 @@ export async function POST(request: NextRequest) {
         tier: tier.id,
         credits: String(tier.credits),
         cap_usd: String(capUsdForCredits(tier.credits)),
-        price_eur: String(tier.priceEur),
+        price: String(amount),
+        currency,
       },
     });
 
