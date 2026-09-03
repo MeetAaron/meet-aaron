@@ -44,6 +44,77 @@ export function boostTierById(id: string): BoostTier | null {
   return BOOST_TIERS.find((t) => t.id === id) || null;
 }
 
+// ── Devise selon le pays de l'entreprise ────────────────────────────────────
+//
+// Demande Alex (04/09/2026) : « quand l'utilisateur paye un abonnement ou un
+// boost, la monnaie doit dépendre de son entreprise (€ si entreprise en
+// europe, aud si australie, etc.) ».
+//
+// Ce ne sont PAS des conversions de change : ce sont des prix commerciaux
+// arrêtés par devise, arrondis pour être lisibles en rayon. Un taux de change
+// appliqué en direct donnerait « 49,73 AUD » et changerait tous les jours —
+// personne ne vend comme ça. Ils sont donc à revoir à la main de temps en
+// temps, pas à recalculer.
+//
+// Le pays vient de l'adresse de facturation Stripe enregistrée au premier
+// paiement (companies.billing_country, voir
+// migration_billing_country_2026-09-04.sql et le webhook Stripe). Tant qu'on
+// ne le connaît pas, l'euro sert de repli.
+export type BoostCurrency = 'eur' | 'aud' | 'usd' | 'gbp' | 'cad' | 'chf' | 'nzd';
+
+const EUROZONE = [
+  'AT', 'BE', 'CY', 'EE', 'FI', 'FR', 'DE', 'GR', 'IE', 'IT',
+  'LV', 'LT', 'LU', 'MT', 'NL', 'PT', 'SK', 'SI', 'ES', 'HR', 'MC', 'AD',
+];
+
+export function currencyForCountry(country?: string | null): BoostCurrency {
+  const c = (country || '').trim().toUpperCase();
+  if (c === 'AU') return 'aud';
+  if (c === 'NZ') return 'nzd';
+  if (c === 'GB') return 'gbp';
+  if (c === 'US') return 'usd';
+  if (c === 'CA') return 'cad';
+  if (c === 'CH' || c === 'LI') return 'chf';
+  if (EUROZONE.includes(c)) return 'eur';
+  return 'eur';
+}
+
+// Prix par palier et par devise, dans l'ordre des BOOST_TIERS
+// (20 / 40 / 100 / 250 crédits).
+const PRICE_TABLE: Record<BoostCurrency, number[]> = {
+  eur: [30, 60, 150, 375],
+  aud: [50, 100, 250, 625],
+  usd: [35, 70, 175, 435],
+  gbp: [26, 52, 130, 325],
+  cad: [45, 90, 225, 560],
+  chf: [30, 60, 150, 375],
+  nzd: [55, 110, 275, 685],
+};
+
+export const CURRENCY_SYMBOLS: Record<BoostCurrency, string> = {
+  eur: '€',
+  aud: 'A$',
+  usd: '$',
+  gbp: '£',
+  cad: 'C$',
+  chf: 'CHF',
+  nzd: 'NZ$',
+};
+
+export function boostPrice(tierId: string, currency: BoostCurrency): number {
+  const index = BOOST_TIERS.findIndex((t) => t.id === tierId);
+  if (index < 0) return 0;
+  const table = PRICE_TABLE[currency] || PRICE_TABLE.eur;
+  return table[index] ?? BOOST_TIERS[index].priceEur;
+}
+
+export function formatBoostPrice(amount: number, currency: BoostCurrency): string {
+  const symbol = CURRENCY_SYMBOLS[currency] || '€';
+  // L'euro et le franc se lisent « 30 € » ; les devises à préfixe se lisent
+  // « A$50 ». On respecte l'usage de chacune plutôt qu'un format unique.
+  return currency === 'eur' || currency === 'chf' ? `${amount} ${symbol}` : `${symbol}${amount}`;
+}
+
 export function capUsdForCredits(credits: number): number {
   return Math.round(credits * USD_PER_CREDIT * 100) / 100;
 }
