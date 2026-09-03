@@ -27,6 +27,7 @@
 import { useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
 import { parseCsv, autoMapColumns, buildMappedRows, IMPORT_FIELDS, isGenericEmailDomain } from '@/lib/csv-import';
+import { PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import { parseXlsxArrayBuffer } from '@/lib/xlsx-io';
 
 const MAX_ROWS = 500;
@@ -40,6 +41,12 @@ const FIELD_LABEL_KEYS = {
   phone: 'csvImport.mapFieldPhone',
   company_name: 'csvImport.mapFieldCompany',
   job_title: 'csvImport.mapFieldJobTitle',
+  // Corrigé le 03/09/2026 : 'pipeline_stage' avait été ajouté à IMPORT_FIELDS
+  // (colonne « Progression » du modèle Excel, demande Alex du 01/09) sans
+  // libellé ici — la ligne correspondante de l'écran de correspondance des
+  // colonnes s'affichait donc sans titre, et l'utilisateur ne pouvait pas
+  // deviner quelle colonne de son fichier y associer.
+  pipeline_stage: 'csvImport.stageColumn',
 };
 
 export default function CsvImportModal({ userId, companyId, context, module, stageOrder, stageMeta, onClose, onImported }) {
@@ -56,6 +63,27 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
   // utilisé uniquement quand context === 'reactivation'.
   const [fileName, setFileName] = useState('');
   const [reactivationConfirmed, setReactivationConfirmed] = useState(false);
+
+  // Écran de validation du classement (demande Alex, 01/09/2026 — « option A+C » :
+  // A = la colonne « Progression » est lue dans le fichier ; C = Aaron propose un
+  // classement pour les lignes que le fichier ne renseigne pas, et le commercial
+  // le valide AVANT que quoi que ce soit ne parte).
+  //
+  // Pourquoi c'est important : c'est ici que se joue l'accident que le commercial
+  // redoute le plus en déposant sa base — qu'un client existant reçoive un email
+  // de prospection à froid. Tant que le classement restait invisible, il ne
+  // pouvait pas le corriger. Il est désormais affiché, modifiable ligne par
+  // ligne, et l'origine de chaque valeur (fichier ou proposition d'Aaron) est
+  // indiquée pour qu'il sache où porter son attention.
+  //
+  // La proposition d'Aaron est DÉTERMINISTE, pas un appel au modèle : classer
+  // « en cours » un contact dont le fichier ne dit rien n'a besoin d'aucune
+  // intelligence, et Alex a demandé (01/09/2026) que rien n'augmente les coûts
+  // API. C'est aussi le principe déjà posé en haut de ce fichier : on n'invente
+  // jamais une donnée de contact sans relecture humaine.
+  const [stageChoices, setStageChoices] = useState({});   // idx -> 'en_cours' | ... | 'client' | 'perdu' | ''
+  const [stageSources, setStageSources] = useState({});   // idx -> 'file' | 'aaron'
+  const [bulkStage, setBulkStage] = useState('en_cours');
 
   const [reviewRows, setReviewRows] = useState([]);
   const [included, setIncluded] = useState({});
@@ -120,6 +148,24 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     }
   }
 
+  // Le classement n'est affiché que là où il a un sens : en réactivation (le
+  // fichier contient par nature un mélange d'anciens clients, d'opportunités
+  // mortes et de prospects jamais relancés), ou dès que le fichier comporte
+  // une colonne « Progression ». Partout ailleurs, le comportement de l'import
+  // reste STRICTEMENT celui d'avant cette modification.
+  const showStageColumn = context === 'reactivation' || mapping.pipeline_stage !== null && mapping.pipeline_stage !== undefined;
+
+  // Proposition d'Aaron quand le fichier ne dit rien. En réactivation et en
+  // prospection, « en cours » : un contact dont on ne sait rien est un contact
+  // à (re)contacter, jamais un client — se tromper dans ce sens-là est sans
+  // conséquence, l'inverse enverrait un email à froid à un client.
+  // En Opportunités/Clients, la colonne n'apparaît que si le fichier la
+  // contient : les lignes vides gardent alors '' = « ne pas forcer », donc le
+  // comportement historique de la page.
+  function proposedStage() {
+    return context === 'reactivation' || context === 'prospects' ? 'en_cours' : '';
+  }
+
   function handleMapContinue() {
     if (mapping.email === null || mapping.email === undefined) {
       setError(t('csvImport.mapEmailRequired', locale));
@@ -129,10 +175,21 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     const built = buildMappedRows(rawRows, mapping);
     setReviewRows(built);
     const initialIncluded = {};
+    const initialChoices = {};
+    const initialSources = {};
     built.forEach((r) => {
       initialIncluded[r.idx] = r.errors.length === 0;
+      if (r.pipeline) {
+        initialChoices[r.idx] = r.pipeline.lost ? 'perdu' : r.pipeline.stage;
+        initialSources[r.idx] = 'file';
+      } else {
+        initialChoices[r.idx] = proposedStage();
+        initialSources[r.idx] = 'aaron';
+      }
     });
     setIncluded(initialIncluded);
+    setStageChoices(initialChoices);
+    setStageSources(initialSources);
     setStep('review');
     if (aiAssist) runAiAssist(built);
   }
@@ -219,8 +276,81 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
     setIncluded((prev) => ({ ...prev, [idx]: !prev[idx] }));
   }
 
+  // Trois origines possibles pour le classement d'une ligne :
+  //   'file'  — la valeur vient de la colonne « Progression » du fichier
+  //   'user'  — le commercial l'a choisie lui-même (ligne par ligne ou en lot)
+  //   'aaron' — simple proposition par défaut, jamais confirmée par un humain
+  function setStageChoice(idx, value) {
+    setStageChoices((prev) => ({ ...prev, [idx]: value }));
+    setStageSources((prev) => ({ ...prev, [idx]: 'user' }));
+  }
+
+  // L'action groupée ne touche jamais aux valeurs venues du fichier : celles-là
+  // sont une information explicite du commercial, pas une case à remplir.
+  function applyBulkStage() {
+    const targets = reviewRows.filter((r) => stageSources[r.idx] !== 'file').map((r) => r.idx);
+    setStageChoices((prev) => {
+      const next = { ...prev };
+      targets.forEach((idx) => {
+        next[idx] = bulkStage;
+      });
+      return next;
+    });
+    setStageSources((prev) => {
+      const next = { ...prev };
+      targets.forEach((idx) => {
+        next[idx] = 'user';
+      });
+      return next;
+    });
+  }
+
+  // Étape effective envoyée à l'import. Hors des contextes où la colonne est
+  // affichée, on retombe exactement sur l'ancien comportement (row.pipeline).
+  //
+  // ATTENTION — subtilité qui a bien failli coûter cher : écrire
+  // prospects.pipeline_stage FIGE l'étape. derivePipelinePosition() (lib/
+  // pipeline.ts) donne la priorité absolue à cette colonne sur l'étape déduite
+  // du comportement réel. Un contact importé avec pipeline_stage = 'en_cours'
+  // resterait donc affiché « En cours » POUR TOUJOURS, même après avoir
+  // répondu, décroché un RDV ou demandé un devis.
+  //
+  // On ne force donc l'étape que lorsqu'un humain l'a réellement décidée :
+  // valeur lue dans le fichier, ou choisie dans ce tableau. Une proposition
+  // d'Aaron laissée telle quelle n'écrit rien — le contact suit la déduction
+  // automatique, ce qui donne de toute façon « en cours » au départ, mais le
+  // laisse évoluer normalement.
+  function effectivePipeline(row) {
+    if (!showStageColumn) return row.pipeline;
+    if (stageSources[row.idx] === 'aaron') return null;
+    const choice = stageChoices[row.idx];
+    if (!choice) return null;
+    return choice === 'perdu' ? { stage: 'en_cours', lost: true } : { stage: choice, lost: false };
+  }
+
   const includedRows = reviewRows.filter((r) => included[r.idx] && r.errors.length === 0);
   const invalidCount = reviewRows.filter((r) => r.errors.length > 0).length;
+
+  // Récapitulatif affiché juste au-dessus du bouton d'import : le commercial
+  // doit voir en une ligne combien de clients / opportunités / prospects /
+  // perdus il s'apprête à confier à Aaron, sans relire tout le tableau.
+  const stageRecap = (() => {
+    if (!showStageColumn) return [];
+    const counts = {};
+    includedRows.forEach((r) => {
+      const choice = stageChoices[r.idx] || '';
+      counts[choice] = (counts[choice] || 0) + 1;
+    });
+    const lines = PIPELINE_STAGES.filter((st) => counts[st.key]).map((st) => ({
+      key: st.key,
+      icon: CATEGORY_ICONS[st.category],
+      label: t(st.labelKey, locale),
+      count: counts[st.key],
+    }));
+    if (counts.perdu) lines.push({ key: 'perdu', icon: '❌', label: t('pipeline.lostLabel', locale), count: counts.perdu });
+    if (counts['']) lines.push({ key: 'none', icon: '·', label: t('csvImport.stageKeepDefault', locale), count: counts[''] });
+    return lines;
+  })();
 
   async function handleImport() {
     setImporting(true);
@@ -268,7 +398,8 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
       // Un contact importé comme PERDU n'est pas recontacté non plus par cet
       // import : il est enregistré tel quel, et c'est la réactivation qui
       // décidera plus tard de le relancer.
-      if (row.pipeline && (row.pipeline.stage === 'client' || row.pipeline.lost)) {
+      const pipe = effectivePipeline(row);
+      if (pipe && (pipe.stage === 'client' || pipe.lost)) {
         skipFirstContact = true;
       }
       try {
@@ -295,10 +426,10 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
           let patchError = null;
           // L'étape lue dans le fichier prime sur l'étape déduite du
           // contexte d'import : elle vient explicitement du commercial.
-          if (row.pipeline) {
-            const patchBody = row.pipeline.lost
+          if (pipe) {
+            const patchBody = pipe.lost
               ? { action: 'marquer_perdu', lost_reason: 'autre' }
-              : { action: 'set_pipeline_stage', stage: row.pipeline.stage };
+              : { action: 'set_pipeline_stage', stage: pipe.stage };
             const patchRes = await fetch(`/api/prospects/${body.prospect.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -432,6 +563,28 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
               <p className="warning">{t('csvImport.invalidRowsTitle', locale).replace('{n}', String(invalidCount))}</p>
             )}
 
+            {showStageColumn && (
+              <div className="stage-toolbar">
+                <p className="hint small">{t('csvImport.stageColumnHint', locale)}</p>
+                <div className="stage-bulk">
+                  <label>
+                    {t('csvImport.stageBulkLabel', locale)}
+                    <select value={bulkStage} onChange={(e) => setBulkStage(e.target.value)}>
+                      {PIPELINE_STAGES.map((st) => (
+                        <option key={st.key} value={st.key}>
+                          {CATEGORY_ICONS[st.category]} {t(st.labelKey, locale)}
+                        </option>
+                      ))}
+                      <option value="perdu">❌ {t('pipeline.lostLabel', locale)}</option>
+                    </select>
+                  </label>
+                  <button type="button" className="btn-secondary small" onClick={applyBulkStage}>
+                    {t('csvImport.stageBulkApply', locale)}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="review-table-wrap">
               <table className="review-table">
                 <thead>
@@ -441,6 +594,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
                     <th>{t('csvImport.mapFieldEmail', locale)}</th>
                     <th>{t('csvImport.mapFieldCompany', locale)}</th>
                     <th>{t('csvImport.mapFieldJobTitle', locale)}</th>
+                    {showStageColumn && <th>{t('csvImport.stageColumn', locale)}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -501,6 +655,29 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
                             onChange={(e) => updateRow(row.idx, 'job_title', e.target.value)}
                           />
                         </td>
+                        {showStageColumn && (
+                          <td>
+                            <select
+                              className="cell-input stage-select"
+                              value={stageChoices[row.idx] || ''}
+                              onChange={(e) => setStageChoice(row.idx, e.target.value)}
+                            >
+                              {proposedStage() === '' && <option value="">{t('csvImport.stageKeepDefault', locale)}</option>}
+                              {PIPELINE_STAGES.map((st) => (
+                                <option key={st.key} value={st.key}>
+                                  {CATEGORY_ICONS[st.category]} {t(st.labelKey, locale)}
+                                </option>
+                              ))}
+                              <option value="perdu">❌ {t('pipeline.lostLabel', locale)}</option>
+                            </select>
+                            {stageSources[row.idx] === 'aaron' && (
+                              <span className="row-note stage-aaron">✨ {t('csvImport.stageFromAaron', locale)}</span>
+                            )}
+                            {stageSources[row.idx] === 'file' && (
+                              <span className="row-note stage-file">{t('csvImport.stageFromFile', locale)}</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -515,6 +692,19 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
               </label>
             )}
             {context === 'prospects' && <p className="hint small">{t('csvImport.autoContactHint', locale)}</p>}
+
+            {showStageColumn && includedRows.length > 0 && (
+              <div className="stage-recap">
+                <strong>{t('csvImport.stageRecapTitle', locale)}</strong>
+                <ul>
+                  {stageRecap.map((line) => (
+                    <li key={line.key}>
+                      {line.icon} {line.label} — <b>{line.count}</b>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {context === 'reactivation' && (
               <>
@@ -803,6 +993,66 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
           border-radius: var(--radius-sm);
           padding: 0.6rem 1rem;
           cursor: pointer;
+        }
+        .btn-secondary.small {
+          padding: 0.35rem 0.7rem;
+          font-size: 0.75rem;
+        }
+        .stage-toolbar {
+          margin: 0.6rem 0 0.4rem;
+        }
+        .stage-bulk {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-top: 0.4rem;
+        }
+        .stage-bulk label {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.75rem;
+          color: var(--muted);
+          flex-wrap: wrap;
+        }
+        .stage-bulk select {
+          background: var(--surface-2, transparent);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: var(--radius-sm);
+          padding: 0.3rem 0.5rem;
+          font-size: 0.75rem;
+        }
+        .stage-select {
+          min-width: 11rem;
+        }
+        .row-note.stage-aaron {
+          color: var(--accent);
+        }
+        .row-note.stage-file {
+          color: var(--muted);
+        }
+        .stage-recap {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          margin: 0.8rem 0 0.4rem;
+          font-size: 0.8rem;
+        }
+        .stage-recap ul {
+          list-style: none;
+          margin: 0.4rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.3rem 1rem;
+        }
+        .stage-recap li {
+          color: var(--muted);
+        }
+        .stage-recap b {
+          color: var(--text);
         }
       `}</style>
     </div>
