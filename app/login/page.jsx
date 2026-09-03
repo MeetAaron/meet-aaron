@@ -214,22 +214,6 @@ export default function LoginPage() {
     }
   }
 
-  async function handleOAuth(provider) {
-    setLoading(true);
-    setError(null);
-    // Voir handleEmailSubmit : on pose le marqueur dès le lancement de l'OAuth
-    // (avant la redirection vers Google/Microsoft) car il n'y a pas d'autre
-    // point de passage unique après un retour OAuth réussi.
-    markExplicitLoginToday();
-    const { error } = await supabaseBrowser.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: `${window.location.origin}/onboarding` },
-    });
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    }
-  }
 
   return (
     <div className="wrap">
@@ -349,30 +333,35 @@ export default function LoginPage() {
           </button>
         )}
 
-        {(mode === 'signin' || mode === 'signup') && (
-          <>
-            <div className="divider"><span>{t('auth.or', locale)}</span></div>
+        {/* Bloc « ou / Continuer avec ... » entièrement retiré le 03/09/2026.
 
-            {/* « Continuer avec Google » retiré le 02/09/2026.
-                Raison : ce parcours passait par Supabase Auth, donc par
-                l'URL ftssujspaoliheynbhpq.supabase.co/auth/v1/callback. Google
-                exige que tout domaine utilisé par une redirection figure dans
-                les « domaines autorisés » de l'écran de consentement — et la
-                VÉRIFICATION de l'application (scopes restreints Gmail) exige
-                de prouver la propriété de chacun de ces domaines via Search
-                Console. Impossible pour supabase.co : ce domaine bloquait donc
-                la vérification à terme.
-                La connexion Gmail/Agenda d'Aaron n'est PAS concernée : elle a
-                son propre parcours OAuth sur meetaaron.app/api/auth/google/
-                callback (voir app/api/auth/google/route.ts), qui reste actif.
-                Pour rétablir ce bouton un jour : prendre le domaine
-                personnalisé Supabase (auth.meetaaron.app), puis remettre ce
-                bloc et réactiver le fournisseur Google côté Supabase. */}
-            <button className="btn-oauth" onClick={() => handleOAuth('azure')} disabled={loading}>
-              {t('auth.continueWithMicrosoft', locale)}
-            </button>
-          </>
-        )}
+            « Continuer avec Google » avait déjà été retiré le 02/09/2026 :
+            ce parcours passait par Supabase Auth, donc par l'URL
+            ftssujspaoliheynbhpq.supabase.co/auth/v1/callback. Google exige que
+            tout domaine utilisé par une redirection figure dans les « domaines
+            autorisés » de l'écran de consentement — et la VÉRIFICATION de
+            l'application (scopes restreints Gmail) exige de prouver la
+            propriété de chacun de ces domaines via Search Console. Impossible
+            pour supabase.co : ce domaine bloquait donc la vérification à terme.
+
+            « Continuer avec Microsoft » est retiré aujourd'hui pour une raison
+            plus terre-à-terre : le fournisseur `azure` est DÉSACTIVÉ côté
+            Supabase (vérifié le 03/09/2026 sur /auth/v1/settings, qui renvoie
+            "azure": false — seul "email" est à true). Le bouton était donc
+            affiché à tous les visiteurs et échouait systématiquement avec
+            « Unsupported provider ». Un bouton de connexion qui ne marche
+            jamais coûte plus cher qu'un bouton absent. Le même problème de
+            domaine que pour Google se poserait de toute façon.
+
+            IMPORTANT — la connexion Gmail/Outlook d'Aaron n'est PAS concernée :
+            elle a ses propres parcours OAuth sur meetaaron.app/api/auth/google/
+            callback et /api/auth/microsoft/callback, qui restent actifs.
+            Ici, il ne s'agissait que de la connexion AU SITE.
+
+            Pour rétablir ces boutons un jour : prendre le domaine personnalisé
+            Supabase (auth.meetaaron.app), activer le(s) fournisseur(s) côté
+            Supabase, puis remettre ce bloc ainsi que la fonction handleOAuth
+            (supprimée en même temps, voir l'historique git de ce fichier). */}
 
         {error && <p className="error">{error}</p>}
         {message && <p className="success">{message}</p>}
