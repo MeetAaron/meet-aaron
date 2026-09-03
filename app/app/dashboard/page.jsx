@@ -684,7 +684,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <Shell active={t('nav.dashboard', locale)} userId={userId}>
+    <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll}>
       <header className="header">
         <div>
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
@@ -694,7 +694,6 @@ export default function DashboardPage() {
         <ConnectionStatusBadge />
       </header>
 
-      <Stories userId={userId} locale={locale} onChanged={loadAll} />
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
@@ -2144,7 +2143,7 @@ function EmptyState({ title, body, compact }) {
   );
 }
 
-function Shell({ children, active, userId }) {
+function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
@@ -2286,7 +2285,20 @@ function Shell({ children, active, userId }) {
           </button>
         </div>
       </nav>
-      <main className="content">{children}</main>
+      <main className="content">
+        {/* Notifications « bulles » en haut de CHAQUE page, toujours au même
+            endroit (demande Alex, 03/09/2026). Avant, le bandeau n'existait
+            que sur Tableau de bord et Contacts, et la cloche du rail était
+            invisible sous 901px : sur téléphone, un commercial ne voyait donc
+            AUCUNE notification tant qu'il n'était pas sur l'une de ces deux
+            pages. Placé ici, dans le Shell, la position est identique partout
+            et sur tous les écrans.
+            Coût nul quand il n'y a rien à traiter : Stories rend `null` si
+            aucun groupe n'est en attente (voir components/Stories.jsx), donc
+            aucune page ne perd de hauteur utile. */}
+        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} />
+        {children}
+      </main>
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
         :root {
