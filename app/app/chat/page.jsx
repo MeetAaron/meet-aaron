@@ -1113,17 +1113,46 @@ export default function ChatPage() {
       return;
     }
 
+    // CORRECTION 04/09/2026 (Alex : « gros problème, ça me repose le
+    // questionnaire […] ce questionnaire doit être mis qu'une seule fois lors
+    // de la création du compte »).
+    //
+    // Avant : arriver ici avec ?restart_questionnaire=1 RELANÇAIT le
+    // questionnaire d'autorité — onboarding_step remis à 0 et
+    // onboarding_answers VIDÉES. Or le tableau de bord pointe ce lien tant
+    // que le profil d'entreprise n'est pas généré : un commercial dont le
+    // profil manquait (ou avait été perdu, cf. le bug du 03/09) se voyait
+    // donc reposer les 11 questions à chaque passage, en perdant à chaque
+    // fois les réponses déjà données. C'est exactement ce qu'Alex a vécu.
+    //
+    // Désormais Aaron PROPOSE, il n'impose pas : un seul message avec deux
+    // boutons. Tant que le commercial n'a pas cliqué « oui », rien n'est
+    // touché — ni l'étape, ni les réponses, ni le profil. Le questionnaire
+    // ne démarre donc plus jamais tout seul en dehors de la toute première
+    // conversation d'un nouveau compte (voir l'effet `isWelcome` plus haut,
+    // qui reste le SEUL démarrage automatique).
+    //
+    // Ce message d'offre n'est volontairement PAS persisté : il n'appartient
+    // pas à la conversation, c'est une invite contextuelle. S'il est ignoré,
+    // il ne laisse aucune trace dans l'historique.
+    setMessages((prev) => [...prev, { role: 'assistant', content: t('chat.restartOfferTitle', locale), offerRestartQuestionnaire: true }]);
+    setRestartSeeded(true);
+  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale, activeConversationId, onboardingStep]);
+
+  // Démarrage EXPLICITE du questionnaire, déclenché seulement par le bouton
+  // « Oui, on le refait » sous le message d'offre ci-dessus.
+  function startQuestionnaireNow() {
     const onboardingQuestions = getOnboardingQuestions(locale);
     const restartMessages = [
       { role: 'assistant', content: t('chat.restartQuestionnaireIntro', locale) },
       { role: 'assistant', content: onboardingQuestions[0] },
     ];
-    setMessages((prev) => [...prev, ...restartMessages]);
+    // Retire l'invite (non persistée) avant d'ajouter le vrai démarrage.
+    setMessages((prev) => [...prev.filter((m) => !m.offerRestartQuestionnaire), ...restartMessages]);
     setOnboardingStep(0);
     setOnboardingAnswers([]);
     setSummaryDone(false);
     setQuestionnaireDone(false);
-    setRestartSeeded(true);
 
     fetch('/api/chat-history', {
       method: 'POST',
@@ -1136,7 +1165,16 @@ export default function ChatPage() {
         onboarding_answers: [],
       }),
     }).catch(() => {});
-  }, [restartRequested, restartSeeded, userInfoLoaded, historyLoaded, userId, locale, activeConversationId, onboardingStep]);
+  }
+
+  // Refus : on retire l'invite et on répond une ligne, sans rien persister ni
+  // modifier. Le commercial retrouve sa conversation exactement comme avant.
+  function declineQuestionnaireRestart() {
+    setMessages((prev) => [
+      ...prev.filter((m) => !m.offerRestartQuestionnaire),
+      { role: 'assistant', content: t('chat.restartDeclinedMessage', locale) },
+    ]);
+  }
 
   // docx item A3 : scroller uniquement la liste de messages elle-même (pas
   // toute la page) à chaque nouveau message. `scrollIntoView` sans option
@@ -1886,6 +1924,27 @@ export default function ChatPage() {
                     onClick={() => handleSend(null, "Non, ce n'est pas nécessaire.")}
                   >
                     {t('chat.quickReplySaveNo', locale)}
+                  </button>
+                </div>
+              )}
+              {/* Proposition de (re)faire le questionnaire — voir
+                  startQuestionnaireNow. Rien n'est modifié tant que le
+                  commercial n'a pas cliqué « oui ». */}
+              {m.offerRestartQuestionnaire && i === messages.length - 1 && !sending && (
+                <div className="quick-replies">
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-yes"
+                    onClick={startQuestionnaireNow}
+                  >
+                    {t('chat.quickReplyRestartYes', locale)}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-reply-btn quick-reply-no"
+                    onClick={declineQuestionnaireRestart}
+                  >
+                    {t('chat.quickReplyRestartNo', locale)}
                   </button>
                 </div>
               )}
@@ -2893,8 +2952,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
-    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
   ];
