@@ -44,6 +44,82 @@ export async function POST(request: NextRequest) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
 
+    // Pays de facturation : Stripe le collecte au Checkout
+    // (billing_address_collection: 'required'). On le mémorise sur la société
+    // pour pouvoir facturer les achats suivants dans SA devise — demande
+    // d'Alex du 04/09/2026. Voir migration_billing_country_2026-09-04.sql.
+    // Best-effort : une colonne absente ou une écriture ratée ne doit jamais
+    // faire échouer un paiement déjà encaissé.
+    const billingCountry = session.customer_details?.address?.country || null;
+    const companyIdForCountry = session.metadata?.company_id || null;
+    if (billingCountry && companyIdForCountry) {
+      try {
+        await supabaseAdmin
+          .from('companies')
+          .update({ billing_country: billingCountry })
+          .eq('id', companyIdForCountry);
+      } catch (err) {
+        console.error('Enregistrement du pays de facturation impossible (non bloquant):', err);
+      }
+    }
+
+    // ACHAT DE BOOST — BUG CORRIGÉ LE 04/09/2026, ET IL ÉTAIT GRAVE.
+    //
+    // La route /api/credits/boost créait bien la session Stripe et encaissait
+    // le paiement, mais AUCUN code n'insérait jamais de ligne dans
+    // credit_boosts. Le client payait donc son boost… et ne recevait
+    // strictement rien : listActiveBoosts renvoyait toujours une liste vide,
+    // le plafond n'était jamais relevé, et le solde affiché ne bougeait pas.
+    // Le webhook importait même `boostEndsAt` sans jamais s'en servir — le
+    // traitement avait été oublié en cours de route.
+    //
+    // Idempotent sur l'identifiant de paiement Stripe : Stripe rejoue ses
+    // événements, et un boost crédité deux fois pour un seul paiement serait
+    // aussi grave que l'inverse.
+    if (session.metadata?.purpose === 'boost_purchase') {
+      const { company_id, user_id, tier, credits, cap_usd } = session.metadata;
+      const paymentIntentId = typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id || session.id;
+
+      if (!company_id || !tier) {
+        console.error('Boost payé mais metadata incomplètes:', session.metadata);
+        return NextResponse.json({ error: 'Metadata de boost incomplètes' }, { status: 500 });
+      }
+
+      const { data: already } = await supabaseAdmin
+        .from('credit_boosts')
+        .select('id')
+        .eq('stripe_payment_intent_id', paymentIntentId)
+        .maybeSingle();
+
+      if (!already) {
+        const startsAt = new Date();
+        const { error: boostError } = await supabaseAdmin.from('credit_boosts').insert({
+          company_id,
+          purchased_by: user_id || null,
+          tier,
+          credits: Number(credits) || 0,
+          cap_usd: Number(cap_usd) || 0,
+          // La colonne s'appelle price_eur pour raisons historiques ; elle
+          // porte désormais le montant dans la devise réellement facturée
+          // (metadata.currency dit laquelle).
+          price_eur: Number(session.metadata?.price ?? session.metadata?.price_eur ?? 0),
+          starts_at: startsAt.toISOString(),
+          ends_at: boostEndsAt(startsAt).toISOString(),
+          stripe_payment_intent_id: paymentIntentId,
+        });
+        if (boostError) {
+          // On renvoie 500 pour que Stripe retente : un paiement encaissé sans
+          // crédits livrés doit être rattrapé, pas ignoré en silence.
+          console.error('Boost payé mais non enregistré:', boostError.message, session.metadata);
+          return NextResponse.json({ error: 'Enregistrement du boost impossible' }, { status: 500 });
+        }
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
     // Réactivation d'un abonnement pour une société qui avait désactivé son
     // DERNIER module (voir app/api/subscription/modules/route.ts) : pas une
     // création de société/compte, la société existe déjà. On relie le
