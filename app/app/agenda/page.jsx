@@ -181,6 +181,27 @@ function weekdayLabelsFor(locale) {
   ];
 }
 
+// Pastille de date des lignes d'agenda (04/09/2026, demande Alex : « je
+// trouve que ça manque un peu d'âme le visuel »). Une liste de rendez-vous
+// sans repère de date se lit ligne par ligne ; avec un bloc jour/mois à
+// gauche, l'œil saute directement à la bonne date. « Aujourd'hui » et
+// « demain » sont mis en avant : ce sont les deux seules dates qu'on cherche
+// vraiment dans un agenda.
+function dayChipInfo(dateStr, locale) {
+  const d = new Date(dateStr);
+  const today = new Date();
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(d) - startOf(today)) / 86400000);
+  return {
+    day: d.toLocaleDateString(locale, { day: 'numeric' }),
+    month: d.toLocaleDateString(locale, { month: 'short' }).replace('.', ''),
+    time: d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+    isToday: diffDays === 0,
+    isTomorrow: diffDays === 1,
+    isPast: diffDays < 0,
+  };
+}
+
 export default function AgendaPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -585,6 +606,16 @@ export default function AgendaPage() {
               <div className="list">
                 {pending.map((a) => (
                   <div className="row" key={a.id}>
+                    {(() => {
+                      const chip = dayChipInfo(a.proposed_at, locale);
+                      return (
+                        <span className={`day-chip${chip.isToday ? ' today' : ''}${chip.isPast ? ' past' : ''}`} aria-hidden="true">
+                          <span className="day-chip-num">{chip.day}</span>
+                          <span className="day-chip-mon">{chip.month}</span>
+                          <span className="day-chip-time">{chip.time}</span>
+                        </span>
+                      );
+                    })()}
                     <div
                       className={a.prospect_id ? 'row-info clickable' : 'row-info'}
                       onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
@@ -641,6 +672,16 @@ export default function AgendaPage() {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
                 return (
                   <div className="row" key={a.id}>
+                    {(() => {
+                      const chip = dayChipInfo(a.proposed_at, locale);
+                      return (
+                        <span className={`day-chip${chip.isToday ? ' today' : ''}${chip.isPast ? ' past' : ''}`} aria-hidden="true">
+                          <span className="day-chip-num">{chip.day}</span>
+                          <span className="day-chip-mon">{chip.month}</span>
+                          <span className="day-chip-time">{chip.time}</span>
+                        </span>
+                      );
+                    })()}
                     <div
                       className={a.prospect_id ? 'row-info clickable' : 'row-info'}
                       onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
@@ -1002,8 +1043,49 @@ export default function AgendaPage() {
         .row:last-child {
           border-bottom: none;
         }
+        /* Pastille de date (04/09/2026). Largeur fixe pour que toutes les
+           lignes s'alignent : c'est l'alignement, plus que la pastille, qui
+           donne son rythme à la liste. */
+        .day-chip {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 1px;
+          width: 52px;
+          flex-shrink: 0;
+          padding: 0.4rem 0;
+          border-radius: var(--radius-md);
+          background: var(--bg);
+          border: 1px solid var(--border);
+        }
+        .day-chip-num {
+          font-family: var(--font-mono);
+          font-size: 1.05rem;
+          line-height: 1;
+        }
+        .day-chip-mon {
+          font-size: 0.62rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+        }
+        .day-chip-time {
+          font-family: var(--font-mono);
+          font-size: 0.62rem;
+          color: var(--muted);
+          margin-top: 2px;
+        }
+        .day-chip.today {
+          background: rgba(75, 57, 239, 0.14);
+          border-color: rgba(75, 57, 239, 0.5);
+        }
+        .day-chip.today .day-chip-num { color: var(--accent-light); }
+        .day-chip.past { opacity: 0.55; }
         .row-info {
           font-size: 0.9rem;
+          flex-grow: 1;
+          min-width: 0;
         }
         .row-info.clickable {
           cursor: pointer;
