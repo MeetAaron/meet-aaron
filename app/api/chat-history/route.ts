@@ -95,9 +95,24 @@ export async function POST(request: NextRequest) {
   if (authedUser.id !== user_id) return forbiddenResponse();
 
   if (Array.isArray(messages) && messages.length > 0) {
+    // created_at explicite et décalé d'une milliseconde par message
+    // (03/09/2026, inversion constatée par Alex : la question du
+    // questionnaire s'affichait AVANT la phrase d'introduction qui la
+    // précède). Cause : tous les messages d'un même envoi étaient insérés
+    // avec le created_at par défaut — donc la MÊME valeur — et le GET les
+    // trie sur cette colonne. À égalité, Postgres ne garantit aucun ordre :
+    // deux messages postés ensemble pouvaient donc ressortir inversés, au
+    // hasard, d'un rechargement à l'autre.
+    const batchStart = Date.now();
     const rows = messages
       .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
-      .map((m: any) => ({ user_id, conversation_id, role: m.role, content: m.content }));
+      .map((m: any, index: number) => ({
+        user_id,
+        conversation_id,
+        role: m.role,
+        content: m.content,
+        created_at: new Date(batchStart + index).toISOString(),
+      }));
 
     if (rows.length > 0) {
       const { error: insertError } = await supabaseAdmin.from('chat_messages').insert(rows);
