@@ -145,6 +145,22 @@ function fileExtLabel(fileName) {
   return ext ? ext.slice(0, 4).toUpperCase() : '—';
 }
 
+// Texte tronqué + « voir plus » qui ouvre la fenêtre correspondante. Deux
+// blocs de la fiche s'en servent (description du commercial, synthèse d'Aaron) ;
+// écrit une fois plutôt que copié deux fois.
+function truncatedWithModal(text, limit, openModal, locale) {
+  if (!text) return null;
+  if (text.length <= limit) return text;
+  return (
+    <>
+      {`${text.slice(0, limit).trimEnd()}…`}{' '}
+      <button type="button" className="link-btn" onClick={openModal}>
+        {t('common.seeMore', locale)}
+      </button>
+    </>
+  );
+}
+
 function categoryLabelsFor(locale) {
   return {
     general: t('documents.categoryGeneral', locale),
@@ -468,22 +484,20 @@ export default function DocumentsPage() {
               <div className="doc-body">
                 <h3 className="doc-name">{d.file_name}</h3>
 
-                {(d.summary || d.description) && (
+                {/* Les DEUX textes restent accessibles : la description est
+                    celle que le commercial a tapée lui-même à l'envoi, la
+                    synthèse est celle qu'Aaron a écrite après lecture. N'en
+                    afficher qu'un seul rendrait l'autre inatteignable — c'est
+                    ce que faisait la première version de cette refonte. */}
+                {d.description && (
                   <p className="doc-sum">
-                    {(() => {
-                      const text = d.summary || d.description;
-                      const limit = d.summary ? SUMMARY_TRUNCATE_LENGTH : DESCRIPTION_TRUNCATE_LENGTH;
-                      const openModal = () => (d.summary ? setSummaryModalDoc(d) : setDescriptionModalDoc(d));
-                      if (text.length <= limit) return text;
-                      return (
-                        <>
-                          {`${text.slice(0, limit).trimEnd()}…`}{' '}
-                          <button type="button" className="link-btn" onClick={openModal}>
-                            {t('common.seeMore', locale)}
-                          </button>
-                        </>
-                      );
-                    })()}
+                    {truncatedWithModal(d.description, DESCRIPTION_TRUNCATE_LENGTH, () => setDescriptionModalDoc(d), locale)}
+                  </p>
+                )}
+                {d.summary && (
+                  <p className="doc-sum doc-sum-ai">
+                    <span className="doc-sum-tag">🤖</span>{' '}
+                    {truncatedWithModal(d.summary, SUMMARY_TRUNCATE_LENGTH, () => setSummaryModalDoc(d), locale)}
                   </p>
                 )}
 
@@ -825,6 +839,13 @@ export default function DocumentsPage() {
           font-size: 0.8rem;
           line-height: 1.45;
           color: var(--muted);
+        }
+        .doc-sum-ai {
+          font-size: 0.76rem;
+          opacity: 0.85;
+        }
+        .doc-sum-tag {
+          font-size: 0.72rem;
         }
         .doc-tags {
           display: flex;
