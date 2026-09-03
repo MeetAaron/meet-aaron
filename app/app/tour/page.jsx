@@ -344,7 +344,7 @@ export default function TourPage() {
           align-items: center;
           justify-content: center;
           border-radius: 8px;
-          background: rgba(244, 241, 234, 0.04);
+          background: var(--tint-4);
           flex-shrink: 0;
         }
         .tour-card {
