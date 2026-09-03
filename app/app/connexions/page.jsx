@@ -15,6 +15,7 @@ import Stories from '@/components/Stories';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import BusinessProfileSheet from '@/components/BusinessProfileSheet';
+import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
 import QRCode from 'qrcode';
 
@@ -325,7 +326,11 @@ export default function ConnexionsPage() {
 
   // docx C1/A2/A3 (2026-08-20) : cette page devient "Mon compte", structurée
   // en 3 rubriques — mon profil / connexion / crm — au lieu d'un seul flux.
-  const [activeTab, setActiveTab] = useState('profile');
+  // null = on affiche la LISTE des rubriques (maquette validée le
+  // 04/09/2026). Sur grand écran, l'effet ci-dessous ouvre « Mon profil »
+  // tout de suite : la liste y est une colonne de gauche, pas un écran à
+  // part — un panneau vide à droite n'aurait aucun sens.
+  const [activeTab, setActiveTab] = useState(null);
   // Fusion "Mon compte" (2026-08-25) : les anciens liens "module verrouillé"
   // (voir Shell plus bas, dupliqué dans les 14 pages) et les retours Stripe
   // pointent vers ?tab=subscription (ex-page /app/preferences) — ouvre
@@ -340,6 +345,15 @@ export default function ConnexionsPage() {
     const tabParam = params.get('tab');
     const VALID_TABS = ['profile', 'company', 'connection', 'crm', 'preferences', 'subscription', 'delete'];
     if (tabParam && VALID_TABS.includes(tabParam)) setActiveTab(tabParam);
+    else if (params.get('setup') === 'push') setActiveTab('connection');
+    // Grand écran : la liste est la colonne de gauche, le panneau doit donc
+    // déjà montrer quelque chose. Sur téléphone au contraire on arrive sur la
+    // liste — c'est elle, l'écran « Mon compte ».
+    else if (window.matchMedia('(min-width: 960px)').matches) setActiveTab('profile');
+    // La checklist « Mise en route » (QR code « active les notifications sur
+    // ton téléphone ») vit dans le panneau Connexion : sans la ligne
+    // ci-dessus, le téléphone arrivait sur la liste et le QR ne menait nulle
+    // part.
     if (params.get('setup') === 'push') setSetupFocus('push');
   }, []);
   const [profileName, setProfileName] = useState('');
@@ -1554,6 +1568,88 @@ export default function ConnexionsPage() {
     !!googleConnection &&
     !(googleConnection.scopes || []).includes('https://www.googleapis.com/auth/gmail.modify');
 
+  // ── Liste « Mon compte » ───────────────────────────────────────────────
+  //
+  // L'intérêt de la liste par rapport aux anciens onglets, c'est que chaque
+  // ligne RÉPOND DÉJÀ. « Boîte mail & agenda · Gmail connecté » évite d'ouvrir
+  // la rubrique pour vérifier. Les états ci-dessous sont donc calculés à
+  // partir des mêmes données que les panneaux eux-mêmes — jamais figés.
+  const mailboxConnection = googleConnection || microsoftConnection;
+  const connectedCrm = crmConnections.length > 0 ? crmConnections[0] : null;
+  const creditsPct =
+    usage && usage.monthly_cap_usd
+      ? Math.min(100, Math.round(((usage.month_cost_usd || 0) / usage.monthly_cap_usd) * 100))
+      : null;
+
+  const accountNavGroups = [
+    {
+      label: t('connexions.navGroupActivity', locale),
+      items: [
+        {
+          key: 'profile',
+          title: t('connexions.tabProfile', locale),
+          description: t('connexions.navDescProfile', locale),
+        },
+        {
+          key: 'company',
+          title: t('connexions.tabCompany', locale),
+          description: t('connexions.navDescCompany', locale),
+          status: businessSummary
+            ? { tone: 'ok', label: t('connexions.navStatusUpToDate', locale) }
+            : { tone: 'todo', label: t('connexions.navStatusToComplete', locale) },
+        },
+        {
+          key: 'connection',
+          title: t('connexions.navTitleConnection', locale),
+          // La ligne nomme le compte réellement branché : « Gmail » ou
+          // « Outlook » dit plus que « connecté ».
+          description: (mailboxConnection && mailboxConnection.provider_account_email) || t('connexions.navDescConnection', locale),
+          status: mailboxConnection
+            ? { tone: 'ok', label: t('connexions.navStatusConnected', locale) }
+            : { tone: 'todo', label: t('connexions.navStatusNotConnected', locale) },
+        },
+      ],
+    },
+    {
+      label: t('connexions.navGroupSettings', locale),
+      items: [
+        {
+          key: 'preferences',
+          title: t('connexions.tabPreferences', locale),
+          description: t('connexions.navDescPreferences', locale),
+          tone: 'neutral',
+        },
+        {
+          key: 'crm',
+          title: t('connexions.tabCrm', locale),
+          description: t('connexions.navDescCrm', locale),
+          tone: 'neutral',
+          status: connectedCrm
+            ? { tone: 'ok', label: t('connexions.navStatusConnected', locale) }
+            : { tone: 'off', label: t('connexions.navStatusNoCrm', locale) },
+        },
+      ],
+    },
+    {
+      label: t('connexions.navGroupAccount', locale),
+      items: [
+        {
+          key: 'subscription',
+          title: t('connexions.navTitleSubscription', locale),
+          description: t('connexions.navDescSubscription', locale),
+          tone: 'warn',
+          status: creditsPct === null ? null : { tone: creditsPct >= 85 ? 'todo' : 'off', label: `${creditsPct} %` },
+        },
+        {
+          key: 'delete',
+          title: t('connexions.tabDelete', locale),
+          description: t('connexions.navDescDelete', locale),
+          tone: 'danger',
+        },
+      ],
+    },
+  ];
+
   return (
     <Shell active={t('nav.connections', locale)} userId={userId}>
       <header className="header">
@@ -1562,37 +1658,33 @@ export default function ConnexionsPage() {
         <p className="subtitle">{t('connexions.subtitle', locale)}</p>
       </header>
 
-      {/* Fusion "Mon compte" (demande Alex 2026-08-25) : 7 onglets — mon
+      {/* Fusion "Mon compte" (demande Alex 2026-08-25) : 7 rubriques — mon
           profil / mon entreprise / connexion / crm / préférences /
           abonnement / supprimer mon compte — au lieu des 3 anciens onglets
-          ici + 3 autres qui vivaient dans Préférences (app/app/preferences). */}
-      <div className="tabs">
-        <button type="button" className={activeTab === 'profile' ? 'tab active' : 'tab'} onClick={() => setActiveTab('profile')}>
-          {t('connexions.tabProfile', locale)}
-        </button>
-        <button type="button" className={activeTab === 'company' ? 'tab active' : 'tab'} onClick={() => setActiveTab('company')}>
-          {t('connexions.tabCompany', locale)}
-        </button>
-        <button type="button" className={activeTab === 'connection' ? 'tab active' : 'tab'} onClick={() => setActiveTab('connection')}>
-          {t('connexions.tabConnection', locale)}
-        </button>
-        <button type="button" className={activeTab === 'crm' ? 'tab active' : 'tab'} onClick={() => setActiveTab('crm')}>
-          {t('connexions.tabCrm', locale)}
-        </button>
-        <button type="button" className={activeTab === 'preferences' ? 'tab active' : 'tab'} onClick={() => setActiveTab('preferences')}>
-          {t('connexions.tabPreferences', locale)}
-        </button>
-        <button type="button" className={activeTab === 'subscription' ? 'tab active' : 'tab'} onClick={() => setActiveTab('subscription')}>
-          {t('connexions.tabSubscription', locale)}
-        </button>
-        {/* Onglet ajouté le 25/08 (demande Alex) : "Supprimer mon compte",
-            self-service avec avertissement -> confirmation par saisie exacte
-            -> "êtes-vous certain ?" -> suppression réelle 24h plus tard (voir
-            AccountDeletionPanel plus bas et app/api/account/deletion). */}
-        <button type="button" className={activeTab === 'delete' ? 'tab active' : 'tab'} onClick={() => setActiveTab('delete')}>
-          {t('connexions.tabDelete', locale)}
-        </button>
-      </div>
+          ici + 3 autres qui vivaient dans Préférences (app/app/preferences).
+
+          Depuis le 04/09/2026 (maquette validée par Alex), ces 7 rubriques ne
+          sont plus une rangée d'onglets horizontale — elle débordait de tous
+          les téléphones — mais une LISTE verticale groupée, à la façon des
+          réglages d'iOS/Android. Chaque ligne affiche déjà son état, donc on
+          sait où aller sans ouvrir. Voir components/AccountNav.jsx. */}
+      <div className={`account-layout${activeTab ? ' has-panel' : ''}`}>
+        <AccountNav
+          groups={accountNavGroups}
+          activeTab={activeTab}
+          onSelect={setActiveTab}
+          locale={locale}
+        />
+
+        <div className="account-panel">
+          {/* Retour à la liste — visible sur téléphone uniquement : sur grand
+              écran la liste n'a jamais disparu, elle est à gauche. */}
+          <button type="button" className="panel-back" onClick={() => setActiveTab(null)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            {t('connexions.navBack', locale)}
+          </button>
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
@@ -2304,6 +2396,9 @@ export default function ConnexionsPage() {
           <div className="preferences-panel">
             {/* Thème déplacé ici depuis Mon profil, au-dessus du canal de
                 notification (demande Alex 2026-08-25). */}
+            <section className="pref-group">
+              <h2 className="pref-group-label">{t('preferences.groupDisplay', locale)}</h2>
+              <div className="pref-card">
             <div className="field">
               <label>{t('connexions.themeLabel', locale)}</label>
               <div className="theme-toggle">
@@ -2344,7 +2439,12 @@ export default function ConnexionsPage() {
                 ))}
               </div>
             </div>
+              </div>
+            </section>
 
+            <section className="pref-group">
+              <h2 className="pref-group-label">{t('preferences.groupHowAaronWorks', locale)}</h2>
+              <div className="pref-card">
             <div className="field">
               <label>{t('preferences.firstEmailLabel', locale)}</label>
               <div className="options">
@@ -2507,7 +2607,12 @@ export default function ConnexionsPage() {
                 {t('preferences.defaultFirstEmailHint', locale)}
               </p>
             </div>
+              </div>
+            </section>
 
+            <section className="pref-group">
+              <h2 className="pref-group-label">{t('preferences.groupAdvanced', locale)}</h2>
+              <div className="pref-card">
             <div className="field">
               <label>{t('preferences.externalConversionWebhookLabel', locale)}</label>
               {prefs.external_conversion_webhook_secret ? (
@@ -2528,6 +2633,8 @@ export default function ConnexionsPage() {
                 {t('preferences.externalConversionWebhookHint', locale)}
               </p>
             </div>
+              </div>
+            </section>
 
             <div className="actions">
               <button className="btn-primary" onClick={handleSave} disabled={saving}>
@@ -2784,48 +2891,59 @@ export default function ConnexionsPage() {
             )}
           </div>
         )
-      ) : (
+      ) : activeTab === 'delete' ? (
         <AccountDeletionPanel locale={locale} />
-      )}
+      ) : null}
+        </div>
+      </div>
 
       <style jsx>{`
-        .tabs {
-          display: flex;
-          gap: 0.5rem;
-          margin-bottom: 1.6rem;
-          border-bottom: 1px solid var(--border);
-          /* Mobile (demande Alex, 27/08/2026) : 7 onglets ("Mon profil" à
-             "Supprimer mon compte") ne tiennent jamais sur la largeur d'un
-             téléphone. Avant, ça débordait de la page entière (voir
-             overflow-x: hidden ajouté dans globals.css) et "Supprimer mon
-             compte" devenait inatteignable. Maintenant la rangée défile
-             elle-même horizontalement, contenue dans sa propre largeur —
-             scrollbar masquée (barre d'onglets, pas un contenu à lire) mais
-             le défilement tactile reste actif.*/
-          overflow-x: auto;
-          overflow-y: hidden;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
+        /* Mise en page « Mon compte » (04/09/2026) — remplace la rangée
+           d'onglets horizontale.
+           Téléphone : un seul écran à la fois — la liste, ou la rubrique
+           ouverte (avec un bouton retour). C'est le schéma des réglages d'iOS
+           et d'Android : on ne perd jamais de vue où on est.
+           Grand écran (>= 960px) : les deux à la fois, liste à gauche,
+           rubrique à droite. Aucun aller-retour, et aucune seconde mise en
+           page à maintenir — c'est la même liste. */
+        .account-layout {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 1.4rem;
         }
-        .tabs::-webkit-scrollbar {
-          display: none;
-        }
-        .tab {
+        .panel-back {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
           background: none;
-          border: none;
-          border-bottom: 2px solid transparent;
+          border: 0;
+          padding: 0 0 0.9rem;
+          margin: 0;
           color: var(--muted);
-          font-size: 0.88rem;
+          font-family: inherit;
+          font-size: 0.85rem;
           font-weight: 600;
-          padding: 0.7rem 0.2rem;
-          margin-right: 1.2rem;
-          white-space: nowrap;
-          flex-shrink: 0;
           cursor: pointer;
         }
-        .tab.active {
-          color: var(--accent);
-          border-bottom-color: var(--accent);
+        .panel-back:hover {
+          color: var(--text);
+        }
+        @media (max-width: 959px) {
+          .account-layout.has-panel > :global(.account-nav) {
+            display: none;
+          }
+          .account-layout:not(.has-panel) .account-panel {
+            display: none;
+          }
+        }
+        @media (min-width: 960px) {
+          .account-layout {
+            grid-template-columns: 288px minmax(0, 1fr);
+            align-items: start;
+          }
+          .panel-back {
+            display: none;
+          }
         }
         .profile-panel {
           background: var(--surface);
@@ -3518,13 +3636,59 @@ export default function ConnexionsPage() {
 
         /* Onglets Préférences / Abonnement (portés depuis l'ancienne page
            Préférences, fusion "Mon compte" du 2026-08-25). */
-        .preferences-panel,
         .subscription-panel {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
           padding: 1.6rem;
           max-width: 640px;
+        }
+
+        /* Préférences retravaillées (demande Alex, 04/09/2026 : « pareil
+           retravaille préférences »).
+           Avant : neuf réglages sans rapport les uns avec les autres —
+           thème, délai de rappel, plafond d'envoi, webhook — empilés dans
+           une seule grande carte. Rien ne disait où commençait un sujet et
+           où finissait l'autre ; on lisait les neuf pour en trouver un.
+           Maintenant : trois groupes NOMMÉS, chacun dans sa carte, comme la
+           liste de « Mon compte » juste à côté. Le panneau lui-même n'est
+           plus une carte — sinon on empile une carte dans une carte. */
+        .preferences-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+          max-width: 640px;
+        }
+        .pref-group {
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+        }
+        .pref-group-label {
+          margin: 0;
+          padding-left: 2px;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .pref-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1.3rem 1.3rem 0;
+        }
+        /* Un trait entre deux réglages : la carte dit « même sujet », le
+           trait dit « autre réglage ». Sans lui, cinq réglages d'affilée
+           redeviennent le mur de texte qu'on vient d'enlever. */
+        .pref-card .field {
+          margin-bottom: 0;
+          padding: 0 0 1.3rem;
+        }
+        .pref-card .field + .field {
+          border-top: 1px solid var(--border);
+          padding-top: 1.3rem;
         }
         .renewal-date {
           font-size: 0.84rem;
