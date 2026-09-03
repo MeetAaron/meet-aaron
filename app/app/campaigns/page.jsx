@@ -385,7 +385,14 @@ export default function CampaignsPage() {
             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
             const isTerminee = c.status === 'terminee';
             return (
-              <div className="card" key={c.id}>
+              <div className={`card${isTerminee ? ' card-done' : ' card-live'}`} key={c.id}>
+                {/* Refonte 04/09/2026 (« la page manque de force, elle est
+                    sans âme »). Une campagne EN COURS est ce qui se passe
+                    maintenant : elle prend un liseré dégradé et occupe le
+                    regard. Une campagne terminée reste lisible mais s'efface —
+                    l'ancienne page les traitait exactement pareil, d'où
+                    l'impression de liste plate. */}
+                <div className="card-inner">
                 <div className="card-top">
                   <div>
                     <h3>{c.zone_label}</h3>
@@ -399,21 +406,36 @@ export default function CampaignsPage() {
                     {c.context_notes && <p className="context-notes">💬 {c.context_notes}</p>}
                   </div>
                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
+                    {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
                     {status.label}
                   </span>
+                </div>
+
+                {/* La progression porte un chiffre lisible à sa droite : une
+                    barre seule oblige à estimer à l'œil. */}
+                <div className="progress-head">
+                  <span>{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
+                  <span className="progress-pct">{progress} %</span>
                 </div>
                 <div className="progress-track">
                   <div className="progress-fill" style={{ width: `${progress}%` }} />
                 </div>
-                <div className="card-bottom">
-                  <span>{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
-                  <span className="muted">{c.companies_found} {t('campaigns.companiesAnalyzedSuffix', locale)}</span>
-                </div>
+                <p className="muted card-bottom-note">{c.companies_found} {t('campaigns.companiesAnalyzedSuffix', locale)}</p>
+
                 {(c.stats?.won > 0 || c.stats?.lost > 0 || c.stats?.active > 0) && (
                   <div className="campaign-outcome">
-                    <span className="outcome-won">🏆 {c.stats.won} {t('campaigns.outcomeWon', locale)}</span>
-                    <span className="outcome-lost">❌ {c.stats.lost} {t('campaigns.outcomeLost', locale)}</span>
-                    <span className="outcome-active muted">🎯 {c.stats.active} {t('campaigns.outcomeActive', locale)}</span>
+                    <div className="outcome-cell">
+                      <span className="outcome-num num-active">{c.stats.active}</span>
+                      <span className="outcome-lbl">{t('campaigns.outcomeActive', locale)}</span>
+                    </div>
+                    <div className="outcome-cell">
+                      <span className="outcome-num num-won">{c.stats.won}</span>
+                      <span className="outcome-lbl">{t('campaigns.outcomeWon', locale)}</span>
+                    </div>
+                    <div className="outcome-cell">
+                      <span className="outcome-num num-lost">{c.stats.lost}</span>
+                      <span className="outcome-lbl">{t('campaigns.outcomeLost', locale)}</span>
+                    </div>
                   </div>
                 )}
 
@@ -469,6 +491,7 @@ export default function CampaignsPage() {
                     </button>
                   </div>
                 )}
+                </div>
               </div>
             );
           })}
@@ -631,16 +654,36 @@ export default function CampaignsPage() {
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 1rem;
         }
+        /* Refonte campagnes (04/09/2026). Une campagne EN COURS porte un
+           liseré dégradé — le dégradé est fait sur le PADDING de 1px du
+           conteneur, pas sur un border-image (qui ne suit pas le
+           border-radius sur Safari). La campagne terminée garde la bordure
+           sobre : c'est de l'archive, ça ne doit pas crier. */
         .card {
-          background: var(--surface);
-          border: 1px solid var(--border);
+          border-radius: calc(var(--radius-lg) + 1px);
+          padding: 1px;
+        }
+        .card-live {
+          background: linear-gradient(135deg, var(--accent), #c93f8c);
+        }
+        .card-done {
+          background: var(--border);
+        }
+        .card-done .card-inner {
+          opacity: 0.78;
+        }
+        .card-inner {
+          background: var(--bg-elevated, var(--surface));
           border-radius: var(--radius-lg);
           padding: 1.2rem;
+          height: 100%;
+          box-sizing: border-box;
         }
         .card-top {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
+          gap: 0.8rem;
           margin-bottom: 1rem;
         }
         .card-top h3 {
@@ -649,28 +692,51 @@ export default function CampaignsPage() {
           font-size: 1.05rem;
         }
         .status-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
           border: 1px solid;
           border-radius: 999px;
           padding: 0.2rem 0.6rem;
           font-size: 0.72rem;
+          font-weight: 600;
           white-space: nowrap;
         }
-        .progress-track {
+        .status-dot {
+          width: 6px;
           height: 6px;
-          background: var(--border);
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .progress-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          font-size: 0.78rem;
+          color: var(--muted);
+          margin-bottom: 0.4rem;
+        }
+        .progress-pct {
+          font-family: var(--font-mono);
+          font-size: 0.78rem;
+          color: var(--text);
+        }
+        .progress-track {
+          height: 9px;
+          background: var(--surface-hover, var(--border));
           border-radius: 999px;
           overflow: hidden;
-          margin-bottom: 0.6rem;
+          margin-bottom: 0.5rem;
         }
         .progress-fill {
           height: 100%;
-          background: var(--accent);
+          background: linear-gradient(90deg, var(--accent), #c93f8c);
           border-radius: 999px;
+          transition: width var(--normal);
         }
-        .card-bottom {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.78rem;
+        .card-bottom-note {
+          margin: 0;
+          font-size: 0.75rem;
         }
         .context-notes {
           font-size: 0.78rem;
@@ -681,20 +747,33 @@ export default function CampaignsPage() {
         .muted {
           color: var(--muted);
         }
+        /* Trois chiffres alignés plutôt qu'une ligne d'emojis : le nombre
+           d'abord, ce qu'il compte en dessous. C'est ce qu'on lit sur un
+           tableau de bord, pas « 🏆 3 clients gagnés ❌ 1 perdu ». */
         .campaign-outcome {
-          display: flex;
-          gap: 0.7rem;
-          flex-wrap: wrap;
-          margin-top: 0.6rem;
-          padding-top: 0.6rem;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.6rem;
+          margin-top: 0.9rem;
+          padding-top: 0.9rem;
           border-top: 1px solid var(--border);
-          font-size: 0.76rem;
         }
-        .outcome-won {
-          color: var(--accent-green);
+        .outcome-cell {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
         }
-        .outcome-lost {
-          color: var(--accent-red);
+        .outcome-num {
+          font-family: var(--font-mono);
+          font-size: 1.25rem;
+          line-height: 1;
+        }
+        .num-active { color: #3d8fe8; }
+        .num-won { color: var(--accent-green); }
+        .num-lost { color: var(--accent-red); }
+        .outcome-lbl {
+          font-size: 0.7rem;
+          color: var(--muted);
         }
         .global-advice-row {
           display: flex;
