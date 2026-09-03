@@ -689,7 +689,6 @@ export default function DashboardPage() {
         <div>
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
           <h1>{t('dash.title', locale)}</h1>
-          <p className="period-note">{t('dash.periodNote', locale)}</p>
         </div>
         <ConnectionStatusBadge />
       </header>
@@ -825,7 +824,13 @@ export default function DashboardPage() {
             <div className="panel">
               <h2>{t('dash.ongoingCampaigns', locale)}</h2>
               {activeCampaigns.length === 0 ? (
-                <EmptyState title={t('dash.emptyNoActiveCampaign', locale)} body={t('dash.emptyLaunchCampaign', locale)} compact />
+                <EmptyState
+                  title={t('dash.emptyNoActiveCampaign', locale)}
+                  body={t('dash.emptyLaunchCampaign', locale)}
+                  compact
+                  ctaHref={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`}
+                  ctaLabel={t('dash.emptyCampaignCta', locale)}
+                />
               ) : (
                 <ul className="list">
                   {activeCampaigns.map((c) => (
@@ -848,38 +853,21 @@ export default function DashboardPage() {
               première position (à gauche de "En bonne voie"), comme avant
               le découpage en bloc séparé du 2026-08-23. */}
           <section className="panel today-panel">
-            <h2>{t('dash.todayResultsTitle', locale)}</h2>
-            <div className="category-row">
-              <div className="stat-card">
-                <span className="dot" style={{ background: PIPELINE_COLORS.prospect }} />
-                <span className="stat-number">{prospectsContactesToday}</span>
-                <span className="stat-label">{t('dash.todayProspects', locale)}</span>
-              </div>
-              <div className="stat-card rdv-obtenu-card">
-                <span className="dot" style={{ background: '#4B9EF0' }} />
-                <span className="stat-number">{rdvObtenus24h.length}</span>
-                <span className="stat-label">{t('dash.todayRdv', locale)}</span>
-                <span className="stat-sublabel">
-                  <span className="rdv-type"><span className="rdv-type-icon">💻</span>{t('agenda.kindVideo', locale)} {rdvObtenusByType.visio}</span>
-                  <span className="rdv-type"><span className="rdv-type-icon">📞</span>{t('agenda.kindPhone', locale)} {rdvObtenusByType.telephonique}</span>
-                  <span className="rdv-type"><span className="rdv-type-icon">🤝</span>{t('agenda.kindInPerson', locale)} {rdvObtenusByType.physique}</span>
-                </span>
-              </div>
-              <div className="stat-card">
-                <span className="dot" style={{ background: '#b07cf5' }} />
-                <span className="stat-number">{propositionsToday}</span>
-                <span className="stat-label">{t('dash.todayPropositions', locale)}</span>
-              </div>
-              <div className="stat-card">
-                <span className="dot" style={{ background: PIPELINE_COLORS.client }} />
-                <span className="stat-number">{clientsGagnesToday}</span>
-                <span className="stat-label">{t('dash.todayClients', locale)}</span>
-              </div>
+            {/* Refonte 04/09/2026 (demande Alex) : les 4 grandes cartes
+                « prospects contactés / RDV obtenus / propositions / clients »
+                ont été supprimées — elles répétaient, en plus gros, ce que les
+                barres colorées disaient déjà juste en dessous. Les barres
+                remontent donc en tête du bloc.
+
+                Sous la barre « RDV obtenu », les 3 types de rendez-vous ont
+                leur propre mini-barre (option 2 proposée par Alex, préférée à
+                l'option 1 qui aurait entassé 3 symboles dans la barre
+                principale : à la largeur d'un téléphone, ça devient illisible). */}
+            <div className="panel-head">
+              <h2>{t('dash.todayResultsTitle', locale)}</h2>
+              <span className="reset-chip">{t('dash.resetDailyNote', locale)}</span>
             </div>
 
-            {/* Entonnoir du pipeline complet (fusion, lib/pipeline.ts) : où en
-                sont TOUS les contacts actifs, avec le taux de passage entre
-                chaque étape. Cliquable → tableau Prospects. */}
             <a className="funnel" href={`/app/prospects?user_id=${userId}`}>
               {funnelSteps.map((step, i) => {
                 const prev = i > 0 ? funnelSteps[i - 1].value : null;
@@ -894,11 +882,41 @@ export default function DashboardPage() {
                     <div className="funnel-bar-track">
                       <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
                     </div>
+                    {step.key === 'rdv' && (
+                      <div className="rdv-split">
+                        {[
+                          { k: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
+                          { k: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
+                          { k: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
+                        ].map((r) => {
+                          const total = rdvObtenusByType.visio + rdvObtenusByType.telephonique + rdvObtenusByType.physique;
+                          const w = total > 0 ? Math.max(6, Math.round((r.value / total) * 100)) : 6;
+                          return (
+                            <div className="rdv-split-row" key={r.k}>
+                              <span className="rdv-split-label">{r.label}</span>
+                              <span className="rdv-split-track">
+                                <span className="rdv-split-bar" style={{ width: `${w}%` }} />
+                              </span>
+                              <span className="rdv-split-value">{r.value}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
               <span className="funnel-hint">{t('dash.funnelHint', locale)} · {pipelineCounts.risk > 0 ? `⚠ ${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()} · ` : ''}{pipelineCounts.lost} {t('pipeline.lostLabel', locale).toLowerCase()}</span>
             </a>
+
+            {/* Les chiffres du jour restent, mais sur une seule ligne discrète
+                au lieu de quatre grosses cartes. */}
+            <div className="today-inline">
+              <span className="today-stat"><b style={{ color: PIPELINE_COLORS.prospect }}>{prospectsContactesToday}</b> {t('dash.todayProspects', locale)}</span>
+              <span className="today-stat"><b style={{ color: '#4B9EF0' }}>{rdvObtenus24h.length}</b> {t('dash.todayRdv', locale)}</span>
+              <span className="today-stat"><b style={{ color: '#b07cf5' }}>{propositionsToday}</b> {t('dash.todayPropositions', locale)}</span>
+              <span className="today-stat"><b style={{ color: PIPELINE_COLORS.client }}>{clientsGagnesToday}</b> {t('dash.todayClients', locale)}</span>
+            </div>
           </section>
         </>
       )}
@@ -1450,6 +1468,57 @@ export default function DashboardPage() {
         .category-panel {
           margin-top: 1.25rem;
         }
+        /* « Entre les blocs campagnes en cours et les résultats du jour il n'y
+           a pas d'espace » (Alex, 04/09/2026) : .grid-two et le bloc suivant
+           étaient collés. */
+        .today-panel {
+          margin-top: 1.25rem;
+        }
+        .panel-head {
+          display: flex;
+          align-items: baseline;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 1rem;
+        }
+        .panel-head h2 { margin: 0; }
+        .reset-chip {
+          font-size: 0.7rem;
+          color: var(--muted);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.15rem 0.55rem;
+          white-space: nowrap;
+        }
+        .rdv-split {
+          display: flex;
+          flex-direction: column;
+          gap: 0.28rem;
+          margin: 0.45rem 0 0.1rem;
+          padding-left: 0.9rem;
+          border-left: 2px solid var(--border);
+        }
+        .rdv-split-row {
+          display: grid;
+          grid-template-columns: 4.6rem 1fr 1.6rem;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .rdv-split-label { font-size: 0.68rem; color: var(--muted); }
+        .rdv-split-track { height: 6px; border-radius: 999px; background: var(--bg); overflow: hidden; }
+        .rdv-split-bar { display: block; height: 100%; border-radius: 999px; background: #4B9EF0; transition: width 0.4s var(--ease); }
+        .rdv-split-value { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text); text-align: right; }
+        .today-inline {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.35rem 1.4rem;
+          margin-top: 1.1rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border);
+          font-size: 0.76rem;
+          color: var(--muted);
+        }
+        .today-stat b { font-family: var(--font-mono); font-size: 0.95rem; margin-right: 0.25rem; }
         .category-row {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -2119,11 +2188,23 @@ function ConnectionStatusBadge() {
   );
 }
 
-function EmptyState({ title, body, compact }) {
+// `ctaHref`/`ctaLabel` (04/09/2026, demande Alex : « s'il n'y en a aucune il
+// faut un + ou quelque chose de plus joli qui donne envie de créer une
+// campagne ») transforment le vide en invitation : un grand bouton rond « + »
+// au lieu d'un simple constat d'absence.
+function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
   return (
     <div className={`empty ${compact ? 'compact' : ''}`}>
+      {ctaHref && (
+        <Link href={ctaHref} className="empty-plus" aria-label={ctaLabel}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </Link>
+      )}
       <p className="empty-title">{title}</p>
       <p className="empty-body">{body}</p>
+      {ctaHref && (
+        <Link href={ctaHref} className="empty-cta">{ctaLabel}</Link>
+      )}
       <style jsx>{`
         .empty {
           text-align: center;
@@ -2137,6 +2218,35 @@ function EmptyState({ title, body, compact }) {
           color: var(--muted);
           font-size: 0.88rem;
           margin: 0;
+        }
+        .empty-plus {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 52px;
+          height: 52px;
+          border-radius: 50%;
+          margin-bottom: 0.85rem;
+          color: var(--accent-light);
+          background: rgba(75, 57, 239, 0.12);
+          border: 1px solid rgba(75, 57, 239, 0.45);
+          transition: transform var(--fast), background var(--fast);
+        }
+        .empty-plus:hover {
+          transform: scale(1.06);
+          background: rgba(75, 57, 239, 0.2);
+        }
+        .empty-cta {
+          display: inline-block;
+          margin-top: 0.9rem;
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          text-decoration: none;
+          font-size: 0.82rem;
+          font-weight: 600;
+          padding: 0.55rem 1.1rem;
+          border-radius: 999px;
+          box-shadow: var(--shadow-glow);
         }
       `}</style>
     </div>
@@ -2210,8 +2320,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
-    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
   ];
