@@ -148,6 +148,16 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
+// Initiales pour la pastille du classement. Deux lettres au maximum : au-delà
+// ça ne tient pas dans un rond de 34 px, et trois initiales ne distinguent pas
+// mieux que deux dans une équipe de commerciaux.
+function initialsOf(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function TeamPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
@@ -634,44 +644,75 @@ export default function TeamPage() {
               })()}
             </section>
           )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('team.colName', locale)}</th>
-                  <th>{t('modal.email', locale)}</th>
-                  <th>{t('team.colRole', locale)}</th>
-                  <th>{t('team.colActiveProspects', locale)}</th>
-                  <th>{t('team.colWonAppointments', locale)}</th>
-                  <th>{t('team.colActiveOpportunities', locale)}</th>
-                  <th>{t('team.colWonClients', locale)}</th>
-                  <th>{t('team.colActiveClients', locale)}</th>
-                  <th>{t('team.colLostClients', locale)}</th>
-                  {credits?.available && <th>{t('team.colCredits', locale)}</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.id}>
-                    <td>
-                      <a href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
-                        {m.full_name}
-                      </a>
-                    </td>
-                    <td className="muted">{m.email}</td>
-                    <td className="muted">{m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}</td>
-                    <td>{m.prospects_actifs}</td>
-                    <td>{m.rdv_gagnes}</td>
-                    <td>{m.opportunites_actives}</td>
-                    <td>{m.clients_gagnes}</td>
-                    <td>{m.clients_actifs}</td>
-                    <td>{m.clients_perdus}</td>
-                    {credits?.available && <td className="muted">{formatEur(m.credits_used_usd || 0)}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* Refonte « Mon équipe » (04/09/2026, demande Alex : « ça manque
+              de vitalité, de modernité, de punch. Et un peu bazar »).
+              Avant : un tableau de 10 colonnes qui défilait horizontalement —
+              on ne voyait jamais un commercial en entier, et surtout on ne
+              voyait pas QUI marche le mieux, alors que c'est la première
+              question qu'on se pose en ouvrant cette page.
+              Maintenant : un CLASSEMENT. Le chiffre qui compte (clients
+              signés) porte la barre ; le détail reste sous chaque ligne. Rien
+              n'est perdu, tout est enfin lisible sur un téléphone. */}
+          <section className="ranking">
+            <div className="ranking-head">
+              <h2>{t('team.rankingTitle', locale)}</h2>
+              <span className="ranking-metric">{t('team.colWonClients', locale)}</span>
+            </div>
+
+            {(() => {
+              const ranked = [...members].sort((a, b) => (b.clients_gagnes || 0) - (a.clients_gagnes || 0));
+              // La barre se lit RELATIVEMENT au meilleur du mois : une échelle
+              // absolue (sur 100) rendrait toutes les barres invisibles en
+              // début de mois.
+              const best = Math.max(1, ...ranked.map((m) => m.clients_gagnes || 0));
+              const MEDALS = ['🥇', '🥈', '🥉'];
+              const AV_COLORS = [
+                'linear-gradient(135deg,#1fae70,#4fd095)',
+                'linear-gradient(135deg,#3d8fe8,#6fb0f0)',
+                'linear-gradient(135deg,#c93f8c,#e06fae)',
+                'linear-gradient(135deg,#4b39ef,#7c6ef5)',
+                'linear-gradient(135deg,#f5a623,#f8c46b)',
+              ];
+              const BAR_COLORS = ['#1fae70', '#3d8fe8', '#c93f8c', '#4b39ef', '#f5a623'];
+              return ranked.map((m, i) => (
+                <div className="rank-row" key={m.id}>
+                  <span className="rank-badge">{MEDALS[i] || i + 1}</span>
+                  <span className="rank-avatar" style={{ background: AV_COLORS[i % AV_COLORS.length] }} aria-hidden="true">
+                    {initialsOf(m.full_name)}
+                  </span>
+                  <div className="rank-body">
+                    <a href={`/app/team/${m.id}?user_id=${userId}`} className="member-link">
+                      {m.full_name}
+                    </a>
+                    <span className="rank-track">
+                      <span
+                        className="rank-fill"
+                        style={{
+                          width: `${Math.max(3, ((m.clients_gagnes || 0) / best) * 100)}%`,
+                          background: BAR_COLORS[i % BAR_COLORS.length],
+                        }}
+                      />
+                    </span>
+                    <span className="rank-detail">
+                      {m.role === 'patron' ? t('team.roleFounder', locale) : t('team.roleSales', locale)}
+                      {' · '}
+                      {m.prospects_actifs} {t('team.shortProspects', locale)}
+                      {' · '}
+                      {m.rdv_gagnes} {t('team.shortRdv', locale)}
+                      {' · '}
+                      {m.opportunites_actives} {t('team.shortOpps', locale)}
+                      {' · '}
+                      {m.clients_actifs} {t('team.shortClients', locale)}
+                      {' · '}
+                      {m.clients_perdus} {t('team.shortLost', locale)}
+                      {credits?.available ? ` · ${formatEur(m.credits_used_usd || 0)}` : ''}
+                    </span>
+                  </div>
+                  <span className="rank-score">{m.clients_gagnes || 0}</span>
+                </div>
+              ));
+            })()}
+          </section>
           </>
         )
       )}
@@ -1332,6 +1373,89 @@ export default function TeamPage() {
         }
         tbody tr:last-child td {
           border-bottom: none;
+        }
+        /* Classement de l'équipe (04/09/2026) — remplace le tableau à 10
+           colonnes de l'onglet Vue d'ensemble. */
+        .ranking {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          padding: 1rem 1.1rem 0.4rem;
+        }
+        .ranking-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 0.8rem;
+          margin-bottom: 0.9rem;
+        }
+        .ranking-head h2 {
+          margin: 0;
+          font-size: 0.9rem;
+          font-weight: 600;
+        }
+        .ranking-metric {
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .rank-row {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 0.7rem 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .rank-row:last-child {
+          border-bottom: 0;
+        }
+        .rank-badge {
+          width: 20px;
+          text-align: center;
+          font-size: 0.9rem;
+          color: var(--muted);
+          flex-shrink: 0;
+        }
+        .rank-avatar {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: #0a0c17;
+          flex-shrink: 0;
+        }
+        .rank-body {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          flex-grow: 1;
+          min-width: 0;
+        }
+        .rank-track {
+          display: block;
+          height: 6px;
+          border-radius: 999px;
+          background: var(--surface-hover, var(--border));
+          overflow: hidden;
+        }
+        .rank-fill {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
+          transition: width var(--normal);
+        }
+        .rank-detail {
+          font-size: 0.7rem;
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .rank-score {
+          font-family: var(--font-mono);
+          font-size: 1.1rem;
+          flex-shrink: 0;
         }
         .member-link {
           color: var(--text);
