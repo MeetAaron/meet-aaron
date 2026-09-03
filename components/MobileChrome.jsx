@@ -20,7 +20,7 @@
 
 import Link from 'next/link';
 import { NavIcon } from '@/components/NavIcon';
-import Stories from '@/components/Stories';
+import ConnectionBadge from '@/components/ConnectionBadge';
 
 // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
 // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
@@ -35,9 +35,13 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
       <header className="mobile-topbar">
         <img src="/icon.png" alt="" className="mobile-topbar-mark" aria-hidden="true" />
         <span className="mobile-topbar-title">{title}</span>
-        {/* Cloche de notifications (stories, docx « mon avis » 31/08/2026). */}
-        <span className="mobile-topbar-bell">
-          <Stories mode="bell" userId={userId} locale={locale} />
+        {/* La cloche a laissé la place à l'état de connexion (demande Alex,
+            04/09/2026). Les notifications sont désormais affichées en haut du
+            contenu de chaque page (bandeau de bulles rendu par le Shell) —
+            la cloche faisait doublon et monopolisait la seule place visible
+            de la barre du haut. Voir components/ConnectionBadge.jsx. */}
+        <span className="mobile-topbar-conn">
+          <ConnectionBadge locale={locale} compact />
         </span>
         <button type="button" className="mobile-topbar-menu" aria-label={menuLabel} onClick={onMenu}>
           <span className="bar" />
