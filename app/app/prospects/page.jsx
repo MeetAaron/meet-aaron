@@ -804,7 +804,7 @@ export default function ProspectsPage() {
         .cat-chip.on.aaron { border-color: var(--accent); color: var(--accent-light); background: rgba(75, 57, 239, 0.14); }
         .cat-ic { font-size: 0.95rem; }
         .cat-count {
-          background: rgba(244, 241, 234, 0.08);
+          background: var(--tint-8);
           color: inherit;
           border-radius: 999px;
           padding: 0.05rem 0.5rem;
@@ -1872,7 +1872,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           --surface: #12162a;
           --surface-hover: #171b34;
           --border: #232744;
-          --border-soft: rgba(244, 241, 234, 0.07);
+          --border-soft: var(--tint-7);
           --accent: #4b39ef;
           --accent-light: #7c6ef5;
           --accent-dark: #3627c0;
@@ -2027,7 +2027,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           width: 32px;
           height: 32px;
           border-radius: 10px;
-          box-shadow: 0 0 0 1px rgba(244, 241, 234, 0.08), 0 4px 14px rgba(75, 57, 239, 0.35);
+          box-shadow: 0 0 0 1px var(--tint-8), 0 4px 14px rgba(75, 57, 239, 0.35);
         }
         .lang-switcher {
           width: 100%;
@@ -2082,7 +2082,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           align-items: center;
           justify-content: center;
           border-radius: var(--radius-sm);
-          background: rgba(244, 241, 234, 0.04);
+          background: var(--tint-4);
           flex-shrink: 0;
           transition: background var(--fast);
         }
