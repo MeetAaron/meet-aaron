@@ -2517,8 +2517,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
-    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+    { label: t('nav.documents', locale), slug: 'documents', icon: '📁' },
     { label: t('nav.connections', locale), slug: 'connexions', icon: '🔗' },
     { label: t('nav.team', locale), slug: 'team', icon: '👥' },
   ];
