@@ -114,6 +114,37 @@ function formatSize(bytes, locale) {
 // rangé en « clients » s'affiche comme « général » dans le sélecteur.
 const CATEGORIES = ['general', 'prospects', 'opportunites'];
 
+// Pastille d'extension (refonte 04/09/2026 : « je trouve le tableau fade,
+// propose-moi un visuel plus moderne »). L'extension est le premier repère
+// dans une liste de fichiers — on la sort du nom pour la donner en couleur.
+// Les familles sont volontairement grossières : ce qui compte est de
+// distinguer « document », « tableur », « image », pas de refaire la liste
+// des types MIME.
+const EXT_KINDS = {
+  pdf: 'pdf',
+  doc: 'doc', docx: 'doc', odt: 'doc', rtf: 'doc', txt: 'doc', md: 'doc',
+  xls: 'sheet', xlsx: 'sheet', ods: 'sheet', csv: 'sheet',
+  ppt: 'slide', pptx: 'slide', odp: 'slide',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', heic: 'image',
+  zip: 'archive', rar: 'archive', '7z': 'archive',
+};
+
+function fileExtRaw(fileName) {
+  const parts = String(fileName || '').split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
+}
+
+function fileExtKind(fileName) {
+  return EXT_KINDS[fileExtRaw(fileName)] || 'other';
+}
+
+function fileExtLabel(fileName) {
+  const ext = fileExtRaw(fileName);
+  // Au-delà de 4 caractères la pastille déborde : on garde les 4 premiers,
+  // et le nom complet reste juste à côté de toute façon.
+  return ext ? ext.slice(0, 4).toUpperCase() : '—';
+}
+
 function categoryLabelsFor(locale) {
   return {
     general: t('documents.categoryGeneral', locale),
@@ -157,6 +188,11 @@ export default function DocumentsPage() {
   const [descriptionModalDoc, setDescriptionModalDoc] = useState(null);
   const DESCRIPTION_TRUNCATE_LENGTH = 110;
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Filtre par catégorie (04/09/2026). Sur un tableau à 9 colonnes on
+  // « voyait » la catégorie sans pouvoir s'en servir ; en fiches, la
+  // catégorie devient la façon naturelle de ranger la liste. Le compteur sur
+  // chaque puce évite d'ouvrir un filtre vide.
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [deletingId, setDeletingId] = useState(null);
   // docx "MES DOCUMENTS" item 26 : note libre du commercial/fondateur par
   // document, distincte du toggle "pris en compte par Aaron" et de la
@@ -344,6 +380,15 @@ export default function DocumentsPage() {
     );
   }
 
+  const docCategoryOf = (d) => (d.linked_category === 'clients' ? 'clients' : d.linked_category || 'general');
+  const categoryCounts = documents.reduce((acc, d) => {
+    const key = docCategoryOf(d);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const visibleDocuments =
+    categoryFilter === 'all' ? documents : documents.filter((d) => docCategoryOf(d) === categoryFilter);
+
   return (
     <Shell active={t('nav.documents', locale)} userId={userId}>
       <header className="header">
@@ -387,139 +432,135 @@ export default function DocumentsPage() {
       ) : documents.length === 0 ? (
         <EmptyState title={t('documents.emptyTitle', locale)} body={t('documents.emptyBody', locale)} />
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{t('documents.colFile', locale)}</th>
-                <th>{t('documents.colDescription', locale)}</th>
-                <th>{t('documents.colSummary', locale)}</th>
-                <th>{t('documents.colCategory', locale)}</th>
-                <th>{t('documents.colManagedByAaron', locale)}</th>
-                <th>{t('documents.colAaron', locale)}</th>
-                <th>{t('documents.colSize', locale)}</th>
-                <th>{t('documents.colAddedAt', locale)}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((d) => (
-                <tr key={d.id}>
-                  <td className="strong">{d.file_name}</td>
-                  <td className="muted summary-cell">
-                    {d.description ? (
-                      d.description.length <= DESCRIPTION_TRUNCATE_LENGTH ? (
-                        d.description
-                      ) : (
-                        <>
-                          {`${d.description.slice(0, DESCRIPTION_TRUNCATE_LENGTH).trimEnd()}…`}
-                          {' '}
-                          <button type="button" className="link-btn" onClick={() => setDescriptionModalDoc(d)}>
-                            {t('common.seeMore', locale)}
-                          </button>
-                        </>
-                      )
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="muted summary-cell">
-                    {d.summary ? (
-                      d.summary.length <= SUMMARY_TRUNCATE_LENGTH ? (
-                        d.summary
-                      ) : (
-                        <>
-                          {`${d.summary.slice(0, SUMMARY_TRUNCATE_LENGTH).trimEnd()}…`}
-                          {' '}
-                          <button type="button" className="link-btn" onClick={() => setSummaryModalDoc(d)}>
-                            {t('common.seeMore', locale)}
-                          </button>
-                        </>
-                      )
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <select
-                      className="category-select-inline"
-                      value={d.linked_category === 'clients' ? 'general' : d.linked_category || 'general'}
-                      disabled={categoryUpdatingId === d.id}
-                      onChange={(e) => handleCategoryChange(d, e.target.value)}
-                    >
-                      {CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
-                      ))}
-                    </select>
-                  </td>
-                  {/* Colonne « Géré par Aaron » (demande Alex, 01/09/2026) :
-                      dit qui a rangé le document. Aaron classe tout seul à
-                      l'upload ; dès que le commercial corrige la catégorie
-                      ci-contre, la ligne repasse en « Toi » et Aaron n'y
-                      touche plus. */}
-                  <td>
-                    {d.category_auto ? (
-                      <span className="managed-badge auto" title={t('documents.managedByAaronHint', locale)}>
-                        🤖 {t('documents.managedByAaron', locale)}
-                      </span>
-                    ) : (
-                      <span className="managed-badge manual" title={t('documents.managedByYouHint', locale)}>
-                        {t('documents.managedByYou', locale)}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className={`aaron-toggle${d.included_in_aaron_context ? ' on' : ' off'}`}
-                      disabled={togglingId === d.id}
-                      onClick={() => handleToggleAaronContext(d)}
-                    >
-                      {d.included_in_aaron_context ? `✅ ${t('documents.aaronContextOn', locale)}` : `🚫 ${t('documents.aaronContextOff', locale)}`}
-                    </button>
-                  </td>
-                  <td className="muted">{formatSize(d.file_size_bytes, locale)}</td>
-                  <td className="muted">{new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}</td>
-                  <td>
-                    <div className="row-actions">
-                      {/* Demande Alex (26/08/2026, capture à l'appui) : les 4 actions
-                          n'étaient que du texte, peu lisible/esthétique en colonne
-                          étroite — ajout d'une icône devant chaque libellé, même
-                          principe que le bouton aaron-toggle juste au-dessus (✅/🚫). */}
-                      {d.download_url && (
-                        <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
-                          📥 {t('documents.download', locale)}
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        className="link-btn"
-                        disabled={generatingAdviceId === d.id}
-                        onClick={() => (d.advice ? setAdviceModalDoc(d) : handleGenerateAdvice(d))}
-                      >
-                        💬 {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
-                      </button>
-                      <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
-                        📝 {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
-                      </button>
-                      <button
-                        type="button"
-                        className={`link-btn${d.attach_to_first_email ? ' attachment-on' : ''}`}
-                        disabled={togglingAttachmentId === d.id}
-                        onClick={() => handleToggleFirstEmailAttachment(d)}
-                      >
-                        📎 {d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
-                      </button>
-                      <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
-                        🗑️ {t('documents.deleteButton', locale)}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <>
+        <div className="doc-filters">
+          <button
+            type="button"
+            className={categoryFilter === 'all' ? 'doc-filter active' : 'doc-filter'}
+            onClick={() => setCategoryFilter('all')}
+          >
+            {t('documents.filterAll', locale)} · {documents.length}
+          </button>
+          {['general', 'prospects', 'opportunites', 'clients']
+            .filter((cat) => categoryCounts[cat])
+            .map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={categoryFilter === cat ? 'doc-filter active' : 'doc-filter'}
+                onClick={() => setCategoryFilter(cat)}
+              >
+                {categoryLabelsFor(locale)[cat]} · {categoryCounts[cat]}
+              </button>
+            ))}
         </div>
+
+        <div className="doc-list">
+          {visibleDocuments.map((d) => (
+            <article className="doc-card" key={d.id}>
+              {/* Pastille d'extension : c'est le repère qu'on cherche en
+                  premier dans une liste de fichiers. Un PDF ne se lit pas
+                  comme un tableur, et la couleur le dit avant le nom. */}
+              <span className={`doc-ext ext-${fileExtKind(d.file_name)}`} aria-hidden="true">
+                {fileExtLabel(d.file_name)}
+              </span>
+
+              <div className="doc-body">
+                <h3 className="doc-name">{d.file_name}</h3>
+
+                {(d.summary || d.description) && (
+                  <p className="doc-sum">
+                    {(() => {
+                      const text = d.summary || d.description;
+                      const limit = d.summary ? SUMMARY_TRUNCATE_LENGTH : DESCRIPTION_TRUNCATE_LENGTH;
+                      const openModal = () => (d.summary ? setSummaryModalDoc(d) : setDescriptionModalDoc(d));
+                      if (text.length <= limit) return text;
+                      return (
+                        <>
+                          {`${text.slice(0, limit).trimEnd()}…`}{' '}
+                          <button type="button" className="link-btn" onClick={openModal}>
+                            {t('common.seeMore', locale)}
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </p>
+                )}
+
+                {/* Les étiquettes disent l'ESSENTIEL en un coup d'œil : à quoi
+                    sert le document, s'il part en pièce jointe, et si Aaron a
+                    le droit de s'en servir. C'étaient trois colonnes ; ce sont
+                    trois pastilles. */}
+                <div className="doc-tags">
+                  <span className="doc-tag cat">{categoryLabelsFor(locale)[d.linked_category === 'clients' ? 'clients' : d.linked_category || 'general']}</span>
+                  {d.attach_to_first_email && (
+                    <span className="doc-tag attach">📎 {t('documents.firstEmailAttachmentOn', locale)}</span>
+                  )}
+                  {!d.included_in_aaron_context && (
+                    <span className="doc-tag off">🚫 {t('documents.aaronContextOff', locale)}</span>
+                  )}
+                  <span className={`doc-tag ${d.category_auto ? 'auto' : 'manual'}`} title={d.category_auto ? t('documents.managedByAaronHint', locale) : t('documents.managedByYouHint', locale)}>
+                    {d.category_auto ? `🤖 ${t('documents.managedByAaron', locale)}` : t('documents.managedByYou', locale)}
+                  </span>
+                </div>
+
+                <p className="doc-meta">
+                  {formatSize(d.file_size_bytes, locale)} · {new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}
+                </p>
+
+                <div className="doc-actions">
+                  {d.download_url && (
+                    <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
+                      📥 {t('documents.download', locale)}
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    disabled={generatingAdviceId === d.id}
+                    onClick={() => (d.advice ? setAdviceModalDoc(d) : handleGenerateAdvice(d))}
+                  >
+                    💬 {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
+                  </button>
+                  <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
+                    📝 {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`link-btn${d.attach_to_first_email ? ' attachment-on' : ''}`}
+                    disabled={togglingAttachmentId === d.id}
+                    onClick={() => handleToggleFirstEmailAttachment(d)}
+                  >
+                    📎 {d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`link-btn${d.included_in_aaron_context ? '' : ' danger'}`}
+                    disabled={togglingId === d.id}
+                    onClick={() => handleToggleAaronContext(d)}
+                  >
+                    {d.included_in_aaron_context ? `✅ ${t('documents.aaronContextOn', locale)}` : `🚫 ${t('documents.aaronContextOff', locale)}`}
+                  </button>
+                  <select
+                    className="category-select-inline"
+                    value={d.linked_category === 'clients' ? 'general' : d.linked_category || 'general'}
+                    disabled={categoryUpdatingId === d.id}
+                    onChange={(e) => handleCategoryChange(d, e.target.value)}
+                    aria-label={t('documents.colCategory', locale)}
+                  >
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
+                    🗑️ {t('documents.deleteButton', locale)}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+        </>
       )}
 
       {summaryModalDoc && (
@@ -676,34 +717,161 @@ export default function DocumentsPage() {
           font-size: 0.82rem;
           margin-bottom: 1rem;
         }
-        .table-wrap {
+        /* Refonte « Mes documents » (04/09/2026, demande Alex : « je trouve
+           le tableau fade, propose-moi un visuel plus moderne »).
+           Le tableau à 9 colonnes ne tenait sur aucun écran : il défilait
+           horizontalement, donc la moitié des informations — dont les
+           actions — étaient hors champ. Chaque document devient une FICHE :
+           on y voit ce que contient le document, pas la structure du
+           tableau. Aucune fonction n'est perdue, elles descendent juste dans
+           la fiche. */
+        .doc-filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+          margin: 1.5rem 0 1rem;
+        }
+        .doc-filter {
+          background: none;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          color: var(--muted);
+          font-family: inherit;
+          font-size: 0.78rem;
+          font-weight: 500;
+          padding: 0.35rem 0.85rem;
+          cursor: pointer;
+          transition: color var(--fast), border-color var(--fast), background var(--fast);
+        }
+        .doc-filter:hover {
+          color: var(--text);
+        }
+        .doc-filter.active {
+          background: rgba(75, 57, 239, 0.16);
+          border-color: rgba(75, 57, 239, 0.55);
+          color: var(--accent-light);
+          font-weight: 600;
+        }
+        .doc-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.8rem;
+        }
+        .doc-card {
+          display: flex;
+          gap: 0.9rem;
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          margin-top: 1.5rem;
+          padding: 1rem;
+          transition: border-color var(--fast), transform var(--fast);
         }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.86rem;
+        .doc-card:hover {
+          border-color: var(--accent);
+          transform: translateY(-1px);
         }
-        thead th {
-          text-align: left;
-          padding: 0.9rem 1.1rem;
-          font-size: 0.72rem;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
+        /* Pastille d'extension dessinée comme un coin de page corné : c'est
+           ce qui la fait lire comme « un fichier » et pas comme une étiquette
+           de plus. */
+        .doc-ext {
+          position: relative;
+          width: 42px;
+          height: 52px;
+          flex-shrink: 0;
+          border-radius: 7px;
+          display: flex;
+          align-items: flex-end;
+          justify-content: center;
+          padding-bottom: 6px;
+          box-sizing: border-box;
+          font-family: var(--font-mono);
+          font-size: 0.62rem;
+          font-weight: 500;
+          color: #fff;
+        }
+        .doc-ext::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          right: 0;
+          border-width: 0 11px 11px 0;
+          border-style: solid;
+          border-color: rgba(0, 0, 0, 0.28) transparent;
+          border-top-right-radius: 7px;
+        }
+        .ext-pdf { background: linear-gradient(160deg, #ef4459, #b3283a); }
+        .ext-doc { background: linear-gradient(160deg, #3d8fe8, #2c6fb5); }
+        .ext-sheet { background: linear-gradient(160deg, #1fae70, #128052); }
+        .ext-slide { background: linear-gradient(160deg, #f5a623, #c07b12); }
+        .ext-image { background: linear-gradient(160deg, #c93f8c, #93275f); }
+        .ext-archive { background: linear-gradient(160deg, #8b90a8, #5d6178); }
+        .ext-other { background: linear-gradient(160deg, #4b39ef, #3627c0); }
+        .doc-body {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+          flex-grow: 1;
+          min-width: 0;
+        }
+        .doc-name {
+          margin: 0;
+          font-size: 0.92rem;
+          font-weight: 600;
+          line-height: 1.3;
+          word-break: break-word;
+        }
+        .doc-sum {
+          margin: 0;
+          font-size: 0.8rem;
+          line-height: 1.45;
           color: var(--muted);
-          border-bottom: 1px solid var(--border);
         }
-        tbody td {
-          padding: 0.9rem 1.1rem;
-          border-bottom: 1px solid var(--border);
+        .doc-tags {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.4rem;
         }
-        tbody tr:last-child td {
-          border-bottom: none;
+        .doc-tag {
+          font-size: 0.68rem;
+          font-weight: 600;
+          border-radius: 999px;
+          padding: 0.12rem 0.5rem;
+          white-space: nowrap;
+          border: 1px solid var(--border);
+          color: var(--muted);
+        }
+        .doc-tag.cat {
+          background: rgba(75, 57, 239, 0.14);
+          border-color: rgba(75, 57, 239, 0.45);
+          color: var(--accent-light);
+        }
+        .doc-tag.attach {
+          background: rgba(61, 214, 140, 0.12);
+          border-color: rgba(61, 214, 140, 0.45);
+          color: var(--accent-green);
+        }
+        .doc-tag.off {
+          background: var(--tint-6);
+        }
+        .doc-tag.auto {
+          border-color: rgba(75, 57, 239, 0.45);
+          color: var(--accent-light);
+        }
+        .doc-meta {
+          margin: 0;
+          font-family: var(--font-mono);
+          font-size: 0.7rem;
+          color: var(--muted-soft, var(--muted));
+        }
+        .doc-actions {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.75rem;
+          margin-top: 0.25rem;
+          padding-top: 0.65rem;
+          border-top: 1px solid var(--border);
         }
         .strong {
           font-weight: 600;
@@ -711,10 +879,24 @@ export default function DocumentsPage() {
         .muted {
           color: var(--muted);
         }
-        .summary-cell {
-          max-width: 280px;
-          font-size: 0.8rem;
-          line-height: 1.4;
+        .category-select {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.6rem;
+          color: var(--text);
+          font-size: 0.82rem;
+          font-family: inherit;
+        }
+        .category-select-inline {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.25rem 0.4rem;
+          color: var(--text);
+          font-size: 0.76rem;
+          font-family: inherit;
+          max-width: 150px;
         }
         .link {
           color: var(--accent);
@@ -730,65 +912,6 @@ export default function DocumentsPage() {
           color: var(--text);
           font-size: 0.82rem;
           font-family: inherit;
-        }
-        .managed-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.25rem;
-          border-radius: 999px;
-          padding: 0.18rem 0.6rem;
-          font-size: 0.74rem;
-          white-space: nowrap;
-          border: 1px solid var(--border);
-        }
-        .managed-badge.auto {
-          border-color: var(--accent);
-          color: var(--accent-light);
-          background: rgba(75, 57, 239, 0.12);
-        }
-        .managed-badge.manual { color: var(--muted); }
-        .category-select-inline {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.3rem 0.4rem;
-          color: var(--text);
-          font-size: 0.78rem;
-          font-family: inherit;
-          max-width: 130px;
-        }
-        .aaron-toggle {
-          border-radius: 999px;
-          padding: 0.35rem 0.7rem;
-          font-size: 0.76rem;
-          font-weight: 500;
-          cursor: pointer;
-          white-space: nowrap;
-          border: 1px solid var(--border);
-          background: var(--bg);
-        }
-        .aaron-toggle.on {
-          color: var(--accent-green);
-          border-color: rgba(61, 214, 140, 0.4);
-        }
-        .aaron-toggle.off {
-          color: var(--muted);
-        }
-        .aaron-toggle:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .row-actions {
-          /* Retour Alex (27/08/2026) : les 5 actions passaient à la ligne
-             (une par ligne, "c'est moche") faute de place dans la colonne —
-             le tableau parent défile déjà horizontalement (overflow-x: auto
-             ci-dessus), donc on force tout sur une seule ligne plutôt que de
-             laisser le flex-wrap empiler les actions verticalement. */
-          display: flex;
-          align-items: center;
-          gap: 0.7rem;
-          flex-wrap: nowrap;
-          white-space: nowrap;
         }
         .link-btn {
           background: none;
