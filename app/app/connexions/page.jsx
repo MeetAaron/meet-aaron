@@ -1692,20 +1692,41 @@ export default function ConnexionsPage() {
                 <p className="profile-empty-text">{t('preferences.businessProfilePlaceholder', locale)}</p>
               )}
 
-              <div className="actions">
-                <button type="button" className="btn-secondary" onClick={() => setSummaryExpanded(true)}>
-                  {t('preferences.viewFullProfileButton', locale)}
-                </button>
-                <BusinessProfileDownloadButton locale={locale} onExport={handleExportSummary} exportingFormat={exportingFormat} />
-                <button type="button" className="btn-secondary" onClick={() => setShareOpen((v) => !v)} disabled={!businessSummary}>
-                  {t('preferences.shareProfileButton', locale)}
-                </button>
-                {/* Élément <a> natif et non <Link> : styled-jsx ne scope que
-                    les éléments natifs (voir dashboard, correctif 31/08). */}
-                <a href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
-                  {t('preferences.retakeQuestionnaireButton', locale)}
-                </a>
-              </div>
+              {/* Hiérarchie des actions revue (Alex, 03/09/2026 : « les
+                  boutons sont un peu incompréhensibles »). Deux problèmes :
+                  les quatre actions avaient le même poids visuel, et « Voir le
+                  profil complet » / « Télécharger » restaient cliquables même
+                  SANS profil — donc ouvraient du vide ou renvoyaient une
+                  erreur, ce qui donnait l'impression que l'app était cassée.
+                  Désormais : sans profil, la seule action proposée est celle
+                  qui en crée un, en bouton principal ; les trois autres
+                  n'apparaissent que lorsqu'il y a réellement quelque chose à
+                  lire, télécharger ou envoyer. */}
+              {!businessSummary ? (
+                <>
+                  <p className="profile-actions-hint">{t('preferences.profileActionsHint', locale)}</p>
+                  <div className="actions">
+                    {/* <a> natif et non <Link> : styled-jsx ne scope que les
+                        éléments natifs (voir dashboard, correctif 31/08). */}
+                    <a href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-primary link-btn">
+                      {t('preferences.startQuestionnaireButton', locale)}
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <div className="actions">
+                  <button type="button" className="btn-primary" onClick={() => setSummaryExpanded(true)}>
+                    {t('preferences.viewFullProfileButton', locale)}
+                  </button>
+                  <BusinessProfileDownloadButton locale={locale} onExport={handleExportSummary} exportingFormat={exportingFormat} />
+                  <button type="button" className="btn-secondary" onClick={() => setShareOpen((v) => !v)}>
+                    {t('preferences.shareProfileButton', locale)}
+                  </button>
+                  <a href={`/app/chat?user_id=${userId}&restart_questionnaire=1`} className="btn-secondary link-btn">
+                    {t('preferences.retakeQuestionnaireButton', locale)}
+                  </a>
+                </div>
+              )}
 
               {/* Item 6 (docx 30/08) : partager le profil en PDF par email —
                   le fondateur tape simplement l'adresse, Aaron envoie depuis
@@ -3567,6 +3588,12 @@ export default function ConnexionsPage() {
         }
         .offer-card > button {
           margin-top: 0.4rem;
+        }
+        .profile-actions-hint {
+          font-size: 0.82rem;
+          line-height: 1.55;
+          color: var(--muted);
+          margin: 0.8rem 0 0.9rem;
         }
         .credits-field {
           margin-top: 1rem;
