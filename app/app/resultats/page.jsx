@@ -361,22 +361,11 @@ function BilanRow({ label, type, onTypeChange, rows, locale }) {
           />
         </div>
       )}
-      <div className="bilan-buckets">
-        {rows.length === 0 ? (
-          <span className="muted bilan-empty">—</span>
-        ) : (
-          [...rows].reverse().map(({ bucket, value }) => (
-            <div className="bilan-bucket" key={bucket.key}>
-              <span className="bilan-value">{value}</span>
-              <span className="bilan-date">
-                {type === 'month'
-                  ? bucket.start.toLocaleDateString(locale, { month: 'short' })
-                  : bucket.start.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
+      {/* La liste des mêmes chiffres en dessous du graphique a été retirée
+          le 04/09/2026 (« trop de tableaux ») : elle répétait exactement ce
+          que le graphique montre déjà, en moins lisible. Il ne reste que le
+          cas vide, où il n'y a pas de graphique à montrer. */}
+      {rows.length === 0 && <span className="muted bilan-empty">—</span>}
       <style jsx>{`
         .bilan-row {
           margin-top: 1.2rem;
@@ -790,31 +779,96 @@ export default function ResultatsPage() {
               <h2>{t('results.progressTitle', locale)}</h2>
             </div>
             <p className="category-hint">{t('results.progressHint', locale)}</p>
-            <div className="progress-row">
-              {PIPELINE_STAGES.map((stage) => (
-                <a
-                  className="progress-card"
-                  key={stage.key}
-                  href={`/app/prospects?stage=${stage.key}`}
-                  title={t(stage.hintKey, locale)}
-                >
-                  {/* Même traitement que la ligne de progression de Contacts
-                      (01/09/2026) : pastille creuse, pleine seulement si des
-                      contacts sont à cette étape. */}
-                  <span
-                    className="progress-icon"
-                    style={
-                      (pipelineCounts.byStage[stage.key] || 0) > 0
-                        ? { background: PIPELINE_COLORS[stage.category], borderColor: PIPELINE_COLORS[stage.category] }
-                        : undefined
-                    }
-                    aria-hidden="true"
-                  />
-                  <span className="stat-number">{pipelineCounts.byStage[stage.key] || 0}</span>
-                  <span className="stat-label">{t(stage.labelKey, locale)}</span>
-                </a>
+            {/* Barres VERTICALES (demande Alex, 04/09/2026 : « ta ligne de
+                progression — je pensais voir des barres verticales sympa »).
+                Six cartes portant chacune un chiffre ne se comparaient pas :
+                il fallait lire les six et faire la soustraction de tête. Une
+                hauteur, elle, se compare sans lire. La couleur reprend les
+                trois familles du pipeline (prospect / opportunité / client),
+                donc on voit aussi OÙ ça se resserre.
+                Fait en CSS et non en SVG : les hauteurs sont des
+                pourcentages, la rangée se réadapte donc seule sur un
+                téléphone, ce qu'un viewBox figé ne fait pas. */}
+            <div className="vbars-legend">
+              {[
+                { cat: 'prospect', label: t('pipeline.cat.prospects', locale) },
+                { cat: 'opportunite', label: t('pipeline.cat.opportunities', locale) },
+                { cat: 'client', label: t('pipeline.cat.clients', locale) },
+              ].map((l) => (
+                <span className="vbars-legend-item" key={l.cat}>
+                  <span className="vbars-legend-dot" style={{ background: PIPELINE_COLORS[l.cat] }} />
+                  {l.label}
+                </span>
               ))}
             </div>
+            <div className="vbars">
+              {(() => {
+                const max = Math.max(1, ...PIPELINE_STAGES.map((st) => pipelineCounts.byStage[st.key] || 0));
+                return PIPELINE_STAGES.map((stage) => {
+                  const value = pipelineCounts.byStage[stage.key] || 0;
+                  // 4 % de hauteur minimale : une étape vide doit rester
+                  // visible comme une étape, pas disparaître.
+                  const height = Math.max(4, (value / max) * 100);
+                  return (
+                    <a
+                      className="vbar-col"
+                      key={stage.key}
+                      href={`/app/prospects?stage=${stage.key}`}
+                      title={t(stage.hintKey, locale)}
+                    >
+                      <span className="vbar-track">
+                        {/* Le chiffre est posé JUSTE au-dessus de sa barre,
+                            pas sur une ligne commune en haut : sinon, sur une
+                            petite barre, le nombre flotte à 10 cm de ce qu'il
+                            mesure et on ne sait plus lequel va avec lequel. */}
+                        <span className="vbar-value" style={{ bottom: `calc(${height}% + 6px)` }}>{value}</span>
+                        <span
+                          className="vbar"
+                          style={{
+                            height: `${height}%`,
+                            background: PIPELINE_COLORS[stage.category],
+                            opacity: value > 0 ? 1 : 0.28,
+                          }}
+                        />
+                      </span>
+                      <span className="vbar-label">{t(stage.labelKey, locale)}</span>
+                    </a>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Taux de passage d'une étape à la suivante : c'est ce qui dit
+                OÙ ça bloque, la seule chose qu'on ne peut pas lire sur les
+                barres elles-mêmes. */}
+            {(() => {
+              const values = PIPELINE_STAGES.map((st) => pipelineCounts.byStage[st.key] || 0);
+              // Un contact à l'étape 4 est passé par l'étape 3 : on compare
+              // donc des cumuls décroissants, pas les effectifs instantanés,
+              // sinon un taux dépasserait 100 % dès qu'une étape se vide.
+              const cumulative = values.map((_, i) => values.slice(i).reduce((a, b) => a + b, 0));
+              const rates = cumulative.slice(1).map((v, i) => (cumulative[i] > 0 ? Math.round((v / cumulative[i]) * 100) : null));
+              if (rates.every((r) => r === null)) return null;
+              const worst = rates.reduce((acc, r, i) => (r !== null && (acc === null || r < rates[acc]) ? i : acc), null);
+              return (
+                <div className="rates-row">
+                  <span className="rates-title">{t('results.passRateTitle', locale)}</span>
+                  {rates.map((r, i) => (
+                    <span key={i} className="rates-item">
+                      <span className={`rate-chip${worst === i ? ' weak' : ''}`}>{r === null ? '—' : `${r} %`}</span>
+                      {i < rates.length - 1 && <span className="rate-arrow" aria-hidden="true">→</span>}
+                    </span>
+                  ))}
+                  {worst !== null && (
+                    <span className="rates-note">
+                      {t('results.passRateWeak', locale)
+                        .replace('{from}', t(PIPELINE_STAGES[worst].labelKey, locale))
+                        .replace('{to}', t(PIPELINE_STAGES[worst + 1].labelKey, locale))}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {/* Valeur du portefeuille — la question que se pose vraiment un
                 commercial devant une page « Résultats ». Affichée dans la
                 même section que la ligne de progression parce qu'elle en est
@@ -1043,22 +1097,42 @@ export default function ResultatsPage() {
                 </button>
               ))}
             </div>
+            {/* Refonte 04/09/2026 (« il faut mes rapports jour/semaine/mois,
+                et montre-moi le visuel de ce qu'il y aura dans chacun »).
+                Avant : une ligne par période, avec le contenu écrit en une
+                phrase minuscule et deux boutons de téléchargement. On ne
+                savait pas ce qu'on téléchargeait avant de l'avoir ouvert.
+                Maintenant : une FICHE par période, qui montre les quatre
+                chiffres du rapport. Le rapport se lit ici ; le PDF et l'Excel
+                ne servent plus qu'à l'envoyer à quelqu'un d'autre. */}
             {activeReportRows.length === 0 ? (
               <p className="report-empty">{t('results.reportHistoryEmpty', locale)}</p>
             ) : (
-            <div className="report-list">
+            <div className="report-cards">
               {reportRows.map(({ bucket, summary }) => (
-                <div className="report-row" key={bucket.key}>
-                  <div className="report-row-main">
-                    <span className="report-row-title">{reportLabel(reportTab, bucket, locale)}</span>
-                    <span className="report-row-hint">
-                      {summary.prospectsContactes} {t('results.reportMetricProspects', locale).toLowerCase()} ·{' '}
-                      {summary.rdvObtenus} {t('results.reportMetricRdv', locale).toLowerCase()} ·{' '}
-                      {summary.opportunitesGagnees} {t('results.reportMetricOpportunitesGagnees', locale).toLowerCase()} ·{' '}
-                      {summary.clientsGagnes} {t('results.reportMetricClientsGagnes', locale).toLowerCase()}
-                    </span>
-                  </div>
-                  <div className="report-row-actions">
+                <article className="report-card" key={bucket.key}>
+                  <header className="report-card-head">
+                    <span className="report-card-title">{reportLabel(reportTab, bucket, locale)}</span>
+                  </header>
+                  <dl className="report-card-figures">
+                    <div>
+                      <dt>{t('results.reportMetricProspects', locale)}</dt>
+                      <dd>{summary.prospectsContactes}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('results.reportMetricRdv', locale)}</dt>
+                      <dd>{summary.rdvObtenus}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('results.reportMetricOpportunitesGagnees', locale)}</dt>
+                      <dd>{summary.opportunitesGagnees}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('results.reportMetricClientsGagnes', locale)}</dt>
+                      <dd>{summary.clientsGagnes}</dd>
+                    </div>
+                  </dl>
+                  <div className="report-card-actions">
                     <button
                       type="button"
                       className="report-btn"
@@ -1076,7 +1150,7 @@ export default function ResultatsPage() {
                       {t('results.reportDownloadCsv', locale)}
                     </button>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
             )}
@@ -1269,6 +1343,183 @@ export default function ResultatsPage() {
           display: grid;
           grid-template-columns: repeat(6, minmax(0, 1fr));
           gap: 0.6rem;
+        }
+        /* Barres verticales de « Ta ligne de progression » (04/09/2026). */
+        .vbars-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.9rem;
+          margin-bottom: 0.9rem;
+          font-size: 0.7rem;
+          color: var(--muted);
+        }
+        .vbars-legend-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .vbars-legend-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 2px;
+        }
+        .vbars {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 0.5rem;
+          align-items: end;
+        }
+        .vbar-col {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.4rem;
+          text-decoration: none;
+          color: inherit;
+        }
+        .vbar-value {
+          position: absolute;
+          left: 0;
+          right: 0;
+          text-align: center;
+          font-family: var(--font-mono);
+          font-size: 0.95rem;
+        }
+        .vbar-track {
+          /* Hauteur fixe : c'est elle qui donne l'échelle commune aux six
+             barres. Sans elle, chaque colonne prendrait la hauteur de son
+             propre contenu et il n'y aurait plus rien à comparer.
+             La marge du haut laisse la place au chiffre de la plus grande
+             barre, qui déborde du cadre de 100 %. */
+          position: relative;
+          height: 150px;
+          width: 100%;
+          margin-top: 1.5rem;
+          display: flex;
+          align-items: flex-end;
+          justify-content: center;
+        }
+        .vbar {
+          display: block;
+          width: 100%;
+          max-width: 72px;
+          border-radius: 6px 6px 2px 2px;
+          transition: height var(--normal, 0.25s ease);
+        }
+        .vbar-col:hover .vbar {
+          filter: brightness(1.15);
+        }
+        .vbar-label {
+          font-size: 0.68rem;
+          color: var(--muted);
+          text-align: center;
+          line-height: 1.25;
+        }
+        .rates-row {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.35rem;
+          margin-top: 1rem;
+          padding-top: 0.9rem;
+          border-top: 1px solid var(--border);
+        }
+        .rates-title {
+          font-size: 0.7rem;
+          color: var(--muted);
+          margin-right: 0.3rem;
+        }
+        .rates-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .rate-chip {
+          font-family: var(--font-mono);
+          font-size: 0.72rem;
+          background: var(--surface-hover, var(--surface));
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 0.15rem 0.45rem;
+        }
+        /* Le maillon faible est mis en évidence : c'est la seule information
+           de cette ligne sur laquelle on peut agir. */
+        .rate-chip.weak {
+          color: var(--accent-amber);
+          border-color: rgba(245, 166, 35, 0.45);
+          background: rgba(245, 166, 35, 0.12);
+        }
+        .rate-arrow {
+          color: var(--muted);
+          opacity: 0.6;
+          font-size: 0.7rem;
+        }
+        .rates-note {
+          font-size: 0.7rem;
+          color: var(--muted);
+          margin-left: 0.3rem;
+        }
+        @media (max-width: 620px) {
+          .vbar-track {
+            height: 110px;
+          }
+          .vbar-label {
+            font-size: 0.6rem;
+          }
+        }
+        /* Rapports en fiches (04/09/2026). */
+        .report-cards {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 0.75rem;
+        }
+        .report-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.7rem;
+        }
+        .report-card-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.5rem;
+        }
+        .report-card-title {
+          font-size: 0.84rem;
+          font-weight: 600;
+        }
+        .report-card-figures {
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+          margin: 0;
+        }
+        .report-card-figures > div {
+          display: flex;
+          align-items: baseline;
+          gap: 0.4rem;
+        }
+        .report-card-figures dd {
+          margin: 0;
+          font-family: var(--font-mono);
+          font-size: 0.9rem;
+          order: -1;
+          min-width: 1.6em;
+        }
+        .report-card-figures dt {
+          font-size: 0.74rem;
+          color: var(--muted);
+        }
+        .report-card-actions {
+          display: flex;
+          gap: 0.5rem;
+          margin-top: auto;
+          padding-top: 0.5rem;
+          border-top: 1px solid var(--border);
         }
         .progress-row-extra {
           grid-template-columns: repeat(2, minmax(0, 1fr));
