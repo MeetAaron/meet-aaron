@@ -47,10 +47,34 @@ export async function backupThenReplaceBusinessSummary(companyId: string, newSum
     .maybeSingle();
 
   if (current?.business_summary) {
-    await supabaseAdmin.from('business_summary_versions').insert({
+    // PERTE DE DONNÉES CORRIGÉE (03/09/2026) — cause racine de la disparition
+    // du profil d'entreprise d'Alex, deux fois (déjà signalée le 29/08 pour
+    // le compte « Open X »).
+    //
+    // Avant : le résultat de cet insert n'était pas vérifié. Or Postgrest ne
+    // LÈVE PAS d'exception, il résout avec un objet { error }. Quand la table
+    // business_summary_versions n'existe pas (migration_business_summary_
+    // versions_2026-08-29.sql jamais exécutée), la sauvegarde échouait donc
+    // en silence... et l'update juste en dessous écrasait quand même le
+    // profil. Résultat : un profil construit en dix minutes de questionnaire,
+    // détruit sans sauvegarde et sans le moindre message.
+    //
+    // Désormais : si la sauvegarde échoue alors qu'il y avait quelque chose à
+    // sauvegarder, on N'ÉCRASE PAS. Mieux vaut refuser bruyamment une
+    // régénération que détruire un contenu irrécupérable.
+    const { error: backupError } = await supabaseAdmin.from('business_summary_versions').insert({
       company_id: companyId,
       summary: current.business_summary,
     });
+    if (backupError) {
+      console.error('Sauvegarde du profil impossible, remplacement annulé :', backupError.message);
+      return {
+        error: {
+          message:
+            "Le profil actuel n'a pas pu être sauvegardé avant d'être remplacé — l'opération a été annulée pour ne rien perdre. Lance la migration migration_business_summary_versions_2026-08-29.sql, puis réessaie.",
+        },
+      } as any;
+    }
     await pruneOldVersions(companyId);
   }
 
