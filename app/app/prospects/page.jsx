@@ -201,6 +201,16 @@ function downloadBlankProspectsTemplate(locale, format) {
   downloadSpreadsheet(headers, [], 'modele-prospects-vierge', format);
 }
 
+// Initiales de la pastille d'un contact (04/09/2026). Deux lettres : au-delà,
+// ça ne tient pas dans un rond de 40 px, et trois initiales ne distinguent pas
+// mieux que deux.
+function initialsOf(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function ProspectsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -522,124 +532,92 @@ export default function ProspectsPage() {
         />
       ) : (
         <>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('pipeline.colProgress', locale)}</th>
-                  <th>{t('prospects.colContact', locale)}</th>
-                  <th>{t('pipeline.colConviction', locale)}</th>
-                  <th>{t('pipeline.colOrigin', locale)}</th>
-                  <th>{t('pipeline.colNextStep', locale)}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => {
-                  const { p, position, alerts } = row;
-                  const urgent = alerts.some((a) => a.level === 'urgent');
-                  const next = nextStepFor(row);
-                  const origin = originLabel(p);
-                  const conviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
-                  const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
-                  const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
-                  return (
-                    <tr key={p.id} className={`row${selectedId === p.id ? ' selected' : ''}`} onClick={() => setSelectedId(p.id)}>
-                      <td className="progress-cell">
-                        <div className="progress-inner">
-                          <span className="cat-badge" style={{ background: `${catColor}22`, color: catColor }}>{position.lost ? '✕' : CATEGORY_ICONS[position.category]}</span>
-                          <div>
-                            <ProgressLine position={position} locale={locale} compact />
-                            <span className="stage-name" style={{ color: catColor }}>
-                              {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
-                              {position.risk && <span className="risk-flag" title={t('pipeline.riskLabel', locale)}> ⚠</span>}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="contact-cell">
-                        <div className="name-line">
-                          <span className="name">{p.full_name}</span>
-                          <DiscBadge type={p.personality_type} locale={locale} />
-                          {/* Alerte à côté du nom (demande Alex, 04/09/2026 :
-                              « genre en rouge envoyer devis ! ou au moins un
-                              point d'exclamation […] ça sert à rien de polluer
-                              pour rien »). Compromis retenu : seules les
-                              alertes URGENTES portent leur libellé en rouge —
-                              c'est là que la phrase fait gagner du temps. Les
-                              autres restent une simple pastille « ! », pour ne
-                              pas transformer la colonne en mur de texte. */}
-                          {alerts.length > 0 && (urgent
-                            ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
-                            : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
-                          )}
-                          {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}>⏸</span>}
-                        </div>
-                        <div className="company-line muted">
-                          {p.prospect_companies?.name || p.email}
-                          {p.job_title ? ` · ${p.job_title}` : ''}
-                          {otherContacts > 0 && (
-                            <button
-                              type="button"
-                              className="company-badge"
-                              title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
-                              onClick={(e) => { e.stopPropagation(); setSearch(p.prospect_companies?.name || ''); }}
-                            >
-                              +{otherContacts}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="conviction-cell">
-                        {conviction != null ? (
-                          <div className="conviction" title={p.conviction_reason || p.negotiation_confidence_reason || ''}>
-                            <span className="bar"><span style={{ width: `${Math.max(0, Math.min(100, conviction))}%`, background: conviction >= 70 ? PIPELINE_COLORS.client : conviction >= 40 ? PIPELINE_COLORS.wonPending : PIPELINE_COLORS.lost }} /></span>
-                            <span className="score">{conviction}</span>
-                          </div>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td className="origin-cell muted"><span title={origin.text}>{origin.icon} {origin.text}</span></td>
-                      <td className={`next-cell ${next.level}`}>{next.text}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
+          {/* Refonte « Tes contacts » (04/09/2026, demande Alex : « ça fait
+              très bazar »).
+              Avant : un TABLEAU de 5 colonnes sur grand écran et une liste de
+              cartes sur téléphone — deux mises en page à maintenir, et sur
+              ordinateur les colonnes « origine » et « prochaine étape »
+              partaient hors champ dès que la fenêtre rétrécissait.
+              Maintenant : UNE seule liste, la même partout. Une ligne = un
+              contact, sa progression, sa prochaine action. C'est aussi ce qui
+              permet de mettre une vraie pastille d'initiales : dans un
+              tableau, elle aurait été une colonne de plus. */}
           <div className="cards">
             {filtered.map((row) => {
               const { p, position, alerts } = row;
               const urgent = alerts.some((a) => a.level === 'urgent');
               const next = nextStepFor(row);
+              const origin = originLabel(p);
               const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
               const conviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+              const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
+              // <div role="button"> et non <button> : ProgressLine dessine ses
+              // six pastilles avec de vrais <button>, et un bouton dans un
+              // bouton est du HTML invalide — le navigateur casse alors
+              // l'imbrication et la ligne se disloque.
               return (
-                <button type="button" key={p.id} className="mcard" onClick={() => setSelectedId(p.id)}>
-                  <span className="cat-badge" style={{ background: `${catColor}22`, color: catColor }}>{position.lost ? '✕' : CATEGORY_ICONS[position.category]}</span>
+                <div
+                  key={p.id}
+                  role="button"
+                  tabIndex={0}
+                  className={`mcard${selectedId === p.id ? ' selected' : ''}`}
+                  onClick={() => setSelectedId(p.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.id); } }}
+                >
+                  {/* Pastille d'initiales colorée par famille du pipeline :
+                      on repère un contact dans une liste par sa pastille bien
+                      avant d'avoir lu son nom, et la couleur dit déjà où il
+                      en est. */}
+                  <span className="avatar" style={{ background: `linear-gradient(135deg, ${catColor}, ${catColor}88)` }} aria-hidden="true">
+                    {initialsOf(p.full_name)}
+                  </span>
                   <div className="mcard-body">
                     <div className="name-line">
                       <span className="name">{p.full_name}</span>
                       <DiscBadge type={p.personality_type} locale={locale} />
+                      {/* Alerte à côté du nom (demande Alex, 04/09/2026 :
+                          « genre en rouge envoyer devis ! ou au moins un
+                          point d'exclamation […] ça sert à rien de polluer
+                          pour rien »). Compromis retenu : seules les alertes
+                          URGENTES portent leur libellé en rouge — c'est là
+                          que la phrase fait gagner du temps. Les autres
+                          restent une simple pastille « ! ». */}
                       {alerts.length > 0 && (urgent
                         ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
                         : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
                       )}
+                      {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}>⏸</span>}
                     </div>
-                    <div className="company-line muted">{p.prospect_companies?.name || p.email}</div>
+                    <div className="company-line muted">
+                      {p.prospect_companies?.name || p.email}
+                      {p.job_title ? ` · ${p.job_title}` : ''}
+                      {otherContacts > 0 && (
+                        <span
+                          className="company-badge"
+                          title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
+                          onClick={(e) => { e.stopPropagation(); setSearch(p.prospect_companies?.name || ''); }}
+                        >
+                          +{otherContacts}
+                        </span>
+                      )}
+                    </div>
                     <div className="mcard-progress">
                       <ProgressLine position={position} locale={locale} compact />
                       <span className="stage-name" style={{ color: catColor }}>
                         {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
                         {position.risk && ' ⚠'}
                       </span>
-                      {conviction != null && <span className="mcard-score">{conviction}/100</span>}
+                      {conviction != null && (
+                        <span className="mcard-score" title={p.conviction_reason || p.negotiation_confidence_reason || ''}>
+                          {conviction}/100
+                        </span>
+                      )}
                     </div>
                     <div className={`mcard-next ${next.level}`}>{next.text}</div>
+                    <div className="mcard-origin muted" title={origin.text}>{origin.icon} {origin.text}</div>
                   </div>
                   <span className="chev">›</span>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -894,41 +872,6 @@ export default function ProspectsPage() {
           font-family: inherit;
         }
         .muted { color: var(--muted); }
-        .table-wrap {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-        }
-        table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-        thead th {
-          text-align: left;
-          padding: 0.8rem 1rem;
-          font-size: 0.7rem;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          color: var(--muted);
-          border-bottom: 1px solid var(--border);
-          white-space: nowrap;
-        }
-        tbody td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-        tbody tr:last-child td { border-bottom: none; }
-        .row { cursor: pointer; transition: background var(--fast); }
-        .row:hover { background: var(--surface-hover); }
-        .row.selected { background: rgba(75, 57, 239, 0.1); }
-        .progress-cell { width: 150px; }
-        .progress-inner { display: flex; align-items: center; gap: 0.6rem; }
-        .cat-badge {
-          width: 1.9rem;
-          height: 1.9rem;
-          border-radius: 10px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.95rem;
-          flex-shrink: 0;
-        }
         .stage-name { display: block; font-size: 0.7rem; margin-top: 0.3rem; white-space: nowrap; }
         .risk-flag { color: ${PIPELINE_COLORS.risk}; }
         .name-line { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
@@ -978,18 +921,62 @@ export default function ProspectsPage() {
           font-family: var(--font-mono);
           cursor: pointer;
         }
-        .conviction-cell { width: 130px; }
-        .conviction { display: flex; align-items: center; gap: 0.5rem; }
-        .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; display: block; }
-        .bar span { display: block; height: 100%; border-radius: 999px; }
-        .score { font-family: var(--font-mono); font-size: 0.76rem; width: 2ch; text-align: right; }
-        .origin-cell { white-space: nowrap; font-size: 0.8rem; }
-        .next-cell { font-size: 0.82rem; max-width: 30ch; }
-        .next-cell.urgent { color: var(--accent-red); font-weight: 700; }
-        .next-cell.todo { color: var(--accent-amber); font-weight: 600; }
-        .next-cell.info { color: var(--text); font-weight: 500; }
-        .next-cell.muted { color: var(--muted); }
-        .cards { display: none; }
+        /* Liste unique des contacts (04/09/2026) — même rendu sur
+           ordinateur et sur téléphone. Les lignes vivent dans un seul cadre
+           et sont séparées par un trait : c'est ce qui les fait lire comme
+           une liste plutôt que comme une pile de cartes détachées. */
+        .cards {
+          display: flex;
+          flex-direction: column;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          overflow: hidden;
+        }
+        .mcard {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.8rem;
+          width: 100%;
+          text-align: left;
+          background: transparent;
+          border: 0;
+          border-bottom: 1px solid var(--border);
+          padding: 0.9rem 1rem;
+          cursor: pointer;
+          font-family: inherit;
+          color: var(--text);
+          transition: background var(--fast);
+        }
+        .mcard:last-child { border-bottom: 0; }
+        .mcard:hover { background: var(--tint-4); }
+        .mcard.selected { background: var(--tint-8); }
+        .avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          font-weight: 700;
+          color: #0a0c17;
+          flex-shrink: 0;
+        }
+        .mcard-body { flex: 1; min-width: 0; }
+        .mcard-progress { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.45rem; flex-wrap: wrap; }
+        .mcard-progress .stage-name { margin-top: 0; }
+        /* Sans borne, ProgressLine (width: 100%) mange toute la ligne et
+           rejette le nom de l'étape en dessous. */
+        .mcard-progress > :global(.progress-line) { max-width: 132px; }
+        .mcard-score { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+        .mcard-next { font-size: 0.8rem; margin-top: 0.35rem; }
+        .mcard-next.urgent { color: var(--accent-red); font-weight: 700; }
+        .mcard-next.todo { color: var(--accent-amber); font-weight: 600; }
+        .mcard-next.info { color: var(--text); }
+        .mcard-next.muted { color: var(--muted); }
+        .mcard-origin { font-size: 0.72rem; margin-top: 0.25rem; }
+        .chev { color: var(--muted); font-size: 1.4rem; align-self: center; }
         @media (max-width: 900px) {
           .header { flex-direction: column; gap: 0.8rem; }
           .header-actions { width: 100%; }
@@ -999,34 +986,10 @@ export default function ProspectsPage() {
           .stage-icon { width: 26px; height: 26px; }
           .stage-link { top: calc(0.6rem + 13px); left: calc(-50% + 18px); width: calc(100% - 36px); }
           .stage-label { font-size: 0.62rem; }
-          .table-wrap { display: none; }
-          .cards { display: flex; flex-direction: column; gap: 0.6rem; }
-          .mcard {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            width: 100%;
-            text-align: left;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 0.85rem 0.9rem;
-            cursor: pointer;
-            font-family: inherit;
-            color: var(--text);
-          }
+          .mcard { padding: 0.85rem 0.9rem; }
           .mcard:active { background: var(--surface-hover); }
-          .mcard-body { flex: 1; min-width: 0; }
-          .mcard .cat-badge { width: 2.2rem; height: 2.2rem; font-size: 1.05rem; }
-          .mcard-progress { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
-          .mcard-progress .stage-name { margin-top: 0; }
-          .mcard-score { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
-          .mcard-next { font-size: 0.8rem; margin-top: 0.35rem; }
-          .mcard-next.urgent { color: var(--accent-red); font-weight: 700; }
-          .mcard-next.todo { color: var(--accent-amber); font-weight: 600; }
-          .mcard-next.info { color: var(--text); }
-          .mcard-next.muted { color: var(--muted); }
-          .chev { color: var(--muted); font-size: 1.4rem; }
+          .avatar { width: 36px; height: 36px; }
+          .mcard-score { margin-left: 0; }
         }
       `}</style>
     </Shell>
