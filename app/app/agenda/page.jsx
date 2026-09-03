@@ -499,7 +499,7 @@ export default function AgendaPage() {
         </div>
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary header-add"
           onClick={() => {
             setAddModalPreset(null);
             setShowAddModal(true);
@@ -508,6 +508,25 @@ export default function AgendaPage() {
           + {t('common.add', locale)}
         </button>
       </header>
+
+      {/* « Je trouve que le bouton ajouter n'est pas au bon endroit » (Alex,
+          04/09/2026). Sur ordinateur il reste dans l'en-tête, à droite du
+          titre — c'est sa place logique. Sur téléphone il devient un bouton
+          flottant en bas à droite : l'en-tête est la zone la plus difficile à
+          atteindre au pouce, et le geste « ajouter » est le seul de la page
+          qu'on refait sans arrêt. Placé au-dessus de la barre d'onglets, en
+          tenant compte de la zone sûre iPhone. */}
+      <button
+        type="button"
+        className="agenda-fab"
+        aria-label={t('common.add', locale)}
+        onClick={() => {
+          setAddModalPreset(null);
+          setShowAddModal(true);
+        }}
+      >
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      </button>
 
       {showAddModal && (
         <AddEntryModal
@@ -1143,12 +1162,18 @@ export default function AgendaPage() {
         .legend-dot.blocked {
           background: var(--accent-red);
         }
+        /* « Le bloc aucun RDV est collé au bloc calendrier » (Alex,
+           04/09/2026) : 1 rem ne suffisait pas à séparer visuellement deux
+           encadrés qui se touchent presque. */
         .day-detail {
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-md);
-          padding: 1rem 1.1rem;
-          margin-top: 1rem;
+          padding: 1.1rem 1.15rem;
+          margin-top: 1.6rem;
+        }
+        .agenda-fab {
+          display: none;
         }
         .day-detail-header {
           display: flex;
@@ -2614,7 +2639,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           --surface: #12162a;
           --surface-hover: #171b34;
           --border: #232744;
-          --border-soft: rgba(244, 241, 234, 0.07);
+          --border-soft: var(--tint-7);
           --accent: #4b39ef;
           --accent-light: #7c6ef5;
           --accent-dark: #3627c0;
@@ -2769,7 +2794,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           width: 32px;
           height: 32px;
           border-radius: 10px;
-          box-shadow: 0 0 0 1px rgba(244, 241, 234, 0.08), 0 4px 14px rgba(75, 57, 239, 0.35);
+          box-shadow: 0 0 0 1px var(--tint-8), 0 4px 14px rgba(75, 57, 239, 0.35);
         }
         .lang-switcher {
           width: 100%;
@@ -2824,7 +2849,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           align-items: center;
           justify-content: center;
           border-radius: var(--radius-sm);
-          background: rgba(244, 241, 234, 0.04);
+          background: var(--tint-4);
           flex-shrink: 0;
           transition: background var(--fast);
         }
@@ -2881,6 +2906,26 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           display: none;
         }
         @media (max-width: 900px) {
+          .header-add { display: none; }
+          .agenda-fab {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            right: 1rem;
+            bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, var(--accent), var(--accent-light));
+            color: #fff;
+            box-shadow: 0 10px 26px rgba(75, 57, 239, 0.45);
+            z-index: 60;
+            cursor: pointer;
+          }
+          .agenda-fab:active { transform: scale(0.94); }
+
           .shell {
             grid-template-columns: 1fr;
           }
