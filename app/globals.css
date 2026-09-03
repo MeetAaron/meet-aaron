@@ -137,13 +137,19 @@ html[data-theme='light'] {
     text-overflow: ellipsis;
     color: var(--text);
   }
-  .mobile-topbar-bell {
+  /* La cloche a laissé la place à l'état de connexion (04/09/2026) — voir
+     components/MobileChrome.jsx et components/ConnectionBadge.jsx. */
+  .mobile-topbar-conn {
     flex: 0 0 auto;
-    position: relative; /* ancre de .bell-empty (Stories.jsx) */
-    width: 40px;
-    height: 40px;
+    position: relative;
     display: inline-flex;
+    align-items: center;
     color: var(--text);
+  }
+  /* L'en-tête du tableau de bord porte déjà la même pastille : sur téléphone
+     elle ferait doublon avec celle de la barre du haut. */
+  .shell > main.content .conn-wrap {
+    display: none;
   }
   .mobile-topbar-menu {
     flex: 0 0 auto;
