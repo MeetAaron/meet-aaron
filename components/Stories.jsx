@@ -722,8 +722,8 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         }
         @keyframes pop { from { transform: scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
         .segments { display: flex; gap: 3px; margin-bottom: 0.9rem; }
-        .seg { flex: 1; height: 3px; border-radius: 999px; background: rgba(244, 241, 234, 0.18); }
-        .seg.done { background: rgba(244, 241, 234, 0.55); }
+        .seg { flex: 1; height: 3px; border-radius: 999px; background: var(--tint-18); }
+        .seg.done { background: var(--tint-55); }
         .seg.cur { background: #fff; }
         .head { display: flex; align-items: flex-start; gap: 0.7rem; }
         .type-ic {
@@ -863,7 +863,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           transform: translateY(-50%);
           width: 2rem;
           height: 2.6rem;
-          background: rgba(244, 241, 234, 0.06);
+          background: var(--tint-6);
           border: none;
           color: var(--muted);
           font-size: 1.6rem;
