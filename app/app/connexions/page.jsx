@@ -8,12 +8,13 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
 // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
 // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
-import { BOOST_TIERS } from '@/lib/boost-tiers';
+import { BOOST_TIERS, boostPrice, formatBoostPrice, USD_PER_CREDIT } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
+import BusinessProfileSheet from '@/components/BusinessProfileSheet';
 import PushNotificationManager from '@/components/PushNotificationManager';
 import QRCode from 'qrcode';
 
@@ -1008,6 +1009,18 @@ export default function ConnexionsPage() {
   // Achat d'un boost (01/09/2026) — remplace handleBuyCredits/l'ancien
   // solde par module. Le palier est un identifiant du catalogue
   // (lib/credit-boosts.ts) : le prix n'est jamais envoyé par le client.
+  // Devise de l'entreprise (04/09/2026) : elle vient du serveur, qui la
+  // déduit du pays de facturation Stripe. Repli sur l'euro tant qu'aucun
+  // paiement n'a eu lieu.
+  const [boostCurrency, setBoostCurrency] = useState('eur');
+  useEffect(() => {
+    if (!userId) return;
+    fetch('/api/credits/boost')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (b?.currency) setBoostCurrency(b.currency); })
+      .catch(() => {});
+  }, [userId]);
+
   async function handleBuyBoost(tierId) {
     setBuyingCredits(tierId);
     setCreditsError(null);
@@ -1687,7 +1700,12 @@ export default function ConnexionsPage() {
                   </button>
                 </p>
               ) : businessSummary ? (
-                <p className="profile-preview-text">{buildBusinessProfilePreview(businessSummary)}</p>
+                <BusinessProfileSheet
+                  summary={businessSummary}
+                  title={prefs?.company_name || t('connexions.tabCompany', locale)}
+                  onOpen={() => setSummaryExpanded(true)}
+                  openLabel={t('preferences.viewFullProfileButton', locale)}
+                />
               ) : (
                 <p className="profile-empty-text">{t('preferences.businessProfilePlaceholder', locale)}</p>
               )}
@@ -2663,7 +2681,7 @@ export default function ConnexionsPage() {
                             {tier.highlight && <span className="boost-badge">{t('boost.popular', locale)}</span>}
                             <span className="boost-credits">+{tier.credits}</span>
                             <span className="boost-unit">{t('connexions.creditsUnit', locale)}</span>
-                            <span className="boost-price">{buyingCredits === tier.id ? '…' : `${tier.priceEur} €`}</span>
+                            <span className="boost-price">{buyingCredits === tier.id ? '…' : formatBoostPrice(boostPrice(tier.id, boostCurrency), boostCurrency)}</span>
                           </button>
                         ))}
                       </div>
@@ -2731,20 +2749,26 @@ export default function ConnexionsPage() {
               <div className="field usage-field">
                 <label>{t('preferences.usage.apiCostLabel', locale)}</label>
                 <div className="usage-box">
+                  {/* « Ne mentionne pas Claude ni la valeur en $ — uniquement
+                      en crédits » (Alex, 04/09/2026). Ce bloc n'est visible que
+                      par le compte fondateur, mais il n'y a aucune raison d'y
+                      afficher une autre unité que celle vendue au client : les
+                      dollars sont une mécanique interne. 1 crédit ≈
+                      USD_PER_CREDIT dollars de budget (lib/boost-tiers.ts). */}
                   <div className="usage-row">
                     <span>{t('preferences.usage.thisMonth', locale)}</span>
                     <strong>
-                      {usage.month_cost_usd.toFixed(2)} $
-                      {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', usage.monthly_cap_usd)}
+                      {Math.round(usage.month_cost_usd / USD_PER_CREDIT)} {t('connexions.creditsUnit', locale)}
+                      {usage.monthly_cap_usd !== null && t('preferences.usage.capSuffixTemplate', locale).replace('{cap}', `${Math.round(usage.monthly_cap_usd / USD_PER_CREDIT)}`)}
                     </strong>
                   </div>
                   <div className="usage-row">
                     <span>{t('preferences.usage.today', locale)}</span>
-                    <strong>{usage.today_cost_usd.toFixed(2)} $</strong>
+                    <strong>{Math.round(usage.today_cost_usd / USD_PER_CREDIT)} {t('connexions.creditsUnit', locale)}</strong>
                   </div>
                   <div className="usage-bars">
                     {usage.last_7_days.map((d) => (
-                      <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${d.cost_usd.toFixed(2)} $`}>
+                      <div key={d.date} className="usage-bar-wrap" title={`${d.date} : ${Math.round(d.cost_usd / USD_PER_CREDIT)} ${t('connexions.creditsUnit', locale)}`}>
                         <div
                           className="usage-bar"
                           style={{ height: `${Math.min(100, (d.cost_usd / (usage.daily_cap_usd || 1)) * 100)}%` }}
@@ -6710,7 +6734,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           --surface: #12162a;
           --surface-hover: #171b34;
           --border: #232744;
-          --border-soft: rgba(244, 241, 234, 0.07);
+          --border-soft: var(--tint-7);
           --accent: #4b39ef;
           --accent-light: #7c6ef5;
           --accent-dark: #3627c0;
@@ -6865,7 +6889,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           width: 32px;
           height: 32px;
           border-radius: 10px;
-          box-shadow: 0 0 0 1px rgba(244, 241, 234, 0.08), 0 4px 14px rgba(75, 57, 239, 0.35);
+          box-shadow: 0 0 0 1px var(--tint-8), 0 4px 14px rgba(75, 57, 239, 0.35);
         }
         .lang-switcher {
           width: 100%;
@@ -6920,7 +6944,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           align-items: center;
           justify-content: center;
           border-radius: var(--radius-sm);
-          background: rgba(244, 241, 234, 0.04);
+          background: var(--tint-4);
           flex-shrink: 0;
           transition: background var(--fast);
         }
