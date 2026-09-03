@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('crm_auto_sync, collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret, public_link_url')
+    .select('name, crm_auto_sync, collaboration_level, offer, offer_ap_active, offer_as_active, offer_ac_active, crm_provider, crm_connection_notes, prospecting_goal, prospecting_goal_details, default_first_email_enabled, default_first_email_subject, default_first_email_body, external_conversion_webhook_secret, public_link_url')
     .eq('id', user.company_id)
     .single();
 
@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
       // n'existe pas encore (migration_aaron_archive_threads_2026-09-01.sql).
       aaron_archive_threads: (user as any).aaron_archive_threads !== false,
       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
+      // Nom de la société : sert de titre à la feuille d'aperçu du profil
+      // d'entreprise (components/BusinessProfileSheet.jsx, 04/09/2026).
+      company_name: company?.name ?? null,
       collaboration_level: company?.collaboration_level ?? 0,
       offer: company?.offer ?? 'AP',
       // Abonnement multi-module (docx item 31 + section STRIPE) — source de
