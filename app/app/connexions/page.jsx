@@ -2002,7 +2002,7 @@ export default function ConnexionsPage() {
             focusPush={setupFocus === 'push'}
           />
           {/* docx 30/08 : "comment appeler ce bloc ? boîte email connectée" */}
-          <h2 className="cards-heading">{t('connexions.setupEmailCardsTitle', locale)}</h2>
+          <h2 className="cards-heading" id="mailbox-cards">{t('connexions.setupEmailCardsTitle', locale)}</h2>
           <p className="cards-hint">{t('connexions.setupEmailCardsHint', locale)}</p>
         <div className="cards">
           {oauthErrorBanner && (
@@ -6032,12 +6032,24 @@ function SetupChecklist({
               ) : (
                 <>
                   <p className="step-desc">{t('connexions.setupStepEmailDesc', locale)}</p>
+                  {/* Renvoi vers la section « Ta boîte email » plutôt que
+                      duplication des deux boutons (signalé par Alex,
+                      03/09/2026 : « la boîte email apparaît 2 fois »). Cette
+                      section, juste en dessous, porte déjà les cartes Google
+                      et Microsoft complètes — avec le QR code pour connecter
+                      depuis le téléphone et le lien de signalement de
+                      problème. Deux points d'entrée pour la même action, dont
+                      un incomplet, ne pouvaient que semer le doute. */}
                   <div className="step-actions">
-                    <button type="button" className="btn-primary" onClick={() => onConnect('google')}>
-                      {t('connexions.setupConnectGoogle', locale)}
-                    </button>
-                    <button type="button" className="btn-primary" onClick={() => onConnect('microsoft')}>
-                      {t('connexions.setupConnectMicrosoft', locale)}
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => {
+                        const target = document.getElementById('mailbox-cards');
+                        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                    >
+                      {t('connexions.setupGoToMailbox', locale)}
                     </button>
                   </div>
                 </>
