@@ -75,6 +75,17 @@ export function DiscBadge({ type, locale, size = 'md' }) {
 }
 
 // Ligne de progression 6 points. `compact` = version mini du tableau.
+// Initiales de la pastille d'en-tête (04/09/2026). La même règle que dans la
+// liste des contacts, pour que la fiche et la ligne d'où elle s'ouvre se
+// ressemblent — c'est ce qui donne la sensation d'ouvrir CE contact-là, pas un
+// panneau générique.
+function initialsOf(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export function ProgressLine({ position, locale, compact = false, onSelect }) {
   const reached = stageOrder(position.stage);
   const color = position.lost ? PIPELINE_COLORS.lost : position.wonPendingFirstOrder ? PIPELINE_COLORS.wonPending : PIPELINE_COLORS[position.category];
@@ -371,7 +382,15 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
 
         <header className="card-head">
           <div className="head-main">
-            <span className="cat-icon" style={{ background: `${catColor}22`, color: catColor }}>{position.lost ? '✕' : CATEGORY_ICONS[position.category]}</span>
+            <span
+              className="cat-icon"
+              style={position.lost
+                ? { background: `${catColor}22`, color: catColor }
+                : { background: `linear-gradient(135deg, ${catColor}, ${catColor}88)`, color: '#0a0c17' }}
+              aria-hidden="true"
+            >
+              {position.lost ? '✕' : initialsOf(prospect.full_name)}
+            </span>
             <div className="head-text">
               <h2>
                 {prospect.full_name}
@@ -644,13 +663,15 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         }
         .head-main { display: flex; gap: 0.8rem; min-width: 0; }
         .cat-icon {
-          width: 2.6rem;
-          height: 2.6rem;
-          border-radius: 14px;
+          width: 3.1rem;
+          height: 3.1rem;
+          border-radius: 50%;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.3rem;
+          font-family: var(--font-display);
+          font-size: 1rem;
+          font-weight: 700;
           flex-shrink: 0;
         }
         .head-text { min-width: 0; }
