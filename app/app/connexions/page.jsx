@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
-import { BOOST_TIERS } from '@/lib/credit-boosts';
+// Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
+// importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
+import { BOOST_TIERS } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
