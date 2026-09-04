@@ -16,6 +16,7 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS, PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
+import ReportDetail from '@/components/ReportDetail';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
 function useAuthedUser() {
@@ -288,7 +289,16 @@ function summarizeRange(range, data) {
   const opportunitesGagnees = dealsInRange.filter((d) => d.deal_stage === 'signe').length;
   const opportunitesPerdues = dealsInRange.filter((d) => d.deal_stage === 'perdu').length;
   const customersInRange = customers.filter((c) => withinRange(c.won_at, range));
+  // Comparaison de périodes (Alex, 04/09/2026) : deux mesures de plus,
+  // calculées sur TOUS les contacts (pas seulement ceux créés dans la
+  // fenêtre) — un devis demandé ce mois-ci par un contact d'il y a trois
+  // mois compte pour ce mois-ci.
+  const everyone = data.allContacts || prospects;
+  const devisDemandes = everyone.filter((p) => withinRange(p.quote_requested_at, range)).length;
+  const perdus = everyone.filter((p) => withinRange(p.lost_at, range)).length;
   return {
+    devisDemandes,
+    perdus,
     prospectsContactes: prospectsInRange.length,
     rdvObtenus,
     rdvEnAttente,
@@ -440,11 +450,14 @@ function BilanRow({ label, type, onTypeChange, rows, locale }) {
   );
 }
 
-function EvolutionMetric({ label, current, previous, suffix }) {
+function EvolutionMetric({ label, current, previous, suffix, lowerIsBetter = false }) {
   const delta = current - previous;
   const pct = previous > 0 ? Math.round((delta / previous) * 100) : current > 0 ? 100 : 0;
-  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
-  const arrow = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '—';
+  // `lowerIsBetter` (pertes) : une hausse se colore en rouge, une baisse en
+  // vert — sinon « +3 perdus » s'afficherait comme une bonne nouvelle.
+  const better = delta === 0 ? null : lowerIsBetter ? delta < 0 : delta > 0;
+  const direction = better === null ? 'flat' : better ? 'up' : 'down';
+  const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
   return (
     <div className="evolution-metric">
       <span className="evolution-label">{label}</span>
@@ -487,6 +500,8 @@ export default function ResultatsPage() {
   const [deals, setDeals] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [replyRate, setReplyRate] = useState(null);
+  // Rapport ouvert en détail (04/09/2026) : { bucket } ou null.
+  const [openReport, setOpenReport] = useState(null);
   const [loading, setLoading] = useState(true);
   // Un sélecteur de période par catégorie (item 25) — plus le sélecteur
   // unique partagé d'avant, qui ne s'appliquait qu'à "Prospects" en pratique
@@ -596,6 +611,43 @@ export default function ResultatsPage() {
   // mois-ci » — c'est le rôle des bilans et de l'évolution juste en dessous.
   const pipelineCounts = countPipeline(allContacts);
 
+  // Métriques d'étape (Alex, 04/09/2026 : « j'aurais bien aimé garder : taux
+  // de réponse du en cours, taux de transformation à chaque étape, le temps
+  // moyen entre chaque passage, les pertes à chaque passage — comme ça
+  // l'utilisateur voit à quel moment ça coince »).
+  // - lostByStage : contacts perdus, rangés par l'étape où ils l'ont été
+  //   (pipeline_lost_at_stage, sinon l'étape courante au moment de la perte).
+  // - stageSpeeds : temps moyen entre deux jalons datés. Les « retours en
+  //   arrière » d'étape ne sont pas comptés : l'historique des changements
+  //   d'étape n'est pas conservé en base, on ne saurait que les inventer.
+  const stageMetrics = (() => {
+    const lostByStage = {};
+    for (const st of PIPELINE_STAGES) lostByStage[st.key] = 0;
+    for (const p of allContacts) {
+      const pos = derivePipelinePosition(p);
+      if (pos.lost && lostByStage[pos.stage] !== undefined) lostByStage[pos.stage] += 1;
+    }
+    const avgDays = (pairs) => {
+      const vals = pairs.filter(([a, b]) => a && b).map(([a, b]) => (new Date(b) - new Date(a)) / 86400000).filter((d) => d >= 0);
+      if (vals.length === 0) return null;
+      return Math.round((vals.reduce((x, y) => x + y, 0) / vals.length) * 10) / 10;
+    };
+    const firstApptByProspect = {};
+    for (const a of appointments) {
+      if (a.purpose === 'lancement' || !a.prospect_id) continue;
+      if (!firstApptByProspect[a.prospect_id] || new Date(a.proposed_at) < new Date(firstApptByProspect[a.prospect_id])) {
+        firstApptByProspect[a.prospect_id] = a.proposed_at;
+      }
+    }
+    const stageSpeeds = [
+      { key: 'toRdv', label: t('results.speedToRdv', locale), days: avgDays(allContacts.map((p) => [p.created_at, firstApptByProspect[p.id]])) },
+      { key: 'toProposition', label: t('results.speedToProposition', locale), days: avgDays(allContacts.map((p) => [firstApptByProspect[p.id], p.quote_requested_at])) },
+      { key: 'toEnvoi', label: t('results.speedToEnvoi', locale), days: avgDays(allContacts.map((p) => [p.quote_requested_at, p.devis_sent_at])) },
+      { key: 'toClient', label: t('results.speedToClient', locale), days: avgDays(allContacts.filter((p) => p.first_order_confirmed_at).map((p) => [p.devis_sent_at || p.quote_requested_at || firstApptByProspect[p.id] || p.created_at, p.won_at])) },
+    ];
+    return { lostByStage, stageSpeeds };
+  })();
+
   // Valeur du portefeuille (01/09/2026) : seule source de montant fiable et
   // non inventée — le total TTC qu'Aaron a relevé sur le devis DÉPOSÉ par le
   // commercial (prospects.devis_check.total_ttc_eur, voir
@@ -681,7 +733,7 @@ export default function ResultatsPage() {
   // (REPORT_LOOKBACK périodes candidates) et on ne garde que celles avec au
   // moins une donnée non nulle, les plus récentes d'abord ; "Voir tout" /
   // "Voir moins" bascule entre 5 et la totalité de cet historique filtré.
-  const rangeData = { prospects, appointments, deals, customers };
+  const rangeData = { prospects, appointments, deals, customers, allContacts };
   const REPORT_LOOKBACK = { day: 60, week: 52, month: 24 };
   function reportHasActivity(summary) {
     return (
@@ -869,6 +921,37 @@ export default function ResultatsPage() {
                 </div>
               );
             })()}
+
+            {/* Pertes par étape : sous chaque barre, combien de contacts ont
+                été perdus À cette étape. C'est la lecture « où ça coince »
+                demandée par Alex. Rouge seulement quand il y en a. */}
+            <div className="vbars-lost">
+              {PIPELINE_STAGES.map((st) => {
+                const n = stageMetrics.lostByStage[st.key] || 0;
+                return (
+                  <span key={st.key} className={`lost-cell${n > 0 ? ' has' : ''}`}>
+                    {n > 0 ? `✕ ${n} ${t('results.lostAtStage', locale)}` : '—'}
+                  </span>
+                );
+              })}
+            </div>
+
+            <div className="rates-row">
+              <span className="rates-title">{t('results.replyRateTitle', locale)}</span>
+              <span className="rate-chip">{replyRate !== null ? `${replyRate} %` : '—'}</span>
+              <span className="rates-note">{t('results.statReplyRateHint', locale)}</span>
+            </div>
+
+            <div className="rates-row">
+              <span className="rates-title">{t('results.avgTimeTitle', locale)}</span>
+              {stageMetrics.stageSpeeds.map((sp, i) => (
+                <span key={sp.key} className="rates-item" title={sp.label}>
+                  <span className="rate-chip">{sp.days == null ? '—' : `${sp.days} j`}</span>
+                  {i < stageMetrics.stageSpeeds.length - 1 && <span className="rate-arrow" aria-hidden="true">→</span>}
+                </span>
+              ))}
+              <span className="rates-note">{t('results.avgTimeNote', locale)}</span>
+            </div>
             {/* Valeur du portefeuille — la question que se pose vraiment un
                 commercial devant une page « Résultats ». Affichée dans la
                 même section que la ligne de progression parce qu'elle en est
@@ -1007,72 +1090,11 @@ export default function ResultatsPage() {
           </section>
           )}
 
-          <section className="panel">
-            <div className="category-head">
-              <h2>{t('results.funnelTitle', locale)}</h2>
-            </div>
-            <p className="muted report-scope-hint">{t('results.funnelHint', locale)}</p>
-            {(() => {
-              const active = allContacts.filter((p) => !derivePipelinePosition(p).lost);
-              const counts = countPipeline(allContacts);
-              const steps = [
-                { key: 'contacts', label: t('dash.funnelContacts', locale), value: active.length, color: PIPELINE_COLORS.prospect },
-                { key: 'rdv', label: t('pipeline.stage.rdvObtenu', locale), value: active.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 2).length, color: PIPELINE_COLORS.opportunite },
-                { key: 'propositions', label: t('dash.funnelPropositions', locale), value: active.filter((p) => stageOrder(derivePipelinePosition(p).stage) >= 3).length, color: '#b07cf5' },
-                { key: 'clients', label: t('pipeline.cat.clients', locale), value: counts.byCategory.client, color: PIPELINE_COLORS.client },
-              ];
-              const max = steps[0].value || 1;
-              const avgDays = (pairs) => {
-                const vals = pairs.filter(([a, b]) => a && b).map(([a, b]) => (new Date(b) - new Date(a)) / 86400000).filter((d) => d >= 0);
-                if (vals.length === 0) return null;
-                return Math.round((vals.reduce((x, y) => x + y, 0) / vals.length) * 10) / 10;
-              };
-              const firstApptByProspect = {};
-              for (const a of appointments) {
-                if (a.purpose === 'lancement' || !a.prospect_id) continue;
-                if (!firstApptByProspect[a.prospect_id] || new Date(a.proposed_at) < new Date(firstApptByProspect[a.prospect_id])) {
-                  firstApptByProspect[a.prospect_id] = a.proposed_at;
-                }
-              }
-              const speeds = [
-                { key: 'toRdv', label: t('results.speedToRdv', locale), days: avgDays(allContacts.map((p) => [p.created_at, firstApptByProspect[p.id]])) },
-                { key: 'toProposition', label: t('results.speedToProposition', locale), days: avgDays(allContacts.map((p) => [firstApptByProspect[p.id], p.quote_requested_at])) },
-                { key: 'toEnvoi', label: t('results.speedToEnvoi', locale), days: avgDays(allContacts.map((p) => [p.quote_requested_at, p.devis_sent_at])) },
-                { key: 'toClient', label: t('results.speedToClient', locale), days: avgDays(allContacts.filter((p) => p.first_order_confirmed_at).map((p) => [p.devis_sent_at || p.quote_requested_at || firstApptByProspect[p.id] || p.created_at, p.won_at])) },
-              ];
-              return (
-                <>
-                  <div className="funnel-block">
-                    {steps.map((step, i) => {
-                      const prev = i > 0 ? steps[i - 1].value : null;
-                      const rate = prev ? Math.round((step.value / prev) * 100) : null;
-                      const width = Math.max(8, Math.round((step.value / max) * 100));
-                      return (
-                        <div className="funnel-step" key={step.key}>
-                          <div className="funnel-head">
-                            <span className="funnel-label">{step.label}</span>
-                            {rate != null && <span className="funnel-rate">→ {rate} %</span>}
-                          </div>
-                          <div className="funnel-bar-track">
-                            <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="speed-row">
-                    {speeds.map((sp) => (
-                      <div className="speed-card" key={sp.key}>
-                        <span className="speed-number">{sp.days == null ? '—' : `${sp.days} j`}</span>
-                        <span className="speed-label">{sp.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="muted speed-hint">{t('results.speedHint', locale)}</p>
-                </>
-              );
-            })()}
-          </section>
+          {/* L'ancienne section « entonnoir » (barres horizontales + délais
+              moyens) a été retirée le 04/09/2026 : elle répétait, sous une
+              autre forme, la ligne de progression en tête de page — qui
+              porte maintenant elle-même les taux de transformation, les
+              temps moyens et les pertes par étape. « Trop de tableaux » (Alex). */}
 
           <section className="panel">
             <div className="category-head">
@@ -1135,6 +1157,13 @@ export default function ResultatsPage() {
                   <div className="report-card-actions">
                     <button
                       type="button"
+                      className="report-btn primary"
+                      onClick={() => setOpenReport({ bucket })}
+                    >
+                      {t('results.reportOpen', locale)} →
+                    </button>
+                    <button
+                      type="button"
                       className="report-btn"
                       disabled={downloadingKey === `${reportTab}-${bucket.key}-pdf`}
                       onClick={() => downloadReport(bucket, 'pdf')}
@@ -1160,6 +1189,20 @@ export default function ResultatsPage() {
               </button>
             )}
           </section>
+
+          {openReport && (
+            <ReportDetail
+              type={reportTab}
+              bucket={openReport.bucket}
+              title={reportLabel(reportTab, openReport.bucket, locale).replace(/^[^—]+— /, '')}
+              data={{ allContacts, appointments, contactAmount }}
+              locale={locale}
+              formatEur={formatEur}
+              downloading={downloadingKey === `${reportTab}-${openReport.bucket.key}-pdf` ? 'pdf' : downloadingKey === `${reportTab}-${openReport.bucket.key}-csv` ? 'csv' : null}
+              onDownload={(format) => downloadReport(openReport.bucket, format)}
+              onClose={() => setOpenReport(null)}
+            />
+          )}
 
           <section className="panel">
             <div className="category-head">
@@ -1237,6 +1280,17 @@ export default function ResultatsPage() {
                     label={t('results.reportMetricClientsGagnes', locale)}
                     current={evolutionCurrent.clientsGagnes}
                     previous={evolutionPrevious.clientsGagnes}
+                  />
+                  <EvolutionMetric
+                    label={t('report.quotesAsked', locale)}
+                    current={evolutionCurrent.devisDemandes}
+                    previous={evolutionPrevious.devisDemandes}
+                  />
+                  <EvolutionMetric
+                    label={t('results.progressLost', locale)}
+                    current={evolutionCurrent.perdus}
+                    previous={evolutionPrevious.perdus}
+                    lowerIsBetter
                   />
                 </div>
               </>
@@ -1415,6 +1469,23 @@ export default function ResultatsPage() {
           text-align: center;
           line-height: 1.25;
         }
+        .vbars-lost {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 0.5rem;
+          margin-top: 0.4rem;
+        }
+        .lost-cell {
+          text-align: center;
+          font-size: 0.66rem;
+          color: var(--muted);
+          opacity: 0.6;
+        }
+        .lost-cell.has {
+          color: var(--accent-red);
+          opacity: 1;
+          font-weight: 600;
+        }
         .rates-row {
           display: flex;
           align-items: center;
@@ -1513,6 +1584,11 @@ export default function ResultatsPage() {
         .report-card-figures dt {
           font-size: 0.74rem;
           color: var(--muted);
+        }
+        .report-btn.primary {
+          color: var(--accent-light);
+          border-color: rgba(75, 57, 239, 0.5);
+          background: rgba(75, 57, 239, 0.12);
         }
         .report-card-actions {
           display: flex;
