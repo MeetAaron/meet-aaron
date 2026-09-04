@@ -749,6 +749,9 @@ export default function ChatPage() {
   // "une seule fois" à la place).
   const [restartRequested, setRestartRequested] = useState(false);
   const [restartSeeded, setRestartSeeded] = useState(false);
+  // Vrai seulement si le questionnaire a été (re)démarré par un clic dans
+  // CETTE session — voir l'effet « questionnaire fantôme » plus bas.
+  const explicitStartRef = useRef(false);
   // Dépôt de document dans le chat (demande d'Alex, 22/08/2026) : pendingDocument
   // contient les métadonnées du document déjà uploadé (voir
   // app/api/chat/document/route.ts) mais pas encore sauvegardé dans "Mes
@@ -1027,6 +1030,30 @@ export default function ChatPage() {
     }
   }, [onboardingStep, onboardingAnswers]);
 
+  // Questionnaire FANTÔME (bug remonté par Alex, 04/09/2026 : « pourquoi il me
+  // redemande le questionnaire alors qu'on avait déjà échangé dessus et que
+  // j'ai mon profil d'entreprise ? »).
+  // Cause : onboarding_step est stocké sur l'UTILISATEUR (pas sur la
+  // conversation). L'ancienne relance automatique — supprimée hier — avait
+  // laissé onboarding_step = 0 en base chez les utilisateurs touchés. À chaque
+  // ouverture du chat, l'historique remettait donc la page en mode
+  // questionnaire, et le premier « Bonjour » repartait sur la question 1.
+  // Règle : quand le profil de l'entreprise existe déjà, un questionnaire ne
+  // peut être en cours QUE s'il a été démarré par un clic dans cette session.
+  // Tout autre état « en cours » venu de la base est un résidu : on le remet
+  // à -1, et on le persiste pour que ça ne revienne jamais.
+  useEffect(() => {
+    if (companyProfileExists !== true) return;
+    if (onboardingStep < 0 || explicitStartRef.current) return;
+    setOnboardingStep(-1);
+    if (!userId) return;
+    fetch('/api/chat-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, onboarding_step: -1 }),
+    }).catch(() => {});
+  }, [companyProfileExists, onboardingStep, userId]);
+
   useEffect(() => {
     if (!isWelcome || messages.length > 0) return;
     // On attend que le chargement du prénom soit TERMINÉ (succès ou échec, voir
@@ -1142,6 +1169,7 @@ export default function ChatPage() {
   // Démarrage EXPLICITE du questionnaire, déclenché seulement par le bouton
   // « Oui, on le refait » sous le message d'offre ci-dessus.
   function startQuestionnaireNow() {
+    explicitStartRef.current = true;
     const onboardingQuestions = getOnboardingQuestions(locale);
     const restartMessages = [
       { role: 'assistant', content: t('chat.restartQuestionnaireIntro', locale) },
@@ -2398,7 +2426,11 @@ export default function ChatPage() {
           padding: 1.1rem 0.4rem 0.6rem;
           display: flex;
           flex-direction: column;
-          gap: 0.12rem;
+          /* 0.12rem → 0.4rem entre deux bulles d'un même auteur (Alex,
+             04/09/2026 : « les 2 messages à la suite d'Aaron sont trop
+             collés »). Messenger et WhatsApp laissent 4 à 6 px ; à 2 px les
+             bulles se touchaient et se lisaient comme un seul pavé. */
+          gap: 0.4rem;
         }
         .mg-group-wrap { display: contents; }
         .intro {
@@ -2429,7 +2461,7 @@ export default function ChatPage() {
         }
         .msg-row.user { justify-content: flex-end; }
         .msg-row.assistant { justify-content: flex-start; }
-        .msg-row.first { margin-top: 0.55rem; }
+        .msg-row.first { margin-top: 0.9rem; }
         .mg-msg-avatar {
           width: 26px;
           height: 26px;
