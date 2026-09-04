@@ -306,12 +306,17 @@ export default function CampaignsPage() {
           <p className="eyebrow">{t('campaigns.eyebrow', locale)}</p>
           <h1>{t('campaigns.pageTitle', locale)}</h1>
         </div>
-        {tab === 'prospection' && (
-          <button className="btn-primary" onClick={() => setShowChat(true)}>
-            + {t('campaigns.newCampaign', locale)}
-          </button>
-        )}
       </header>
+
+      {/* « Il manque le + comme pour campagnes dans le dashboard » (Alex,
+          04/09/2026). Même bouton flottant que l'Agenda (classe globale .fab,
+          app/globals.css) : un seul geste « créer » dans toute l'app, au même
+          endroit. */}
+      {tab === 'prospection' && (
+        <button type="button" className="fab" aria-label={t('campaigns.newCampaign', locale)} onClick={() => setShowChat(true)}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      )}
 
       <div className="tab-switch">
         <button
@@ -437,7 +442,12 @@ export default function CampaignsPage() {
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : campaigns.length === 0 ? (
-        <EmptyState title={t('campaigns.emptyTitle', locale)} body={t('campaigns.emptyBody', locale)} />
+        <EmptyState
+          title={t('campaigns.emptyTitle', locale)}
+          body={t('campaigns.emptyBody', locale)}
+          onCta={() => setShowChat(true)}
+          ctaLabel={t('campaigns.emptyCta', locale)}
+        />
       ) : (
         <div className="cards">
           {campaigns.map((c) => {
@@ -2151,27 +2161,77 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   );
 }
 
-function EmptyState({ title, body }) {
+function EmptyState({ title, body, onCta, ctaLabel }) {
   return (
     <div className="empty">
+      {onCta && (
+        <button type="button" className="empty-plus" onClick={onCta} aria-label={ctaLabel}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      )}
       <p className="empty-title">{title}</p>
       <p className="empty-body">{body}</p>
+      {onCta && (
+        <button type="button" className="empty-cta" onClick={onCta}>{ctaLabel}</button>
+      )}
       <style jsx>{`
+        /* Même état vide que « Campagnes en cours » sur le tableau de bord
+           (04/09/2026) : le + rond, le titre, la phrase, l'appel en dégradé.
+           Fond en dégradé léger et bordure pointillée : c'est une invitation,
+           pas un panneau vide. */
         .empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
           text-align: center;
-          padding: 4rem 1rem;
-          background: var(--surface);
-          border: 1px solid var(--border);
+          padding: 3.2rem 1.5rem;
+          background: rgba(75, 57, 239, 0.05);
+          border: 1px dashed rgba(75, 57, 239, 0.5);
           border-radius: var(--radius-lg);
         }
+        .empty-plus {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          margin-bottom: 1rem;
+          color: var(--accent-light);
+          background: rgba(75, 57, 239, 0.14);
+          border: 1px solid rgba(75, 57, 239, 0.45);
+          cursor: pointer;
+          transition: transform var(--fast), background var(--fast);
+        }
+        .empty-plus:hover {
+          transform: scale(1.06);
+          background: rgba(75, 57, 239, 0.22);
+        }
         .empty-title {
-          font-weight: 600;
+          font-family: var(--font-display);
+          font-size: 1.05rem;
+          font-weight: 700;
           margin: 0 0 0.35rem;
         }
         .empty-body {
           color: var(--muted);
           font-size: 0.88rem;
+          line-height: 1.5;
+          max-width: 34ch;
           margin: 0;
+        }
+        .empty-cta {
+          margin-top: 1.1rem;
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          border: none;
+          font-family: inherit;
+          font-size: 0.86rem;
+          font-weight: 600;
+          padding: 0.65rem 1.3rem;
+          border-radius: 999px;
+          box-shadow: 0 6px 18px rgba(75, 57, 239, 0.32);
+          cursor: pointer;
         }
       `}</style>
     </div>
