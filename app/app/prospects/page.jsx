@@ -11,7 +11,7 @@ import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
-import ExportFormatMenu from '@/components/ExportFormatMenu';
+import ActionMenu from '@/components/ActionMenu';
 import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
@@ -236,7 +236,7 @@ export default function ProspectsPage() {
   // filtre d'étape (toutes les étapes des catégories cochées).
   const [stageFilter, setStageFilter] = useState([]);
   const [extraFilter, setExtraFilter] = useState(null); // 'risk' | 'lost' | null
-  const [aaronOnly, setAaronOnly] = useState(false);
+  const [managedFilter, setManagedFilter] = useState(null); // 'aaron' | 'me' | null
   const [selectedId, setSelectedId] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -277,6 +277,7 @@ export default function ProspectsPage() {
   const rows = prospects.map((p) => ({ p, position: derivePipelinePosition(p), alerts: contactAlerts(p) }));
   const counts = countPipeline(prospects);
   const aaronManagedCount = rows.filter((r) => r.p.ai_managed !== false && !r.position.lost).length;
+  const meManagedCount = rows.filter((r) => r.p.ai_managed === false && !r.position.lost).length;
 
   function toggleCategory(cat) {
     setExtraFilter(null);
@@ -301,7 +302,8 @@ export default function ProspectsPage() {
       if (extraFilter === 'risk') return position.risk;
       if (!categories.includes(position.category)) return false;
       if (stageFilter.length > 0 && !stageFilter.includes(position.stage)) return false;
-      if (aaronOnly && p.ai_managed === false) return false;
+      if (managedFilter === 'aaron' && p.ai_managed === false) return false;
+      if (managedFilter === 'me' && p.ai_managed !== false) return false;
       return true;
     })
     .filter(({ p }) => {
@@ -395,23 +397,24 @@ export default function ProspectsPage() {
           <p className="subtitle">{t('pipeline.fusionSubtitle', locale)} <button type="button" className="link-btn" onClick={() => setShowHelp((v) => !v)}>{showHelp ? t('pipeline.helpHide', locale) : t('pipeline.helpShow', locale)}</button></p>
         </div>
         <div className="header-actions">
-          <ExportFormatMenu
-            label={t('pipeline.exportFile', locale)}
-            disabled={filtered.length === 0}
-            onChoose={(format) => exportProspectsToCsv(filtered.map((r) => r.p), locale, format)}
+          {/* Un seul bouton (Alex, 04/09/2026 : « ajouter un prospect
+              manuellement, télécharger fichier contact, importer fichier
+              contact — c'est moche, ça éparpille »). Les trois actions et le
+              modèle vierge vivent dans un menu ; l'en-tête ne porte plus
+              qu'un geste. */}
+          <ActionMenu
+            label={`+ ${t('common.add', locale)}`}
+            items={[
+              { key: 'manual', icon: '✍️', label: t('pipeline.addManually', locale), hint: t('pipeline.menuManualHint', locale), onSelect: () => setShowAddForm(true) },
+              { key: 'import', icon: '📥', label: t('pipeline.importFile', locale), hint: t('pipeline.menuImportHint', locale), onSelect: () => setShowCsvImport(true) },
+              { key: 'sep-1', separator: true },
+              { key: 'template-csv', icon: '📄', label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.csv', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'csv') },
+              { key: 'template-xlsx', icon: '📊', label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.xlsx', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'xlsx') },
+              { key: 'sep-2', separator: true },
+              { key: 'export-csv', icon: '⬇️', label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.csv', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'csv') },
+              { key: 'export-xlsx', icon: '⬇️', label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.xlsx', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'xlsx') },
+            ]}
           />
-          <div className="import-group">
-            <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
-              {t('pipeline.importFile', locale)}
-            </button>
-            <span className="import-note">
-              {t('pipeline.importNote', locale)}{' '}
-              <ExportFormatMenu label={t('pipeline.blankTemplate', locale)} variant="link" onChoose={(format) => downloadBlankProspectsTemplate(locale, format)} />
-            </span>
-          </div>
-          <button className="btn-primary" onClick={() => setShowAddForm(true)}>
-            {t('pipeline.addManually', locale)}
-          </button>
         </div>
       </header>
 
@@ -429,34 +432,53 @@ export default function ProspectsPage() {
         </div>
       )}
 
-      <div className="cat-row">
-        {CATEGORY_DEFS.map((c) => {
-          const on = extraFilter === null && categories.includes(c.key);
-          return (
-            <button
-              key={c.key}
-              type="button"
-              className={`cat-chip${on ? ' on' : ''}`}
-              style={on ? { borderColor: PIPELINE_COLORS[c.key], color: PIPELINE_COLORS[c.key], background: `${PIPELINE_COLORS[c.key]}18` } : undefined}
-              onClick={() => toggleCategory(c.key)}
-              title={c.hint}
-            >
-              <span className="cat-ic">{CATEGORY_ICONS[c.key]}</span>
-              {c.label}
-              <span className="cat-count">{counts.byCategory[c.key]}</span>
-            </button>
-          );
-        })}
-        <span className="cat-sep" />
-        <button type="button" className={`cat-chip small${extraFilter === 'risk' ? ' on risk' : ''}`} onClick={() => toggleExtra('risk')} title={t('pipeline.riskHint', locale)}>
-          ⚠ {t('pipeline.riskLabel', locale)} <span className="cat-count">{counts.risk}</span>
-        </button>
-        <button type="button" className={`cat-chip small${extraFilter === 'lost' ? ' on lost' : ''}`} onClick={() => toggleExtra('lost')} title={t('pipeline.lostHint', locale)}>
-          ✕ {t('pipeline.lostLabel', locale)} <span className="cat-count">{counts.lost}</span>
-        </button>
-        <button type="button" className={`cat-chip small${aaronOnly ? ' on aaron' : ''}`} onClick={() => setAaronOnly((v) => !v)} title={t('pipeline.aaronOnlyHint', locale)}>
-          🤖 {t('pipeline.aaronOnly', locale)} <span className="cat-count">{aaronManagedCount}</span>
-        </button>
+      {/* Filtres (Alex, 04/09/2026 : « ça me gêne finalement les boutons
+          prospect / opportunité / client, le symbole est moche comparé aux
+          autres, et ça fait trop de boutons »).
+          Avant : six pilules de même poids, avec des emojis qui juraient à
+          côté des symboles SVG de la barre d'étapes.
+          Maintenant : UNE barre segmentée pour les trois familles — mêmes
+          symboles SVG que la barre d'étapes juste en dessous, couleur de la
+          famille quand elle est active — et, à droite, les filtres
+          secondaires en petites pilules neutres. Deux niveaux, deux poids. */}
+      <div className="filters-row">
+        <div className="segment" role="group">
+          {CATEGORY_DEFS.map((c) => {
+            const on = extraFilter === null && categories.includes(c.key);
+            const color = PIPELINE_COLORS[c.key];
+            return (
+              <button
+                key={c.key}
+                type="button"
+                className={`seg${on ? ' on' : ''}`}
+                style={on ? { color, background: `${color}22`, boxShadow: `inset 0 0 0 1px ${color}66` } : undefined}
+                onClick={() => toggleCategory(c.key)}
+                title={c.hint}
+              >
+                <PipelineIcon category={c.key} size={15} filled={on} />
+                <span className="seg-lbl">{c.label}</span>
+                <span className="seg-count">{counts.byCategory[c.key]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="sub-filters">
+          <button type="button" className={`chip${extraFilter === 'risk' ? ' active' : ''}`} onClick={() => toggleExtra('risk')} title={t('pipeline.riskHint', locale)}>
+            ⚠ {t('pipeline.riskLabel', locale)} <span className="chip-count">{counts.risk}</span>
+          </button>
+          <button type="button" className={`chip${extraFilter === 'lost' ? ' active' : ''}`} onClick={() => toggleExtra('lost')} title={t('pipeline.lostHint', locale)}>
+            ✕ {t('pipeline.lostLabel', locale)} <span className="chip-count">{counts.lost}</span>
+          </button>
+          {/* « Tu as mis géré par Aaron, du coup mets à côté géré par moi »
+              (Alex, 04/09/2026). Les deux s'excluent : un contact est géré
+              par l'un ou par l'autre. */}
+          <button type="button" className={`chip${managedFilter === 'aaron' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'aaron' ? null : 'aaron'))} title={t('pipeline.aaronOnlyHint', locale)}>
+            🤖 {t('pipeline.aaronOnly', locale)} <span className="chip-count">{aaronManagedCount}</span>
+          </button>
+          <button type="button" className={`chip${managedFilter === 'me' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'me' ? null : 'me'))} title={t('pipeline.meOnlyHint', locale)}>
+            🙋 {t('pipeline.meOnly', locale)} <span className="chip-count">{meManagedCount}</span>
+          </button>
+        </div>
       </div>
 
       <div className="stage-bar">
@@ -700,8 +722,6 @@ export default function ProspectsPage() {
           flex-wrap: wrap;
           gap: 0.6rem;
         }
-        .import-group { display: flex; flex-direction: column; gap: 0.25rem; }
-        .import-note { font-size: 0.72rem; color: var(--muted); max-width: 22ch; line-height: 1.3; }
         .btn-secondary {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -759,35 +779,59 @@ export default function ProspectsPage() {
         .help-box p { margin: 0 0 0.5rem; color: var(--muted); }
         .help-box ul { margin: 0; padding-left: 1.1rem; }
         .help-box li { margin-bottom: 0.25rem; }
-        .cat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; }
-        .cat-sep { width: 1px; height: 1.6rem; background: var(--border); margin: 0 0.3rem; }
-        .cat-chip {
+        /* Filtres à deux niveaux (04/09/2026). */
+        .filters-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.9rem;
+        }
+        .segment {
+          display: inline-flex;
+          padding: 4px;
+          gap: 2px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+        }
+        .seg {
           display: inline-flex;
           align-items: center;
           gap: 0.45rem;
-          background: var(--surface);
-          border: 1px solid var(--border);
-          color: var(--muted);
+          padding: 0.45rem 0.95rem;
+          border: 0;
           border-radius: 999px;
-          padding: 0.5rem 0.95rem;
+          background: transparent;
+          color: var(--muted);
+          font-family: inherit;
           font-size: 0.84rem;
           font-weight: 600;
           cursor: pointer;
-          font-family: inherit;
-          transition: border-color var(--fast), color var(--fast), background var(--fast);
+          transition: background var(--fast), color var(--fast);
         }
-        .cat-chip.small { font-weight: 500; font-size: 0.78rem; padding: 0.4rem 0.8rem; }
-        .cat-chip.on.risk { border-color: ${PIPELINE_COLORS.risk}; color: ${PIPELINE_COLORS.risk}; background: ${PIPELINE_COLORS.risk}18; }
-        .cat-chip.on.lost { border-color: ${PIPELINE_COLORS.lost}; color: ${PIPELINE_COLORS.lost}; background: ${PIPELINE_COLORS.lost}18; }
-        .cat-chip.on.aaron { border-color: var(--accent); color: var(--accent-light); background: rgba(75, 57, 239, 0.14); }
-        .cat-ic { font-size: 0.95rem; }
-        .cat-count {
-          background: var(--tint-8);
-          color: inherit;
-          border-radius: 999px;
-          padding: 0.05rem 0.5rem;
-          font-size: 0.72rem;
+        .seg:hover { color: var(--text); }
+        .seg-count {
           font-family: var(--font-mono);
+          font-size: 0.72rem;
+          font-weight: 500;
+          opacity: 0.85;
+        }
+        .sub-filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+        .chip-count {
+          font-family: var(--font-mono);
+          font-size: 0.7rem;
+          opacity: 0.85;
+        }
+        @media (max-width: 700px) {
+          .segment { width: 100%; }
+          .seg { flex: 1; justify-content: center; padding: 0.45rem 0.5rem; }
+          .seg-lbl { display: none; }
         }
         .stage-bar {
           display: grid;
@@ -981,7 +1025,6 @@ export default function ProspectsPage() {
           .header { flex-direction: column; gap: 0.8rem; }
           .header-actions { width: 100%; }
           .header-actions > :global(*) { flex: 1 1 100%; }
-          .import-note { max-width: none; }
           .stage-bar { grid-template-columns: repeat(6, minmax(58px, 1fr)); overflow-x: auto; }
           .stage-icon { width: 26px; height: 26px; }
           .stage-link { top: calc(0.6rem + 13px); left: calc(-50% + 18px); width: calc(100% - 36px); }
