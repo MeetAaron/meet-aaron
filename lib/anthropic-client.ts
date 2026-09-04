@@ -43,8 +43,23 @@ import { getSubscriptionState } from './subscription-status';
 // supprimé avec l'ancien système de solde de crédits.
 export type CreditModule = 'ap' | 'as' | 'ac';
 
-const INPUT_COST_PER_MTOK_USD = 3;   // Claude Sonnet — $ par million de tokens en entrée
-const OUTPUT_COST_PER_MTOK_USD = 15; // Claude Sonnet — $ par million de tokens en sortie
+// Tarifs par modèle, $ par million de tokens (04/09/2026).
+//
+// Avant : UN seul tarif (Sonnet, 3 $ / 15 $) appliqué à tous les appels —
+// alors que la moitié des appels de l'app sont sur Haiku (lecture d'emails,
+// classements, résumés), ~4 fois moins cher. Et les tokens servis depuis le
+// cache (prompt caching, 90 % moins chers) n'étaient pas comptés du tout :
+// `usage.input_tokens` de l'API EXCLUT les lectures de cache, qui arrivent
+// dans `cache_read_input_tokens`. Résultat : le compteur de crédits
+// surfacturait Haiku et sous-comptait Sonnet en conversation. Alex demande
+// où partent ses tokens ; le compteur doit d'abord dire la vérité.
+const MODEL_PRICING_USD: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  // Sonnet 4.x : 3 / 15 ; écriture de cache +25 %, lecture de cache −90 %.
+  'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
+  // Haiku 4.5 : 1 / 5.
+  'claude-haiku-4-5': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+};
+const DEFAULT_PRICING = MODEL_PRICING_USD['claude-sonnet-4-6'];
 // Docx Modifs Aaron (AJOUTS 30/08/26, item 2) : "la limite par mois PAR
 // UTILISATEUR soit de 20 €. Pas dollars, euros. Et donc répartis sur 30
 // jours." — le suivi de coût reste en USD (tarifs Anthropic), donc 20 € sont
@@ -59,7 +74,7 @@ const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien = 
 // Anthropic pour l'outil web_search natif : 10 $ pour 1000 recherches, EN
 // PLUS du coût normal des tokens (les résultats de recherche sont eux-mêmes
 // facturés comme des tokens d'entrée classiques, déjà couverts par
-// INPUT_COST_PER_MTOK_USD ci-dessus — seul le forfait par recherche est
+// le tarif d'entrée du modèle ci-dessus — seul le forfait par recherche est
 // spécifique et doit être ajouté à part). Voir app/api/chat/route.ts pour
 // l'outil lui-même (CHAT_WEB_SEARCH_TOOL) ; voir callClaude plus bas pour la
 // lecture de usage.server_tool_use.web_search_requests dans la réponse.
@@ -203,11 +218,30 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
   return { exceeded: false };
 }
 
-function computeCostUsd(inputTokens: number, outputTokens: number, webSearches: number = 0): number {
+export interface UsageBreakdown {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  webSearches: number;
+}
+
+function pricingFor(model: string | undefined) {
+  if (!model) return DEFAULT_PRICING;
+  // Les identifiants datés (« claude-haiku-4-5-20251001 ») commencent par la
+  // clé : on compare par préfixe.
+  const key = Object.keys(MODEL_PRICING_USD).find((k) => model.startsWith(k));
+  return key ? MODEL_PRICING_USD[key] : DEFAULT_PRICING;
+}
+
+export function computeCostUsd(model: string | undefined, u: UsageBreakdown): number {
+  const p = pricingFor(model);
   return (
-    (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK_USD +
-    (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK_USD +
-    webSearches * WEB_SEARCH_COST_PER_SEARCH_USD
+    (u.inputTokens / 1_000_000) * p.input +
+    (u.outputTokens / 1_000_000) * p.output +
+    (u.cacheWriteTokens / 1_000_000) * p.cacheWrite +
+    (u.cacheReadTokens / 1_000_000) * p.cacheRead +
+    u.webSearches * WEB_SEARCH_COST_PER_SEARCH_USD
   );
 }
 
@@ -216,8 +250,8 @@ function computeCostUsd(inputTokens: number, outputTokens: number, webSearches: 
 // aussi sa part dans api_usage_user_monthly — c'est ce qui alimente la jauge
 // de crédits par commercial dans Mon équipe. Les appels non rattachables
 // (crons société) restent comptés au niveau société uniquement.
-async function recordUsage(companyId: string, inputTokens: number, outputTokens: number, webSearches: number = 0, userId?: string | null) {
-  const costUsd = computeCostUsd(inputTokens, outputTokens, webSearches);
+async function recordUsage(companyId: string, model: string | undefined, usage: UsageBreakdown, userId?: string | null) {
+  const costUsd = computeCostUsd(model, usage);
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
@@ -335,6 +369,8 @@ export async function callClaude(
   if (companyId && data.usage) {
     const inputTokens = data.usage.input_tokens || 0;
     const outputTokens = data.usage.output_tokens || 0;
+    const cacheWriteTokens = data.usage.cache_creation_input_tokens || 0;
+    const cacheReadTokens = data.usage.cache_read_input_tokens || 0;
     // Nombre de recherches web réellement effectuées par Aaron sur CET appel
     // (l'outil web_search est "server-side" : Anthropic peut faire plusieurs
     // recherches en une seule requête, jusqu'à max_uses défini sur l'outil —
@@ -342,7 +378,7 @@ export async function callClaude(
     // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
     const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
 
-    await recordUsage(companyId, inputTokens, outputTokens, webSearches, userId);
+    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, webSearches }, userId);
 
   }
 

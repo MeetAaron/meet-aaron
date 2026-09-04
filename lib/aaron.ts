@@ -295,6 +295,19 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
     };
   }
 
+  // Optimisation coût (04/09/2026, question d'Alex : « qu'est-ce qui
+  // consomme en tokens ? »). Le contexte est coupé en deux :
+  //   - la partie STABLE pour toute la société (qui est le commercial, ce
+  //     qu'il vend — le profil d'entreprise fait ~2 500 tokens — et les
+  //     extraits de documents) part dans un second bloc système mis en
+  //     cache. Le cron traite les prospects d'une même société à la suite :
+  //     dès le deuxième, ce bloc est lu depuis le cache à 10 % du prix.
+  //   - la partie propre au prospect (fiche, historique, RDV…) reste dans le
+  //     message, elle change à chaque appel de toute façon.
+  // Même contenu qu'avant, seul l'emplacement change.
+  const { commercial, documents_entreprise, ...prospectContext } = context as any;
+  const companyBlock = { commercial, documents_entreprise };
+
   const data = await callClaude(
     {
       model: 'claude-sonnet-4-6',
@@ -302,11 +315,18 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
       // Prompt caching : ce system prompt est identique à chaque appel (un par
       // prospect, à chaque cycle de prospection) — le mettre en cache réduit
       // fortement le coût et la latence sur le plus gros poste d'appels API.
-      system: [{ type: 'text', text: AARON_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      system: [
+        { type: 'text', text: AARON_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        {
+          type: 'text',
+          text: `Contexte commercial — identique pour tous les prospects de cette société (clés \`commercial\` et \`documents_entreprise\` du contexte) :\n\n${JSON.stringify(companyBlock, null, 2)}`,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [
         {
           role: 'user',
-          content: `Voici le contexte complet de la situation, y compris un extrait des documents de l'entreprise si disponibles, et l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(context, null, 2)}`,
+          content: `Voici le contexte de la situation pour CE prospect (le contexte commercial — commercial, documents_entreprise — est dans les instructions système), y compris l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(prospectContext, null, 2)}`,
         },
       ],
     },
