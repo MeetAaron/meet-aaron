@@ -518,25 +518,16 @@ export default function AgendaPage() {
           <p className="eyebrow">{t('agenda.eyebrow', locale)}</p>
           <h1>{t('agenda.title', locale)}</h1>
         </div>
-        <button
-          type="button"
-          className="btn-primary header-add"
-          onClick={() => {
-            setAddModalPreset(null);
-            setShowAddModal(true);
-          }}
-        >
-          + {t('common.add', locale)}
-        </button>
       </header>
 
       {/* « Je trouve que le bouton ajouter n'est pas au bon endroit » (Alex,
-          04/09/2026). Sur ordinateur il reste dans l'en-tête, à droite du
-          titre — c'est sa place logique. Sur téléphone il devient un bouton
-          flottant en bas à droite : l'en-tête est la zone la plus difficile à
-          atteindre au pouce, et le geste « ajouter » est le seul de la page
-          qu'on refait sans arrêt. Placé au-dessus de la barre d'onglets, en
-          tenant compte de la zone sûre iPhone. */}
+          04/09/2026), puis « fais les modifs pour la version PC également ».
+          Le bouton de l'en-tête a disparu partout : c'est un bouton flottant
+          en bas à droite, sur téléphone (au-dessus de la barre d'onglets, zone
+          sûre iPhone comprise) comme sur ordinateur. Le geste « ajouter » est
+          le seul de la page qu'on refait sans arrêt : il doit être au même
+          endroit quelle que soit la longueur de la liste, pas en haut d'une
+          page qu'on a fait défiler. */}
       <button
         type="button"
         className="agenda-fab"
@@ -600,6 +591,73 @@ export default function AgendaPage() {
         <EmptyState title={t('agenda.emptyTitle', locale)} body={t('agenda.emptyBody', locale)} />
       ) : (
         <>
+          {/* Bloc « Aujourd'hui » (04/09/2026, « ça manque d'âme, de punch »).
+              Un agenda doit répondre en une seconde à UNE question : qu'est-ce
+              que j'ai aujourd'hui, et c'est quand le prochain ? Avant, on
+              arrivait sur une liste plate qu'il fallait lire. Ce bloc est
+              calculé sur les mêmes rendez-vous que la liste, jamais figé. */}
+          {(() => {
+            const now = new Date();
+            const live = appointments.filter((a) => a.status !== 'annulé');
+            const todayList = live
+              .filter((a) => new Date(a.proposed_at).toDateString() === now.toDateString())
+              .sort((a, b) => new Date(a.proposed_at) - new Date(b.proposed_at));
+            const upcoming = live
+              .filter((a) => new Date(a.proposed_at) >= now)
+              .sort((a, b) => new Date(a.proposed_at) - new Date(b.proposed_at));
+            const next = upcoming[0] || null;
+            const todayLeft = todayList.filter((a) => new Date(a.proposed_at) >= now).length;
+            const nextIsToday = next && new Date(next.proposed_at).toDateString() === now.toDateString();
+            const nextIsTomorrow = next && (() => { const d = new Date(now); d.setDate(d.getDate() + 1); return new Date(next.proposed_at).toDateString() === d.toDateString(); })();
+            const who = (a) => a.prospects?.full_name || a.contact_name || '';
+            const where = (a) => a.prospects?.prospect_companies?.name || '';
+            return (
+              <section className="today-hero">
+                <div className="today-main">
+                  <p className="today-eyebrow">{t('agenda.todayEyebrow', locale)}</p>
+                  <p className="today-count">
+                    {todayList.length === 0
+                      ? t('agenda.todayNone', locale)
+                      : t(todayList.length === 1 ? 'agenda.todayOne' : 'agenda.todayMany', locale).replace('{n}', todayList.length)}
+                    {todayList.length > 0 && todayLeft < todayList.length && (
+                      <span className="today-left"> · {t('agenda.todayLeft', locale).replace('{n}', todayLeft)}</span>
+                    )}
+                  </p>
+                </div>
+                {next ? (
+                  <div className="today-next">
+                    <span className="today-next-label">
+                      {nextIsToday ? t('agenda.nextToday', locale) : nextIsTomorrow ? t('agenda.nextTomorrow', locale) : t('agenda.nextLater', locale)}
+                    </span>
+                    <button
+                      type="button"
+                      className="today-next-card"
+                      onClick={next.prospect_id ? () => setDetailAppointment(next) : undefined}
+                    >
+                      <span className="today-next-time">
+                        {nextIsToday || nextIsTomorrow
+                          ? new Date(next.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+                          : new Date(next.proposed_at).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })}
+                      </span>
+                      <span className="today-next-who">
+                        <strong>{who(next)}</strong>
+                        {where(next) && <span className="muted"> — {where(next)}</span>}
+                      </span>
+                      <span className={`type-badge type-${next.type}`}>{TYPE_ICONS[next.type] || ''} {TYPE_LABELS[next.type]}</span>
+                    </button>
+                    {next.meet_link && (
+                      <a href={next.meet_link} target="_blank" rel="noreferrer" className="today-join">
+                        {t('agenda.joinNow', locale)} →
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className="today-empty">{t('agenda.noUpcoming', locale)}</p>
+                )}
+              </section>
+            );
+          })()}
+
           {pending.length > 0 && (
             <section className="block">
               <h2>{t('agenda.statusProposed', locale)} ({pending.length})</h2>
@@ -1255,7 +1313,122 @@ export default function AgendaPage() {
           margin-top: 1.6rem;
         }
         .agenda-fab {
-          display: none;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: fixed;
+          right: 2rem;
+          bottom: 2rem;
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          border: none;
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          box-shadow: 0 10px 26px rgba(75, 57, 239, 0.45);
+          z-index: 60;
+          cursor: pointer;
+          transition: transform var(--fast), box-shadow var(--fast);
+        }
+        .agenda-fab:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 14px 32px rgba(75, 57, 239, 0.55);
+        }
+        .agenda-fab:active { transform: scale(0.94); }
+
+        /* Bloc « Aujourd'hui » (04/09/2026). Le dégradé est réservé à ce seul
+           bloc : c'est lui qui donne la première impression de la page, le
+           reste doit rester calme pour qu'il ressorte. */
+        .today-hero {
+          display: flex;
+          align-items: stretch;
+          gap: 1.4rem;
+          padding: 1.3rem 1.5rem;
+          margin-bottom: 1.4rem;
+          border-radius: var(--radius-lg);
+          background: linear-gradient(135deg, rgba(75, 57, 239, 0.22), rgba(201, 63, 140, 0.12));
+          border: 1px solid rgba(75, 57, 239, 0.35);
+        }
+        .today-main {
+          flex: 0 0 auto;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          min-width: 180px;
+        }
+        .today-eyebrow {
+          margin: 0 0 0.3rem;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: var(--accent-light);
+        }
+        .today-count {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 1.35rem;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+          line-height: 1.2;
+        }
+        .today-left {
+          font-family: var(--font-body);
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: var(--muted);
+        }
+        .today-next {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+          padding-left: 1.4rem;
+          border-left: 1px solid rgba(244, 241, 234, 0.12);
+        }
+        .today-next-label {
+          font-size: 0.7rem;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+        .today-next-card {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          flex-wrap: wrap;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.7rem 0.9rem;
+          color: var(--text);
+          font-family: inherit;
+          font-size: 0.9rem;
+          text-align: left;
+          cursor: pointer;
+          transition: border-color var(--fast);
+        }
+        .today-next-card:hover { border-color: var(--accent); }
+        .today-next-time {
+          font-family: var(--font-mono);
+          font-size: 1.05rem;
+          color: var(--accent-light);
+          flex-shrink: 0;
+        }
+        .today-next-who { flex: 1; min-width: 0; }
+        .today-join {
+          align-self: flex-start;
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: var(--accent-green);
+          text-decoration: none;
+        }
+        .today-empty {
+          margin: 0;
+          align-self: center;
+          color: var(--muted);
+          font-size: 0.88rem;
         }
         .day-detail-header {
           display: flex;
@@ -2988,25 +3161,23 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           display: none;
         }
         @media (max-width: 900px) {
-          .header-add { display: none; }
+          /* Sur téléphone, le bouton flottant remonte au-dessus de la barre
+             d'onglets du bas (zone sûre iPhone comprise). */
           .agenda-fab {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: fixed;
             right: 1rem;
             bottom: calc(96px + env(safe-area-inset-bottom, 0px));
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            border: none;
-            background: linear-gradient(135deg, var(--accent), var(--accent-light));
-            color: #fff;
-            box-shadow: 0 10px 26px rgba(75, 57, 239, 0.45);
-            z-index: 60;
-            cursor: pointer;
           }
-          .agenda-fab:active { transform: scale(0.94); }
+          .today-hero {
+            flex-direction: column;
+            gap: 0.9rem;
+            padding: 1.1rem 1.1rem;
+          }
+          .today-next {
+            padding-left: 0;
+            border-left: 0;
+            padding-top: 0.9rem;
+            border-top: 1px solid rgba(244, 241, 234, 0.12);
+          }
 
           .shell {
             grid-template-columns: 1fr;
