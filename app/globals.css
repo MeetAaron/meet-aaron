@@ -592,3 +592,239 @@ html[data-theme='light'] .shell > .sidebar {
     padding: 2.2rem 2.6rem !important;
   }
 }
+
+/* =====================================================================
+   SYSTÈME DE BOUTONS UNIQUE (demande Alex, 04/09/2026 : « je veux de la
+   cohérence entre les boutons, visuels, etc. »).
+
+   Constat : .btn-primary / .btn-secondary / .btn-danger / .btn-ghost sont
+   redéfinis dans CHACUNE des 15 pages (styled-jsx scopé), avec des rayons,
+   des paddings et des couleurs qui divergent d'une page à l'autre — un bouton
+   plat ici, un dégradé là, un rayon de 8 px à côté d'un rayon de 12 px.
+   C'est exactement ce qui donne l'impression d'un patchwork.
+
+   Cette couche redéfinit UNE fois chaque famille de bouton. Le sélecteur
+   `.shell > main.content .xxx` (spécificité 0,3,0) l'emporte sur la version
+   scopée de chaque page (0,2,0) quel que soit l'ordre d'injection des
+   feuilles — même mécanisme que la couche mobile plus haut. Les pages
+   gardent leur CSS local : il devient simplement inopérant pour ces
+   propriétés, sans qu'on ait à les modifier une par une.
+
+   Familles :
+   - .btn-primary   : l'action principale d'un écran (une seule par vue).
+                      Dégradé accent → accent clair, blanc, halo au survol.
+   - .btn-secondary : action de second rang. Surface + bordure.
+   - .btn-ghost     : action tertiaire, discrète. Transparent + bordure fine.
+   - .btn-danger    : destructif. Rouge en contour ; rouge plein au survol.
+   - .link-btn      : lien dans du texte. Pas un bouton visuel.
+   - .btn-icon      : bouton rond 36 px à icône seule (fermer, options).
+   - .fab           : bouton flottant rond 56 px (Agenda, Campagnes).
+   - .chip          : filtre / onglet pilule (doc-filter, report-tab, tabs…).
+   ===================================================================== */
+.shell > main.content .btn-primary,
+.shell > main.content .btn-secondary,
+.shell > main.content .btn-ghost,
+.shell > main.content .btn-danger,
+.shell > main.content .btn-neutral,
+.shell > main.content .btn-valid {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 12px;
+  padding: 0.68rem 1.15rem;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.shell > main.content .btn-primary:disabled,
+.shell > main.content .btn-secondary:disabled,
+.shell > main.content .btn-ghost:disabled,
+.shell > main.content .btn-danger:disabled,
+.shell > main.content .btn-neutral:disabled,
+.shell > main.content .btn-valid:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.shell > main.content .btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 18px rgba(75, 57, 239, 0.32);
+}
+.shell > main.content .btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(75, 57, 239, 0.42);
+}
+.shell > main.content .btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.shell > main.content .btn-secondary,
+.shell > main.content .btn-neutral {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.shell > main.content .btn-secondary:hover:not(:disabled),
+.shell > main.content .btn-neutral:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.shell > main.content .btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.8rem;
+}
+.shell > main.content .btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.shell > main.content .btn-danger {
+  background: transparent;
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 89, 0.45);
+}
+.shell > main.content .btn-danger:hover:not(:disabled) {
+  background: var(--accent-red);
+  color: #fff;
+  border-color: var(--accent-red);
+}
+
+.shell > main.content .btn-valid {
+  background: rgba(61, 214, 140, 0.12);
+  color: var(--accent-green);
+  border: 1px solid rgba(61, 214, 140, 0.45);
+}
+.shell > main.content .btn-valid:hover:not(:disabled) {
+  background: var(--accent-green);
+  color: #0a0c17;
+}
+
+/* Petite variante, pour les rangées d'actions serrées. */
+.shell > main.content .btn-primary.small,
+.shell > main.content .btn-secondary.small,
+.shell > main.content .btn-danger.small,
+.shell > main.content .btn-valid.small {
+  padding: 0.42rem 0.8rem;
+  font-size: 0.78rem;
+  border-radius: 10px;
+}
+
+/* Bouton rond à icône seule. */
+.shell > main.content .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--tint-6);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.shell > main.content .btn-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* Bouton flottant : même objet sur Agenda et Campagnes. */
+.shell > main.content .fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  right: 2rem;
+  bottom: 2rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(75, 57, 239, 0.45);
+  z-index: 60;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.shell > main.content .fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(75, 57, 239, 0.55);
+}
+.shell > main.content .fab:active {
+  transform: scale(0.94);
+}
+@media (max-width: 900px) {
+  .shell > main.content .fab {
+    right: 1rem;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Pilules de filtre / onglets : une seule apparence pour toutes les pages. */
+.shell > main.content .chip,
+.shell > main.content .doc-filter,
+.shell > main.content .report-tab,
+.shell > main.content .period-btn-like,
+.shell > main.content .bilan-btn,
+.shell > main.content .tab-btn,
+.shell > main.content .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.shell > main.content .chip:hover,
+.shell > main.content .doc-filter:hover,
+.shell > main.content .report-tab:hover,
+.shell > main.content .period-btn-like:hover,
+.shell > main.content .bilan-btn:hover,
+.shell > main.content .tab-btn:hover,
+.shell > main.content .seg-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.shell > main.content .chip.active,
+.shell > main.content .doc-filter.active,
+.shell > main.content .report-tab.active,
+.shell > main.content .period-btn-like.active,
+.shell > main.content .bilan-btn.active,
+.shell > main.content .tab-btn.active,
+.shell > main.content .seg-btn.active {
+  background: rgba(75, 57, 239, 0.16);
+  border-color: rgba(75, 57, 239, 0.55);
+  color: var(--accent-light);
+  font-weight: 600;
+}
+
+/* Cloche de notifications retirée (Alex, 04/09/2026 : « supprime-la, elle ne
+   sert à rien ») — les notifications vivent dans les stories en haut du
+   tableau de bord et dans les notifications push. */
+.rail-bell {
+  display: none !important;
+}
