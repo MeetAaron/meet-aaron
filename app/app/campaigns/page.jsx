@@ -363,6 +363,66 @@ export default function CampaignsPage() {
         </div>
       ) : (
       <>
+      {/* Bandeau de synthèse (04/09/2026, « la page manque de force, sans
+          âme »). La page disait « voici tes campagnes » avant de dire « ça
+          marche ». Quatre chiffres en tête, calculés sur TOUTES les campagnes :
+          combien de contacts Aaron a trouvés, combien sont en cours, combien
+          sont devenus clients, et ce que ça fait en pourcentage — la seule
+          mesure qu'un patron regarde. Calculé côté client sur la liste déjà
+          chargée : aucune requête de plus. */}
+      {!loading && campaigns.length > 0 && (() => {
+        const totals = campaigns.reduce(
+          (acc, c) => {
+            acc.contacts += c.contacts_found || 0;
+            acc.active += c.stats?.active || 0;
+            acc.won += c.stats?.won || 0;
+            acc.lost += c.stats?.lost || 0;
+            acc.running += c.status !== 'terminee' ? 1 : 0;
+            return acc;
+          },
+          { contacts: 0, active: 0, won: 0, lost: 0, running: 0 }
+        );
+        const decided = totals.won + totals.lost;
+        const winRate = decided > 0 ? Math.round((totals.won / decided) * 100) : null;
+        const R = 24;
+        const C = 2 * Math.PI * R;
+        return (
+          <section className="camp-summary">
+            <div className="camp-summary-ring">
+              <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+                <circle cx="32" cy="32" r={R} fill="none" stroke="var(--border)" strokeWidth="6" />
+                <circle
+                  cx="32" cy="32" r={R} fill="none" stroke="#1fae70" strokeWidth="6" strokeLinecap="round"
+                  strokeDasharray={C}
+                  strokeDashoffset={winRate === null ? C : C * (1 - winRate / 100)}
+                  transform="rotate(-90 32 32)"
+                />
+                <text x="32" y="36" textAnchor="middle" fontFamily="IBM Plex Mono, monospace" fontSize="12" fill="var(--text)">
+                  {winRate === null ? '—' : `${winRate}%`}
+                </text>
+              </svg>
+              <span className="camp-summary-ring-label">{t('campaigns.summaryWinRate', locale)}</span>
+            </div>
+            <div className="camp-summary-cell">
+              <span className="camp-summary-num num-contacts">{totals.contacts}</span>
+              <span className="camp-summary-lbl">{t('campaigns.summaryContacts', locale)}</span>
+            </div>
+            <div className="camp-summary-cell">
+              <span className="camp-summary-num num-active">{totals.active}</span>
+              <span className="camp-summary-lbl">{t('campaigns.outcomeActive', locale)}</span>
+            </div>
+            <div className="camp-summary-cell">
+              <span className="camp-summary-num num-won">{totals.won}</span>
+              <span className="camp-summary-lbl">{t('campaigns.outcomeWon', locale)}</span>
+            </div>
+            <div className="camp-summary-cell">
+              <span className="camp-summary-num">{totals.running}</span>
+              <span className="camp-summary-lbl">{t('campaigns.summaryRunning', locale)}</span>
+            </div>
+          </section>
+        );
+      })()}
+
       {!loading && campaigns.length > 0 && (
         <div className="global-advice-row">
           <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
@@ -774,6 +834,61 @@ export default function CampaignsPage() {
         .outcome-lbl {
           font-size: 0.7rem;
           color: var(--muted);
+        }
+        /* Bandeau de synthèse des campagnes (04/09/2026). */
+        .camp-summary {
+          display: flex;
+          align-items: center;
+          gap: 1.4rem;
+          flex-wrap: wrap;
+          padding: 1.1rem 1.4rem;
+          margin-bottom: 1.2rem;
+          border-radius: var(--radius-lg);
+          background: linear-gradient(135deg, rgba(75, 57, 239, 0.22), rgba(201, 63, 140, 0.12));
+          border: 1px solid rgba(75, 57, 239, 0.35);
+        }
+        .camp-summary-ring {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          padding-right: 1.4rem;
+          border-right: 1px solid rgba(244, 241, 234, 0.12);
+        }
+        .camp-summary-ring-label {
+          font-size: 0.74rem;
+          color: var(--muted);
+          max-width: 7em;
+          line-height: 1.3;
+        }
+        .camp-summary-cell {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          min-width: 90px;
+        }
+        .camp-summary-num {
+          font-family: var(--font-mono);
+          font-size: 1.5rem;
+          line-height: 1;
+        }
+        .num-contacts { color: #3d8fe8; }
+        .camp-summary-lbl {
+          font-size: 0.72rem;
+          color: var(--muted);
+        }
+        @media (max-width: 640px) {
+          .camp-summary {
+            gap: 0.9rem 1.2rem;
+            padding: 1rem 1.1rem;
+          }
+          .camp-summary-ring {
+            width: 100%;
+            padding-right: 0;
+            border-right: 0;
+            padding-bottom: 0.8rem;
+            border-bottom: 1px solid rgba(244, 241, 234, 0.12);
+          }
+          .camp-summary-cell { min-width: calc(50% - 0.6rem); }
         }
         .global-advice-row {
           display: flex;
