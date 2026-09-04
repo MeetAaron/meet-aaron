@@ -406,6 +406,15 @@ export default function ConnexionsPage() {
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Enregistrement contextuel (Alex, 04/09/2026 : « dès que l'utilisateur
+  // clique sur un nouveau bouton, un bouton Enregistrer apparaît juste en
+  // dessous ; s'il n'enregistre pas, les boutons reviennent à leur dernier
+  // endroit ; s'il enregistre, un petit message vert »).
+  // savedPrefs = la dernière version ENREGISTRÉE (chargement ou sauvegarde
+  // réussie). Un réglage est « modifié » quand prefs diffère de savedPrefs
+  // sur ses clés — c'est ce qui fait apparaître le bouton sous ce réglage.
+  const [savedPrefs, setSavedPrefs] = useState(null);
+  const [justSavedKeys, setJustSavedKeys] = useState(null);
   const [offerError, setOfferError] = useState(null);
   const [usage, setUsage] = useState(null);
   const [businessSummary, setBusinessSummary] = useState('');
@@ -572,6 +581,7 @@ export default function ConnexionsPage() {
           return;
         }
         setPrefs(body.preferences);
+        setSavedPrefs(body.preferences);
         setPrefsLoading(false);
       })
       .catch(() => {
@@ -953,7 +963,7 @@ export default function ConnexionsPage() {
     }
   }
 
-  async function handleSave() {
+  async function handleSave(keys) {
     setSaving(true);
     setSaved(false);
     setOfferError(null);
@@ -982,7 +992,47 @@ export default function ConnexionsPage() {
       return;
     }
     setSaved(true);
+    setSavedPrefs(prefs);
+    if (Array.isArray(keys)) {
+      const sig = keys.join('|');
+      setJustSavedKeys(sig);
+      setTimeout(() => setJustSavedKeys((cur) => (cur === sig ? null : cur)), 2500);
+    }
     setTimeout(() => setSaved(false), 2500);
+  }
+
+  // Un réglage est-il modifié par rapport à la version enregistrée ?
+  function prefsDirty(keys) {
+    if (!prefs || !savedPrefs) return false;
+    return keys.some((k) => JSON.stringify(prefs[k] ?? null) !== JSON.stringify(savedPrefs[k] ?? null));
+  }
+  function revertPrefs(keys) {
+    if (!savedPrefs) return;
+    setPrefs((cur) => {
+      const next = { ...cur };
+      for (const k of keys) next[k] = savedPrefs[k];
+      return next;
+    });
+  }
+  // Barre « Enregistrer / Annuler » sous un réglage modifié, ou « Changement
+  // enregistré » juste après la sauvegarde. Rien du tout sinon : la barre
+  // n'existe que quand elle a quelque chose à dire.
+  function SaveBar({ keys }) {
+    const sig = keys.join('|');
+    if (justSavedKeys === sig) {
+      return <p className="save-ok">✓ {t('preferences.changeSaved', locale)}</p>;
+    }
+    if (!prefsDirty(keys)) return null;
+    return (
+      <div className="save-bar">
+        <button type="button" className="btn-primary small" disabled={saving} onClick={() => handleSave(keys)}>
+          {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
+        </button>
+        <button type="button" className="btn-ghost" disabled={saving} onClick={() => revertPrefs(keys)}>
+          {t('common.cancel', locale)}
+        </button>
+      </div>
+    );
   }
 
   async function handleToggleModule(moduleValue, isActive) {
@@ -2438,6 +2488,7 @@ export default function ConnexionsPage() {
                   </button>
                 ))}
               </div>
+              <SaveBar keys={['notify_before_appointment_minutes']} />
             </div>
               </div>
             </section>
@@ -2461,6 +2512,7 @@ export default function ConnexionsPage() {
               <p className="collab-extra-hint">
                 {t('preferences.firstEmailHint', locale)}
               </p>
+              <SaveBar keys={['require_first_email_approval']} />
             </div>
 
             {/* « Aaron range les fils qu'il gère » (décision Alex,
@@ -2484,6 +2536,7 @@ export default function ConnexionsPage() {
                 ))}
               </div>
               <p className="collab-extra-hint">{t('preferences.archiveThreadsHint', locale)}</p>
+              <SaveBar keys={['aaron_archive_threads']} />
             </div>
 
             <div className="field">
@@ -2499,6 +2552,7 @@ export default function ConnexionsPage() {
               <p className="collab-extra-hint">
                 {t('preferences.dailyCapHint', locale)}
               </p>
+              <SaveBar keys={['daily_prospecting_email_cap']} />
             </div>
 
             <div className="field">
@@ -2526,6 +2580,7 @@ export default function ConnexionsPage() {
               <p className="collab-extra-hint">
                 {t('preferences.prospectingGoalHint', locale)}
               </p>
+              <SaveBar keys={['prospecting_goal', 'prospecting_goal_details']} />
             </div>
 
             <div className="field">
@@ -2606,6 +2661,7 @@ export default function ConnexionsPage() {
               <p className="collab-extra-hint">
                 {t('preferences.defaultFirstEmailHint', locale)}
               </p>
+              <SaveBar keys={['default_first_email_enabled', 'default_first_email_subject', 'default_first_email_body']} />
             </div>
               </div>
             </section>
@@ -2636,12 +2692,9 @@ export default function ConnexionsPage() {
               </div>
             </section>
 
-            <div className="actions">
-              <button className="btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? t('preferences.savingEllipsis', locale) : t('common.save', locale)}
-              </button>
-              {saved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
-            </div>
+            {/* Plus de bouton « Enregistrer » global en bas de page (Alex,
+                04/09/2026 : « je n'aime pas le enregistrer tout en bas ») :
+                chaque réglage modifié porte le sien, juste en dessous. */}
 
             {/* Liens legaux (01/09/2026). Balises <a> natives et non <Link> :
                 styled-jsx n'applique pas la classe de scope au className d'un
@@ -2940,6 +2993,13 @@ export default function ConnexionsPage() {
           .account-layout {
             grid-template-columns: 288px minmax(0, 1fr);
             align-items: start;
+          }
+          /* « Quand je descends en bas de la page, le menu ne suit pas »
+             (Alex, 04/09/2026, sur PC) : la liste reste collée en haut de
+             l'écran pendant que le panneau défile. */
+          .account-layout > :global(.account-nav) {
+            position: sticky;
+            top: 1.5rem;
           }
           .panel-back {
             display: none;
@@ -3685,6 +3745,20 @@ export default function ConnexionsPage() {
         .pref-card .field {
           margin-bottom: 0;
           padding: 0 0 1.3rem;
+        }
+        .save-bar {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin-top: 0.8rem;
+          padding-top: 0.8rem;
+          border-top: 1px dashed var(--border);
+        }
+        .save-ok {
+          margin: 0.8rem 0 0;
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: var(--accent-green);
         }
         .pref-card .field + .field {
           border-top: 1px solid var(--border);
