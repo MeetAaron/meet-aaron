@@ -530,7 +530,7 @@ export default function AgendaPage() {
           page qu'on a fait défiler. */}
       <button
         type="button"
-        className="agenda-fab"
+        className="fab"
         aria-label={t('common.add', locale)}
         onClick={() => {
           setAddModalPreset(null);
@@ -587,8 +587,6 @@ export default function AgendaPage() {
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
-      ) : appointments.length === 0 ? (
-        <EmptyState title={t('agenda.emptyTitle', locale)} body={t('agenda.emptyBody', locale)} />
       ) : (
         <>
           {/* Bloc « Aujourd'hui » (04/09/2026, « ça manque d'âme, de punch »).
@@ -658,6 +656,11 @@ export default function AgendaPage() {
             );
           })()}
 
+
+          {/* L'état vide « Aucun rendez-vous » a disparu (Alex, 04/09/2026 :
+              « il y a un gros vide au milieu, c'est moche ») : le bloc
+              « Aujourd'hui » ci-dessus dit déjà qu'il n'y a rien, et le
+              calendrier reste utile même vide (indisponibilités, ajout). */}
           {pending.length > 0 && (
             <section className="block">
               <h2>{t('agenda.statusProposed', locale)} ({pending.length})</h2>
@@ -808,8 +811,17 @@ export default function AgendaPage() {
           seulement le bloc calendrier" (Alex, 25/08/2026) — le bloc
           calendrier vient maintenant après la liste des RDV ci-dessus,
           au lieu d'avant. */}
+      {/* Calendrier à gauche, panneau du jour à droite (Alex, 04/09/2026 :
+          « sur PC il y a un gros vide au milieu entre le calendrier et le + »).
+          Le calendrier est borné à 480 px de large — au-delà les cases
+          deviennent des dalles — donc la moitié droite de l'écran était vide.
+          Le panneau du jour y prend place : le jour sélectionné, ou par défaut
+          les prochains rendez-vous du mois affiché. Sur téléphone, les deux
+          s'empilent comme avant. */}
       <section className="block calendar-block">
         <h2>{t('agenda.calendarTitle', locale)}</h2>
+        <div className="calendar-layout">
+        <div className="calendar-col">
         <MonthCalendar
           month={calendarMonth}
           onChangeMonth={setCalendarMonth}
@@ -818,6 +830,53 @@ export default function AgendaPage() {
           selectedDay={selectedDay}
           onSelectDay={(day) => setSelectedDay((prev) => (prev && prev.toDateString() === day.toDateString() ? null : day))}
         />
+        <div className="calendar-legend">
+          <span className="legend-item"><span className="legend-dot appt" /> {t('agenda.calendarLegendAppt', locale)}</span>
+          <span className="legend-item"><span className="legend-dot blocked" /> {t('agenda.calendarLegendBlocked', locale)}</span>
+        </div>
+        </div>
+
+        {!selectedDay && (() => {
+          const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+          const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0, 23, 59, 59);
+          const inMonth = appointments
+            .filter((a) => a.status !== 'annulé')
+            .filter((a) => { const d = new Date(a.proposed_at); return d >= monthStart && d <= monthEnd; })
+            .sort((a, b) => new Date(a.proposed_at) - new Date(b.proposed_at));
+          return (
+            <div className="day-detail month-side">
+              <div className="day-detail-header">
+                <strong>{calendarMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}</strong>
+                <span className="muted small">{t('agenda.monthSideCount', locale).replace('{n}', inMonth.length)}</span>
+              </div>
+              {inMonth.length === 0 ? (
+                <p className="muted small">{t('agenda.monthSideEmpty', locale)}</p>
+              ) : (
+                <ul className="day-detail-list">
+                  {inMonth.slice(0, 8).map((a) => {
+                    const d = new Date(a.proposed_at);
+                    return (
+                      <li key={a.id} className="day-detail-item clickable" onClick={() => setSelectedDay(new Date(d.getFullYear(), d.getMonth(), d.getDate()))}>
+                        <span className="side-date">{d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })} · {d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>{a.prospects?.full_name || a.contact_name}</span>
+                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <p className="muted small side-hint">{t('agenda.monthSideHint', locale)}</p>
+              <div className="day-detail-actions">
+                <button type="button" className="btn-secondary" onClick={() => { setAddModalPreset(null); setShowAddModal(true); }}>
+                  {t('agenda.dayDetailAddAppt', locale)}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => { setAddModalPreset({ kind: 'indisponibilite', date: null }); setShowAddModal(true); }}>
+                  {t('agenda.dayDetailAddBlock', locale)}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {selectedDay && (
           <div className="day-detail">
@@ -868,10 +927,6 @@ export default function AgendaPage() {
             </div>
           </div>
         )}
-
-        <div className="calendar-legend">
-          <span className="legend-item"><span className="legend-dot appt" /> {t('agenda.calendarLegendAppt', locale)}</span>
-          <span className="legend-item"><span className="legend-dot blocked" /> {t('agenda.calendarLegendBlocked', locale)}</span>
         </div>
       </section>
 
@@ -1305,36 +1360,35 @@ export default function AgendaPage() {
         /* « Le bloc aucun RDV est collé au bloc calendrier » (Alex,
            04/09/2026) : 1 rem ne suffisait pas à séparer visuellement deux
            encadrés qui se touchent presque. */
+        .calendar-layout {
+          display: grid;
+          grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+          gap: 1.6rem;
+          align-items: start;
+        }
+        .calendar-col {
+          min-width: 0;
+        }
         .day-detail {
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-md);
           padding: 1.1rem 1.15rem;
-          margin-top: 1.6rem;
+          margin-top: 0;
         }
-        .agenda-fab {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: fixed;
-          right: 2rem;
-          bottom: 2rem;
-          width: 56px;
-          height: 56px;
-          border-radius: 50%;
-          border: none;
-          background: linear-gradient(135deg, var(--accent), var(--accent-light));
-          color: #fff;
-          box-shadow: 0 10px 26px rgba(75, 57, 239, 0.45);
-          z-index: 60;
-          cursor: pointer;
-          transition: transform var(--fast), box-shadow var(--fast);
+        .day-detail-item.clickable { cursor: pointer; }
+        .day-detail-item.clickable:hover { color: var(--accent-light); }
+        .side-date {
+          font-family: var(--font-mono);
+          font-size: 0.76rem;
+          color: var(--muted);
+          min-width: 9ch;
         }
-        .agenda-fab:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 14px 32px rgba(75, 57, 239, 0.55);
+        .side-hint { margin: 0.6rem 0 0; }
+        @media (max-width: 900px) {
+          .calendar-layout { grid-template-columns: 1fr; }
+          .day-detail { margin-top: 1.2rem; }
         }
-        .agenda-fab:active { transform: scale(0.94); }
 
         /* Bloc « Aujourd'hui » (04/09/2026). Le dégradé est réservé à ce seul
            bloc : c'est lui qui donne la première impression de la page, le
@@ -3161,12 +3215,6 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           display: none;
         }
         @media (max-width: 900px) {
-          /* Sur téléphone, le bouton flottant remonte au-dessus de la barre
-             d'onglets du bas (zone sûre iPhone comprise). */
-          .agenda-fab {
-            right: 1rem;
-            bottom: calc(96px + env(safe-area-inset-bottom, 0px));
-          }
           .today-hero {
             flex-direction: column;
             gap: 0.9rem;
