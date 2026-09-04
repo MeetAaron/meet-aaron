@@ -179,6 +179,7 @@ export default function DocumentsPage() {
   const [description, setDescription] = useState('');
   const [uploadCategory, setUploadCategory] = useState('general');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState(null);
   const [rowError, setRowError] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
@@ -415,11 +416,39 @@ export default function DocumentsPage() {
         </p>
       </header>
 
+      {/* Zone de dépôt (Alex, 04/09/2026 : « choisir un fichier, c'est
+          moche »). L'<input type="file"> natif — gris, système, impossible à
+          styler — est caché ; on clique ou on dépose sur la zone. Le nom du
+          fichier choisi s'affiche à la place de l'invite. */}
       <form className="upload-box" onSubmit={handleUpload}>
-        <input
-          type="file"
-          onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-        />
+        <label
+          className={`dropzone${selectedFile ? ' has-file' : ''}${dragOver ? ' over' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer?.files?.[0]; if (f) setSelectedFile(f); }}
+        >
+          <input
+            type="file"
+            className="dropzone-input"
+            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+          />
+          <span className="dropzone-ic" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
+          </span>
+          <span className="dropzone-text">
+            {selectedFile ? (
+              <>
+                <strong>{selectedFile.name}</strong>
+                <span className="dropzone-sub">{formatSize(selectedFile.size, locale)} · {t('documents.dropChange', locale)}</span>
+              </>
+            ) : (
+              <>
+                <strong>{t('documents.dropTitle', locale)}</strong>
+                <span className="dropzone-sub">{t('documents.dropHint', locale)}</span>
+              </>
+            )}
+          </span>
+        </label>
         <input
           type="text"
           placeholder={t('documents.descriptionPlaceholder', locale)}
@@ -522,38 +551,44 @@ export default function DocumentsPage() {
                   {formatSize(d.file_size_bytes, locale)} · {new Date(d.created_at).toLocaleDateString(locale, { dateStyle: 'medium' })}
                 </p>
 
+                {/* Actions en pilules (Alex, 04/09/2026 : « de télécharger à
+                    supprimer, fais aussi moderne que le reste »). Même pilule
+                    que les filtres de toute l'app (.chip, app/globals.css) :
+                    neutre par défaut, colorée quand l'option est active,
+                    rouge pour supprimer. Plus de liens bleus/verts/rouges
+                    posés côte à côte. */}
                 <div className="doc-actions">
                   {d.download_url && (
-                    <a href={d.download_url} target="_blank" rel="noreferrer" className="link">
-                      📥 {t('documents.download', locale)}
+                    <a href={d.download_url} target="_blank" rel="noreferrer" className="chip">
+                      ↓ {t('documents.download', locale)}
                     </a>
                   )}
                   <button
                     type="button"
-                    className="link-btn"
+                    className="chip"
                     disabled={generatingAdviceId === d.id}
                     onClick={() => (d.advice ? setAdviceModalDoc(d) : handleGenerateAdvice(d))}
                   >
-                    💬 {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
+                    {generatingAdviceId === d.id ? t('documents.adviceGenerating', locale) : t('documents.adviceButton', locale)}
                   </button>
-                  <button type="button" className="link-btn" onClick={() => openNoteModal(d)}>
-                    📝 {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
+                  <button type="button" className="chip" onClick={() => openNoteModal(d)}>
+                    {d.commercial_note ? t('documents.noteButtonEdit', locale) : t('documents.noteButtonAdd', locale)}
                   </button>
                   <button
                     type="button"
-                    className={`link-btn${d.attach_to_first_email ? ' attachment-on' : ''}`}
+                    className={`chip${d.attach_to_first_email ? ' active' : ''}`}
                     disabled={togglingAttachmentId === d.id}
                     onClick={() => handleToggleFirstEmailAttachment(d)}
                   >
-                    📎 {d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
+                    {d.attach_to_first_email ? '✓ ' : ''}{d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
                   </button>
                   <button
                     type="button"
-                    className={`link-btn${d.included_in_aaron_context ? '' : ' danger'}`}
+                    className={`chip${d.included_in_aaron_context ? ' active' : ''}`}
                     disabled={togglingId === d.id}
                     onClick={() => handleToggleAaronContext(d)}
                   >
-                    {d.included_in_aaron_context ? `✅ ${t('documents.aaronContextOn', locale)}` : `🚫 ${t('documents.aaronContextOff', locale)}`}
+                    {d.included_in_aaron_context ? '✓ ' : ''}{d.included_in_aaron_context ? t('documents.aaronContextOn', locale) : t('documents.aaronContextOff', locale)}
                   </button>
                   <select
                     className="category-select-inline"
@@ -566,8 +601,8 @@ export default function DocumentsPage() {
                       <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
                     ))}
                   </select>
-                  <button type="button" className="link-btn danger" onClick={() => setConfirmDeleteId(d.id)}>
-                    🗑️ {t('documents.deleteButton', locale)}
+                  <button type="button" className="chip chip-danger" onClick={() => setConfirmDeleteId(d.id)}>
+                    {t('documents.deleteButton', locale)}
                   </button>
                 </div>
               </div>
@@ -708,9 +743,61 @@ export default function DocumentsPage() {
           color: var(--text);
           font-size: 0.86rem;
         }
-        .upload-box input[type='file'] {
+        .dropzone {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          flex: 1 1 100%;
+          padding: 0.9rem 1rem;
+          border: 1px dashed rgba(75, 57, 239, 0.5);
+          border-radius: var(--radius-md);
+          background: rgba(75, 57, 239, 0.05);
+          cursor: pointer;
+          transition: background var(--fast), border-color var(--fast);
+        }
+        .dropzone:hover,
+        .dropzone.over {
+          background: rgba(75, 57, 239, 0.12);
+          border-color: var(--accent);
+        }
+        .dropzone.has-file {
+          border-style: solid;
+          border-color: rgba(61, 214, 140, 0.5);
+          background: rgba(61, 214, 140, 0.06);
+        }
+        .dropzone-input {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          opacity: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
+        .dropzone-ic {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(75, 57, 239, 0.14);
+          color: var(--accent-light);
+          flex-shrink: 0;
+        }
+        .dropzone.has-file .dropzone-ic {
+          background: rgba(61, 214, 140, 0.14);
+          color: var(--accent-green);
+        }
+        .dropzone-text {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+          font-size: 0.88rem;
+        }
+        .dropzone-sub {
+          font-size: 0.76rem;
           color: var(--muted);
-          font-size: 0.82rem;
         }
         .btn-primary {
           background: var(--accent);
@@ -909,16 +996,20 @@ export default function DocumentsPage() {
           font-size: 0.82rem;
           font-family: inherit;
         }
+        .chip-danger { color: var(--accent-red); border-color: rgba(239, 68, 89, 0.4); }
+        .chip-danger:hover { background: rgba(239, 68, 89, 0.12); border-color: var(--accent-red); color: var(--accent-red); }
         .category-select-inline {
-          background: var(--bg);
+          background: transparent;
           border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.25rem 0.4rem;
-          color: var(--text);
-          font-size: 0.76rem;
+          border-radius: 999px;
+          padding: 0.38rem 0.8rem;
+          color: var(--muted);
+          font-size: 0.8rem;
           font-family: inherit;
-          max-width: 150px;
+          max-width: 170px;
+          cursor: pointer;
         }
+        .category-select-inline:hover { color: var(--text); border-color: var(--accent); }
         .link {
           color: var(--accent);
           text-decoration: none;
