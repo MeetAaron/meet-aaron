@@ -28,6 +28,7 @@ import { frenchTypography } from '@/lib/text-typography';
 import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, LOST_REASONS, derivePipelinePosition, stageOrder } from '@/lib/pipeline';
 import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
+import { supabaseBrowser } from '@/lib/supabase-browser';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
@@ -313,11 +314,20 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   }
 
   async function handleSaveToPhone() {
-    await downloadVCard(prospect, {
-      personalityLabel: prospect.personality_type ? `${t('card.discLabel', locale)} : ${t(`personality.${prospect.personality_type}`, locale)}` : null,
-      notesLabel: t('prospects.colPersonality', locale),
-      adviceLabel: t('modal.aaronAdvice', locale),
-    });
+    await downloadVCard(
+      prospect,
+      {
+        personalityLabel: prospect.personality_type ? `${t('card.discLabel', locale)} : ${t(`personality.${prospect.personality_type}`, locale)}` : null,
+        notesLabel: t('prospects.colPersonality', locale),
+        adviceLabel: t('modal.aaronAdvice', locale),
+      },
+      {
+        getToken: async () => {
+          const { data: { session } } = await supabaseBrowser.auth.getSession();
+          return session?.access_token || null;
+        },
+      }
+    );
   }
 
   function scrollToInfos() {

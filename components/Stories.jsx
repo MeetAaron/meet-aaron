@@ -26,6 +26,7 @@ import { frenchTypography } from '@/lib/text-typography';
 import { DiscBadge } from '@/components/ContactCard';
 
 const RING = {
+  mise_en_route: 'linear-gradient(135deg, #4b39ef, #c93f8c)',
   devis_a_faire: 'linear-gradient(135deg, #ef4459, #f5a623)',
   rdv_a_valider: 'linear-gradient(135deg, #f5a623, #ffd166)',
   rdv_aujourdhui: 'linear-gradient(135deg, #4b39ef, #7c6ef5)',
@@ -39,6 +40,11 @@ const RING = {
 };
 
 const ICON = {
+  // Étapes de mise en route (Alex, 04/09/2026 : « les notifications
+  // onboarding doivent apparaître comme une story insta »). Injectées par
+  // le tableau de bord via `extraGroups`, pas par /api/notifications : les
+  // étapes sont calculées côté client à partir des connexions et réglages.
+  mise_en_route: '🚀',
   devis_a_faire: '📄',
   rdv_a_valider: '📅',
   rdv_aujourdhui: '⏰',
@@ -76,8 +82,11 @@ export function useNotifications(userId, { refreshMs = 60000 } = {}) {
   return { groups, total, loaded, reload: load };
 }
 
-export default function Stories({ userId, locale, mode = 'strip', onOpenContact, onChanged }) {
-  const { groups, total, loaded, reload } = useNotifications(userId);
+export default function Stories({ userId, locale, mode = 'strip', onOpenContact, onChanged, extraGroups = [] }) {
+  const { groups: apiGroups, total, loaded, reload } = useNotifications(userId);
+  // Les groupes injectés (mise en route) passent EN PREMIER : tant que la
+  // boîte mail n'est pas branchée, rien d'autre ne peut se passer.
+  const groups = [...extraGroups.filter((g) => g && g.items && g.items.length > 0), ...apiGroups];
   const [open, setOpen] = useState(null); // { deck: NotificationItem[], index }
   // Panneau « rien à traiter » de la cloche (01/09/2026) — voir openAll.
   const [emptyOpen, setEmptyOpen] = useState(false);
@@ -644,6 +653,19 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
           <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'set_pipeline_risk', risk: false })}>{t('card.riskOff', locale)}</button>
         </>
+      );
+      break;
+    case 'mise_en_route':
+      body = (
+        <>
+          <p className="lead">{item.meta?.lead || item.prospect_name}</p>
+          {item.meta?.hint && <p className="advice">{item.meta.hint}</p>}
+        </>
+      );
+      actions = (
+        <a className="btn-primary" href={item.meta?.href || '/app/connexions'}>
+          {item.meta?.cta || t('dash.onboardingStepCta', locale)} →
+        </a>
       );
       break;
     default:
