@@ -607,6 +607,35 @@ export default function DashboardPage() {
   // actionnable, les suivantes attendent leur tour (verrouillées).
   const firstPendingStep = onboardingSteps.find((step) => !step.done) || null;
 
+  // Stories « mise en route » (Alex, 04/09/2026 : « les notifications
+  // onboarding doivent apparaître comme une notification sur l'appli, donc
+  // comme une story insta »). Une seule story, celle de l'étape en attente :
+  // les étapes se font dans l'ordre (voir firstPendingStep), afficher les
+  // suivantes n'apporterait qu'un bouton verrouillé.
+  const onboardingStoryGroups = firstPendingStep && !loading
+    ? [{
+        type: 'mise_en_route',
+        count: onboardingSteps.length - onboardingDoneCount,
+        items: [{
+          id: `mise_en_route:${firstPendingStep.key}`,
+          type: 'mise_en_route',
+          prospect_id: null,
+          appointment_id: null,
+          prospect_name: firstPendingStep.label,
+          company_name: t('dash.onboardingStoryStep', locale).replace('{n}', onboardingDoneCount + 1).replace('{total}', onboardingSteps.length),
+          personality_type: null,
+          at: null,
+          days_waiting: null,
+          meta: {
+            href: firstPendingStep.href,
+            lead: t('dash.onboardingStoryLead', locale),
+            hint: t('dash.onboardingStoryHint', locale),
+            cta: t('dash.onboardingStepCta', locale),
+          },
+        }],
+      }]
+    : [];
+
   // Item 13 (suite) : "si l'utilisateur se déconnecte, quand il se reconnecte
   // il retombe sur la dernière étape qu'il devait faire". À la première
   // visite du tableau de bord de la journée (même repère que la connexion
@@ -684,7 +713,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll}>
+    <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll} extraStoryGroups={onboardingStoryGroups}>
       <header className="header">
         <div>
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
@@ -794,35 +823,57 @@ export default function DashboardPage() {
               rendez-vous" et "Campagnes en cours" remontent juste sous
               "Actions requises" (avant : après le bloc Prospect). Suivent
               ensuite, dans l'ordre, Prospect puis Opportunité puis Clients. */}
+          {/* Refonte 04/09/2026 (Alex : « prochains rendez-vous et campagnes
+              en cours — ça manque de modernité, de punch, de puissance »).
+              Les deux blocs reprennent le langage visuel des pages qu'ils
+              résument : la pastille jour/mois/heure de l'Agenda, la barre de
+              progression avec pourcentage des Campagnes. Un en-tête avec
+              lien « Voir tout » : le bloc est un aperçu, pas la page. */}
           <section className="grid-two">
             <div className="panel">
-              <h2>{t('dash.upcomingAppointments', locale)}</h2>
+              <div className="panel-head">
+                <h2>{t('dash.upcomingAppointments', locale)}</h2>
+                <a className="panel-link" href="/app/agenda">{t('dash.seeAll', locale)} →</a>
+              </div>
               {upcomingGroups.length === 0 ? (
-                <EmptyState title={t('dash.emptyNothingPlanned', locale)} body={t('dash.emptyNoConfirmedAppt', locale)} compact />
+                <EmptyState
+                  title={t('dash.emptyNothingPlanned', locale)}
+                  body={t('dash.emptyNoConfirmedAppt', locale)}
+                  compact
+                  ctaHref="/app/agenda"
+                  ctaLabel={t('dash.emptyApptCta', locale)}
+                />
               ) : (
-                <div className="day-groups">
-                  {upcomingGroups.map((group) => (
-                    <div key={group.key} className="day-group">
-                      <p className="day-heading">{group.label}</p>
-                      <ul className="list">
-                        {group.items.map((a) => (
-                          <li key={a.id} className="list-item">
-                            <div>
-                              <strong>{a.prospects?.full_name}</strong>
-                              <span className="muted"> — {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}</span>
-                            </div>
-                            <span className="pill">{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                <div className="mini-list">
+                  {upcomingGroups.flatMap((group) => group.items).slice(0, 5).map((a) => {
+                    const d = new Date(a.proposed_at);
+                    const isToday = d.toDateString() === now.toDateString();
+                    return (
+                      <a key={a.id} className="mini-row" href="/app/agenda">
+                        <span className={`mini-chip${isToday ? ' today' : ''}`} aria-hidden="true">
+                          <span className="mini-chip-num">{d.toLocaleDateString(locale, { day: 'numeric' })}</span>
+                          <span className="mini-chip-mon">{d.toLocaleDateString(locale, { month: 'short' }).replace('.', '')}</span>
+                        </span>
+                        <span className="mini-body">
+                          <strong>{a.prospects?.full_name}</strong>
+                          <span className="muted mini-sub">
+                            {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}
+                            {a.type ? ` · ${t(`apptType.${a.type}`, locale)}` : ''}
+                          </span>
+                        </span>
+                        <span className="mini-time">{d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                      </a>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             <div className="panel">
-              <h2>{t('dash.ongoingCampaigns', locale)}</h2>
+              <div className="panel-head">
+                <h2>{t('dash.ongoingCampaigns', locale)}</h2>
+                <a className="panel-link" href="/app/campaigns">{t('dash.seeAll', locale)} →</a>
+              </div>
               {activeCampaigns.length === 0 ? (
                 <EmptyState
                   title={t('dash.emptyNoActiveCampaign', locale)}
@@ -832,17 +883,22 @@ export default function DashboardPage() {
                   ctaLabel={t('dash.emptyCampaignCta', locale)}
                 />
               ) : (
-                <ul className="list">
-                  {activeCampaigns.map((c) => (
-                    <li key={c.id} className="list-item">
-                      <div>
-                        <strong>{c.zone_label}</strong>
-                        <span className="muted"> — {c.sector_keywords?.join(', ')}</span>
-                      </div>
-                      <span className="pill">{c.contacts_found}/{c.target_count} contacts</span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="mini-list">
+                  {activeCampaigns.slice(0, 4).map((c) => {
+                    const pct = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+                    return (
+                      <a key={c.id} className="mini-camp" href="/app/campaigns">
+                        <span className="mini-camp-head">
+                          <strong>{c.zone_label}</strong>
+                          <span className="mini-camp-pct">{pct} %</span>
+                        </span>
+                        <span className="muted mini-sub">{c.sector_keywords?.join(', ')}</span>
+                        <span className="mini-camp-track"><span className="mini-camp-fill" style={{ width: `${pct}%` }} /></span>
+                        <span className="muted mini-sub">{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
+                      </a>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </section>
@@ -877,7 +933,15 @@ export default function DashboardPage() {
                   <div className="funnel-step" key={step.key}>
                     <div className="funnel-head">
                       <span className="funnel-label">{step.label}</span>
-                      {rate != null && <span className="funnel-rate">→ {rate} %</span>}
+                      {/* Le « → 67 % » n'était pas compris (Alex, 04/09/2026 :
+                          « je ne comprends pas les % à droite »). C'est la
+                          part de l'étape PRÉCÉDENTE qui est passée à
+                          celle-ci. On le dit en toutes lettres. */}
+                      {rate != null && (
+                        <span className="funnel-rate" title={t('dash.funnelRateHint', locale)}>
+                          {t('dash.funnelRateLabel', locale).replace('{rate}', rate).replace('{prev}', funnelSteps[i - 1].label.toLowerCase())}
+                        </span>
+                      )}
                     </div>
                     <div className="funnel-bar-track">
                       <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
@@ -885,9 +949,13 @@ export default function DashboardPage() {
                     {step.key === 'rdv' && (
                       <div className="rdv-split">
                         {[
-                          { k: 'visio', label: t('agenda.kindVideo', locale), value: rdvObtenusByType.visio },
-                          { k: 'telephonique', label: t('agenda.kindPhone', locale), value: rdvObtenusByType.telephonique },
-                          { k: 'physique', label: t('agenda.kindInPerson', locale), value: rdvObtenusByType.physique },
+                          // « On peut enlever le RDV devant visio,
+                          // téléphonique et physique, l'utilisateur
+                          // comprendra » (Alex, 04/09/2026) : on est sous la
+                          // barre « RDV obtenu », le mot est déjà là.
+                          { k: 'visio', label: t('apptType.visio', locale), value: rdvObtenusByType.visio },
+                          { k: 'telephonique', label: t('apptType.telephonique', locale), value: rdvObtenusByType.telephonique },
+                          { k: 'physique', label: t('apptType.physique', locale), value: rdvObtenusByType.physique },
                         ].map((r) => {
                           const total = rdvObtenusByType.visio + rdvObtenusByType.telephonique + rdvObtenusByType.physique;
                           const w = total > 0 ? Math.max(6, Math.round((r.value / total) * 100)) : 6;
@@ -1473,6 +1541,115 @@ export default function DashboardPage() {
            étaient collés. */
         .today-panel {
           margin-top: 1.25rem;
+        }
+        /* Aperçus « Prochains rendez-vous » / « Campagnes en cours »
+           (04/09/2026). */
+        .panel-link {
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: var(--accent-light);
+          text-decoration: none;
+        }
+        .panel-link:hover { color: var(--text); }
+        .mini-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .mini-row,
+        .mini-camp {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          padding: 0.7rem 0.85rem;
+          border-radius: var(--radius-md);
+          background: var(--bg);
+          border: 1px solid var(--border);
+          text-decoration: none;
+          color: var(--text);
+          transition: border-color var(--fast), transform var(--fast);
+        }
+        .mini-row:hover,
+        .mini-camp:hover {
+          border-color: var(--accent);
+          transform: translateY(-1px);
+        }
+        .mini-chip {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          width: 44px;
+          flex-shrink: 0;
+          padding: 0.3rem 0;
+          border-radius: 10px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+        }
+        .mini-chip.today {
+          background: rgba(75, 57, 239, 0.14);
+          border-color: rgba(75, 57, 239, 0.5);
+        }
+        .mini-chip-num {
+          font-family: var(--font-mono);
+          font-size: 0.95rem;
+          line-height: 1;
+        }
+        .mini-chip.today .mini-chip-num { color: var(--accent-light); }
+        .mini-chip-mon {
+          font-size: 0.58rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--muted);
+          margin-top: 2px;
+        }
+        .mini-body {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          flex: 1;
+          min-width: 0;
+          font-size: 0.86rem;
+        }
+        .mini-sub {
+          font-size: 0.74rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .mini-time {
+          font-family: var(--font-mono);
+          font-size: 0.82rem;
+          color: var(--accent-light);
+          flex-shrink: 0;
+        }
+        .mini-camp {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 0.35rem;
+        }
+        .mini-camp-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          font-size: 0.88rem;
+        }
+        .mini-camp-pct {
+          font-family: var(--font-mono);
+          font-size: 0.78rem;
+        }
+        .mini-camp-track {
+          display: block;
+          height: 7px;
+          border-radius: 999px;
+          background: var(--surface-hover);
+          overflow: hidden;
+        }
+        .mini-camp-fill {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, var(--accent), #c93f8c);
         }
         .panel-head {
           display: flex;
@@ -2195,18 +2372,26 @@ function ConnectionStatusBadge() {
 function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
   return (
     <div className={`empty ${compact ? 'compact' : ''}`}>
+      {/* Balises <a> natives et non <Link> (bug vu par Alex, 04/09/2026 :
+          « le + est mal mis ») : styled-jsx n'applique pas sa classe de
+          scope au className d'un <Link>, donc .empty-plus et .empty-cta
+          n'étaient JAMAIS stylés — le + s'affichait nu, collé à gauche, et
+          le bouton d'appel n'était qu'un texte. */}
       {ctaHref && (
-        <Link href={ctaHref} className="empty-plus" aria-label={ctaLabel}>
+        <a href={ctaHref} className="empty-plus" aria-label={ctaLabel}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-        </Link>
+        </a>
       )}
       <p className="empty-title">{title}</p>
       <p className="empty-body">{body}</p>
       {ctaHref && (
-        <Link href={ctaHref} className="empty-cta">{ctaLabel}</Link>
+        <a href={ctaHref} className="empty-cta">{ctaLabel}</a>
       )}
       <style jsx>{`
         .empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
           text-align: center;
           padding: ${compact ? '1.5rem 1rem' : '4rem 1rem'};
         }
@@ -2253,7 +2438,7 @@ function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
   );
 }
 
-function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact }) {
+function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact, extraStoryGroups }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
@@ -2406,7 +2591,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             Coût nul quand il n'y a rien à traiter : Stories rend `null` si
             aucun groupe n'est en attente (voir components/Stories.jsx), donc
             aucune page ne perd de hauteur utile. */}
-        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} />
+        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} extraGroups={extraStoryGroups || []} />
         {children}
       </main>
       <style jsx global>{`
