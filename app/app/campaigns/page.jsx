@@ -5,10 +5,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
+import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 
@@ -108,9 +110,9 @@ function statusLabelsFor(locale) {
 
 function zoneTypeOptionsFor(locale) {
   return [
-    { key: 'ville', label: t('campaigns.zoneTypeCity', locale), icon: '🏙️', placeholder: t('campaigns.zoneTypeCityPlaceholder', locale), hint: t('campaigns.zoneTypeCityHint', locale) },
-    { key: 'departement', label: t('campaigns.zoneTypeDepartment', locale), icon: '🗺️', placeholder: t('campaigns.zoneTypeDepartmentPlaceholder', locale), hint: t('campaigns.zoneTypeDepartmentHint', locale) },
-    { key: 'region', label: t('campaigns.zoneTypeRegion', locale), icon: '🌍', placeholder: t('campaigns.zoneTypeRegionPlaceholder', locale), hint: t('campaigns.zoneTypeRegionHint', locale) },
+    { key: 'ville', label: t('campaigns.zoneTypeCity', locale), icon: <Ic name="city" />, placeholder: t('campaigns.zoneTypeCityPlaceholder', locale), hint: t('campaigns.zoneTypeCityHint', locale) },
+    { key: 'departement', label: t('campaigns.zoneTypeDepartment', locale), icon: <Ic name="map" />, placeholder: t('campaigns.zoneTypeDepartmentPlaceholder', locale), hint: t('campaigns.zoneTypeDepartmentHint', locale) },
+    { key: 'region', label: t('campaigns.zoneTypeRegion', locale), icon: <Ic name="globe" />, placeholder: t('campaigns.zoneTypeRegionPlaceholder', locale), hint: t('campaigns.zoneTypeRegionHint', locale) },
   ];
 }
 
@@ -118,10 +120,10 @@ function zoneTypeOptionsFor(locale) {
 // les clés stockées en base (company_sizes) sont ces mêmes clés courtes.
 function companySizeOptionsFor(locale) {
   return [
-    { key: 'artisan_tpe', label: t('campaigns.sizeArtisanTpe', locale), desc: t('campaigns.sizeArtisanTpeDesc', locale), icon: '🔨' },
-    { key: 'pme', label: t('campaigns.sizePme', locale), desc: t('campaigns.sizePmeDesc', locale), icon: '🏢' },
-    { key: 'eti', label: t('campaigns.sizeEti', locale), desc: t('campaigns.sizeEtiDesc', locale), icon: '🏭' },
-    { key: 'grand_compte', label: t('campaigns.sizeGrandCompte', locale), desc: t('campaigns.sizeGrandCompteDesc', locale), icon: '🏛️' },
+    { key: 'artisan_tpe', label: t('campaigns.sizeArtisanTpe', locale), desc: t('campaigns.sizeArtisanTpeDesc', locale), icon: <Ic name="hammer" size={18} /> },
+    { key: 'pme', label: t('campaigns.sizePme', locale), desc: t('campaigns.sizePmeDesc', locale), icon: <Ic name="building" size={18} /> },
+    { key: 'eti', label: t('campaigns.sizeEti', locale), desc: t('campaigns.sizeEtiDesc', locale), icon: <Ic name="factory" size={18} /> },
+    { key: 'grand_compte', label: t('campaigns.sizeGrandCompte', locale), desc: t('campaigns.sizeGrandCompteDesc', locale), icon: <Ic name="landmark" size={18} /> },
   ];
 }
 
@@ -257,6 +259,7 @@ export default function CampaignsPage() {
     if (!res.ok) return;
     const body = await res.json();
     setCampaigns((prev) => prev.map((c) => (c.id === campaignId ? { ...c, status: body.status } : c)));
+    flashSaved(campaignId);
   }
 
   if (authLoading) {
@@ -324,7 +327,7 @@ export default function CampaignsPage() {
           className={`tab-btn ${tab === 'prospection' ? 'active' : ''}`}
           onClick={() => setTab('prospection')}
         >
-          🎯 {t('marketing.tabProspection', locale)}
+          <Ic name="target" /> {t('marketing.tabProspection', locale)}
         </button>
         {/* Marketing réservé à aaron@meetaaron.app (docx Modifs Aaron,
             30/08/2026, bloc CAMPAGNE) — masqué pour tous les autres comptes. */}
@@ -334,7 +337,7 @@ export default function CampaignsPage() {
             className={`tab-btn ${tab === 'marketing' ? 'active' : ''}`}
             onClick={() => setTab('marketing')}
           >
-            📣 {t('marketing.tabMarketing', locale)}
+            <Ic name="megaphone" /> {t('marketing.tabMarketing', locale)}
             {!customerModuleActive && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}
           </button>
         )}
@@ -343,7 +346,7 @@ export default function CampaignsPage() {
           className={`tab-btn ${tab === 'reactivation' ? 'active' : ''}`}
           onClick={() => setTab('reactivation')}
         >
-          🔄 {t('reactivation.tabLabel', locale)}
+          <Ic name="refresh" /> {t('reactivation.tabLabel', locale)}
         </button>
       </div>
 
@@ -431,10 +434,10 @@ export default function CampaignsPage() {
       {!loading && campaigns.length > 0 && (
         <div className="global-advice-row">
           <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
-            💡 {t('campaigns.globalAdviceOngoingBtn', locale)}
+            <Ic name="bulb" /> {t('campaigns.globalAdviceOngoingBtn', locale)}
           </button>
           <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('past')}>
-            📊 {t('campaigns.globalAdvicePastBtn', locale)}
+            <Ic name="chart" /> {t('campaigns.globalAdvicePastBtn', locale)}
           </button>
         </div>
       )}
@@ -473,7 +476,7 @@ export default function CampaignsPage() {
                         {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
                       </p>
                     )}
-                    {c.context_notes && <p className="context-notes">💬 {c.context_notes}</p>}
+                    {c.context_notes && <p className="context-notes"><Ic name="message" /> {c.context_notes}</p>}
                   </div>
                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
                     {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
@@ -510,7 +513,7 @@ export default function CampaignsPage() {
                 )}
 
                 <div className="advice-box">
-                  <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
+                  <p className="advice-label"><Ic name="bot" /> {t('campaigns.adviceTitle', locale)}</p>
                   {c.advice ? (
                     <>
                       <p className="advice-text">{frenchTypography(c.advice)}</p>
@@ -544,7 +547,7 @@ export default function CampaignsPage() {
                         disabled={changingStatusFor === c.id}
                         onClick={() => changeCampaignStatus(c.id, 'reprendre')}
                       >
-                        ▶ {t('campaigns.resumeCampaign', locale)}
+                        <Ic name="play" size={13} /> {t('campaigns.resumeCampaign', locale)}
                       </button>
                     ) : (
                       <button
@@ -553,14 +556,15 @@ export default function CampaignsPage() {
                         disabled={changingStatusFor === c.id}
                         onClick={() => changeCampaignStatus(c.id, 'pause')}
                       >
-                        ⏸ {t('campaigns.pauseCampaign', locale)}
+                        <Ic name="pause" size={13} /> {t('campaigns.pauseCampaign', locale)}
                       </button>
                     )}
                     <button type="button" className="status-btn danger" onClick={() => setConfirmEndId(c.id)}>
-                      ⏹ {t('campaigns.endCampaign', locale)}
+                      <Ic name="stop" size={12} /> {t('campaigns.endCampaign', locale)}
                     </button>
                   </div>
                 )}
+                <SavedFlash when={savedKey === c.id} locale={locale} />
                 </div>
               </div>
             );
@@ -571,7 +575,7 @@ export default function CampaignsPage() {
       {globalAdvice && (
         <div className="overlay" onClick={() => setGlobalAdvice(null)}>
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="close-btn" onClick={() => setGlobalAdvice(null)}>✕</button>
+            <button type="button" className="close-btn" onClick={() => setGlobalAdvice(null)}><Ic name="x" size={16} /></button>
             <h2>{globalAdvice.scope === 'ongoing' ? t('campaigns.globalAdviceOngoingTitle', locale) : t('campaigns.globalAdvicePastTitle', locale)}</h2>
             {globalAdvice.loading ? (
               <p className="muted">{t('campaigns.adviceGenerating', locale)}</p>
@@ -1078,14 +1082,14 @@ export default function CampaignsPage() {
 
 function zoneSuggestionsFor(locale) {
   return [
-    { flag: '🇫🇷', label: t('campaigns.zoneCountryFrance', locale) },
-    { flag: '🇧🇪', label: t('campaigns.zoneCountryBelgium', locale) },
-    { flag: '🇨🇭', label: t('campaigns.zoneCountrySwitzerland', locale) },
-    { flag: '🇩🇪', label: t('campaigns.zoneCountryGermany', locale) },
-    { flag: '🇬🇧', label: t('campaigns.zoneCountryUk', locale) },
-    { flag: '🇪🇸', label: t('campaigns.zoneCountrySpain', locale) },
-    { flag: '🇺🇸', label: t('campaigns.zoneCountryUs', locale) },
-    { flag: '🌍', label: t('campaigns.zoneCountryOther', locale) },
+    { label: t('campaigns.zoneCountryFrance', locale) },
+    { label: t('campaigns.zoneCountryBelgium', locale) },
+    { label: t('campaigns.zoneCountrySwitzerland', locale) },
+    { label: t('campaigns.zoneCountryGermany', locale) },
+    { label: t('campaigns.zoneCountryUk', locale) },
+    { label: t('campaigns.zoneCountrySpain', locale) },
+    { label: t('campaigns.zoneCountryUs', locale) },
+    { label: t('campaigns.zoneCountryOther', locale) },
   ];
 }
 
@@ -1266,7 +1270,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
       <div className="chat-modal" onClick={(e) => e.stopPropagation()}>
         <div className="chat-header">
           <h2>{t('campaigns.chatModalTitle', locale)}</h2>
-          <button type="button" className="close-btn" onClick={onClose}>✕</button>
+          <button type="button" className="close-btn" onClick={onClose}><Ic name="x" size={16} /></button>
         </div>
 
         <div className="chat-messages">
@@ -1290,7 +1294,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           <div className="chip-row">
             {ZONE_SUGGESTIONS.map((z) => (
               <button type="button" key={z.label} className="chip" onClick={() => addChip(z.label)}>
-                {z.flag} {z.label}
+                <Ic name="map" size={12} /> {z.label}
               </button>
             ))}
           </div>
@@ -1345,7 +1349,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
               <select value={chatTargetLocale} onChange={(e) => setChatTargetLocale(e.target.value)}>
                 <option value="">{t('campaigns.targetLocaleAuto', locale)}</option>
                 {LOCALES.map((l) => (
-                  <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+                  <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
                 ))}
               </select>
             </label>
@@ -1728,7 +1732,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
         <div className="steps-track">
           {WIZARD_STEPS.map((label, i) => (
             <div key={label} className={`step-dot-wrap${i === step ? ' active' : ''}${i < step ? ' done' : ''}`}>
-              <span className="step-dot">{i < step ? '✓' : i + 1}</span>
+              <span className="step-dot">{i < step ? <Ic name="check" size={12} strokeWidth={3} /> : i + 1}</span>
               <span className="step-label">{label}</span>
             </div>
           ))}
@@ -1739,7 +1743,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
             <p className="step-title">{t('campaigns.stepZoneTitle', locale)}</p>
             <p className="step-subtitle">{t('campaigns.zoneNameHint', locale)}</p>
             {/* Recommandation anti-doublons (docx Modifs Aaron, 30/08/2026). */}
-            <p className="step-subtitle dedupe-advice">💡 {t('campaigns.chatDedupeAdvice', locale)}</p>
+            <p className="step-subtitle dedupe-advice"><Ic name="bulb" /> {t('campaigns.chatDedupeAdvice', locale)}</p>
 
             <label>
               {t('campaigns.zoneNameLabel', locale)}
@@ -1754,7 +1758,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
             <div className="quick-chips">
               {ZONE_SUGGESTIONS.map((z) => (
                 <button type="button" key={z.label} className="chip" onClick={() => addZoneSuggestion(z.label)}>
-                  {z.flag} {z.label}
+                  <Ic name="map" size={12} /> {z.label}
                 </button>
               ))}
             </div>
@@ -1764,7 +1768,7 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
               <select value={targetLocale} onChange={(e) => setTargetLocale(e.target.value)}>
                 <option value="">{t('campaigns.targetLocaleAuto', locale)}</option>
                 {LOCALES.map((l) => (
-                  <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+                  <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
                 ))}
               </select>
             </label>
@@ -2540,13 +2544,13 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
                         {status.label}
                       </span>
                     </div>
-                    {c.subject && <p className="muted mk-subject">✉️ {c.subject}</p>}
+                    {c.subject && <p className="muted mk-subject"><Ic name="mail" /> {c.subject}</p>}
                     <div className="mk-stats-row">
                       <span>
                         {c.stats.envoyes}/{c.stats.total} {t('marketing.statsSentSuffix', locale)}
                       </span>
                       <span className="muted">
-                        👆 {c.stats.clics} · 🚫 {c.stats.desabonnes}
+                        <Ic name="click" size={12} /> {c.stats.clics} · <Ic name="ban" size={12} /> {c.stats.desabonnes}
                       </span>
                     </div>
                   </button>
@@ -2575,7 +2579,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
           {isEditable ? (
             <>
               <section className="mk-section">
-                <p className="mk-section-title">🤖 {t('marketing.aiSectionTitle', locale)}</p>
+                <p className="mk-section-title"><Ic name="bot" /> {t('marketing.aiSectionTitle', locale)}</p>
                 <div className="mk-ai-row">
                   <input
                     type="text"
@@ -2608,7 +2612,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
               </section>
 
               <section className="mk-section">
-                <p className="mk-section-title">🎯 {t('marketing.audienceTitle', locale)}</p>
+                <p className="mk-section-title"><Ic name="target" /> {t('marketing.audienceTitle', locale)}</p>
                 <div className="mk-health-filters">
                   {HEALTH_FILTER_OPTIONS.map((key) => (
                     <label key={key} className="mk-checkbox">
@@ -2679,7 +2683,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
           ) : (
             <>
               <section className="mk-section">
-                <p className="mk-section-title">✉️ {campaign.subject}</p>
+                <p className="mk-section-title"><Ic name="mail" /> {campaign.subject}</p>
                 <p className="mk-body-readonly">{campaign.body_text}</p>
               </section>
 
@@ -2703,11 +2707,11 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
                 <div className="mk-actions-row">
                   {campaign.status === 'en_cours' ? (
                     <button type="button" className="status-btn" onClick={() => pauseResume('pause')}>
-                      ⏸ {t('campaigns.pauseCampaign', locale)}
+                      <Ic name="pause" size={13} /> {t('campaigns.pauseCampaign', locale)}
                     </button>
                   ) : (
                     <button type="button" className="status-btn" onClick={() => pauseResume('reprendre')}>
-                      ▶ {t('campaigns.resumeCampaign', locale)}
+                      <Ic name="play" size={13} /> {t('campaigns.resumeCampaign', locale)}
                     </button>
                   )}
                   {campaign.status === 'en_pause' && (
@@ -2719,7 +2723,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
               )}
 
               <div className="advice-box">
-                <p className="advice-label">🤖 {t('campaigns.adviceTitle', locale)}</p>
+                <p className="advice-label"><Ic name="bot" /> {t('campaigns.adviceTitle', locale)}</p>
                 {campaign.advice ? (
                   <>
                     <p className="advice-text">{frenchTypography(campaign.advice)}</p>
@@ -3046,6 +3050,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -3053,6 +3071,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
   const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
+  const { savedKey, flash: flashSaved } = useSavedFlash();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
   // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
@@ -3074,6 +3093,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -3149,7 +3173,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -3173,7 +3197,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
