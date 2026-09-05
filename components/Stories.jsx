@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
 import { DiscBadge } from '@/components/ContactCard';
 
@@ -39,23 +40,29 @@ const RING = {
   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
 };
 
-const ICON = {
+// Icônes des anneaux et du lecteur : traits (lucide, via components/UiIcon)
+// et non emojis — docx 05/09/2026, « tous les symboles doivent être
+// modernes ». Le nom pointe dans la table de UiIcon.
+const ICON_NAME = {
   // Étapes de mise en route (Alex, 04/09/2026 : « les notifications
   // onboarding doivent apparaître comme une story insta »). Injectées par
   // le tableau de bord via `extraGroups`, pas par /api/notifications : les
   // étapes sont calculées côté client à partir des connexions et réglages.
-  mise_en_route: '🚀',
-  devis_a_faire: '📄',
-  rdv_a_valider: '📅',
-  rdv_aujourdhui: '⏰',
-  rdv_manque: '⚠️',
-  rdv_annule: '↩️',
-  sauvetage_a_valider: '🛟',
-  email_a_valider: '✉️',
-  bilan_a_faire: '📝',
-  commande_a_confirmer: '🏆',
-  a_risque: '🔥',
+  mise_en_route: 'rocket',
+  devis_a_faire: 'file',
+  rdv_a_valider: 'calendar',
+  rdv_aujourdhui: 'calendar',
+  rdv_manque: 'alert',
+  rdv_annule: 'undo',
+  sauvetage_a_valider: 'lifebuoy',
+  email_a_valider: 'mail',
+  bilan_a_faire: 'notes',
+  commande_a_confirmer: 'trophy',
+  a_risque: 'flame',
 };
+function TypeIcon({ type, size = 16 }) {
+  return <Ic name={ICON_NAME[type] || 'message'} size={size} strokeWidth={2.2} />;
+}
 
 export function useNotifications(userId, { refreshMs = 60000 } = {}) {
   const [groups, setGroups] = useState([]);
@@ -220,7 +227,7 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
           <span className="ring" style={{ background: RING[g.type] }}>
             <span className="inner">
               <span className="count">{g.count}</span>
-              <span className="ic">{ICON[g.type]}</span>
+              <span className="ic"><TypeIcon type={g.type} size={15} /></span>
             </span>
           </span>
           <span className="lbl">{t(`stories.type.${g.type}`, locale)}</span>
@@ -480,9 +487,9 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         <>
           <p className="lead">{t('stories.devisLead', locale).replace('{name}', item.prospect_name).replace('{days}', item.days_waiting ?? 0)}</p>
           {item.meta?.paused ? (
-            <p className="hint">⏸ {t('stories.devisPausedHint', locale)}</p>
+            <p className="hint"><Ic name="pause" /> {t('stories.devisPausedHint', locale)}</p>
           ) : (
-            <p className="advice">💬 {t(`stories.devisAdvice${item.meta?.advice_level ?? 0}`, locale)}</p>
+            <p className="advice"><Ic name="message" /> {t(`stories.devisAdvice${item.meta?.advice_level ?? 0}`, locale)}</p>
           )}
           {item.meta?.has_draft && !replyMode && <p className="hint">{t('stories.devisDraftHint', locale)}</p>}
           {replyMode === 'choose' && (
@@ -529,7 +536,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.rdvValiderLead', locale).replace('{name}', item.prospect_name)}</p>
-          <p className="when">📅 {whenLabel} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
+          <p className="when"><Ic name="calendar" /> {whenLabel} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
         </>
       );
       actions = (
@@ -543,7 +550,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.rdvTodayLead', locale).replace('{name}', item.prospect_name)}</p>
-          <p className="when">⏰ {when ? when.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : ''} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
+          <p className="when"><Ic name="clock" /> {when ? when.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : ''} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
         </>
       );
       actions = (
@@ -557,7 +564,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.rdvManqueLead', locale).replace('{name}', item.prospect_name)}</p>
-          <p className="when">📅 {whenLabel}</p>
+          <p className="when"><Ic name="calendar" /> {whenLabel}</p>
         </>
       );
       actions = (
@@ -571,7 +578,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t(item.meta?.cancelled_by === 'client' ? 'stories.rdvAnnuleClientLead' : 'stories.rdvAnnuleCommercialLead', locale).replace('{name}', item.prospect_name)}</p>
-          <p className="when">📅 {whenLabel}</p>
+          <p className="when"><Ic name="calendar" /> {whenLabel}</p>
         </>
       );
       actions = (
@@ -614,7 +621,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.bilanLead', locale).replace('{name}', item.prospect_name)}</p>
-          <p className="when">📅 {whenLabel} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
+          <p className="when"><Ic name="calendar" /> {whenLabel} · {t(`apptType.${item.meta?.appt_type}`, locale)}</p>
         </>
       );
       actions = (
@@ -637,7 +644,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.risqueLead', locale).replace('{name}', item.prospect_name)}</p>
-          {item.meta?.advice && <p className="advice">💬 {frenchTypography(item.meta.advice)}</p>}
+          {item.meta?.advice && <p className="advice"><Ic name="message" /> {frenchTypography(item.meta.advice)}</p>}
           {planCall && (
             <div className="plan-row">
               <input type="datetime-local" value={planAt} onChange={(e) => setPlanAt(e.target.value)} className="plan-input" />
@@ -648,8 +655,8 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       );
       actions = (
         <>
-          <button type="button" className="btn-primary" disabled={acting} onClick={() => createCall(new Date(Date.now() - 60000).toISOString(), true)}>📞 {t('stories.callDone', locale)}</button>
-          <button type="button" className="btn-secondary" disabled={acting} onClick={() => setPlanCall((v) => !v)}>📅 {t('stories.callPlanned', locale)}</button>
+          <button type="button" className="btn-primary" disabled={acting} onClick={() => createCall(new Date(Date.now() - 60000).toISOString(), true)}><Ic name="phone" /> {t('stories.callDone', locale)}</button>
+          <button type="button" className="btn-secondary" disabled={acting} onClick={() => setPlanCall((v) => !v)}><Ic name="calendar" /> {t('stories.callPlanned', locale)}</button>
           <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
           <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'set_pipeline_risk', risk: false })}>{t('card.riskOff', locale)}</button>
         </>
@@ -681,7 +688,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           ))}
         </div>
         <div className="head">
-          <span className="type-ic">{ICON[item.type]}</span>
+          <span className="type-ic"><TypeIcon type={item.type} size={18} /></span>
           <div className="head-text">
             <p className="type">{t(`stories.type.${item.type}`, locale)} <span className="pos">{index + 1}/{deck.length}</span></p>
             <p className="name">
@@ -690,7 +697,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
             </p>
             {item.company_name && <p className="company">{item.company_name}</p>}
           </div>
-          <button type="button" className="close" onClick={close} aria-label={t('common.close', locale)}>✕</button>
+          <button type="button" className="close" onClick={close} aria-label={t('common.close', locale)}><Ic name="x" size={18} /></button>
         </div>
         <div className="body">{body}</div>
         {error && <p className="error">{error}</p>}

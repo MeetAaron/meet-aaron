@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -159,7 +160,7 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
     <div className="push-manager">
       {subscribed ? (
         <button type="button" className="push-btn active" onClick={disable} disabled={busy}>
-          {busy ? '…' : `✓ ${t('push.enabledOnDevice', locale)}`}
+          {busy ? '…' : <><Ic name="check" /> {t('push.enabledOnDevice', locale)}</>}
         </button>
       ) : (
         <button type="button" className="push-btn" onClick={enable} disabled={busy}>

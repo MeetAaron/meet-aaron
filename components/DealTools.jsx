@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { t } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
 
 export default function DealTools({ prospect, locale, userId, onChanged }) {
@@ -306,10 +307,10 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
                   return (
                     <div className={`check-box${ok === false ? ' warn' : ok === true ? ' ok' : ''}`}>
                       <p className="check-title">
-                        {ok === true ? '✅ ' : ok === false ? '⚠️ ' : 'ℹ️ '}
+                        {ok === true ? <Ic name="checkCircle" /> : ok === false ? <Ic name="alert" /> : <Ic name="info" />}{' '}
                         {ok === true ? t('quote.checkOk', locale) : ok === false ? t('quote.checkMismatch', locale) : t('quote.checkUnknown', locale)}
                       </p>
-                      <p className="check-line">📎 {uploadResult?.file_name || prospect.devis_file_name}</p>
+                      <p className="check-line"><Ic name="paperclip" /> {uploadResult?.file_name || prospect.devis_file_name}</p>
                       {(check.detected_client || check.detected_company) && (
                         <p className="check-line">{t('quote.checkDetected', locale)} {[check.detected_client, check.detected_company].filter(Boolean).join(' — ')}</p>
                       )}

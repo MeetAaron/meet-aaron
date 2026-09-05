@@ -25,11 +25,12 @@ import { useEffect, useRef, useState } from 'react';
 import { t } from '@/lib/i18n';
 import PipelineIcon from '@/components/PipelineIcon';
 import { frenchTypography } from '@/lib/text-typography';
-import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, LOST_REASONS, derivePipelinePosition, stageOrder } from '@/lib/pipeline';
+import { PIPELINE_STAGES, PIPELINE_COLORS, LOST_REASONS, derivePipelinePosition, stageOrder } from '@/lib/pipeline';
 import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import ConfidenceRing from '@/components/ConfidenceRing';
+import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smartphone, Linkedin, Trash2, X, ArrowRight, Trophy, Ban } from 'lucide-react';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
@@ -117,7 +118,7 @@ export function ProgressLine({ position, locale, compact = false, onSelect }) {
               onClick={onSelect ? () => onSelect(s.key) : undefined}
               tabIndex={onSelect ? 0 : -1}
             >
-              {position.lost && current ? '✕' : <PipelineIcon category={s.category} size={compact ? 9 : 15} filled={done || current} strokeWidth={compact ? 2.6 : 2.1} />}
+              {position.lost && current ? <X size={compact ? 9 : 15} strokeWidth={2.6} aria-hidden="true" /> : <PipelineIcon category={s.category} size={compact ? 9 : 15} filled={done || current} strokeWidth={compact ? 2.6 : 2.1} />}
             </button>
             {!compact && <span className={`lbl${current ? ' current' : ''}`}>{t(s.labelKey, locale)}</span>}
           </div>
@@ -194,6 +195,13 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   const [moreOpen, setMoreOpen] = useState(false); // 'won' | 'lost' | 'move' | 'delete' | null
   const [lostReason, setLostReason] = useState('autre');
   const [feedback, setFeedback] = useState(null);
+  // Le message vert « Changement enregistré » s'efface tout seul (même
+  // comportement que components/SavedFlash.jsx) ; une erreur reste affichée.
+  useEffect(() => {
+    if (!feedback || feedback.type !== 'ok' || feedback.href) return undefined;
+    const id = setTimeout(() => setFeedback(null), 2500);
+    return () => clearTimeout(id);
+  }, [feedback]);
   const infosRef = useRef(null);
   const sheetRef = useRef(null);
   const dragStartY = useRef(null);
@@ -289,7 +297,10 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   }
 
   async function handleRisk() {
-    if (await patch({ action: 'set_pipeline_risk', risk: !position.risk })) onChanged();
+    if (await patch({ action: 'set_pipeline_risk', risk: !position.risk })) {
+      setFeedback({ type: 'ok', text: t('preferences.changeSaved', locale) });
+      onChanged();
+    }
   }
 
   async function handleQuoteRequested() {
@@ -300,7 +311,10 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   }
 
   async function handleToggleAiManaged() {
-    if (await patch({ action: 'set_ai_managed', ai_managed: prospect.ai_managed === false })) onChanged();
+    if (await patch({ action: 'set_ai_managed', ai_managed: prospect.ai_managed === false })) {
+      setFeedback({ type: 'ok', text: t('preferences.changeSaved', locale) });
+      onChanged();
+    }
   }
 
   async function handleDelete() {
@@ -315,7 +329,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   }
 
   async function handleSaveToPhone() {
-    await downloadVCard(
+    const result = await downloadVCard(
       prospect,
       {
         personalityLabel: prospect.personality_type ? `${t('card.discLabel', locale)} : ${t(`personality.${prospect.personality_type}`, locale)}` : null,
@@ -329,6 +343,13 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         },
       }
     );
+    // Téléphone : la fiche s'ouvre par-dessus l'app (voir lib/vcard.js v4).
+    // Si le système ne l'a pas présentée (navigateur exotique, blocage), on
+    // laisse un lien de secours : un appui direct sur un vrai lien est ce
+    // qu'aucun navigateur ne bloque.
+    if (result?.phone && result.url) {
+      setFeedback({ type: 'ok', text: t('card.saveToPhoneHint', locale), href: result.url });
+    }
   }
 
   function scrollToInfos() {
@@ -349,35 +370,36 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   // Les trois actions mises en avant, et le reste. Voir le commentaire du
   // bloc .actions plus bas pour le pourquoi.
   const canQuote = !position.lost && !isClient && stageOrder(position.stage) < 3;
-  const actWon = { key: 'won', icon: '✓', tone: 'won', label: t('prospects.wonButtonLabel', locale), onClick: () => setPanel(panel === 'won' ? null : 'won') };
-  const actLost = { key: 'lost', icon: '✕', tone: 'lost', label: t('pipeline.lostLabel', locale), onClick: () => setPanel(panel === 'lost' ? null : 'lost') };
-  const actMove = { key: 'move', icon: '↔', label: t('card.move', locale), onClick: () => setPanel(panel === 'move' ? null : 'move') };
-  const actQuote = { key: 'quote', icon: '📄', tone: 'quote', label: t('card.quoteRequested', locale), onClick: handleQuoteRequested };
-  const actRisk = { key: 'risk', icon: '⚠', tone: position.risk ? 'risk-on' : '', label: position.risk ? t('card.riskOff', locale) : t('card.riskOn', locale), onClick: handleRisk };
-  const actAi = { key: 'ai', icon: prospect.ai_managed === false ? '⏸' : '🤖', tone: `ai${prospect.ai_managed === false ? ' off' : ''}`, label: prospect.ai_managed === false ? t('prospects.aiManagedOffLabel', locale) : t('prospects.aiManagedOnLabel', locale), onClick: handleToggleAiManaged };
-  const actEdit = { key: 'edit', icon: '✏️', label: t('card.edit', locale), onClick: scrollToInfos };
-  const actPhone = { key: 'phone', icon: '📱', label: t('card.saveToPhone', locale), onClick: handleSaveToPhone };
-  const actLinkedin = onLinkedin ? { key: 'linkedin', icon: '💼', label: t('prospects.linkedinMessageButton', locale), onClick: () => onLinkedin(prospect) } : null;
-  const actDelete = { key: 'delete', icon: '🗑', tone: 'delete', label: t('common.delete', locale), onClick: () => setPanel(panel === 'delete' ? null : 'delete') };
+  // Docx « derniers ajouts » (05/09/2026) : « on peut supprimer Gagné et
+  // Perdu car il y a déjà le Déplacer ». Les deux questions qu'ils posaient
+  // (première commande confirmée ? raison de la perte ?) ne disparaissent
+  // pas : le panneau Déplacer les ouvre quand on choisit « Client » ou
+  // « Perdu » — voir panel === 'move' plus bas. Icônes en traits (lucide)
+  // et non emojis : « tous les symboles doivent être modernes ».
+  const ic = (Icon) => <Icon size={15} strokeWidth={2.1} aria-hidden="true" />;
+  const actMove = { key: 'move', icon: ic(ArrowLeftRight), label: t('card.move', locale), onClick: () => setPanel(panel === 'move' ? null : 'move') };
+  const actQuote = { key: 'quote', icon: ic(FileText), tone: 'quote', label: t('card.quoteRequested', locale), onClick: handleQuoteRequested };
+  const actRisk = { key: 'risk', icon: ic(AlertTriangle), tone: position.risk ? 'risk-on' : '', label: position.risk ? t('card.riskOff', locale) : t('card.riskOn', locale), onClick: handleRisk };
+  const actAi = { key: 'ai', icon: ic(prospect.ai_managed === false ? PauseCircle : Bot), tone: `ai${prospect.ai_managed === false ? ' off' : ''}`, label: prospect.ai_managed === false ? t('prospects.aiManagedOffLabel', locale) : t('prospects.aiManagedOnLabel', locale), onClick: handleToggleAiManaged };
+  const actEdit = { key: 'edit', icon: ic(Pencil), label: t('card.edit', locale), onClick: scrollToInfos };
+  const actPhone = { key: 'phone', icon: ic(Smartphone), label: t('card.saveToPhone', locale), onClick: handleSaveToPhone };
+  const actLinkedin = onLinkedin ? { key: 'linkedin', icon: ic(Linkedin), label: t('prospects.linkedinMessageButton', locale), onClick: () => onLinkedin(prospect) } : null;
+  const actDelete = { key: 'delete', icon: ic(Trash2), tone: 'delete', label: t('common.delete', locale), onClick: () => setPanel(panel === 'delete' ? null : 'delete') };
 
   let primaryActions;
-  if (position.lost) {
-    primaryActions = [actMove, actEdit, actPhone];
-  } else if (isClient) {
+  if (position.lost || isClient) {
     primaryActions = [actMove, actEdit, actPhone];
   } else if (canQuote) {
-    primaryActions = [actWon, actQuote, actMove];
+    primaryActions = [actMove, actQuote, actAi];
   } else {
-    primaryActions = [actWon, actMove, actLost];
+    primaryActions = [actMove, actAi, actEdit];
   }
   const primaryKeys = new Set(primaryActions.map((a) => a.key));
-  const secondaryActions = [actWon, actQuote, actMove, actLost, actRisk, actAi, actEdit, actPhone, actLinkedin, actDelete]
+  const secondaryActions = [actQuote, actMove, actRisk, actAi, actEdit, actPhone, actLinkedin, actDelete]
     .filter(Boolean)
     .filter((a) => !primaryKeys.has(a.key))
     .filter((a) => {
       if (a.key === 'quote') return canQuote;
-      if (a.key === 'won') return !isClient && !position.lost;
-      if (a.key === 'lost') return !position.lost;
       if (a.key === 'risk') return !position.lost && !isClient;
       return true;
     });
@@ -400,7 +422,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                 : { background: `linear-gradient(135deg, ${catColor}, ${catColor}88)`, color: '#0a0c17' }}
               aria-hidden="true"
             >
-              {position.lost ? '✕' : initialsOf(prospect.full_name)}
+              {position.lost ? <X size={20} strokeWidth={2.4} aria-hidden="true" /> : initialsOf(prospect.full_name)}
             </span>
             <div className="head-text">
               <h2>
@@ -417,14 +439,14 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                 {conviction != null && !position.lost && (
                   <ConfidenceRing score={conviction} size={30} label={t('card.convictionShort', locale)} title={convictionReason || t('card.convictionTitle', locale)} />
                 )}
-                {position.risk && <span className="pill" style={{ color: PIPELINE_COLORS.risk, borderColor: PIPELINE_COLORS.risk }}>⚠ {t('pipeline.riskLabel', locale)}</span>}
+                {position.risk && <span className="pill" style={{ color: PIPELINE_COLORS.risk, borderColor: PIPELINE_COLORS.risk }}><AlertTriangle size={12} strokeWidth={2.2} aria-hidden="true" /> {t('pipeline.riskLabel', locale)}</span>}
                 {position.wonPendingFirstOrder && <span className="pill" style={{ color: PIPELINE_COLORS.wonPending, borderColor: PIPELINE_COLORS.wonPending }}>{t('prospects.wonPendingLabel', locale)}</span>}
                 {position.lost && position.lostReason && <span className="pill muted-pill">{t(`pipeline.lostReason.${position.lostReason}`, locale)}</span>}
                 {prospect.origin && ORIGIN_KEYS[prospect.origin] && <span className="pill muted-pill">{t(ORIGIN_KEYS[prospect.origin], locale)}</span>}
               </div>
             </div>
           </div>
-          <button type="button" className="close" onClick={onClose} aria-label={t('common.close', locale)}>✕</button>
+          <button type="button" className="close" onClick={onClose} aria-label={t('common.close', locale)}><X size={18} strokeWidth={2.2} aria-hidden="true" /></button>
         </header>
 
         <div className="progress-wrap">
@@ -500,7 +522,17 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           </div>
         )}
 
-        {feedback && <p className={`feedback ${feedback.type}`}>{feedback.text}</p>}
+        {feedback && (
+          <p className={`feedback ${feedback.type}`}>
+            {feedback.text}
+            {feedback.href && (
+              <>
+                {' '}
+                <a href={feedback.href} target="_blank" rel="noopener noreferrer">{t('card.saveToPhoneOpen', locale)}</a>
+              </>
+            )}
+          </p>
+        )}
 
         {panel === 'won' && (
           <div className="panel">
@@ -539,20 +571,35 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
             <div className="stage-list">
               {PIPELINE_STAGES.map((s) => {
                 const current = !position.lost && s.key === position.stage;
+                // « Client » passe par la question de la première commande
+                // (ancien bouton Gagné) au lieu d'un simple changement d'étape.
+                const isClientStage = s.key === 'client';
                 return (
                   <button
                     type="button"
                     key={s.key}
                     className={`stage-opt${current ? ' current' : ''}`}
                     disabled={acting || current}
-                    onClick={() => handleMove(s.key)}
+                    onClick={() => (isClientStage ? setPanel('won') : handleMove(s.key))}
                   >
                     <span className="stage-dot" style={{ background: PIPELINE_COLORS[s.category] }} />
-                    <span className="stage-name">{CATEGORY_ICONS[s.category]} {t(s.labelKey, locale)}</span>
+                    <span className="stage-name"><PipelineIcon category={s.category} size={13} filled strokeWidth={2.2} /> {t(s.labelKey, locale)}</span>
                     <span className="stage-hint">{t(s.hintKey, locale)}</span>
                   </button>
                 );
               })}
+              {!position.lost && (
+                <button
+                  type="button"
+                  className="stage-opt lost-opt"
+                  disabled={acting}
+                  onClick={() => setPanel('lost')}
+                >
+                  <span className="stage-dot" style={{ background: PIPELINE_COLORS.lost }} />
+                  <span className="stage-name"><Ban size={13} strokeWidth={2.2} aria-hidden="true" /> {t('pipeline.lostLabel', locale)}</span>
+                  <span className="stage-hint">{t('card.lostWhy', locale)}</span>
+                </button>
+              )}
             </div>
             <div className="panel-actions">
               <button type="button" className="btn-secondary" onClick={() => setPanel(null)}>{t('common.cancel', locale)}</button>
@@ -618,7 +665,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           <section className="block">
             <h3>{t('card.clientToolsTitle', locale)}</h3>
             <p className="muted small">{t('card.clientToolsHint', locale)}</p>
-            <a className="btn-secondary link-btn" href={`/app/customer?user_id=${userId}&client_id=${prospect.id}`}>{t('card.clientToolsOpen', locale)} →</a>
+            <a className="btn-secondary link-btn" href={`/app/customer?user_id=${userId}&client_id=${prospect.id}`}>{t('card.clientToolsOpen', locale)} <ArrowRight size={14} strokeWidth={2.2} aria-hidden="true" /></a>
           </section>
         )}
 
@@ -701,6 +748,9 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .sub { color: var(--muted); font-size: 0.84rem; margin: 0.2rem 0 0.5rem; overflow-wrap: anywhere; }
         .pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
         .pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3em;
           border: 1px solid;
           border-radius: 999px;
           padding: 0.15rem 0.6rem;
@@ -787,7 +837,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         }
         .act-primary:hover { border-color: var(--muted); }
         .act-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-        .act-primary-icon { font-size: 1.05rem; line-height: 1; }
+        .act-primary-icon { display: inline-flex; line-height: 1; }
         .act-primary-label { overflow-wrap: anywhere; }
         .act-primary.won { background: rgba(61, 214, 140, 0.10); border-color: rgba(61, 214, 140, 0.4); color: var(--accent-green); }
         .act-primary.lost { background: rgba(239, 68, 89, 0.08); border-color: rgba(239, 68, 89, 0.35); color: var(--accent-red); }
@@ -815,6 +865,9 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           border-top: 1px solid var(--border);
         }
         .act {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4em;
           background: var(--bg);
           border: 1px solid var(--border);
           color: var(--text);
@@ -835,7 +888,8 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .act.risk-on { border-color: #f0914e; color: #f0914e; }
         .feedback { font-size: 0.82rem; margin: 0.7rem 0 0; }
         .feedback.error { color: var(--accent-red); }
-        .feedback.ok { color: var(--accent-green); }
+        .feedback.ok { color: var(--accent-green); font-weight: 500; }
+        .feedback a { color: var(--accent-light); text-decoration: underline; }
         .panel {
           margin-top: 0.9rem;
           background: var(--bg);
@@ -892,7 +946,9 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .stage-opt.current { border-color: var(--accent); background: rgba(75, 57, 239, 0.12); cursor: default; }
         .stage-opt:disabled:not(.current) { opacity: 0.5; }
         .stage-dot { width: 10px; height: 10px; border-radius: 50%; grid-row: span 2; }
-        .stage-name { font-size: 0.84rem; font-weight: 600; }
+        .stage-name { font-size: 0.84rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35em; }
+        .stage-opt.lost-opt:hover:not(:disabled) { border-color: var(--accent-red); }
+        .stage-opt.lost-opt .stage-name { color: var(--accent-red); }
         .stage-hint { font-size: 0.74rem; color: var(--muted); grid-column: 2; }
         .block { margin-top: 1.3rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
         .block h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.6rem; }
@@ -924,7 +980,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           @keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
           .grab { display: flex; justify-content: center; padding: 0.4rem 0 0.8rem; touch-action: none; }
           .grab span { width: 42px; height: 5px; border-radius: 999px; background: var(--border); }
-          .act { flex: 1 1 calc(50% - 0.4rem); text-align: center; padding: 0.6rem 0.5rem; font-size: 0.8rem; }
+          .act { flex: 1 1 calc(50% - 0.4rem); justify-content: center; padding: 0.6rem 0.5rem; font-size: 0.8rem; }
           .actions { gap: 0.4rem; }
           h2 { font-size: 1.15rem; }
         }

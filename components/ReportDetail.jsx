@@ -20,6 +20,7 @@
 // Composant PUR (aucun import serveur).
 
 import { t } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 import { derivePipelinePosition } from '@/lib/pipeline';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -139,7 +140,7 @@ export default function ReportDetail({ type, bucket, title, data, locale, onClos
   return (
     <div className="overlay" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button type="button" className="close" onClick={onClose} aria-label={t('common.close', locale)}>✕</button>
+        <button type="button" className="close" onClick={onClose} aria-label={t('common.close', locale)}><Ic name="x" size={18} /></button>
         <p className="eyebrow">{t(`report.eyebrow.${type}`, locale)}</p>
         <h2 className="title">{title}</h2>
 

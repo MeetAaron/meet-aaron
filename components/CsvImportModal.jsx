@@ -26,6 +26,7 @@
 
 import { useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 import { parseCsv, autoMapColumns, buildMappedRows, IMPORT_FIELDS, isGenericEmailDomain } from '@/lib/csv-import';
 import { PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import { parseXlsxArrayBuffer } from '@/lib/xlsx-io';
@@ -347,7 +348,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
       label: t(st.labelKey, locale),
       count: counts[st.key],
     }));
-    if (counts.perdu) lines.push({ key: 'perdu', icon: '❌', label: t('pipeline.lostLabel', locale), count: counts.perdu });
+    if (counts.perdu) lines.push({ key: 'perdu', icon: <Ic name="x" />, label: t('pipeline.lostLabel', locale), count: counts.perdu });
     if (counts['']) lines.push({ key: 'none', icon: '·', label: t('csvImport.stageKeepDefault', locale), count: counts[''] });
     return lines;
   })();
@@ -575,7 +576,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
                           {CATEGORY_ICONS[st.category]} {t(st.labelKey, locale)}
                         </option>
                       ))}
-                      <option value="perdu">❌ {t('pipeline.lostLabel', locale)}</option>
+                      <option value="perdu">{t('pipeline.lostLabel', locale)}</option>
                     </select>
                   </label>
                   <button type="button" className="btn-secondary small" onClick={applyBulkStage}>
@@ -644,7 +645,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
                               className="suggestion-chip"
                               onClick={() => acceptCompanySuggestion(row.idx, suggestion.company_name_suggestion)}
                             >
-                              ✨ {suggestion.company_name_suggestion}
+                              <Ic name="sparkles" size={12} /> {suggestion.company_name_suggestion}
                             </button>
                           )}
                         </td>
@@ -668,10 +669,10 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
                                   {CATEGORY_ICONS[st.category]} {t(st.labelKey, locale)}
                                 </option>
                               ))}
-                              <option value="perdu">❌ {t('pipeline.lostLabel', locale)}</option>
+                              <option value="perdu">{t('pipeline.lostLabel', locale)}</option>
                             </select>
                             {stageSources[row.idx] === 'aaron' && (
-                              <span className="row-note stage-aaron">✨ {t('csvImport.stageFromAaron', locale)}</span>
+                              <span className="row-note stage-aaron"><Ic name="sparkles" size={12} /> {t('csvImport.stageFromAaron', locale)}</span>
                             )}
                             {stageSources[row.idx] === 'file' && (
                               <span className="row-note stage-file">{t('csvImport.stageFromFile', locale)}</span>
