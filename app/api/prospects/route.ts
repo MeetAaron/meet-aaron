@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { generateAaronResponse } from '@/lib/aaron';
+import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
@@ -401,6 +401,7 @@ export async function POST(request: NextRequest) {
         personality_type: aaronOutput.personality_type,
         personality_notes: aaronOutput.personality_notes,
         aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
       })
       .eq('id', prospect.id);
   } catch (err: any) {
