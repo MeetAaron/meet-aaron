@@ -19,10 +19,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
-import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
-import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
-import { sendPushNotification } from '@/lib/push';
-import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
+import { generateAaronResponse } from '@/lib/aaron';
+import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
+import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { getPacing } from '@/lib/anthropic-client';
 
 function isAuthorized(request: NextRequest) {
@@ -37,23 +36,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
     .eq('id', campaignId)
     .eq('status', 'en_attente');
 
-  // Option opt-in (voir migration_first_email_approval_2026-08-15.sql,
-  // désactivée par défaut) : si le commercial veut relire le tout premier
-  // email avant envoi plutôt que de laisser Aaron l'envoyer directement.
-  // Une seule requête par campagne (pas par prospect) puisqu'une campagne
-  // appartient toujours à un seul commercial.
+  // Le commercial propriétaire (une campagne = un commercial = une société) :
+  // sert au rythme de consommation ci-dessous. La relecture avant envoi et la
+  // pièce jointe du premier email sont gérées au moment de l'application de
+  // la sortie d'Aaron (applyAaronOutput, lib/aaron-batch.ts).
   const { data: campaignOwner } = await supabaseAdmin
     .from('users')
-    .select('require_first_email_approval, company_id')
+    .select('company_id')
     .eq('id', assignedUserId)
     .single();
-  const requireApproval = campaignOwner?.require_first_email_approval === true;
-  // Une seule requête par campagne (comme campaignOwner ci-dessus) puisque
-  // tous les prospects de cette campagne appartiennent au même commercial,
-  // donc à la même société — voir lib/first-email-attachment.ts.
-  const firstEmailAttachment = campaignOwner?.company_id
-    ? await getFirstEmailAttachment(campaignOwner.company_id)
-    : null;
 
   // Rythme de consommation (décision Alex, 05/09/2026 : « Aaron doit utiliser
   // au plus possible l'abonnement… se rapprocher de 0 ou une marge de 1,5
@@ -109,10 +100,19 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
     return { campaign_id: campaignId, batch_result: result, first_contacts_sent: 0, skipped_daily_cap: true };
   }
 
-  // Reste séquentiel PAR campagne (donc par commercial) pour ne pas déclencher
-  // trop d'envois Gmail d'un coup depuis un même compte — seul le traitement
-  // ENTRE campagnes de commerciaux différents est parallélisé (voir GET ci-dessous).
+  // Batch API (05/09/2026, validé par Alex) : les premiers emails partent
+  // par lot à moitié prix et sont envoyés quand le lot revient (en général
+  // sous l'heure) par app/api/cron/collect-aaron-batches. La logique
+  // d'application (validation avant envoi, pièce jointe, message enregistré,
+  // fiche mise à jour) est la même que le chemin temps réel : voir
+  // applyAaronOutput dans lib/aaron-batch.ts. Si le lot ne peut pas être
+  // soumis (table absente, API en erreur), on retombe sur le temps réel,
+  // séquentiel PAR campagne pour ne pas déclencher trop d'envois Gmail d'un
+  // coup depuis un même compte.
+  const pendingIds = await pendingBatchProspectIds();
+  const items: BatchItemInput[] = [];
   for (const prospect of newProspects) {
+    if (pendingIds.has(prospect.id)) continue;
     let conversationId = (prospect as any).conversations?.[0]?.id;
     if (!conversationId) {
       const { data: conv } = await supabaseAdmin
@@ -123,86 +123,42 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
       conversationId = conv?.id;
     }
     if (!conversationId) continue;
+    items.push({
+      prospectId: prospect.id,
+      userId: prospect.assigned_user_id,
+      companyId: campaignOwner?.company_id || null,
+      conversationId,
+      kind: 'first_contact',
+    });
+  }
 
+  if (items.length > 0 && batchEnabled()) {
     try {
-      const aaronOutput = await generateAaronResponse(prospect.id);
+      const enq = await enqueueAaronBatch(items);
+      return { campaign_id: campaignId, batch_result: result, first_contacts_batched: enq.submitted, first_contacts_sent: enq.appliedNow, batch_id: enq.batchId };
+    } catch (err: any) {
+      console.error('Batch Aaron indisponible, passage en temps réel :', err?.message);
+    }
+  }
 
-      // Garde-fou : ne pas envoyer/archiver un email vide si Aaron n'a rien
-      // proposé (voir même correctif dans check-inbox).
-      const hasEmailToSend =
-        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
-
-      if (hasEmailToSend && requireApproval) {
-        // Ne pas envoyer : on garde l'email généré en attente de relecture
-        // par le commercial (voir app/app/prospects/page.jsx, badge "1er
-        // email à valider") et on le notifie. Aucun message n'est inséré
-        // dans la conversation tant que l'envoi n'est pas confirmé.
-        await supabaseAdmin
-          .from('prospects')
-          .update({
-            pending_first_email_subject: aaronOutput.email_draft.subject,
-            pending_first_email_body: aaronOutput.email_draft.body,
-            pending_first_email_generated_at: new Date().toISOString(),
-          })
-          .eq('id', prospect.id);
-
-        try {
-          await sendPushNotification(prospect.assigned_user_id, {
-            title: 'Premier email prêt à valider',
-            body: `Aaron a préparé le premier email pour ${prospect.email}. À relire avant envoi.`,
-            url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
-          });
-        } catch (pushErr) {
-          console.error('Erreur envoi notification push (premier email à valider):', pushErr);
-        }
-      } else if (hasEmailToSend) {
-        await sendEmailForUser(
-          prospect.assigned_user_id,
-          prospect.email,
-          aaronOutput.email_draft.subject,
-          aaronOutput.email_draft.body,
-          { emailType: 'prospecting', attachment: firstEmailAttachment || undefined }
-        );
-
-        const { data: senderUser } = await supabaseAdmin
-          .from('users')
-          .select('email')
-          .eq('id', prospect.assigned_user_id)
-          .single();
-
-        await supabaseAdmin.from('messages').insert({
-          conversation_id: conversationId,
-          direction: 'outbound',
-          sender_email: senderUser?.email || '',
-          recipient_email: prospect.email,
-          body: aaronOutput.email_draft.body,
-        });
-      }
-
-      await supabaseAdmin
-        .from('prospects')
-        .update({
-          status: aaronOutput.prospect_status,
-          status_updated_at: new Date().toISOString(),
-          personality_type: aaronOutput.personality_type,
-          personality_notes: aaronOutput.personality_notes,
-          aaron_advice: aaronOutput.aaron_advice,
-            ...convictionColumns(aaronOutput),
-          ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
-        })
-        .eq('id', prospect.id);
+  let sent = 0;
+  for (const item of items) {
+    try {
+      const aaronOutput = await generateAaronResponse(item.prospectId);
+      await applyAaronOutput(item, aaronOutput);
+      sent++;
     } catch (err: any) {
       // DailySendCapExceededError / DomainNotDeliverableError : le prospect
       // reste sans message, donc run-campaigns (ce lot) ou
       // retry-uncontacted-prospects le retenteront automatiquement au
       // prochain passage — inutile de bruiter les logs pour un cas déjà géré.
       if (!(err instanceof DailySendCapExceededError) && !(err instanceof DomainNotDeliverableError)) {
-        console.error(`Erreur lors du premier contact pour le prospect ${prospect.id}:`, err);
+        console.error(`Erreur lors du premier contact pour le prospect ${item.prospectId}:`, err);
       }
     }
   }
 
-  return { campaign_id: campaignId, batch_result: result, first_contacts_sent: newProspects.length };
+  return { campaign_id: campaignId, batch_result: result, first_contacts_sent: sent };
 }
 
 export async function GET(request: NextRequest) {
