@@ -24,7 +24,8 @@
 // JAMAIS envoyée automatiquement et attend une validation du commercial.
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+import { generateAaronResponse } from '@/lib/aaron';
+import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
@@ -68,8 +69,9 @@ export async function GET(request: NextRequest) {
   // Voir même cache dans retry-uncontacted-prospects/route.ts : évite de revérifier
   // le plafond quotidien (lib/messaging.ts) à chaque prospect du même commercial.
   const cappedUsers = new Map<string, boolean>();
-  let followedUp = 0;
-  let rescuePending = 0;
+  const pendingIds = await pendingBatchProspectIds();
+  const companyByUser = new Map<string, string | null>();
+  const items: BatchItemInput[] = [];
 
   for (const prospect of candidates || []) {
     const conversation = (prospect as any).conversations?.[0];
@@ -101,82 +103,39 @@ export async function GET(request: NextRequest) {
 
     perUserCount[prospect.assigned_user_id] = (perUserCount[prospect.assigned_user_id] || 0) + 1;
     if (perUserCount[prospect.assigned_user_id] > MAX_PER_USER_PER_RUN) continue;
+    if (pendingIds.has(prospect.id)) continue; // relance déjà dans un lot en cours
 
+    if (!companyByUser.has(prospect.assigned_user_id)) {
+      const { data: u } = await supabaseAdmin.from('users').select('company_id').eq('id', prospect.assigned_user_id).single();
+      companyByUser.set(prospect.assigned_user_id, u?.company_id || null);
+    }
+    items.push({
+      prospectId: prospect.id,
+      userId: prospect.assigned_user_id,
+      companyId: companyByUser.get(prospect.assigned_user_id) || null,
+      conversationId: conversation.id,
+      kind: 'followup',
+    });
+  }
+
+  // Batch API (05/09/2026, validé par Alex) : les relances partent par lot à
+  // moitié prix, sur Haiku (voir AaronModel dans lib/aaron.ts), et sont
+  // envoyées quand le lot revient (collect-aaron-batches). Repli temps réel
+  // si le lot ne peut pas être soumis.
+  if (items.length > 0 && batchEnabled()) {
     try {
-      // Relance après silence : Haiku (voir AaronModel dans lib/aaron.ts).
-      const aaronOutput = await generateAaronResponse(prospect.id, { model: 'claude-haiku-4-5' });
+      const enq = await enqueueAaronBatch(items, { model: 'claude-haiku-4-5' });
+      return NextResponse.json({ batched: enq.submitted, followed_up: enq.appliedNow, batch_id: enq.batchId });
+    } catch (err: any) {
+      console.error('Batch Aaron indisponible, passage en temps réel :', err?.message);
+    }
+  }
 
-      // Tentative de sauvetage : ne jamais envoyer automatiquement, attend
-      // une validation du commercial (même logique que app/api/cron/check-inbox).
-      if (aaronOutput.rescue_proposal) {
-        await supabaseAdmin
-          .from('prospects')
-          .update({
-            status: aaronOutput.prospect_status,
-            status_updated_at: new Date().toISOString(),
-            personality_type: aaronOutput.personality_type,
-            personality_notes: aaronOutput.personality_notes,
-            aaron_advice: aaronOutput.aaron_advice,
-            ...convictionColumns(aaronOutput),
-            ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
-            rescue_proposal_subject: aaronOutput.rescue_proposal.subject,
-            rescue_proposal_body: aaronOutput.rescue_proposal.body,
-            rescue_proposal_pending: true,
-          })
-          .eq('id', prospect.id);
-
-        await sendPushNotification(prospect.assigned_user_id, {
-          title: 'Prospect en risque de perte',
-          body: `Silence prolongé de ${prospect.email} après plusieurs relances. Aaron propose une tentative de sauvetage à valider.`,
-          url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
-        });
-
-        rescuePending++;
-        continue;
-      }
-
-      // Garde-fou : ne pas envoyer/archiver un email vide si Aaron n'a rien
-      // proposé (voir même correctif dans check-inbox).
-      const hasEmailToSend =
-        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
-
-      if (hasEmailToSend) {
-        await sendEmailForUser(
-          prospect.assigned_user_id,
-          prospect.email,
-          aaronOutput.email_draft.subject,
-          aaronOutput.email_draft.body,
-          { emailType: 'prospecting' }
-        );
-
-        const { data: senderUser } = await supabaseAdmin
-          .from('users')
-          .select('email')
-          .eq('id', prospect.assigned_user_id)
-          .single();
-
-        await supabaseAdmin.from('messages').insert({
-          conversation_id: conversation.id,
-          direction: 'outbound',
-          sender_email: senderUser?.email || '',
-          recipient_email: prospect.email,
-          body: aaronOutput.email_draft.body,
-        });
-      }
-
-      await supabaseAdmin
-        .from('prospects')
-        .update({
-          status: aaronOutput.prospect_status,
-          status_updated_at: new Date().toISOString(),
-          personality_type: aaronOutput.personality_type,
-          personality_notes: aaronOutput.personality_notes,
-          aaron_advice: aaronOutput.aaron_advice,
-            ...convictionColumns(aaronOutput),
-          ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
-        })
-        .eq('id', prospect.id);
-
+  let followedUp = 0;
+  for (const item of items) {
+    try {
+      const aaronOutput = await generateAaronResponse(item.prospectId, { model: 'claude-haiku-4-5' });
+      await applyAaronOutput(item, aaronOutput);
       followedUp++;
     } catch (err: any) {
       if (
@@ -184,10 +143,10 @@ export async function GET(request: NextRequest) {
         !(err instanceof DailySendCapExceededError) &&
         !(err instanceof DomainNotDeliverableError)
       ) {
-        console.error(`Erreur relance programmée pour prospect ${prospect.id}:`, err.message);
+        console.error(`Erreur relance programmée pour prospect ${item.prospectId}:`, err.message);
       }
     }
   }
 
-  return NextResponse.json({ followed_up: followedUp, rescue_pending: rescuePending });
+  return NextResponse.json({ followed_up: followedUp });
 }
