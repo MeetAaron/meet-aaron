@@ -25,7 +25,7 @@ import { useEffect, useRef, useState } from 'react';
 import { t } from '@/lib/i18n';
 import PipelineIcon from '@/components/PipelineIcon';
 import { frenchTypography } from '@/lib/text-typography';
-import { PIPELINE_STAGES, PIPELINE_COLORS, LOST_REASONS, derivePipelinePosition, stageOrder } from '@/lib/pipeline';
+import { PIPELINE_STAGES, PIPELINE_COLORS, LOST_REASONS, derivePipelinePosition, stageOrder, baselineConfidence } from '@/lib/pipeline';
 import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
@@ -211,7 +211,11 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   const isClient = position.category === 'client' && !position.lost;
   const isFullClient = !!prospect.first_order_confirmed_at;
   const showDealTools = stageOrder(position.stage) >= 2 || !!prospect.latest_appointment || !!prospect.devis_generated_at;
-  const conviction = prospect.conviction_score ?? prospect.negotiation_confidence_score ?? null;
+  const aaronConviction = prospect.conviction_score ?? prospect.negotiation_confidence_score ?? null;
+  // Pas encore de score d'Aaron → estimation d'après l'étape (voir
+  // baselineConfidence, lib/pipeline.ts), signalée comme telle.
+  const convictionIsEstimate = aaronConviction == null;
+  const conviction = aaronConviction ?? baselineConfidence(position);
   const convictionReason = prospect.conviction_reason ?? prospect.negotiation_confidence_reason ?? null;
 
   useEffect(() => {
@@ -437,7 +441,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
               <div className="pills">
                 <span className="pill" style={{ color: catColor, borderColor: catColor }}>{stageLabel}</span>
                 {conviction != null && !position.lost && (
-                  <ConfidenceRing score={conviction} size={30} label={t('card.convictionShort', locale)} title={convictionReason || t('card.convictionTitle', locale)} />
+                  <ConfidenceRing score={conviction} size={30} label={convictionIsEstimate ? t('card.convictionEstimateShort', locale) : t('card.convictionShort', locale)} title={convictionIsEstimate ? t('card.convictionEstimate', locale) : (convictionReason || t('card.convictionTitle', locale))} />
                 )}
                 {position.risk && <span className="pill" style={{ color: PIPELINE_COLORS.risk, borderColor: PIPELINE_COLORS.risk }}><AlertTriangle size={12} strokeWidth={2.2} aria-hidden="true" /> {t('pipeline.riskLabel', locale)}</span>}
                 {position.wonPendingFirstOrder && <span className="pill" style={{ color: PIPELINE_COLORS.wonPending, borderColor: PIPELINE_COLORS.wonPending }}>{t('prospects.wonPendingLabel', locale)}</span>}
@@ -628,7 +632,8 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           ) : (
             <p className="muted">{t('card.convictionNone', locale)}</p>
           )}
-          {convictionReason && <p className="text">{frenchTypography(convictionReason)}</p>}
+          {convictionIsEstimate && conviction != null && <p className="muted small-note">{t('card.convictionEstimate', locale)}</p>}
+          {!convictionIsEstimate && convictionReason && <p className="text">{frenchTypography(convictionReason)}</p>}
         </section>
 
         <section className="block">
@@ -890,6 +895,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .feedback.error { color: var(--accent-red); }
         .feedback.ok { color: var(--accent-green); font-weight: 500; }
         .feedback a { color: var(--accent-light); text-decoration: underline; }
+        .small-note { font-size: 0.78rem; margin: 0.4rem 0 0; }
         .panel {
           margin-top: 0.9rem;
           background: var(--bg);
