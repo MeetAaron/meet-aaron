@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 
 export default function LoginPage() {
   const [locale, setLocale] = useLocale();
@@ -225,7 +225,7 @@ export default function LoginPage() {
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {LOCALE_LABELS[l]}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
