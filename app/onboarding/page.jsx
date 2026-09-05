@@ -4,7 +4,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
-import { useLocale } from '@/lib/i18n';
+import { useLocale, localeForCountry } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
 // seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
@@ -39,9 +40,17 @@ const AARON_MODULES = [
   },
 ];
 
+// Suggestions du champ pays (liste ouverte : on peut taper autre chose).
+const COUNTRY_SUGGESTIONS = [
+  'France', 'Belgique', 'Suisse', 'Luxembourg', 'Monaco', 'Canada',
+  'Royaume-Uni', 'Irlande', 'Australie', 'Nouvelle-Zélande', 'États-Unis',
+  'Allemagne', 'Autriche', 'Italie', 'Espagne', 'Portugal', 'Pays-Bas',
+  'Maroc', 'Tunisie', 'Sénégal', "Côte d'Ivoire", 'Brésil', 'Mexique',
+];
+
 export default function OnboardingPage() {
   const router = useRouter();
-  const [locale] = useLocale();
+  const [locale, setLocale] = useLocale();
   const [checking, setChecking] = useState(true);
   const [session, setSession] = useState(null);
   // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
@@ -346,7 +355,7 @@ export default function OnboardingPage() {
 
           <label>
             Nom de votre société
-            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Open X" required />
+            <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Dupont SARL" required />
           </label>
           {/* Précision ajoutée le 25/08 : un commercial solo qui découvre ce
               champ juste après avoir cliqué "Je crée mon espace Meet Aaron"
@@ -356,7 +365,28 @@ export default function OnboardingPage() {
 
           <label>
             Pays de votre société
-            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="ex: France" required />
+            <input
+              value={country}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCountry(next);
+                // Docx « derniers ajouts » (05/09/2026) : le pays choisit la
+                // langue de l'app (France → français, UK → anglais…). On ne
+                // change rien si le pays n'est pas reconnu — et l'utilisateur
+                // garde le sélecteur de langue de l'app pour corriger.
+                const guessed = localeForCountry(next);
+                if (guessed && guessed !== locale) setLocale(guessed);
+              }}
+              list="country-suggestions"
+              placeholder="ex: France"
+              autoComplete="country-name"
+              required
+            />
+            <datalist id="country-suggestions">
+              {COUNTRY_SUGGESTIONS.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </label>
 
           {/* Abonnement unique Aaron (docx Modifs Aaron 30/08/2026 + décision
@@ -369,7 +399,7 @@ export default function OnboardingPage() {
             <div className="modules-grid">
               <div className="module-card selected">
                 <div className="module-toggle" aria-pressed="true">
-                  <span className="module-check" aria-hidden="true">✓</span>
+                  <span className="module-check" aria-hidden="true"><Ic name="check" size={12} strokeWidth={3} /></span>
                   <span className="module-main">
                     <span className="module-title-row">
                       <span className="module-title">Aaron</span>
