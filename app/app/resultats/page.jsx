@@ -1189,6 +1189,7 @@ export default function ResultatsPage() {
                 <p>
                   <b>{t('results.stepsInsightTitle', locale)}</b>{' '}
                   {t('results.passRateWeak', locale)
+                    .replace(/^[—–-]\s*/, '')
                     .replace('{from}', t(PIPELINE_STAGES[worstIdx].labelKey, locale))
                     .replace('{to}', t(PIPELINE_STAGES[worstIdx + 1].labelKey, locale))}
                   {' '}({transformRates[worstIdx]} %{stageMetrics.lostByStage[PIPELINE_STAGES[worstIdx].key] > 0 ? `, ${stageMetrics.lostByStage[PIPELINE_STAGES[worstIdx].key]} ${t('results.lostAtStage', locale)}` : ''}).
