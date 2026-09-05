@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -15,8 +15,9 @@ import ActionMenu from '@/components/ActionMenu';
 import ConfidenceRing from '@/components/ConfidenceRing';
 import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
-import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
+import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
 import PipelineIcon from '@/components/PipelineIcon';
+import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
 
 function useAuthedUser() {
@@ -348,10 +349,13 @@ export default function ProspectsPage() {
     return { text: t(PIPELINE_STAGES[stageOrder(position.stage)].hintKey, locale), level: 'muted' };
   }
 
+  // Icônes en traits (lucide), plus d'emojis — docx 05/09/2026 : « tous les
+  // symboles de l'appli doivent être modernes ».
+  const ic = (Icon, size = 13) => <Icon size={size} strokeWidth={2.2} aria-hidden="true" style={{ verticalAlign: '-2px' }} />;
   function originLabel(p) {
-    if (p.origin === 'amene_par_aaron') return { icon: '🤖', text: t('pipeline.origin.aaron', locale) };
-    if (p.origin === 'reactive_par_aaron') return { icon: '♻️', text: t('pipeline.origin.reactivated', locale) };
-    return { icon: '👤', text: t('pipeline.origin.you', locale) };
+    if (p.origin === 'amene_par_aaron') return { icon: ic(Bot), text: t('pipeline.origin.aaron', locale) };
+    if (p.origin === 'reactive_par_aaron') return { icon: ic(RefreshCw), text: t('pipeline.origin.reactivated', locale) };
+    return { icon: ic(User), text: t('pipeline.origin.you', locale) };
   }
 
   if (authLoading) {
@@ -406,14 +410,14 @@ export default function ProspectsPage() {
           <ActionMenu
             label={`+ ${t('common.add', locale)}`}
             items={[
-              { key: 'manual', icon: '✍️', label: t('pipeline.addManually', locale), hint: t('pipeline.menuManualHint', locale), onSelect: () => setShowAddForm(true) },
-              { key: 'import', icon: '📥', label: t('pipeline.importFile', locale), hint: t('pipeline.menuImportHint', locale), onSelect: () => setShowCsvImport(true) },
+              { key: 'manual', icon: ic(PenLine, 15), label: t('pipeline.addManually', locale), hint: t('pipeline.menuManualHint', locale), onSelect: () => setShowAddForm(true) },
+              { key: 'import', icon: ic(Upload, 15), label: t('pipeline.importFile', locale), hint: t('pipeline.menuImportHint', locale), onSelect: () => setShowCsvImport(true) },
               { key: 'sep-1', separator: true },
-              { key: 'template-csv', icon: '📄', label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.csv', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'csv') },
-              { key: 'template-xlsx', icon: '📊', label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.xlsx', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'xlsx') },
+              { key: 'template-csv', icon: ic(FileText, 15), label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.csv', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'csv') },
+              { key: 'template-xlsx', icon: ic(Table2, 15), label: `${t('pipeline.blankTemplate', locale)} · ${t('exportFormat.xlsx', locale)}`, onSelect: () => downloadBlankProspectsTemplate(locale, 'xlsx') },
               { key: 'sep-2', separator: true },
-              { key: 'export-csv', icon: '⬇️', label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.csv', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'csv') },
-              { key: 'export-xlsx', icon: '⬇️', label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.xlsx', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'xlsx') },
+              { key: 'export-csv', icon: ic(Download, 15), label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.csv', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'csv') },
+              { key: 'export-xlsx', icon: ic(Download, 15), label: `${t('pipeline.exportFile', locale)} · ${t('exportFormat.xlsx', locale)}`, disabled: filtered.length === 0, onSelect: () => exportProspectsToCsv(filtered.map((r) => r.p), locale, 'xlsx') },
             ]}
           />
         </div>
@@ -425,10 +429,10 @@ export default function ProspectsPage() {
           <p>{t('pipeline.helpIntro', locale)}</p>
           <ul>
             {PIPELINE_STAGES.map((s) => (
-              <li key={s.key}><strong>{CATEGORY_ICONS[s.category]} {t(s.labelKey, locale)}</strong> — {t(s.hintKey, locale)}</li>
+              <li key={s.key}><strong><PipelineIcon category={s.category} size={13} filled strokeWidth={2.2} /> {t(s.labelKey, locale)}</strong> — {t(s.hintKey, locale)}</li>
             ))}
-            <li><strong style={{ color: PIPELINE_COLORS.risk }}>⚠ {t('pipeline.riskLabel', locale)}</strong> — {t('pipeline.riskHint', locale)}</li>
-            <li><strong style={{ color: PIPELINE_COLORS.lost }}>✕ {t('pipeline.lostLabel', locale)}</strong> — {t('pipeline.lostHint', locale)}</li>
+            <li><strong style={{ color: PIPELINE_COLORS.risk }}>{ic(AlertTriangle)} {t('pipeline.riskLabel', locale)}</strong> — {t('pipeline.riskHint', locale)}</li>
+            <li><strong style={{ color: PIPELINE_COLORS.lost }}>{ic(X)} {t('pipeline.lostLabel', locale)}</strong> — {t('pipeline.lostHint', locale)}</li>
           </ul>
         </div>
       )}
@@ -465,19 +469,19 @@ export default function ProspectsPage() {
         </div>
         <div className="sub-filters">
           <button type="button" className={`chip${extraFilter === 'risk' ? ' active' : ''}`} onClick={() => toggleExtra('risk')} title={t('pipeline.riskHint', locale)}>
-            ⚠ {t('pipeline.riskLabel', locale)} <span className="chip-count">{counts.risk}</span>
+            {ic(AlertTriangle)} {t('pipeline.riskLabel', locale)} <span className="chip-count">{counts.risk}</span>
           </button>
           <button type="button" className={`chip${extraFilter === 'lost' ? ' active' : ''}`} onClick={() => toggleExtra('lost')} title={t('pipeline.lostHint', locale)}>
-            ✕ {t('pipeline.lostLabel', locale)} <span className="chip-count">{counts.lost}</span>
+            {ic(X)} {t('pipeline.lostLabel', locale)} <span className="chip-count">{counts.lost}</span>
           </button>
           {/* « Tu as mis géré par Aaron, du coup mets à côté géré par moi »
               (Alex, 04/09/2026). Les deux s'excluent : un contact est géré
               par l'un ou par l'autre. */}
           <button type="button" className={`chip${managedFilter === 'aaron' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'aaron' ? null : 'aaron'))} title={t('pipeline.aaronOnlyHint', locale)}>
-            🤖 {t('pipeline.aaronOnly', locale)} <span className="chip-count">{aaronManagedCount}</span>
+            {ic(Bot)} {t('pipeline.aaronOnly', locale)} <span className="chip-count">{aaronManagedCount}</span>
           </button>
           <button type="button" className={`chip${managedFilter === 'me' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'me' ? null : 'me'))} title={t('pipeline.meOnlyHint', locale)}>
-            🙋 {t('pipeline.meOnly', locale)} <span className="chip-count">{meManagedCount}</span>
+            {ic(UserCheck)} {t('pipeline.meOnly', locale)} <span className="chip-count">{meManagedCount}</span>
           </button>
         </div>
       </div>
@@ -609,7 +613,7 @@ export default function ProspectsPage() {
                         ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
                         : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
                       )}
-                      {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}>⏸</span>}
+                      {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}><PauseCircle size={13} strokeWidth={2.2} aria-hidden="true" style={{ verticalAlign: '-2px' }} /></span>}
                     </div>
                     <div className="company-line muted">
                       {p.prospect_companies?.name || p.email}
@@ -628,7 +632,7 @@ export default function ProspectsPage() {
                       <ProgressLine position={position} locale={locale} compact />
                       <span className="stage-name" style={{ color: catColor }}>
                         {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
-                        {position.risk && ' ⚠'}
+                        {position.risk && <> {ic(AlertTriangle, 12)}</>}
                       </span>
                       {conviction != null && (
                         <span className="mcard-score">
@@ -1725,6 +1729,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -1753,6 +1771,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -1828,7 +1851,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -1852,7 +1875,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
