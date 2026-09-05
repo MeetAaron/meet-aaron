@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
-import { generateAaronResponse } from '@/lib/aaron';
+import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
@@ -173,6 +173,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
           personality_type: aaronOutput.personality_type,
           personality_notes: aaronOutput.personality_notes,
           aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
