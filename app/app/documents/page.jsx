@@ -15,10 +15,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
+import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 
 function useAuthedUser() {
@@ -270,6 +272,7 @@ export default function DocumentsPage() {
       setRowError(t('documents.deleteError', locale));
       return;
     }
+    flashSaved(doc.id);
     load();
   }
 
@@ -286,6 +289,7 @@ export default function DocumentsPage() {
       setRowError(t('documents.deleteError', locale));
       return;
     }
+    flashSaved(doc.id);
     load();
   }
 
@@ -307,6 +311,7 @@ export default function DocumentsPage() {
       setRowError(t('documents.deleteError', locale));
       return;
     }
+    flashSaved(doc.id);
     load();
   }
 
@@ -341,6 +346,7 @@ export default function DocumentsPage() {
       setRowError(t('documents.deleteError', locale));
       return;
     }
+    flashSaved(noteModalDoc.id);
     setNoteModalDoc(null);
     load();
   }
@@ -525,7 +531,7 @@ export default function DocumentsPage() {
                 )}
                 {d.summary && (
                   <p className="doc-sum doc-sum-ai">
-                    <span className="doc-sum-tag">🤖</span>{' '}
+                    <span className="doc-sum-tag"><Ic name="bot" /></span>{' '}
                     {truncatedWithModal(d.summary, SUMMARY_TRUNCATE_LENGTH, () => setSummaryModalDoc(d), locale)}
                   </p>
                 )}
@@ -537,13 +543,13 @@ export default function DocumentsPage() {
                 <div className="doc-tags">
                   <span className="doc-tag cat">{categoryLabelsFor(locale)[d.linked_category === 'clients' ? 'clients' : d.linked_category || 'general']}</span>
                   {d.attach_to_first_email && (
-                    <span className="doc-tag attach">📎 {t('documents.firstEmailAttachmentOn', locale)}</span>
+                    <span className="doc-tag attach"><Ic name="paperclip" size={12} /> {t('documents.firstEmailAttachmentOn', locale)}</span>
                   )}
                   {!d.included_in_aaron_context && (
-                    <span className="doc-tag off">🚫 {t('documents.aaronContextOff', locale)}</span>
+                    <span className="doc-tag off"><Ic name="ban" size={12} /> {t('documents.aaronContextOff', locale)}</span>
                   )}
                   <span className={`doc-tag ${d.category_auto ? 'auto' : 'manual'}`} title={d.category_auto ? t('documents.managedByAaronHint', locale) : t('documents.managedByYouHint', locale)}>
-                    {d.category_auto ? `🤖 ${t('documents.managedByAaron', locale)}` : t('documents.managedByYou', locale)}
+                    {d.category_auto ? <><Ic name="bot" size={12} /> {t('documents.managedByAaron', locale)}</> : t('documents.managedByYou', locale)}
                   </span>
                 </div>
 
@@ -560,7 +566,7 @@ export default function DocumentsPage() {
                 <div className="doc-actions">
                   {d.download_url && (
                     <a href={d.download_url} target="_blank" rel="noreferrer" className="chip">
-                      ↓ {t('documents.download', locale)}
+                      <Ic name="download" /> {t('documents.download', locale)}
                     </a>
                   )}
                   <button
@@ -580,7 +586,7 @@ export default function DocumentsPage() {
                     disabled={togglingAttachmentId === d.id}
                     onClick={() => handleToggleFirstEmailAttachment(d)}
                   >
-                    {d.attach_to_first_email ? '✓ ' : ''}{d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
+                    {d.attach_to_first_email ? <><Ic name="check" /> </> : null}{d.attach_to_first_email ? t('documents.firstEmailAttachmentOn', locale) : t('documents.firstEmailAttachmentOff', locale)}
                   </button>
                   <button
                     type="button"
@@ -588,7 +594,7 @@ export default function DocumentsPage() {
                     disabled={togglingId === d.id}
                     onClick={() => handleToggleAaronContext(d)}
                   >
-                    {d.included_in_aaron_context ? '✓ ' : ''}{d.included_in_aaron_context ? t('documents.aaronContextOn', locale) : t('documents.aaronContextOff', locale)}
+                    {d.included_in_aaron_context ? <><Ic name="check" /> </> : null}{d.included_in_aaron_context ? t('documents.aaronContextOn', locale) : t('documents.aaronContextOff', locale)}
                   </button>
                   <select
                     className="category-select-inline"
@@ -605,6 +611,7 @@ export default function DocumentsPage() {
                     {t('documents.deleteButton', locale)}
                   </button>
                 </div>
+                <SavedFlash when={savedKey === d.id} locale={locale} />
               </div>
             </article>
           ))}
@@ -615,7 +622,7 @@ export default function DocumentsPage() {
       {summaryModalDoc && (
         <div className="overlay" onClick={() => setSummaryModalDoc(null)}>
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="close-btn" onClick={() => setSummaryModalDoc(null)}>✕</button>
+            <button type="button" className="close-btn" onClick={() => setSummaryModalDoc(null)}><Ic name="x" size={16} /></button>
             <h2>{t('documents.summaryModalTitle', locale)} — {summaryModalDoc.file_name}</h2>
             <p className="advice-modal-text">{frenchTypography(summaryModalDoc.summary)}</p>
           </div>
@@ -628,7 +635,7 @@ export default function DocumentsPage() {
       {descriptionModalDoc && (
         <div className="overlay" onClick={() => setDescriptionModalDoc(null)}>
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="close-btn" onClick={() => setDescriptionModalDoc(null)}>✕</button>
+            <button type="button" className="close-btn" onClick={() => setDescriptionModalDoc(null)}><Ic name="x" size={16} /></button>
             <h2>{t('documents.descriptionModalTitle', locale)} — {descriptionModalDoc.file_name}</h2>
             <p className="advice-modal-text">{descriptionModalDoc.description}</p>
           </div>
@@ -638,7 +645,7 @@ export default function DocumentsPage() {
       {adviceModalDoc && (
         <div className="overlay" onClick={() => setAdviceModalDoc(null)}>
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="close-btn" onClick={() => setAdviceModalDoc(null)}>✕</button>
+            <button type="button" className="close-btn" onClick={() => setAdviceModalDoc(null)}><Ic name="x" size={16} /></button>
             <h2>{t('documents.adviceModalTitle', locale)} — {adviceModalDoc.file_name}</h2>
             <p className="advice-modal-text">{frenchTypography(adviceModalDoc.advice)}</p>
             <button
@@ -656,7 +663,7 @@ export default function DocumentsPage() {
       {noteModalDoc && (
         <div className="overlay" onClick={() => setNoteModalDoc(null)}>
           <div className="advice-modal" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="close-btn" onClick={() => setNoteModalDoc(null)}>✕</button>
+            <button type="button" className="close-btn" onClick={() => setNoteModalDoc(null)}><Ic name="x" size={16} /></button>
             <h2>{t('documents.noteModalTitle', locale)} — {noteModalDoc.file_name}</h2>
             <p className="note-modal-hint">{t('documents.noteModalHint', locale)}</p>
             <textarea
@@ -1199,6 +1206,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -1206,6 +1227,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
   const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
+  // « Changement enregistré » sous la carte du document concerné (05/09/2026).
+  const { savedKey, flash: flashSaved } = useSavedFlash();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
   // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
@@ -1227,6 +1250,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -1302,7 +1330,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -1326,7 +1354,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
