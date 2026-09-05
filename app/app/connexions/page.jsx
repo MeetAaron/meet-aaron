@@ -5,13 +5,15 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
 // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
 import { BOOST_TIERS, boostPrice, formatBoostPrice, USD_PER_CREDIT } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
+import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import BusinessProfileSheet from '@/components/BusinessProfileSheet';
@@ -274,6 +276,20 @@ export default function ConnexionsPage() {
   // objets indexés par provider, pour que l'état d'une carte n'affecte pas les
   // autres cartes affichées en même temps.
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -415,6 +431,9 @@ export default function ConnexionsPage() {
   // sur ses clés — c'est ce qui fait apparaître le bouton sous ce réglage.
   const [savedPrefs, setSavedPrefs] = useState(null);
   const [justSavedKeys, setJustSavedKeys] = useState(null);
+  // « Changement enregistré » pour les réglages à enregistrement immédiat
+  // (case « aussi par email », 05/09/2026).
+  const { savedKey: instantSavedKey, flash: flashInstantSaved } = useSavedFlash();
   const [offerError, setOfferError] = useState(null);
   const [usage, setUsage] = useState(null);
   const [businessSummary, setBusinessSummary] = useState('');
@@ -695,6 +714,7 @@ export default function ConnexionsPage() {
       body: JSON.stringify({ user_id: userId, notify_channel: channel }),
     });
     if (!res.ok) setPrefs((p) => ({ ...p, notify_channel: previous }));
+    else flashInstantSaved('notify_channel');
   }
 
   // Le lien d'abonnement ICS vient d'être généré depuis la checklist : la
@@ -1020,7 +1040,7 @@ export default function ConnexionsPage() {
   function SaveBar({ keys }) {
     const sig = keys.join('|');
     if (justSavedKeys === sig) {
-      return <p className="save-ok">✓ {t('preferences.changeSaved', locale)}</p>;
+      return <p className="save-ok"><Ic name="check" strokeWidth={2.6} /> {t('preferences.changeSaved', locale)}</p>;
     }
     if (!prefsDirty(keys)) return null;
     return (
@@ -2179,6 +2199,7 @@ export default function ConnexionsPage() {
             onConnect={connectProvider}
             prefs={prefs}
             onNotifyChannelChange={handleNotifyChannelChange}
+            notifyChannelSaved={instantSavedKey === 'notify_channel'}
             onIcsGenerated={handleIcsGenerated}
             focusPush={setupFocus === 'push'}
           />
@@ -2321,7 +2342,7 @@ export default function ConnexionsPage() {
                   <span className="autosync-oneway">{t('preferences.crm.autoSyncOneWay', locale)}</span>
                 </span>
               </label>
-              {collabSaved && <p className="profile-saved">{t('connexions.profileSaved', locale)}</p>}
+              <SavedFlash when={collabSaved} locale={locale} />
             </div>
           )}
 
@@ -4138,8 +4159,24 @@ export default function ConnexionsPage() {
         }
         .cards {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
           gap: 1rem;
+          min-width: 0;
+        }
+        /* « Ça sort du cadre » (capture Alex, 05/09/2026, CRM) : les boutons
+           « Connecter Salesforce maintenant (bêta) » sont en nowrap (règle
+           globale des boutons), donc chaque carte réclamait ~380 px de
+           largeur minimale et la grille débordait du panneau. Dans une carte,
+           un bouton a le droit de passer à la ligne. */
+        .cards > * {
+          min-width: 0;
+        }
+        .cards .btn-primary,
+        .cards .btn-secondary,
+        .cards .btn-danger {
+          white-space: normal;
+          text-align: center;
+          max-width: 100%;
         }
         .oauth-success-banner {
           grid-column: 1 / -1;
@@ -4705,7 +4742,7 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
       <div className="summary-expand-modal" onClick={(e) => e.stopPropagation()}>
         <div className="summary-expand-header">
           <h2>{t('preferences.businessProfileExpandModalTitle', locale)}</h2>
-          <button type="button" className="summary-expand-close" onClick={onClose}>✕</button>
+          <button type="button" className="summary-expand-close" onClick={onClose}><Ic name="x" size={16} /></button>
         </div>
         <textarea
           className="summary-expand-textarea"
@@ -4887,7 +4924,7 @@ function CrmCustomChatModal({ userId, onClose, onSent }) {
       <div className="crm-chat-modal" onClick={(e) => e.stopPropagation()}>
         <div className="crm-chat-header">
           <h2>{t('connexions.crmChatModalTitle', locale)}</h2>
-          <button type="button" className="crm-chat-close" onClick={onClose}>✕</button>
+          <button type="button" className="crm-chat-close" onClick={onClose}><Ic name="x" size={16} /></button>
         </div>
 
         <div className="crm-chat-messages">
@@ -5658,7 +5695,7 @@ function ConnectionCard({
           <p className="account">{connection.provider_account_email}</p>
           {missingLabelScope && (
             <div className="health">
-              <p className="health-title">🤖 {t('connexions.labelScopeTitle', locale)}</p>
+              <p className="health-title"><Ic name="bot" /> {t('connexions.labelScopeTitle', locale)}</p>
               <p className="health-hint">{t('connexions.labelScopeHint', locale)}</p>
               <button type="button" className="btn-secondary" onClick={onConnect}>
                 {t('connexions.labelScopeReconnectButton', locale)}
@@ -5687,9 +5724,9 @@ function ConnectionCard({
                 )}
               </p>
               <div className="health-badges">
-                <span className="badge ok">✓ SPF</span>
-                {health.health.dmarc.found && <span className="badge ok">✓ DMARC</span>}
-                {health.dkim?.found && <span className="badge ok">✓ DKIM</span>}
+                <span className="badge ok"><Ic name="check" size={12} strokeWidth={2.6} /> SPF</span>
+                {health.health.dmarc.found && <span className="badge ok"><Ic name="check" size={12} strokeWidth={2.6} /> DMARC</span>}
+                {health.dkim?.found && <span className="badge ok"><Ic name="check" size={12} strokeWidth={2.6} /> DKIM</span>}
               </div>
               {/* DMARC absent : simple conseil (non bloquant — les règles
                   Gmail n'exigent DMARC qu'au-delà de 5000 envois/jour), avec
@@ -5697,7 +5734,7 @@ function ConnectionCard({
               {!health.health.dmarc.found && health.suggested?.dmarc && (
                 <div className="record-row">
                   <p className="health-hint health-optional">
-                    💡 {t('connexions.dkimAdviceTitle', locale)} — {t('connexions.dmarcAdviceIntro', locale)} ({t('connexions.recordHost', locale)}: _dmarc)
+                    <Ic name="bulb" /> {t('connexions.dkimAdviceTitle', locale)} — {t('connexions.dmarcAdviceIntro', locale)} ({t('connexions.recordHost', locale)}: _dmarc)
                   </p>
                   <div className="record-value-row">
                     <code className="record-value">{health.suggested.dmarc}</code>
@@ -5709,7 +5746,7 @@ function ConnectionCard({
               )}
               {health.dkim && !health.dkim.found && (
                 <p className="health-hint health-optional">
-                  💡 {t('connexions.dkimAdviceTitle', locale)} —{' '}
+                  <Ic name="bulb" /> {t('connexions.dkimAdviceTitle', locale)} —{' '}
                   {t(health.provider === 'microsoft' ? 'connexions.dkimAdviceMicrosoft' : 'connexions.dkimAdviceGoogle', locale)}
                 </p>
               )}
@@ -6140,6 +6177,7 @@ function SetupChecklist({
   onConnect,
   prefs,
   onNotifyChannelChange,
+  notifyChannelSaved,
   onIcsGenerated,
   focusPush,
 }) {
@@ -6278,7 +6316,7 @@ function SetupChecklist({
   }, [focusPush]);
 
   function statusIcon(state) {
-    if (state === 'done') return <span className="status done" aria-hidden="true">✓</span>;
+    if (state === 'done') return <span className="status done" aria-hidden="true"><Ic name="check" size={13} strokeWidth={2.8} /></span>;
     if (state === 'partial') return <span className="status partial" aria-hidden="true">½</span>;
     return <span className="status todo" aria-hidden="true" />;
   }
@@ -6355,7 +6393,7 @@ function SetupChecklist({
               <div className="devices">
                 <div className={thisDeviceSubscribed ? 'device device-done' : 'device'}>
                   <div className="device-head">
-                    <span className="device-icon" aria-hidden="true">{isMobile ? '📱' : '💻'}</span>
+                    <span className="device-icon" aria-hidden="true"><Ic name={isMobile ? 'smartphone' : 'monitor'} size={18} /></span>
                     <span className="device-label">{thisDeviceLabel}</span>
                     <span className={thisDeviceSubscribed ? 'device-state on' : 'device-state'}>
                       {thisDeviceSubscribed ? t('connexions.setupDeviceDone', locale) : t('connexions.setupDeviceTodo', locale)}
@@ -6366,7 +6404,7 @@ function SetupChecklist({
 
                 <div className={otherKindDone ? 'device device-done' : 'device'}>
                   <div className="device-head">
-                    <span className="device-icon" aria-hidden="true">{isMobile ? '💻' : '📱'}</span>
+                    <span className="device-icon" aria-hidden="true"><Ic name={isMobile ? 'monitor' : 'smartphone'} size={18} /></span>
                     <span className="device-label">{otherDeviceLabel}</span>
                     <span className={otherKindDone ? 'device-state on' : 'device-state'}>
                       {otherKindDone ? t('connexions.setupDeviceDone', locale) : t('connexions.setupDeviceTodo', locale)}
@@ -6408,6 +6446,7 @@ function SetupChecklist({
                     <span className="hint-inline"> — {t('connexions.setupEmailTooHint', locale)}</span>
                   </span>
                 </label>
+                <SavedFlash when={notifyChannelSaved} locale={locale} />
               </div>
             </div>
           </li>
@@ -6441,7 +6480,7 @@ function SetupChecklist({
                   faite — d'où l'impression de contradiction. */}
               {!emailDone && (
                 <p className="hint phone-cal-hint">
-                  <strong>📱 {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
+                  <strong><Ic name="smartphone" /> {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
                   {t('connexions.setupPhoneCalendarBody', locale)}
                 </p>
               )}
@@ -6846,6 +6885,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -6921,7 +6965,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -6945,7 +6989,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
