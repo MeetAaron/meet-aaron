@@ -23,6 +23,7 @@ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
+import { getPacing } from '@/lib/anthropic-client';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -54,7 +55,20 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
     ? await getFirstEmailAttachment(campaignOwner.company_id)
     : null;
 
-  const result = await processCampaignBatch(campaignId, 5);
+  // Rythme de consommation (décision Alex, 05/09/2026 : « Aaron doit utiliser
+  // au plus possible l'abonnement… se rapprocher de 0 ou une marge de 1,5
+  // crédit ; le boost, essayer de l'effectuer dans le mois »). getPacing
+  // (lib/anthropic-client) dit combien de nouveaux prospects Aaron peut
+  // encore aller chercher AUJOURD'HUI pour finir le mois près de zéro : un
+  // mois bien entamé accélère, un mois en avance ralentit. Le lot de
+  // sourcing suit cette allocation (au plus 5 par passage de cron, comme
+  // avant) ; à 0, on ne cherche pas de nouvelles sociétés mais on contacte
+  // quand même celles déjà trouvées (leur premier email est déjà budgété).
+  const pacing = campaignOwner?.company_id ? await getPacing(campaignOwner.company_id) : null;
+  const sourcingBatch = pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5;
+  const result = sourcingBatch > 0
+    ? await processCampaignBatch(campaignId, sourcingBatch)
+    : { skipped_pacing: true, daily_target_usd: pacing?.dailyTargetUsd, day_spend_usd: pacing?.daySpendUsd };
 
   const { data: newProspectCompanies } = await supabaseAdmin
     .from('prospect_companies')
