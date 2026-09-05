@@ -402,7 +402,10 @@ export async function getGmailMessageMetadata(userId: string, messageId: string)
   try {
     const accessToken = await getValidAccessToken(userId);
     const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=From`,
+      // Pré-filtre des entrants (lib/inbound-triage.ts, 05/09/2026) : on lit
+      // aussi les en-têtes qui trahissent un message automatique ou un rebond
+      // — quelques octets de plus, zéro appel IA pour ces messages-là.
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Auto-Submitted&metadataHeaders=Precedence&metadataHeaders=X-Autoreply&metadataHeaders=X-Auto-Response-Suppress&metadataHeaders=Return-Path`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     if (!response.ok) return null;

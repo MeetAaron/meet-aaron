@@ -3,7 +3,7 @@
 // et parse la réponse structurée en JSON pour que le reste du backend l'exploite.
 
 import { supabaseAdmin } from './supabase-admin';
-import { callClaude } from './anthropic-client';
+import { callClaude, CACHE_TTL_1H } from './anthropic-client';
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -13,10 +13,86 @@ const AARON_SYSTEM_PROMPT = readFileSync(
   'utf-8'
 );
 
+// ── Prompt système par situation (plan de coûts validé par Alex, 05/09/2026,
+// « deuxième levier ») ─────────────────────────────────────────────────────
+//
+// Le prompt complet fait ~12 000 tokens et sert à TOUT : premier email,
+// relance après silence, réponse à un humain. Or un premier contact n'a rien
+// à faire des consignes de détection d'annulation, de devis, d'accord ferme
+// ou de sauvetage — il n'y a encore eu aucun échange. Et une relance après
+// silence n'a besoin ni de la lecture DISC ni des 7 principes détaillés.
+// « Un commercial ne relit pas son manuel entier avant chaque email. »
+//
+// On découpe donc le fichier par titres « ## » et on assemble trois
+// variantes. La RÉPONSE À UN HUMAIN garde le prompt intégral : c'est là que
+// toutes les détections comptent, et c'est le moment où la qualité fait la
+// différence — Alex a validé qu'on n'y touche pas.
+//
+// Le fichier .md reste l'unique source de vérité : rien n'est dupliqué, on
+// ne fait que choisir des sections. Chaque variante est stable d'un appel à
+// l'autre, donc mise en cache (1 h) séparément.
+type PromptMode = 'first_contact' | 'followup' | 'reply';
+
+const PROMPT_SECTIONS: { title: string; body: string }[] = (() => {
+  const parts = AARON_SYSTEM_PROMPT.split(/^(?=## )/m);
+  return parts.map((p) => ({ title: p.split('\n', 1)[0].replace(/^##\s*/, '').trim(), body: p }));
+})();
+
+// Sections EXCLUES par mode (tout ce qui n'est pas listé est gardé — c'est
+// plus sûr qu'une liste d'inclusion : une section ajoutée plus tard au .md
+// est automatiquement dans toutes les variantes).
+const EXCLUDED_BY_MODE: Record<PromptMode, RegExp[]> = {
+  first_contact: [
+    /DÉTECTION DE LA PERSONNALITÉ/i,
+    /APRÈS LE RDV/i,
+    /DÉTECTION D'UNE ANNULATION/i,
+    /DÉTECTION D'UNE DEMANDE DE DEVIS/i,
+    /DÉTECTION D'UN ACCORD FERME/i,
+    /SCORE DE CONVICTION "EN NÉGOCIATION"/i,
+    /DÉTECTION D'UNE INTENTION D'OPPORTUNITÉ/i,
+    /ULTIME TENTATIVE DE SAUVETAGE/i,
+    /DÉTECTION DU TÉLÉPHONE/i,
+  ],
+  followup: [
+    /DÉTECTION DE LA PERSONNALITÉ/i,
+    /APRÈS LE RDV/i,
+    /DÉTECTION D'UNE ANNULATION/i,
+    /DÉTECTION D'UNE DEMANDE DE DEVIS/i,
+    /DÉTECTION D'UN ACCORD FERME/i,
+    /SCORE DE CONVICTION "EN NÉGOCIATION"/i,
+    /DÉTECTION D'UNE INTENTION D'OPPORTUNITÉ/i,
+    /ULTIME TENTATIVE DE SAUVETAGE/i,
+    /DÉTECTION DU TÉLÉPHONE/i,
+    /POSITIONNEMENT D'AUTORITÉ DANS LE PREMIER CONTACT/i,
+    /APPLICATION CONCRÈTE DES 7 PRINCIPES/i,
+    /GESTION MULTI-CONTACTS/i,
+  ],
+  reply: [],
+};
+
+function systemPromptFor(mode: PromptMode): string {
+  const excluded = EXCLUDED_BY_MODE[mode];
+  if (excluded.length === 0) return AARON_SYSTEM_PROMPT;
+  const kept = PROMPT_SECTIONS.filter((s) => !excluded.some((re) => re.test(s.title)));
+  const note =
+    mode === 'first_contact'
+      ? '\n\n## SITUATION DE CET APPEL\nPremier contact : aucun échange n\'a encore eu lieu avec ce prospect. Les champs de détection (annulation, devis, accord ferme, sauvetage, téléphone) valent false/null.\n'
+      : '\n\n## SITUATION DE CET APPEL\nRelance après silence : le prospect n\'a pas encore répondu. Écris une relance courte qui apporte un élément nouveau (pas une répétition), les champs de détection valent false/null.\n';
+  return kept.map((s) => s.body).join('') + note;
+}
+
+function promptModeFor(context: any): PromptMode {
+  const convs = context?.historique_conversation || [];
+  const messages = convs.flatMap((c: any) => c.messages || []);
+  if (messages.length === 0) return 'first_contact';
+  if (messages.some((m: any) => m.direction === 'inbound')) return 'reply';
+  return 'followup';
+}
+
 const MAX_DOCS_IN_CONTEXT = 3;
 const MAX_CHARS_PER_DOC = 600;
 
-interface AaronOutput {
+export interface AaronOutput {
   email_draft: { subject: string; body: string };
   prospect_status: 'vert' | 'jaune' | 'orange' | 'rouge' | 'bleu';
   personality_type: 'dominant' | 'influent' | 'stable' | 'consciencieux' | null;
@@ -282,7 +358,21 @@ export function convictionColumns(out: AaronOutput): Record<string, any> {
   };
 }
 
-export async function generateAaronResponse(prospectId: string, options?: { model?: AaronModel }): Promise<AaronOutput> {
+// Requête prête à partir : soit une sortie déjà connue (email de premier
+// contact par défaut, aucun appel IA), soit le corps exact à envoyer à
+// l'API. Sert au chemin temps réel (generateAaronResponse) ET au Batch API
+// (lib/aaron-batch.ts, −50 %), pour que les deux produisent strictement la
+// même chose.
+export interface AaronRequest {
+  prospectId: string;
+  companyId: string | null;
+  userId: string | null;
+  // Renseigné quand aucun appel IA n'est nécessaire.
+  precomputed: AaronOutput | null;
+  body: Record<string, any> | null;
+}
+
+export async function buildAaronRequest(prospectId: string, options?: { model?: AaronModel }): Promise<AaronRequest> {
   const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, _assignedUserId: assignedUserId, ...context } = await buildContext(prospectId);
 
   // Email de premier contact par défaut (demande Alex, 2026-08-26) : si
@@ -299,24 +389,30 @@ export async function generateAaronResponse(prospectId: string, options?: { mode
   );
   if (isFirstContact && defaultFirstEmail && defaultFirstEmail.subject.trim() && defaultFirstEmail.body.trim()) {
     return {
-      email_draft: {
-        subject: fillTemplateTokens(defaultFirstEmail.subject, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
-        body: fillTemplateTokens(defaultFirstEmail.body, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
+      prospectId,
+      companyId,
+      userId: assignedUserId || null,
+      body: null,
+      precomputed: {
+        email_draft: {
+          subject: fillTemplateTokens(defaultFirstEmail.subject, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
+          body: fillTemplateTokens(defaultFirstEmail.body, context.prospect || {}, context.commercial?.lien_public_a_mentionner),
+        },
+        prospect_status: 'jaune',
+        personality_type: null,
+        personality_notes: null,
+        aaron_advice: "Premier email envoyé avec le modèle par défaut défini dans Préférences (pas de génération IA pour ce message).",
+        detected_phone: null,
+        appointment_cancelled: false,
+        rescue_proposal: null,
+        appointment_proposal: null,
+        action_required_from_sales: null,
+        quote_requested: false,
+        deal_approved: null,
+        negotiation_confidence: null,
+        opportunity_signal: null,
+        next_step_confidence: null,
       },
-      prospect_status: 'jaune',
-      personality_type: null,
-      personality_notes: null,
-      aaron_advice: "Premier email envoyé avec le modèle par défaut défini dans Préférences (pas de génération IA pour ce message).",
-      detected_phone: null,
-      appointment_cancelled: false,
-      rescue_proposal: null,
-      appointment_proposal: null,
-      action_required_from_sales: null,
-      quote_requested: false,
-      deal_approved: null,
-      negotiation_confidence: null,
-      opportunity_signal: null,
-      next_step_confidence: null,
     };
   }
 
@@ -333,43 +429,49 @@ export async function generateAaronResponse(prospectId: string, options?: { mode
   const { commercial, documents_entreprise, ...prospectContext } = context as any;
   const companyBlock = { commercial, documents_entreprise };
 
-  const data = await callClaude(
-    {
-      model: options?.model || 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      // Prompt caching : ce system prompt est identique à chaque appel (un par
-      // prospect, à chaque cycle de prospection) — le mettre en cache réduit
-      // fortement le coût et la latence sur le plus gros poste d'appels API.
-      system: [
-        { type: 'text', text: AARON_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-        {
-          type: 'text',
-          text: `Contexte commercial — identique pour tous les prospects de cette société (clés \`commercial\` et \`documents_entreprise\` du contexte) :\n\n${JSON.stringify(companyBlock, null, 2)}`,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: `Voici le contexte de la situation pour CE prospect (le contexte commercial — commercial, documents_entreprise — est dans les instructions système), y compris l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(prospectContext, null, 2)}`,
-        },
-      ],
-    },
-    companyId, 'ap', assignedUserId
-  );
+  const body = {
+    model: options?.model || 'claude-sonnet-4-6',
+    max_tokens: 2000,
+    // Prompt caching : ce system prompt est identique à chaque appel (un par
+    // prospect, à chaque cycle de prospection) — le mettre en cache réduit
+    // fortement le coût et la latence sur le plus gros poste d'appels API.
+    system: [
+      { type: 'text', text: systemPromptFor(promptModeFor(context)), cache_control: CACHE_TTL_1H },
+      {
+        type: 'text',
+        text: `Contexte commercial — identique pour tous les prospects de cette société (clés \`commercial\` et \`documents_entreprise\` du contexte) :\n\n${JSON.stringify(companyBlock, null, 2)}`,
+        cache_control: CACHE_TTL_1H,
+      },
+    ],
+    messages: [
+      {
+        role: 'user',
+        content: `Voici le contexte de la situation pour CE prospect (le contexte commercial — commercial, documents_entreprise — est dans les instructions système), y compris l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(prospectContext, null, 2)}`,
+      },
+    ],
+  };
 
-  const textBlock = data.content.find((block: any) => block.type === 'text');
+  return { prospectId, companyId, userId: assignedUserId || null, body, precomputed: null };
+}
 
+// Lit la réponse de l'API (temps réel ou batch) : le JSON d'Aaron.
+export function parseAaronOutput(data: any): AaronOutput {
+  const textBlock = (data?.content || []).find((block: any) => block.type === 'text');
   if (!textBlock) {
     throw new Error('Aucune réponse texte reçue de Claude');
   }
-
   const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
-
   try {
     return JSON.parse(cleaned) as AaronOutput;
   } catch (e) {
     console.error('Réponse Aaron non parsable:', textBlock.text);
     throw new Error('Réponse Aaron mal formée (JSON invalide)');
   }
+}
+
+export async function generateAaronResponse(prospectId: string, options?: { model?: AaronModel }): Promise<AaronOutput> {
+  const req = await buildAaronRequest(prospectId, options);
+  if (req.precomputed) return req.precomputed;
+  const data = await callClaude(req.body!, req.companyId, 'ap', req.userId);
+  return parseAaronOutput(data);
 }

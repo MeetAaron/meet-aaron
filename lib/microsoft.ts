@@ -382,7 +382,7 @@ export async function getOutlookMessage(userId: string, messageId: string) {
   const accessToken = await getValidAccessToken(userId);
 
   const response = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime`,
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime,internetMessageHeaders`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 

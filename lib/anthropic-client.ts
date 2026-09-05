@@ -303,9 +303,26 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
 export interface UsageBreakdown {
   inputTokens: number;
   outputTokens: number;
-  cacheWriteTokens: number;
+  cacheWriteTokens: number; // écritures de cache 5 min (×1,25)
+  cacheWrite1hTokens?: number; // écritures de cache 1 h (×2) — voir CACHE_TTL_1H
   cacheReadTokens: number;
   webSearches: number;
+}
+
+// Cache 1 heure (validé par Alex, 05/09/2026). Le cache par défaut expire au
+// bout de 5 minutes ; nos crons tournent toutes les 10 minutes, donc chaque
+// passage REPAYAIT l'écriture des ~12 000 tokens du prompt d'Aaron (0,045 $)
+// sans jamais profiter de la lecture à −90 %. L'écriture 1 h coûte 2× le
+// tarif d'entrée (au lieu de 1,25×) mais tient 12× plus longtemps : dès le
+// deuxième appel dans l'heure, on est gagnant. À poser sur les blocs
+// STABLES (prompt système, bloc société), jamais sur ce qui change à chaque
+// appel. Exige l'en-tête bêta ajouté automatiquement par callClaude.
+export const CACHE_TTL_1H = { type: 'ephemeral', ttl: '1h' } as const;
+const CACHE_1H_BETA = 'extended-cache-ttl-2025-04-11';
+
+function usesOneHourCache(body: Record<string, any>): boolean {
+  const blocks = Array.isArray(body?.system) ? body.system : [];
+  return blocks.some((b: any) => b?.cache_control?.ttl === '1h');
 }
 
 function pricingFor(model: string | undefined) {
@@ -316,12 +333,25 @@ function pricingFor(model: string | undefined) {
   return key ? MODEL_PRICING_USD[key] : DEFAULT_PRICING;
 }
 
+export function usageFromApi(usage: any): UsageBreakdown {
+  const write1h = usage?.cache_creation?.ephemeral_1h_input_tokens || 0;
+  return {
+    inputTokens: usage?.input_tokens || 0,
+    outputTokens: usage?.output_tokens || 0,
+    cacheWriteTokens: Math.max(0, (usage?.cache_creation_input_tokens || 0) - write1h),
+    cacheWrite1hTokens: write1h,
+    cacheReadTokens: usage?.cache_read_input_tokens || 0,
+    webSearches: usage?.server_tool_use?.web_search_requests || 0,
+  };
+}
+
 export function computeCostUsd(model: string | undefined, u: UsageBreakdown): number {
   const p = pricingFor(model);
   return (
     (u.inputTokens / 1_000_000) * p.input +
     (u.outputTokens / 1_000_000) * p.output +
     (u.cacheWriteTokens / 1_000_000) * p.cacheWrite +
+    ((u.cacheWrite1hTokens || 0) / 1_000_000) * p.input * 2 +
     (u.cacheReadTokens / 1_000_000) * p.cacheRead +
     u.webSearches * WEB_SEARCH_COST_PER_SEARCH_USD
   );
@@ -332,8 +362,17 @@ export function computeCostUsd(model: string | undefined, u: UsageBreakdown): nu
 // aussi sa part dans api_usage_user_monthly — c'est ce qui alimente la jauge
 // de crédits par commercial dans Mon équipe. Les appels non rattachables
 // (crons société) restent comptés au niveau société uniquement.
-async function recordUsage(companyId: string, model: string | undefined, usage: UsageBreakdown, userId?: string | null) {
-  const costUsd = computeCostUsd(model, usage);
+// Exportée (05/09/2026) pour le Batch API (lib/aaron-batch.ts) : les
+// résultats d'un lot arrivent hors de callClaude, avec le même `usage`, et
+// coûtent la moitié (costMultiplier 0.5).
+export async function recordUsage(
+  companyId: string,
+  model: string | undefined,
+  usage: UsageBreakdown,
+  userId?: string | null,
+  costMultiplier: number = 1
+) {
+  const costUsd = computeCostUsd(model, usage) * costMultiplier;
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
@@ -452,6 +491,7 @@ export async function callClaude(
       'Content-Type': 'application/json',
       'x-api-key': process.env.ANTHROPIC_API_KEY!,
       'anthropic-version': '2023-06-01',
+      ...(usesOneHourCache(body) ? { 'anthropic-beta': CACHE_1H_BETA } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -466,7 +506,11 @@ export async function callClaude(
   if (companyId && data.usage) {
     const inputTokens = data.usage.input_tokens || 0;
     const outputTokens = data.usage.output_tokens || 0;
-    const cacheWriteTokens = data.usage.cache_creation_input_tokens || 0;
+    // Détail 5 min / 1 h quand l'API le renvoie (usage.cache_creation) ;
+    // sinon tout est compté en 5 min.
+    const write1h = data.usage.cache_creation?.ephemeral_1h_input_tokens || 0;
+    const cacheWriteTokens = Math.max(0, (data.usage.cache_creation_input_tokens || 0) - write1h);
+    const cacheWrite1hTokens = write1h;
     const cacheReadTokens = data.usage.cache_read_input_tokens || 0;
     // Nombre de recherches web réellement effectuées par Aaron sur CET appel
     // (l'outil web_search est "server-side" : Anthropic peut faire plusieurs
@@ -475,7 +519,7 @@ export async function callClaude(
     // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
     const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
 
-    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, webSearches }, userId);
+    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheWrite1hTokens, cacheReadTokens, webSearches }, userId);
 
   }
 

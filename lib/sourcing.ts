@@ -5,6 +5,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
 import { researchProspectCompany } from './prospect-research';
+import { searchGooglePlaces } from './company-directory';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -31,6 +32,7 @@ interface FoundCompany {
   city: string | null;
   website: string | null;
   source_url: string | null;
+  phone?: string | null;
 }
 
 interface FoundContact {
@@ -136,16 +138,18 @@ Réponds UNIQUEMENT avec un objet JSON (sans texte avant/après, sans balises ma
   "linkedin_url": "URL LinkedIn ou null"
 }
 
-Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null plutôt que d'inventer une information.`;
+Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null plutôt que d'inventer une information. Un email n'est retenu que s'il apparaît TEXTUELLEMENT dans une page trouvée (jamais déduit d'un modèle prenom.nom@domaine).`;
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      // Même borne que searchCompaniesInZone ci-dessus, avec un plafond plus
-      // bas puisqu'il s'agit de chercher UN contact dans UNE entreprise déjà
-      // identifiée (moins de recherches nécessaires qu'une découverte de zone).
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      // Haiku (05/09/2026, plan de coûts validé par Alex) : chercher UN nom
+      // et UN email dans les résultats d'une recherche est de l'extraction,
+      // pas de la rédaction — Haiku le fait pour 4× moins cher, et la consigne
+      // « null plutôt qu'inventer » est répétée. 2 recherches max (au lieu de
+      // 3) : site de l'entreprise, puis LinkedIn.
+      model: 'claude-haiku-4-5',
+      max_tokens: 400,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
       messages: [{ role: 'user', content: prompt }],
     },
     companyId, 'ap'
@@ -179,14 +183,40 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
   const excludeDomains = (existingCompanies || []).map((c) => c.domain).filter(Boolean) as string[];
 
-  const foundCompanies = await searchCompaniesInZone(
-    campaign.company_id,
-    campaign.sector_keywords,
-    campaign.zone_label,
-    campaign.company_sizes || [],
-    excludeDomains,
-    batchSize
-  );
+  // Sourcing (05/09/2026) : Google Places d'abord — des entreprises RÉELLES
+  // avec site web et téléphone pour ~0,03 $ les 20, sans IA. La recherche
+  // web IA historique ne sert plus que de repli (pas de clé, ou zone/secteur
+  // que Places ne couvre pas). Voir lib/company-directory.ts.
+  let foundCompanies: FoundCompany[] = [];
+  try {
+    const places = await searchGooglePlaces({
+      sectorKeywords: campaign.sector_keywords || [],
+      zoneLabel: campaign.zone_label,
+      count: batchSize,
+      excludeDomains,
+    });
+    foundCompanies = places.map((c) => ({
+      name: c.name,
+      domain: c.domain,
+      address: c.address,
+      city: c.city,
+      website: c.website,
+      source_url: c.source_url,
+      phone: c.phone,
+    }));
+  } catch (err: any) {
+    console.error('Google Places (non bloquant) :', err?.message);
+  }
+  if (foundCompanies.length === 0) {
+    foundCompanies = await searchCompaniesInZone(
+      campaign.company_id,
+      campaign.sector_keywords,
+      campaign.zone_label,
+      campaign.company_sizes || [],
+      excludeDomains,
+      batchSize
+    );
+  }
 
   let newContactsCount = 0;
   let usableCompaniesCount = 0;
@@ -204,6 +234,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
           name: company.name,
           found_by_campaign_id: campaign.id,
           source_url: company.source_url,
+          ...(company.website ? { website: company.website } : {}),
+          ...(company.address ? { address: company.address } : {}),
         },
         { onConflict: 'company_id,domain' }
       )
@@ -226,6 +258,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
           domain: company.domain || null,
           website: company.website || prospectCompany.website || null,
           industry: prospectCompany.industry || null,
+          address: company.address || prospectCompany.address || null,
+          city: company.city || null,
         });
         if (research) {
           const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
@@ -271,7 +305,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       prospect_company_id: prospectCompany.id,
       full_name: contact.full_name || 'Contact à identifier',
       email: contact.email,
-      phone: contact.phone,
+      // Téléphone du contact, sinon celui de l'entreprise (Google Places).
+      phone: contact.phone || company.phone || null,
       job_title: contact.job_title,
       linkedin_url: contact.linkedin_url,
       status: 'jaune',

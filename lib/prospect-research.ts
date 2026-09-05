@@ -37,12 +37,18 @@
 
 import { callClaude } from './anthropic-client';
 import { isGenericEmailDomain } from './csv-import';
+import { supabaseAdmin } from './supabase-admin';
+import { guessCountry, lookupFrenchCompany, lookupAustralianCompany } from './company-directory';
 
 export interface ProspectCompanyResearchInput {
   name: string | null;
   domain: string | null;
   website: string | null;
   industry: string | null;
+  // Indices de localisation (05/09/2026) : servent à choisir le registre
+  // officiel (SIRENE en France, ABN Lookup en Australie) avant toute IA.
+  address?: string | null;
+  city?: string | null;
 }
 
 // Champs structurés que la recherche peut compléter EN PLUS du résumé — un
@@ -101,6 +107,46 @@ export async function researchProspectCompany(
 ): Promise<ProspectCompanyResearchResult | null> {
   if (!isCompanyResearchable(input)) return null;
 
+  // ── Cache PARTAGÉ entre tous les comptes (05/09/2026) ────────────────────
+  // prospect_companies est par société cliente : la même plomberie démarchée
+  // par deux clients de Meet Aaron était recherchée deux fois. Une société =
+  // une recherche, valable 90 jours, pour tout le monde. Voir
+  // migration_company_research_cache_2026-09-05.sql. Best-effort : table
+  // absente → on continue sans cache.
+  const cacheKey = (input.domain || input.website ? domainOf(input.website) || input.domain : null)?.toLowerCase() || null;
+  if (cacheKey) {
+    try {
+      const { data: cached } = await supabaseAdmin
+        .from('company_research_cache')
+        .select('summary, website, siret, address, industry, checked_at')
+        .eq('domain', cacheKey)
+        .maybeSingle();
+      if (cached && cached.checked_at && Date.now() - new Date(cached.checked_at).getTime() < 90 * 86_400_000) {
+        return {
+          summary: cached.summary || null,
+          website: cached.website || null,
+          siret: cached.siret || null,
+          address: cached.address || null,
+          industry: cached.industry || null,
+        };
+      }
+    } catch {
+      // pas de cache disponible
+    }
+  }
+
+  // ── Registre officiel avant l'IA (SIRENE / ABN) ──────────────────────────
+  // SIRET, adresse du siège, code NAF : des faits d'état civil d'entreprise,
+  // gratuits et exacts. L'IA ne sert plus qu'au résumé métier.
+  let registry: Awaited<ReturnType<typeof lookupFrenchCompany>> = null;
+  const country = guessCountry([input.address, input.city].filter(Boolean).join(' ')) || (input.domain?.endsWith('.fr') ? 'FR' : input.domain?.endsWith('.au') ? 'AU' : null);
+  try {
+    if (input.name && country === 'FR') registry = await lookupFrenchCompany(input.name, input.city);
+    else if (input.name && country === 'AU') registry = await lookupAustralianCompany(input.name);
+  } catch {
+    registry = null;
+  }
+
   const identifiers = [
     input.name ? `Nom de la société : ${input.name}` : null,
     input.website ? `Site web : ${input.website}` : input.domain ? `Domaine email : ${input.domain}` : null,
@@ -133,14 +179,13 @@ export async function researchProspectCompany(
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 900,
-        // max_uses borne le coût de cette recherche ponctuelle, même logique
-        // que lib/sourcing.ts (searchContactAtCompany) pour une entreprise
-        // déjà identifiée : moins de recherches nécessaires qu'une découverte
-        // de zone complète. Inchangé malgré l'ajout des champs structurés :
-        // c'est toujours UNE seule recherche par société, pas une de plus.
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+        // Haiku + 1 recherche (05/09/2026, plan de coûts validé par Alex) :
+        // le résumé métier est une lecture-synthèse d'une page (le site de
+        // l'entreprise), pas une rédaction commerciale. Les champs d'état
+        // civil viennent du registre officiel quand on l'a (voir plus haut).
+        model: 'claude-haiku-4-5',
+        max_tokens: 700,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
         messages: [{ role: 'user', content: prompt }],
       },
       companyId,
@@ -160,15 +205,48 @@ export async function researchProspectCompany(
       return { summary: null, website: null, siret: null, address: null, industry: null };
     }
 
-    return {
+    const result: ProspectCompanyResearchResult = {
       summary: typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary.trim() : null,
       website: typeof parsed.website === 'string' && parsed.website.trim() ? parsed.website.trim() : null,
-      siret: isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null,
-      address: typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null,
-      industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : null,
+      // Le registre officiel prime sur ce que l'IA a lu.
+      siret: registry?.registryId || (isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null),
+      address: registry?.address || (typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null),
+      industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : registry?.industry || null,
     };
+    await writeResearchCache(cacheKey, result);
+    return result;
   } catch (err: any) {
     console.error('Erreur recherche web société prospect:', err.message);
     return null;
+  }
+}
+
+
+function domainOf(website: string | null | undefined): string | null {
+  if (!website) return null;
+  try {
+    return new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '').toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeResearchCache(domain: string | null, result: ProspectCompanyResearchResult): Promise<void> {
+  if (!domain || !result.summary) return;
+  try {
+    await supabaseAdmin.from('company_research_cache').upsert(
+      {
+        domain,
+        summary: result.summary,
+        website: result.website,
+        siret: result.siret,
+        address: result.address,
+        industry: result.industry,
+        checked_at: new Date().toISOString(),
+      },
+      { onConflict: 'domain' }
+    );
+  } catch {
+    // table absente : tant pis, la fiche prospect_companies garde son résumé
   }
 }
