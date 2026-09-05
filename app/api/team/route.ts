@@ -15,6 +15,7 @@ import { generateInviteCode } from '@/lib/invite-code';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { computeStatsForMembers, periodRangeFor } from '@/lib/team-stats';
 import { listActiveBoosts } from '@/lib/credit-boosts';
+import { USD_PER_CREDIT } from '@/lib/boost-tiers';
 
 // Même valeur que DEFAULT_MONTHLY_CAP_USD dans lib/anthropic-client.ts
 // (21,5 USD ≈ 20 € par utilisateur et par mois) — utilisée quand la société
@@ -149,8 +150,11 @@ export async function GET(request: NextRequest) {
   const perUserCap = Number((companyRow as any)?.monthly_api_cap_usd) || DEFAULT_PER_USER_CAP_USD;
   const subscriptionCapUsd = perUserCap * Math.max(1, membersWithStats.length);
   const activeBoosts = await listActiveBoosts(requester.company_id);
-  const boostCapUsd = activeBoosts.reduce((n, b) => n + Number(b.cap_usd || 0), 0);
-  const boostCredits = activeBoosts.reduce((n, b) => n + (b.credits || 0), 0);
+  // Reste des boosts + part consommée ce mois-ci (même règle que
+  // app/api/api-usage/route.ts, depuis que les boosts n'expirent plus).
+  const boostRemainingUsd = activeBoosts.reduce((n, b) => n + Number(b.remaining_usd || 0), 0);
+  const boostCapUsd = boostRemainingUsd + Math.max(0, companyTotal - subscriptionCapUsd);
+  const boostCredits = Math.round((boostRemainingUsd / USD_PER_CREDIT) * 10) / 10;
 
   return NextResponse.json({
     members: membersWithCredits,
