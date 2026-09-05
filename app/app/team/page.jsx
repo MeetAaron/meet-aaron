@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -665,7 +665,6 @@ export default function TeamPage() {
               // absolue (sur 100) rendrait toutes les barres invisibles en
               // début de mois.
               const best = Math.max(1, ...ranked.map((m) => m.clients_gagnes || 0));
-              const MEDALS = ['🥇', '🥈', '🥉'];
               const AV_COLORS = [
                 'linear-gradient(135deg,#1fae70,#4fd095)',
                 'linear-gradient(135deg,#3d8fe8,#6fb0f0)',
@@ -676,7 +675,7 @@ export default function TeamPage() {
               const BAR_COLORS = ['#1fae70', '#3d8fe8', '#c93f8c', '#4b39ef', '#f5a623'];
               return ranked.map((m, i) => (
                 <div className="rank-row" key={m.id}>
-                  <span className="rank-badge">{MEDALS[i] || i + 1}</span>
+                  <span className={`rank-badge${i < 3 ? ` top top-${i + 1}` : ''}`}>{i + 1}</span>
                   <span className="rank-avatar" style={{ background: AV_COLORS[i % AV_COLORS.length] }} aria-hidden="true">
                     {initialsOf(m.full_name)}
                   </span>
@@ -1409,12 +1408,23 @@ export default function TeamPage() {
           border-bottom: 0;
         }
         .rank-badge {
-          width: 20px;
-          text-align: center;
-          font-size: 0.9rem;
+          width: 24px;
+          height: 24px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          font-family: var(--font-mono);
+          font-size: 0.74rem;
+          font-weight: 600;
           color: var(--muted);
           flex-shrink: 0;
         }
+        /* Podium : or, argent, bronze — des pastilles numérotées à la place
+           des médailles emoji (docx 05/09/2026). */
+        .rank-badge.top-1 { background: rgba(245, 191, 66, 0.22); color: #f5bf42; box-shadow: 0 0 0 1px rgba(245, 191, 66, 0.5) inset; }
+        .rank-badge.top-2 { background: rgba(196, 204, 220, 0.18); color: #c4ccdc; box-shadow: 0 0 0 1px rgba(196, 204, 220, 0.45) inset; }
+        .rank-badge.top-3 { background: rgba(205, 127, 50, 0.2); color: #d9925a; box-shadow: 0 0 0 1px rgba(205, 127, 50, 0.5) inset; }
         .rank-avatar {
           width: 34px;
           height: 34px;
@@ -1853,6 +1863,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -1881,6 +1905,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -1956,7 +1985,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -1980,7 +2009,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
