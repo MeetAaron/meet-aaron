@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -448,7 +448,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -472,7 +472,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
