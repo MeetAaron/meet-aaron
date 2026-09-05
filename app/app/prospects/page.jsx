@@ -12,6 +12,7 @@ import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ActionMenu from '@/components/ActionMenu';
+import ConfidenceRing from '@/components/ConfidenceRing';
 import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
@@ -630,8 +631,8 @@ export default function ProspectsPage() {
                         {position.risk && ' ⚠'}
                       </span>
                       {conviction != null && (
-                        <span className="mcard-score" title={p.conviction_reason || p.negotiation_confidence_reason || ''}>
-                          {conviction}/100
+                        <span className="mcard-score">
+                          <ConfidenceRing score={conviction} size={30} title={`${t('card.convictionTitle', locale)} — ${p.conviction_reason || p.negotiation_confidence_reason || ''}`} />
                         </span>
                       )}
                     </div>
