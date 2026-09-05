@@ -37,6 +37,8 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { getSubscriptionState } from './subscription-status';
+import { listActiveBoosts, consumeBoosts } from './credit-boosts';
+import { ESTIMATED_USD_PER_PROSPECT, USD_PER_CREDIT } from './boost-tiers';
 // Module payant concerné par un appel (ap = Aaron Prospect, as = Aaron
 // Opportunités, ac = Aaron Clients) — sert au suivi d'usage par module.
 // Rapatrié ici le 01/09/2026 : c'était le dernier usage de lib/credits.ts,
@@ -172,47 +174,127 @@ async function getCurrentDaySpendUsd(companyId: string): Promise<number> {
   return data?.cost_usd || 0;
 }
 
-// Boosts de crédits actifs (migration_credit_boosts_2026-09-01.sql).
+// Boosts de crédits (migration_credit_boosts_2026-09-01.sql, puis
+// migration_credit_boosts_consumed_2026-09-05.sql).
 //
 // Un boost est une COUCHE au-dessus de l'abonnement : il ne touche pas aux
-// crédits inclus, qui restent étalés sur le mois, et court sur sa PROPRE
-// fenêtre d'un mois depuis son achat (un boost pris le 12 vaut jusqu'au 12
-// du mois suivant, pas jusqu'au 31). Plusieurs boosts se cumulent.
+// crédits inclus, et depuis le 05/09/2026 il n'expire plus — ce qu'il en
+// reste se consomme les jours d'après (« le client a payé pour le boost donc
+// il aura jusqu'au dernier crédit », Alex). Ce qui est renvoyé ici est donc
+// le RESTE utilisable, pas le montant acheté.
 //
 // Renvoie 0 si la table n'existe pas encore (migration pas passée) : le
 // plafond retombe simplement sur celui de l'abonnement, sans rien casser.
 export async function getActiveBoostCapUsd(companyId: string): Promise<number> {
-  try {
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabaseAdmin
-      .from('credit_boosts')
-      .select('cap_usd')
-      .eq('company_id', companyId)
-      .lte('starts_at', nowIso)
-      .gt('ends_at', nowIso);
-    if (error) return 0;
-    return (data || []).reduce((sum: number, row: any) => sum + Number(row.cap_usd || 0), 0);
-  } catch {
-    return 0;
+  const boosts = await listActiveBoosts(companyId);
+  return boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
+}
+
+// ── Rythme de consommation (décision Alex, 05/09/2026) ──────────────────────
+//
+// « Aaron doit utiliser au plus possible l'abonnement. Pour l'abonnement, si
+// à la fin il reste quelques crédits c'est pas grave, mais dans l'idéal il
+// faut que ça utilise tous les crédits (ou se rapprocher de 0, ou une marge
+// confortable de 1,5 crédit). Pour le boost, le but c'est d'essayer de les
+// effectuer dans le mois ; s'il en reste, le reste sera consommé les jours
+// d'après. »
+//
+// Le plafond mensuel seul ne fait pas ça : il ARRÊTE Aaron quand c'est
+// consommé, il ne le pousse pas à consommer. D'où ce rythme cible :
+//   - abonnement : (plafond − marge 1,5 crédit − déjà dépensé) / jours
+//     restants dans le mois calendaire → dépense visée par jour ;
+//   - boost : reste / jours jusqu'à sa date visée (ends_at), au moins 1 —
+//     un boost en retard se consomme donc au plus vite ;
+//   - la somme est le budget du jour ; ce qui n'a pas été dépensé aujourd'hui
+//     dit combien de nouveaux prospects Aaron peut encore aller chercher
+//     (voir app/api/cron/run-campaigns/route.ts).
+// Un mois entamé tard rattrape : moins de jours restants → cible plus haute.
+export interface Pacing {
+  subscriptionCapUsd: number;
+  monthSpendUsd: number;
+  daySpendUsd: number;
+  boostRemainingUsd: number;
+  daysLeftInMonth: number;
+  dailyTargetUsd: number;
+  todayRemainingUsd: number;
+  prospectsAllowedToday: number;
+}
+
+const PACING_MARGIN_CREDITS = 1.5;
+
+export async function getPacing(companyId: string): Promise<Pacing | null> {
+  const subscriptionCap = await getMonthlyCapUsd(companyId);
+  if (subscriptionCap === null) return null; // plafond désactivé : pas de rythme
+
+  const [monthSpend, daySpend, boosts] = await Promise.all([
+    getCurrentMonthSpendUsd(companyId),
+    getCurrentDaySpendUsd(companyId),
+    listActiveBoosts(companyId),
+  ]);
+
+  const now = new Date();
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
+
+  const marginUsd = PACING_MARGIN_CREDITS * USD_PER_CREDIT;
+  const subscriptionRemaining = Math.max(0, subscriptionCap - marginUsd - monthSpend);
+  const subscriptionDaily = subscriptionRemaining / daysLeft;
+
+  let boostDaily = 0;
+  let boostRemaining = 0;
+  for (const b of boosts) {
+    boostRemaining += b.remaining_usd;
+    const msToEnd = new Date(b.ends_at).getTime() - now.getTime();
+    const daysToEnd = Math.max(1, Math.ceil(msToEnd / 86_400_000));
+    boostDaily += b.remaining_usd / daysToEnd;
   }
+
+  const dailyTarget = subscriptionDaily + boostDaily;
+  const todayRemaining = Math.max(0, dailyTarget - daySpend);
+  return {
+    subscriptionCapUsd: subscriptionCap,
+    monthSpendUsd: monthSpend,
+    daySpendUsd: daySpend,
+    boostRemainingUsd: boostRemaining,
+    daysLeftInMonth: daysLeft,
+    dailyTargetUsd: Math.round(dailyTarget * 1000) / 1000,
+    todayRemainingUsd: Math.round(todayRemaining * 1000) / 1000,
+    prospectsAllowedToday: Math.floor(todayRemaining / ESTIMATED_USD_PER_PROSPECT),
+  };
 }
 
 async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; reason?: 'monthly' | 'daily' }> {
   const subscriptionCap = await getMonthlyCapUsd(companyId);
   if (subscriptionCap === null) return { exceeded: false }; // plafond désactivé pour cette société
 
-  // Le boost s'ajoute au plafond mensuel ET au plafond quotidien : sans ça,
-  // un commercial qui vient d'acheter un boost pour lancer une grosse
-  // campagne resterait bloqué par la limite journalière de son abonnement —
-  // exactement ce qu'il cherchait à débloquer en payant.
-  const boostCap = await getActiveBoostCapUsd(companyId);
-  const monthlyCap = subscriptionCap + boostCap;
+  const [monthSpend, daySpend, boosts] = await Promise.all([
+    getCurrentMonthSpendUsd(companyId),
+    getCurrentDaySpendUsd(companyId),
+    listActiveBoosts(companyId),
+  ]);
+  const boostRemaining = boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
 
-  const monthSpend = await getCurrentMonthSpendUsd(companyId);
-  if (monthSpend >= monthlyCap) return { exceeded: true, reason: 'monthly' };
+  // Disponible = ce qu'il reste de l'abonnement ce mois-ci + ce qu'il reste
+  // des boosts (leur consommation est déjà déduite, voir recordUsage).
+  const available = Math.max(0, subscriptionCap - monthSpend) + boostRemaining;
+  if (available <= 0.001) return { exceeded: true, reason: 'monthly' };
 
-  const dailyCap = monthlyCap / DAILY_CAP_DIVISOR;
-  const daySpend = await getCurrentDaySpendUsd(companyId);
+  // Plafond du jour : le lissage historique (mensuel / 30), relevé si le
+  // rythme cible du jour (getPacing) est plus haut — sinon un mois entamé
+  // tard, ou un boost à consommer, resterait bloqué par le lissage alors
+  // qu'Alex demande justement de tout consommer. Le boost relève aussi le
+  // quotidien : un commercial qui vient d'acheter un boost pour lancer une
+  // grosse campagne ne doit pas rester bloqué par la limite de son
+  // abonnement — exactement ce qu'il cherchait à débloquer en payant.
+  const now = new Date();
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
+  const smoothedDaily = (subscriptionCap + boostRemaining) / DAILY_CAP_DIVISOR;
+  const catchUpDaily = (Math.max(0, subscriptionCap - monthSpend) / daysLeft + boosts.reduce((sum, b) => {
+    const daysToEnd = Math.max(1, Math.ceil((new Date(b.ends_at).getTime() - now.getTime()) / 86_400_000));
+    return sum + b.remaining_usd / daysToEnd;
+  }, 0)) * 1.25;
+  const dailyCap = Math.max(smoothedDaily, catchUpDaily);
   if (daySpend >= dailyCap) return { exceeded: true, reason: 'daily' };
 
   return { exceeded: false };
@@ -273,6 +355,21 @@ async function recordUsage(companyId: string, model: string | undefined, usage: 
       { onConflict: 'company_id,date' }
     ),
   ]);
+
+  // Part de cet appel qui dépasse l'abonnement du mois → imputée aux boosts
+  // (du plus ancien au plus récent), pour que leur reste soit exact et
+  // survive au changement de mois (voir lib/credit-boosts.ts). Best-effort.
+  try {
+    const subscriptionCap = await getMonthlyCapUsd(companyId);
+    if (subscriptionCap !== null) {
+      const overflowBefore = Math.max(0, currentMonthSpend - subscriptionCap);
+      const overflowAfter = Math.max(0, currentMonthSpend + costUsd - subscriptionCap);
+      const boostShare = overflowAfter - overflowBefore;
+      if (boostShare > 0) await consumeBoosts(companyId, boostShare);
+    }
+  } catch {
+    // colonne consumed_usd absente ou indisponible : le plafond global reste juste.
+  }
 
   // Part du commercial — best-effort et jamais bloquant : si la migration
   // migration_api_usage_per_user_2026-09-01.sql n'est pas encore passée

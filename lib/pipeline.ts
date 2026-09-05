@@ -258,3 +258,25 @@ export function legacyColumnsForStage(stage: PipelineStage, nowIso: string): Rec
       return {};
   }
 }
+
+
+// Score de confiance de repli (Alex, 05/09/2026 : « je ne vois toujours pas
+// le score de confiance dans la liste ni la fiche »). Aaron ne renseigne
+// next_step_confidence qu'au moment où il agit sur un contact ; les contacts
+// existants n'ont donc encore rien. Plutôt qu'un vide, on affiche une
+// ESTIMATION d'après l'étape — des taux de passage moyens, prudents — que le
+// score d'Aaron remplace dès son prochain échange. Le drapeau risque coûte 20
+// points ; un contact perdu n'a pas de score.
+export function baselineConfidence(position: PipelinePosition): number | null {
+  if (position.lost) return null;
+  const base: Record<PipelineStage, number> = {
+    en_cours: 15,
+    en_bonne_voie: 40,
+    rdv_obtenu: 55,
+    proposition_demandee: 65,
+    en_negociation: 75,
+    client: 100,
+  };
+  const score = base[position.stage] ?? 15;
+  return Math.max(5, score - (position.risk ? 20 : 0));
+}
