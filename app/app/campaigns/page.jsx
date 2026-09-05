@@ -2169,15 +2169,14 @@ function EmptyState({ title, body, onCta, ctaLabel }) {
   return (
     <div className="empty">
       {onCta && (
-        <button type="button" className="empty-plus" onClick={onCta} aria-label={ctaLabel}>
+        <button type="button" className="empty-plus" onClick={onCta} aria-label={ctaLabel} title={ctaLabel}>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       )}
       <p className="empty-title">{title}</p>
       <p className="empty-body">{body}</p>
-      {onCta && (
-        <button type="button" className="empty-cta" onClick={onCta}>{ctaLabel}</button>
-      )}
+      {/* Plus de bouton texte sous le « + » (Alex, 05/09/2026) : le rond est
+          l'action, le libellé vit en info-bulle. */}
       <style jsx>{`
         /* Même état vide que « Campagnes en cours » sur le tableau de bord
            (04/09/2026) : le + rond, le titre, la phrase, l'appel en dégradé.
