@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import { Repeat, CalendarOff, Plus, X, Pencil, Trash2, RefreshCw, Phone, Handshake, Video, Calendar as CalendarIcon } from 'lucide-react';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
@@ -89,11 +90,16 @@ function useAuthedUser() {
   return { userId, authLoading, authError };
 }
 
-const TYPE_ICONS = {
-  telephonique: '📞',
-  physique: '🤝',
-  visio: '💻',
-};
+// Icônes de type de RDV : traits (lucide) et non emojis — docx 05/09/2026,
+// « tous les symboles de l'appli doivent être modernes ». Rendues en ligne
+// dans les badges .type-badge (voir TypeIcon ci-dessous).
+function TypeIcon({ type, size = 13 }) {
+  const props = { size, strokeWidth: 2.2, 'aria-hidden': 'true', style: { verticalAlign: '-2px', marginRight: '0.3em' } };
+  if (type === 'telephonique') return <Phone {...props} />;
+  if (type === 'physique') return <Handshake {...props} />;
+  if (type === 'visio') return <Video {...props} />;
+  return null;
+}
 
 function typeLabelsFor(locale) {
   return {
@@ -219,6 +225,18 @@ export default function AgendaPage() {
   // les créneaux récurrents et les indisponibilités ponctuelles.
   const [showAllRules, setShowAllRules] = useState(false);
   const [showAllBlocks, setShowAllBlocks] = useState(false);
+  // Formulaires d'ajout repliés derrière le « + » de chaque groupe (05/09/2026).
+  const [addingRule, setAddingRule] = useState(false);
+  const [addingBlock, setAddingBlock] = useState(false);
+  // « Modifications enregistrées » sous le groupe concerné (docx 05/09/2026 :
+  // « il faut que ce soit la même chose sur toutes les fonctionnalités »).
+  const [savedGroup, setSavedGroup] = useState(null);
+  const savedTimer = useRef(null);
+  function flashSaved(group) {
+    setSavedGroup(group);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSavedGroup(null), 2500);
+  }
 
   // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
   // hebdomadaires récurrentes + indisponibilités ponctuelles.
@@ -322,11 +340,14 @@ export default function AgendaPage() {
       return;
     }
     setRules((prev) => [...prev, body.rule].sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)));
+    setAddingRule(false);
+    flashSaved('rules');
   }
 
   async function handleDeleteRule(id) {
     await fetch(`/api/availability/rules/${id}?user_id=${userId}`, { method: 'DELETE' });
     setRules((prev) => prev.filter((r) => r.id !== id));
+    flashSaved('rules');
   }
 
   async function handleAddBlock(e) {
@@ -352,11 +373,14 @@ export default function AgendaPage() {
     }
     setBlocks((prev) => [...prev, body.block].sort((a, b) => a.start_at.localeCompare(b.start_at)));
     setNewBlock({ start_at: '', end_at: '', reason: '' });
+    setAddingBlock(false);
+    flashSaved('blocks');
   }
 
   async function handleDeleteBlock(id) {
     await fetch(`/api/availability/blocks/${id}?user_id=${userId}`, { method: 'DELETE' });
     setBlocks((prev) => prev.filter((b) => b.id !== id));
+    flashSaved('blocks');
   }
 
   // --- Modifier un créneau récurrent (docx AGENDA item A3) ---
@@ -395,6 +419,7 @@ export default function AgendaPage() {
         .sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time))
     );
     cancelEditRule();
+    flashSaved('rules');
   }
 
   // --- Modifier une indisponibilité ponctuelle (docx AGENDA item A3) ---
@@ -444,6 +469,7 @@ export default function AgendaPage() {
       prev.map((b) => (b.id === id ? body.block : b)).sort((a, b) => a.start_at.localeCompare(b.start_at))
     );
     cancelEditBlock();
+    flashSaved('blocks');
   }
 
   function openAddForDay(kind, opts) {
@@ -641,7 +667,7 @@ export default function AgendaPage() {
                         <strong>{who(next)}</strong>
                         {where(next) && <span className="muted"> — {where(next)}</span>}
                       </span>
-                      <span className={`type-badge type-${next.type}`}>{TYPE_ICONS[next.type] || ''} {TYPE_LABELS[next.type]}</span>
+                      <span className={`type-badge type-${next.type}`}><TypeIcon type={next.type} />{TYPE_LABELS[next.type]}</span>
                     </button>
                     {next.meet_link && (
                       <a href={next.meet_link} target="_blank" rel="noreferrer" className="today-join">
@@ -684,7 +710,7 @@ export default function AgendaPage() {
                       <strong>{a.prospects?.full_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       <div className="meta">
-                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                        <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
                         {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                       </div>
                     </div>
@@ -754,7 +780,7 @@ export default function AgendaPage() {
                         <span className="muted"> — {t('agenda.personalContact', locale)}</span>
                       )}
                       <div className="meta">
-                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                        <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
                         {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
                         {a.source === 'manuel' && ` · ${t('agenda.addedManually', locale)}`}
                       </div>
@@ -785,7 +811,7 @@ export default function AgendaPage() {
                         aria-label={t('common.delete', locale)}
                         title={t('common.delete', locale)}
                       >
-                        ✕
+                        <X size={15} strokeWidth={2.2} aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -836,6 +862,7 @@ export default function AgendaPage() {
         </div>
         </div>
 
+        <div className="calendar-side">
         {!selectedDay && (() => {
           const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
           const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0, 23, 59, 59);
@@ -859,7 +886,7 @@ export default function AgendaPage() {
                       <li key={a.id} className="day-detail-item clickable" onClick={() => setSelectedDay(new Date(d.getFullYear(), d.getMonth(), d.getDate()))}>
                         <span className="side-date">{d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })} · {d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
                         <span>{a.prospects?.full_name || a.contact_name}</span>
-                        <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                        <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
                       </li>
                     );
                   })}
@@ -882,7 +909,7 @@ export default function AgendaPage() {
           <div className="day-detail">
             <div className="day-detail-header">
               <strong>{selectedDay.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>
-              <button type="button" className="btn-remove" onClick={() => setSelectedDay(null)} aria-label={t('agenda.dayDetailClose', locale)}>✕</button>
+              <button type="button" className="btn-remove" onClick={() => setSelectedDay(null)} aria-label={t('agenda.dayDetailClose', locale)}><X size={15} strokeWidth={2.2} aria-hidden="true" /></button>
             </div>
 
             {selectedDayAppointments.length === 0 ? (
@@ -891,7 +918,7 @@ export default function AgendaPage() {
               <ul className="day-detail-list">
                 {selectedDayAppointments.map((a) => (
                   <li key={a.id} className="day-detail-item">
-                    <span className={`type-badge type-${a.type}`}>{TYPE_ICONS[a.type] || ''} {TYPE_LABELS[a.type]}</span>
+                    <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
                     <span>{new Date(a.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="muted">{a.prospects?.full_name || a.contact_name}</span>
                   </li>
@@ -927,166 +954,190 @@ export default function AgendaPage() {
             </div>
           </div>
         )}
-        </div>
-      </section>
 
-      {/* Disponibilités fusionnées ici (#86) — deux sections sous les RDV, plus d'onglet séparé. */}
-      <section className="block">
-        <h2>{t('disponibilites.recurringSlotsTitle', locale)}</h2>
-        {availabilityLoading ? (
-          <p className="muted">{t('common.loading', locale)}</p>
-        ) : (
-          <div className="panel">
-            {rules.length === 0 ? (
-              <p className="muted small">{t('disponibilites.noRulesYet', locale)}</p>
-            ) : (
-              <ul className="rule-list">
-                {(showAllRules ? rules : rules.slice(0, 5)).map((r) =>
-                  editingRuleId === r.id ? (
-                    <li key={r.id} className="rule-item rule-item-editing">
-                      <select
-                        value={editRuleDraft.day_of_week}
-                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, day_of_week: Number(e.target.value) })}
-                      >
-                        {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                      </select>
-                      <input
-                        type="time"
-                        value={editRuleDraft.start_time}
-                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, start_time: e.target.value })}
-                      />
-                      <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
-                      <input
-                        type="time"
-                        value={editRuleDraft.end_time}
-                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, end_time: e.target.value })}
-                      />
-                      <select
-                        value={editRuleDraft.appointment_type}
-                        onChange={(e) => setEditRuleDraft({ ...editRuleDraft, appointment_type: e.target.value })}
-                      >
-                        {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                      </select>
-                      <button type="button" className="btn-primary" disabled={savingEditRule} onClick={() => handleSaveEditRule(r.id)}>
-                        {savingEditRule ? t('common.saving', locale) : t('common.save', locale)}
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={cancelEditRule}>{t('common.cancel', locale)}</button>
-                    </li>
-                  ) : (
-                    <li key={r.id} className="rule-item">
-                      <span className="rule-day">{dayLabel(r.day_of_week, locale)}</span>
-                      <span className="rule-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
-                      <span className="rule-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
-                      <button type="button" className="btn-edit" onClick={() => startEditRule(r)} aria-label={t('common.edit', locale)}>✏️</button>
-                      <button type="button" className="btn-remove" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)}>✕</button>
-                    </li>
-                  )
-                )}
-              </ul>
-            )}
-            {rules.length > 5 && (
-              <button type="button" className="btn-link-more" onClick={() => setShowAllRules((prev) => !prev)}>
-                {showAllRules ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${rules.length - 5})`}
-              </button>
-            )}
+          {/* Docx « derniers ajouts » (05/09/2026) : créneaux récurrents et
+              indisponibilités ponctuelles À CÔTÉ du calendrier — plus deux
+              grands encadrés en bas de page qu'il fallait aller chercher en
+              défilant. Chaque liste montre 5 lignes, puis « voir plus » ;
+              l'ajout est replié derrière un « + » pour ne pas encombrer la
+              colonne. Sur téléphone, la colonne passe sous le calendrier. */}
+          <div className="avail-card">
+            <div className="avail-group">
+              <div className="avail-head">
+                <span className="avail-ic"><Repeat size={16} strokeWidth={2} aria-hidden="true" /></span>
+                <div className="avail-titles">
+                  <strong>{t('disponibilites.recurringSlotsTitle', locale)}</strong>
+                  <span className="muted small">{rules.length === 0 ? t('disponibilites.noRulesYet', locale) : t('agenda.availRulesHint', locale)}</span>
+                </div>
+                <button type="button" className={`btn-icon${addingRule ? ' active' : ''}`} onClick={() => setAddingRule((v) => !v)} aria-label={t('common.add', locale)} title={t('common.add', locale)}>
+                  {addingRule ? <X size={16} strokeWidth={2.2} aria-hidden="true" /> : <Plus size={16} strokeWidth={2.2} aria-hidden="true" />}
+                </button>
+              </div>
 
-            <form className="rule-form" onSubmit={handleAddRule}>
-              <select value={newRule.day_of_week} onChange={(e) => setNewRule({ ...newRule, day_of_week: Number(e.target.value) })}>
-                {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-              </select>
-              <input type="time" value={newRule.start_time} onChange={(e) => setNewRule({ ...newRule, start_time: e.target.value })} required />
-              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
-              <input type="time" value={newRule.end_time} onChange={(e) => setNewRule({ ...newRule, end_time: e.target.value })} required />
-              <select value={newRule.appointment_type} onChange={(e) => setNewRule({ ...newRule, appointment_type: e.target.value })}>
-                {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-              <button type="submit" className="btn-primary" disabled={savingRule}>{savingRule ? t('disponibilites.adding', locale) : t('common.add', locale)}</button>
-            </form>
-          </div>
-        )}
-      </section>
+              {addingRule && (
+                <form className="avail-form" onSubmit={async (e) => { await handleAddRule(e); }}>
+                  <select value={newRule.day_of_week} onChange={(e) => setNewRule({ ...newRule, day_of_week: Number(e.target.value) })}>
+                    {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                  <input type="time" value={newRule.start_time} onChange={(e) => setNewRule({ ...newRule, start_time: e.target.value })} required />
+                  <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                  <input type="time" value={newRule.end_time} onChange={(e) => setNewRule({ ...newRule, end_time: e.target.value })} required />
+                  <select value={newRule.appointment_type} onChange={(e) => setNewRule({ ...newRule, appointment_type: e.target.value })}>
+                    {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                  <button type="submit" className="btn-primary" disabled={savingRule}>{savingRule ? t('disponibilites.adding', locale) : t('common.add', locale)}</button>
+                </form>
+              )}
 
-      <section className="block">
-        <h2>{t('disponibilites.oneOffUnavailabilityTitle', locale)}</h2>
-        {availabilityLoading ? (
-          <p className="muted">{t('common.loading', locale)}</p>
-        ) : (
-          <div className="panel">
-            {blocks.length === 0 ? (
-              <p className="muted small">{t('disponibilites.noBlocksUpcoming', locale)}</p>
-            ) : (
-              <ul className="block-list">
-                {(showAllBlocks ? blocks : blocks.slice(0, 5)).map((b) =>
-                  editingBlockId === b.id ? (
-                    <li key={b.id} className="block-item block-item-editing">
-                      <input
-                        type="datetime-local"
-                        value={editBlockDraft.start_at}
-                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, start_at: e.target.value })}
-                      />
-                      <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
-                      <input
-                        type="datetime-local"
-                        value={editBlockDraft.end_at}
-                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, end_at: e.target.value })}
-                      />
-                      <input
-                        type="text"
-                        placeholder={t('disponibilites.reasonPlaceholder', locale)}
-                        value={editBlockDraft.reason}
-                        onChange={(e) => setEditBlockDraft({ ...editBlockDraft, reason: e.target.value })}
-                      />
-                      <button type="button" className="btn-primary" disabled={savingEditBlock} onClick={() => handleSaveEditBlock(b.id)}>
-                        {savingEditBlock ? t('common.saving', locale) : t('common.save', locale)}
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={cancelEditBlock}>{t('common.cancel', locale)}</button>
-                    </li>
-                  ) : (
-                    <li key={b.id} className="block-item">
-                      <span className="block-dates">
-                        {new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                        {' → '}
-                        {new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
-                      </span>
-                      {b.reason && <span className="block-reason">{b.reason}</span>}
-                      {b.source === 'sync' ? (
-                        // Remontée automatiquement depuis Google/Outlook (voir
-                        // lib/calendar-sync.ts) : ni modifiable ni supprimable
-                        // depuis Aaron — ça reviendrait juste au prochain
-                        // passage du cron tant que l'événement existe côté
-                        // calendrier externe. Le badge explique pourquoi les
-                        // boutons habituels ne sont pas là.
-                        <span className="block-sync-badge" title={t('disponibilites.syncedHint', locale)}>
-                          🔄 {t('disponibilites.syncedBadge', locale)}
+              {availabilityLoading ? (
+                <p className="muted small">{t('common.loading', locale)}</p>
+              ) : rules.length > 0 && (
+                <ul className="avail-list">
+                  {(showAllRules ? rules : rules.slice(0, 5)).map((r) =>
+                    editingRuleId === r.id ? (
+                      <li key={r.id} className="avail-row editing">
+                        <select
+                          value={editRuleDraft.day_of_week}
+                          onChange={(e) => setEditRuleDraft({ ...editRuleDraft, day_of_week: Number(e.target.value) })}
+                        >
+                          {daysFor(locale).map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                        </select>
+                        <input
+                          type="time"
+                          value={editRuleDraft.start_time}
+                          onChange={(e) => setEditRuleDraft({ ...editRuleDraft, start_time: e.target.value })}
+                        />
+                        <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                        <input
+                          type="time"
+                          value={editRuleDraft.end_time}
+                          onChange={(e) => setEditRuleDraft({ ...editRuleDraft, end_time: e.target.value })}
+                        />
+                        <select
+                          value={editRuleDraft.appointment_type}
+                          onChange={(e) => setEditRuleDraft({ ...editRuleDraft, appointment_type: e.target.value })}
+                        >
+                          {apptTypesFor(locale).map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                        <button type="button" className="btn-primary" disabled={savingEditRule} onClick={() => handleSaveEditRule(r.id)}>
+                          {savingEditRule ? t('common.saving', locale) : t('common.save', locale)}
+                        </button>
+                        <button type="button" className="btn-secondary" onClick={cancelEditRule}>{t('common.cancel', locale)}</button>
+                      </li>
+                    ) : (
+                      <li key={r.id} className="avail-row">
+                        <span className="avail-day">{dayLabel(r.day_of_week, locale).slice(0, 3)}</span>
+                        <span className="avail-time">{r.start_time.slice(0, 5)} – {r.end_time.slice(0, 5)}</span>
+                        <span className="avail-type">{apptTypesFor(locale).find((opt) => opt.value === (r.appointment_type || ''))?.label || t('disponibilites.allApptTypes', locale)}</span>
+                        <span className="avail-actions">
+                          <button type="button" className="btn-icon sm" onClick={() => startEditRule(r)} aria-label={t('common.edit', locale)} title={t('common.edit', locale)}><Pencil size={14} strokeWidth={2} aria-hidden="true" /></button>
+                          <button type="button" className="btn-icon sm danger" onClick={() => handleDeleteRule(r.id)} aria-label={t('common.delete', locale)} title={t('common.delete', locale)}><Trash2 size={14} strokeWidth={2} aria-hidden="true" /></button>
                         </span>
-                      ) : (
-                        <>
-                          <button type="button" className="btn-edit" onClick={() => startEditBlock(b)} aria-label={t('common.edit', locale)}>✏️</button>
-                          <button type="button" className="btn-remove" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)}>✕</button>
-                        </>
-                      )}
-                    </li>
-                  )
-                )}
-              </ul>
-            )}
-            {blocks.length > 5 && (
-              <button type="button" className="btn-link-more" onClick={() => setShowAllBlocks((prev) => !prev)}>
-                {showAllBlocks ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${blocks.length - 5})`}
-              </button>
-            )}
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
+              {rules.length > 5 && (
+                <button type="button" className="btn-link-more" onClick={() => setShowAllRules((prev) => !prev)}>
+                  {showAllRules ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${rules.length - 5})`}
+                </button>
+              )}
+              {savedGroup === 'rules' && <p className="saved-flash" role="status">{t('preferences.changeSaved', locale)}</p>}
+            </div>
 
-            <form className="block-form" onSubmit={handleAddBlock}>
-              <input type="datetime-local" value={newBlock.start_at} onChange={(e) => setNewBlock({ ...newBlock, start_at: e.target.value })} required />
-              <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
-              <input type="datetime-local" value={newBlock.end_at} onChange={(e) => setNewBlock({ ...newBlock, end_at: e.target.value })} required />
-              <input type="text" placeholder={t('disponibilites.reasonPlaceholder', locale)} value={newBlock.reason} onChange={(e) => setNewBlock({ ...newBlock, reason: e.target.value })} />
-              <button type="submit" className="btn-primary" disabled={savingBlock}>{savingBlock ? t('disponibilites.adding', locale) : t('disponibilites.blockSlotButton', locale)}</button>
-            </form>
+            <div className="avail-group">
+              <div className="avail-head">
+                <span className="avail-ic off"><CalendarOff size={16} strokeWidth={2} aria-hidden="true" /></span>
+                <div className="avail-titles">
+                  <strong>{t('disponibilites.oneOffUnavailabilityTitle', locale)}</strong>
+                  <span className="muted small">{blocks.length === 0 ? t('disponibilites.noBlocksUpcoming', locale) : t('agenda.availBlocksHint', locale)}</span>
+                </div>
+                <button type="button" className={`btn-icon${addingBlock ? ' active' : ''}`} onClick={() => setAddingBlock((v) => !v)} aria-label={t('common.add', locale)} title={t('common.add', locale)}>
+                  {addingBlock ? <X size={16} strokeWidth={2.2} aria-hidden="true" /> : <Plus size={16} strokeWidth={2.2} aria-hidden="true" />}
+                </button>
+              </div>
 
-            {availError && <p className="error">{availError}</p>}
+              {addingBlock && (
+                <form className="avail-form" onSubmit={handleAddBlock}>
+                  <input type="datetime-local" value={newBlock.start_at} onChange={(e) => setNewBlock({ ...newBlock, start_at: e.target.value })} required />
+                  <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                  <input type="datetime-local" value={newBlock.end_at} onChange={(e) => setNewBlock({ ...newBlock, end_at: e.target.value })} required />
+                  <input type="text" placeholder={t('disponibilites.reasonPlaceholder', locale)} value={newBlock.reason} onChange={(e) => setNewBlock({ ...newBlock, reason: e.target.value })} />
+                  <button type="submit" className="btn-primary" disabled={savingBlock}>{savingBlock ? t('disponibilites.adding', locale) : t('disponibilites.blockSlotButton', locale)}</button>
+                </form>
+              )}
+
+              {availabilityLoading ? (
+                <p className="muted small">{t('common.loading', locale)}</p>
+              ) : blocks.length > 0 && (
+                <ul className="avail-list">
+                  {(showAllBlocks ? blocks : blocks.slice(0, 5)).map((b) =>
+                    editingBlockId === b.id ? (
+                      <li key={b.id} className="avail-row editing">
+                        <input
+                          type="datetime-local"
+                          value={editBlockDraft.start_at}
+                          onChange={(e) => setEditBlockDraft({ ...editBlockDraft, start_at: e.target.value })}
+                        />
+                        <span className="sep">{t('disponibilites.timeRangeSep', locale)}</span>
+                        <input
+                          type="datetime-local"
+                          value={editBlockDraft.end_at}
+                          onChange={(e) => setEditBlockDraft({ ...editBlockDraft, end_at: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          placeholder={t('disponibilites.reasonPlaceholder', locale)}
+                          value={editBlockDraft.reason}
+                          onChange={(e) => setEditBlockDraft({ ...editBlockDraft, reason: e.target.value })}
+                        />
+                        <button type="button" className="btn-primary" disabled={savingEditBlock} onClick={() => handleSaveEditBlock(b.id)}>
+                          {savingEditBlock ? t('common.saving', locale) : t('common.save', locale)}
+                        </button>
+                        <button type="button" className="btn-secondary" onClick={cancelEditBlock}>{t('common.cancel', locale)}</button>
+                      </li>
+                    ) : (
+                      <li key={b.id} className="avail-row">
+                        <span className="avail-dot" aria-hidden="true" />
+                        <span className="avail-dates">
+                          <span>{new Date(b.start_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                          <span className="muted"> → </span>
+                          <span>{new Date(b.end_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                          {b.reason && <span className="avail-reason">{b.reason}</span>}
+                        </span>
+                        {b.source === 'sync' ? (
+                          // Remontée automatiquement depuis Google/Outlook (voir
+                          // lib/calendar-sync.ts) : ni modifiable ni supprimable
+                          // depuis Aaron — ça reviendrait juste au prochain
+                          // passage du cron tant que l'événement existe côté
+                          // calendrier externe. Le badge explique pourquoi les
+                          // boutons habituels ne sont pas là.
+                          <span className="avail-sync" title={t('disponibilites.syncedHint', locale)}>
+                            <RefreshCw size={12} strokeWidth={2} aria-hidden="true" /> {t('disponibilites.syncedBadge', locale)}
+                          </span>
+                        ) : (
+                          <span className="avail-actions">
+                            <button type="button" className="btn-icon sm" onClick={() => startEditBlock(b)} aria-label={t('common.edit', locale)} title={t('common.edit', locale)}><Pencil size={14} strokeWidth={2} aria-hidden="true" /></button>
+                            <button type="button" className="btn-icon sm danger" onClick={() => handleDeleteBlock(b.id)} aria-label={t('common.delete', locale)} title={t('common.delete', locale)}><Trash2 size={14} strokeWidth={2} aria-hidden="true" /></button>
+                          </span>
+                        )}
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
+              {blocks.length > 5 && (
+                <button type="button" className="btn-link-more" onClick={() => setShowAllBlocks((prev) => !prev)}>
+                  {showAllBlocks ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${blocks.length - 5})`}
+                </button>
+              )}
+              {savedGroup === 'blocks' && <p className="saved-flash" role="status">{t('preferences.changeSaved', locale)}</p>}
+              {availError && <p className="error">{availError}</p>}
+            </div>
           </div>
-        )}
+        </div>
+        </div>
       </section>
 
       {/* Synchronisation calendrier (lien ICS/webcal + QR) : déplacée le
@@ -1527,49 +1578,202 @@ export default function AgendaPage() {
           padding: 1.6rem;
           max-width: 720px;
         }
-        .rule-list, .block-list {
-          list-style: none;
-          margin: 0 0 1.2rem;
-          padding: 0;
+        /* --- Colonne à droite du calendrier : panneau du jour/mois puis la
+           carte « disponibilités » (05/09/2026). --- */
+        .calendar-side {
+          min-width: 0;
           display: flex;
           flex-direction: column;
-          gap: 0.5rem;
+          gap: 1.2rem;
         }
-        .rule-item, .block-item {
+        .avail-card {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.4rem 0;
+        }
+        .avail-group {
+          padding: 0.8rem 1.15rem 0.9rem;
+        }
+        .avail-group + .avail-group {
+          border-top: 1px solid var(--border);
+        }
+        .avail-head {
           display: flex;
           align-items: center;
           gap: 0.8rem;
+        }
+        .avail-ic {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(75, 57, 239, 0.14);
+          color: var(--accent-light);
+          flex-shrink: 0;
+        }
+        .avail-ic.off {
+          background: rgba(239, 68, 89, 0.12);
+          color: var(--accent-red);
+        }
+        .avail-titles {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          min-width: 0;
+          flex: 1;
+        }
+        .avail-titles strong {
+          font-size: 0.92rem;
+        }
+        .avail-titles .small {
+          font-size: 0.76rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .avail-head .btn-icon.active {
+          background: var(--tint-8);
+          color: var(--text);
+        }
+        .avail-form {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 0.8rem 0 0.2rem;
+          padding: 0.7rem;
+          background: var(--surface);
+          border: 1px dashed var(--border);
+          border-radius: var(--radius-sm);
+        }
+        .avail-form select,
+        .avail-form input,
+        .avail-row.editing select,
+        .avail-row.editing input {
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
-          padding: 0.6rem 0.9rem;
-          font-size: 0.85rem;
+          padding: 0.42rem 0.6rem;
+          color: var(--text);
+          font-size: 0.82rem;
+          min-width: 0;
         }
-        .rule-day {
-          font-weight: 600;
-          min-width: 80px;
+        .avail-form input[type='text'] {
+          flex: 1;
+          min-width: 140px;
         }
-        .rule-time {
-          font-family: var(--font-mono);
-          color: var(--accent-green);
-        }
-        .rule-type {
-          color: var(--muted);
-          margin-left: auto;
-        }
-        .block-dates {
-          font-family: var(--font-mono);
+        .avail-form .btn-primary,
+        .avail-row.editing .btn-primary {
+          padding: 0.42rem 0.8rem;
           font-size: 0.8rem;
         }
-        .block-reason {
-          color: var(--muted);
-          margin-left: 0.4rem;
+        .avail-list {
+          list-style: none;
+          margin: 0.7rem 0 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
         }
-        .block-sync-badge {
-          margin-left: auto;
+        .avail-row {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          padding: 0.45rem 0.6rem;
+          border-radius: var(--radius-sm);
+          font-size: 0.84rem;
+          transition: background var(--fast, 0.15s ease);
+        }
+        .avail-row:hover {
+          background: var(--tint-4);
+        }
+        .avail-row.editing {
+          flex-wrap: wrap;
+          background: var(--surface);
+          border: 1px solid var(--border);
+        }
+        .avail-day {
+          font-family: var(--font-mono);
+          font-size: 0.72rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--accent-light);
+          background: rgba(75, 57, 239, 0.14);
+          border-radius: 6px;
+          padding: 2px 7px;
+          min-width: 3ch;
+          text-align: center;
+        }
+        .avail-time {
+          font-family: var(--font-mono);
+          font-size: 0.82rem;
+          white-space: nowrap;
+        }
+        .avail-type {
           color: var(--muted);
           font-size: 0.78rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
           white-space: nowrap;
+          flex: 1;
+          min-width: 0;
+        }
+        .avail-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--accent-red);
+          flex-shrink: 0;
+        }
+        .avail-dates {
+          flex: 1;
+          min-width: 0;
+          font-family: var(--font-mono);
+          font-size: 0.78rem;
+          line-height: 1.4;
+        }
+        .avail-reason {
+          display: block;
+          font-family: var(--font-body);
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+        .avail-actions {
+          display: inline-flex;
+          gap: 0.15rem;
+          margin-left: auto;
+          flex-shrink: 0;
+          opacity: 0.55;
+          transition: opacity var(--fast, 0.15s ease);
+        }
+        .avail-row:hover .avail-actions,
+        .avail-row:focus-within .avail-actions {
+          opacity: 1;
+        }
+        .btn-icon.sm {
+          width: 28px;
+          height: 28px;
+        }
+        .btn-icon.danger:hover {
+          color: var(--accent-red);
+          background: rgba(239, 68, 89, 0.12);
+        }
+        .avail-sync {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          color: var(--muted);
+          font-size: 0.74rem;
+          white-space: nowrap;
+        }
+        @media (max-width: 640px) {
+          .avail-actions { opacity: 1; }
+          .avail-type { display: none; }
         }
         .sync-moved {
           margin: 0.4rem 0 0;
@@ -1577,19 +1781,6 @@ export default function AgendaPage() {
         .sync-moved a {
           color: var(--accent);
           text-decoration: underline;
-        }
-        .btn-edit {
-          margin-left: auto;
-          background: none;
-          border: none;
-          color: var(--muted);
-          cursor: pointer;
-          font-size: 0.85rem;
-          padding: 0.2rem 0.4rem;
-          line-height: 1;
-        }
-        .btn-edit:hover {
-          color: var(--accent);
         }
         .btn-bilan {
           border: 1px solid var(--accent);
@@ -1610,57 +1801,17 @@ export default function AgendaPage() {
           border: none;
           color: var(--muted);
           cursor: pointer;
-          font-size: 0.9rem;
-          padding: 0.2rem 0.4rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          padding: 0;
         }
+        .btn-remove:hover { background: rgba(239, 68, 89, 0.12); }
         .btn-remove:hover {
           color: var(--accent-red);
-        }
-        .rule-item-editing, .block-item-editing {
-          flex-wrap: wrap;
-        }
-        .rule-item-editing select,
-        .rule-item-editing input,
-        .block-item-editing input {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.4rem 0.6rem;
-          color: var(--text);
-          font-size: 0.82rem;
-        }
-        .rule-item-editing .btn-primary,
-        .block-item-editing .btn-primary {
-          padding: 0.4rem 0.8rem;
-          font-size: 0.8rem;
-        }
-        .rule-item-editing .btn-secondary,
-        .block-item-editing .btn-secondary {
-          background: transparent;
-          border: 1px solid var(--border);
-          color: var(--muted);
-          border-radius: var(--radius-sm);
-          padding: 0.4rem 0.8rem;
-          font-size: 0.8rem;
-          cursor: pointer;
-        }
-        .rule-form, .block-form {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 0.6rem;
-        }
-        .rule-form select, .rule-form input, .block-form input {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.5rem 0.7rem;
-          color: var(--text);
-          font-size: 0.84rem;
-        }
-        .block-form input[type='text'] {
-          flex: 1;
-          min-width: 180px;
         }
         .sep {
           color: var(--muted);
@@ -1939,10 +2090,10 @@ function AppointmentDetailModal({ appointment, onClose }) {
 
 function entryKindsFor(locale) {
   return [
-    { key: 'indisponibilite', label: t('agenda.kindUnavailability', locale), icon: '🚫' },
-    { key: 'telephonique', label: t('agenda.kindPhone', locale), icon: '📞' },
-    { key: 'visio', label: t('agenda.kindVideo', locale), icon: '💻' },
-    { key: 'physique', label: t('agenda.kindInPerson', locale), icon: '🤝' },
+    { key: 'indisponibilite', label: t('agenda.kindUnavailability', locale), icon: <CalendarOff size={20} strokeWidth={2} aria-hidden="true" /> },
+    { key: 'telephonique', label: t('agenda.kindPhone', locale), icon: <Phone size={20} strokeWidth={2} aria-hidden="true" /> },
+    { key: 'visio', label: t('agenda.kindVideo', locale), icon: <Video size={20} strokeWidth={2} aria-hidden="true" /> },
+    { key: 'physique', label: t('agenda.kindInPerson', locale), icon: <Handshake size={20} strokeWidth={2} aria-hidden="true" /> },
   ];
 }
 
@@ -2009,7 +2160,7 @@ function SimpleDatePicker({ value, onChange }) {
   return (
     <div className="simple-date-picker" ref={wrapRef}>
       <button type="button" className="date-trigger" onClick={() => setOpen((o) => !o)}>
-        📅 {displayLabel}
+        <CalendarIcon size={15} strokeWidth={2} aria-hidden="true" /> {displayLabel}
       </button>
       {open && (
         <div className="date-popover">
@@ -2513,7 +2664,14 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
           box-shadow: var(--shadow-md);
         }
         .kind-icon {
-          font-size: 1.3rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          background: rgba(75, 57, 239, 0.14);
+          color: var(--accent-light);
         }
         .source-row {
           display: flex;
@@ -2794,6 +2952,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -2822,6 +2994,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -2897,7 +3074,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -2921,7 +3098,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
