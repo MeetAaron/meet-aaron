@@ -3053,6 +3053,10 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
           <span>Meet Aaron</span>
         </div>
+        {/* Rail replié (≥901px) : le nom de la langue ne tient pas dans 78 px
+            (« França… », capture Alex 05/09) — .lang-wrap affiche le code (FR)
+            par-dessus le select, qui garde les noms complets dans sa liste. */}
+        <div className="lang-wrap" data-code={locale.toUpperCase()}>
         <select
           className="lang-switcher"
           value={locale}
@@ -3077,6 +3081,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
+        </div>
         <ul className="nav-list">
           {NAV_ITEMS.filter((item) => (item.slug !== 'team' || userRole === 'patron')).map((item) => (
             <Link
