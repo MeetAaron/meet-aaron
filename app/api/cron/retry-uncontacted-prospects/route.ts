@@ -24,7 +24,7 @@
 // c'est ce que ce cron vérifie désormais.
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { generateAaronResponse } from '@/lib/aaron';
+import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
@@ -150,6 +150,7 @@ export async function GET(request: NextRequest) {
           personality_type: aaronOutput.personality_type,
           personality_notes: aaronOutput.personality_notes,
           aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
