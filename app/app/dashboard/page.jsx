@@ -2379,15 +2379,16 @@ function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
           n'étaient JAMAIS stylés — le + s'affichait nu, collé à gauche, et
           le bouton d'appel n'était qu'un texte. */}
       {ctaHref && (
-        <a href={ctaHref} className="empty-plus" aria-label={ctaLabel}>
+        <a href={ctaHref} className="empty-plus" aria-label={ctaLabel} title={ctaLabel}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </a>
       )}
       <p className="empty-title">{title}</p>
       <p className="empty-body">{body}</p>
-      {ctaHref && (
-        <a href={ctaHref} className="empty-cta">{ctaLabel}</a>
-      )}
+      {/* Plus de bouton texte sous le « + » (Alex, 05/09/2026 : « supprime
+          "ajouter un rdv" et "lancer une campagne" puisqu'on a le + ») : le
+          rond est l'action, son libellé reste en info-bulle et pour les
+          lecteurs d'écran. */}
       <style jsx>{`
         .empty {
           display: flex;
