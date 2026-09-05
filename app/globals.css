@@ -14,8 +14,14 @@ html, body {
      et le dernier onglet "Supprimer mon compte" inatteignable). Ce
      overflow-x: hidden empêche n'importe quel élément de faire déborder la
      page entière ; chaque rangée qui doit rester scrollable (ex. .tabs)
-     gère son propre overflow-x: auto en interne, contenu dans sa largeur.*/
-  overflow-x: hidden;
+     gère son propre overflow-x: auto en interne, contenu dans sa largeur.
+     05/09/2026 : `clip` et non `hidden`. Avec overflow-x: hidden, le body
+     devient lui-même un conteneur de défilement, et tout `position: sticky`
+     à l'intérieur (le rail de rubriques, le bandeau de notifications) se
+     réfère alors au body — qui ne défile pas — au lieu de la fenêtre : le
+     rail « ne descendait pas avec nous » (capture Alex, Mon compte). `clip`
+     rogne exactement pareil mais ne crée pas de conteneur de défilement. */
+  overflow-x: clip;
   /* L'app est presque entièrement en thème sombre (voir les variables --bg
      etc. dans chaque page), mais sans cette déclaration, certains
      navigateurs (thème sombre automatique de Chrome/Android en particulier)
@@ -128,7 +134,9 @@ html[data-theme='light'] .shell > .sidebar {
     padding: calc(60px + env(safe-area-inset-top, 0px)) 1rem calc(84px + env(safe-area-inset-bottom, 0px)) !important;
     max-width: 100vw;
     box-sizing: border-box;
-    overflow-x: hidden;
+    /* clip, pas hidden : sinon le bandeau de notifications sticky (ci-
+       dessous) se caserait sur ce main au lieu de la fenêtre. */
+    overflow-x: clip;
   }
 
   /* L'ancien bouton hamburger flottant (se superposait aux titres). */
@@ -489,6 +497,12 @@ html[data-theme='light'] .shell > .sidebar {
     height: 100vh;
     box-sizing: border-box;
     overflow: visible;
+    /* Le rail est dessiné avant le contenu dans le DOM : sans z-index, un
+       bloc positionné du contenu (la colonne sticky de Mon compte, un
+       panneau) passait PAR-DESSUS l'info-bulle du rail, qui apparaissait
+       rognée (capture Alex 05/09). 70 : au-dessus du contenu (fab 60,
+       bandeau 65), sous les fenêtres modales (100+). */
+    z-index: 70;
   }
   .sidebar .brand {
     justify-content: center !important;
@@ -591,6 +605,63 @@ html[data-theme='light'] .shell > .sidebar {
   .shell > main.content {
     padding: 2.2rem 2.6rem !important;
   }
+}
+
+/* =====================================================================
+   BANDEAU DE NOTIFICATIONS COLLANT (docx « derniers ajouts », 05/09/2026 :
+   « sur PC ET téléphone, qu'on monte ou qu'on descende, il faut les
+   notifications en haut — s'il n'y en a pas tu n'affiches pas — et ce sur
+   TOUTES les rubriques »).
+
+   Le bandeau (.stories, rendu par le Shell de chaque page en tête de
+   main.content, voir components/Stories.jsx) reste accroché en haut de la
+   fenêtre quand on défile. Il déborde sur les marges du main (marges
+   négatives + padding équivalent) pour que le contenu qui passe dessous soit
+   entièrement masqué par son fond. S'il n'y a rien à traiter, Stories rend
+   null : rien n'est collé, aucune hauteur perdue.
+   ===================================================================== */
+.shell > main.content > .stories {
+  position: sticky;
+  top: 0;
+  z-index: 65;
+  background: var(--bg);
+  margin-left: -2.6rem !important;
+  margin-right: -2.6rem !important;
+  padding-left: 2.6rem !important;
+  padding-right: 2.6rem !important;
+  padding-top: 0.6rem !important;
+  box-shadow: 0 10px 14px -12px rgba(0, 0, 0, 0.6);
+}
+@media (max-width: 900px) {
+  .shell > main.content > .stories {
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    margin-left: -1rem !important;
+    margin-right: -1rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}
+
+/* =====================================================================
+   « CHANGEMENT ENREGISTRÉ » (components/SavedFlash.jsx, 05/09/2026) : le
+   même message vert, au même endroit (sous le réglage), sur toute l'app.
+   ===================================================================== */
+.saved-flash {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-green, #3dd68c);
+  animation: saved-flash-in 0.18s ease;
+}
+@keyframes saved-flash-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .saved-flash { animation: none; }
 }
 
 /* =====================================================================
