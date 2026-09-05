@@ -38,6 +38,9 @@ interface AaronOutput {
   // que deal_approved ci-dessus — voir lib/aaron_system_prompt.md pour la
   // définition complète, et app/api/cron/check-inbox pour leur exploitation.
   negotiation_confidence: { score: number; reason: string | null } | null;
+  // Toujours présent (04/09/2026) : probabilité de franchir la prochaine
+  // étape, affichée sur la fiche et dans la liste (conviction_score).
+  next_step_confidence?: { score: number; reason: string | null } | null;
   opportunity_signal: { detected: boolean; reason: string | null } | null;
 }
 
@@ -258,7 +261,28 @@ function fillTemplateTokens(
     .replace(/\{lien\}/gi, (publicLink || '').trim());
 }
 
-export async function generateAaronResponse(prospectId: string): Promise<AaronOutput> {
+// options.model (04/09/2026, décision Alex : « les relances simples sur
+// Haiku : ok ») — les relances après silence sont le poste d'appels le plus
+// nombreux et le moins exigeant : pas de réponse à interpréter, un message
+// court à écrire. Haiku 4.5 y suffit, 3 à 5 fois moins cher. Le premier
+// contact et toute réponse à un prospect qui a écrit restent sur Sonnet.
+export type AaronModel = 'claude-sonnet-4-6' | 'claude-haiku-4-5';
+
+// Colonnes à écrire sur le prospect à partir de next_step_confidence — à
+// étaler (`...convictionColumns(out)`) dans chaque update qui persiste une
+// sortie d'Aaron. Rien n'est écrit si le modèle n'a pas renseigné le score,
+// pour ne jamais écraser une valeur existante par du vide.
+export function convictionColumns(out: AaronOutput): Record<string, any> {
+  const c = out?.next_step_confidence;
+  if (!c || typeof c.score !== 'number' || !Number.isFinite(c.score)) return {};
+  return {
+    conviction_score: Math.max(0, Math.min(100, Math.round(c.score))),
+    conviction_reason: c.reason || null,
+    conviction_updated_at: new Date().toISOString(),
+  };
+}
+
+export async function generateAaronResponse(prospectId: string, options?: { model?: AaronModel }): Promise<AaronOutput> {
   const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, _assignedUserId: assignedUserId, ...context } = await buildContext(prospectId);
 
   // Email de premier contact par défaut (demande Alex, 2026-08-26) : si
@@ -292,6 +316,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
       deal_approved: null,
       negotiation_confidence: null,
       opportunity_signal: null,
+      next_step_confidence: null,
     };
   }
 
@@ -310,7 +335,7 @@ export async function generateAaronResponse(prospectId: string): Promise<AaronOu
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: options?.model || 'claude-sonnet-4-6',
       max_tokens: 2000,
       // Prompt caching : ce system prompt est identique à chaque appel (un par
       // prospect, à chaque cycle de prospection) — le mettre en cache réduit

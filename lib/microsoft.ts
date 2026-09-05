@@ -210,7 +210,7 @@ export async function sendOutlookEmail(
   to: string,
   subject: string,
   body: string,
-  opts?: { html?: boolean; attachment?: { filename: string; contentBase64: string; mimeType: string } }
+  opts?: { html?: boolean; attachment?: { filename: string; contentBase64: string; mimeType: string }; skipAaronLabel?: boolean }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -279,7 +279,11 @@ export async function sendOutlookEmail(
   // Doit aussi rester AVANT le déplacement éventuel dans le dossier « Géré
   // par Aaron » (voir sendEmailForUser) : le libellé doit être posé sur
   // CHAQUE email, rangé ou non (demande Alex, 01/09/2026).
-  await applyAaronCategory(userId, draft.id);
+  // Voir skipAaronLabel dans lib/google.ts : pas de catégorie sur les emails
+  // destinés au commercial lui-même (rapports, alertes).
+  if (!opts?.skipAaronLabel) {
+    await applyAaronCategory(userId, draft.id);
+  }
 
   // On garde { sent: true } pour rester compatible avec l'appelant existant
   // (sendEmailForUser dans lib/messaging.ts n'utilisait jusqu'ici que ce

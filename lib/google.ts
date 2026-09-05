@@ -192,7 +192,7 @@ export async function sendGmailEmail(
   to: string,
   subject: string,
   body: string,
-  opts?: { html?: boolean; textAlternative?: string; attachment?: EmailAttachment }
+  opts?: { html?: boolean; textAlternative?: string; attachment?: EmailAttachment; skipAaronLabel?: boolean }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -295,7 +295,13 @@ export async function sendGmailEmail(
   // applyAaronLabel (lister/créer le label, puis poser le label sur le fil)
   // aient eu le temps de se terminer — l'étiquette ne se pose alors jamais,
   // sans la moindre erreur visible nulle part.
-  await applyAaronLabel(userId, sent.threadId);
+  // skipAaronLabel (Alex, 04/09/2026) : les emails qu'Aaron envoie AU
+  // COMMERCIAL LUI-MÊME (rapports du jour/semaine/mois, alertes) ne sont pas
+  // des fils de prospection — le libellé « 🤖 Géré par Aaron » n'y a aucun
+  // sens, et il poussait à archiver le rapport sans le lire.
+  if (!opts?.skipAaronLabel) {
+    await applyAaronLabel(userId, sent.threadId);
+  }
 
   return sent;
 }

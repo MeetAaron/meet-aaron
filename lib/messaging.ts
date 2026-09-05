@@ -283,17 +283,30 @@ export async function sendEmailForUser(
   // n'est pas passée — sinon plus AUCUN email ne partirait.
   let userRes: any = await supabaseAdmin
     .from('users')
-    .select('email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads')
+    .select('email, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads')
     .eq('id', userId)
     .maybeSingle();
   if (userRes.error && userRes.error.code === '42703') {
     userRes = await supabaseAdmin
       .from('users')
-      .select('email_signature, email_signature_image_url, email_banner_image_url')
+      .select('email, email_signature, email_signature_image_url, email_banner_image_url')
       .eq('id', userId)
       .maybeSingle();
   }
   const user: any = userRes.data;
+
+  // Email qu'Aaron envoie AU COMMERCIAL LUI-MÊME (rapports jour/semaine/mois,
+  // alertes) : ni libellé « Géré par Aaron », ni rangement hors de la boîte de
+  // réception (Alex, 04/09/2026 : « ça n'a aucun sens, et ça pousse à
+  // l'archiver sans le lire »). On compare l'adresse du destinataire à celle
+  // du compte ET à celle de la boîte connectée (elles peuvent différer).
+  const connectedEmails = new Set(
+    (await supabaseAdmin.from('oauth_connections').select('provider_account_email').eq('user_id', userId)).data
+      ?.map((c: any) => String(c.provider_account_email || '').toLowerCase())
+      .filter(Boolean) || []
+  );
+  const toLower = String(to || '').toLowerCase().trim();
+  const toSelf = emailType === 'transactional' && (toLower === String(user?.email || '').toLowerCase() || connectedEmails.has(toLower));
 
   // Corps texte de référence (signature texte incluse) : sert de partie
   // text/plain du multipart/alternative. La version HTML est construite à
@@ -322,9 +335,9 @@ export async function sendEmailForUser(
 
   let result;
   if (providers.has('google')) {
-    result = await sendGmailEmail(userId, to, subject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment });
+    result = await sendGmailEmail(userId, to, subject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment, skipAaronLabel: toSelf });
   } else if (providers.has('microsoft')) {
-    result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment });
+    result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment, skipAaronLabel: toSelf });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }
@@ -339,7 +352,7 @@ export async function sendEmailForUser(
   // dans « Éléments envoyés » ; on le déplace donc explicitement dans le
   // dossier « 🤖 Géré par Aaron » pour que le commercial retrouve TOUT
   // l'échange au même endroit, ses propres envois compris.
-  if (user?.aaron_archive_threads !== false && providers.has('microsoft') && !providers.has('google')) {
+  if (!toSelf && user?.aaron_archive_threads !== false && providers.has('microsoft') && !providers.has('google')) {
     await archiveOutlookMessage(userId, (result as any)?.id);
   }
 
