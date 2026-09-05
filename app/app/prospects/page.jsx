@@ -15,7 +15,7 @@ import ActionMenu from '@/components/ActionMenu';
 import ConfidenceRing from '@/components/ConfidenceRing';
 import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
-import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder } from '@/lib/pipeline';
+import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder, baselineConfidence } from '@/lib/pipeline';
 import PipelineIcon from '@/components/PipelineIcon';
 import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
@@ -576,7 +576,8 @@ export default function ProspectsPage() {
               const next = nextStepFor(row);
               const origin = originLabel(p);
               const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
-              const conviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+              const aaronConviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+              const conviction = aaronConviction ?? baselineConfidence(position);
               const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
               // <div role="button"> et non <button> : ProgressLine dessine ses
               // six pastilles avec de vrais <button>, et un bouton dans un
@@ -636,7 +637,7 @@ export default function ProspectsPage() {
                       </span>
                       {conviction != null && (
                         <span className="mcard-score">
-                          <ConfidenceRing score={conviction} size={30} title={`${t('card.convictionTitle', locale)} — ${p.conviction_reason || p.negotiation_confidence_reason || ''}`} />
+                          <ConfidenceRing score={conviction} size={30} title={aaronConviction == null ? t('card.convictionEstimate', locale) : `${t('card.convictionTitle', locale)} — ${p.conviction_reason || p.negotiation_confidence_reason || ''}`} />
                         </span>
                       )}
                     </div>
