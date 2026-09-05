@@ -2465,259 +2465,267 @@ export default function ConnexionsPage() {
           <p className="muted">{t('common.loading', locale)}</p>
         ) : (
           <div className="preferences-panel">
-            {/* Thème déplacé ici depuis Mon profil, au-dessus du canal de
-                notification (demande Alex 2026-08-25). */}
+            {/* Refonte visuelle (docx « derniers ajouts », 05/09/2026 : « pas
+                aussi beau que les autres pages : modernité, punch »). Chaque
+                réglage = une icône, un titre, une phrase d'aide AVANT le
+                contrôle (on comprend avant de cliquer), puis le contrôle :
+                pilule segmentée pour un choix binaire, chips pour une liste,
+                champ avec unité pour un nombre. Le bouton Enregistrer reste
+                contextuel (SaveBar), sous le réglage modifié. */}
             <section className="pref-group">
               <h2 className="pref-group-label">{t('preferences.groupDisplay', locale)}</h2>
               <div className="pref-card">
-            <div className="field">
-              <label>{t('connexions.themeLabel', locale)}</label>
-              <div className="theme-toggle">
-                <button type="button" className={theme === 'dark' ? 'theme-btn active' : 'theme-btn'} onClick={() => changeTheme('dark')}>
-                  {t('connexions.themeDark', locale)}
-                </button>
-                <button type="button" className={theme === 'light' ? 'theme-btn active' : 'theme-btn'} onClick={() => changeTheme('light')}>
-                  {t('connexions.themeLight', locale)}
-                </button>
-              </div>
-            </div>
+                <div className="field">
+                  <span className="field-ic"><Ic name="monitor" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('connexions.themeLabel', locale)}</label>
+                    <div className="seg">
+                      <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => changeTheme('dark')}>
+                        {t('connexions.themeDark', locale)}
+                      </button>
+                      <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => changeTheme('light')}>
+                        {t('connexions.themeLight', locale)}
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-            {/* docx Modifs Aaron 30/08/2026 : le choix du canal et l'activation
-                des notifications push vivent désormais dans la checklist
-                « Mise en route » de l'onglet Connexion (une ligne par
-                appareil + case email) — on laisse juste un renvoi ici. */}
-            <div className="field">
-              <label>{t('preferences.notifyChannelLabel', locale)}</label>
-              <p className="notify-moved">
-                {t('preferences.notifyMovedHint', locale)}{' '}
-                <button type="button" className="link-btn" onClick={() => setActiveTab('connection')}>
-                  {t('preferences.notifyMovedLink', locale)} →
-                </button>
-              </p>
-            </div>
+                {/* docx Modifs Aaron 30/08/2026 : le choix du canal et
+                    l'activation des notifications push vivent dans la
+                    checklist « Mise en route » de l'onglet Connexion — on
+                    laisse juste un renvoi ici. */}
+                <div className="field">
+                  <span className="field-ic"><Ic name="smartphone" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.notifyChannelLabel', locale)}</label>
+                    <p className="field-hint">
+                      {t('preferences.notifyMovedHint', locale)}{' '}
+                      <button type="button" className="link-btn" onClick={() => setActiveTab('connection')}>
+                        {t('preferences.notifyMovedLink', locale)} <Ic name="arrowRight" size={12} />
+                      </button>
+                    </p>
+                  </div>
+                </div>
 
-            <div className="field">
-              <label>{t('preferences.notifyDelayLabel', locale)}</label>
-              <div className="options">
-                {DELAY_OPTIONS.map((minutes) => (
-                  <button
-                    key={minutes}
-                    className={prefs.notify_before_appointment_minutes === minutes ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
-                  >
-                    {minutes} {t('preferences.minutesUnit', locale)}
-                  </button>
-                ))}
-              </div>
-              <SaveBar keys={['notify_before_appointment_minutes']} />
-            </div>
+                <div className="field">
+                  <span className="field-ic"><Ic name="clock" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.notifyDelayLabel', locale)}</label>
+                    <div className="seg">
+                      {DELAY_OPTIONS.map((minutes) => (
+                        <button
+                          key={minutes}
+                          type="button"
+                          className={prefs.notify_before_appointment_minutes === minutes ? 'active' : ''}
+                          onClick={() => setPrefs({ ...prefs, notify_before_appointment_minutes: minutes })}
+                        >
+                          {minutes} {t('preferences.minutesUnit', locale)}
+                        </button>
+                      ))}
+                    </div>
+                    <SaveBar keys={['notify_before_appointment_minutes']} />
+                  </div>
+                </div>
               </div>
             </section>
 
             <section className="pref-group">
               <h2 className="pref-group-label">{t('preferences.groupHowAaronWorks', locale)}</h2>
               <div className="pref-card">
-            <div className="field">
-              <label>{t('preferences.firstEmailLabel', locale)}</label>
-              <div className="options">
-                {FIRST_EMAIL_OPTIONS.map((opt) => (
-                  <button
-                    key={String(opt.value)}
-                    className={prefs.require_first_email_approval === opt.value ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <p className="collab-extra-hint">
-                {t('preferences.firstEmailHint', locale)}
-              </p>
-              <SaveBar keys={['require_first_email_approval']} />
-            </div>
-
-            {/* « Aaron range les fils qu'il gère » (décision Alex,
-                01/09/2026, suite à la question des commerciaux : « doit-on
-                supprimer les emails traités par Aaron ? »). Activée par
-                défaut. Le texte d'aide dit d'abord l'interdit (ne jamais
-                SUPPRIMER — Aaron perdrait le fil), puis propose l'archivage
-                comme la réponse au besoin réel : une boîte propre. */}
-            <div className="field">
-              <label>{t('preferences.archiveThreadsLabel', locale)}</label>
-              <div className="options">
-                {[true, false].map((value) => (
-                  <button
-                    key={String(value)}
-                    type="button"
-                    className={(prefs.aaron_archive_threads !== false) === value ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, aaron_archive_threads: value })}
-                  >
-                    {value ? t('common.yes', locale) : t('common.no', locale)}
-                  </button>
-                ))}
-              </div>
-              <p className="collab-extra-hint">{t('preferences.archiveThreadsHint', locale)}</p>
-              <SaveBar keys={['aaron_archive_threads']} />
-            </div>
-
-            <div className="field">
-              <label>{t('preferences.dailyCapLabel', locale)}</label>
-              <input
-                type="number"
-                min={1}
-                max={2000}
-                className="cap-input"
-                value={prefs.daily_prospecting_email_cap}
-                onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
-              />
-              <p className="collab-extra-hint">
-                {t('preferences.dailyCapHint', locale)}
-              </p>
-              <SaveBar keys={['daily_prospecting_email_cap']} />
-            </div>
-
-            <div className="field">
-              <label>{t('preferences.prospectingGoalLabel', locale)}</label>
-              <div className="options">
-                {PROSPECTING_GOAL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={prefs.prospecting_goal === opt.value ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, prospecting_goal: opt.value })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              {prefs.prospecting_goal === 'autre' && (
-                <input
-                  type="text"
-                  className="cap-input"
-                  placeholder={t('preferences.prospectingGoalDetailsPlaceholder', locale)}
-                  value={prefs.prospecting_goal_details}
-                  onChange={(e) => setPrefs({ ...prefs, prospecting_goal_details: e.target.value })}
-                />
-              )}
-              <p className="collab-extra-hint">
-                {t('preferences.prospectingGoalHint', locale)}
-              </p>
-              <SaveBar keys={['prospecting_goal', 'prospecting_goal_details']} />
-            </div>
-
-            <div className="field">
-              <label>{t('preferences.defaultFirstEmailLabel', locale)}</label>
-              <div className="options">
-                {DEFAULT_FIRST_EMAIL_OPTIONS.map((opt) => (
-                  <button
-                    key={String(opt.value)}
-                    className={prefs.default_first_email_enabled === opt.value ? 'option active' : 'option'}
-                    onClick={() => setPrefs({ ...prefs, default_first_email_enabled: opt.value })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              {prefs.default_first_email_enabled && (
-                <div className="default-email-fields">
-                  <div className="token-toolbar">
-                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelSubject', locale)}</span>
-                    <button
-                      type="button"
-                      className="token-btn"
-                      onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{prenom}')}
-                    >
-                      {t('preferences.defaultFirstEmailInsertPrenom', locale)}
-                    </button>
-                    <button
-                      type="button"
-                      className="token-btn"
-                      onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{societe}')}
-                    >
-                      {t('preferences.defaultFirstEmailInsertSociete', locale)}
-                    </button>
+                <div className="field">
+                  <span className="field-ic"><Ic name="mail" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.firstEmailLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.firstEmailHint', locale)}</p>
+                    <div className="seg">
+                      {FIRST_EMAIL_OPTIONS.map((opt) => (
+                        <button
+                          key={String(opt.value)}
+                          type="button"
+                          className={prefs.require_first_email_approval === opt.value ? 'active' : ''}
+                          onClick={() => setPrefs({ ...prefs, require_first_email_approval: opt.value })}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <SaveBar keys={['require_first_email_approval']} />
                   </div>
-                  <input
-                    ref={defaultEmailSubjectRef}
-                    type="text"
-                    className="cap-input"
-                    placeholder={t('preferences.defaultFirstEmailSubjectPlaceholder', locale)}
-                    value={prefs.default_first_email_subject}
-                    onChange={(e) => setPrefs({ ...prefs, default_first_email_subject: e.target.value })}
-                  />
-                  <div className="token-toolbar">
-                    <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelBody', locale)}</span>
-                    <button
-                      type="button"
-                      className="token-btn"
-                      onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{prenom}')}
-                    >
-                      {t('preferences.defaultFirstEmailInsertPrenom', locale)}
-                    </button>
-                    <button
-                      type="button"
-                      className="token-btn"
-                      onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{societe}')}
-                    >
-                      {t('preferences.defaultFirstEmailInsertSociete', locale)}
-                    </button>
-                    {prefs.public_link_url && (
-                      <button
-                        type="button"
-                        className="token-btn"
-                        onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{lien}')}
-                      >
-                        {t('preferences.defaultFirstEmailInsertLien', locale)}
-                      </button>
-                    )}
-                  </div>
-                  <textarea
-                    ref={defaultEmailBodyRef}
-                    rows={8}
-                    placeholder={t('preferences.defaultFirstEmailBodyPlaceholder', locale)}
-                    value={prefs.default_first_email_body}
-                    onChange={(e) => setPrefs({ ...prefs, default_first_email_body: e.target.value })}
-                  />
                 </div>
-              )}
-              <p className="collab-extra-hint">
-                {t('preferences.defaultFirstEmailHint', locale)}
-              </p>
-              <SaveBar keys={['default_first_email_enabled', 'default_first_email_subject', 'default_first_email_body']} />
-            </div>
+
+                {/* « Aaron range les fils qu'il gère » (décision Alex,
+                    01/09/2026). Activée par défaut. Le texte d'aide dit
+                    d'abord l'interdit (ne jamais SUPPRIMER — Aaron perdrait
+                    le fil), puis propose l'archivage. */}
+                <div className="field">
+                  <span className="field-ic"><Ic name="download" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.archiveThreadsLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.archiveThreadsHint', locale)}</p>
+                    <div className="seg">
+                      {[true, false].map((value) => (
+                        <button
+                          key={String(value)}
+                          type="button"
+                          className={(prefs.aaron_archive_threads !== false) === value ? 'active' : ''}
+                          onClick={() => setPrefs({ ...prefs, aaron_archive_threads: value })}
+                        >
+                          {value ? t('common.yes', locale) : t('common.no', locale)}
+                        </button>
+                      ))}
+                    </div>
+                    <SaveBar keys={['aaron_archive_threads']} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <span className="field-ic"><Ic name="alert" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.dailyCapLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.dailyCapHint', locale)}</p>
+                    <div className="cap-wrap">
+                      <input
+                        type="number"
+                        min={1}
+                        max={2000}
+                        className="cap-input"
+                        value={prefs.daily_prospecting_email_cap}
+                        onChange={(e) => setPrefs({ ...prefs, daily_prospecting_email_cap: e.target.value === '' ? '' : Number(e.target.value) })}
+                      />
+                      <span className="cap-unit">{t('preferences.dailyCapUnit', locale)}</span>
+                    </div>
+                    <SaveBar keys={['daily_prospecting_email_cap']} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <span className="field-ic"><Ic name="target" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.prospectingGoalLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.prospectingGoalHint', locale)}</p>
+                    <div className="options">
+                      {PROSPECTING_GOAL_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          className={`chip${prefs.prospecting_goal === opt.value ? ' active' : ''}`}
+                          onClick={() => setPrefs({ ...prefs, prospecting_goal: opt.value })}
+                        >
+                          {prefs.prospecting_goal === opt.value && <Ic name="check" size={12} strokeWidth={2.8} />}
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {prefs.prospecting_goal === 'autre' && (
+                      <input
+                        type="text"
+                        className="cap-input wide"
+                        placeholder={t('preferences.prospectingGoalDetailsPlaceholder', locale)}
+                        value={prefs.prospecting_goal_details}
+                        onChange={(e) => setPrefs({ ...prefs, prospecting_goal_details: e.target.value })}
+                      />
+                    )}
+                    <SaveBar keys={['prospecting_goal', 'prospecting_goal_details']} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <span className="field-ic"><Ic name="pencil" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.defaultFirstEmailLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.defaultFirstEmailHint', locale)}</p>
+                    <div className="seg">
+                      {DEFAULT_FIRST_EMAIL_OPTIONS.map((opt) => (
+                        <button
+                          key={String(opt.value)}
+                          type="button"
+                          className={prefs.default_first_email_enabled === opt.value ? 'active' : ''}
+                          onClick={() => setPrefs({ ...prefs, default_first_email_enabled: opt.value })}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {prefs.default_first_email_enabled && (
+                      <div className="default-email-fields">
+                        <div className="email-field">
+                          <div className="token-toolbar">
+                            <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelSubject', locale)}</span>
+                            <button type="button" className="token-btn" onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{prenom}')}>
+                              <Ic name="plus" size={11} strokeWidth={2.8} /> {t('preferences.defaultFirstEmailInsertPrenom', locale)}
+                            </button>
+                            <button type="button" className="token-btn" onClick={() => insertDefaultEmailToken(defaultEmailSubjectRef, 'default_first_email_subject', '{societe}')}>
+                              <Ic name="plus" size={11} strokeWidth={2.8} /> {t('preferences.defaultFirstEmailInsertSociete', locale)}
+                            </button>
+                          </div>
+                          <input
+                            ref={defaultEmailSubjectRef}
+                            type="text"
+                            placeholder={t('preferences.defaultFirstEmailSubjectPlaceholder', locale)}
+                            value={prefs.default_first_email_subject}
+                            onChange={(e) => setPrefs({ ...prefs, default_first_email_subject: e.target.value })}
+                          />
+                        </div>
+                        <div className="email-field">
+                          <div className="token-toolbar">
+                            <span className="token-toolbar-label">{t('preferences.defaultFirstEmailTokensLabelBody', locale)}</span>
+                            <button type="button" className="token-btn" onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{prenom}')}>
+                              <Ic name="plus" size={11} strokeWidth={2.8} /> {t('preferences.defaultFirstEmailInsertPrenom', locale)}
+                            </button>
+                            <button type="button" className="token-btn" onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{societe}')}>
+                              <Ic name="plus" size={11} strokeWidth={2.8} /> {t('preferences.defaultFirstEmailInsertSociete', locale)}
+                            </button>
+                            {prefs.public_link_url && (
+                              <button type="button" className="token-btn" onClick={() => insertDefaultEmailToken(defaultEmailBodyRef, 'default_first_email_body', '{lien}')}>
+                                <Ic name="plus" size={11} strokeWidth={2.8} /> {t('preferences.defaultFirstEmailInsertLien', locale)}
+                              </button>
+                            )}
+                          </div>
+                          <textarea
+                            ref={defaultEmailBodyRef}
+                            rows={8}
+                            placeholder={t('preferences.defaultFirstEmailBodyPlaceholder', locale)}
+                            value={prefs.default_first_email_body}
+                            onChange={(e) => setPrefs({ ...prefs, default_first_email_body: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <SaveBar keys={['default_first_email_enabled', 'default_first_email_subject', 'default_first_email_body']} />
+                  </div>
+                </div>
               </div>
             </section>
 
             <section className="pref-group">
               <h2 className="pref-group-label">{t('preferences.groupAdvanced', locale)}</h2>
               <div className="pref-card">
-            <div className="field">
-              <label>{t('preferences.externalConversionWebhookLabel', locale)}</label>
-              {prefs.external_conversion_webhook_secret ? (
-                <div className="webhook-url-row">
-                  <code className="webhook-url">
-                    {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`}
-                  </code>
-                  <button type="button" className="btn-copy" onClick={copyWebhookUrl}>
-                    {webhookCopied ? t('team.copied', locale) : t('team.copy', locale)}
-                  </button>
+                <div className="field">
+                  <span className="field-ic"><Ic name="refresh" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('preferences.externalConversionWebhookLabel', locale)}</label>
+                    <p className="field-hint">{t('preferences.externalConversionWebhookHint', locale)}</p>
+                    {prefs.external_conversion_webhook_secret ? (
+                      <div className="webhook-url-row">
+                        <code className="webhook-url">
+                          {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`}
+                        </code>
+                        <button type="button" className="btn-secondary" onClick={copyWebhookUrl}>
+                          {webhookCopied ? t('team.copied', locale) : t('team.copy', locale)}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="field-hint">{t('preferences.externalConversionWebhookPending', locale)}</p>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                <p className="collab-extra-hint">
-                  {t('preferences.externalConversionWebhookPending', locale)}
-                </p>
-              )}
-              <p className="collab-extra-hint">
-                {t('preferences.externalConversionWebhookHint', locale)}
-              </p>
-            </div>
               </div>
             </section>
 
             {/* Plus de bouton « Enregistrer » global en bas de page (Alex,
-                04/09/2026 : « je n'aime pas le enregistrer tout en bas ») :
-                chaque réglage modifié porte le sien, juste en dessous. */}
+                04/09/2026) : chaque réglage modifié porte le sien. */}
 
-            {/* Liens legaux (01/09/2026). Balises <a> natives et non <Link> :
+            {/* Liens légaux (01/09/2026). Balises <a> natives et non <Link> :
                 styled-jsx n'applique pas la classe de scope au className d'un
                 <Link>, le style serait perdu. */}
             <div className="legal-links">
@@ -3117,6 +3125,10 @@ export default function ConnexionsPage() {
           margin-bottom: 0.7rem;
           font-family: inherit;
           resize: vertical;
+          min-height: 150px;
+        }
+        .default-email-fields input {
+          min-height: 0;
         }
         .collab-panel {
           background: var(--surface);
@@ -3405,8 +3417,8 @@ export default function ConnexionsPage() {
         .default-email-fields {
           display: flex;
           flex-direction: column;
-          gap: 0.6rem;
-          margin-top: 0.6rem;
+          gap: 0.9rem;
+          margin-top: 0.9rem;
         }
         .default-email-fields input,
         .default-email-fields textarea {
@@ -3439,17 +3451,22 @@ export default function ConnexionsPage() {
           margin-right: 0.2rem;
         }
         .token-btn {
-          background: var(--surface);
-          border: 1px dashed var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0.25rem 0.55rem;
-          font-size: 0.78rem;
-          font-family: var(--font-mono);
-          color: var(--accent);
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          background: rgba(75, 57, 239, 0.12);
+          border: 0;
+          border-radius: 6px;
+          padding: 0.22rem 0.55rem;
+          font-size: 0.74rem;
+          font-family: inherit;
+          font-weight: 600;
+          color: var(--accent-light);
           cursor: pointer;
+          transition: background var(--fast);
         }
         .token-btn:hover {
-          background: rgba(59, 130, 246, 0.08);
+          background: rgba(75, 57, 239, 0.24);
         }
 
         .webhook-url-row {
@@ -3738,7 +3755,7 @@ export default function ConnexionsPage() {
           display: flex;
           flex-direction: column;
           gap: 1.5rem;
-          max-width: 640px;
+          max-width: 680px;
         }
         .pref-group {
           display: flex;
@@ -3758,14 +3775,114 @@ export default function ConnexionsPage() {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
-          padding: 1.3rem 1.3rem 0;
+          padding: 0.4rem 0;
         }
-        /* Un trait entre deux réglages : la carte dit « même sujet », le
-           trait dit « autre réglage ». Sans lui, cinq réglages d'affilée
-           redeviennent le mur de texte qu'on vient d'enlever. */
+        /* Un réglage = icône + titre + aide + contrôle (05/09/2026). Le trait
+           entre deux réglages dit « autre réglage », la carte dit « même
+           sujet ». */
         .pref-card .field {
-          margin-bottom: 0;
-          padding: 0 0 1.3rem;
+          display: grid;
+          grid-template-columns: 40px minmax(0, 1fr);
+          gap: 0 0.95rem;
+          margin: 0;
+          padding: 1.1rem 1.3rem;
+        }
+        .pref-card .field + .field {
+          border-top: 1px solid var(--border);
+        }
+        .field-ic {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(75, 57, 239, 0.14);
+          color: var(--accent-light);
+          margin-top: 1px;
+        }
+        .field-body {
+          min-width: 0;
+        }
+        .pref-card .field label {
+          display: block;
+          font-size: 0.95rem;
+          font-weight: 600;
+          margin: 0 0 0.2rem;
+          line-height: 1.35;
+        }
+        .field-hint {
+          margin: 0 0 0.8rem;
+          color: var(--muted);
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+        .field-hint .link-btn {
+          background: none;
+          border: 0;
+          padding: 0;
+          color: var(--accent-light);
+          font: inherit;
+          cursor: pointer;
+          text-decoration: underline;
+        }
+        /* Pilule segmentée : un seul choix parmi 2–3, comme les filtres des
+           contacts. */
+        .seg {
+          display: inline-flex;
+          flex-wrap: wrap;
+          gap: 2px;
+          padding: 3px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          max-width: 100%;
+        }
+        .seg button {
+          border: 0;
+          background: transparent;
+          color: var(--muted);
+          font-family: inherit;
+          font-size: 0.84rem;
+          font-weight: 500;
+          padding: 0.45rem 0.95rem;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: background var(--fast), color var(--fast);
+          white-space: nowrap;
+        }
+        .seg button:hover {
+          color: var(--text);
+        }
+        .seg button.active {
+          background: rgba(75, 57, 239, 0.22);
+          color: var(--text);
+          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.5);
+          font-weight: 600;
+        }
+        .options {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+        .cap-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.6rem;
+        }
+        .cap-unit {
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+        .cap-input.wide {
+          max-width: 100%;
+          width: 100%;
+          margin-top: 0.7rem;
+        }
+        .email-field {
+          display: flex;
+          flex-direction: column;
+          gap: 0.45rem;
         }
         .save-bar {
           display: flex;
@@ -3780,10 +3897,18 @@ export default function ConnexionsPage() {
           font-size: 0.82rem;
           font-weight: 600;
           color: var(--accent-green);
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
         }
-        .pref-card .field + .field {
-          border-top: 1px solid var(--border);
-          padding-top: 1.3rem;
+        @media (max-width: 560px) {
+          .pref-card .field {
+            grid-template-columns: 1fr;
+            padding: 1rem 1rem;
+          }
+          .field-ic {
+            display: none;
+          }
         }
         .renewal-date {
           font-size: 0.84rem;
