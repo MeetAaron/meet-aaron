@@ -10,6 +10,7 @@ import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAa
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
 import { generateDevis } from '@/lib/aaron-sales';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
@@ -52,7 +53,7 @@ function extractGmailBody(payload: any): string {
 // intégralement téléchargé — newsletters, notifications, spam compris — pour
 // être jeté juste après faute de correspondance. Voir
 // fetchNewMessagesForConnection et la boucle principale plus bas.
-type NormalizedMessage = { id: string; fromEmail: string; bodyText: string | null; threadId?: string };
+type NormalizedMessage = { id: string; fromEmail: string; bodyText: string | null; threadId?: string; subject?: string | null; headers?: InboundHeaders };
 
 // Rattrapage automatique après coupure/reconnexion (demande Alex, 27/08/2026,
 // suite à l'audit du comportement déco/reco avec Ludovic) : avant, la fenêtre
@@ -103,9 +104,24 @@ async function fetchNewMessagesForConnection(connection: {
       // téléchargé plus tard, uniquement si l'expéditeur est un contact géré.
       const meta = await getGmailMessageMetadata(connection.user_id, msg.id);
       const headers = meta?.payload?.headers || [];
-      const fromHeader = headers.find((h: any) => h.name === 'From')?.value || '';
+      const h = (name: string) => headers.find((x: any) => String(x.name).toLowerCase() === name.toLowerCase())?.value || null;
+      const fromHeader = h('From') || '';
       const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
-      detailed.push({ id: msg.id, fromEmail, bodyText: null, threadId: meta?.threadId });
+      detailed.push({
+        id: msg.id,
+        fromEmail,
+        bodyText: null,
+        threadId: meta?.threadId,
+        subject: h('Subject'),
+        headers: {
+          subject: h('Subject'),
+          autoSubmitted: h('Auto-Submitted'),
+          precedence: h('Precedence'),
+          xAutoreply: h('X-Autoreply'),
+          xAutoResponseSuppress: h('X-Auto-Response-Suppress'),
+          returnPath: h('Return-Path'),
+        },
+      });
     }
     return detailed;
   }
@@ -456,6 +472,17 @@ export async function GET(request: NextRequest) {
           } else {
             const full = await getOutlookMessage(connection.user_id, msg.id);
             bodyText = full.body?.content || '';
+            msg.subject = full.subject || null;
+            const ih: any[] = full.internetMessageHeaders || [];
+            const h = (name: string) => ih.find((x: any) => String(x.name).toLowerCase() === name.toLowerCase())?.value || null;
+            msg.headers = {
+              subject: full.subject || null,
+              autoSubmitted: h('Auto-Submitted'),
+              precedence: h('Precedence'),
+              xAutoreply: h('X-Autoreply'),
+              xAutoResponseSuppress: h('X-Auto-Response-Suppress'),
+              returnPath: h('Return-Path'),
+            };
           }
         } catch (err: any) {
           console.error(`Erreur lecture du corps du message ${msg.id}:`, err.message);
@@ -526,6 +553,23 @@ export async function GET(request: NextRequest) {
         body: bodyText,
         provider_message_id: msg.id,
       });
+
+      // Pré-filtre (05/09/2026, voir lib/inbound-triage.ts) : en-têtes, puis
+      // corps, puis Haiku. Une absence ou un rebond ne mérite pas un appel
+      // Sonnet à 0,04 $ — le message est déjà dans l'historique (ci-dessus),
+      // Aaron le verra dans le fil à son prochain vrai échange.
+      const triage = await triageInbound({
+        fromEmail,
+        subject: msg.subject,
+        bodyText: bodyText || '',
+        headers: msg.headers,
+        companyId: prospect.company_id || null,
+        userId: connection.user_id,
+      });
+      if (!triage.needsAaron) {
+        results.push({ prospect_id: prospect.id, skipped: triage.category, triage_source: triage.source, confidence: triage.confidence });
+        continue;
+      }
 
       const aaronOutput = await generateAaronResponse(prospect.id);
 
