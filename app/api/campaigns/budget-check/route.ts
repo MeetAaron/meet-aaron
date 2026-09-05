@@ -46,8 +46,11 @@ export async function GET(request: NextRequest) {
 
   const perUserCap = Number((companyRow as any)?.monthly_api_cap_usd) || DEFAULT_PER_USER_CAP_USD;
   const subscriptionCap = perUserCap * Math.max(1, userCount || 1);
-  const boostCap = boosts.reduce((n, b) => n + Number(b.cap_usd || 0), 0);
   const spent = Number((usageRow as any)?.cost_usd) || 0;
+  // Reste des boosts + part déjà consommée ce mois-ci (voir
+  // app/api/api-usage/route.ts pour la même règle).
+  const boostRemaining = boosts.reduce((n, b) => n + Number(b.remaining_usd || 0), 0);
+  const boostCap = boostRemaining + Math.max(0, spent - subscriptionCap);
 
   const check = checkCampaignBudget(targetCount, subscriptionCap + boostCap, spent);
 
