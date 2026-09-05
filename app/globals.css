@@ -520,6 +520,42 @@ html[data-theme='light'] .shell > .sidebar {
     text-align-last: center;
     margin-bottom: 0.9rem !important;
   }
+  /* Le nom complet de la langue (« Français ») ne tient pas dans le rail :
+     on affiche le code (FR) par-dessus un select rendu invisible mais
+     toujours cliquable — sa liste déroulante garde les noms complets. */
+  .sidebar .lang-wrap {
+    position: relative;
+    margin-bottom: 0.9rem;
+  }
+  .sidebar .lang-wrap::before {
+    content: attr(data-code);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    height: 30px;
+    border-radius: 999px;
+    background: var(--tint-4);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .sidebar .lang-wrap:hover::before {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .sidebar .lang-wrap .lang-switcher {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100%;
+    margin: 0 !important;
+    opacity: 0;
+    cursor: pointer;
+  }
   .sidebar .nav-list li {
     justify-content: center !important;
     padding: 0.55rem 0 !important;
