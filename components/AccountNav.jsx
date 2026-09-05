@@ -66,6 +66,47 @@ const ICONS = {
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </>
   ),
+  // Mes résultats v2 (05/09/2026) — même liste, autres rubriques.
+  overview: (
+    <>
+      <path d="M3 3v18h18" />
+      <path d="m19 9-5 5-4-4-3 3" />
+    </>
+  ),
+  progress: (
+    <>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+      <path d="M7 12h3M14 12h3" />
+    </>
+  ),
+  'report-day': (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </>
+  ),
+  'report-week': (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <path d="M16 2v4M8 2v4M3 10h18M17 14h-6M13 18H7" />
+    </>
+  ),
+  'report-month': (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+    </>
+  ),
+  steps: <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />,
+  clients: <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />,
+  compare: (
+    <>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3" />
+      <path d="M8 12h8" />
+    </>
+  ),
 };
 
 function Row({ item, active, onSelect, locale }) {
