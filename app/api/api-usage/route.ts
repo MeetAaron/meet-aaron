@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { listActiveBoosts } from '@/lib/credit-boosts';
+import { USD_PER_CREDIT } from '@/lib/boost-tiers';
 import { getSubscriptionState } from '@/lib/subscription-status';
 import { stripe } from '@/lib/stripe';
 
@@ -91,8 +92,16 @@ export async function GET(request: NextRequest) {
   // l'abonnement et court sur sa propre fenêtre d'un mois.
   const activeBoosts = await listActiveBoosts(user.company_id);
   const subscriptionState = await getSubscriptionState(user.company_id);
-  const boostCredits = activeBoosts.reduce((n, b) => n + (b.credits || 0), 0);
-  const boostCapUsd = activeBoosts.reduce((n, b) => n + Number(b.cap_usd || 0), 0);
+  // 05/09/2026 : un boost ne disparaît plus à sa date de fin, il vit tant
+  // qu'il lui reste du budget (consumed_usd). Ce qui compte pour l'écran :
+  // le RESTE, plus la part déjà consommée ce mois-ci (sinon la jauge
+  // « consommé / disponible » se contredirait — la consommation du mois
+  // inclut déjà cette part).
+  const monthSpendUsd = Number(monthRow?.cost_usd || 0);
+  const boostRemainingUsd = activeBoosts.reduce((n, b) => n + Number(b.remaining_usd || 0), 0);
+  const boostConsumedThisMonthUsd = monthlyCapUsd === null ? 0 : Math.max(0, monthSpendUsd - monthlyCapUsd);
+  const boostCapUsd = boostRemainingUsd + boostConsumedThisMonthUsd;
+  const boostCredits = Math.round((boostRemainingUsd / USD_PER_CREDIT) * 10) / 10;
 
   // Date de renouvellement (demande Alex 2026-08-25, onglet Abonnement) — pas
   // stockée en base, lue en direct depuis Stripe à chaque appel. Best-effort :
