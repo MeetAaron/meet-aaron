@@ -29,6 +29,7 @@ import { PIPELINE_STAGES, PIPELINE_COLORS, CATEGORY_ICONS, LOST_REASONS, deriveP
 import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import ConfidenceRing from '@/components/ConfidenceRing';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
@@ -413,6 +414,9 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
               </p>
               <div className="pills">
                 <span className="pill" style={{ color: catColor, borderColor: catColor }}>{stageLabel}</span>
+                {conviction != null && !position.lost && (
+                  <ConfidenceRing score={conviction} size={30} label={t('card.convictionShort', locale)} title={convictionReason || t('card.convictionTitle', locale)} />
+                )}
                 {position.risk && <span className="pill" style={{ color: PIPELINE_COLORS.risk, borderColor: PIPELINE_COLORS.risk }}>⚠ {t('pipeline.riskLabel', locale)}</span>}
                 {position.wonPendingFirstOrder && <span className="pill" style={{ color: PIPELINE_COLORS.wonPending, borderColor: PIPELINE_COLORS.wonPending }}>{t('prospects.wonPendingLabel', locale)}</span>}
                 {position.lost && position.lostReason && <span className="pill muted-pill">{t(`pipeline.lostReason.${position.lostReason}`, locale)}</span>}
