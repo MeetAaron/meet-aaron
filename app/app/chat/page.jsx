@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 
@@ -1922,7 +1923,7 @@ export default function ChatPage() {
             )}
             <div className={`bubble ${m.role}`}>
               {m.attachment && (
-                <div className="bubble-attachment">📎 {m.attachment.file_name}</div>
+                <div className="bubble-attachment"><Ic name="paperclip" size={13} /> {m.attachment.file_name}</div>
               )}
               {/* Typographie (demande Alex, 29/08/2026, capture à l'appui) :
                   seuls les textes GÉNÉRÉS PAR AARON passent par
@@ -2062,14 +2063,14 @@ export default function ChatPage() {
             {uploadingDocument && <span className="attach-chip attach-loading">{t('chat.attachUploading', locale)}</span>}
             {pendingDocument && !uploadingDocument && !pendingDocumentAlreadyInChat && (
               <span className="attach-chip">
-                📎 {pendingDocument.file_name}
+                <Ic name="paperclip" size={13} /> {pendingDocument.file_name}
                 <button
                   type="button"
                   className="attach-remove"
                   onClick={() => setPendingDocument(null)}
                   aria-label={t('chat.attachRemove', locale)}
                 >
-                  ✕
+                  <Ic name="x" size={12} strokeWidth={2.6} />
                 </button>
               </span>
             )}
@@ -2189,7 +2190,7 @@ export default function ChatPage() {
       <aside className={`conversations-panel${drawerOpen ? ' open' : ''}`}>
         <div className="conversations-head">
           <h2>{t('chat.conversationsTitle', locale)}</h2>
-          <button type="button" className="mg-icon-btn" onClick={() => setDrawerOpen(false)} aria-label={t('common.close', locale)}>✕</button>
+          <button type="button" className="mg-icon-btn" onClick={() => setDrawerOpen(false)} aria-label={t('common.close', locale)}><Ic name="x" size={16} /></button>
         </div>
         <button type="button" className="mg-new-conv" onClick={handleNewConversation} disabled={creatingConversation}>
           + {t('chat.newConversation', locale)}
@@ -2217,7 +2218,7 @@ export default function ChatPage() {
                     title={c.is_favorite ? t('chat.favoriteRemove', locale) : t('chat.favoriteAdd', locale)}
                     aria-label={c.is_favorite ? t('chat.favoriteRemove', locale) : t('chat.favoriteAdd', locale)}
                   >
-                    {c.is_favorite ? '★' : '☆'}
+                    <Ic name="star" size={14} fill={c.is_favorite ? 'currentColor' : 'none'} />
                   </span>
                   <span className="conversation-info">
                     <span className="conversation-title">{c.title || t('chat.conversationUntitled', locale)}</span>
@@ -2927,6 +2928,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -2955,6 +2970,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -3030,7 +3050,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -3054,7 +3074,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
