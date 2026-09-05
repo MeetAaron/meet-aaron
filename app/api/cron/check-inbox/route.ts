@@ -9,7 +9,7 @@ import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
-import { generateAaronResponse } from '@/lib/aaron';
+import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { generateDevis } from '@/lib/aaron-sales';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
@@ -540,6 +540,7 @@ export async function GET(request: NextRequest) {
             personality_type: aaronOutput.personality_type,
             personality_notes: aaronOutput.personality_notes,
             aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
             ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
             rescue_proposal_subject: aaronOutput.rescue_proposal.subject,
             rescue_proposal_body: aaronOutput.rescue_proposal.body,
@@ -616,6 +617,7 @@ export async function GET(request: NextRequest) {
           personality_type: aaronOutput.personality_type,
           personality_notes: aaronOutput.personality_notes,
           aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
