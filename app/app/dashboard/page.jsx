@@ -5,10 +5,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
 import { frenchTypography } from '@/lib/text-typography';
 import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
@@ -730,7 +731,7 @@ export default function DashboardPage() {
           {congratsOpen && (
             <div className="congrats-overlay" role="dialog" aria-modal="true">
               <div className="congrats-card">
-                <div className="congrats-emoji" aria-hidden="true">🎉</div>
+                <div className="congrats-emoji" aria-hidden="true"><Ic name="party" size={40} strokeWidth={1.8} /></div>
                 <h2 className="congrats-title">{t('dash.onboardingCongratsTitle', locale)}</h2>
                 <p className="congrats-body">{t('dash.onboardingCongratsBody', locale)}</p>
                 <button type="button" className="congrats-btn" onClick={() => setCongratsOpen(false)}>
@@ -746,21 +747,21 @@ export default function DashboardPage() {
                   {t('dash.onboardingTitle', locale)}{' '}
                   <span className="badge">{onboardingDoneCount}/{onboardingSteps.length}</span>
                 </span>
-                <span className="chevron">{onboardingChecklistOpen ? '▲' : '▼'}</span>
+                <span className="chevron"><Ic name={onboardingChecklistOpen ? 'chevronUp' : 'chevronDown'} size={14} /></span>
               </button>
               {onboardingChecklistOpen && (
                 <div className="onboarding-list">
                   {onboardingSteps.map((step) =>
                     step.done ? (
                       <div key={step.key} className="onboarding-row done">
-                        <span className="onboarding-check done-check">✓</span>
+                        <span className="onboarding-check done-check"><Ic name="check" size={12} strokeWidth={3} /></span>
                         <span className="onboarding-label">{step.label}</span>
                       </div>
                     ) : firstPendingStep && step.key !== firstPendingStep.key ? (
                       // Item 13 : étape verrouillée tant que la précédente
                       // n'est pas faite (ordre imposé, une chose à la fois).
                       <div key={step.key} className="onboarding-row locked" aria-disabled="true">
-                        <span className="onboarding-check locked-check" aria-hidden="true">🔒</span>
+                        <span className="onboarding-check locked-check" aria-hidden="true"><Ic name="lock" size={11} /></span>
                         <span className="onboarding-label">{step.label}</span>
                         <span className="onboarding-cta onboarding-cta-locked">{t('dash.onboardingStepLocked', locale)}</span>
                       </div>
@@ -797,13 +798,13 @@ export default function DashboardPage() {
                   {pushError && <p className="onboarding-push-error">{pushError}</p>}
                   {pushJustEnabled && (
                     <div className="onboarding-aaron-note">
-                      <span className="onboarding-aaron-avatar" aria-hidden="true">🤖</span>
+                      <span className="onboarding-aaron-avatar" aria-hidden="true"><Ic name="bot" size={16} /></span>
                       <span>{t('dash.onboardingPushDoneMessage', locale)}</span>
                     </div>
                   )}
                   {pushJustEnabled && !emailConnected && (
                     <div className="onboarding-aaron-note">
-                      <span className="onboarding-aaron-avatar" aria-hidden="true">🤖</span>
+                      <span className="onboarding-aaron-avatar" aria-hidden="true"><Ic name="bot" size={16} /></span>
                       <span>
                         {t('dash.onboardingPushCalendarTip', locale)}{' '}
                         <Link href="/app/connexions?tab=connection">{t('dash.onboardingStepCta', locale)}</Link>
@@ -974,7 +975,7 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
-              <span className="funnel-hint">{t('dash.funnelHint', locale)} · {pipelineCounts.risk > 0 ? `⚠ ${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()} · ` : ''}{pipelineCounts.lost} {t('pipeline.lostLabel', locale).toLowerCase()}</span>
+              <span className="funnel-hint">{t('dash.funnelHint', locale)} · {pipelineCounts.risk > 0 ? `${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()} · ` : ''}{pipelineCounts.lost} {t('pipeline.lostLabel', locale).toLowerCase()}</span>
             </a>
 
             {/* Les chiffres du jour restent, mais sur une seule ligne discrète
@@ -1797,7 +1798,7 @@ function ActionCardModal({ appointment, onClose, onDone }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="card" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>✕</button>
+        <button className="close-btn" onClick={onClose}><Ic name="x" size={16} /></button>
 
         {loading ? (
           <p className="muted center">{t('common.loading', locale)}</p>
@@ -2095,7 +2096,7 @@ function RescueModal({ prospect, onClose, onDone }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="card" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>✕</button>
+        <button className="close-btn" onClick={onClose}><Ic name="x" size={16} /></button>
 
         <div className="prospect-center">
           <div className="avatar">{prospect.full_name?.[0] || '?'}</div>
@@ -2448,6 +2449,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -2476,6 +2491,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -2551,7 +2571,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -2575,7 +2595,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
