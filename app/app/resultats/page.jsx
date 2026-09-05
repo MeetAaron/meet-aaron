@@ -11,11 +11,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
-import { t, useLocale, LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS, PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
 import ReportDetail from '@/components/ReportDetail';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
@@ -139,7 +140,7 @@ function withinRange(dateValue, range) {
   return true;
 }
 
-const TYPE_ICONS = { telephonique: '📞', physique: '🤝', visio: '💻' };
+const TYPE_ICON_NAMES = { telephonique: 'phone', physique: 'handshake', visio: 'video' };
 
 // Catégorie "Opportunités" — mêmes codes couleur/logique que le tableau de
 // bord (voir opportunityBucketFor/OPPORTUNITY_BUCKET_COLORS dans
@@ -457,7 +458,7 @@ function EvolutionMetric({ label, current, previous, suffix, lowerIsBetter = fal
   // vert — sinon « +3 perdus » s'afficherait comme une bonne nouvelle.
   const better = delta === 0 ? null : lowerIsBetter ? delta < 0 : delta > 0;
   const direction = better === null ? 'flat' : better ? 'up' : 'down';
-  const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
+  const arrow = delta > 0 ? <Ic name="trendUp" size={13} /> : delta < 0 ? <Ic name="trendDown" size={13} /> : '—';
   return (
     <div className="evolution-metric">
       <span className="evolution-label">{label}</span>
@@ -930,7 +931,7 @@ export default function ResultatsPage() {
                 const n = stageMetrics.lostByStage[st.key] || 0;
                 return (
                   <span key={st.key} className={`lost-cell${n > 0 ? ' has' : ''}`}>
-                    {n > 0 ? `✕ ${n} ${t('results.lostAtStage', locale)}` : '—'}
+                    {n > 0 ? <><Ic name="x" size={12} /> {n} {t('results.lostAtStage', locale)}</> : '—'}
                   </span>
                 );
               })}
@@ -983,12 +984,12 @@ export default function ResultatsPage() {
 
             <div className="progress-row progress-row-extra">
               <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
-                <span className="progress-icon progress-icon-flat">⚠️</span>
+                <span className="progress-icon progress-icon-flat"><Ic name="alert" size={16} /></span>
                 <span className="stat-number">{pipelineCounts.risk}</span>
                 <span className="stat-label">{t('results.progressRisk', locale)}</span>
               </a>
               <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
-                <span className="progress-icon progress-icon-flat">✕</span>
+                <span className="progress-icon progress-icon-flat"><Ic name="x" size={16} /></span>
                 <span className="stat-number">{pipelineCounts.lost}</span>
                 <span className="stat-label">{t('results.progressLost', locale)}</span>
               </a>
@@ -1019,7 +1020,9 @@ export default function ResultatsPage() {
                 label={t('results.statAppointmentsWon', locale)}
                 value={rdvObtenus}
                 accent
-                hint={rdvObtenus > 0 ? rdvParType.filter((x) => x.count > 0).map((x) => `${TYPE_ICONS[x.type]} ${x.count} ${x.label.toLowerCase()}`).join(' · ') : undefined}
+                hint={rdvObtenus > 0 ? rdvParType.filter((x) => x.count > 0).map((x, i) => (
+                  <span key={x.type}>{i > 0 ? ' · ' : ''}<Ic name={TYPE_ICON_NAMES[x.type]} size={12} /> {x.count} {x.label.toLowerCase()}</span>
+                )) : undefined}
               />
               <StatCard label={t('results.statAppointmentsPending', locale)} value={rdvEnAttente} />
               <StatCard label={t('results.statConversionRate', locale)} value={`${tauxRdv}%`} hint={t('results.statConversionRateHint', locale)} />
@@ -2086,6 +2089,20 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // n'est pas encore chargé : NAV_ITEMS masque l'item par défaut dans ce cas
   // (fermé par défaut plutôt qu'ouvert puis masqué après coup).
   const [userRole, setUserRole] = useState(null);
+  // Docx « derniers ajouts » (05/09/2026) : « Mon équipe » disparaissait
+  // 1–2 s à chaque changement de rubrique, le temps que /api/preferences
+  // réponde, puis réapparaissait. On relit d'abord le rôle mémorisé lors de
+  // la dernière réponse (par utilisateur), puis la réponse le confirme : la
+  // rubrique est là dès le premier rendu et ne bouge plus.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const cached = window.localStorage.getItem(`aaron_role:${userId}`);
+      if (cached) setUserRole(cached);
+    } catch {
+      // stockage indisponible : on attend simplement la réponse réseau
+    }
+  }, [userId]);
   // Docx Modifs Aaron (30/08/2026) : la rubrique Clients est réservée au
   // compte aaron@meetaaron.app (supprimée pour tous les autres comptes,
   // fondateur comme commercial) — même logique "fermé par défaut" que
@@ -2114,6 +2131,11 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           customer: prefs.offer_ac_active !== true,
         });
         setUserRole(prefs.role || null);
+        try {
+          window.localStorage.setItem(`aaron_role:${userId}`, prefs.role || '');
+        } catch {
+          // idem : best effort
+        }
         setUserEmail(prefs.email || null);
       })
       .catch(() => {});
@@ -2189,7 +2211,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           aria-label={t('common.language', locale)}
         >
           {LOCALES.map((l) => (
-            <option key={l} value={l}>{LOCALE_FLAGS[l]} {l.toUpperCase()}</option>
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
           ))}
         </select>
         <ul className="nav-list">
@@ -2213,7 +2235,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <span className="nav-label">{t('shell.connected', locale)}</span>
           </div>
           <button type="button" className="logout-btn" onClick={handleLogout}>
-            <span className="nav-icon">🚪</span>
+            <span className="nav-icon"><NavIcon slug="logout" /></span>
             <span className="nav-label">{t('common.logout', locale)}</span>
           </button>
         </div>
