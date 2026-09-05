@@ -24,7 +24,7 @@
 // JAMAIS envoyée automatiquement et attend une validation du commercial.
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { generateAaronResponse } from '@/lib/aaron';
+import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
@@ -103,7 +103,8 @@ export async function GET(request: NextRequest) {
     if (perUserCount[prospect.assigned_user_id] > MAX_PER_USER_PER_RUN) continue;
 
     try {
-      const aaronOutput = await generateAaronResponse(prospect.id);
+      // Relance après silence : Haiku (voir AaronModel dans lib/aaron.ts).
+      const aaronOutput = await generateAaronResponse(prospect.id, { model: 'claude-haiku-4-5' });
 
       // Tentative de sauvetage : ne jamais envoyer automatiquement, attend
       // une validation du commercial (même logique que app/api/cron/check-inbox).
@@ -116,6 +117,7 @@ export async function GET(request: NextRequest) {
             personality_type: aaronOutput.personality_type,
             personality_notes: aaronOutput.personality_notes,
             aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
             ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
             rescue_proposal_subject: aaronOutput.rescue_proposal.subject,
             rescue_proposal_body: aaronOutput.rescue_proposal.body,
@@ -170,6 +172,7 @@ export async function GET(request: NextRequest) {
           personality_type: aaronOutput.personality_type,
           personality_notes: aaronOutput.personality_notes,
           aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
           ...(aaronOutput.detected_phone ? { phone: aaronOutput.detected_phone } : {}),
         })
         .eq('id', prospect.id);
