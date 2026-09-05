@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale } from '@/lib/i18n';
+import Ic from '@/components/UiIcon';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -74,10 +75,10 @@ function useAuthedUser() {
 // choix distincts car ils ne démarrent pas à la même étape du pipeline.
 function choicesFor(locale) {
   return [
-    { value: 'a_continuer', label: t('bilanRdv.choiceContinuer', locale), emoji: '🙂' },
-    { value: 'opportunite', label: t('bilanRdv.choiceOpportunite', locale), emoji: '🎉' },
-    { value: 'devis', label: t('bilanRdv.choiceDevis', locale), emoji: '📄' },
-    { value: 'perdu', label: t('bilanRdv.choicePerdu', locale), emoji: '😕' },
+    { value: 'a_continuer', label: t('bilanRdv.choiceContinuer', locale), emoji: <Ic name="smile" size={16} /> },
+    { value: 'opportunite', label: t('bilanRdv.choiceOpportunite', locale), emoji: <Ic name="party" size={16} /> },
+    { value: 'devis', label: t('bilanRdv.choiceDevis', locale), emoji: <Ic name="file" size={16} /> },
+    { value: 'perdu', label: t('bilanRdv.choicePerdu', locale), emoji: <Ic name="frown" size={16} /> },
   ];
 }
 
@@ -96,9 +97,9 @@ export default function BilanRdvPage({ params }) {
   const [sendThankYou, setSendThankYou] = useState(true);
   const [thankYouStatus, setThankYouStatus] = useState(null); // 'sent' | 'failed' | null
   const MOODS = [
-    { value: 'bien', label: t('bilanRdv.moodBien', locale), emoji: '😀' },
-    { value: 'moyen', label: t('bilanRdv.moodMoyen', locale), emoji: '😐' },
-    { value: 'mal', label: t('bilanRdv.moodMal', locale), emoji: '😕' },
+    { value: 'bien', label: t('bilanRdv.moodBien', locale), emoji: <Ic name="smile" size={22} /> },
+    { value: 'moyen', label: t('bilanRdv.moodMoyen', locale), emoji: <Ic name="meh" size={22} /> },
+    { value: 'mal', label: t('bilanRdv.moodMal', locale), emoji: <Ic name="frown" size={22} /> },
   ];
   const CHIPS = [
     t('bilanRdv.chipCommonGround', locale),
@@ -183,7 +184,7 @@ export default function BilanRdvPage({ params }) {
                   onClick={() => setMood(m.value)}
                   style={{ ...styles.moodButton, ...(mood === m.value ? styles.selected : {}) }}
                 >
-                  <span style={{ fontSize: 22 }}>{m.emoji}</span>
+                  <span style={{ display: 'inline-flex' }}>{m.emoji}</span>
                   <span>{m.label}</span>
                 </button>
               ))}
