@@ -17,6 +17,7 @@ import MobileChrome from '@/components/MobileChrome';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS, PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
+import AccountNav from '@/components/AccountNav';
 import ReportDetail from '@/components/ReportDetail';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
 
@@ -518,6 +519,21 @@ export default function ResultatsPage() {
   // Historique de rapports (#137 item A1) : onglet jour/semaine/mois, et
   // "agrandir" pour révéler plus que les 5 rapports les plus récents.
   const [reportTab, setReportTab] = useState('day');
+  // Mes résultats v2 (maquette validée par Alex, 05/09/2026) : même mécanique
+  // que Mon compte — une liste de rubriques à gauche (components/AccountNav),
+  // UN panneau à droite. Sur téléphone : la liste, puis le panneau. null =
+  // liste seule (téléphone) ; sur grand écran on ouvre « Ce mois-ci ».
+  const [panel, setPanel] = useState(null);
+  useEffect(() => {
+    if (window.matchMedia('(min-width: 960px)').matches) setPanel('overview');
+  }, []);
+  function openPanel(key) {
+    if (key === 'report-day' || key === 'report-week' || key === 'report-month') {
+      setReportTab(key.replace('report-', ''));
+      setReportsExpanded(false);
+    }
+    setPanel(key);
+  }
   const [reportsExpanded, setReportsExpanded] = useState(false);
   const [downloadingKey, setDownloadingKey] = useState(null);
 
@@ -816,32 +832,169 @@ export default function ResultatsPage() {
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
-      ) : (
-        <>
-          {/* Fusion de la pipeline (docx « mon avis », 31/08/2026) : cette
-              section remplace l'ancien bloc « Opportunités » qui comptait
-              encore par deal_stage (signe / en_negociation / perdu) — un
-              modèle qui n'existe plus depuis que prospects et opportunités
-              vivent sur UNE seule ligne en 6 étapes. On compte désormais avec
-              countPipeline/derivePipelinePosition, exactement comme la page
-              Contacts, pour que les deux écrans ne puissent plus se
-              contredire. Chaque carte est cliquable et ouvre la liste filtrée
-              sur cette étape. */}
+      ) : (() => {
+        // ── Chiffres partagés par les panneaux (05/09/2026) ──────────────
+        // Transformation d'une étape à la suivante : un contact à l'étape 4
+        // est passé par la 3, on compare donc des cumuls décroissants.
+        const stageValues = PIPELINE_STAGES.map((st) => pipelineCounts.byStage[st.key] || 0);
+        const cumulative = stageValues.map((_, i) => stageValues.slice(i).reduce((a, b) => a + b, 0));
+        const transformRates = cumulative.slice(1).map((v, i) => (cumulative[i] > 0 ? Math.round((v / cumulative[i]) * 100) : null));
+        const worstIdx = transformRates.reduce((acc, r, i) => (r !== null && (acc === null || r < transformRates[acc]) ? i : acc), null);
+        // Temps moyen par transition (voir stageMetrics) : la 1re transition
+        // (en cours → en bonne voie) n'a pas de jalon daté, on le dit.
+        const speedByTransition = [null, stageMetrics.stageSpeeds[0], stageMetrics.stageSpeeds[1], stageMetrics.stageSpeeds[2], stageMetrics.stageSpeeds[3]];
+        const totalLost = PIPELINE_STAGES.reduce((n, st) => n + (stageMetrics.lostByStage[st.key] || 0), 0);
+        const monthWon = evolutionCurrent ? evolutionCurrent.clientsGagnes : 0;
+
+        const navGroups = [
+          {
+            label: t('results.navGroupOverview', locale),
+            items: [
+              { key: 'overview', title: t('results.navOverview', locale), description: t('results.navOverviewDesc', locale), status: rdvObtenus > 0 ? { tone: 'ok', label: `${rdvObtenus} ${t('results.navRdvShort', locale)}` } : null },
+              { key: 'progress', title: t('results.progressTitle', locale), description: t('results.navProgressDesc', locale), status: { tone: 'off', label: `${allContacts.length} ${t('results.navContactsShort', locale)}` } },
+            ],
+          },
+          {
+            label: t('results.navGroupReports', locale),
+            items: [
+              { key: 'report-day', title: t('results.navReportDay', locale), description: t('results.reportHistoryScope', locale), status: { tone: 'brand', label: t('results.reportOpen', locale) } },
+              { key: 'report-week', title: t('results.navReportWeek', locale), description: t('results.reportHistoryScope', locale), status: { tone: 'brand', label: t('results.reportOpen', locale) } },
+              { key: 'report-month', title: t('results.navReportMonth', locale), description: t('results.reportHistoryScope', locale), status: monthWon > 0 ? { tone: 'ok', label: `+${monthWon} ${t('results.navClientsShort', locale)}` } : { tone: 'brand', label: t('results.reportOpen', locale) } },
+            ],
+          },
+          {
+            label: t('results.navGroupAnalysis', locale),
+            items: [
+              { key: 'steps', title: t('results.navSteps', locale), description: t('results.navStepsDesc', locale), status: worstIdx !== null ? { tone: 'todo', label: `${transformRates[worstIdx]} % ${t(PIPELINE_STAGES[worstIdx + 1].labelKey, locale).toLowerCase()}` } : null },
+              ...(showClientsSection ? [{ key: 'clients', title: t('dash.clientsTitle', locale), description: t('results.clientsWonPeriodHint', locale), status: null }] : []),
+              { key: 'compare', title: t('results.evolutionTitle', locale), description: t('results.navCompareDesc', locale), status: { tone: 'off', label: t(evolutionWindow === '1m' ? 'results.evolutionWindow1m' : evolutionWindow === '6m' ? 'results.evolutionWindow6m' : evolutionWindow === '1y' ? 'results.evolutionWindow1y' : 'results.evolutionWindowCustom', locale) } },
+            ],
+          },
+        ];
+
+        return (
+        <div className={`account-layout${panel ? ' has-panel' : ''}`}>
+          <AccountNav groups={navGroups} activeTab={panel} onSelect={openPanel} locale={locale} />
+
+          <div className="account-panel">
+            <button type="button" className="panel-back" onClick={() => setPanel(null)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              {t('results.title', locale)}
+            </button>
+
+          {panel === 'overview' && (
           <section className="panel category-panel">
             <div className="category-head">
-              <h2>{t('results.progressTitle', locale)}</h2>
+              <div>
+                <h2>{t('results.navOverview', locale)}</h2>
+                <p className="category-hint">{t('results.navOverviewDesc', locale)}</p>
+              </div>
+              <PeriodPicker
+                value={periods.prospects}
+                custom={customRanges.prospects}
+                onChange={(v) => updatePeriod('prospects', v)}
+                onCustomChange={(field, v) => updateCustomRange('prospects', field, v)}
+                locale={locale}
+              />
             </div>
-            <p className="category-hint">{t('results.progressHint', locale)}</p>
-            {/* Barres VERTICALES (demande Alex, 04/09/2026 : « ta ligne de
-                progression — je pensais voir des barres verticales sympa »).
-                Six cartes portant chacune un chiffre ne se comparaient pas :
-                il fallait lire les six et faire la soustraction de tête. Une
-                hauteur, elle, se compare sans lire. La couleur reprend les
-                trois familles du pipeline (prospect / opportunité / client),
-                donc on voit aussi OÙ ça se resserre.
-                Fait en CSS et non en SVG : les hauteurs sont des
-                pourcentages, la rangée se réadapte donc seule sur un
-                téléphone, ce qu'un viewBox figé ne fait pas. */}
+            <div className="stat-grid">
+              <StatCard label={t('results.statContactedProspects', locale)} value={totalProspects} />
+              <StatCard
+                label={t('results.statAppointmentsWon', locale)}
+                value={rdvObtenus}
+                accent
+                hint={rdvObtenus > 0 ? rdvParType.filter((x) => x.count > 0).map((x, i) => (
+                  <span key={x.type}>{i > 0 ? ' · ' : ''}<Ic name={TYPE_ICON_NAMES[x.type]} size={12} /> {x.count} {x.label.toLowerCase()}</span>
+                )) : undefined}
+              />
+              <StatCard label={t('results.statAppointmentsPending', locale)} value={rdvEnAttente} />
+              <StatCard label={t('results.statConversionRate', locale)} value={`${tauxRdv}%`} hint={t('results.statConversionRateHint', locale)} />
+              <StatCard
+                label={t('results.statReplyRate', locale)}
+                value={replyRate !== null ? `${replyRate}%` : '—'}
+                hint={t('results.statReplyRateHint', locale)}
+              />
+            </div>
+
+            <div className="sourcing-row">
+              <p className="sourcing-title">{t('results.sourcingTitle', locale)}</p>
+              <div className="sourcing-numbers">
+                <div>
+                  <span className="big-number">{entreprisesAnalysees}</span>
+                  <span className="muted"> {t('results.sourcingCompaniesAnalyzed', locale)}</span>
+                </div>
+                <div>
+                  <span className="big-number">{contactsSources}</span>
+                  <span className="muted"> {t('results.sourcingContactsFound', locale)}</span>
+                </div>
+                <div>
+                  <span className="big-number">{tauxContact}%</span>
+                  <span className="muted"> {t('results.sourcingContactRate', locale)}</span>
+                </div>
+              </div>
+            </div>
+
+            
+            <div className="value-block">
+              <p className="value-title">{t('results.valueTitle', locale)}</p>
+              {pipelineValue.known === 0 ? (
+                <p className="muted value-empty">{t('results.valueEmpty', locale)}</p>
+              ) : (
+                <>
+                  <div className="value-row">
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.signed)}</span>
+                      <span className="stat-label">{t('results.valueSigned', locale)}</span>
+                    </div>
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.inPlay)}</span>
+                      <span className="stat-label">{t('results.valueInPlay', locale)}</span>
+                    </div>
+                    <div className="value-card">
+                      <span className="value-amount">{formatEur(pipelineValue.average)}</span>
+                      <span className="stat-label">{t('results.valueAverage', locale)}</span>
+                    </div>
+                  </div>
+                  <p className="muted value-empty">{t('results.valueHint', locale)}</p>
+                </>
+              )}
+            </div>
+
+            
+            <div className="progress-row progress-row-extra">
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
+                <span className="progress-icon progress-icon-flat"><Ic name="alert" size={16} /></span>
+                <span className="stat-number">{pipelineCounts.risk}</span>
+                <span className="stat-label">{t('results.progressRisk', locale)}</span>
+              </a>
+              <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
+                <span className="progress-icon progress-icon-flat"><Ic name="x" size={16} /></span>
+                <span className="stat-number">{pipelineCounts.lost}</span>
+                <span className="stat-label">{t('results.progressLost', locale)}</span>
+              </a>
+            </div>
+
+            
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricProspects', locale)}`}
+              type={bilanTypes.prospects}
+              onTypeChange={(v) => updateBilanType('prospects', v)}
+              rows={bilanProspects}
+              locale={locale}
+            />
+          </section>
+          )}
+
+          {panel === 'progress' && (
+          <section className="panel category-panel">
+            <div className="category-head">
+              <div>
+                <h2>{t('results.progressTitle', locale)}</h2>
+                <p className="category-hint">{t('results.progressHint', locale)}</p>
+              </div>
+            </div>
             <div className="vbars-legend">
               {[
                 { cat: 'prospect', label: t('pipeline.cat.prospects', locale) },
@@ -891,110 +1044,7 @@ export default function ResultatsPage() {
               })()}
             </div>
 
-            {/* Taux de passage d'une étape à la suivante : c'est ce qui dit
-                OÙ ça bloque, la seule chose qu'on ne peut pas lire sur les
-                barres elles-mêmes. */}
-            {(() => {
-              const values = PIPELINE_STAGES.map((st) => pipelineCounts.byStage[st.key] || 0);
-              // Un contact à l'étape 4 est passé par l'étape 3 : on compare
-              // donc des cumuls décroissants, pas les effectifs instantanés,
-              // sinon un taux dépasserait 100 % dès qu'une étape se vide.
-              const cumulative = values.map((_, i) => values.slice(i).reduce((a, b) => a + b, 0));
-              const rates = cumulative.slice(1).map((v, i) => (cumulative[i] > 0 ? Math.round((v / cumulative[i]) * 100) : null));
-              if (rates.every((r) => r === null)) return null;
-              const worst = rates.reduce((acc, r, i) => (r !== null && (acc === null || r < rates[acc]) ? i : acc), null);
-              return (
-                <div className="rates-row">
-                  <span className="rates-title">{t('results.passRateTitle', locale)}</span>
-                  {rates.map((r, i) => (
-                    <span key={i} className="rates-item">
-                      <span className={`rate-chip${worst === i ? ' weak' : ''}`}>{r === null ? '—' : `${r} %`}</span>
-                      {i < rates.length - 1 && <span className="rate-arrow" aria-hidden="true">→</span>}
-                    </span>
-                  ))}
-                  {worst !== null && (
-                    <span className="rates-note">
-                      {t('results.passRateWeak', locale)
-                        .replace('{from}', t(PIPELINE_STAGES[worst].labelKey, locale))
-                        .replace('{to}', t(PIPELINE_STAGES[worst + 1].labelKey, locale))}
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Pertes par étape : sous chaque barre, combien de contacts ont
-                été perdus À cette étape. C'est la lecture « où ça coince »
-                demandée par Alex. Rouge seulement quand il y en a. */}
-            <div className="vbars-lost">
-              {PIPELINE_STAGES.map((st) => {
-                const n = stageMetrics.lostByStage[st.key] || 0;
-                return (
-                  <span key={st.key} className={`lost-cell${n > 0 ? ' has' : ''}`}>
-                    {n > 0 ? <><Ic name="x" size={12} /> {n} {t('results.lostAtStage', locale)}</> : '—'}
-                  </span>
-                );
-              })}
-            </div>
-
-            <div className="rates-row">
-              <span className="rates-title">{t('results.replyRateTitle', locale)}</span>
-              <span className="rate-chip">{replyRate !== null ? `${replyRate} %` : '—'}</span>
-              <span className="rates-note">{t('results.statReplyRateHint', locale)}</span>
-            </div>
-
-            <div className="rates-row">
-              <span className="rates-title">{t('results.avgTimeTitle', locale)}</span>
-              {stageMetrics.stageSpeeds.map((sp, i) => (
-                <span key={sp.key} className="rates-item" title={sp.label}>
-                  <span className="rate-chip">{sp.days == null ? '—' : `${sp.days} j`}</span>
-                  {i < stageMetrics.stageSpeeds.length - 1 && <span className="rate-arrow" aria-hidden="true">→</span>}
-                </span>
-              ))}
-              <span className="rates-note">{t('results.avgTimeNote', locale)}</span>
-            </div>
-            {/* Valeur du portefeuille — la question que se pose vraiment un
-                commercial devant une page « Résultats ». Affichée dans la
-                même section que la ligne de progression parce qu'elle en est
-                la lecture en euros. */}
-            <div className="value-block">
-              <p className="value-title">{t('results.valueTitle', locale)}</p>
-              {pipelineValue.known === 0 ? (
-                <p className="muted value-empty">{t('results.valueEmpty', locale)}</p>
-              ) : (
-                <>
-                  <div className="value-row">
-                    <div className="value-card">
-                      <span className="value-amount">{formatEur(pipelineValue.signed)}</span>
-                      <span className="stat-label">{t('results.valueSigned', locale)}</span>
-                    </div>
-                    <div className="value-card">
-                      <span className="value-amount">{formatEur(pipelineValue.inPlay)}</span>
-                      <span className="stat-label">{t('results.valueInPlay', locale)}</span>
-                    </div>
-                    <div className="value-card">
-                      <span className="value-amount">{formatEur(pipelineValue.average)}</span>
-                      <span className="stat-label">{t('results.valueAverage', locale)}</span>
-                    </div>
-                  </div>
-                  <p className="muted value-empty">{t('results.valueHint', locale)}</p>
-                </>
-              )}
-            </div>
-
-            <div className="progress-row progress-row-extra">
-              <a className="progress-card progress-card-alert" href="/app/prospects?filter=risk">
-                <span className="progress-icon progress-icon-flat"><Ic name="alert" size={16} /></span>
-                <span className="stat-number">{pipelineCounts.risk}</span>
-                <span className="stat-label">{t('results.progressRisk', locale)}</span>
-              </a>
-              <a className="progress-card progress-card-alert" href="/app/prospects?filter=lost">
-                <span className="progress-icon progress-icon-flat"><Ic name="x" size={16} /></span>
-                <span className="stat-number">{pipelineCounts.lost}</span>
-                <span className="stat-label">{t('results.progressLost', locale)}</span>
-              </a>
-            </div>
-
+            
             <BilanRow
               label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricOpportunitesGagnees', locale)}`}
               type={bilanTypes.opportunities}
@@ -1003,133 +1053,16 @@ export default function ResultatsPage() {
               locale={locale}
             />
           </section>
-          <section className="panel category-panel">
-            <div className="category-head">
-              <h2>{t('results.activityTitle', locale)}</h2>
-              <PeriodPicker
-                value={periods.prospects}
-                custom={customRanges.prospects}
-                onChange={(v) => updatePeriod('prospects', v)}
-                onCustomChange={(field, v) => updateCustomRange('prospects', field, v)}
-                locale={locale}
-              />
-            </div>
-            <div className="stat-grid">
-              <StatCard label={t('results.statContactedProspects', locale)} value={totalProspects} />
-              <StatCard
-                label={t('results.statAppointmentsWon', locale)}
-                value={rdvObtenus}
-                accent
-                hint={rdvObtenus > 0 ? rdvParType.filter((x) => x.count > 0).map((x, i) => (
-                  <span key={x.type}>{i > 0 ? ' · ' : ''}<Ic name={TYPE_ICON_NAMES[x.type]} size={12} /> {x.count} {x.label.toLowerCase()}</span>
-                )) : undefined}
-              />
-              <StatCard label={t('results.statAppointmentsPending', locale)} value={rdvEnAttente} />
-              <StatCard label={t('results.statConversionRate', locale)} value={`${tauxRdv}%`} hint={t('results.statConversionRateHint', locale)} />
-              <StatCard
-                label={t('results.statReplyRate', locale)}
-                value={replyRate !== null ? `${replyRate}%` : '—'}
-                hint={t('results.statReplyRateHint', locale)}
-              />
-            </div>
-
-            <div className="sourcing-row">
-              <p className="sourcing-title">{t('results.sourcingTitle', locale)}</p>
-              <div className="sourcing-numbers">
-                <div>
-                  <span className="big-number">{entreprisesAnalysees}</span>
-                  <span className="muted"> {t('results.sourcingCompaniesAnalyzed', locale)}</span>
-                </div>
-                <div>
-                  <span className="big-number">{contactsSources}</span>
-                  <span className="muted"> {t('results.sourcingContactsFound', locale)}</span>
-                </div>
-                <div>
-                  <span className="big-number">{tauxContact}%</span>
-                  <span className="muted"> {t('results.sourcingContactRate', locale)}</span>
-                </div>
-              </div>
-            </div>
-
-            <BilanRow
-              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricProspects', locale)}`}
-              type={bilanTypes.prospects}
-              onTypeChange={(v) => updateBilanType('prospects', v)}
-              rows={bilanProspects}
-              locale={locale}
-            />
-          </section>
-
-          {showClientsSection && (
-          <section className="panel category-panel">
-            <div className="category-head">
-              <h2>{t('dash.clientsTitle', locale)}</h2>
-              <PeriodPicker
-                value={periods.clients}
-                custom={customRanges.clients}
-                onChange={(v) => updatePeriod('clients', v)}
-                onCustomChange={(field, v) => updateCustomRange('clients', field, v)}
-                locale={locale}
-              />
-            </div>
-            <p className="category-hint">{t('results.clientsWonPeriodHint', locale)}</p>
-            <div className="category-row">
-              {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
-                <div className="cat-stat-card" key={key}>
-                  <span className="dot" style={{ background: HEALTH_META[key].color }} />
-                  <span className="stat-number">{healthCounts[key] || 0}</span>
-                  <span className="stat-label">{HEALTH_META[key].label}</span>
-                </div>
-              ))}
-            </div>
-
-            <BilanRow
-              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricClientsGagnes', locale)}`}
-              type={bilanTypes.clients}
-              onTypeChange={(v) => updateBilanType('clients', v)}
-              rows={bilanClients}
-              locale={locale}
-            />
-          </section>
           )}
 
-          {/* L'ancienne section « entonnoir » (barres horizontales + délais
-              moyens) a été retirée le 04/09/2026 : elle répétait, sous une
-              autre forme, la ligne de progression en tête de page — qui
-              porte maintenant elle-même les taux de transformation, les
-              temps moyens et les pertes par étape. « Trop de tableaux » (Alex). */}
-
+          {(panel === 'report-day' || panel === 'report-week' || panel === 'report-month') && (
           <section className="panel">
             <div className="category-head">
-              <h2>{t('results.reportHistoryTitle', locale)}</h2>
+              <div>
+                <h2>{reportTypeLabel(reportTab, locale)}</h2>
+                <p className="category-hint">{t('results.reportHistoryScope', locale)}</p>
+              </div>
             </div>
-            {/* Docx 30/08 : "précise qu'il s'agit d'un rapport qui concerne
-                les prospects ET les opportunités — chaque rapport contient
-                les 2 éléments". */}
-            <p className="muted report-scope-hint">{t('results.reportHistoryScope', locale)}</p>
-            <div className="report-tabs">
-              {['day', 'week', 'month'].map((ty) => (
-                <button
-                  key={ty}
-                  type="button"
-                  className={`report-tab${reportTab === ty ? ' active' : ''}`}
-                  onClick={() => {
-                    setReportTab(ty);
-                    setReportsExpanded(false);
-                  }}
-                >
-                  {reportTypeLabel(ty, locale)}
-                </button>
-              ))}
-            </div>
-            {/* Refonte 04/09/2026 (« il faut mes rapports jour/semaine/mois,
-                et montre-moi le visuel de ce qu'il y aura dans chacun »).
-                Avant : une ligne par période, avec le contenu écrit en une
-                phrase minuscule et deux boutons de téléchargement. On ne
-                savait pas ce qu'on téléchargeait avant de l'avoir ouvert.
-                Maintenant : une FICHE par période, qui montre les quatre
-                chiffres du rapport. Le rapport se lit ici ; le PDF et l'Excel
-                ne servent plus qu'à l'envoyer à quelqu'un d'autre. */}
             {activeReportRows.length === 0 ? (
               <p className="report-empty">{t('results.reportHistoryEmpty', locale)}</p>
             ) : (
@@ -1191,26 +1124,123 @@ export default function ResultatsPage() {
                 {reportsExpanded ? t('results.reportCollapse', locale) : t('results.reportExpand', locale)}
               </button>
             )}
-          </section>
 
-          {openReport && (
-            <ReportDetail
-              type={reportTab}
-              bucket={openReport.bucket}
-              title={reportLabel(reportTab, openReport.bucket, locale).replace(/^[^—]+— /, '')}
-              data={{ allContacts, appointments, contactAmount }}
-              locale={locale}
-              formatEur={formatEur}
-              downloading={downloadingKey === `${reportTab}-${openReport.bucket.key}-pdf` ? 'pdf' : downloadingKey === `${reportTab}-${openReport.bucket.key}-csv` ? 'csv' : null}
-              onDownload={(format) => downloadReport(openReport.bucket, format)}
-              onClose={() => setOpenReport(null)}
-            />
+          </section>
           )}
 
+          {panel === 'steps' && (
+          <section className="panel category-panel">
+            <div className="category-head">
+              <div>
+                <h2>{t('results.navSteps', locale)}</h2>
+                <p className="category-hint">{t('results.navStepsDesc', locale)}</p>
+              </div>
+            </div>
+            <p className="steps-def">{t('results.stepsDefinition', locale)}</p>
+            <div className="steps">
+              {PIPELINE_STAGES.map((st, i) => {
+                const value = stageValues[i];
+                const rate = i < transformRates.length ? transformRates[i] : null;
+                const speed = i < speedByTransition.length ? speedByTransition[i] : null;
+                const lost = stageMetrics.lostByStage[st.key] || 0;
+                const isLast = i === PIPELINE_STAGES.length - 1;
+                return (
+                  <div key={st.key} className="step-block">
+                    <div className="stage-row">
+                      <span className="stage-dot" style={{ background: PIPELINE_COLORS[st.category] }} />
+                      <a className="stage-name" href={`/app/prospects?stage=${st.key}`}>{t(st.labelKey, locale)}</a>
+                      <span className="stage-n">{value}{i === 0 && <small> {t('results.statContactedProspects', locale).toLowerCase()}</small>}</span>
+                    </div>
+                    {!isLast && (
+                      <div className="trans">
+                        <span className="trans-line" aria-hidden="true" />
+                        <div className="metrics">
+                          {i === 0 && (
+                            <div className="m">
+                              <span className="k">{t('results.statReplyRate', locale)}</span>
+                              <span className="v">{replyRate !== null ? `${replyRate} %` : '—'}</span>
+                              {replyRate !== null && <span className="bar"><i style={{ width: `${replyRate}%`, background: PIPELINE_COLORS.prospect }} /></span>}
+                            </div>
+                          )}
+                          <div className="m">
+                            <span className="k">{t('results.stepsTransform', locale)}</span>
+                            <span className={`v${rate === null ? '' : rate >= 50 ? ' good' : rate >= 30 ? ' warn' : ' bad'}`}>{rate === null ? '—' : `${rate} %`}</span>
+                            {rate !== null && <span className="bar"><i style={{ width: `${rate}%`, background: rate >= 50 ? 'var(--accent-green)' : rate >= 30 ? 'var(--accent-amber)' : 'var(--accent-red)' }} /></span>}
+                          </div>
+                          <div className="m" title={speed?.label || t('results.stepsNoTimestamp', locale)}>
+                            <span className="k">{t('results.stepsAvgTime', locale)}</span>
+                            <span className="v">{speed && speed.days != null ? `${speed.days} j` : '—'}</span>
+                          </div>
+                          <div className="m">
+                            <span className="k">{t('results.stepsLostHere', locale)}</span>
+                            <span className={`v${lost > 0 ? ' bad' : ''}`}>{lost}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="muted steps-note">{t('results.stepsBackNote', locale)}</p>
+            {worstIdx !== null && (
+              <div className="insight">
+                <span className="insight-av"><Ic name="bot" size={16} /></span>
+                <p>
+                  <b>{t('results.stepsInsightTitle', locale)}</b>{' '}
+                  {t('results.passRateWeak', locale)
+                    .replace('{from}', t(PIPELINE_STAGES[worstIdx].labelKey, locale))
+                    .replace('{to}', t(PIPELINE_STAGES[worstIdx + 1].labelKey, locale))}
+                  {' '}({transformRates[worstIdx]} %{stageMetrics.lostByStage[PIPELINE_STAGES[worstIdx].key] > 0 ? `, ${stageMetrics.lostByStage[PIPELINE_STAGES[worstIdx].key]} ${t('results.lostAtStage', locale)}` : ''}).
+                  {totalLost > 0 ? ` ${t('results.stepsInsightLost', locale).replace('{n}', totalLost)}` : ''}
+                </p>
+              </div>
+            )}
+          </section>
+          )}
+
+          {panel === 'clients' && showClientsSection && (
+          <section className="panel category-panel">
+<div className="category-head">
+              <h2>{t('dash.clientsTitle', locale)}</h2>
+              <PeriodPicker
+                value={periods.clients}
+                custom={customRanges.clients}
+                onChange={(v) => updatePeriod('clients', v)}
+                onCustomChange={(field, v) => updateCustomRange('clients', field, v)}
+                locale={locale}
+              />
+            </div>
+            <p className="category-hint">{t('results.clientsWonPeriodHint', locale)}</p>
+            <div className="category-row">
+              {['saine', 'non_evalue', 'a_surveiller', 'a_risque'].map((key) => (
+                <div className="cat-stat-card" key={key}>
+                  <span className="dot" style={{ background: HEALTH_META[key].color }} />
+                  <span className="stat-number">{healthCounts[key] || 0}</span>
+                  <span className="stat-label">{HEALTH_META[key].label}</span>
+                </div>
+              ))}
+            </div>
+
+            <BilanRow
+              label={`${t('results.bilanLabel', locale)} — ${t('results.reportMetricClientsGagnes', locale)}`}
+              type={bilanTypes.clients}
+              onTypeChange={(v) => updateBilanType('clients', v)}
+              rows={bilanClients}
+              locale={locale}
+            />
+
+          </section>
+          )}
+
+          {panel === 'compare' && (
           <section className="panel">
             <div className="category-head">
-              <h2>{t('results.evolutionTitle', locale)}</h2>
-              <div className="evolution-window-row">
+              <div>
+                <h2>{t('results.evolutionTitle', locale)}</h2>
+                <p className="category-hint">{t('results.navCompareDesc', locale)}</p>
+              </div>
+<div className="evolution-window-row">
                 {['1m', '6m', '1y', 'custom'].map((w) => (
                   <button
                     key={w}
@@ -1300,9 +1330,27 @@ export default function ResultatsPage() {
             ) : (
               <p className="muted">{t('results.reportNoneYet', locale)}</p>
             )}
+
           </section>
-        </>
-      )}
+          )}
+
+          {openReport && (
+            <ReportDetail
+              type={reportTab}
+              bucket={openReport.bucket}
+              title={reportLabel(reportTab, openReport.bucket, locale).replace(/^[^—]+— /, '')}
+              data={{ allContacts, appointments, contactAmount }}
+              locale={locale}
+              formatEur={formatEur}
+              downloading={downloadingKey === `${reportTab}-${openReport.bucket.key}-pdf` ? 'pdf' : downloadingKey === `${reportTab}-${openReport.bucket.key}-csv` ? 'csv' : null}
+              onDownload={(format) => downloadReport(openReport.bucket, format)}
+              onClose={() => setOpenReport(null)}
+            />
+          )}
+          </div>
+        </div>
+        );
+      })()}
 
       <style jsx>{`
         .header {
@@ -1320,6 +1368,212 @@ export default function ResultatsPage() {
           font-family: var(--font-display);
           font-size: 1.9rem;
           margin: 0;
+        }
+        /* ── Mes résultats v2 : liste à gauche, un panneau à droite (même
+           mécanique que Mon compte, voir app/app/connexions/page.jsx). ── */
+        .account-layout {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 1.4rem;
+        }
+        .account-panel {
+          min-width: 0;
+        }
+        .account-panel .panel {
+          margin-bottom: 0;
+        }
+        .panel-back {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          background: none;
+          border: 0;
+          padding: 0 0 0.9rem;
+          margin: 0;
+          color: var(--muted);
+          font-family: inherit;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .panel-back:hover {
+          color: var(--text);
+        }
+        @media (max-width: 959px) {
+          .account-layout.has-panel > :global(.account-nav) {
+            display: none;
+          }
+          .account-layout:not(.has-panel) .account-panel {
+            display: none;
+          }
+        }
+        @media (min-width: 960px) {
+          .account-layout {
+            grid-template-columns: 288px minmax(0, 1fr);
+            align-items: start;
+          }
+          .account-layout > :global(.account-nav) {
+            position: sticky;
+            top: 1.5rem;
+          }
+          .panel-back {
+            display: none;
+          }
+        }
+        .category-head .category-hint {
+          margin: 0.25rem 0 0.6rem;
+          max-width: 56ch;
+        }
+        /* Étape par étape : une ligne par étape, les quatre chiffres de la
+           transition posés ENTRE les deux étapes qu'ils décrivent. */
+        .steps-def {
+          margin: 0.4rem 0 1.1rem;
+          padding: 0.7rem 0.9rem;
+          border-left: 3px solid var(--accent);
+          background: rgba(75, 57, 239, 0.08);
+          border-radius: 0 10px 10px 0;
+          font-size: 0.84rem;
+          color: var(--muted);
+          line-height: 1.5;
+        }
+        .steps {
+          display: flex;
+          flex-direction: column;
+        }
+        .stage-row {
+          display: grid;
+          grid-template-columns: 14px 1fr auto;
+          gap: 0.8rem;
+          align-items: center;
+          padding: 0.5rem 0.2rem;
+        }
+        .stage-dot {
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+        }
+        .stage-name {
+          font-weight: 600;
+          font-size: 0.95rem;
+          color: var(--text);
+          text-decoration: none;
+        }
+        .stage-name:hover {
+          color: var(--accent-light);
+        }
+        .stage-n {
+          font-family: var(--font-mono);
+          font-size: 0.95rem;
+        }
+        .stage-n small {
+          font-family: var(--font-body);
+          color: var(--muted);
+          font-size: 0.76rem;
+        }
+        .trans {
+          display: grid;
+          grid-template-columns: 14px 1fr;
+          gap: 0.8rem;
+          padding: 0.1rem 0.2rem 0.35rem;
+        }
+        .trans-line {
+          justify-self: center;
+          width: 2px;
+          min-height: 54px;
+          height: 100%;
+          background: var(--border);
+          border-radius: 2px;
+          position: relative;
+        }
+        .trans-line::after {
+          content: '';
+          position: absolute;
+          left: -3px;
+          bottom: -2px;
+          border: 4px solid transparent;
+          border-top: 6px solid var(--border);
+        }
+        .metrics {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 0.5rem;
+        }
+        .m {
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 0.45rem 0.65rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          min-width: 0;
+        }
+        .m .k {
+          font-size: 0.66rem;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .m .v {
+          font-family: var(--font-mono);
+          font-size: 0.98rem;
+        }
+        .m .v.good { color: var(--accent-green); }
+        .m .v.bad { color: var(--accent-red); }
+        .m .v.warn { color: var(--accent-amber); }
+        .m .bar {
+          height: 5px;
+          border-radius: 3px;
+          background: var(--border);
+          margin-top: 4px;
+          overflow: hidden;
+        }
+        .m .bar i {
+          display: block;
+          height: 100%;
+          border-radius: 3px;
+        }
+        .steps-note {
+          font-size: 0.78rem;
+          margin: 0.9rem 0 0;
+        }
+        .insight {
+          margin-top: 1rem;
+          display: flex;
+          gap: 0.8rem;
+          align-items: flex-start;
+          padding: 0.9rem 1rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          font-size: 0.88rem;
+        }
+        .insight p {
+          margin: 0;
+          color: var(--muted);
+          line-height: 1.5;
+        }
+        .insight b {
+          color: var(--text);
+        }
+        .insight-av {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        @media (max-width: 640px) {
+          .metrics {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
         .category-head {
           display: flex;
