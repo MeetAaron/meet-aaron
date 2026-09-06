@@ -73,7 +73,7 @@ Réponds STRICTEMENT en JSON valide, ${localeInstruction(authedUser.locale)}, su
   let bodyText = '';
   try {
     const data = await callClaude(
-      { model: 'claude-sonnet-4-6', max_tokens: 600, messages: [{ role: 'user', content: prompt }] },
+      { model: 'claude-sonnet-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] },
       campaign.company_id,
       'ac'
     );
