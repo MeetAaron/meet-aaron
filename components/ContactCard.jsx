@@ -30,7 +30,7 @@ import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import ConfidenceRing from '@/components/ConfidenceRing';
-import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smartphone, Linkedin, Trash2, X, ArrowRight, Trophy, Ban } from 'lucide-react';
+import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smartphone, Linkedin, Trash2, X, ArrowRight, Trophy, Ban, Building2, ChevronDown } from 'lucide-react';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
@@ -476,6 +476,51 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           </div>
         )}
 
+        {/* Profil de l'entreprise (idée d'Alex, 06/09/2026 : « puisqu'Aaron
+            fait une recherche où il apprend le métier de chaque entreprise,
+            autant qu'il crée un petit doc dans la fiche contact »). La donnée
+            existait déjà — prospect_companies.research_summary, écrite une
+            fois par société par lib/prospect-research.ts — mais n'était
+            affichée NULLE PART : seul Aaron la lisait pour écrire ses emails.
+            Le commercial arrivait donc en rendez-vous sans savoir ce qu'Aaron
+            savait. Replié par défaut pour ne pas alourdir la fiche. */}
+        {(company.research_summary || company.industry || company.siret || company.website || company.address) && (
+          <details className="company-profile">
+            <summary>
+              <span className="cp-ic"><Building2 size={15} strokeWidth={2} aria-hidden="true" /></span>
+              <span className="cp-title">{t('card.companyProfileTitle', locale)}</span>
+              <span className="cp-chev" aria-hidden="true"><ChevronDown size={15} strokeWidth={2.2} /></span>
+            </summary>
+            <div className="cp-body">
+              {company.research_summary && <p className="cp-summary">{company.research_summary}</p>}
+              <dl className="cp-facts">
+                {company.industry && (<><dt>{t('card.companyProfileIndustry', locale)}</dt><dd>{company.industry}</dd></>)}
+                {company.company_size && (<><dt>{t('card.companyProfileSize', locale)}</dt><dd>{company.company_size}</dd></>)}
+                {company.siret && (<><dt>{t('card.companyProfileRegistry', locale)}</dt><dd>{company.siret}</dd></>)}
+                {company.address && (<><dt>{t('card.companyProfileAddress', locale)}</dt><dd>{company.address}</dd></>)}
+                {(company.website || company.domain) && (
+                  <>
+                    <dt>{t('card.companyProfileWebsite', locale)}</dt>
+                    <dd>
+                      <a href={company.website || `https://${company.domain}`} target="_blank" rel="noopener noreferrer">
+                        {company.domain || company.website}
+                      </a>
+                    </dd>
+                  </>
+                )}
+              </dl>
+              {company.research_checked_at && (
+                <p className="cp-when">
+                  {t('card.companyProfileCheckedAt', locale).replace(
+                    '{date}',
+                    new Date(company.research_checked_at).toLocaleDateString((locale || 'fr').replace('_', '-'), { day: 'numeric', month: 'long', year: 'numeric' })
+                  )}
+                </p>
+              )}
+            </div>
+          </details>
+        )}
+
         {/* REFONTE 04/09/2026 (maquette validée par Alex) : les 8 boutons
             d'action avaient tous le même poids visuel — sur téléphone ça
             faisait un mur de pastilles où rien ne ressortait. Désormais TROIS
@@ -791,6 +836,66 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           place-items: center;
           padding: 0;
           line-height: 0;
+        }
+        /* Profil de l'entreprise — replié, discret, mais toujours là. */
+        .company-profile {
+          margin-top: 1rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          overflow: hidden;
+        }
+        .company-profile summary {
+          display: flex;
+          align-items: center;
+          gap: 0.55rem;
+          padding: 0.7rem 0.85rem;
+          cursor: pointer;
+          list-style: none;
+          font-size: 0.86rem;
+          font-weight: 600;
+        }
+        .company-profile summary::-webkit-details-marker { display: none; }
+        .cp-ic {
+          display: inline-flex;
+          color: var(--accent);
+          flex-shrink: 0;
+        }
+        .cp-title { flex: 1; min-width: 0; }
+        .cp-chev {
+          display: inline-flex;
+          color: var(--muted);
+          transition: transform 0.2s ease;
+          flex-shrink: 0;
+        }
+        .company-profile[open] .cp-chev { transform: rotate(180deg); }
+        .cp-body {
+          padding: 0 0.85rem 0.85rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.7rem;
+        }
+        .cp-summary {
+          margin: 0;
+          font-size: 0.85rem;
+          line-height: 1.55;
+          color: var(--text);
+        }
+        .cp-facts {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 0.3rem 0.8rem;
+          margin: 0;
+          font-size: 0.82rem;
+        }
+        .cp-facts dt { color: var(--muted); }
+        .cp-facts dd { margin: 0; word-break: break-word; }
+        .cp-facts dd a { color: var(--accent); text-decoration: none; }
+        .cp-facts dd a:hover { text-decoration: underline; }
+        .cp-when {
+          margin: 0;
+          font-size: 0.73rem;
+          color: var(--muted-soft, var(--muted));
         }
         .progress-wrap { margin: 1.3rem 0 0.4rem; padding: 0 0.2rem; }
         .alerts { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 1rem; }
