@@ -33,7 +33,12 @@ export async function GET(request: NextRequest) {
 
   let query = supabaseAdmin
     .from('prospects')
-    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
+    // research_summary / research_checked_at (06/09/2026) : la recherche métier
+    // qu'Aaron fait déjà sur chaque société était stockée mais jamais renvoyée
+    // au client — elle alimente le bloc « Profil de l'entreprise » de la fiche
+    // contact, pour que le commercial arrive en rendez-vous en sachant ce
+    // qu'Aaron sait.
+    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at)')
     .eq('assigned_user_id', userId);
   if (scope !== 'all') {
     // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
