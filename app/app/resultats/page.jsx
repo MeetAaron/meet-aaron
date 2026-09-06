@@ -334,6 +334,21 @@ function evolutionRangeFor(window, custom, now) {
   return { current: { start, end: ref }, previous: { start: prevStart, end: prevEnd } };
 }
 
+// Libellé lisible d'une plage comparée : « 6 mars – 6 sept. 2026 ». Sert
+// d'en-tête au panneau « Comparer deux périodes » — sans les dates, on ne
+// savait pas ce qui était comparé à quoi (remonté par Alex, 06/09/2026).
+function formatRangeLabel(range, locale) {
+  if (!range) return '';
+  const loc = (locale || 'fr').replace('_', '-');
+  const opts = { day: 'numeric', month: 'short' };
+  const start = new Date(range.start);
+  const end = new Date(range.end);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const fmtStart = start.toLocaleDateString(loc, sameYear ? opts : { ...opts, year: 'numeric' });
+  const fmtEnd = end.toLocaleDateString(loc, { ...opts, year: 'numeric' });
+  return `${fmtStart} – ${fmtEnd}`;
+}
+
 // Bilan jour/semaine/mois compact pour une catégorie (item A3) — une rangée
 // de mini-cartes (valeur + date), la plus récente à droite, complétée par un
 // petit graphique en barres (tâche #129 piste 3 : vraie dataviz). Le
@@ -452,27 +467,86 @@ function BilanRow({ label, type, onTypeChange, rows, locale }) {
   );
 }
 
-function EvolutionMetric({ label, current, previous, suffix, lowerIsBetter = false }) {
+function EvolutionMetric({ label, current, previous, suffix, lowerIsBetter = false, currentLabel, previousLabel }) {
   const delta = current - previous;
   const pct = previous > 0 ? Math.round((delta / previous) * 100) : current > 0 ? 100 : 0;
   // `lowerIsBetter` (pertes) : une hausse se colore en rouge, une baisse en
   // vert — sinon « +3 perdus » s'afficherait comme une bonne nouvelle.
   const better = delta === 0 ? null : lowerIsBetter ? delta < 0 : delta > 0;
   const direction = better === null ? 'flat' : better ? 'up' : 'down';
-  const arrow = delta > 0 ? <Ic name="trendUp" size={13} /> : delta < 0 ? <Ic name="trendDown" size={13} /> : '—';
+  // Bug remonté par Alex (06/09/2026, capture « Comparer deux périodes ») :
+  // « Prospects contactés2 », « RDV obtenus0— 0 (0%) » — libellés et valeurs
+  // collés, aucune carte. Cause : les styles .evolution-metric étaient
+  // déclarés dans le <style jsx> de ResultatsPage alors que ce balisage est
+  // rendu par un AUTRE composant — styled-jsx scope les styles au composant
+  // qui les déclare, donc aucune règle ne s'appliquait ici. Les styles vivent
+  // désormais dans ce composant (même schéma que StatCard plus bas).
+  //
+  // Au passage, la carte montre vraiment DEUX périodes côte à côte : on ne
+  // comparait rien visuellement, la valeur précédente n'était nulle part.
   return (
     <div className="evolution-metric">
       <span className="evolution-label">{label}</span>
-      <span className="evolution-value">
-        {current}
-        {suffix || ''}
-      </span>
+      <div className="evolution-pair">
+        <div className="evolution-side now">
+          <span className="evolution-side-lbl">{currentLabel}</span>
+          <span className="evolution-value">
+            {current}
+            {suffix || ''}
+          </span>
+        </div>
+        <span className="evolution-vs" aria-hidden="true">
+          <Ic name="arrowRight" size={14} />
+        </span>
+        <div className="evolution-side before">
+          <span className="evolution-side-lbl">{previousLabel}</span>
+          <span className="evolution-value prev">
+            {previous}
+            {suffix || ''}
+          </span>
+        </div>
+      </div>
       <span className={`evolution-delta ${direction}`}>
-        {arrow} {delta > 0 ? '+' : ''}
-        {delta}
-        {suffix || ''} ({pct > 0 ? '+' : ''}
-        {pct}%)
+        {delta > 0 ? <Ic name="trendUp" size={13} /> : delta < 0 ? <Ic name="trendDown" size={13} /> : null}
+        <span>
+          {delta > 0 ? '+' : ''}
+          {delta}
+          {suffix || ''}
+          {previous > 0 ? ` (${pct > 0 ? '+' : ''}${pct}\u00a0%)` : ''}
+        </span>
       </span>
+
+      <style jsx>{`
+        .evolution-pair {
+          display: flex;
+          align-items: flex-end;
+          gap: 0.55rem;
+          min-width: 0;
+        }
+        .evolution-side {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          min-width: 0;
+        }
+        .evolution-side-lbl {
+          font-size: 0.62rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--muted-soft, var(--muted));
+          white-space: nowrap;
+        }
+        .evolution-value.prev {
+          font-size: 1.05rem;
+          color: var(--muted);
+        }
+        .evolution-vs {
+          display: inline-flex;
+          color: var(--muted-soft, var(--muted));
+          padding-bottom: 0.15rem;
+          transform: scaleX(-1);
+        }
+      `}</style>
     </div>
   );
 }
@@ -1287,44 +1361,68 @@ export default function ResultatsPage() {
             )}
             {evolutionCurrent && evolutionPrevious ? (
               <>
-                <p className="category-hint">{t('results.evolutionVsPrevious', locale)}</p>
+                <div className="evolution-ranges">
+                  <span className="evo-range now">
+                    <span className="evo-range-lbl">{t('results.evolutionCurrentLabel', locale)}</span>
+                    <span className="evo-range-dates">{formatRangeLabel(evolutionRanges.current, locale)}</span>
+                  </span>
+                  <span className="evo-range-vs">{t('results.evolutionVs', locale)}</span>
+                  <span className="evo-range before">
+                    <span className="evo-range-lbl">{t('results.evolutionPreviousLabel', locale)}</span>
+                    <span className="evo-range-dates">{formatRangeLabel(evolutionRanges.previous, locale)}</span>
+                  </span>
+                </div>
                 <div className="evolution-grid">
                   <EvolutionMetric
                     label={t('results.reportMetricProspects', locale)}
                     current={evolutionCurrent.prospectsContactes}
                     previous={evolutionPrevious.prospectsContactes}
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('results.reportMetricRdv', locale)}
                     current={evolutionCurrent.rdvObtenus}
                     previous={evolutionPrevious.rdvObtenus}
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('results.statConversionRate', locale)}
                     current={evolutionCurrent.tauxConversion}
                     previous={evolutionPrevious.tauxConversion}
                     suffix="%"
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('results.reportMetricOpportunitesGagnees', locale)}
                     current={evolutionCurrent.opportunitesGagnees}
                     previous={evolutionPrevious.opportunitesGagnees}
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('results.reportMetricClientsGagnes', locale)}
                     current={evolutionCurrent.clientsGagnes}
                     previous={evolutionPrevious.clientsGagnes}
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('report.quotesAsked', locale)}
                     current={evolutionCurrent.devisDemandes}
                     previous={evolutionPrevious.devisDemandes}
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                   <EvolutionMetric
                     label={t('results.progressLost', locale)}
                     current={evolutionCurrent.perdus}
                     previous={evolutionPrevious.perdus}
                     lowerIsBetter
+                    currentLabel={t('results.evolutionCurrentLabel', locale)}
+                    previousLabel={t('results.evolutionPreviousLabel', locale)}
                   />
                 </div>
               </>
@@ -2129,9 +2227,47 @@ export default function ResultatsPage() {
           font-size: 0.78rem;
           font-family: inherit;
         }
+        .evolution-ranges {
+          display: flex;
+          align-items: center;
+          gap: 0.85rem;
+          flex-wrap: wrap;
+          margin: 0.2rem 0 1rem;
+          padding: 0.75rem 0.9rem;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+        }
+        .evo-range {
+          display: flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          min-width: 0;
+        }
+        .evo-range-lbl {
+          font-size: 0.62rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--muted-soft, var(--muted));
+        }
+        .evo-range-dates {
+          font-size: 0.86rem;
+          font-weight: 600;
+        }
+        .evo-range.before .evo-range-dates {
+          color: var(--muted);
+          font-weight: 500;
+        }
+        .evo-range-vs {
+          font-size: 0.72rem;
+          color: var(--muted-soft, var(--muted));
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 0.1rem 0.5rem;
+        }
         .evolution-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
           gap: 0.9rem;
         }
         .evolution-metric {
