@@ -1172,14 +1172,53 @@ export default function ChatPage() {
   function startQuestionnaireNow() {
     explicitStartRef.current = true;
     const onboardingQuestions = getOnboardingQuestions(locale);
+
+    // Bug remonté par Alex (06/09/2026, capture du chat) : « il ne faut pas
+    // qu'Aaron pose la question du questionnaire vu qu'on y a déjà répondu ».
+    // Avant, « reprendre le questionnaire » remettait onboarding_step à 0 ET
+    // VIDAIT onboarding_answers : Aaron reposait la question 1 (« dans quel
+    // secteur d'activité travailles-tu ? ») à quelqu'un qui y avait déjà
+    // répondu et dont le profil d'entreprise existait. On repart désormais là
+    // où le commercial s'était arrêté : les réponses sont conservées (elles
+    // sont strictement séquentielles, une par question, voir handleSend) et
+    // l'étape reprise est simplement le nombre de réponses déjà données.
+    const answered = Array.isArray(onboardingAnswers) ? onboardingAnswers.length : 0;
+
+    // Tout est déjà répondu : on ne repose RIEN. Aaron dit ce qu'il sait et
+    // laisse le commercial nommer le point à corriger — c'est une relecture,
+    // pas un nouveau questionnaire.
+    if (answered >= onboardingQuestions.length) {
+      const doneMessages = [{ role: 'assistant', content: t('chat.questionnaireAlreadyComplete', locale) }];
+      setMessages((prev) => [...prev.filter((m) => !m.offerRestartQuestionnaire), ...doneMessages]);
+      setOnboardingStep(-1);
+      setQuestionnaireDone(true);
+      fetch('/api/chat-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          conversation_id: activeConversationId,
+          messages: doneMessages,
+          onboarding_step: -1,
+        }),
+      }).catch(() => {});
+      return;
+    }
+
+    const resumeStep = answered;
+    const intro =
+      resumeStep > 0
+        ? t('chat.resumeQuestionnaireIntro', locale)
+            .replace('{done}', String(resumeStep))
+            .replace('{total}', String(onboardingQuestions.length))
+        : t('chat.restartQuestionnaireIntro', locale);
     const restartMessages = [
-      { role: 'assistant', content: t('chat.restartQuestionnaireIntro', locale) },
-      { role: 'assistant', content: onboardingQuestions[0] },
+      { role: 'assistant', content: intro },
+      { role: 'assistant', content: onboardingQuestions[resumeStep] },
     ];
     // Retire l'invite (non persistée) avant d'ajouter le vrai démarrage.
     setMessages((prev) => [...prev.filter((m) => !m.offerRestartQuestionnaire), ...restartMessages]);
-    setOnboardingStep(0);
-    setOnboardingAnswers([]);
+    setOnboardingStep(resumeStep);
     setSummaryDone(false);
     setQuestionnaireDone(false);
 
@@ -1190,8 +1229,7 @@ export default function ChatPage() {
         user_id: userId,
         conversation_id: activeConversationId,
         messages: restartMessages,
-        onboarding_step: 0,
-        onboarding_answers: [],
+        onboarding_step: resumeStep,
       }),
     }).catch(() => {});
   }
@@ -1815,19 +1853,26 @@ export default function ChatPage() {
           cours est mis en évidence sans être plein. */}
       {onboardingStep >= 0 && (
         <div
-          className="questionnaire-progress-dots"
+          className="questionnaire-progress"
           role="progressbar"
           aria-valuenow={onboardingStep + 1}
           aria-valuemin={1}
           aria-valuemax={getOnboardingQuestions(locale).length}
           aria-label={t('chat.questionnaireProgressLabel', locale)}
         >
-          {getOnboardingQuestions(locale).map((_, i) => (
-            <span
-              key={i}
-              className={`questionnaire-progress-dot${i < onboardingStep ? ' filled' : ''}${i === onboardingStep ? ' current' : ''}`}
-            />
-          ))}
+          <span className="questionnaire-progress-count">
+            {t('chat.questionnaireProgressCount', locale)
+              .replace('{current}', String(onboardingStep + 1))
+              .replace('{total}', String(getOnboardingQuestions(locale).length))}
+          </span>
+          <span className="questionnaire-progress-dots">
+            {getOnboardingQuestions(locale).map((_, i) => (
+              <span
+                key={i}
+                className={`questionnaire-progress-dot${i < onboardingStep ? ' filled' : ''}${i === onboardingStep ? ' current' : ''}`}
+              />
+            ))}
+          </span>
         </div>
       )}
 
@@ -2279,26 +2324,52 @@ export default function ChatPage() {
           font-size: 0.85rem;
           margin-bottom: 1rem;
         }
+        /* Barre d'étape du questionnaire (revue 06/09/2026 : « la barre de
+           progression du questionnaire est mal placée »). Elle flottait
+           collée à gauche sous l'en-tête, sans compteur ni contenant : on ne
+           savait ni ce qu'elle mesurait, ni où on en était. C'est désormais
+           un vrai bandeau, aligné sur la largeur du fil de discussion, avec
+           « Question 3 sur 13 » à gauche et les points à droite. */
+        .questionnaire-progress {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.9rem;
+          flex-wrap: wrap;
+          margin: 0 0 1rem;
+          padding: 0.55rem 0.9rem;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+        }
+        .questionnaire-progress-count {
+          font-size: 0.72rem;
+          font-weight: 600;
+          letter-spacing: 0.03em;
+          color: var(--muted);
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
         .questionnaire-progress-dots {
           display: flex;
+          align-items: center;
           flex-wrap: wrap;
-          gap: 0.4rem;
-          margin-bottom: 1rem;
+          gap: 0.35rem;
         }
         .questionnaire-progress-dot {
-          width: 8px;
-          height: 8px;
+          width: 7px;
+          height: 7px;
           border-radius: 999px;
           background: var(--border);
-          transition: background 0.2s ease, transform 0.2s ease;
+          transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
         }
         .questionnaire-progress-dot.filled {
           background: var(--accent);
         }
         .questionnaire-progress-dot.current {
-          background: var(--bg);
-          border: 2px solid var(--accent);
-          transform: scale(1.15);
+          background: var(--accent);
+          transform: scale(1.35);
+          box-shadow: 0 0 0 3px rgba(75, 57, 239, 0.22);
         }
         .feedback-form {
           background: var(--surface);
@@ -2795,25 +2866,58 @@ export default function ChatPage() {
           padding: 0 1rem;
           margin-top: 0.6rem;
         }
+        /* Réponses suggérées (revue 06/09/2026 : « les chips font un peu
+           vieux »). Avant : contour gris, texte violet, fond de page — trois
+           couleurs qui ne se parlaient pas, et un look de tag cliquable des
+           années 2010. Maintenant : pastille pleine mais discrète, teintée de
+           l'accent de l'app, texte à l'encre normale (c'est du contenu, pas
+           un lien), et un « + » qui apparaît au survol parce que le clic
+           INSÈRE le texte dans le champ, il ne l'envoie pas. */
         .suggestion-row {
           display: flex;
           flex-wrap: wrap;
-          gap: 0.45rem;
-          padding: 0.6rem 1rem 0;
+          gap: 0.4rem;
+          padding: 0.7rem 1rem 0;
         }
         .suggestion-chip {
-          background: var(--bg);
-          border: 1px solid var(--border);
-          color: var(--accent);
-          border-radius: 999px;
-          padding: 0.35rem 0.8rem;
-          font-size: 0.78rem;
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          background: var(--surface);
+          border: 1px solid var(--border-soft, var(--border));
+          color: var(--text);
+          border-radius: 10px;
+          padding: 0.42rem 0.7rem;
+          font-family: inherit;
+          font-size: 0.79rem;
+          font-weight: 500;
+          line-height: 1.25;
           cursor: pointer;
-          transition: border-color 0.15s ease, background 0.15s ease;
+          transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+        }
+        .suggestion-chip::before {
+          content: '+';
+          font-size: 0.9rem;
+          line-height: 1;
+          color: var(--accent);
+          opacity: 0.55;
+          transition: opacity 0.15s ease;
         }
         .suggestion-chip:hover {
           border-color: var(--accent);
-          background: var(--surface);
+          background: rgba(75, 57, 239, 0.09);
+          transform: translateY(-1px);
+        }
+        .suggestion-chip:hover::before {
+          opacity: 1;
+        }
+        .suggestion-chip:active {
+          transform: translateY(0);
+        }
+        .suggestion-chip:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 2px;
         }
         .attach-chip {
           display: inline-flex;
