@@ -773,11 +773,21 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         .company { margin: 0.1rem 0 0; font-size: 0.8rem; color: var(--muted); }
         .close {
           background: transparent;
-          border: none;
+          border: 1px solid var(--border);
+          border-radius: 50%;
+          width: 32px;
+          height: 32px;
           color: var(--muted);
-          font-size: 1rem;
           cursor: pointer;
-          padding: 0.2rem 0.4rem;
+          display: grid;
+          place-items: center;
+          padding: 0;
+          line-height: 0;
+          flex-shrink: 0;
+        }
+        .close:hover {
+          color: var(--text);
+          border-color: var(--muted);
         }
         .body { margin-top: 1rem; }
         .body :global(.lead) { font-size: 0.95rem; line-height: 1.5; margin: 0 0 0.6rem; }

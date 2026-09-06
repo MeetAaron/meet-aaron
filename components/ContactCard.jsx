@@ -785,6 +785,12 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           cursor: pointer;
           flex-shrink: 0;
           font-size: 0.9rem;
+          /* Croix centrée au pixel près (même correctif que ReportDetail,
+             06/09/2026) : sans ça l'icône s'aligne sur la ligne de base. */
+          display: grid;
+          place-items: center;
+          padding: 0;
+          line-height: 0;
         }
         .progress-wrap { margin: 1.3rem 0 0.4rem; padding: 0 0.2rem; }
         .alerts { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 1rem; }

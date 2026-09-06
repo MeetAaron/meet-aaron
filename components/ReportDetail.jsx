@@ -305,6 +305,20 @@ export default function ReportDetail({ type, bucket, title, data, locale, onClos
           background: transparent;
           color: var(--muted);
           cursor: pointer;
+          /* La croix flottait en bas à droite du cercle (capture Alex,
+             06/09/2026) : un <button> aligne son contenu sur la ligne de base
+             du texte et garde le padding par défaut du navigateur. grid +
+             place-items centre l'icône au pixel près, padding 0 et
+             line-height 0 suppriment le décalage résiduel. */
+          display: grid;
+          place-items: center;
+          padding: 0;
+          line-height: 0;
+          transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .close:hover {
+          color: var(--text);
+          border-color: var(--muted);
         }
         .eyebrow {
           margin: 0;
