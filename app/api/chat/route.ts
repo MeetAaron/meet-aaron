@@ -626,7 +626,7 @@ export async function POST(request: NextRequest) {
     [data, suggestion] = await Promise.all([
       callClaude(
         {
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           max_tokens: 1000,
           system: systemBlocks,
           tools: [...CHAT_TOOLS, CHAT_WEB_SEARCH_TOOL],
@@ -673,7 +673,7 @@ export async function POST(request: NextRequest) {
 
       data = await callClaude(
         {
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           max_tokens: 1000,
           system: systemBlocks,
           tools: [...CHAT_TOOLS, CHAT_WEB_SEARCH_TOOL],
