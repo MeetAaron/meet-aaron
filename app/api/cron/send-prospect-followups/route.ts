@@ -39,6 +39,9 @@ import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 const RELANCE_ELIGIBLE_STATUSES = ['jaune', 'orange'];
 
 const RELANCE_SCHEDULE_DAYS = [3, 7, 14]; // due day, indexé par (nb de messages sortants déjà envoyés - 1)
+// Jours de silence après la dernière relance au bout desquels le contact est
+// classé « perdu — sans réponse » (décision Alex, 06/09/2026).
+const NO_REPLY_LOST_AFTER_DAYS = 15;
 const MAX_PER_USER_PER_RUN = 30;
 
 function isAuthorized(request: NextRequest) {
@@ -72,6 +75,8 @@ export async function GET(request: NextRequest) {
   const pendingIds = await pendingBatchProspectIds();
   const companyByUser = new Map<string, string | null>();
   const items: BatchItemInput[] = [];
+  // Prospects à classer « perdu — sans réponse » (voir NO_REPLY_LOST_AFTER_DAYS).
+  const autoLost: string[] = [];
 
   for (const prospect of candidates || []) {
     const conversation = (prospect as any).conversations?.[0];
@@ -89,7 +94,24 @@ export async function GET(request: NextRequest) {
     if (lastInbound && lastInbound.sent_at > lastOutbound.sent_at) continue;
 
     const scheduleIndex = outbound.length - 1; // combien de messages sortants déjà envoyés
-    if (scheduleIndex >= RELANCE_SCHEDULE_DAYS.length) continue; // calendrier de relance épuisé
+    if (scheduleIndex >= RELANCE_SCHEDULE_DAYS.length) {
+      // Calendrier épuisé (06/09/2026, décision Alex). Avant, on s'arrêtait
+      // là et le contact restait « en cours » POUR TOUJOURS : des fantômes
+      // s'accumulaient dans le pipeline et faussaient le taux de
+      // transformation vers le bas, mois après mois.
+      //
+      // Désormais, 15 jours après la DERNIÈRE relance restée sans réponse, le
+      // contact bascule en perdu avec le motif « sans réponse » — distinct
+      // d'un vrai refus (`pas_interesse`), pour que « Étape par étape » et
+      // les rapports distinguent « on nous a dit non » de « personne n'a
+      // jamais répondu ». Rien n'est supprimé, la conversation reste
+      // consultable, et le commercial peut rouvrir le contact à la main.
+      const daysSinceLastOutbound = (now - new Date(lastOutbound.sent_at).getTime()) / 86_400_000;
+      if (daysSinceLastOutbound >= NO_REPLY_LOST_AFTER_DAYS) {
+        autoLost.push(prospect.id);
+      }
+      continue;
+    }
 
     const dueDay = RELANCE_SCHEDULE_DAYS[scheduleIndex];
     const firstOutbound = outbound[0];
@@ -122,10 +144,30 @@ export async function GET(request: NextRequest) {
   // moitié prix, sur Haiku (voir AaronModel dans lib/aaron.ts), et sont
   // envoyées quand le lot revient (collect-aaron-batches). Repli temps réel
   // si le lot ne peut pas être soumis.
+  // Classement automatique des silencieux (voir NO_REPLY_LOST_AFTER_DAYS).
+  // Fait avant l'envoi des relances : c'est indépendant, et une erreur ici ne
+  // doit pas empêcher les relances de partir.
+  if (autoLost.length > 0) {
+    try {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          is_lost: true,
+          lost_at: new Date().toISOString(),
+          pipeline_lost_reason: 'sans_reponse',
+          status: 'rouge',
+          status_updated_at: new Date().toISOString(),
+        })
+        .in('id', autoLost);
+    } catch (err: any) {
+      console.error('Classement auto « sans réponse » :', err?.message);
+    }
+  }
+
   if (items.length > 0 && batchEnabled()) {
     try {
       const enq = await enqueueAaronBatch(items, { model: 'claude-haiku-4-5' });
-      return NextResponse.json({ batched: enq.submitted, followed_up: enq.appliedNow, batch_id: enq.batchId });
+      return NextResponse.json({ batched: enq.submitted, followed_up: enq.appliedNow, batch_id: enq.batchId, auto_lost: autoLost.length });
     } catch (err: any) {
       console.error('Batch Aaron indisponible, passage en temps réel :', err?.message);
     }
@@ -148,5 +190,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ followed_up: followedUp });
+  return NextResponse.json({ followed_up: followedUp, auto_lost: autoLost.length });
 }
