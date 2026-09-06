@@ -1120,6 +1120,13 @@ function objectiveSuggestionsFor(locale) {
   return [10, 20, 50, 100].map((n) => `${n} ${unit}`);
 }
 
+// Les six sujets du questionnaire de campagne, DANS L'ORDRE — doit rester
+// synchronisé avec CAMPAIGN_CHAT_SYSTEM_PROMPT (app/api/campaigns/chat).
+// Sert à la barre de progression à points, réclamée par Alex le 06/09/2026
+// (« je veux la même barre de progression à points que lors de la création du
+// profil, afin que l'utilisateur sache où il en est »).
+const CAMPAIGN_TOPICS = ['secteur', 'zone', 'taille', 'role', 'communication', 'objectif'];
+
 // Extrait la ligne cachée <!--topic:XXX--> (voir system prompt côté API) qui
 // indique le sujet de la question en cours, pour afficher les bonnes chips.
 function extractTopic(text) {
@@ -1214,6 +1221,12 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   // cliquables affichées (voir le marqueur <!--topic:...--> côté system prompt).
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
   const currentTopic = recap ? null : lastAssistantMessage?.topic || null;
+  // Position dans les six sujets. Aaron peut sauter une étape (le commercial
+  // répond parfois à deux questions d'un coup) : on se fie donc au sujet
+  // réellement posé, pas à un compteur incrémenté à l'aveugle. Sujet inconnu
+  // ou absent → on reste au début plutôt que d'afficher une progression fausse.
+  const topicIdx = currentTopic ? CAMPAIGN_TOPICS.indexOf(currentTopic) : -1;
+  const currentStepIndex = topicIdx >= 0 ? topicIdx : 0;
 
   // Vérification de budget AVANT lancement (décision Alex, 01/09/2026).
   // Purement informative : on prévient, on ne bloque pas. Si le commercial
@@ -1271,6 +1284,35 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         <div className="chat-header">
           <h2>{t('campaigns.chatModalTitle', locale)}</h2>
           <button type="button" className="close-btn" onClick={onClose}><Ic name="x" size={16} /></button>
+        </div>
+
+        {/* Progression du questionnaire de campagne — un point par sujet, le
+            point se remplit une fois le sujet passé. Même langage visuel que
+            le questionnaire de découverte du chat (voir app/app/chat). Le
+            récapitulatif proposé remplit tout : il n'y a plus de question. */}
+        <div
+          className="campaign-progress"
+          role="progressbar"
+          aria-valuenow={recap ? CAMPAIGN_TOPICS.length : currentStepIndex + 1}
+          aria-valuemin={1}
+          aria-valuemax={CAMPAIGN_TOPICS.length}
+          aria-label={t('campaigns.progressLabel', locale)}
+        >
+          <span className="campaign-progress-count">
+            {recap
+              ? t('campaigns.progressDone', locale)
+              : t('campaigns.progressCount', locale)
+                  .replace('{current}', String(currentStepIndex + 1))
+                  .replace('{total}', String(CAMPAIGN_TOPICS.length))}
+          </span>
+          <span className="campaign-progress-dots">
+            {CAMPAIGN_TOPICS.map((topic, i) => (
+              <span
+                key={topic}
+                className={`campaign-progress-dot${recap || i < currentStepIndex ? ' filled' : ''}${!recap && i === currentStepIndex ? ' current' : ''}`}
+              />
+            ))}
+          </span>
         </div>
 
         <div className="chat-messages">
@@ -1426,6 +1468,47 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           font-family: var(--font-display);
           font-size: 1.1rem;
           margin: 0;
+        }
+        /* Barre de progression du questionnaire de campagne — même langage
+           visuel que celle du questionnaire de découverte (app/app/chat). */
+        .campaign-progress {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.9rem;
+          flex-wrap: wrap;
+          margin: 0 0 0.9rem;
+          padding: 0.5rem 0.85rem;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+        }
+        .campaign-progress-count {
+          font-size: 0.72rem;
+          font-weight: 600;
+          color: var(--muted);
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .campaign-progress-dots {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .campaign-progress-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: var(--border);
+          transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .campaign-progress-dot.filled {
+          background: var(--accent);
+        }
+        .campaign-progress-dot.current {
+          background: var(--accent);
+          transform: scale(1.35);
+          box-shadow: 0 0 0 3px rgba(75, 57, 239, 0.22);
         }
         .close-btn {
           background: transparent;
