@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     // de le refacturer en entier à chaque question.
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 300,
         system: [
           { type: 'text', text: `${SYSTEM_PROMPT}\n\nRéponds ${localeInstruction(authedUser.locale)}.`, cache_control: { type: 'ephemeral' } },
