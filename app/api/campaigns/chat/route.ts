@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 700,
         system: [
           { type: 'text', text: buildSystemPrompt(pastCampaignsSummary, authedUser.locale), cache_control: { type: 'ephemeral' } },
