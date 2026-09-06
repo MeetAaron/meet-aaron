@@ -7,6 +7,7 @@ import { callClaude } from './anthropic-client';
 import { researchProspectCompany } from './prospect-research';
 import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
+import { searchDirectory } from './directory-db';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -219,6 +220,35 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       }
     } catch (err: any) {
       console.error('Entreprises récentes (non bloquant) :', err?.message);
+    }
+  }
+
+  // Puis l'annuaire libre de droits (Overture Maps & co, table
+  // directory_companies) : nom, domaine, téléphone, adresse d'établissements
+  // réels, sans appel externe et sans coût. C'est le remplaçant de Google
+  // Places décidé le 06/09/2026. Vide tant que l'import n'a pas tourné → on
+  // enchaîne simplement sur la suite.
+  if (foundCompanies.length === 0) {
+    try {
+      const country = guessCountry(campaign.zone_label, null);
+      const hits = await searchDirectory({
+        country,
+        zoneLabel: campaign.zone_label,
+        sectorKeywords: campaign.sector_keywords || [],
+        excludeDomains,
+        count: batchSize,
+      });
+      foundCompanies = hits.map((h) => ({
+        name: h.name,
+        domain: h.domain,
+        address: h.address,
+        city: h.city,
+        website: h.website,
+        source_url: h.sourceUrl,
+        phone: h.phone,
+      }));
+    } catch (err: any) {
+      console.error('Annuaire libre (non bloquant) :', err?.message);
     }
   }
 
