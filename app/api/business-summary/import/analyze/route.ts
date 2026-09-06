@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         // Généreux (contrairement aux 500 tokens de la génération initiale
         // courte, voir app/api/business-summary/route.ts) : le profil renvoyé
         // par l'utilisateur peut être un vrai document long (Alex : "si ça
