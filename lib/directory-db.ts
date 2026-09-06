@@ -76,11 +76,13 @@ export function categoriesForSectors(sectorKeywords: string[]): string[] {
   const out = new Set<string>();
   for (const raw of sectorKeywords || []) {
     const k = normalize(raw);
-    for (const [word, cats] of Object.entries(SECTOR_TO_CATEGORY)) {
-      if (k.includes(normalize(word))) cats.forEach((c) => out.add(c));
+    for (const word of Object.keys(SECTOR_TO_CATEGORY)) {
+      if (k.includes(normalize(word))) SECTOR_TO_CATEGORY[word].forEach((c) => out.add(c));
     }
   }
-  return [...out];
+  // Array.from et non [...out] : le tsconfig cible ES5, où l'itération
+  // d'un Set par spread ne compile pas (build Vercel du 06/09/2026).
+  return Array.from(out);
 }
 
 // Ville probable extraite d'un libellé de zone libre (« Lyon », « Île-de-France,
