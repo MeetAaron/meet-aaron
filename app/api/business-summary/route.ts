@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         // Relevé de 500 à 3500 (29/08/2026, passage au profil d'entreprise
         // enrichi multi-sections) : jusqu'à 8 sections rédigées en prose,
         // largement au-delà de l'ancien résumé de 5-9 phrases. La longueur
