@@ -342,7 +342,7 @@ function fillTemplateTokens(
 // nombreux et le moins exigeant : pas de réponse à interpréter, un message
 // court à écrire. Haiku 4.5 y suffit, 3 à 5 fois moins cher. Le premier
 // contact et toute réponse à un prospect qui a écrit restent sur Sonnet.
-export type AaronModel = 'claude-sonnet-4-6' | 'claude-haiku-4-5';
+export type AaronModel = 'claude-sonnet-5' | 'claude-haiku-4-5';
 
 // Colonnes à écrire sur le prospect à partir de next_step_confidence — à
 // étaler (`...convictionColumns(out)`) dans chaque update qui persiste une
@@ -430,7 +430,7 @@ export async function buildAaronRequest(prospectId: string, options?: { model?: 
   const companyBlock = { commercial, documents_entreprise };
 
   const body = {
-    model: options?.model || 'claude-sonnet-4-6',
+    model: options?.model || 'claude-sonnet-5',
     max_tokens: 2000,
     // Prompt caching : ce system prompt est identique à chaque appel (un par
     // prospect, à chaque cycle de prospection) — le mettre en cache réduit

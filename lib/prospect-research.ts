@@ -38,7 +38,7 @@
 import { callClaude } from './anthropic-client';
 import { isGenericEmailDomain } from './csv-import';
 import { supabaseAdmin } from './supabase-admin';
-import { guessCountry, lookupFrenchCompany, lookupAustralianCompany } from './company-directory';
+import { guessCountry, lookupCompanyRegistry, type LegalRecord } from './company-directory';
 
 export interface ProspectCompanyResearchInput {
   name: string | null;
@@ -135,17 +135,16 @@ export async function researchProspectCompany(
     }
   }
 
-  // ── Registre officiel avant l'IA (SIRENE / ABN) ──────────────────────────
-  // SIRET, adresse du siège, code NAF : des faits d'état civil d'entreprise,
-  // gratuits et exacts. L'IA ne sert plus qu'au résumé métier.
-  let registry: Awaited<ReturnType<typeof lookupFrenchCompany>> = null;
-  const country = guessCountry([input.address, input.city].filter(Boolean).join(' ')) || (input.domain?.endsWith('.fr') ? 'FR' : input.domain?.endsWith('.au') ? 'AU' : null);
-  try {
-    if (input.name && country === 'FR') registry = await lookupFrenchCompany(input.name, input.city);
-    else if (input.name && country === 'AU') registry = await lookupAustralianCompany(input.name);
-  } catch {
-    registry = null;
-  }
+  // ── Registre officiel avant l'IA ─────────────────────────────────────────
+  // Numéro d'immatriculation, adresse du siège, code d'activité : des faits
+  // d'état civil d'entreprise, gratuits et exacts. L'IA ne sert plus qu'au
+  // résumé métier. Cinq pays couverts (06/09/2026) : France (SIRENE),
+  // Royaume-Uni (Companies House), Australie (ABN Lookup) ; la Belgique et le
+  // Canada n'ont pas d'API de recherche par nom et renvoient null, ce qui
+  // fait simplement retomber Aaron sur la recherche classique.
+  let registry: LegalRecord | null = null;
+  const country = guessCountry([input.address, input.city].filter(Boolean).join(' '), input.domain);
+  if (input.name) registry = await lookupCompanyRegistry(country, input.name, input.city);
 
   const identifiers = [
     input.name ? `Nom de la société : ${input.name}` : null,

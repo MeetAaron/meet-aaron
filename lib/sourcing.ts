@@ -5,7 +5,8 @@
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
 import { researchProspectCompany } from './prospect-research';
-import { searchGooglePlaces } from './company-directory';
+import { searchGooglePlaces, guessCountry } from './company-directory';
+import { findFreshCompanies } from './fresh-companies';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -75,7 +76,7 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 4000,
       // max_uses borne le nombre de recherches web que le modèle peut lancer
       // pour CET appel — sans cette limite, un seul prompt peut déclencher un
@@ -183,11 +184,52 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
   const excludeDomains = (existingCompanies || []).map((c) => c.domain).filter(Boolean) as string[];
 
-  // Sourcing (05/09/2026) : Google Places d'abord — des entreprises RÉELLES
-  // avec site web et téléphone pour ~0,03 $ les 20, sans IA. La recherche
-  // web IA historique ne sert plus que de repli (pas de clé, ou zone/secteur
-  // que Places ne couvre pas). Voir lib/company-directory.ts.
   let foundCompanies: FoundCompany[] = [];
+
+  // Sourcing (06/09/2026) : entreprises FRAÎCHEMENT CRÉÉES d'abord, quand la
+  // campagne cible un pays où le registre sait les donner (Royaume-Uni via
+  // Companies House, France via l'annuaire des entreprises). Une société
+  // immatriculée il y a trois semaines n'a encore aucun fournisseur : c'est
+  // le meilleur prospect qui existe, et personne ne l'appelle. Voir
+  // lib/fresh-companies.ts — la fonction renvoie [] si la source est
+  // indisponible, on enchaîne alors sur les méthodes classiques.
+  if (process.env.AARON_FRESH_COMPANIES !== '0') {
+    try {
+      const freshCountry = guessCountry(campaign.zone_label, null);
+      if (freshCountry === 'GB' || freshCountry === 'FR') {
+        const fresh = await findFreshCompanies({
+          country: freshCountry,
+          sinceDays: Number(process.env.AARON_FRESH_WINDOW_DAYS || 45),
+          sectorKeywords: campaign.sector_keywords || [],
+          location: freshCountry === 'GB' ? campaign.zone_label : null,
+          limit: batchSize,
+        });
+        foundCompanies = fresh
+          // Sans domaine, impossible d'écrire : ces sociétés repartent dans le
+          // flux classique où l'IA cherchera leur site.
+          .filter((c) => c.name)
+          .map((c) => ({
+            name: c.name,
+            domain: null,
+            address: c.address,
+            city: c.city,
+            website: null,
+            source_url: c.sourceUrl,
+          }));
+      }
+    } catch (err: any) {
+      console.error('Entreprises récentes (non bloquant) :', err?.message);
+    }
+  }
+
+  // Puis Google Places — entreprises réelles avec site web et téléphone.
+  // ATTENTION (06/09/2026) : les conditions Google Maps Platform (§3.2.3 b)
+  // interdisent de CONSERVER le nom, l'adresse, le téléphone et le site web
+  // renvoyés par Places. Tant que la migration vers Overture Maps n'est pas
+  // faite, cet appel reste désactivé par défaut : il ne s'active que si
+  // GOOGLE_PLACES_API_KEY est présente ET AARON_PLACES_STORE_OK=1, pour qu'on
+  // ne se mette pas en infraction par simple oubli de variable.
+  if (foundCompanies.length === 0 && process.env.AARON_PLACES_STORE_OK === '1') {
   try {
     const places = await searchGooglePlaces({
       sectorKeywords: campaign.sector_keywords || [],
@@ -206,6 +248,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
     }));
   } catch (err: any) {
     console.error('Google Places (non bloquant) :', err?.message);
+  }
   }
   if (foundCompanies.length === 0) {
     foundCompanies = await searchCompaniesInZone(

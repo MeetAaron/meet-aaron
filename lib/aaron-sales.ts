@@ -252,7 +252,7 @@ export async function generateAppointmentDebrief(appointmentId: string, notes: s
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1200,
       messages: [
         {
@@ -365,7 +365,7 @@ export async function generateDevis(prospectId: string): Promise<Devis> {
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
       messages: [
         {

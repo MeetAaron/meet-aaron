@@ -58,10 +58,14 @@ export type CreditModule = 'ap' | 'as' | 'ac';
 const MODEL_PRICING_USD: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   // Sonnet 4.x : 3 / 15 ; écriture de cache +25 %, lecture de cache −90 %.
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
+  // Sonnet 5 (06/09/2026) : 2 $ / 10 $ contre 3 $ / 15 $ pour Sonnet 4.6 —
+  // −33 % sur tout ce qui fait la valeur d'Aaron, à qualité au moins égale.
+  // Migration décidée avec Alex après relevé des prix officiels.
+  'claude-sonnet-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
   // Haiku 4.5 : 1 / 5.
   'claude-haiku-4-5': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
 };
-const DEFAULT_PRICING = MODEL_PRICING_USD['claude-sonnet-4-6'];
+const DEFAULT_PRICING = MODEL_PRICING_USD['claude-sonnet-5'];
 // Docx Modifs Aaron (AJOUTS 30/08/26, item 2) : "la limite par mois PAR
 // UTILISATEUR soit de 20 €. Pas dollars, euros. Et donc répartis sur 30
 // jours." — le suivi de coût reste en USD (tarifs Anthropic), donc 20 € sont

@@ -38,7 +38,7 @@ export interface LegalRecord {
   address: string | null;
   industry: string | null; // libellé NAF (FR) / type d'entité (AU)
   headcountBand: string | null;
-  source: 'sirene' | 'abn';
+  source: 'sirene' | 'abn' | 'companies_house';
 }
 
 export function domainFromWebsite(website: string | null | undefined): string | null {
@@ -180,10 +180,112 @@ export async function lookupAustralianCompany(name: string): Promise<LegalRecord
   }
 }
 
-// Pays deviné d'après l'adresse / la zone : sert à choisir le registre.
-export function guessCountry(text: string | null | undefined): 'FR' | 'AU' | null {
+// Pays deviné d'après l'adresse, la zone ou le domaine. Sert à choisir le
+// registre national (06/09/2026 : élargi de FR/AU à FR/GB/AU/BE/CA, les cinq
+// pays où la donnée officielle est gratuite et exploitable — voir la note
+// « Plan de bataille : coûts et données »).
+export type RegistryCountry = 'FR' | 'GB' | 'AU' | 'BE' | 'CA';
+
+export function guessCountry(text: string | null | undefined, domain?: string | null): RegistryCountry | null {
   const t = (text || '').toLowerCase();
-  if (/australi|\bnsw\b|\bwa\b|\bqld\b|\bvic\b|perth|sydney|melbourne|brisbane|adelaide/.test(t)) return 'AU';
-  if (/france|\b\d{5}\b|paris|lyon|marseille|toulouse|bordeaux|lille|nantes|strasbourg|nice|rennes/.test(t)) return 'FR';
+  const d = (domain || '').toLowerCase();
+
+  // Le domaine est le signal le plus fiable quand il existe.
+  if (/\.(co\.uk|org\.uk|uk)$/.test(d)) return 'GB';
+  if (/\.(com\.au|net\.au|org\.au|au)$/.test(d)) return 'AU';
+  if (/\.be$/.test(d)) return 'BE';
+  if (/\.ca$/.test(d)) return 'CA';
+  if (/\.fr$/.test(d)) return 'FR';
+
+  if (/australi|\bnsw\b|\bqld\b|\bvic\b|perth|sydney|melbourne|brisbane|adelaide|canberra|hobart/.test(t)) return 'AU';
+  if (/belgi|belgique|bruxelles|brussel|anvers|antwerpen|gand|gent|liège|liege|charleroi|namur/.test(t)) return 'BE';
+  if (/canada|québec|quebec|montréal|montreal|toronto|vancouver|ottawa|calgary|edmonton|winnipeg/.test(t)) return 'CA';
+  if (/(royaume[- ]uni|united kingdom|england|scotland|wales|angleterre|écosse|londres|london|manchester|birmingham|leeds|glasgow|bristol|edinburgh)/.test(t)) return 'GB';
+  if (/france|\b\d{5}\b|paris|lyon|marseille|toulouse|bordeaux|lille|nantes|strasbourg|nice|rennes|montpellier/.test(t)) return 'FR';
   return null;
+}
+
+// ── Royaume-Uni : Companies House ───────────────────────────────────────────
+// API publique gratuite, clé obtenue en self-service et immédiate.
+// Authentification : HTTP Basic, clé en NOM D'UTILISATEUR et mot de passe
+// vide (c'est la source d'erreur n°1 sur cette API).
+// Limite : 600 requêtes par tranche de 5 minutes.
+function companiesHouseAuth(): string | null {
+  const key = process.env.COMPANIES_HOUSE_API_KEY;
+  if (!key) return null;
+  return 'Basic ' + Buffer.from(`${key}:`).toString('base64');
+}
+
+export async function lookupBritishCompany(name: string, city?: string | null): Promise<LegalRecord | null> {
+  const auth = companiesHouseAuth();
+  if (!auth || !name.trim()) return null;
+  try {
+    const q = [name, city].filter(Boolean).join(' ');
+    const url = `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(q)}&items_per_page=3`;
+    const res = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    // Sur /search/companies le nom de société s'appelle `title`, pas
+    // `company_name` (piège de l'API : les deux endpoints diffèrent).
+    const hit = (data.items || []).find((i: any) => i.company_status === 'active') || (data.items || [])[0];
+    if (!hit) return null;
+    const a = hit.address || {};
+    const address = [a.address_line_1, a.address_line_2, a.postal_code, a.locality].filter(Boolean).join(', ') || hit.address_snippet || null;
+    return {
+      registryId: hit.company_number || null,
+      legalName: hit.title || null,
+      address,
+      industry: null, // /search/companies ne renvoie pas les codes SIC
+      headcountBand: null,
+      source: 'companies_house',
+    };
+  } catch (err: any) {
+    console.error('Companies House:', err?.message);
+    return null;
+  }
+}
+
+// ── Belgique : pas d'API officielle ─────────────────────────────────────────
+// La Banque-Carrefour des Entreprises ne publie que des fichiers CSV mensuels
+// (kbopub.economie.fgov.be/kbo-open-data), sans API de recherche. Tant que
+// l'import en masse n'est pas fait, on renvoie null et la recherche retombe
+// sur les méthodes classiques (annuaire ouvert puis recherche IA) — c'est
+// exactement le repli prévu, pas une panne.
+export async function lookupBelgianCompany(_name: string, _city?: string | null): Promise<LegalRecord | null> {
+  return null;
+}
+
+// ── Canada : lookup par identifiant seulement ───────────────────────────────
+// L'API fédérale ISED n'expose AUCUNE recherche par nom ni par province : elle
+// exige un numéro de société complet. Sans numéro, rien à interroger — on
+// renvoie null, même repli que la Belgique. (Le jeu de données ouvert
+// quotidien permettrait une recherche locale ; à faire si un client canadien
+// le justifie.)
+export async function lookupCanadianCompany(_name: string, _city?: string | null): Promise<LegalRecord | null> {
+  return null;
+}
+
+// ── Aiguilleur ──────────────────────────────────────────────────────────────
+// Un seul point d'entrée : le pays choisit le registre, et TOUT échec renvoie
+// null sans lever d'exception. L'enrichissement légal est un bonus, jamais un
+// prérequis — si un registre tombe, devient payant ou nous refuse une clé,
+// Aaron continue avec la recherche classique.
+export async function lookupCompanyRegistry(
+  country: RegistryCountry | null,
+  name: string,
+  city?: string | null
+): Promise<LegalRecord | null> {
+  if (!country || !name) return null;
+  try {
+    switch (country) {
+      case 'FR': return await lookupFrenchCompany(name, city);
+      case 'GB': return await lookupBritishCompany(name, city);
+      case 'AU': return await lookupAustralianCompany(name);
+      case 'BE': return await lookupBelgianCompany(name, city);
+      case 'CA': return await lookupCanadianCompany(name, city);
+      default: return null;
+    }
+  } catch {
+    return null;
+  }
 }

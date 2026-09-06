@@ -62,7 +62,7 @@ Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, sans balises m
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 500,
       messages: [{ role: 'user', content: prompt }],
     },

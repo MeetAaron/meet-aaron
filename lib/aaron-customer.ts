@@ -179,7 +179,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
 
   const data = await callClaude(
     {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1200,
       messages: [
         {
@@ -362,7 +362,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 250,
         messages: [
           {
@@ -448,7 +448,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 300,
         messages: [
           {
@@ -542,7 +542,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 250,
         messages: [
           {
@@ -604,7 +604,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 500,
         messages: [
           {
@@ -675,7 +675,7 @@ export async function generateKickoffProposal(prospectId: string): Promise<Kicko
   try {
     const data = await callClaude(
       {
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 300,
         messages: [
           {

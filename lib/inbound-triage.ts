@@ -25,7 +25,7 @@
 // Rien n'est jamais supprimé : le message est enregistré dans la
 // conversation quoi qu'il arrive (c'est aussi ce qui évite les doublons).
 
-import { callClaude } from './anthropic-client';
+import { callModel } from './model-router';
 
 export type InboundCategory =
   | 'auto_reply' // absence, accusé de réception automatique, message généré
@@ -119,18 +119,16 @@ export async function triageWithHaiku(
 ): Promise<InboundTriage> {
   const excerpt = `${subject ? `Sujet : ${subject}\n\n` : ''}${(bodyText || '').slice(0, 2500)}`;
   try {
-    const data = await callClaude(
-      {
-        model: 'claude-haiku-4-5',
-        max_tokens: 60,
-        system: HAIKU_SYSTEM,
-        messages: [{ role: 'user', content: excerpt }],
-      },
+    // Étage « cheap » de l'aiguilleur (lib/model-router.ts) : GPT-5.6 Luna
+    // quand la clé OpenAI est là, Haiku sinon. Classer un email n'a jamais
+    // demandé un modèle de pointe, et Luna coûte dix fois moins que Haiku.
+    const { text } = await callModel(
+      'cheap',
+      { system: HAIKU_SYSTEM, messages: [{ role: 'user', content: excerpt }], maxTokens: 60, json: true },
       companyId,
       'ap',
       userId
     );
-    const text = (data?.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
     const json = JSON.parse(text.replace(/```json|```/g, '').trim());
     const category = String(json.category || 'other') as InboundCategory;
     const confidence = Math.max(0, Math.min(1, Number(json.confidence) || 0));
