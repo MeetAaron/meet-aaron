@@ -227,6 +227,19 @@ export function plainTextToEmailHtml(text: string, opts?: { trailingHtml?: strin
 // prospect) — voir lib/first-email-attachment.ts pour la récupérer avant
 // d'appeler cette fonction. Transmise telle quelle à Gmail ou Outlook selon
 // le fournisseur connecté.
+// Phrase d'opposition ajoutée en pied des emails de prospection — voir le
+// commentaire dans sendEmailForUser. Courte et polie : une ligne, pas un
+// paragraphe juridique.
+const OPT_OUT_LINE: Record<string, string> = {
+  fr: 'Si vous ne souhaitez pas être recontacté, répondez simplement à cet email pour me le dire.',
+  en: "If you'd rather not be contacted again, just reply to this email and let me know.",
+  de: 'Wenn Sie nicht erneut kontaktiert werden möchten, antworten Sie einfach auf diese E-Mail.',
+  it: 'Se preferisce non essere ricontattato, risponda semplicemente a questa email per dirmelo.',
+  es: 'Si prefiere no ser contactado de nuevo, responda simplemente a este correo para decírmelo.',
+  pt: 'Se preferir não ser contactado novamente, basta responder a este email para mo dizer.',
+  nl: 'Wilt u liever niet opnieuw benaderd worden, antwoord dan gewoon op deze e-mail.',
+};
+
 export async function sendEmailForUser(
   userId: string,
   to: string,
@@ -283,13 +296,13 @@ export async function sendEmailForUser(
   // n'est pas passée — sinon plus AUCUN email ne partirait.
   let userRes: any = await supabaseAdmin
     .from('users')
-    .select('email, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads')
+    .select('email, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale')
     .eq('id', userId)
     .maybeSingle();
   if (userRes.error && userRes.error.code === '42703') {
     userRes = await supabaseAdmin
       .from('users')
-      .select('email, email_signature, email_signature_image_url, email_banner_image_url')
+      .select('email, email_signature, email_signature_image_url, email_banner_image_url, locale')
       .eq('id', userId)
       .maybeSingle();
   }
@@ -322,7 +335,16 @@ export async function sendEmailForUser(
   // derrière son bouton « … / Afficher le message complet », ce qui donne au
   // destinataire l'impression d'un message tronqué — donc d'un spam.
   const signatureText = user?.email_signature ? normalizeEmailBodyLineBreaks(user.email_signature) : '';
-  const textBody = signatureText ? `${body}\n\n${signatureText}` : body;
+  // Mention d'opposition (07/09/2026). La prospection B2B par email exige
+  // d'offrir dans CHAQUE message un moyen simple de s'y opposer (RGPD art. 21,
+  // doctrine CNIL ; même exigence au Royaume-Uni et en Australie). Une simple
+  // réponse suffit juridiquement pour du B2B, et Aaron sait déjà lire un
+  // « ne me recontactez plus » et arrêter le contact. Ajoutée côté serveur
+  // et non dans le prompt, pour qu'elle soit là à coup sûr, dans la langue
+  // du commercial, sur les seuls envois de démarchage (jamais sur un email
+  // transactionnel vers un contact déjà engagé).
+  const optOutText = emailType === 'prospecting' ? OPT_OUT_LINE[(user as any)?.locale] || OPT_OUT_LINE.fr : '';
+  const textBody = [body, signatureText, optOutText].filter(Boolean).join('\n\n');
   const signatureImageHtml = user?.email_signature_image_url
     ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';
