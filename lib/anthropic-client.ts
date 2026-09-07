@@ -304,6 +304,27 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
   return { exceeded: false };
 }
 
+// Photographie du budget d'une société, pour les alertes (cron
+// credit-alerts, 07/09/2026) et l'affichage. Ne bloque rien : pure lecture.
+export interface BudgetSnapshot {
+  capUsd: number; // plafond de l'abonnement ce mois (sièges × 21,5 $)
+  spentUsd: number; // dépensé ce mois, boosts compris
+  boostRemainingUsd: number;
+  availableUsd: number;
+  ratio: number; // part du budget total (abonnement + boosts) déjà consommée, 0..1
+}
+
+export async function getBudgetSnapshot(companyId: string): Promise<BudgetSnapshot | null> {
+  const capUsd = await getMonthlyCapUsd(companyId);
+  if (capUsd === null) return null;
+  const [spentUsd, boosts] = await Promise.all([getCurrentMonthSpendUsd(companyId), listActiveBoosts(companyId)]);
+  const boostRemainingUsd = boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
+  const availableUsd = Math.max(0, capUsd - spentUsd) + boostRemainingUsd;
+  const total = capUsd + boostRemainingUsd + Math.max(0, spentUsd - capUsd);
+  const ratio = total > 0 ? Math.min(1, Math.max(0, 1 - availableUsd / total)) : 0;
+  return { capUsd, spentUsd, boostRemainingUsd, availableUsd, ratio };
+}
+
 export interface UsageBreakdown {
   inputTokens: number;
   outputTokens: number;
