@@ -129,11 +129,33 @@ export function boostEndsAt(startsAt: Date): Date {
 
 // ── Estimation de consommation d'une campagne ───────────────────────────────
 //
-// Coût moyen constaté par prospect démarché, en USD de budget API. Couvre la
-// recherche de l'entreprise, la génération du premier email, et la marge de
-// relances/réponses habituelle. Volontairement prudent : mieux vaut
-// surestimer que laisser une campagne tomber en panne sèche à mi-parcours.
-export const ESTIMATED_USD_PER_PROSPECT = 0.35;
+// Coût moyen par prospect démarché, en USD de budget API. Couvre la recherche
+// de l'entreprise, la génération du premier email, les relances et la part
+// habituelle de réponses traitées.
+//
+// RECALIBRÉ le 06/09/2026, après le lot d'optimisation. La valeur précédente
+// (0,35 $) datait d'avant Sonnet 5, le cache 1 h, le Batch API, le pré-filtre
+// des entrants et l'annuaire gratuit : elle disait à un utilisateur à 20 €/mois
+// qu'il ne pouvait démarcher que 61 prospects, et surtout elle divisait
+// d'autant le lot de sourcing quotidien (voir getPacing, prospectsAllowedToday
+// dans lib/anthropic-client.ts). Autrement dit, une estimation trop prudente
+// ne protégeait rien : elle bridait Aaron.
+//
+// Décomposition de la nouvelle valeur, aux prix du 06/09/2026 :
+//   - recherche société : ~0,012 $ la première fois, ~0 ensuite
+//     (company_research_cache, 90 jours, partagé entre tous les comptes)
+//   - premier email, Sonnet 5 en lot avec cache 1 h : ~0,006 $
+//   - trois relances sur l'étage bon marché : ~0,003 $
+//   - tri des entrants : ~0,001 $
+//   - vraies réponses (Sonnet 5), pondérées par le taux de réponse : ~0,005 $
+//   → ~0,02 $ quand l'annuaire couvre la zone.
+//
+// On retient 0,10 $, soit cinq fois la mesure : la marge couvre le cas où
+// l'annuaire ne couvre pas encore la zone et où le sourcing retombe sur la
+// recherche web IA (~0,03 $ de recherches web par prospect). À re-mesurer sur
+// les chiffres réels après les tests Open X et TeamSystem — c'est une
+// estimation, pas une facture.
+export const ESTIMATED_USD_PER_PROSPECT = 0.1;
 
 export function estimateCampaignCostUsd(targetCount: number): number {
   return Math.max(0, targetCount) * ESTIMATED_USD_PER_PROSPECT;
