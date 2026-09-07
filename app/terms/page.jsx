@@ -20,7 +20,7 @@ export default function TermsPage() {
         <a href="/app/preferences" className="back-link">← Retour aux préférences</a>
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
         <h1>Conditions générales d'utilisation</h1>
-        <p className="updated">Dernière mise à jour : 1er septembre 2026</p>
+        <p className="updated">Dernière mise à jour : 7 septembre 2026</p>
 
         <p>
           Les présentes conditions encadrent l'utilisation de Meet Aaron, un assistant commercial
@@ -30,7 +30,9 @@ export default function TermsPage() {
 
         <h2>1. Éditeur du service</h2>
         <p>
-          Meet Aaron est édité par <strong>Open X</strong>.<br />
+          Meet Aaron est édité par <strong>MEET AARON</strong>, entreprise individuelle
+          d'Alexandre Fevre, immatriculée en Australie sous l'ABN 72 369 751 951, établie à Perth
+          (Australie-Occidentale).<br />
           Contact : <a href="mailto:aaron@meetaaron.app">aaron@meetaaron.app</a>
         </p>
         <p>
