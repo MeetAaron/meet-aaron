@@ -19,7 +19,7 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { BOOST_TIERS, boostTierById, capUsdForCredits, listActiveBoosts } from '@/lib/credit-boosts';
-import { boostPrice, currencyForCountry } from '@/lib/boost-tiers';
+import { boostPrice, currencyForCountry, prospectsForTier } from '@/lib/boost-tiers';
 
 
 // Pays de facturation de la société, renseigné automatiquement au premier
@@ -95,8 +95,11 @@ export async function POST(request: NextRequest) {
             currency,
             unit_amount: Math.round(amount * 100),
             product_data: {
-              name: `Meet Aaron — ${tier.credits} crédits`,
-              description: `Boost de ${tier.credits} crédits, valable 1 mois à compter de l'achat. S'ajoute aux crédits inclus dans ton abonnement, qui ne sont pas entamés.`,
+              // 08/09/2026 : le client achète des PROSPECTS, pas des crédits
+              // (voir PROSPECTS_PER_CREDIT dans lib/boost-tiers.ts). La
+              // facture Stripe doit dire la même chose que l'écran.
+              name: `Meet Aaron — Boost +${prospectsForTier(tier)} prospects`,
+              description: `+${prospectsForTier(tier)} nouveaux prospects, valables 1 mois à compter de l'achat. S'ajoutent aux prospects inclus dans ton abonnement, qui ne sont pas entamés.`,
             },
           },
         },
