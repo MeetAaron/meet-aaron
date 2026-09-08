@@ -203,8 +203,9 @@ export async function archiveOutlookMessage(userId: string, messageId: string | 
 // POST /me/sendMail (plus directe) car /sendMail répond 202 sans jamais
 // renvoyer l'id du message envoyé — impossible de lui poser ensuite la
 // catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
-// récupère l'id du brouillon dès sa création, qui reste valable une fois le
-// message envoyé (déplacé de Brouillons vers Éléments envoyés).
+// récupère l'id du brouillon dès sa création — demandé en format IMMUABLE,
+// sinon il change quand /send déplace le message vers Éléments envoyés (bug
+// corrigé le 08/09/2026, voir l'en-tête Prefer dans sendOutlookEmail).
 export const AARON_SENT_HEADER = 'X-Aaron-Sent';
 
 // Tous les messages d'une conversation Outlook (l'équivalent du fil Gmail),
@@ -278,6 +279,26 @@ export async function sendOutlookEmail(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      // BUG CORRIGÉ le 08/09/2026 (constaté par Alex : « je ne vois pas le
+      // dossier "géré par aaron" et je ne vois pas l'email envoyé avec le
+      // libellé… après plusieurs semaines ça ne fonctionne toujours pas »).
+      //
+      // Le commentaire plus haut affirmait que l'id du brouillon « reste
+      // valable une fois le message envoyé ». C'est FAUX avec les ids par
+      // défaut de Graph : un id Exchange classique dépend du DOSSIER, et
+      // /send déplace le message de Brouillons vers Éléments envoyés — l'id
+      // change. Les deux appels qui suivaient (poser la catégorie, déplacer
+      // dans le dossier Géré par Aaron) visaient donc un id périmé,
+      // recevaient 404, et l'avalaient en silence. Résultat : ni catégorie,
+      // ni dossier, sans la moindre erreur nulle part.
+      //
+      // IdType="ImmutableId" demande à Graph un id qui survit aux
+      // déplacements entre dossiers. Uniquement ici, sur la création : la
+      // lecture de la boîte (listNewOutlookMessages) garde ses ids par défaut,
+      // car les provider_message_id déjà stockés sont dans ce format — en
+      // changer ferait réapparaître comme « nouveaux » des messages déjà
+      // traités, et Aaron répondrait deux fois.
+      Prefer: 'IdType="ImmutableId"',
     },
     body: JSON.stringify({
       subject,
@@ -308,6 +329,16 @@ export async function sendOutlookEmail(
   }
   const draft = await createRes.json();
 
+  // Catégorie posée sur le BROUILLON, avant l'envoi : une catégorie est une
+  // propriété de l'élément, elle suit le message dans Éléments envoyés. Même
+  // avec l'id immuable ci-dessus, poser le libellé avant /send supprime toute
+  // fenêtre pendant laquelle un email pourrait partir sans lui.
+  // Voir skipAaronLabel dans lib/google.ts : pas de catégorie sur les emails
+  // destinés au commercial lui-même (rapports, alertes).
+  if (!opts?.skipAaronLabel) {
+    await applyAaronCategory(userId, draft.id);
+  }
+
   const sendRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -318,28 +349,10 @@ export async function sendOutlookEmail(
     throw new Error(`Erreur envoi Outlook: ${err}`);
   }
 
-  // Marque le message comme "géré par Aaron" une fois envoyé.
-  //
-  // AWAIT nécessaire (01/09/2026) — même bug que celui déjà corrigé côté
-  // Gmail le 27/08 : sans await, la fonction serverless peut renvoyer sa
-  // réponse HTTP et être gelée par la plateforme avant que les appels
-  // internes d'applyAaronCategory (lister/créer la catégorie, puis la poser
-  // sur le message) n'aient abouti — la catégorie ne se pose alors jamais,
-  // sans la moindre erreur visible. applyAaronCategory avale déjà ses
-  // propres erreurs, l'await ne peut donc pas faire échouer l'envoi.
-  //
-  // Doit aussi rester AVANT le déplacement éventuel dans le dossier « Géré
-  // par Aaron » (voir sendEmailForUser) : le libellé doit être posé sur
-  // CHAQUE email, rangé ou non (demande Alex, 01/09/2026).
-  // Voir skipAaronLabel dans lib/google.ts : pas de catégorie sur les emails
-  // destinés au commercial lui-même (rapports, alertes).
-  if (!opts?.skipAaronLabel) {
-    await applyAaronCategory(userId, draft.id);
-  }
-
-  // On garde { sent: true } pour rester compatible avec l'appelant existant
-  // (sendEmailForUser dans lib/messaging.ts n'utilisait jusqu'ici que ce
-  // champ), et on ajoute l'id au cas où un futur appelant en aurait besoin.
+  // { sent: true } pour rester compatible avec l'appelant existant ; l'id
+  // renvoyé est l'id IMMUABLE du brouillon (voir en-tête Prefer plus haut) —
+  // c'est ce qui permet à sendEmailForUser de déplacer ensuite l'email
+  // envoyé dans le dossier « Géré par Aaron » (archiveOutlookMessage).
   return { sent: true, id: draft.id };
 }
 
