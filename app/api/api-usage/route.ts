@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getProspectQuota } from '@/lib/prospect-quota';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { listActiveBoosts } from '@/lib/credit-boosts';
 import { USD_PER_CREDIT } from '@/lib/boost-tiers';
@@ -130,7 +131,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Quota de nouveaux prospects du mois (08/09/2026) : c'est désormais ce
+  // que l'onglet Abonnement affiche à la place du solde de crédits. Lecture
+  // best-effort — l'onglet doit s'afficher même si le comptage échoue.
+  let prospectQuota: any = null;
+  try {
+    prospectQuota = await getProspectQuota(user.company_id);
+  } catch (err: any) {
+    console.error('Quota prospects (api-usage):', err?.message);
+  }
+
   return NextResponse.json({
+    prospect_quota: prospectQuota,
     month_cost_usd: monthRow?.cost_usd || 0,
     // monthly_cap_usd = ce dont la société dispose RÉELLEMENT ce mois-ci,
     // boosts actifs compris (c'est ce que le plafond de lib/anthropic-client
