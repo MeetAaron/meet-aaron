@@ -37,6 +37,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { getSubscriptionState } from './subscription-status';
+import { notifyHardCeiling } from './hard-ceiling-alert';
 import { listActiveBoosts, consumeBoosts } from './credit-boosts';
 import { ESTIMATED_USD_PER_PROSPECT, USD_PER_CREDIT } from './boost-tiers';
 // Module payant concerné par un appel (ap = Aaron Prospect, as = Aaron
@@ -327,7 +328,13 @@ async function getBudgetStatus(
   // que le suivi rencontre, donc rien ne doit passer avant elle. Les boosts
   // achetés le relèvent aussi — un client qui paie pour dépasser doit pouvoir
   // dépasser jusqu'à ce qu'il a payé.
-  if (monthSpend >= hardCeilingFor(subscriptionCap) + boostRemaining) {
+  const hardCeiling = hardCeilingFor(subscriptionCap) + boostRemaining;
+  if (monthSpend >= hardCeiling) {
+    // Disjoncteur : prévient l'éditeur (qui doit aller regarder) et le
+    // commercial (qui ne doit pas découvrir tout seul qu'Aaron s'est tu).
+    // Fire-and-forget et idempotent une fois par mois — voir
+    // lib/hard-ceiling-alert.ts.
+    notifyHardCeiling(companyId, monthSpend, hardCeiling).catch(() => {});
     return { exceeded: true, reason: 'hard_ceiling' };
   }
 
