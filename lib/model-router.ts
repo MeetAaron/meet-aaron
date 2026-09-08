@@ -33,7 +33,14 @@
 //     Anthropic. Un email non écrit coûte plus cher qu'un email écrit trop
 //     cher.
 
-import { callClaude, recordUsage, type CreditModule } from './anthropic-client';
+import {
+  callClaude,
+  recordUsage,
+  assertBudgetAllows,
+  MonthlyCapExceededError,
+  SubscriptionUnpaidError,
+  type CreditModule,
+} from './anthropic-client';
 
 export type ModelTier = 'cheap' | 'standard' | 'deep';
 
@@ -82,6 +89,11 @@ async function callOpenAi(
   module: CreditModule,
   userId?: string | null
 ): Promise<SimpleCallResult> {
+  // Plafonds AVANT dépense : la voie OpenAI ne passe pas par callClaude, donc
+  // sans ce contrôle elle ignorerait complètement le plafond de la société
+  // (corrigé le 08/09/2026, voir assertBudgetAllows).
+  if (companyId) await assertBudgetAllows(companyId, module);
+
   const model = OPENAI_CHEAP_MODEL;
   const messages = [
     ...(input.system ? [{ role: 'system' as const, content: input.system }] : []),
@@ -192,6 +204,11 @@ export async function callModel(
     try {
       return await callOpenAi(input, companyId, module, userId);
     } catch (err: any) {
+      // Un refus de BUDGET n'est pas une panne OpenAI : se replier sur
+      // Anthropic ferait juste échouer le même contrôle une seconde plus tard,
+      // en laissant dans les logs un « OpenAI indisponible » trompeur. On
+      // remonte tel quel.
+      if (err instanceof MonthlyCapExceededError || err instanceof SubscriptionUnpaidError) throw err;
       // Repli silencieux : quota, panne, clé révoquée… Aaron continue.
       console.error('OpenAI indisponible, repli Anthropic :', err?.message);
     }

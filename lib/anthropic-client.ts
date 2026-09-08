@@ -75,6 +75,36 @@ const DEFAULT_PRICING = MODEL_PRICING_USD['claude-sonnet-5'];
 // uniquement des crédits (décision Alex, même item).
 const DEFAULT_MONTHLY_CAP_USD = 21.5; // = 20 € par utilisateur et par mois
 const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien = mensuel / 30
+
+// PLAFOND DUR (décision Alex, 08/09/2026). Le plafond d'abonnement ci-dessus
+// ne freine plus que la PROSPECTION : « il faut un plafond pour les prospects
+// en effet. Mais que si les opportunités ou clients dépassent mon budget alors
+// c'est ma faute et tant pis si ça mange ma marge. » Un deal en négociation ne
+// doit jamais s'arrêter parce que le mois est consommé.
+//
+// Pourquoi un plafond dur malgré tout : « il ne faut pas non plus que ça me
+// coûte 50 € d'API par siège ». Sans borne, "hors plafond" veut dire "sans
+// limite", et une boucle ou un abus ne rencontrerait plus rien. 1,5 × 21,5 $
+// = 32 $ ≈ 30 € par siège : à ce niveau la marge sur le siège est à zéro et
+// tout s'arrête, prospection comprise. Le suivi réel coûte ~2,70 $/mois, donc
+// ce plafond laisse quatre fois le coût réaliste de marge d'erreur — l'atteindre
+// signale un bug ou un abus, pas un mois chargé.
+//
+// Réglable par société via companies.monthly_api_hard_cap_usd (base PAR
+// UTILISATEUR, même sémantique que monthly_api_cap_usd) : null = ce
+// multiplicateur, une valeur = ce montant par siège.
+const HARD_CEILING_MULTIPLIER = 1.5;
+
+// Deux activités, deux régimes de plafond. Le module Aaron dit déjà laquelle :
+// 'ap' (Aaron Prospect) et les traitements société sans module = prospection,
+// le robinet que le commercial ouvre ; 'as' (opportunités) et 'ac' (clients) =
+// suivi de conversations DÉJÀ engagées, borné par nature — on ne répond qu'à
+// ceux qui ont répondu.
+export type BudgetActivity = 'prospecting' | 'followup';
+
+export function activityForModule(module?: CreditModule): BudgetActivity {
+  return module === 'as' || module === 'ac' ? 'followup' : 'prospecting';
+}
 // Recherche web en direct pour Aaron (demande Alex, 29/08/2026 : "il peut
 // utiliser cette fiche profil d'entreprise ainsi qu'internet") — tarif
 // Anthropic pour l'outil web_search natif : 10 $ pour 1000 recherches, EN
@@ -99,11 +129,13 @@ export class SubscriptionUnpaidError extends Error {
 }
 
 export class MonthlyCapExceededError extends Error {
-  reason: 'monthly' | 'daily' | 'credits_exhausted';
+  reason: 'monthly' | 'daily' | 'credits_exhausted' | 'hard_ceiling';
 
-  constructor(companyId: string, reason: 'monthly' | 'daily' | 'credits_exhausted' = 'monthly') {
+  constructor(companyId: string, reason: 'monthly' | 'daily' | 'credits_exhausted' | 'hard_ceiling' = 'monthly') {
     super(
-      reason === 'daily'
+      reason === 'hard_ceiling'
+        ? `Plafond DUR de dépense API atteint pour la société ${companyId} : même le suivi des conversations engagées s'arrête. Ce plafond n'est pas censé être atteint en usage normal — vérifier une boucle ou un abus avant de le relever.`
+        : reason === 'daily'
         ? `Plafond de dépense API QUOTIDIEN atteint pour la société ${companyId} (protection anti-pic — le plafond mensuel, lui, n'est pas encore atteint). Réessayez demain, ou augmentez la part quotidienne dans lib/anthropic-client.ts.`
         : reason === 'credits_exhausted'
         ? `Plafond de dépense API atteint pour la société ${companyId}, et le solde de crédits achetés est épuisé (ou nul).`
@@ -154,6 +186,16 @@ async function getMonthlyCapUsd(companyId: string): Promise<number | null> {
   if (perUserCap === null) return null; // plafond désactivé pour cette société
 
   return perUserCap * Math.max(1, userCount || 0);
+}
+
+// Plafond DUR de la société : un multiple du plafond d'abonnement.
+//
+// Pas de colonne dédiée volontairement. monthly_api_cap_usd est déjà réglable
+// par société ; le plafond dur en découlant, relever l'un relève l'autre dans
+// la même proportion, et il n'y a jamais deux valeurs à garder cohérentes —
+// ni le cas absurde d'un plafond dur inférieur au plafond d'abonnement.
+function hardCeilingFor(subscriptionCap: number): number {
+  return subscriptionCap * HARD_CEILING_MULTIPLIER;
 }
 
 async function getCurrentMonthSpendUsd(companyId: string): Promise<number> {
@@ -267,7 +309,10 @@ export async function getPacing(companyId: string): Promise<Pacing | null> {
   };
 }
 
-async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; reason?: 'monthly' | 'daily' }> {
+async function getBudgetStatus(
+  companyId: string,
+  activity: BudgetActivity = 'prospecting'
+): Promise<{ exceeded: boolean; reason?: 'monthly' | 'daily' | 'hard_ceiling' }> {
   const subscriptionCap = await getMonthlyCapUsd(companyId);
   if (subscriptionCap === null) return { exceeded: false }; // plafond désactivé pour cette société
 
@@ -277,6 +322,21 @@ async function getBudgetStatus(companyId: string): Promise<{ exceeded: boolean; 
     listActiveBoosts(companyId),
   ]);
   const boostRemaining = boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
+
+  // Plafond DUR, en premier et pour LES DEUX activités : c'est la seule borne
+  // que le suivi rencontre, donc rien ne doit passer avant elle. Les boosts
+  // achetés le relèvent aussi — un client qui paie pour dépasser doit pouvoir
+  // dépasser jusqu'à ce qu'il a payé.
+  if (monthSpend >= hardCeilingFor(subscriptionCap) + boostRemaining) {
+    return { exceeded: true, reason: 'hard_ceiling' };
+  }
+
+  // Suivi des conversations déjà engagées (opportunités, clients) : hors
+  // plafond d'abonnement, par décision d'Alex (08/09/2026). Une négociation en
+  // cours ne s'arrête pas parce que le mois de prospection est consommé.
+  // Le plafond quotidien ne s'applique pas non plus : il sert à lisser un
+  // robinet qu'on ouvre, or ici le volume est imposé par les réponses reçues.
+  if (activity === 'followup') return { exceeded: false };
 
   // Disponible = ce qu'il reste de l'abonnement ce mois-ci + ce qu'il reste
   // des boosts (leur consommation est déjà déduite, voir recordUsage).
@@ -476,6 +536,27 @@ export async function recordUsage(
 // de crédits utilisé en dépassement change selon ce paramètre : omis, on
 // utilise le pool général historique ; renseigné, on utilise le solde propre
 // à ce module.
+// Contrôle du budget SANS appeler Anthropic — pour les fournisseurs tiers
+// (voir lib/model-router.ts, voie OpenAI).
+//
+// Trou corrigé le 08/09/2026 : callOpenAi partait directement à l'API et ne
+// faisait que comptabiliser APRÈS coup. Une société au plafond continuait donc
+// à dépenser indéfiniment sur le palier "cheap" — exactement le scénario que
+// le plafond dur est censé rendre impossible. Le plafond n'a de sens que s'il
+// est vérifié sur TOUTES les voies, pas seulement sur celle d'Anthropic.
+export async function assertBudgetAllows(companyId: string, module?: CreditModule): Promise<void> {
+  const subscription = await getSubscriptionState(companyId);
+  if (!subscription.aiAllowed) throw new SubscriptionUnpaidError(companyId);
+
+  const status = await getBudgetStatus(companyId, activityForModule(module));
+  if (status.exceeded) {
+    throw new MonthlyCapExceededError(
+      companyId,
+      status.reason === 'hard_ceiling' ? 'hard_ceiling' : 'credits_exhausted'
+    );
+  }
+}
+
 export async function callClaude(
   body: Record<string, any>,
   companyId: string | null,
@@ -494,7 +575,7 @@ export async function callClaude(
       throw new SubscriptionUnpaidError(companyId);
     }
 
-    const status = await getBudgetStatus(companyId);
+    const status = await getBudgetStatus(companyId, activityForModule(module));
     if (status.exceeded) {
       // Plafond atteint — boosts actifs COMPRIS (getBudgetStatus additionne
       // déjà getActiveBoostCapUsd au plafond de l'abonnement). Il n'y a donc
@@ -506,7 +587,10 @@ export async function callClaude(
       // logique différente (solde débité à l'appel, sans étalement ni date
       // de fin), ce qui rendait impossible d'expliquer simplement au client
       // ce qu'il lui restait.
-      throw new MonthlyCapExceededError(companyId, 'credits_exhausted');
+      throw new MonthlyCapExceededError(
+        companyId,
+        status.reason === 'hard_ceiling' ? 'hard_ceiling' : 'credits_exhausted'
+      );
     }
   }
 

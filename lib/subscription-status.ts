@@ -43,10 +43,24 @@ export async function getSubscriptionState(companyId: string): Promise<Subscript
   try {
     const { data, error } = await supabaseAdmin
       .from('companies')
-      .select('subscription_status, subscription_past_due_since, subscription_grace_ends_at, subscription_last_failure_reason')
+      .select(
+        'subscription_status, subscription_past_due_since, subscription_grace_ends_at, subscription_last_failure_reason, billing_exempt'
+      )
       .eq('id', companyId)
       .maybeSingle();
     if (error || !data) return DEFAULT_STATE;
+
+    // Société exemptée de facturation (08/09/2026) : le compte interne de
+    // l'éditeur, qui utilise son propre produit. Il n'y a pas de vente à
+    // soi-même, donc pas d'abonnement Stripe — mais surtout, ce raccourci
+    // protège d'un scénario précis : un abonnement Stripe créé puis annulé sur
+    // cette société écrirait subscription_status = 'canceled' et couperait
+    // Aaron chez l'éditeur lui-même. Ici, aucun webhook ne peut le verrouiller.
+    //
+    // À NE PAS confondre avec un cadeau commercial : les coûts d'API réels
+    // restent comptés et plafonnés normalement (voir lib/anthropic-client.ts),
+    // seul le CONTRÔLE DE PAIEMENT est court-circuité.
+    if ((data as any).billing_exempt === true) return DEFAULT_STATE;
 
     const stored = ((data as any).subscription_status || 'active') as SubscriptionStatus;
     const graceEndsAt = (data as any).subscription_grace_ends_at || null;
