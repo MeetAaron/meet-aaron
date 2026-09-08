@@ -9,6 +9,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import InstallPrompt from '@/components/InstallPrompt';
 import Ic from '@/components/UiIcon';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
 import { frenchTypography } from '@/lib/text-typography';
@@ -2618,6 +2619,10 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             aucun groupe n'est en attente (voir components/Stories.jsx), donc
             aucune page ne perd de hauteur utile. */}
         <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} extraGroups={extraStoryGroups || []} />
+        {/* Installation sur l'écran d'accueil (08/09/2026) — voir
+            components/InstallPrompt.jsx. Uniquement sur le tableau de bord :
+            c'est la page d'arrivée, une fois suffit. */}
+        <InstallPrompt locale={locale} />
         {children}
       </main>
       <style jsx global>{`
