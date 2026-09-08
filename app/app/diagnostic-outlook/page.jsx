@@ -47,13 +47,26 @@ export default function DiagnosticOutlookPage() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Patron : peut viser la boîte d'un membre de son entreprise (liste
+  // renvoyée par list=1 ; 403 silencieux pour un commercial).
+  const [members, setMembers] = useState([]);
+  const [target, setTarget] = useState('');
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/diagnostics/outlook?user_id=${userId}&list=1`)
+      .then((r) => (r.ok ? r.json() : { members: [] }))
+      .then((body) => setMembers(body.members || []))
+      .catch(() => setMembers([]));
+  }, [userId]);
 
   async function run(fix) {
     if (!userId) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/diagnostics/outlook?user_id=${userId}${fix ? '&fix=1' : ''}`);
+      const t = target && target !== userId ? `&target=${target}` : '';
+      const res = await fetch(`/api/diagnostics/outlook?user_id=${userId}${t}${fix ? '&fix=1' : ''}`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
       setReport(body);
@@ -76,6 +89,19 @@ export default function DiagnosticOutlookPage() {
         Rejoue chaque étape de l'intégration Outlook avec les droits réellement accordés et affiche les réponses brutes
         de Microsoft. « Réparer » crée la catégorie et le dossier s'ils manquent, puis range les derniers envois d'Aaron.
       </p>
+      {members.length > 1 && (
+        <p className="target">
+          Boîte à diagnostiquer :{' '}
+          <select value={target || userId || ''} onChange={(e) => setTarget(e.target.value)}>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.full_name || m.email}
+                {m.connections.length ? ` — ${m.connections.map((c) => `${c.provider}: ${c.email}`).join(', ')}` : ' — aucune boîte'}
+              </option>
+            ))}
+          </select>
+        </p>
+      )}
       <div className="actions">
         <button type="button" onClick={() => run(false)} disabled={!userId || loading}>
           {loading ? 'Analyse…' : 'Relancer le diagnostic'}
@@ -111,6 +137,7 @@ export default function DiagnosticOutlookPage() {
         .diag { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; font-family: system-ui, sans-serif; color: var(--text, #111); }
         h1 { font-size: 22px; margin: 0 0 8px; }
         .hint { color: var(--text-muted, #666); font-size: 14px; }
+        .target select { max-width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border, #ccc); background: var(--surface, #fff); color: inherit; }
         .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
         button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border, #ccc); background: var(--surface, #fff); color: inherit; cursor: pointer; }
         button.primary { background: #3b5bdb; color: #fff; border-color: #3b5bdb; }
