@@ -1104,7 +1104,9 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
     const body = await res.json();
 
     if (!res.ok) {
-      setError(body.error || t('prospects.createErrorFallback', locale));
+      // Quota mensuel de nouveaux prospects atteint (08/09/2026) : message
+      // traduit, plutôt que le texte serveur en français.
+      setError(body.code === 'prospect_quota_exceeded' ? t('quota.exceededToast', locale) : (body.error || t('prospects.createErrorFallback', locale)));
       return;
     }
 
