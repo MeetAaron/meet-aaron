@@ -187,6 +187,28 @@ interface EmailAttachment {
 // et si opts.textAlternative est fourni avec opts.html, un vrai
 // multipart/alternative texte + HTML — la même structure que produit le
 // composeur Gmail lui-même, la mieux acceptée par tous les clients mail.
+export const AARON_SENT_HEADER = 'X-Aaron-Sent';
+
+// Tous les messages d'un fil Gmail, en-têtes et corps compris. Sert au cron
+// de lecture pour retrouver les réponses que le commercial a écrites LUI-MÊME
+// dans un fil géré par Aaron (voir lib/manual-replies.ts). Renvoie [] en cas
+// d'échec : ce rattrapage est un complément, jamais un préalable.
+export async function listGmailThreadMessages(userId: string, threadId: string): Promise<any[]> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.messages || []; // [{ id, threadId, internalDate, labelIds, payload: { headers, parts… } }]
+  } catch (err: any) {
+    console.error('Erreur lecture du fil Gmail:', err.message);
+    return [];
+  }
+}
+
 export async function sendGmailEmail(
   userId: string,
   to: string,
@@ -198,6 +220,13 @@ export async function sendGmailEmail(
 
   const CRLF = '\r\n';
   const subjectHeader = `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+  // Marqueur des envois d'Aaron (08/09/2026, voir lib/manual-replies.ts) :
+  // quand le cron relit un fil, c'est cet en-tête qui distingue un message
+  // qu'Aaron a écrit d'une réponse tapée à la main par le commercial. Sans
+  // lui, on ne saurait le faire qu'en comparant des corps de texte — fragile.
+  // Un en-tête X-* est conservé tel quel par Gmail et invisible pour le
+  // destinataire.
+  const aaronMarkerHeader = `${AARON_SENT_HEADER}: 1`;
   // Encode un contenu texte en base64 découpé en lignes de 76 caractères
   // (limite MIME/RFC 2045). Le base64 n'utilise jamais le caractère "-",
   // donc aucune ligne encodée ne peut entrer en collision avec un "--boundary".
@@ -239,6 +268,7 @@ export async function sendGmailEmail(
     rawMessage = [
       `To: ${to}`,
       subjectHeader,
+      aaronMarkerHeader,
       'MIME-Version: 1.0',
       `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
       '',
@@ -254,7 +284,7 @@ export async function sendGmailEmail(
       `--${mixedBoundary}--`,
     ].join(CRLF);
   } else {
-    rawMessage = [`To: ${to}`, subjectHeader, 'MIME-Version: 1.0', contentPart].join(CRLF);
+    rawMessage = [`To: ${to}`, subjectHeader, aaronMarkerHeader, 'MIME-Version: 1.0', contentPart].join(CRLF);
   }
 
   const encodedMessage = Buffer.from(rawMessage)

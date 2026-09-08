@@ -205,6 +205,54 @@ export async function archiveOutlookMessage(userId: string, messageId: string | 
 // catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
 // récupère l'id du brouillon dès sa création, qui reste valable une fois le
 // message envoyé (déplacé de Brouillons vers Éléments envoyés).
+export const AARON_SENT_HEADER = 'X-Aaron-Sent';
+
+// Tous les messages d'une conversation Outlook (l'équivalent du fil Gmail),
+// pour retrouver les réponses écrites à la main par le commercial — voir
+// lib/manual-replies.ts. En-têtes et corps sont demandés directement ; si
+// Graph refuse `internetMessageHeaders` dans un $select de liste (ça dépend
+// du locataire), on retombe sur une lecture message par message, qui ne
+// concerne de toute façon que les quelques candidats. [] en cas d'échec.
+export async function listOutlookConversationMessages(userId: string, conversationId: string): Promise<any[]> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const params = new URLSearchParams({
+      $filter: `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+      $select: 'id,from,sentDateTime,isDraft,body,internetMessageHeaders',
+      $top: '50',
+    });
+    let response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      const light = new URLSearchParams({
+        $filter: `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+        $select: 'id,from,sentDateTime,isDraft',
+        $top: '50',
+      });
+      response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${light.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      const out: any[] = [];
+      for (const m of data.value || []) {
+        try {
+          out.push(await getOutlookMessage(userId, m.id));
+        } catch {
+          // message illisible : on l'ignore, les autres suffisent
+        }
+      }
+      return out.map((m, i) => ({ ...m, id: m.id || (data.value || [])[i]?.id }));
+    }
+    const data = await response.json();
+    return data.value || [];
+  } catch (err: any) {
+    console.error('Erreur lecture de la conversation Outlook:', err.message);
+    return [];
+  }
+}
+
 export async function sendOutlookEmail(
   userId: string,
   to: string,
@@ -235,6 +283,10 @@ export async function sendOutlookEmail(
       subject,
       body: { contentType: opts?.html ? 'HTML' : 'Text', content: body },
       toRecipients: [{ emailAddress: { address: to } }],
+      // Marqueur des envois d'Aaron — même rôle que côté Gmail, voir
+      // lib/google.ts (AARON_SENT_HEADER) et lib/manual-replies.ts. Graph
+      // n'accepte que des en-têtes personnalisés préfixés « X- ».
+      internetMessageHeaders: [{ name: AARON_SENT_HEADER, value: '1' }],
       ...(opts?.attachment
         ? {
             attachments: [
@@ -382,7 +434,7 @@ export async function getOutlookMessage(userId: string, messageId: string) {
   const accessToken = await getValidAccessToken(userId);
 
   const response = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime,internetMessageHeaders`,
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime,sentDateTime,conversationId,internetMessageHeaders`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
