@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
+import { handOverWonProspect } from '@/lib/prospect-handover';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
@@ -815,6 +816,10 @@ export async function GET(request: NextRequest) {
             .eq('id', prospect.id);
           // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
           autoSyncWonProspect(prospect.id).catch(() => {});
+          // Passage de relais (« géré par moi »). notify:false : le push de
+          // félicitations est envoyé juste en dessous avec la raison détectée,
+          // inutile d'en envoyer un second. Voir lib/prospect-handover.ts.
+          await handOverWonProspect(prospect.id, { notify: false });
 
           // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent
           // selon que le commercial a déjà l'abonnement Aaron Clients.
@@ -824,7 +829,7 @@ export async function GET(request: NextRequest) {
             title: 'Devis signé 🎉',
             body: offer_ac_active
               ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, je m'occupe de son accueil.`
-              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau.`,
+              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, et je te passe la main : c'est toi qui suis la relation à partir de maintenant.`,
             url: `/app/prospects?user_id=${connection.user_id}`,
           });
 
