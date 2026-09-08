@@ -5986,7 +5986,7 @@ function ConnectionCard({
                   ce sont des enregistrements DNS chez le registrar et un
                   réglage dans l'admin de la messagerie, sans aucune API
                   accessible à un tiers. On l'explique dans le repli. */}
-              {((!health.health.dmarc.found && health.suggested?.dmarc) || (health.dkim && !health.dkim.found)) && (
+              {!health.health.dmarc.found && health.suggested?.dmarc && (
                 <details className="health-advanced">
                   <summary><Ic name="bulb" /> {t('connexions.advancedTipsSummary', locale)}</summary>
                   <p className="health-hint">{t('connexions.advancedTipsWhy', locale)}</p>
@@ -6003,12 +6003,11 @@ function ConnectionCard({
                   </div>
                 </div>
               )}
-              {health.dkim && !health.dkim.found && (
-                <p className="health-hint health-optional">
-                  <Ic name="bulb" /> {t('connexions.dkimAdviceTitle', locale)} —{' '}
-                  {t(health.provider === 'microsoft' ? 'connexions.dkimAdviceMicrosoft' : 'connexions.dkimAdviceGoogle', locale)}
-                </p>
-              )}
+              {/* Conseil DKIM retiré (Alex, 08/09/2026) : Microsoft 365 et
+                  Google Workspace signent déjà tous les envois par défaut
+                  (clé onmicrosoft.com / gappssmtp.com) ; l'activation dans
+                  l'admin n'apporte qu'un alignement cosmétique — pas de quoi
+                  envoyer le client dans sa console d'administration. */}
                 </details>
               )}
             </div>
