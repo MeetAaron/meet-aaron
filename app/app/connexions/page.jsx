@@ -8,7 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
 // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
-import { BOOST_TIERS, boostPrice, formatBoostPrice, USD_PER_CREDIT } from '@/lib/boost-tiers';
+import { BOOST_TIERS, boostPrice, formatBoostPrice, USD_PER_CREDIT, prospectsForTier } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -2828,54 +2828,67 @@ export default function ConnexionsPage() {
                 </div>
               )}
 
+              {/* 08/09/2026 (Alex : « supprime la partie crédits, ajoute la
+                  partie boost ») : le solde en crédits disparaît. Ce que le
+                  client comprend, c'est un nombre de NOUVEAUX PROSPECTS par
+                  mois — 300 par siège, campagnes et ajouts manuels compris —
+                  et un boost en ajoute. Visible pour TOUS les rôles : un
+                  commercial sur un siège doit voir où il en est et pouvoir
+                  acheter un boost sans passer par le fondateur (l'achat se
+                  paie au checkout, avec sa propre carte). */}
               <div className="field credits-field">
-                <label>{t('connexions.creditsTitle', locale)}</label>
+                <label>{t('quota.title', locale)}</label>
                 <div className="usage-box">
-                  <div className="usage-row">
-                    <span>{t('connexions.creditsBalanceLabel', locale)}</span>
-                    <strong>
-                      {Math.max(0, Math.round((usage.monthly_cap_usd || 0) - (usage.month_cost_usd || 0)))} {t('connexions.creditsUnit', locale)}
-                    </strong>
-                  </div>
-                  {(usage.boost_credits || 0) > 0 && (
-                    <div className="usage-row">
-                      <span>{t('boost.activeLabel', locale)}</span>
-                      <strong>+{usage.boost_credits} {t('connexions.creditsUnit', locale)}</strong>
-                    </div>
+                  {usage.prospect_quota ? (
+                    <>
+                      <div className="usage-row">
+                        <span>{t('quota.usedLabel', locale)}</span>
+                        <strong>{usage.prospect_quota.used} / {usage.prospect_quota.total}</strong>
+                      </div>
+                      <div className="quota-bar" aria-hidden="true">
+                        <div
+                          className={`quota-fill${usage.prospect_quota.remaining === 0 ? ' full' : ''}`}
+                          style={{ width: `${Math.min(100, Math.round((usage.prospect_quota.used / Math.max(1, usage.prospect_quota.total)) * 100))}%` }}
+                        />
+                      </div>
+                      <p className="usage-hint">
+                        {(usage.prospect_quota.seats > 1 ? t('quota.hintTeam', locale) : t('quota.hintSolo', locale))
+                          .replace('{included}', usage.prospect_quota.included)
+                          .replace('{seats}', usage.prospect_quota.seats)}
+                      </p>
+                      {usage.prospect_quota.boostExtra > 0 && (
+                        <div className="usage-row">
+                          <span>{t('boost.activeLabel', locale)}</span>
+                          <strong>+{usage.prospect_quota.boostExtra} {t('quota.unit', locale)}</strong>
+                        </div>
+                      )}
+                      {usage.prospect_quota.remaining === 0 && (
+                        <p className="usage-hint quota-empty">{t('quota.exhausted', locale)}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="usage-hint">{t('common.loading', locale)}</p>
                   )}
-                  <p className="usage-hint">
-                    {t('connexions.creditsExplanation', locale).replace('{cap}', Math.round(usage.subscription_cap_usd ?? usage.monthly_cap_usd ?? 0))}
-                  </p>
                   {creditsError && <p className="error">{creditsError}</p>}
 
-                  {/* Boosts (décision Alex, 01/09/2026) : 4 paliers fixes qui
-                      REMPLACENT l'ancien solde de crédits achetable au détail
-                      par module. Un boost s'ajoute au plafond de l'abonnement
-                      et court sur sa propre fenêtre d'un mois depuis l'achat ;
-                      les crédits inclus ne sont jamais entamés. Voir
-                      lib/credit-boosts.ts. */}
-                  {prefs?.role === 'patron' && (
-                    <>
-                      <p className="sub-label">{t('boost.sectionLabel', locale)}</p>
-                      <p className="usage-hint">{t('boost.sectionHint', locale)}</p>
-                      <div className="boost-row">
-                        {BOOST_TIERS.map((tier) => (
-                          <button
-                            key={tier.id}
-                            type="button"
-                            className={`boost-card${tier.highlight ? ' highlight' : ''}`}
-                            disabled={buyingCredits === tier.id}
-                            onClick={() => handleBuyBoost(tier.id)}
-                          >
-                            {tier.highlight && <span className="boost-badge">{t('boost.popular', locale)}</span>}
-                            <span className="boost-credits">+{tier.credits}</span>
-                            <span className="boost-unit">{t('connexions.creditsUnit', locale)}</span>
-                            <span className="boost-price">{buyingCredits === tier.id ? '…' : formatBoostPrice(boostPrice(tier.id, boostCurrency), boostCurrency)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                  <p className="sub-label">{t('boost.sectionLabel', locale)}</p>
+                  <p className="usage-hint">{t('boost.sectionHint', locale)}</p>
+                  <div className="boost-row">
+                    {BOOST_TIERS.map((tier) => (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        className={`boost-card${tier.highlight ? ' highlight' : ''}`}
+                        disabled={buyingCredits === tier.id}
+                        onClick={() => handleBuyBoost(tier.id)}
+                      >
+                        {tier.highlight && <span className="boost-badge">{t('boost.popular', locale)}</span>}
+                        <span className="boost-credits">+{prospectsForTier(tier)}</span>
+                        <span className="boost-unit">{t('quota.unit', locale)}</span>
+                        <span className="boost-price">{buyingCredits === tier.id ? '…' : formatBoostPrice(boostPrice(tier.id, boostCurrency), boostCurrency)}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               </>
@@ -4050,6 +4063,25 @@ export default function ConnexionsPage() {
           font-style: italic;
         }
         /* Paliers de boost (01/09/2026) — remplacent .credits-buy-row. */
+        .quota-bar {
+          height: 8px;
+          border-radius: 999px;
+          background: var(--tint-8);
+          overflow: hidden;
+          margin: 0.35rem 0 0.6rem;
+        }
+        .quota-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #4b39ef, #7c6cf7);
+          transition: width 0.4s ease;
+        }
+        .quota-fill.full {
+          background: #e5533d;
+        }
+        .quota-empty {
+          color: #e5533d;
+        }
         .boost-row {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
