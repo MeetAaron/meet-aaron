@@ -1,8 +1,11 @@
 {
+  "id": "/app/dashboard",
   "name": "Meet Aaron",
   "short_name": "Meet Aaron",
   "description": "Aaron, le copilote de votre commercial",
+  "lang": "fr",
   "start_url": "/app/dashboard",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0b0e1a",
   "theme_color": "#0b0e1a",
