@@ -101,7 +101,7 @@ function gmailBodyText(payload: any): string {
   return '';
 }
 
-type ManualCandidate = { providerMessageId: string; text: string; sentAt: string | null };
+type ManualCandidate = { providerMessageId: string; internetMessageId: string | null; text: string; sentAt: string | null };
 
 async function gmailCandidates(userId: string, threadId: string, userEmail: string): Promise<ManualCandidate[]> {
   const messages = await listGmailThreadMessages(userId, threadId);
@@ -117,6 +117,7 @@ async function gmailCandidates(userId: string, threadId: string, userEmail: stri
     if (!text) continue;
     out.push({
       providerMessageId: m.id,
+      internetMessageId: header('Message-ID'),
       text,
       sentAt: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : null,
     });
@@ -135,7 +136,7 @@ async function outlookCandidates(userId: string, conversationId: string, userEma
     const raw = m.body?.content || '';
     const text = stripQuotedReply(m.body?.contentType === 'html' || /<[a-z][\s\S]*>/i.test(raw) ? htmlToText(raw) : raw);
     if (!text) continue;
-    out.push({ providerMessageId: m.id, text, sentAt: m.sentDateTime || null });
+    out.push({ providerMessageId: m.id, internetMessageId: m.internetMessageId || null, text, sentAt: m.sentDateTime || null });
   }
   return out;
 }
@@ -165,11 +166,13 @@ export async function ingestManualReplies(params: {
     // migration_oauth_catchup_2026-08-27.sql).
     const { data: known } = await supabaseAdmin
       .from('messages')
-      .select('provider_message_id')
-      .eq('conversation_id', params.conversationId)
-      .in('provider_message_id', candidates.map((c) => c.providerMessageId));
-    const knownIds = new Set((known || []).map((k: any) => k.provider_message_id));
-    const fresh = candidates.filter((c) => !knownIds.has(c.providerMessageId));
+      .select('provider_message_id, internet_message_id')
+      .eq('conversation_id', params.conversationId);
+    const knownProviderIds = new Set((known || []).map((k: any) => k.provider_message_id).filter(Boolean));
+    const knownInternetIds = new Set((known || []).map((k: any) => k.internet_message_id).filter(Boolean));
+    const fresh = candidates.filter(
+      (c) => !knownProviderIds.has(c.providerMessageId) && !(c.internetMessageId && knownInternetIds.has(c.internetMessageId))
+    );
     if (fresh.length === 0) return 0;
 
     const rows = fresh.map((c) => ({
@@ -179,6 +182,7 @@ export async function ingestManualReplies(params: {
       recipient_email: params.prospectEmail,
       body: c.text,
       provider_message_id: c.providerMessageId,
+      internet_message_id: c.internetMessageId,
       ...(c.sentAt ? { sent_at: c.sentAt } : {}),
     }));
     const { error } = await supabaseAdmin.from('messages').insert(rows);

@@ -219,7 +219,7 @@ export async function listOutlookConversationMessages(userId: string, conversati
     const accessToken = await getValidAccessToken(userId);
     const params = new URLSearchParams({
       $filter: `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      $select: 'id,from,sentDateTime,isDraft,body,internetMessageHeaders',
+      $select: 'id,from,sentDateTime,isDraft,body,internetMessageId,internetMessageHeaders',
       $top: '50',
     });
     let response = await fetch(`https://graph.microsoft.com/v1.0/me/messages?${params.toString()}`, {
@@ -407,7 +407,10 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   // Le corps n'est téléchargé que pour les messages qui correspondent.
   const params = new URLSearchParams({
     $filter: `receivedDateTime ge ${afterISO} and isDraft eq false`,
-    $select: 'id,from',
+    // internetMessageId (08/09/2026) : l'identifiant RFC 5322 du message,
+    // identique quel que soit le dossier et le format d'id Graph — c'est
+    // désormais la clé anti-doublon du cron (voir check-inbox).
+    $select: 'id,from,internetMessageId',
     $orderby: 'receivedDateTime desc',
     $top: '100',
   });
@@ -425,7 +428,7 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   if (!response.ok) {
     const inboxParams = new URLSearchParams({
       $filter: `receivedDateTime ge ${afterISO}`,
-      $select: 'id,from',
+      $select: 'id,from,internetMessageId',
       $orderby: 'receivedDateTime desc',
     });
     response = await fetch(
@@ -439,7 +442,7 @@ export async function listNewOutlookMessages(userId: string, afterTimestamp: num
   }
 
   const data = await response.json();
-  return (data.value || []) as { id: string; from?: any }[]; // id + expéditeur
+  return (data.value || []) as { id: string; from?: any; internetMessageId?: string }[]; // id + expéditeur + Message-ID
 }
 
 // Récupère le contenu complet d'un message Outlook
@@ -447,7 +450,7 @@ export async function getOutlookMessage(userId: string, messageId: string) {
   const accessToken = await getValidAccessToken(userId);
 
   const response = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime,sentDateTime,conversationId,internetMessageHeaders`,
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=from,body,subject,receivedDateTime,sentDateTime,conversationId,internetMessageId,internetMessageHeaders`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
