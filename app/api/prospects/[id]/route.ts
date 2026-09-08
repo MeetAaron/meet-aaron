@@ -9,6 +9,7 @@ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError,
 import { isDomainHealthyForSending } from '@/lib/email-deliverability';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+import { handOverWonProspect } from '@/lib/prospect-handover';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
@@ -512,6 +513,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
+    // Passage de relais : le contact repasse en « géré par moi » et le
+    // commercial est prévenu que la relation est désormais la sienne (sauf
+    // module Aaron Clients). Voir lib/prospect-handover.ts.
+    handOverWonProspect(prospectId).catch(() => {});
+
     // Docx "CLIENTS A1(a)" : onboarding automatique dès que ce prospect
     // devient réellement client (pas juste "gagné en attente de 1ère
     // commande") — voir lib/aaron-customer.ts. Fire-and-forget : ne bloque
@@ -589,6 +595,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
     if (deal_stage === 'signe') {
       triggerAutomaticOnboarding(prospectId).catch(() => {});
+      // Passage de relais — voir lib/prospect-handover.ts.
+      handOverWonProspect(prospectId).catch(() => {});
     }
 
     return NextResponse.json({ success: true, deal_stage });
