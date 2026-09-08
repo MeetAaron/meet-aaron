@@ -251,29 +251,31 @@ export default function BilanRdvPage({ params }) {
   );
 }
 
-// Couleurs alignées sur les variables CSS utilisées partout ailleurs dans
-// l'app (--bg, --surface, --text, --muted, --border) — avant, cette page
-// (atteinte depuis une notification de rappel de bilan post-RDV) utilisait
-// des teintes légèrement différentes, ce qui créait un changement de fond
-// perceptible en y arrivant depuis le reste de l'app.
+// Couleurs = les variables CSS de l'app (--bg, --surface, --text, --muted,
+// --border), avec la valeur sombre en repli. Cette page n'a pas de bloc
+// :root à elle (styles inline), donc en thème sombre les variables sont
+// absentes et le repli s'applique ; en mode clair, globals.css les définit
+// sur html[data-theme='light'] et la page suit le thème. Avant (08/09/2026),
+// les valeurs étaient écrites en dur : cette page restait sombre en mode
+// clair — la seule de l'app hors visite guidée.
 const styles = {
   page: {
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#0b0e1a',
+    background: 'var(--bg, #0b0e1a)',
     padding: 24,
   },
   card: {
     maxWidth: 480,
     width: '100%',
-    background: '#131629',
+    background: 'var(--surface, #131629)',
     borderRadius: 16,
     padding: 28,
   },
   title: {
-    color: '#f4f1ea',
+    color: 'var(--text, #f4f1ea)',
     fontSize: 20,
     marginBottom: 20,
     lineHeight: 1.4,
@@ -286,15 +288,15 @@ const styles = {
   choiceButton: {
     padding: '14px 16px',
     borderRadius: 10,
-    border: '1px solid #232744',
-    background: '#1a1e35',
-    color: '#f4f1ea',
+    border: '1px solid var(--border, #232744)',
+    background: 'var(--surface-hover, #1a1e35)',
+    color: 'var(--text, #f4f1ea)',
     fontSize: 15,
     textAlign: 'left',
     cursor: 'pointer',
   },
   stepLabel: {
-    color: '#8b90a8',
+    color: 'var(--muted, #8b90a8)',
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
@@ -312,9 +314,9 @@ const styles = {
     gap: 4,
     padding: '12px 6px',
     borderRadius: 10,
-    border: '1px solid #232744',
-    background: '#1a1e35',
-    color: '#f4f1ea',
+    border: '1px solid var(--border, #232744)',
+    background: 'var(--surface-hover, #1a1e35)',
+    color: 'var(--text, #f4f1ea)',
     fontSize: 13,
     cursor: 'pointer',
   },
@@ -332,19 +334,19 @@ const styles = {
   chip: {
     padding: '6px 10px',
     borderRadius: 999,
-    border: '1px solid #232744',
+    border: '1px solid var(--border, #232744)',
     background: 'transparent',
-    color: '#c9c6d8',
+    color: 'var(--text, #c9c6d8)',
     fontSize: 12.5,
     cursor: 'pointer',
   },
   textarea: {
     width: '100%',
     boxSizing: 'border-box',
-    background: '#0b0e1a',
-    border: '1px solid #232744',
+    background: 'var(--bg, #0b0e1a)',
+    border: '1px solid var(--border, #232744)',
     borderRadius: 10,
-    color: '#f4f1ea',
+    color: 'var(--text, #f4f1ea)',
     padding: '10px 12px',
     fontSize: 16,
     fontFamily: 'inherit',
@@ -355,7 +357,7 @@ const styles = {
     alignItems: 'flex-start',
     gap: 10,
     marginTop: 16,
-    color: '#f4f1ea',
+    color: 'var(--text, #f4f1ea)',
     fontSize: 14,
     cursor: 'pointer',
   },
@@ -372,7 +374,7 @@ const styles = {
     cursor: 'pointer',
   },
   hint: {
-    color: '#8b90a8',
+    color: 'var(--muted, #8b90a8)',
     fontSize: 12.5,
     marginTop: 8,
     textAlign: 'center',
@@ -386,20 +388,20 @@ const styles = {
     marginTop: 20,
     padding: 16,
     borderRadius: 10,
-    background: '#1a1e35',
+    background: 'var(--surface-hover, #1a1e35)',
   },
   noteLabel: {
-    color: '#8b90a8',
+    color: 'var(--muted, #8b90a8)',
     fontSize: 12,
     marginBottom: 4,
   },
   noteText: {
-    color: '#f4f1ea',
+    color: 'var(--text, #f4f1ea)',
     fontSize: 15,
     lineHeight: 1.5,
   },
   muted: {
-    color: '#8b90a8',
+    color: 'var(--muted, #8b90a8)',
   },
   errorText: {
     color: '#e5484d',
