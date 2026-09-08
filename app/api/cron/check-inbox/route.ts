@@ -55,7 +55,13 @@ function extractGmailBody(payload: any): string {
 // intégralement téléchargé — newsletters, notifications, spam compris — pour
 // être jeté juste après faute de correspondance. Voir
 // fetchNewMessagesForConnection et la boucle principale plus bas.
-type NormalizedMessage = { id: string; fromEmail: string; bodyText: string | null; threadId?: string; subject?: string | null; headers?: InboundHeaders };
+// internetMessageId (08/09/2026) : l'identifiant RFC 5322 (« Message-ID »),
+// posé par le serveur d'envoi et identique partout — quel que soit le dossier,
+// le fournisseur, ou le format d'identifiant que Graph décide de renvoyer.
+// C'est LA clé anti-doublon fiable : l'id Gmail/Graph (`id`) reste stocké
+// pour compatibilité, mais un message rangé dans un autre dossier par Aaron
+// change d'id Graph, pas de Message-ID.
+type NormalizedMessage = { id: string; internetMessageId?: string | null; fromEmail: string; bodyText: string | null; threadId?: string; subject?: string | null; headers?: InboundHeaders };
 
 // Rattrapage automatique après coupure/reconnexion (demande Alex, 27/08/2026,
 // suite à l'audit du comportement déco/reco avec Ludovic) : avant, la fenêtre
@@ -111,6 +117,7 @@ async function fetchNewMessagesForConnection(connection: {
       const fromEmail = fromHeader.match(/<(.+)>/)?.[1] || fromHeader;
       detailed.push({
         id: msg.id,
+        internetMessageId: h('Message-ID'),
         fromEmail,
         bodyText: null,
         threadId: meta?.threadId,
@@ -134,6 +141,7 @@ async function fetchNewMessagesForConnection(connection: {
   const newMessages = await listNewOutlookMessages(connection.user_id, afterTimestamp);
   return newMessages.map((msg) => ({
     id: msg.id,
+    internetMessageId: (msg as any).internetMessageId || null,
     fromEmail: (msg as any).from?.emailAddress?.address || '',
     bodyText: null,
   }));
@@ -154,7 +162,8 @@ async function handleWonCustomerMessage(
   userId: string,
   fromEmail: string,
   bodyText: string,
-  providerMessageId: string
+  providerMessageId: string,
+  internetMessageId: string | null = null
 ) {
   const { data: conversation } = await supabaseAdmin
     .from('conversations')
@@ -173,6 +182,7 @@ async function handleWonCustomerMessage(
       // Nécessaire pour la sécurité anti-doublon du rattrapage automatique
       // (voir plus bas dans GET) — avant, seul le flux prospection l'écrivait.
       provider_message_id: providerMessageId,
+      internet_message_id: internetMessageId,
     });
   }
 
@@ -415,10 +425,22 @@ export async function GET(request: NextRequest) {
       // provider_message_id) ne doit jamais être retraité — sinon Aaron
       // pourrait répondre deux fois au même prospect, ou écraser une note de
       // check-in déjà enregistrée.
+      //
+      // 08/09/2026 : clé principale = Message-ID (voir NormalizedMessage).
+      // Avant, seul l'id Graph/Gmail servait — or côté Outlook, ranger un
+      // message reçu dans le dossier « Géré par Aaron » change son id Graph.
+      // Si le cron plantait entre ce rangement et la sauvegarde de sa
+      // position (last_checked_at), le message réapparaissait au passage
+      // suivant sous un id inconnu, et Aaron répondait DEUX fois. Le
+      // Message-ID, lui, ne bouge jamais. L'id fournisseur reste vérifié en
+      // repli pour les messages stockés avant cette date, sans Message-ID.
+      const dedupFilter = msg.internetMessageId
+        ? `internet_message_id.eq.${JSON.stringify(msg.internetMessageId)},provider_message_id.eq.${JSON.stringify(msg.id)}`
+        : `provider_message_id.eq.${JSON.stringify(msg.id)}`;
       const { data: alreadyProcessed } = await supabaseAdmin
         .from('messages')
         .select('id')
-        .eq('provider_message_id', msg.id)
+        .or(dedupFilter)
         .limit(1)
         .maybeSingle();
       if (alreadyProcessed) continue;
@@ -537,7 +559,7 @@ export async function GET(request: NextRequest) {
       // satisfaction/NPS est en attente de réponse, en extrait la note.
       // Voir lib/aaron-customer.ts et migration_aaron_customer_2026-08-13.sql.
       if (prospect.is_won) {
-        await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText, msg.id);
+        await handleWonCustomerMessage(prospect, connection.user_id, fromEmail, bodyText, msg.id, msg.internetMessageId || null);
         continue;
       }
 
@@ -574,6 +596,7 @@ export async function GET(request: NextRequest) {
         recipient_email: connection.provider_account_email,
         body: bodyText,
         provider_message_id: msg.id,
+        internet_message_id: msg.internetMessageId || null,
       });
 
       // Pré-filtre (05/09/2026, voir lib/inbound-triage.ts) : en-têtes, puis
