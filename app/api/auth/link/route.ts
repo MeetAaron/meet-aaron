@@ -19,11 +19,19 @@ async function subscriptionInactiveError(companyId: string | null): Promise<stri
   if (!companyId) return null;
   const { data: company } = await supabaseAdmin
     .from('companies')
-    .select('offer_ap_active, offer_as_active, offer_ac_active')
+    .select('offer_ap_active, offer_as_active, offer_ac_active, billing_exempt')
     .eq('id', companyId)
     .maybeSingle();
   if (!company) return null;
-  const anyActive = company.offer_ap_active || company.offer_as_active || company.offer_ac_active;
+  // billing_exempt : société exemptée d'abonnement (compte interne de
+  // l'éditeur, voir lib/subscription-status.ts). Sans ce cas, l'éditeur ne
+  // pourrait pas se connecter à son propre produit — cette porte-ci vérifie
+  // qu'au moins un module est actif, et un module n'est activé que par Stripe.
+  const anyActive =
+    (company as any).billing_exempt === true ||
+    company.offer_ap_active ||
+    company.offer_as_active ||
+    company.offer_ac_active;
   if (anyActive) return null;
   return "Votre compte n'est pas actif : veuillez vous réabonner pour continuer à utiliser Meet Aaron.";
 }
