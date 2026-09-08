@@ -33,90 +33,14 @@
 // cette clause, sept textes juridiques légèrement différents créeraient une
 // ambiguïté sur celui qui engage réellement l'éditeur.
 //
-// Balisage minimal accepté dans les textes : **gras** et [libellé](url).
-// Volontairement pauvre — une politique de confidentialité n'a pas besoin de
-// plus, et un parseur riche serait une surface de bug pour zéro gain.
+// Le rendu (parseur **gras** / [lien](url), mise en forme, repli de langue)
+// est partagé avec /terms dans components/LegalPage.jsx — cette page ne
+// contient plus que ses textes.
 //
 // Le texte est la source de vérité : ne rien y écrire que le code ne fasse pas
 // réellement.
-import { Fragment } from 'react';
 import { useLocale } from '@/lib/i18n';
-
-const INLINE = /\*\*(.+?)\*\*|\[(.+?)\]\((.+?)\)/g;
-
-function inline(text, key) {
-  const out = [];
-  let last = 0;
-  let match;
-  let i = 0;
-  INLINE.lastIndex = 0;
-  while ((match = INLINE.exec(text)) !== null) {
-    if (match.index > last) out.push(text.slice(last, match.index));
-    if (match[1]) {
-      out.push(<strong key={`${key}-${i}`}>{match[1]}</strong>);
-    } else {
-      const href = match[3];
-      const external = href.indexOf('http') === 0;
-      out.push(
-        <a
-          key={`${key}-${i}`}
-          href={href}
-          target={external ? '_blank' : undefined}
-          rel={external ? 'noopener noreferrer' : undefined}
-        >
-          {match[2]}
-        </a>
-      );
-    }
-    last = match.index + match[0].length;
-    i += 1;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
-// Un bloc est soit une chaîne (paragraphe), soit ['ul', [items]] (liste).
-function Block({ block, k }) {
-  if (Array.isArray(block)) {
-    return (
-      <ul>
-        {block[1].map((item, i) => (
-          <li key={i}>{inline(item, `${k}-${i}`)}</li>
-        ))}
-      </ul>
-    );
-  }
-  return <p>{inline(block, k)}</p>;
-}
-
-function Policy({ policy }) {
-  return (
-    <>
-      <h1>{policy.title}</h1>
-      <p className="updated">{policy.updated}</p>
-      {policy.intro.map((block, i) => (
-        <Block key={`intro-${i}`} block={block} k={`intro-${i}`} />
-      ))}
-      {policy.sections.map((section, si) => (
-        <Fragment key={si}>
-          <h2 id={section.id}>{section.h}</h2>
-          {section.b.map((block, bi) => (
-            <Block key={bi} block={block} k={`${si}-${bi}`} />
-          ))}
-        </Fragment>
-      ))}
-      <p className="footer-note">{inline(policy.footer, 'footer')}</p>
-    </>
-  );
-}
-
-// Clause Limited Use de Google : reproduite EN ANGLAIS dans les sept versions,
-// mot pour mot. C'est une exigence de la vérification OAuth — la traduire, même
-// fidèlement, fait échouer le contrôle automatique du relecteur.
-const GOOGLE_LIMITED_USE =
-  "Meet Aaron's use and transfer to any other app of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. The use of information received from Google Workspace scopes will adhere to the Google User Data Policy, including the Limited Use requirements.";
-
-const MAIL = '[aaron@meetaaron.app](mailto:aaron@meetaaron.app)';
+import LegalPage, { GOOGLE_LIMITED_USE, MAIL } from '@/components/LegalPage';
 
 const fr = {
   title: 'Politique de confidentialité',
@@ -1007,84 +931,5 @@ const BACK_LABEL = {
 
 export default function PrivacyPage() {
   const [locale] = useLocale();
-  // Repli sur l'anglais et non sur le français : c'est la langue que lisent
-  // les relecteurs Google et Apple, et celle qui fait foi (voir en-tête).
-  const lang = POLICIES[locale] ? locale : 'en';
-  return (
-    <div className="wrap">
-      <div className="content" lang={lang}>
-        <a href="/app/preferences" className="back-link">{BACK_LABEL[lang]}</a>
-        <img src="/icon.png" alt="Meet Aaron" className="logo" />
-        <Policy policy={POLICIES[lang]} />
-      </div>
-
-      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500&display=swap');
-        .wrap {
-          min-height: 100vh;
-          background: #0b0e1a;
-          color: #f4f1ea;
-          font-family: 'Inter', sans-serif;
-          padding: 3rem 1.5rem;
-          display: flex;
-          justify-content: center;
-        }
-        .content {
-          max-width: 680px;
-          width: 100%;
-        }
-        .back-link {
-          display: inline-block;
-          color: #8b90a8;
-          font-size: 0.82rem;
-          text-decoration: none;
-          margin-bottom: 1.5rem;
-        }
-        .back-link:hover {
-          color: #f4f1ea;
-        }
-        .logo {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
-          margin-bottom: 1.5rem;
-        }
-        .content :global(h1) {
-          font-family: 'Space Grotesk', sans-serif;
-          font-size: 1.8rem;
-          margin: 0 0 0.4rem;
-        }
-        .content :global(.updated) {
-          color: #8b90a8;
-          font-size: 0.82rem;
-          margin: 0 0 2rem;
-        }
-        .content :global(h2) {
-          font-family: 'Space Grotesk', sans-serif;
-          font-size: 1.1rem;
-          margin: 2rem 0 0.8rem;
-        }
-        .content :global(p),
-        .content :global(li) {
-          color: #c7cadb;
-          font-size: 0.92rem;
-          line-height: 1.6;
-        }
-        .content :global(ul) {
-          padding-left: 1.2rem;
-        }
-        .content :global(li) {
-          margin-bottom: 0.4rem;
-        }
-        .content :global(a) {
-          color: #4b39ef;
-        }
-        .content :global(.footer-note) {
-          margin-top: 2.5rem;
-          color: #8b90a8;
-          font-size: 0.82rem;
-        }
-      `}</style>
-    </div>
-  );
+  return <LegalPage documents={POLICIES} backLabel={BACK_LABEL} locale={locale} />;
 }
