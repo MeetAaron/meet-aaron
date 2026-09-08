@@ -1272,7 +1272,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     setLaunching(false);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error || t('campaigns.createError', locale));
+      setError(body.code === 'prospect_quota_exceeded' ? t('quota.exceededToast', locale) : (body.error || t('campaigns.createError', locale)));
       return;
     }
     onCreated();
