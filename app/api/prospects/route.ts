@@ -10,6 +10,7 @@ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError 
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { isGenericEmailDomain } from '@/lib/csv-import';
+import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { researchProspectCompany } from '@/lib/prospect-research';
 import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
@@ -143,6 +144,22 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
+
+  // Quota de nouveaux prospects du mois (décision Alex, 08/09/2026 : « s'il
+  // en ajoute manuellement ça compte aussi »). Cette route sert à l'ajout
+  // manuel ET à l'import CSV — c'est donc ici que la règle s'applique aux
+  // deux. 409 + code : l'écran affiche le quota et propose un boost.
+  try {
+    await assertProspectQuotaAllows(company_id, 1);
+  } catch (err: any) {
+    if (err instanceof ProspectQuotaExceededError) {
+      return NextResponse.json(
+        { error: err.message, code: 'prospect_quota_exceeded', quota: err.quota },
+        { status: 409 }
+      );
+    }
+    throw err;
+  }
 
   const domain = email.split('@')[1];
   const cleanCompanyName = company_name?.trim() || null;
