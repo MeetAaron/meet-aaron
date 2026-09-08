@@ -10,6 +10,7 @@
 // société (lib/anthropic-client.ts) — même logique qu'Aaron Prospect.
 
 import { supabaseAdmin } from './supabase-admin';
+import { extractJsonObject } from './extract-json';
 import { callClaude } from './anthropic-client';
 import { localeInstruction, normalizeLocale } from './locale-instruction';
 
@@ -123,10 +124,9 @@ function parseJsonResponse<T>(data: any, errorLabel: string): T {
   const textBlock = data.content.find((b: any) => b.type === 'text');
   if (!textBlock) throw new Error('Aucune réponse texte reçue de Claude');
 
-  const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
-
   try {
-    return JSON.parse(cleaned) as T;
+    // Extraction tolérante (08/09/2026, voir lib/extract-json.ts).
+    return extractJsonObject<T>(textBlock.text);
   } catch (e) {
     console.error(`${errorLabel} non parsable:`, textBlock.text);
     throw new Error(`Réponse Aaron mal formée (JSON invalide) — ${errorLabel}`);

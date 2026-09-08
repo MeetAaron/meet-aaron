@@ -3,6 +3,7 @@
 // et parse la réponse structurée en JSON pour que le reste du backend l'exploite.
 
 import { supabaseAdmin } from './supabase-admin';
+import { extractJsonObject } from './extract-json';
 import { callClaude, CACHE_TTL_1H } from './anthropic-client';
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
 import { readFileSync } from 'fs';
@@ -431,7 +432,11 @@ export async function buildAaronRequest(prospectId: string, options?: { model?: 
 
   const body = {
     model: options?.model || 'claude-sonnet-5',
-    max_tokens: 2000,
+    // 3000 et non 2000 (08/09/2026) : un premier email long + le conseil +
+    // la proposition de RDV dépassaient parfois 2000 tokens, et la réponse
+    // coupée n'était plus un JSON valide. Seuls les tokens réellement
+    // produits sont facturés : relever le plafond ne coûte rien.
+    max_tokens: 3000,
     // Prompt caching : ce system prompt est identique à chaque appel (un par
     // prospect, à chaque cycle de prospection) — le mettre en cache réduit
     // fortement le coût et la latence sur le plus gros poste d'appels API.
@@ -460,9 +465,12 @@ export function parseAaronOutput(data: any): AaronOutput {
   if (!textBlock) {
     throw new Error('Aucune réponse texte reçue de Claude');
   }
-  const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+  // Extraction tolérante (08/09/2026, voir lib/extract-json.ts) : texte
+  // avant/après l'objet, réponse coupée par max_tokens — l'objet est
+  // récupéré tant qu'il est là. L'erreur ne reste que pour une réponse sans
+  // aucun JSON.
   try {
-    return JSON.parse(cleaned) as AaronOutput;
+    return extractJsonObject<AaronOutput>(textBlock.text);
   } catch (e) {
     console.error('Réponse Aaron non parsable:', textBlock.text);
     throw new Error('Réponse Aaron mal formée (JSON invalide)');
