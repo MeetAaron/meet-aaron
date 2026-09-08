@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { checkCampaignBudget, listActiveBoosts } from '@/lib/credit-boosts';
+import { getProspectQuota } from '@/lib/prospect-quota';
 
 // Même base que DEFAULT_MONTHLY_CAP_USD dans lib/anthropic-client.ts.
 const DEFAULT_PER_USER_CAP_USD = 21.5;
@@ -54,11 +55,18 @@ export async function GET(request: NextRequest) {
 
   const check = checkCampaignBudget(targetCount, subscriptionCap + boostCap, spent);
 
+  // 08/09/2026 : ce qui parle au commercial, c'est le quota de nouveaux
+  // prospects du mois (lib/prospect-quota.ts), pas des dollars. C'est lui
+  // qui fait foi pour `sufficient` et `covered_count` ; les champs en
+  // dollars restent exposés pour l'affichage interne.
+  const quota = await getProspectQuota(companyId);
+
   return NextResponse.json({
     target_count: targetCount,
     ...check,
-    // Exposé pour que l'écran puisse dire « il t'en reste de quoi en faire N »
-    // plutôt qu'un pourcentage abstrait.
+    sufficient: quota.remaining >= targetCount,
+    covered_count: quota.remaining,
+    quota,
     boost_cap_usd: boostCap,
     subscription_cap_usd: subscriptionCap,
   });
