@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { LOCALE_NAMES } from '@/lib/locale-instruction';
 
@@ -93,6 +94,23 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
+
+  // Quota de nouveaux prospects du mois (08/09/2026). On ne bloque que si
+  // plus RIEN n'est disponible : une campagne dont l'objectif dépasse le
+  // reste démarre quand même et se met en pause au quota (lib/sourcing.ts),
+  // puis repart au mois suivant ou dès qu'un boost est acheté — c'est
+  // exactement « 2 campagnes de 150, c'est pareil ».
+  try {
+    await assertProspectQuotaAllows(company_id, 1);
+  } catch (err: any) {
+    if (err instanceof ProspectQuotaExceededError) {
+      return NextResponse.json(
+        { error: err.message, code: 'prospect_quota_exceeded', quota: err.quota },
+        { status: 409 }
+      );
+    }
+    throw err;
+  }
 
   const { data: campaign, error } = await supabaseAdmin
     .from('prospecting_campaigns')
