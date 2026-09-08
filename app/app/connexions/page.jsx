@@ -1488,6 +1488,20 @@ export default function ConnexionsPage() {
   // token d'auth ne s'applique donc pas ici. On récupère le token de session et on
   // le passe explicitement en paramètre, pour que le serveur dérive l'identité du
   // token vérifié plutôt que de faire confiance à un user_id dans l'URL.
+  // Un seul bouton « Connecter ma boîte mail et mon agenda » (demande Alex,
+  // 08/09/2026) : le fournisseur est deviné côté serveur à partir du domaine
+  // de l'adresse (voir app/api/mailbox-provider). null = inconnu → on montre
+  // les deux cartes et on laisse choisir, jamais de pari.
+  const [detectedProvider, setDetectedProvider] = useState(undefined); // undefined = pas encore su
+  const [showAllProviders, setShowAllProviders] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'connection') return;
+    fetch('/api/mailbox-provider')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => setDetectedProvider(res?.provider ?? null))
+      .catch(() => setDetectedProvider(null));
+  }, [activeTab]);
+
   async function connectProvider(provider) {
     const { data: { session } } = await supabaseBrowser.auth.getSession();
     if (!session) {
@@ -2276,6 +2290,40 @@ export default function ConnexionsPage() {
               </a>
             </div>
           )}
+          {/* Un seul bouton (Alex, 08/09/2026) tant qu'aucune boîte n'est
+              connectée : le fournisseur est deviné (api/mailbox-provider).
+              Les deux cartes complètes restent accessibles — « choisir
+              manuellement » — et redeviennent la vue par défaut dès qu'on
+              ne sait pas deviner. Une fois une boîte connectée, on ne montre
+              plus que la sienne : un siège = une personne = une boîte. */}
+          {!googleConnection && !microsoftConnection && !showAllProviders && detectedProvider !== null ? (
+            <div className="unified-connect">
+              <p className="unified-title">{t('connexions.unifiedTitle', locale)}</p>
+              <p className="unified-desc">{t('connexions.unifiedDesc', locale)}</p>
+              <button
+                type="button"
+                className="btn-primary unified-btn"
+                disabled={detectedProvider === undefined}
+                onClick={() => {
+                  if (detectedProvider === 'google' || detectedProvider === 'microsoft') connectProvider(detectedProvider);
+                  else setShowAllProviders(true);
+                }}
+              >
+                {detectedProvider === undefined ? '…' : t('connexions.unifiedCta', locale)}
+              </button>
+              <p className="unified-compat">
+                {t('connexions.unifiedCompat', locale)}
+                {' · '}
+                <button type="button" className="btn-link" onClick={() => setShowAllProviders(true)}>{t('connexions.unifiedChoose', locale)}</button>
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Un siège = une personne = une boîte (Alex, 08/09/2026) : une
+                  fois connecté, on ne montre que SA carte. Le code tolère
+                  encore deux connexions pour les comptes historiques, mais
+                  l'écran ne propose plus d'en ajouter une seconde. */}
+              {(googleConnection || (!microsoftConnection)) && (
           <ConnectionCard
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
@@ -2296,6 +2344,8 @@ export default function ConnexionsPage() {
             onQrRetry={() => generateQr('google')}
             onQrClose={closeQrPanel}
           />
+              )}
+              {(microsoftConnection || (!googleConnection)) && (
           <ConnectionCard
             title={PROVIDER_META.microsoft.name}
             desc={PROVIDER_META.microsoft.desc}
@@ -2316,6 +2366,9 @@ export default function ConnexionsPage() {
             onQrRetry={() => generateQr('microsoft')}
             onQrClose={closeQrPanel}
           />
+              )}
+            </>
+          )}
         </div>
         </>
       ) : activeTab === 'crm' ? (
@@ -4426,6 +4479,47 @@ export default function ConnexionsPage() {
           color: var(--muted);
           margin: 0.6rem 0 0;
           line-height: 1.45;
+        }
+        .unified-connect {
+          grid-column: 1 / -1;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 1.4rem 1.5rem;
+          box-shadow: var(--shadow-sm);
+          text-align: center;
+        }
+        .unified-title {
+          margin: 0 0 0.3rem;
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 1.05rem;
+          font-weight: 600;
+          color: var(--text);
+        }
+        .unified-desc {
+          margin: 0 auto 1rem;
+          max-width: 520px;
+          color: var(--muted);
+          font-size: 0.9rem;
+          line-height: 1.5;
+        }
+        .unified-btn {
+          font-size: 1rem;
+          padding: 0.8rem 1.4rem;
+        }
+        .unified-compat {
+          margin: 0.8rem 0 0;
+          color: var(--muted-soft, var(--muted));
+          font-size: 0.8rem;
+        }
+        .unified-compat .btn-link {
+          background: none;
+          border: 0;
+          padding: 0;
+          color: var(--accent, #4b39ef);
+          font-size: inherit;
+          cursor: pointer;
+          text-decoration: underline;
         }
         .oauth-error-banner {
           grid-column: 1 / -1;
