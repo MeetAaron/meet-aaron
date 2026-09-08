@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { processCampaignBatch } from '@/lib/sourcing';
+import { getProspectQuota } from '@/lib/prospect-quota';
 import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
 import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
@@ -168,11 +169,39 @@ export async function GET(request: NextRequest) {
 
   const { data: activeCampaigns } = await supabaseAdmin
     .from('prospecting_campaigns')
-    .select('id, assigned_user_id')
-    .in('status', ['en_attente', 'en_cours'])
+    .select('id, assigned_user_id, company_id, status, quota_paused_at')
+    .or('status.in.(en_attente,en_cours),and(status.eq.en_pause,quota_paused_at.not.is.null)')
     .order('created_at', { ascending: true });
 
-  if (!activeCampaigns || activeCampaigns.length === 0) {
+  // Campagnes mises en pause PAR LE QUOTA (voir lib/sourcing.ts) : elles
+  // repartent d'elles-mêmes dès que la société a de nouveau des prospects
+  // disponibles — nouveau mois, ou boost acheté. Une pause manuelle
+  // (quota_paused_at null) n'est jamais touchée ici. Le quota est lu une
+  // fois par société, pas par campagne.
+  const quotaBySociety = new Map<string, number>();
+  const runnable: { id: string; assigned_user_id: string }[] = [];
+  for (const c of activeCampaigns || []) {
+    if (c.status !== 'en_pause') {
+      runnable.push(c);
+      continue;
+    }
+    if (!quotaBySociety.has(c.company_id)) {
+      try {
+        quotaBySociety.set(c.company_id, (await getProspectQuota(c.company_id)).remaining);
+      } catch {
+        quotaBySociety.set(c.company_id, 0);
+      }
+    }
+    if ((quotaBySociety.get(c.company_id) || 0) > 0) {
+      await supabaseAdmin
+        .from('prospecting_campaigns')
+        .update({ status: 'en_cours', quota_paused_at: null })
+        .eq('id', c.id);
+      runnable.push(c);
+    }
+  }
+
+  if (runnable.length === 0) {
     return NextResponse.json({ message: 'Aucune campagne active' });
   }
 
@@ -185,7 +214,7 @@ export async function GET(request: NextRequest) {
   // d'un coup depuis un même compte — seul le traitement ENTRE commerciaux
   // différents reste parallélisé.
   const campaignIdsByUser = new Map<string, string[]>();
-  for (const c of activeCampaigns) {
+  for (const c of runnable) {
     const list = campaignIdsByUser.get(c.assigned_user_id) || [];
     list.push(c.id);
     campaignIdsByUser.set(c.assigned_user_id, list);
