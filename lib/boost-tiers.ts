@@ -155,7 +155,37 @@ export function boostEndsAt(startsAt: Date): Date {
 // recherche web IA (~0,03 $ de recherches web par prospect). À re-mesurer sur
 // les chiffres réels après les tests Open X et TeamSystem — c'est une
 // estimation, pas une facture.
-export const ESTIMATED_USD_PER_PROSPECT = 0.1;
+//
+// 08/09/2026 — la valeur n'est plus posée à la main : elle DÉCOULE du quota de
+// prospects vendu au client (voir PROSPECTS_PER_SEAT_PER_MONTH ci-dessous).
+// Un siège = 21,5 $ de budget = 300 prospects, donc ~0,072 $ par prospect —
+// 3,6 fois la mesure de 0,02 $, ce qui reste très prudent. Poser 0,10 ici tout
+// en promettant 300 prospects aurait fait mentir l'app : le lissage quotidien
+// n'en aurait autorisé que 215.
+export const ESTIMATED_USD_PER_PROSPECT = (21.5 / 20) / 15; // = USD_PER_CREDIT / PROSPECTS_PER_CREDIT
+
+// ── Quota de prospects (décision Alex, 08/09/2026) ──────────────────────────
+//
+// Ce que le client achète, c'est un nombre de NOUVEAUX PROSPECTS par mois, pas
+// des crédits : « les 300 sont la limite max, s'il crée 2 campagnes de 150
+// c'est pareil, s'il en ajoute manuellement ça compte aussi ». Un commercial
+// comprend « 300 prospects », il ne comprend pas « 20 crédits ».
+//
+// Les boosts gardent leurs produits Stripe existants (20/40/100/250 crédits)
+// mais s'affichent et se comptent en prospects : 1 crédit = 15 prospects, donc
+// le boost de base (20 crédits, 30 €) = +300 prospects = exactement un mois de
+// siège en plus. Le budget API sous-jacent (USD_PER_CREDIT) ne change pas —
+// c'est la même valeur présentée dans l'unité que le client comprend.
+//
+// Ce qui compte dans le quota : tout prospect CRÉÉ dans le mois pour la
+// société, quelle que soit la source (campagne, ajout manuel, import CSV).
+// Voir lib/prospect-quota.ts pour le calcul et l'application.
+export const PROSPECTS_PER_SEAT_PER_MONTH = 300;
+export const PROSPECTS_PER_CREDIT = PROSPECTS_PER_SEAT_PER_MONTH / 20; // 15 — 20 crédits = un mois de siège
+
+export function prospectsForTier(tier: BoostTier): number {
+  return tier.credits * PROSPECTS_PER_CREDIT;
+}
 
 export function estimateCampaignCostUsd(targetCount: number): number {
   return Math.max(0, targetCount) * ESTIMATED_USD_PER_PROSPECT;

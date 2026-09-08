@@ -3,6 +3,7 @@
 // en utilisant la recherche web en temps réel (outil web_search de l'API Anthropic).
 
 import { supabaseAdmin } from './supabase-admin';
+import { getProspectQuota } from './prospect-quota';
 import { callClaude } from './anthropic-client';
 import { researchProspectCompany } from './prospect-research';
 import { searchGooglePlaces, guessCountry } from './company-directory';
@@ -294,7 +295,22 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   let newContactsCount = 0;
   let usableCompaniesCount = 0;
 
+  // Quota de nouveaux prospects du mois (décision Alex, 08/09/2026 : « les
+  // 300 sont la limite max, 2 campagnes de 150 c'est pareil »). Lu une fois
+  // par lot, décrémenté localement : une campagne s'arrête proprement au
+  // quota, avec un statut qui le dit, plutôt que de mourir à mi-parcours sur
+  // le plafond de dollars. Illisible → on laisse passer (voir
+  // assertProspectQuotaAllows pour la même règle).
+  let quotaRemaining = Infinity;
+  try {
+    quotaRemaining = (await getProspectQuota(campaign.company_id)).remaining;
+  } catch (err: any) {
+    console.error('Quota prospects illisible pendant le sourcing, on continue :', err?.message);
+  }
+  let quotaReached = quotaRemaining <= 0;
+
   for (const company of foundCompanies) {
+    if (quotaReached) break;
     if (!company.domain) continue;
     usableCompaniesCount++;
 
@@ -391,6 +407,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
     });
 
     newContactsCount++;
+    quotaRemaining -= 1;
+    if (quotaRemaining <= 0) quotaReached = true;
   }
 
   const totalContacts = campaign.contacts_found + newContactsCount;
@@ -404,9 +422,16 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       // certaines trouvailles sont ignorées faute de domaine.
       companies_found: campaign.companies_found + usableCompaniesCount,
       contacts_found: totalContacts,
-      status: isComplete ? 'terminee' : 'en_cours',
+      // Quota du mois atteint avant l'objectif : la campagne passe en pause
+      // (statut déjà connu de l'écran Campagnes), avec quota_paused_at posé
+      // pour la distinguer d'une pause manuelle — le cron la relance tout
+      // seul dès que le quota le permet (mois suivant, ou boost acheté),
+      // voir app/api/cron/run-campaigns. Une pause manuelle, elle, attend
+      // le commercial.
+      status: isComplete ? 'terminee' : quotaReached ? 'en_pause' : 'en_cours',
+      ...(quotaReached && !isComplete ? { quota_paused_at: new Date().toISOString() } : {}),
     })
     .eq('id', campaignId);
 
-  return { done: isComplete, newContactsCount };
+  return { done: isComplete || quotaReached, newContactsCount, quotaReached };
 }
