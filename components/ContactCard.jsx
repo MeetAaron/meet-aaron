@@ -316,7 +316,8 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
 
   async function handleToggleAiManaged() {
     if (await patch({ action: 'set_ai_managed', ai_managed: prospect.ai_managed === false })) {
-      setFeedback({ type: 'ok', text: t('preferences.changeSaved', locale) });
+      setPanel(null);
+      setFeedback({ type: 'ok', text: prospect.ai_managed === false ? t('card.aiHandBackDone', locale) : t('card.aiTakeOverDone', locale) });
       onChanged();
     }
   }
@@ -384,7 +385,15 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   const actMove = { key: 'move', icon: ic(ArrowLeftRight), label: t('card.move', locale), onClick: () => setPanel(panel === 'move' ? null : 'move') };
   const actQuote = { key: 'quote', icon: ic(FileText), tone: 'quote', label: t('card.quoteRequested', locale), onClick: handleQuoteRequested };
   const actRisk = { key: 'risk', icon: ic(AlertTriangle), tone: position.risk ? 'risk-on' : '', label: position.risk ? t('card.riskOff', locale) : t('card.riskOn', locale), onClick: handleRisk };
-  const actAi = { key: 'ai', icon: ic(prospect.ai_managed === false ? PauseCircle : Bot), tone: `ai${prospect.ai_managed === false ? ' off' : ''}`, label: prospect.ai_managed === false ? t('prospects.aiManagedOffLabel', locale) : t('prospects.aiManagedOnLabel', locale), onClick: handleToggleAiManaged };
+  // Reprise en main (retour Alex, 08/09/2026) : avant, ce bouton affichait
+  // l'ÉTAT courant (« Aaron s'en charge ») et le basculait au clic — si bien
+  // qu'un utilisateur curieux qui cliquait sur « Aaron s'en charge » venait,
+  // sans le savoir, de retirer le contact à Aaron. Désormais : l'état se lit
+  // dans un badge de l'en-tête, le bouton dit l'ACTION (« Reprendre la
+  // main » / « Redonner à Aaron »), et il ouvre un panneau de confirmation
+  // qui explique la conséquence avant de basculer.
+  const aiOff = prospect.ai_managed === false;
+  const actAi = { key: 'ai', icon: ic(aiOff ? Bot : PauseCircle), tone: `ai${aiOff ? ' off' : ''}`, label: aiOff ? t('card.aiHandBack', locale) : t('card.aiTakeOver', locale), onClick: () => setPanel(panel === 'ai' ? null : 'ai') };
   const actEdit = { key: 'edit', icon: ic(Pencil), label: t('card.edit', locale), onClick: scrollToInfos };
   const actPhone = { key: 'phone', icon: ic(Smartphone), label: t('card.saveToPhone', locale), onClick: handleSaveToPhone };
   const actLinkedin = onLinkedin ? { key: 'linkedin', icon: ic(Linkedin), label: t('prospects.linkedinMessageButton', locale), onClick: () => onLinkedin(prospect) } : null;
@@ -440,6 +449,13 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
               </p>
               <div className="pills">
                 <span className="pill" style={{ color: catColor, borderColor: catColor }}>{stageLabel}</span>
+                {!position.lost && !isClient && (
+                  <span className={`pill ai-pill${prospect.ai_managed === false ? ' off' : ''}`} title={prospect.ai_managed === false ? t('prospects.aiManagedOffTitle', locale) : t('prospects.aiManagedOnTitle', locale)}>
+                    {prospect.ai_managed === false ? <PauseCircle size={12} strokeWidth={2.2} aria-hidden="true" /> : <Bot size={12} strokeWidth={2.2} aria-hidden="true" />}
+                    {' '}
+                    {prospect.ai_managed === false ? t('prospects.aiManagedOffLabel', locale) : t('prospects.aiManagedOnLabel', locale)}
+                  </span>
+                )}
                 {conviction != null && !position.lost && (
                   <ConfidenceRing score={conviction} size={30} label={convictionIsEstimate ? t('card.convictionEstimateShort', locale) : t('card.convictionShort', locale)} title={convictionIsEstimate ? t('card.convictionEstimate', locale) : (convictionReason || t('card.convictionTitle', locale))} />
                 )}
@@ -656,6 +672,21 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           </div>
         )}
 
+        {panel === 'ai' && (
+          <div className="panel">
+            <p className="panel-title">
+              {(aiOff ? t('card.aiHandBackTitle', locale) : t('card.aiTakeOverTitle', locale)).replace('{name}', prospect.full_name)}
+            </p>
+            <p className="panel-text">{aiOff ? t('card.aiHandBackText', locale) : t('card.aiTakeOverText', locale)}</p>
+            <div className="panel-actions">
+              <button type="button" className="btn-secondary" onClick={() => setPanel(null)}>{t('common.cancel', locale)}</button>
+              <button type="button" className="btn-primary" disabled={acting} onClick={handleToggleAiManaged}>
+                {aiOff ? t('card.aiHandBackConfirm', locale) : t('card.aiTakeOverConfirm', locale)}
+              </button>
+            </div>
+          </div>
+        )}
+
         {panel === 'delete' && (
           <div className="panel danger">
             <p className="panel-title">{t('card.deleteTitle', locale).replace('{name}', prospect.full_name)}</p>
@@ -743,6 +774,17 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
       </aside>
 
       <style jsx>{`
+        .ai-pill {
+          color: #4b39ef;
+          border-color: rgba(75, 57, 239, 0.45);
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+        .ai-pill.off {
+          color: var(--muted);
+          border-color: var(--border);
+        }
         .card-overlay {
           position: fixed;
           inset: 0;

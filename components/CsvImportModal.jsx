@@ -422,7 +422,16 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
         });
         const body = await res.json();
         if (!res.ok) {
-          rowResults.push({ idx: row.idx, full_name: row.full_name, success: false, error: body.error || 'Erreur inconnue' });
+          rowResults.push({ idx: row.idx, full_name: row.full_name, success: false, error: body.code === 'prospect_quota_exceeded' ? t('quota.exceededToast', locale) : (body.error || 'Erreur inconnue') });
+          // Quota du mois atteint : inutile de tenter les lignes suivantes,
+          // elles échoueraient toutes de la même façon — on les marque et on
+          // sort, pour que le commercial voie une seule cause, pas 200.
+          if (body.code === 'prospect_quota_exceeded') {
+            for (const rest of includedRows.slice(includedRows.indexOf(row) + 1)) {
+              rowResults.push({ idx: rest.idx, full_name: rest.full_name, success: false, error: t('quota.exceededToast', locale) });
+            }
+            break;
+          }
         } else {
           let patchError = null;
           // L'étape lue dans le fichier prime sur l'étape déduite du
