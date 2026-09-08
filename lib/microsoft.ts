@@ -1,5 +1,5 @@
 // lib/microsoft.ts
-// Interactions avec Outlook Calendar via Microsoft Graph, pour un utilisateur donné.
+// Interactions avec Outlook (mail + calendrier) via Microsoft Graph, pour un utilisateur donné.
 
 import { supabaseAdmin } from './supabase-admin';
 import { encryptToken, decryptToken } from './encryption';
@@ -11,7 +11,7 @@ interface OAuthConnection {
   expires_at: string;
 }
 
-async function getValidAccessToken(userId: string): Promise<string> {
+export async function getValidAccessToken(userId: string): Promise<string> {
   const { data: connection, error } = await supabaseAdmin
     .from('oauth_connections')
     .select('*')
@@ -60,7 +60,89 @@ async function getValidAccessToken(userId: string): Promise<string> {
   return newTokens.access_token;
 }
 
-const AARON_CATEGORY_NAME = '🤖 Géré par Aaron';
+export const AARON_CATEGORY_NAME = '🤖 Géré par Aaron';
+
+// ---------------------------------------------------------------------------
+// Appel Graph « qui ne se tait jamais » (08/09/2026).
+//
+// Pendant trois semaines, les échecs de catégorie / dossier / déplacement
+// Outlook ont été avalés : `fetch` ne lève pas sur un 4xx, et le code ne
+// regardait pas `ok` — on a donc corrigé des causes PROBABLES sans jamais
+// voir ce que Microsoft répondait. Désormais, TOUT passe par graphRequest :
+//   - le statut ET le corps de la réponse sont logués en cas d'échec ;
+//   - le dernier échec est mémorisé sur la connexion (oauth_connections
+//     .last_graph_error / last_graph_error_at, migration
+//     migration_oauth_last_graph_error_2026-09-08.sql — ignoré tant que la
+//     colonne n'existe pas) pour être lisible sans les logs serveur ;
+//   - l'endpoint /api/diagnostics/outlook (lib/outlook-diagnostics.ts) rejoue
+//     chaque étape et renvoie ces réponses brutes.
+// Les appels « confort » (catégorie, dossier) restent non bloquants pour
+// l'envoi : on renvoie le résultat au lieu de lever.
+// ---------------------------------------------------------------------------
+export interface GraphResult<T = any> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  errorText: string | null;
+}
+
+export async function graphRequest<T = any>(
+  userId: string,
+  accessToken: string,
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  opts?: { body?: any; headers?: Record<string, string>; label?: string }
+): Promise<GraphResult<T>> {
+  const url = path.startsWith('https://') ? path : `https://graph.microsoft.com/v1.0${path}`;
+  const label = opts?.label || `${method} ${path.split('?')[0]}`;
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(opts?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts?.headers || {}),
+      },
+      body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    const text = await res.text();
+    let data: any = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+    if (!res.ok) {
+      const errorText = `${res.status} ${text.slice(0, 600)}`;
+      console.error(`[Graph] ${label} → ${errorText}`);
+      await recordGraphError(userId, `${label} → ${errorText}`);
+      return { ok: false, status: res.status, data, errorText };
+    }
+    return { ok: true, status: res.status, data, errorText: null };
+  } catch (err: any) {
+    const errorText = `réseau: ${err?.message || err}`;
+    console.error(`[Graph] ${label} → ${errorText}`);
+    await recordGraphError(userId, `${label} → ${errorText}`);
+    return { ok: false, status: 0, data: null, errorText };
+  }
+}
+
+async function recordGraphError(userId: string, message: string) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('oauth_connections')
+      .update({ last_graph_error: message.slice(0, 1000), last_graph_error_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('provider', 'microsoft');
+    if (error && error.code !== '42703') {
+      console.error('[Graph] impossible de mémoriser l’erreur sur la connexion:', error.message);
+    }
+  } catch {
+    // best-effort
+  }
+}
 
 // Équivalent Outlook du label Gmail "🤖 Géré par Aaron" (voir AARON_LABEL_NAME /
 // applyAaronLabel dans lib/google.ts) : Outlook n'a pas de labels mais des
@@ -68,131 +150,143 @@ const AARON_CATEGORY_NAME = '🤖 Géré par Aaron';
 // maîtresse du compte (sinon Outlook la pose sans nom/couleur lisible côté
 // commercial), puis la réutiliser. On liste d'abord plutôt que de se fier à un
 // cache, pour la même raison que côté Gmail (le commercial pourrait la
-// supprimer lui-même).
-async function ensureAaronCategoryExists(userId: string): Promise<void> {
-  try {
-    const accessToken = await getValidAccessToken(userId);
-
-    const listRes = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (listRes.ok) {
-      const { value } = await listRes.json();
-      const exists = value?.some((c: any) => c.displayName === AARON_CATEGORY_NAME);
-      if (exists) return;
-    }
-
-    await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      // "preset9" = violet dans la palette standard Outlook — couleur arbitraire,
-      // choisie juste pour que la catégorie soit visuellement identifiable.
-      body: JSON.stringify({ displayName: AARON_CATEGORY_NAME, color: 'preset9' }),
-    });
-  } catch (err: any) {
-    console.error('Erreur création catégorie Outlook Aaron:', err.message);
+// supprimer lui-même). Nécessite le scope MailboxSettings.ReadWrite.
+export async function ensureAaronCategoryExists(userId: string, accessToken?: string): Promise<GraphResult> {
+  const token = accessToken || (await getValidAccessToken(userId));
+  const list = await graphRequest(userId, token, 'GET', '/me/outlook/masterCategories', { label: 'liste des catégories' });
+  if (list.ok) {
+    const exists = list.data?.value?.some((c: any) => c.displayName === AARON_CATEGORY_NAME);
+    if (exists) return list;
   }
+  // "preset9" = violet dans la palette standard Outlook — couleur arbitraire,
+  // choisie juste pour que la catégorie soit visuellement identifiable.
+  return graphRequest(userId, token, 'POST', '/me/outlook/masterCategories', {
+    body: { displayName: AARON_CATEGORY_NAME, color: 'preset9' },
+    label: 'création de la catégorie',
+  });
 }
 
 // Pose la catégorie "🤖 Géré par Aaron" sur un message Outlook (équivalent de
 // applyAaronLabel côté Gmail). Contrairement à Gmail où un label se pose sur
 // tout le FIL (thread) d'un coup, Outlook catégorise message par message : on
 // l'applique donc à chaque message qu'Aaron envoie et à chaque message reçu
-// qu'Aaron traite (voir sendOutlookEmail et app/api/cron/check-inbox) — les
-// messages pertinents du fil (côté commercial) portent alors la catégorie,
-// visible dans la liste sans avoir à ouvrir la conversation. On lit d'abord
-// les catégories déjà présentes pour ne jamais écraser un tri que le
-// commercial aurait posé lui-même. Échec silencieux : un souci de
-// catégorisation ne doit jamais empêcher l'envoi/la lecture d'un email.
-export async function applyAaronCategory(userId: string, messageId: string | undefined | null) {
-  if (!messageId) return;
+// qu'Aaron traite (voir sendOutlookEmail et app/api/cron/check-inbox). On lit
+// d'abord les catégories déjà présentes pour ne jamais écraser un tri que le
+// commercial aurait posé lui-même. Non bloquant : un souci de catégorisation
+// ne doit jamais empêcher l'envoi/la lecture d'un email — mais il est logué
+// et mémorisé (voir graphRequest), plus jamais avalé.
+export async function applyAaronCategory(
+  userId: string,
+  messageId: string | undefined | null,
+  accessToken?: string
+): Promise<GraphResult | null> {
+  if (!messageId) return null;
   try {
-    await ensureAaronCategoryExists(userId);
-    const accessToken = await getValidAccessToken(userId);
+    const token = accessToken || (await getValidAccessToken(userId));
+    await ensureAaronCategoryExists(userId, token);
 
-    const getRes = await fetch(
-      `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=categories`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const existingCategories: string[] = getRes.ok ? (await getRes.json()).categories || [] : [];
-    if (existingCategories.includes(AARON_CATEGORY_NAME)) return;
+    const current = await graphRequest(userId, token, 'GET', `/me/messages/${messageId}?$select=categories`, {
+      label: 'lecture des catégories du message',
+    });
+    const existingCategories: string[] = current.ok ? current.data?.categories || [] : [];
+    if (existingCategories.includes(AARON_CATEGORY_NAME)) return current;
 
-    await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ categories: [...existingCategories, AARON_CATEGORY_NAME] }),
+    return await graphRequest(userId, token, 'PATCH', `/me/messages/${messageId}`, {
+      body: { categories: [...existingCategories, AARON_CATEGORY_NAME] },
+      label: 'pose de la catégorie sur le message',
     });
   } catch (err: any) {
     console.error('Erreur pose de la catégorie Outlook Aaron:', err.message);
+    return { ok: false, status: 0, data: null, errorText: err.message };
   }
 }
 
-// Sort un message de la boîte de réception Outlook (option « Aaron range les
-// fils qu'il gère », migration_aaron_archive_threads_2026-09-01.sql).
-//
-// Graph n'a pas d'« archivage » au sens Gmail : on DÉPLACE le message vers le
-// dossier bien connu `archive`. Rien n'est supprimé, et les réponses
-// suivantes du prospect arrivent normalement en boîte de réception — le
-// commercial reprend donc la main dès qu'il se passe quelque chose, comme
-// côté Gmail.
-//
-// Échec silencieux, comme applyAaronCategory.
 // Récupère (ou crée) le dossier Outlook « 🤖 Géré par Aaron ».
 //
 // Outlook n'a pas de libellés comme Gmail : pour que le commercial retrouve
 // ses échanges à un endroit qui porte un nom parlant — et pas noyés dans
 // l'Archive générique avec tout le reste — on crée un vrai dossier de premier
 // niveau au même nom que la catégorie posée sur les messages.
-async function getOrCreateAaronFolderId(userId: string): Promise<string | null> {
+export async function getOrCreateAaronFolderId(userId: string, accessToken?: string): Promise<string | null> {
   try {
-    const accessToken = await getValidAccessToken(userId);
-    const listRes = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders?$top=100&$select=id,displayName', {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const token = accessToken || (await getValidAccessToken(userId));
+    const list = await graphRequest(userId, token, 'GET', '/me/mailFolders?$top=200&$select=id,displayName', {
+      label: 'liste des dossiers',
     });
-    if (listRes.ok) {
-      const { value } = await listRes.json();
-      const existing = value?.find((f: any) => f.displayName === AARON_CATEGORY_NAME);
+    if (list.ok) {
+      const existing = list.data?.value?.find((f: any) => f.displayName === AARON_CATEGORY_NAME);
       if (existing) return existing.id;
     }
-    const createRes = await fetch('https://graph.microsoft.com/v1.0/me/mailFolders', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName: AARON_CATEGORY_NAME }),
+    const created = await graphRequest(userId, token, 'POST', '/me/mailFolders', {
+      body: { displayName: AARON_CATEGORY_NAME },
+      label: 'création du dossier Géré par Aaron',
     });
-    if (!createRes.ok) return null;
-    const created = await createRes.json();
-    return created.id;
+    return created.ok ? created.data?.id || null : null;
   } catch (err: any) {
     console.error('Erreur récupération/création du dossier Outlook Aaron:', err.message);
     return null;
   }
 }
 
-export async function archiveOutlookMessage(userId: string, messageId: string | undefined | null) {
-  if (!messageId) return;
+// Sort un message de la boîte de réception / des Éléments envoyés Outlook
+// (option « Aaron range les fils qu'il gère »,
+// migration_aaron_archive_threads_2026-09-01.sql).
+//
+// Graph n'a pas d'« archivage » au sens Gmail : on DÉPLACE le message vers le
+// dossier « 🤖 Géré par Aaron » (Archive standard en repli). Rien n'est
+// supprimé, et les réponses suivantes du prospect arrivent normalement en
+// boîte de réception — le commercial reprend donc la main dès qu'il se passe
+// quelque chose, comme côté Gmail.
+export async function archiveOutlookMessage(
+  userId: string,
+  messageId: string | undefined | null,
+  accessToken?: string
+): Promise<GraphResult | null> {
+  if (!messageId) return null;
   try {
-    const accessToken = await getValidAccessToken(userId);
-    // Dossier nommé si on arrive à l'obtenir, Archive standard sinon : mieux
-    // vaut ranger dans l'Archive que laisser le message en boîte de réception
-    // alors que le commercial a demandé qu'elle reste propre.
-    const destinationId = (await getOrCreateAaronFolderId(userId)) || 'archive';
-    await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}/move`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ destinationId }),
+    const token = accessToken || (await getValidAccessToken(userId));
+    const destinationId = (await getOrCreateAaronFolderId(userId, token)) || 'archive';
+    return await graphRequest(userId, token, 'POST', `/me/messages/${messageId}/move`, {
+      body: { destinationId },
+      headers: { Prefer: 'IdType="ImmutableId"' },
+      label: 'déplacement du message vers Géré par Aaron',
     });
   } catch (err: any) {
     console.error('Erreur archivage du message Outlook:', err.message);
+    return { ok: false, status: 0, data: null, errorText: err.message };
   }
+}
+
+// Retrouve dans « Éléments envoyés » le message qu'Aaron vient d'envoyer, par
+// son Message-ID RFC 5322 (internetMessageId, attribué dès la création du
+// brouillon et conservé à l'envoi). Exchange copie le message dans Éléments
+// envoyés de façon asynchrone après /send : on réessaie quelques secondes.
+//
+// C'est LA façon fiable de désigner l'email envoyé : elle ne dépend ni du
+// format d'id (immuable ou non), ni du moment où Exchange finit de déplacer
+// le brouillon. Renvoie null si le message n'est pas (encore) visible.
+export async function findSentOutlookMessageId(
+  userId: string,
+  accessToken: string,
+  internetMessageId: string,
+  opts?: { attempts?: number; delayMs?: number }
+): Promise<{ id: string; categories: string[] } | null> {
+  const attempts = opts?.attempts ?? 6;
+  const delayMs = opts?.delayMs ?? 1500;
+  const filter = `internetMessageId eq '${internetMessageId.replace(/'/g, "''")}'`;
+  for (let i = 0; i < attempts; i++) {
+    const res = await graphRequest(
+      userId,
+      accessToken,
+      'GET',
+      `/me/mailFolders/sentitems/messages?$filter=${encodeURIComponent(filter)}&$select=id,categories,isDraft&$top=2`,
+      { headers: { Prefer: 'IdType="ImmutableId"' }, label: 'recherche du message dans Éléments envoyés' }
+    );
+    const found = res.ok ? (res.data?.value || []).find((m: any) => !m.isDraft) : null;
+    if (found) return { id: found.id, categories: found.categories || [] };
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
 }
 
 // Envoie un email via Microsoft Graph (boîte Outlook du commercial), pour que
@@ -201,11 +295,10 @@ export async function archiveOutlookMessage(userId: string, messageId: string | 
 //
 // On passe par "créer un brouillon puis l'envoyer" plutôt que par l'action
 // POST /me/sendMail (plus directe) car /sendMail répond 202 sans jamais
-// renvoyer l'id du message envoyé — impossible de lui poser ensuite la
-// catégorie "🤖 Géré par Aaron" (voir applyAaronCategory). Avec ce détour, on
-// récupère l'id du brouillon dès sa création — demandé en format IMMUABLE,
-// sinon il change quand /send déplace le message vers Éléments envoyés (bug
-// corrigé le 08/09/2026, voir l'en-tête Prefer dans sendOutlookEmail).
+// renvoyer quoi que ce soit — impossible de retrouver ensuite le message pour
+// lui poser la catégorie "🤖 Géré par Aaron" ou le ranger. Avec ce détour, on
+// connaît le Message-ID (internetMessageId) dès la création du brouillon, et
+// on retrouve l'email envoyé grâce à lui (findSentOutlookMessageId).
 export const AARON_SENT_HEADER = 'X-Aaron-Sent';
 
 // Tous les messages d'une conversation Outlook (l'équivalent du fil Gmail),
@@ -272,35 +365,17 @@ export async function sendOutlookEmail(
   // 30/08/2026 ("[Message tronqué]" côté Gmail destinataire, constaté par
   // Alex) : sendEmailForUser passe désormais toujours un corps HTML construit
   // par nos soins (plainTextToEmailHtml, lib/messaging.ts) plutôt qu'un corps
-  // 'Text' dont Exchange faisait sa propre conversion HTML à l'envoi — c'est
-  // cette conversion déléguée que Gmail affichait tronquée.
-  const createRes = await fetch('https://graph.microsoft.com/v1.0/me/messages', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      // BUG CORRIGÉ le 08/09/2026 (constaté par Alex : « je ne vois pas le
-      // dossier "géré par aaron" et je ne vois pas l'email envoyé avec le
-      // libellé… après plusieurs semaines ça ne fonctionne toujours pas »).
-      //
-      // Le commentaire plus haut affirmait que l'id du brouillon « reste
-      // valable une fois le message envoyé ». C'est FAUX avec les ids par
-      // défaut de Graph : un id Exchange classique dépend du DOSSIER, et
-      // /send déplace le message de Brouillons vers Éléments envoyés — l'id
-      // change. Les deux appels qui suivaient (poser la catégorie, déplacer
-      // dans le dossier Géré par Aaron) visaient donc un id périmé,
-      // recevaient 404, et l'avalaient en silence. Résultat : ni catégorie,
-      // ni dossier, sans la moindre erreur nulle part.
-      //
-      // IdType="ImmutableId" demande à Graph un id qui survit aux
-      // déplacements entre dossiers. Uniquement ici, sur la création : la
-      // lecture de la boîte (listNewOutlookMessages) garde ses ids par défaut,
-      // car les provider_message_id déjà stockés sont dans ce format — en
-      // changer ferait réapparaître comme « nouveaux » des messages déjà
-      // traités, et Aaron répondrait deux fois.
-      Prefer: 'IdType="ImmutableId"',
-    },
-    body: JSON.stringify({
+  // 'Text' dont Exchange faisait sa propre conversion HTML à l'envoi.
+  //
+  // Prefer IdType="ImmutableId" (08/09/2026) : un id Exchange classique dépend
+  // du DOSSIER et change quand /send déplace le message vers Éléments
+  // envoyés. L'id immuable survit au déplacement. Uniquement ici, sur la
+  // création : la lecture de la boîte (listNewOutlookMessages) garde ses ids
+  // par défaut, car les provider_message_id déjà stockés sont dans ce format.
+  const created = await graphRequest(userId, accessToken, 'POST', '/me/messages', {
+    headers: { Prefer: 'IdType="ImmutableId"' },
+    label: 'création du brouillon',
+    body: {
       subject,
       body: { contentType: opts?.html ? 'HTML' : 'Text', content: body },
       toRecipients: [{ emailAddress: { address: to } }],
@@ -320,40 +395,48 @@ export async function sendOutlookEmail(
             ],
           }
         : {}),
-    }),
+    },
   });
 
-  if (!createRes.ok) {
-    const err = await createRes.text();
-    throw new Error(`Erreur création du brouillon Outlook: ${err}`);
+  if (!created.ok) {
+    throw new Error(`Erreur création du brouillon Outlook: ${created.errorText}`);
   }
-  const draft = await createRes.json();
+  const draft = created.data;
+  const internetMessageId: string | undefined = draft?.internetMessageId;
 
   // Catégorie posée sur le BROUILLON, avant l'envoi : une catégorie est une
-  // propriété de l'élément, elle suit le message dans Éléments envoyés. Même
-  // avec l'id immuable ci-dessus, poser le libellé avant /send supprime toute
-  // fenêtre pendant laquelle un email pourrait partir sans lui.
+  // propriété de l'élément, elle suit le message dans Éléments envoyés.
   // Voir skipAaronLabel dans lib/google.ts : pas de catégorie sur les emails
   // destinés au commercial lui-même (rapports, alertes).
   if (!opts?.skipAaronLabel) {
-    await applyAaronCategory(userId, draft.id);
+    await applyAaronCategory(userId, draft.id, accessToken);
   }
 
-  const sendRes = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${draft.id}/send`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+  const sent = await graphRequest(userId, accessToken, 'POST', `/me/messages/${draft.id}/send`, {
+    label: 'envoi du brouillon',
   });
-
-  if (!sendRes.ok) {
-    const err = await sendRes.text();
-    throw new Error(`Erreur envoi Outlook: ${err}`);
+  if (!sent.ok) {
+    throw new Error(`Erreur envoi Outlook: ${sent.errorText}`);
   }
 
-  // { sent: true } pour rester compatible avec l'appelant existant ; l'id
-  // renvoyé est l'id IMMUABLE du brouillon (voir en-tête Prefer plus haut) —
-  // c'est ce qui permet à sendEmailForUser de déplacer ensuite l'email
-  // envoyé dans le dossier « Géré par Aaron » (archiveOutlookMessage).
-  return { sent: true, id: draft.id };
+  // On retrouve ensuite l'email dans Éléments envoyés par son Message-ID et
+  // on y (re)pose la catégorie : c'est l'id de CE message — et non celui du
+  // brouillon — qui est renvoyé à l'appelant pour le rangement
+  // (archiveOutlookMessage dans sendEmailForUser).
+  let sentId: string = draft.id;
+  if (internetMessageId) {
+    const found = await findSentOutlookMessageId(userId, accessToken, internetMessageId);
+    if (found) {
+      sentId = found.id;
+      if (!opts?.skipAaronLabel && !found.categories.includes(AARON_CATEGORY_NAME)) {
+        await applyAaronCategory(userId, sentId, accessToken);
+      }
+    } else {
+      console.error('[Graph] message envoyé introuvable dans Éléments envoyés après envoi', internetMessageId);
+    }
+  }
+
+  return { sent: true, id: sentId, internetMessageId };
 }
 
 // Créneaux occupés du calendrier Outlook du commercial sur la plage demandée
