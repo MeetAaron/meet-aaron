@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { handOverWonProspect } from '@/lib/prospect-handover';
+import { ingestManualReplies } from '@/lib/manual-replies';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
@@ -473,6 +474,9 @@ export async function GET(request: NextRequest) {
           } else {
             const full = await getOutlookMessage(connection.user_id, msg.id);
             bodyText = full.body?.content || '';
+            // Outlook n'a pas de fil au sens Gmail : conversationId joue ce
+            // rôle (relecture des réponses manuelles, lib/manual-replies.ts).
+            threadId = full.conversationId || threadId;
             msg.subject = full.subject || null;
             const ih: any[] = full.internetMessageHeaders || [];
             const h = (name: string) => ih.find((x: any) => String(x.name).toLowerCase() === name.toLowerCase())?.value || null;
@@ -545,6 +549,23 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (!conversation) continue;
+
+      // Réponses que le commercial a écrites LUI-MÊME dans ce fil depuis sa
+      // boîte mail, sans passer par Aaron (08/09/2026, voir
+      // lib/manual-replies.ts). Enregistrées AVANT le message entrant pour
+      // que l'historique relu par Aaron soit dans le bon ordre : ce que le
+      // commercial a dit, puis ce que le prospect répond. Sans ça, Aaron
+      // répondait en croyant que le dernier mot était le sien.
+      await ingestManualReplies({
+        provider: connection.provider === 'google' ? 'google' : 'microsoft',
+        userId: connection.user_id,
+        userEmail: connection.provider_account_email,
+        conversationId: conversation.id,
+        providerThreadId: threadId,
+        prospectId: prospect.id,
+        prospectName: prospect.full_name,
+        prospectEmail: fromEmail,
+      });
 
       await supabaseAdmin.from('messages').insert({
         conversation_id: conversation.id,
