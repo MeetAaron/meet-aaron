@@ -29,6 +29,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
+import { handOverWonProspect } from '@/lib/prospect-handover';
 import { sendPushNotification } from '@/lib/push';
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 
@@ -96,6 +97,9 @@ export async function POST(request: NextRequest) {
       .eq('id', prospect.id);
     // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
     autoSyncWonProspect(prospect.id).catch(() => {});
+    // Passage de relais (« géré par moi »). notify:false : le push « Contrat
+    // signé » ci-dessous fait déjà l'annonce. Voir lib/prospect-handover.ts.
+    await handOverWonProspect(prospect.id, { notify: false });
 
     // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
     // que le commercial a déjà l'abonnement Aaron Clients.
@@ -109,7 +113,7 @@ export async function POST(request: NextRequest) {
       title: 'Contrat signé 🎉',
       body: company?.offer_ac_active
         ? `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
-        : `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
+        : `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Je te passe la main : c'est toi qui suis la relation. Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
       url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
     });
 
