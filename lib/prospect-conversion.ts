@@ -41,6 +41,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { triggerAutomaticOnboarding } from './aaron-customer';
 import { autoSyncWonProspect } from './crm-sync';
+import { handOverWonProspect } from './prospect-handover';
 
 export async function convertMatchingProspectsToClients(
   signupEmail: string,
@@ -100,6 +101,9 @@ export async function convertMatchingProspectsToClients(
       });
       // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
       autoSyncWonProspect(prospect.id).catch(() => {});
+      // Passage de relais (« géré par moi ») + notification au commercial —
+      // voir lib/prospect-handover.ts.
+      handOverWonProspect(prospect.id).catch(() => {});
     }
   } catch (err: any) {
     console.error('Erreur convertMatchingProspectsToClients:', err.message);
