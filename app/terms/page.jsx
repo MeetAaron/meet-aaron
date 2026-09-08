@@ -23,6 +23,15 @@
 // Sans cette clause, sept textes contractuels légèrement différents créeraient
 // une ambiguïté sur celui qui engage réellement les parties.
 //
+// SECTION 14 (08/09/2026) : droit de l'Australie-Occidentale et tribunaux de
+// Perth — l'éditeur est une entreprise individuelle australienne sans
+// établissement en France ; le droit français, retenu au départ, aurait
+// obligé Alex à plaider tout litige en France depuis Perth. Décision Alex :
+// « c'est une boîte australienne ». La réserve sur les dispositions
+// impératives du pays de résidence est volontaire : pour un client établi
+// dans l'UE, certaines protections s'appliquent quoi qu'en dise le contrat,
+// autant le dire que de le laisser découvrir.
+//
 // SECTION 5 : elle décrit le fonctionnement RÉEL des plafonds depuis le
 // 08/09/2026 — enveloppe mensuelle sur la prospection seule, suivi des
 // conversations engagées hors enveloppe, plafond de sécurité global. Le texte
@@ -146,7 +155,7 @@ const fr = {
     {
       h: '14. Droit applicable',
       b: [
-        "Les présentes conditions sont soumises au droit français. En cas de litige, nous chercherons d'abord une solution amiable ; à défaut, les tribunaux français seront compétents.",
+        "Les présentes conditions sont soumises au droit de l'Australie-Occidentale (Australie), État d'établissement de l'éditeur. En cas de litige, nous chercherons d'abord une solution amiable ; à défaut, les tribunaux de Perth (Australie-Occidentale) seront compétents. Les dispositions impératives dont vous bénéficieriez dans votre pays de résidence restent applicables.",
       ],
     },
     {
@@ -270,7 +279,7 @@ const en = {
     {
       h: '14. Governing law',
       b: [
-        'These terms are governed by French law. In the event of a dispute, we will first seek an amicable solution; failing that, the French courts will have jurisdiction.',
+        'These terms are governed by the laws of Western Australia, Australia, where the publisher is established. In the event of a dispute, we will first seek an amicable solution; failing that, the courts of Perth, Western Australia, will have jurisdiction. Any mandatory protections you benefit from in your country of residence remain unaffected.',
       ],
     },
     {
@@ -394,7 +403,7 @@ const de = {
     {
       h: '14. Anwendbares Recht',
       b: [
-        'Diese Bedingungen unterliegen französischem Recht. Im Streitfall suchen wir zunächst eine gütliche Lösung; andernfalls sind die französischen Gerichte zuständig.',
+        'Diese Bedingungen unterliegen dem Recht von Westaustralien (Australien), dem Sitzstaat des Anbieters. Im Streitfall suchen wir zunächst eine gütliche Lösung; andernfalls sind die Gerichte von Perth (Westaustralien) zuständig. Zwingende Schutzvorschriften, die Ihnen in Ihrem Wohnsitzland zustehen, bleiben unberührt.',
       ],
     },
     {
@@ -518,7 +527,7 @@ const it = {
     {
       h: '14. Legge applicabile',
       b: [
-        "Le presenti condizioni sono soggette al diritto francese. In caso di controversia, cercheremo dapprima una soluzione amichevole; in mancanza, saranno competenti i tribunali francesi.",
+        "Le presenti condizioni sono soggette al diritto dell'Australia Occidentale (Australia), Stato in cui l'editore è stabilito. In caso di controversia, cercheremo dapprima una soluzione amichevole; in mancanza, saranno competenti i tribunali di Perth (Australia Occidentale). Restano applicabili le disposizioni imperative di tutela di cui beneficiate nel vostro Paese di residenza.",
       ],
     },
     {
@@ -642,7 +651,7 @@ const es = {
     {
       h: '14. Ley aplicable',
       b: [
-        'Estas condiciones se rigen por el derecho francés. En caso de litigio, buscaremos primero una solución amistosa; en su defecto, serán competentes los tribunales franceses.',
+        'Estas condiciones se rigen por el derecho de Australia Occidental (Australia), estado en el que está establecido el editor. En caso de litigio, buscaremos primero una solución amistosa; en su defecto, serán competentes los tribunales de Perth (Australia Occidental). Las disposiciones imperativas de protección de las que disfrutes en tu país de residencia siguen siendo aplicables.',
       ],
     },
     {
@@ -766,7 +775,7 @@ const pt = {
     {
       h: '14. Lei aplicável',
       b: [
-        'As presentes condições estão sujeitas ao direito francês. Em caso de litígio, procuraremos primeiro uma solução amigável; na sua falta, serão competentes os tribunais franceses.',
+        'As presentes condições estão sujeitas ao direito da Austrália Ocidental (Austrália), Estado onde o editor está estabelecido. Em caso de litígio, procuraremos primeiro uma solução amigável; na sua falta, serão competentes os tribunais de Perth (Austrália Ocidental). As disposições imperativas de proteção de que beneficie no seu país de residência mantêm-se aplicáveis.',
       ],
     },
     {
@@ -890,7 +899,7 @@ const nl = {
     {
       h: '14. Toepasselijk recht',
       b: [
-        'Deze voorwaarden zijn onderworpen aan het Franse recht. Bij een geschil zoeken wij eerst een minnelijke oplossing; bij gebreke daarvan zijn de Franse rechtbanken bevoegd.',
+        'Deze voorwaarden zijn onderworpen aan het recht van West-Australië (Australië), de staat waar de uitgever is gevestigd. Bij een geschil zoeken wij eerst een minnelijke oplossing; bij gebreke daarvan zijn de rechtbanken van Perth (West-Australië) bevoegd. Dwingende beschermingsbepalingen waarop u in uw land van verblijf aanspraak hebt, blijven van toepassing.',
       ],
     },
     {
