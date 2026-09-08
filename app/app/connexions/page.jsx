@@ -5979,9 +5979,17 @@ function ConnectionCard({
                 {health.health.dmarc.found && <span className="badge ok"><Ic name="check" size={12} strokeWidth={2.6} /> DMARC</span>}
                 {health.dkim?.found && <span className="badge ok"><Ic name="check" size={12} strokeWidth={2.6} /> DKIM</span>}
               </div>
-              {/* DMARC absent : simple conseil (non bloquant — les règles
-                  Gmail n'exigent DMARC qu'au-delà de 5000 envois/jour), avec
-                  la valeur prête à coller. */}
+              {/* DMARC / DKIM absents : conseils NON bloquants (les règles
+                  Gmail n'exigent DMARC qu'au-delà de 5000 envois/jour),
+                  repliés par défaut (Alex, 08/09/2026 : « pourquoi Aaron
+                  demande ça ? il ne peut pas le faire lui-même ? ») — non :
+                  ce sont des enregistrements DNS chez le registrar et un
+                  réglage dans l'admin de la messagerie, sans aucune API
+                  accessible à un tiers. On l'explique dans le repli. */}
+              {((!health.health.dmarc.found && health.suggested?.dmarc) || (health.dkim && !health.dkim.found)) && (
+                <details className="health-advanced">
+                  <summary><Ic name="bulb" /> {t('connexions.advancedTipsSummary', locale)}</summary>
+                  <p className="health-hint">{t('connexions.advancedTipsWhy', locale)}</p>
               {!health.health.dmarc.found && health.suggested?.dmarc && (
                 <div className="record-row">
                   <p className="health-hint health-optional">
@@ -6000,6 +6008,8 @@ function ConnectionCard({
                   <Ic name="bulb" /> {t('connexions.dkimAdviceTitle', locale)} —{' '}
                   {t(health.provider === 'microsoft' ? 'connexions.dkimAdviceMicrosoft' : 'connexions.dkimAdviceGoogle', locale)}
                 </p>
+              )}
+                </details>
               )}
             </div>
           )}
@@ -6230,6 +6240,9 @@ function ConnectionCard({
           color: var(--muted);
           overflow-wrap: break-word;
         }
+        .health-advanced { margin-top: 10px; }
+        .health-advanced summary { cursor: pointer; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+        .health-advanced[open] summary { margin-bottom: 4px; }
         .health-optional {
           font-style: italic;
         }
