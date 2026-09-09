@@ -10,6 +10,7 @@ import { handOverWonProspect } from '@/lib/prospect-handover';
 import { ingestManualReplies } from '@/lib/manual-replies';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
+import { listNewImapMessages, getImapMessage, archiveImapMessage } from '@/lib/imap';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
@@ -133,6 +134,20 @@ async function fetchNewMessagesForConnection(connection: {
       });
     }
     return detailed;
+  }
+
+  // « Autre boîte mail » (IMAP, 09/09/2026, lib/imap.ts) : l'enveloppe IMAP
+  // donne déjà l'expéditeur, le Message-ID et le sujet — le corps n'est
+  // téléchargé plus bas que pour les contacts gérés, comme pour Gmail.
+  if (connection.provider === 'imap') {
+    const newMessages = await listNewImapMessages(connection.user_id, afterTimestamp);
+    return newMessages.map((msg) => ({
+      id: msg.id,
+      internetMessageId: msg.internetMessageId,
+      fromEmail: msg.fromEmail,
+      bodyText: null,
+      subject: msg.subject,
+    }));
   }
 
   // Outlook / Microsoft Graph : l'expéditeur est déjà renvoyé par la liste
@@ -323,7 +338,7 @@ export async function GET(request: NextRequest) {
   const { data: connections } = await supabaseAdmin
     .from('oauth_connections')
     .select('id, user_id, provider, provider_account_email, scopes, label_scope_notified_at, last_checked_at')
-    .in('provider', ['google', 'microsoft']);
+    .in('provider', ['google', 'microsoft', 'imap']);
 
   // Préférence « Aaron range les fils qu'il gère hors de ma boîte de
   // réception » (users.aaron_archive_threads, activée par défaut — voir
@@ -493,6 +508,23 @@ export async function GET(request: NextRequest) {
             const full = await getGmailMessage(connection.user_id, msg.id);
             bodyText = extractGmailBody(full.payload);
             threadId = full.threadId;
+          } else if (connection.provider === 'imap') {
+            const full = await getImapMessage(connection.user_id, msg.id);
+            bodyText = full.text || '';
+            // Pas de fil IMAP : la racine des References tient lieu de
+            // threadId (relecture des réponses manuelles, lib/manual-replies.ts
+            // cherche de toute façon par destinataire pour l'IMAP).
+            threadId = full.threadRootId || threadId;
+            msg.subject = full.subject || null;
+            const hh = full.headers || {};
+            msg.headers = {
+              subject: full.subject || null,
+              autoSubmitted: hh['auto-submitted'] || null,
+              precedence: hh['precedence'] || null,
+              xAutoreply: hh['x-autoreply'] || null,
+              xAutoResponseSuppress: hh['x-auto-response-suppress'] || null,
+              returnPath: hh['return-path'] || null,
+            };
           } else {
             const full = await getOutlookMessage(connection.user_id, msg.id);
             bodyText = full.body?.content || '';
@@ -550,6 +582,10 @@ export async function GET(request: NextRequest) {
           await archiveGmailThread(connection.user_id, threadId);
         } else if (connection.provider === 'microsoft') {
           await archiveOutlookMessage(connection.user_id, msg.id);
+        } else if (connection.provider === 'imap') {
+          // IMAP : pas de libellé possible, le déplacement dans le dossier
+          // « Géré par Aaron » est à la fois le marquage et le rangement.
+          await archiveImapMessage(connection.user_id, msg.id);
         }
       }
 
@@ -579,7 +615,7 @@ export async function GET(request: NextRequest) {
       // commercial a dit, puis ce que le prospect répond. Sans ça, Aaron
       // répondait en croyant que le dernier mot était le sien.
       await ingestManualReplies({
-        provider: connection.provider === 'google' ? 'google' : 'microsoft',
+        provider: connection.provider === 'google' ? 'google' : connection.provider === 'imap' ? 'imap' : 'microsoft',
         userId: connection.user_id,
         userEmail: connection.provider_account_email,
         conversationId: conversation.id,
