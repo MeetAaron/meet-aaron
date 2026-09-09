@@ -67,10 +67,11 @@ export async function GET(request: NextRequest) {
         .from('oauth_connections')
         .select('provider, provider_account_email')
         .eq('user_id', reply.user_id)
-        .in('provider', ['google', 'microsoft']);
+        .in('provider', ['google', 'microsoft', 'imap']);
       const connection =
         (connections || []).find((c) => c.provider === 'google') ||
-        (connections || []).find((c) => c.provider === 'microsoft');
+        (connections || []).find((c) => c.provider === 'microsoft') ||
+        (connections || []).find((c) => c.provider === 'imap');
 
       await supabaseAdmin.from('messages').insert({
         conversation_id: reply.conversation_id,
