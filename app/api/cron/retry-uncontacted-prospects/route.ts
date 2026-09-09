@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     .from('oauth_connections')
     .select('user_id')
     .in('user_id', userIds)
-    .in('provider', ['google', 'microsoft']);
+    .in('provider', ['google', 'microsoft', 'imap']);
 
   const connectedUserIds = new Set((connections || []).map((c) => c.user_id));
 
