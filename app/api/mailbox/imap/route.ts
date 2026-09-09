@@ -75,17 +75,20 @@ export async function POST(request: NextRequest) {
   for (const settings of attempts) {
     const creds: ImapCredentials = { email, username, password, settings };
     const result = await testImapSmtp(creds);
-    if (result.ok) {
-      await saveImapConnection(userId, creds, { sentFolder: result.sentFolder, aaronFolder: result.aaronFolder });
+    if (result.ok === true) {
+      const okResult = result as { ok: true; sentFolder: string | null; aaronFolder: string };
+      await saveImapConnection(userId, creds, { sentFolder: okResult.sentFolder, aaronFolder: okResult.aaronFolder });
       return NextResponse.json({
         ok: true,
         email,
-        settings: { ...settings, username, sent_folder: result.sentFolder, aaron_folder: result.aaronFolder },
+        settings: { ...settings, username, sent_folder: okResult.sentFolder, aaron_folder: okResult.aaronFolder },
       });
     }
-    lastError = { step: result.step, error: result.error };
+    // (strict: false → pas de rétrécissement automatique de l'union, d'où le cast)
+    const failed = result as { ok: false; step: 'imap' | 'smtp'; error: string };
+    lastError = { step: failed.step, error: failed.error };
     // Mot de passe refusé : inutile d'essayer d'autres serveurs.
-    if (/auth|login|password|credential|535|LOGIN failed/i.test(result.error)) break;
+    if (/auth|login|password|credential|535|LOGIN failed/i.test(failed.error)) break;
   }
 
   return NextResponse.json(
