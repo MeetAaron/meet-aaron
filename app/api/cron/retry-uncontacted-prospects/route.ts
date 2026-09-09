@@ -26,7 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
-import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
+import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
 // Plafond par commercial et par passage, pour ne jamais déclencher une rafale
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
       if (
         !(err instanceof MonthlyCapExceededError) &&
         !(err instanceof DailySendCapExceededError) &&
-        !(err instanceof DomainNotDeliverableError)
+        !(err instanceof DomainNotDeliverableError) && !(err instanceof MailboxAuthBrokenError)
       ) {
         console.error(`Erreur relance premier contact pour prospect ${item.prospectId}:`, err.message);
       }
