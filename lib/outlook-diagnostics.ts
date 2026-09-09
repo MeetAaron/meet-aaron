@@ -26,6 +26,7 @@
 // Exposé par GET /api/diagnostics/outlook (authentifié, le commercial
 // lui-même). Aucune donnée de contenu : sujets et adresses seulement.
 
+import { promises as dns } from 'dns';
 import { supabaseAdmin } from './supabase-admin';
 import {
   getValidAccessToken,
@@ -128,6 +129,45 @@ export async function runOutlookDiagnostics(userId: string, opts?: { fix?: boole
     error: cats.errorText,
   });
 
+  // 4 bis. LA question qui a coûté trois semaines (09/09/2026, cas TeamSystem) :
+  // la boîte derrière le token est-elle celle qui REÇOIT le courrier du
+  // domaine ? Un « compte Microsoft personnel » peut être créé avec n'importe
+  // quelle adresse comme identifiant (ex. alexandre@entreprise.fr) : Graph
+  // donne alors accès à une boîte Outlook.com quasi vide, alors que le vrai
+  // courrier de l'entreprise est chez OVH/Gandi/… (MX du domaine) et s'affiche
+  // dans Outlook bureau via IMAP. Aaron envoie depuis la mauvaise boîte et n'y
+  // verra jamais les réponses. Indices : @odata.context « outlook_…@outlook.com »
+  // = compte personnel ; MX du domaine ≠ Microsoft = courrier ailleurs.
+  const contexts = [folders.data?.['@odata.context'], cats.data?.['@odata.context'], me.data?.['@odata.context']].map((c) => String(c || '')).join(' ');
+  const personalAccount = /outlook_[0-9A-F]+(%40|@)outlook\.com/i.test(contexts);
+  const domain = String(connection.provider_account_email || '').split('@')[1]?.toLowerCase() || '';
+  let mxHosts: string[] = [];
+  try {
+    mxHosts = (await Promise.race([
+      dns.resolveMx(domain),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('dns timeout')), 3000)),
+    ])).map((r: any) => String(r.exchange || '').toLowerCase());
+  } catch {
+    mxHosts = [];
+  }
+  const mxMicrosoft = mxHosts.some((h) => /(^|\.)outlook\.com\.?$/.test(h) || /(^|\.)office365\.(com|us)\.?$/.test(h) || /(^|\.)hotmail\.com\.?$/.test(h));
+  const consumerDomain = /^(outlook|hotmail|live|msn)\./.test(domain) || domain === 'msn.com';
+  const mailElsewhere = mxHosts.length > 0 && !mxMicrosoft && !consumerDomain;
+  steps.push({
+    step: 'la_boite_recoit_elle_le_courrier_du_domaine',
+    ok: !mailElsewhere,
+    detail: {
+      domaine: domain,
+      mx_du_domaine: mxHosts,
+      courrier_du_domaine_chez_microsoft: mxMicrosoft,
+      compte_microsoft_personnel: personalAccount,
+      explication: mailElsewhere
+        ? `Le courrier de ${domain} est reçu chez ${mxHosts[0] || '?'} (pas Microsoft). La boîte connectée à Aaron est ${personalAccount ? 'un compte Microsoft PERSONNEL (Outlook.com) qui utilise cette adresse comme identifiant' : 'une boîte Microsoft'} : les réponses des prospects n'y arrivent jamais, et ce n'est pas la boîte affichée dans Outlook bureau.`
+        : 'Le courrier du domaine arrive bien chez Microsoft : la boîte connectée est la bonne.',
+    },
+    error: mailElsewhere ? `Mauvaise boîte : le courrier de ${domain} n'est pas hébergé chez Microsoft (MX ${mxHosts.join(', ')}).` : null,
+  });
+
   // 5. Éléments envoyés + dossier Aaron
   const sentItems = await graphRequest(
     userId,
@@ -205,7 +245,12 @@ export async function runOutlookDiagnostics(userId: string, opts?: { fix?: boole
       label: 'diag corps du dernier envoi',
     });
     const htmlLen = bodyRes.ok ? String(bodyRes.data?.body?.content || '').length : null;
-    const headerPart = raw.split(/\r?\n\r?\n/)[0] || '';
+    // En-têtes de TOUTES les parties MIME (pas seulement l'enveloppe) :
+    // charset et encodage de transfert des parties texte/HTML — c'est là que
+    // se joue le « [Message tronqué] » de Gmail sur un email de 3 Ko (Gmail
+    // coupe aussi les messages à caractères accentués dont la partie HTML
+    // n'est pas déclarée en UTF-8).
+    const headerPart = raw;
     steps.push({
       step: 'taille_du_dernier_envoi',
       ok: mime.ok,
@@ -220,7 +265,8 @@ export async function runOutlookDiagnostics(userId: string, opts?: { fix?: boole
         depasse_seuil_gmail: raw.length > 102 * 1024,
         entetes_transfert: headerPart
           .split(/\r?\n/)
-          .filter((l) => /^(content-type|content-transfer-encoding|x-aaron-sent|mime-version):/i.test(l)),
+          .filter((l) => /^(content-type|content-transfer-encoding|x-aaron-sent|mime-version|\s+charset|\s+boundary)/i.test(l)),
+        mime_brut: raw.length <= 12000 ? raw : raw.slice(0, 12000) + '\n…[tronqué]',
         apercu_html: bodyRes.ok ? String(bodyRes.data?.body?.content || '').slice(0, 400) : null,
       },
       error: mime.errorText,
