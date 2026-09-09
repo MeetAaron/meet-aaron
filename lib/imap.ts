@@ -38,6 +38,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { encryptToken, decryptToken } from './encryption';
 import type { MailServerSettings } from './mail-autodiscover';
+import { isAuthError, recordMailboxAuthFailure, clearMailboxAuthFailures } from './mailbox-health';
 
 const { ImapFlow } = require('imapflow');
 const nodemailer = require('nodemailer');
@@ -119,9 +120,20 @@ function smtpTransport(creds: ImapCredentials): any {
   });
 }
 
-async function withImap<T>(creds: ImapCredentials, fn: (client: any) => Promise<T>): Promise<T> {
+// `userId` non renseigné = test de connexion (formulaire Connexions) : on ne
+// compte alors ni les échecs ni les succès, c'est l'utilisateur qui essaie.
+async function withImap<T>(creds: ImapCredentials, fn: (client: any) => Promise<T>, userId?: string): Promise<T> {
   const client = imapClient(creds);
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (err: any) {
+    // Panne silencieuse : le mot de passe a changé côté hébergeur et personne
+    // ne le sait (voir lib/mailbox-health.ts). Seuls les REFUS
+    // D'IDENTIFIANTS comptent — pas une coupure réseau.
+    if (userId && isAuthError(err)) await recordMailboxAuthFailure(userId, 'imap', err?.responseText || err?.message);
+    throw err;
+  }
+  if (userId) await clearMailboxAuthFailures(userId, 'imap');
   try {
     return await fn(client);
   } finally {
@@ -312,6 +324,10 @@ export async function sendImapEmail(
   const transport = smtpTransport(creds);
   try {
     await transport.sendMail({ envelope: { from: creds.email, to: [to] }, raw });
+    await clearMailboxAuthFailures(userId, 'imap');
+  } catch (err: any) {
+    if (isAuthError(err)) await recordMailboxAuthFailure(userId, 'imap', err?.response || err?.message);
+    throw err;
   } finally {
     transport.close?.();
   }
@@ -330,7 +346,7 @@ export async function sendImapEmail(
         if (target) await rememberFolders(row.id, creds.settings, { sent_folder: target });
       }
       if (target) await client.append(target, raw, ['\\Seen'], new Date());
-    });
+    }, userId);
   } catch (err: any) {
     console.error('[IMAP] copie de l’envoi dans la boîte impossible:', err?.message || err);
   }
@@ -390,7 +406,7 @@ export async function listNewImapMessages(userId: string, afterTimestamp: number
     } finally {
       lock.release();
     }
-  });
+  }, userId);
 }
 
 export interface ImapParsedMessage {
@@ -451,7 +467,7 @@ export async function getImapMessage(userId: string, id: string): Promise<ImapPa
     } finally {
       lock.release();
     }
-  });
+  }, userId);
 }
 
 // Déplace un message de la boîte de réception vers « 🤖 Géré par Aaron »
@@ -472,7 +488,7 @@ export async function archiveImapMessage(userId: string, id: string | null | und
       } finally {
         lock.release();
       }
-    });
+    }, userId);
   } catch (err: any) {
     console.error('[IMAP] rangement du message impossible:', err?.message || err);
   }
@@ -508,7 +524,7 @@ export async function listImapSentToProspect(userId: string, prospectEmail: stri
         }
       }
       return out;
-    });
+    }, userId);
   } catch (err: any) {
     console.error('[IMAP] recherche des réponses manuelles impossible:', err?.message || err);
     return [];

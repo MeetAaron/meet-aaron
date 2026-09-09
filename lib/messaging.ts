@@ -10,6 +10,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { sendGmailEmail, getGoogleFreeBusy } from './google';
 import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './microsoft';
 import { sendImapEmail } from './imap';
+import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
@@ -98,6 +99,20 @@ export class DailySendCapExceededError extends Error {
 // le domaine pro connecté n'a pas SPF + DMARC en place — voir
 // lib/email-deliverability.ts::isDomainHealthyForSending pour le détail (et
 // pourquoi c'est mis en cache plutôt que vérifié en direct à chaque envoi).
+// Boîte « Autre boîte mail » qui refuse l'authentification (mot de passe
+// changé/révoqué — voir lib/mailbox-health.ts). Traitée exactement comme
+// DomainNotDeliverableError par les appelants : le message n'est pas perdu,
+// il repart tout seul (retry-uncontacted-prospects, relances) dès que le
+// commercial a ressaisi son mot de passe dans Connexions.
+export class MailboxAuthBrokenError extends Error {
+  email: string;
+  constructor(email: string) {
+    super(`La boîte mail ${email} refuse la connexion — mot de passe à ressaisir dans Connexions`);
+    this.name = 'MailboxAuthBrokenError';
+    this.email = email;
+  }
+}
+
 export class DomainNotDeliverableError extends Error {
   domain: string;
   constructor(domain: string) {
@@ -363,6 +378,12 @@ export async function sendEmailForUser(
   } else if (providers.has('microsoft')) {
     result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment, skipAaronLabel: toSelf });
   } else if (providers.has('imap')) {
+    // Envois en PAUSE tant que la boîte refuse l'authentification : sans ça,
+    // chaque tentative repartirait dans le vide et le commercial croirait
+    // qu'Aaron travaille (voir lib/mailbox-health.ts).
+    if (await isMailboxAuthBroken(userId, 'imap')) {
+      throw new MailboxAuthBrokenError(user?.email || '');
+    }
     // « Autre boîte mail » (09/09/2026, lib/imap.ts) : MIME construit par nous
     // comme pour Gmail ; la copie de l'envoi est rangée directement dans le
     // dossier « Géré par Aaron » quand le rangement est activé (pas de

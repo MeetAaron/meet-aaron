@@ -26,7 +26,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel, type AaronOutput } from './aaron';
 import { recordUsage, usageFromApi } from './anthropic-client';
-import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from './messaging';
+import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
 import { sendPushNotification } from './push';
 import { getFirstEmailAttachment } from './first-email-attachment';
 
