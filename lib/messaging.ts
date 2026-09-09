@@ -9,6 +9,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { sendGmailEmail, getGoogleFreeBusy } from './google';
 import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './microsoft';
+import { sendImapEmail } from './imap';
 import { isDomainHealthyForSending } from './email-deliverability';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
@@ -275,10 +276,11 @@ export async function sendEmailForUser(
       .from('oauth_connections')
       .select('id, provider, provider_account_email, domain_health_ok, domain_health_checked_at')
       .eq('user_id', userId)
-      .in('provider', ['google', 'microsoft']);
+      .in('provider', ['google', 'microsoft', 'imap']);
     const sendingConnection =
       (sendingConnections || []).find((c) => c.provider === 'google') ||
-      (sendingConnections || []).find((c) => c.provider === 'microsoft');
+      (sendingConnections || []).find((c) => c.provider === 'microsoft') ||
+      (sendingConnections || []).find((c) => c.provider === 'imap');
 
     if (sendingConnection) {
       const { healthy, domain } = await isDomainHealthyForSending(sendingConnection);
@@ -296,13 +298,13 @@ export async function sendEmailForUser(
   // n'est pas passée — sinon plus AUCUN email ne partirait.
   let userRes: any = await supabaseAdmin
     .from('users')
-    .select('email, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale')
+    .select('email, full_name, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale')
     .eq('id', userId)
     .maybeSingle();
   if (userRes.error && userRes.error.code === '42703') {
     userRes = await supabaseAdmin
       .from('users')
-      .select('email, email_signature, email_signature_image_url, email_banner_image_url, locale')
+      .select('email, full_name, email_signature, email_signature_image_url, email_banner_image_url, locale')
       .eq('id', userId)
       .maybeSingle();
   }
@@ -360,6 +362,19 @@ export async function sendEmailForUser(
     result = await sendGmailEmail(userId, to, subject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment, skipAaronLabel: toSelf });
   } else if (providers.has('microsoft')) {
     result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment, skipAaronLabel: toSelf });
+  } else if (providers.has('imap')) {
+    // « Autre boîte mail » (09/09/2026, lib/imap.ts) : MIME construit par nous
+    // comme pour Gmail ; la copie de l'envoi est rangée directement dans le
+    // dossier « Géré par Aaron » quand le rangement est activé (pas de
+    // libellé ni de catégorie en IMAP — le dossier joue ce rôle).
+    result = await sendImapEmail(userId, to, subject, htmlBody, {
+      html: true,
+      textAlternative: textBody,
+      attachment: opts?.attachment,
+      skipAaronLabel: toSelf,
+      archiveToAaronFolder: !toSelf && user?.aaron_archive_threads !== false,
+      fromName: user?.full_name || null,
+    });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);
   }

@@ -31,6 +31,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { sendPushNotification } from './push';
 import { listGmailThreadMessages, AARON_SENT_HEADER } from './google';
 import { listOutlookConversationMessages } from './microsoft';
+import { listImapSentToProspect } from './imap';
 
 const NOTICE: Record<string, { title: string; body: string }> = {
   fr: { title: 'J\'ai vu ta réponse', body: 'Tu as répondu toi-même à {name} : j\'en tiens compte dans la suite. Si tu préfères gérer cette conversation seul, bascule « je reprends la main » sur sa fiche.' },
@@ -141,8 +142,25 @@ async function outlookCandidates(userId: string, conversationId: string, userEma
   return out;
 }
 
+// « Autre boîte mail » (IMAP, 09/09/2026) : pas de fil ni de conversationId —
+// on cherche les messages que le commercial a envoyés AU prospect (par
+// destinataire) dans Éléments envoyés et dans le dossier Géré par Aaron.
+// Ceux d'Aaron portent l'en-tête X-Aaron-Sent et sont écartés.
+async function imapCandidates(userId: string, prospectEmail: string, userEmail: string): Promise<ManualCandidate[]> {
+  const messages = await listImapSentToProspect(userId, prospectEmail);
+  const out: ManualCandidate[] = [];
+  for (const m of messages) {
+    if ((m.fromEmail || '').toLowerCase() !== userEmail) continue;
+    if (m.headers && m.headers[AARON_SENT_HEADER.toLowerCase()]) continue;
+    const text = stripQuotedReply(m.text || '');
+    if (!text) continue;
+    out.push({ providerMessageId: m.id, internetMessageId: m.internetMessageId || null, text, sentAt: m.date || null });
+  }
+  return out;
+}
+
 export async function ingestManualReplies(params: {
-  provider: 'google' | 'microsoft';
+  provider: 'google' | 'microsoft' | 'imap';
   userId: string;
   userEmail: string | null | undefined;
   conversationId: string; // conversations.id (base), pas celui du fournisseur
@@ -153,12 +171,15 @@ export async function ingestManualReplies(params: {
 }): Promise<number> {
   try {
     const userEmail = (params.userEmail || '').toLowerCase();
-    if (!userEmail || !params.providerThreadId) return 0;
+    if (!userEmail) return 0;
+    if (params.provider !== 'imap' && !params.providerThreadId) return 0;
 
     const candidates =
       params.provider === 'google'
-        ? await gmailCandidates(params.userId, params.providerThreadId, userEmail)
-        : await outlookCandidates(params.userId, params.providerThreadId, userEmail);
+        ? await gmailCandidates(params.userId, params.providerThreadId as string, userEmail)
+        : params.provider === 'imap'
+          ? await imapCandidates(params.userId, params.prospectEmail.toLowerCase(), userEmail)
+          : await outlookCandidates(params.userId, params.providerThreadId as string, userEmail);
     if (candidates.length === 0) return 0;
 
     // Déjà connus : un passage précédent les a enregistrés. La colonne

@@ -148,7 +148,13 @@ export async function detectDnsProvider(domain: string): Promise<{ name: string;
 // SPF existe déjà mais est mal formé, on ne tente pas de le corriger
 // automatiquement (risque de casser un include existant vers un autre
 // service d'envoi que le commercial utiliserait par ailleurs).
-export function suggestedSpfRecord(provider: 'google' | 'microsoft'): string {
+// « Autre boîte mail » (IMAP, 09/09/2026) : l'include dépend de l'hébergeur,
+// deviné par lib/mail-autodiscover.ts (OVH, Gandi, Ionos…) et passé ici ;
+// inconnu → null, on ne suggère rien plutôt que quelque chose de faux.
+export function suggestedSpfRecord(provider: 'google' | 'microsoft' | 'imap', imapSpfInclude?: string | null): string | null {
+  if (provider === 'imap') {
+    return imapSpfInclude ? `v=spf1 ${imapSpfInclude} ~all` : null;
+  }
   return provider === 'microsoft'
     ? 'v=spf1 include:spf.protection.outlook.com ~all'
     : 'v=spf1 include:_spf.google.com ~all';

@@ -14,7 +14,11 @@ const MICROSOFT_DOMAINS = new Set([
   'live.com', 'live.fr', 'live.de', 'live.it', 'live.nl', 'live.be', 'msn.com',
 ]);
 
-export type MailboxProvider = 'google' | 'microsoft' | null;
+// 'imap' (09/09/2026) : le domaine a des MX, mais ni chez Google ni chez
+// Microsoft (OVH, Gandi, Ionos, serveur d'entreprise…) → connecteur « Autre
+// boîte mail » (lib/imap.ts). null = impossible de savoir (pas de MX, DNS en
+// erreur) : l'écran laisse choisir.
+export type MailboxProvider = 'google' | 'microsoft' | 'imap' | null;
 
 export async function detectMailboxProvider(email: string): Promise<MailboxProvider> {
   const domain = (email.split('@')[1] || '').trim().toLowerCase();
@@ -32,7 +36,7 @@ export async function detectMailboxProvider(email: string): Promise<MailboxProvi
     const hosts = (records || []).map((r) => String(r.exchange || '').toLowerCase());
     if (hosts.some((h) => /(^|\.)(google|googlemail)\.com\.?$/.test(h) || /aspmx/.test(h))) return 'google';
     if (hosts.some((h) => /(^|\.)outlook\.com\.?$/.test(h) || /(^|\.)office365\.(com|us)\.?$/.test(h))) return 'microsoft';
-    return null;
+    return hosts.length > 0 ? 'imap' : null;
   } catch {
     return null;
   }
