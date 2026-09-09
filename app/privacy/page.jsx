@@ -67,7 +67,7 @@ const fr = {
       b: [
         ['ul', [
           '**Votre compte** : nom, adresse email, société, langue, préférences.',
-          "**Votre messagerie** : lorsque vous connectez Gmail ou Outlook, Aaron lit les réponses de vos prospects à vos emails de prospection, envoie des emails en votre nom, et pose un libellé « Géré par Aaron » sur les fils qu'il traite. Il ne lit pas votre boîte dans son ensemble : seulement les conversations qu'il a lui-même ouvertes.",
+          "**Votre messagerie** : lorsque vous connectez Gmail ou Outlook, Aaron lit les réponses de vos prospects à vos emails de prospection, envoie des emails en votre nom, et pose un libellé « Géré par Aaron » sur les fils qu'il traite. Il ne lit pas votre boîte dans son ensemble : seulement les conversations qu'il a lui-même ouvertes. Si votre messagerie n'est ni chez Google ni chez Microsoft (OVH, Gandi, Ionos…), Aaron s'y connecte par les protocoles standards IMAP/SMTP avec le mot de passe de messagerie que vous saisissez vous-même : il est chiffré avant stockage, n'est utilisé que pour lire et envoyer vos emails, et est effacé dès que vous déconnectez la boîte.",
           "**Votre agenda** : Aaron crée des rendez-vous dans Google Agenda ou Outlook quand un prospect accepte un créneau, et consulte vos événements pour éviter les doublons. Il ne touche jamais aux paramètres ni au partage de votre agenda.",
           "**Vos prospects** : nom, fonction, email, téléphone, société, et le contenu des échanges. Ces données viennent de vous (import de fichier), de sources publiques d'entreprises (voir section 5), ou des réponses des prospects eux-mêmes.",
           "**Vos documents** (devis types, tarifs, plaquettes), pour qu'Aaron adapte ses messages à votre métier.",
@@ -192,7 +192,7 @@ const en = {
       b: [
         ['ul', [
           '**Your account**: name, email address, company, language, preferences.',
-          '**Your mailbox**: when you connect Gmail or Outlook, Aaron reads the replies prospects send to your outreach emails, sends emails on your behalf, and applies a "Managed by Aaron" label to the threads it handles. It does not read your mailbox at large — only the conversations it started itself.',
+          '**Your mailbox**: when you connect Gmail or Outlook, Aaron reads the replies prospects send to your outreach emails, sends emails on your behalf, and applies a "Managed by Aaron" label to the threads it handles. It does not read your mailbox at large — only the conversations it started itself. If your email is hosted neither by Google nor by Microsoft (OVH, Gandi, IONOS…), Aaron connects through the standard IMAP/SMTP protocols with the mail password you enter yourself: it is encrypted before storage, used only to read and send your emails, and erased as soon as you disconnect the mailbox.',
           '**Your calendar**: Aaron creates events in Google Calendar or Outlook when a prospect accepts a meeting slot, and reads your events to avoid double-booking. It never touches calendar settings or sharing.',
           "**Your prospects**: name, job title, email, phone, company, and the content of the exchanges. This data comes from you (file import), from public company sources (see section 5), or from the prospects' own replies.",
           '**Your documents** (sample quotes, price lists, brochures), so Aaron can tailor its messages to your business.',
@@ -317,7 +317,7 @@ const de = {
       b: [
         ['ul', [
           '**Ihr Konto**: Name, E-Mail-Adresse, Unternehmen, Sprache, Einstellungen.',
-          '**Ihr Postfach**: Wenn Sie Gmail oder Outlook verbinden, liest Aaron die Antworten Ihrer Interessenten auf Ihre Akquise-E-Mails, versendet E-Mails in Ihrem Namen und versieht die bearbeiteten Konversationen mit der Kennzeichnung „Von Aaron betreut“. Aaron liest nicht Ihr gesamtes Postfach, sondern ausschließlich die Konversationen, die er selbst begonnen hat.',
+          '**Ihr Postfach**: Wenn Sie Gmail oder Outlook verbinden, liest Aaron die Antworten Ihrer Interessenten auf Ihre Akquise-E-Mails, versendet E-Mails in Ihrem Namen und versieht die bearbeiteten Konversationen mit der Kennzeichnung „Von Aaron betreut“. Aaron liest nicht Ihr gesamtes Postfach, sondern ausschließlich die Konversationen, die er selbst begonnen hat. Liegt Ihr Postfach weder bei Google noch bei Microsoft (OVH, Gandi, IONOS…), verbindet sich Aaron über die Standardprotokolle IMAP/SMTP mit dem von Ihnen selbst eingegebenen Mail-Passwort: Es wird vor der Speicherung verschlüsselt, ausschließlich zum Lesen und Senden Ihrer E-Mails verwendet und gelöscht, sobald Sie das Postfach trennen.',
           '**Ihr Kalender**: Aaron legt Termine in Google Kalender oder Outlook an, wenn ein Interessent einen Terminvorschlag annimmt, und sieht Ihre Termine ein, um Doppelbuchungen zu vermeiden. Einstellungen und Freigaben Ihres Kalenders bleiben unangetastet.',
           '**Ihre Interessenten**: Name, Funktion, E-Mail, Telefon, Unternehmen sowie der Inhalt des Schriftwechsels. Diese Daten stammen von Ihnen (Dateiimport), aus öffentlichen Unternehmensquellen (siehe Abschnitt 5) oder aus den Antworten der Interessenten selbst.',
           '**Ihre Dokumente** (Musterangebote, Preislisten, Broschüren), damit Aaron seine Nachrichten auf Ihr Geschäft abstimmen kann.',
@@ -442,7 +442,7 @@ const it = {
       b: [
         ['ul', [
           '**Il vostro account**: nome, indirizzo email, azienda, lingua, preferenze.',
-          '**La vostra casella di posta**: quando collegate Gmail o Outlook, Aaron legge le risposte dei vostri contatti alle email di prospezione, invia email a vostro nome e applica un\'etichetta « Gestito da Aaron » alle conversazioni che tratta. Non legge la vostra casella nel suo insieme: solo le conversazioni che ha aperto lui stesso.',
+          '**La vostra casella di posta**: quando collegate Gmail o Outlook, Aaron legge le risposte dei vostri contatti alle email di prospezione, invia email a vostro nome e applica un\'etichetta « Gestito da Aaron » alle conversazioni che tratta. Non legge la vostra casella nel suo insieme: solo le conversazioni che ha aperto lui stesso. Se la vostra posta non è né presso Google né presso Microsoft (OVH, Gandi, IONOS, Aruba…), Aaron si collega tramite i protocolli standard IMAP/SMTP con la password di posta che inserite voi stessi: è cifrata prima dell\'archiviazione, usata solo per leggere e inviare le vostre email, e cancellata non appena scollegate la casella.',
           '**Il vostro calendario**: Aaron crea appuntamenti in Google Calendar o Outlook quando un contatto accetta una fascia oraria, e consulta i vostri eventi per evitare sovrapposizioni. Non tocca mai le impostazioni né la condivisione del calendario.',
           '**I vostri contatti commerciali**: nome, ruolo, email, telefono, azienda e contenuto degli scambi. Questi dati provengono da voi (importazione di file), da fonti pubbliche sulle imprese (vedi sezione 5) o dalle risposte dei contatti stessi.',
           '**I vostri documenti** (preventivi tipo, listini, brochure), affinché Aaron adatti i suoi messaggi al vostro mestiere.',
@@ -567,7 +567,7 @@ const es = {
       b: [
         ['ul', [
           '**Tu cuenta**: nombre, dirección de correo, empresa, idioma, preferencias.',
-          '**Tu buzón**: cuando conectas Gmail u Outlook, Aaron lee las respuestas de tus posibles clientes a tus correos de prospección, envía correos en tu nombre y coloca una etiqueta «Gestionado por Aaron» en los hilos que trata. No lee tu buzón en su conjunto: solo las conversaciones que él mismo ha iniciado.',
+          '**Tu buzón**: cuando conectas Gmail u Outlook, Aaron lee las respuestas de tus posibles clientes a tus correos de prospección, envía correos en tu nombre y coloca una etiqueta «Gestionado por Aaron» en los hilos que trata. No lee tu buzón en su conjunto: solo las conversaciones que él mismo ha iniciado. Si tu correo no está ni en Google ni en Microsoft (OVH, Gandi, IONOS…), Aaron se conecta mediante los protocolos estándar IMAP/SMTP con la contraseña de correo que introduces tú mismo: se cifra antes de guardarse, solo sirve para leer y enviar tus correos, y se borra en cuanto desconectas el buzón.',
           '**Tu calendario**: Aaron crea citas en Google Calendar u Outlook cuando un posible cliente acepta una franja horaria, y consulta tus eventos para evitar solapamientos. Nunca toca los ajustes ni la compartición de tu calendario.',
           '**Tus posibles clientes**: nombre, cargo, correo, teléfono, empresa y el contenido de los intercambios. Estos datos provienen de ti (importación de archivo), de fuentes públicas de empresas (ver sección 5) o de las respuestas de los propios interesados.',
           '**Tus documentos** (presupuestos tipo, tarifas, folletos), para que Aaron adapte sus mensajes a tu actividad.',
@@ -692,7 +692,7 @@ const pt = {
       b: [
         ['ul', [
           '**A sua conta**: nome, endereço de email, empresa, idioma, preferências.',
-          '**A sua caixa de correio**: quando liga o Gmail ou o Outlook, o Aaron lê as respostas dos seus potenciais clientes aos seus emails de prospeção, envia emails em seu nome e coloca uma etiqueta «Gerido pelo Aaron» nas conversas que trata. Não lê a sua caixa no seu conjunto: apenas as conversas que ele próprio iniciou.',
+          '**A sua caixa de correio**: quando liga o Gmail ou o Outlook, o Aaron lê as respostas dos seus potenciais clientes aos seus emails de prospeção, envia emails em seu nome e coloca uma etiqueta «Gerido pelo Aaron» nas conversas que trata. Não lê a sua caixa no seu conjunto: apenas as conversas que ele próprio iniciou. Se o seu correio não estiver na Google nem na Microsoft (OVH, Gandi, IONOS…), o Aaron liga-se pelos protocolos padrão IMAP/SMTP com a palavra-passe de correio que o utilizador introduz: é cifrada antes de ser guardada, usada apenas para ler e enviar os seus emails, e apagada assim que desliga a caixa.',
           '**A sua agenda**: o Aaron cria reuniões no Google Calendar ou no Outlook quando um potencial cliente aceita um horário, e consulta os seus eventos para evitar sobreposições. Nunca mexe nas definições nem na partilha da sua agenda.',
           '**Os seus potenciais clientes**: nome, função, email, telefone, empresa e o conteúdo das trocas. Estes dados vêm de si (importação de ficheiro), de fontes públicas sobre empresas (ver secção 5) ou das respostas dos próprios interessados.',
           '**Os seus documentos** (orçamentos-tipo, tabelas de preços, brochuras), para que o Aaron adapte as mensagens à sua atividade.',
@@ -817,7 +817,7 @@ const nl = {
       b: [
         ['ul', [
           '**Uw account**: naam, e-mailadres, onderneming, taal, voorkeuren.',
-          '**Uw mailbox**: wanneer u Gmail of Outlook koppelt, leest Aaron de antwoorden van uw prospects op uw acquisitiemails, verstuurt hij e-mails namens u en plaatst hij het label „Beheerd door Aaron” op de gesprekken die hij behandelt. Hij leest niet uw hele mailbox: uitsluitend de gesprekken die hij zelf is begonnen.',
+          '**Uw mailbox**: wanneer u Gmail of Outlook koppelt, leest Aaron de antwoorden van uw prospects op uw acquisitiemails, verstuurt hij e-mails namens u en plaatst hij het label „Beheerd door Aaron” op de gesprekken die hij behandelt. Hij leest niet uw hele mailbox: uitsluitend de gesprekken die hij zelf is begonnen. Staat uw e-mail niet bij Google of Microsoft (OVH, Gandi, IONOS…), dan maakt Aaron verbinding via de standaardprotocollen IMAP/SMTP met het mailwachtwoord dat u zelf invoert: het wordt versleuteld opgeslagen, uitsluitend gebruikt om uw e-mails te lezen en te verzenden, en gewist zodra u de mailbox ontkoppelt.',
           '**Uw agenda**: Aaron maakt afspraken aan in Google Agenda of Outlook wanneer een prospect een tijdslot aanvaardt, en raadpleegt uw afspraken om dubbele boekingen te vermijden. Hij raakt nooit de instellingen of het delen van uw agenda aan.',
           '**Uw prospects**: naam, functie, e-mail, telefoon, onderneming en de inhoud van de correspondentie. Deze gegevens komen van u (bestandsimport), uit openbare ondernemingsbronnen (zie punt 5) of uit de antwoorden van de prospects zelf.',
           '**Uw documenten** (voorbeeldoffertes, tarieven, brochures), zodat Aaron zijn berichten op uw vak afstemt.',
