@@ -2404,6 +2404,7 @@ export default function ConnexionsPage() {
             showReportProblem
             onConnect={() => setShowImapForm(true)}
             onDisconnect={() => handleDisconnect(imapConnection.id)}
+            authBroken={!!imapConnection?.auth_broken_at}
           />
               )}
             </>
@@ -6103,6 +6104,7 @@ function ConnectionCard({
   connection,
   health,
   missingLabelScope,
+  authBroken,
   onRecheck,
   rechecking,
   recheckResult,
@@ -6169,6 +6171,19 @@ function ConnectionCard({
       {isConnected ? (
         <>
           <p className="account">{connection.provider_account_email}</p>
+          {/* Panne silencieuse d'une boîte IMAP (09/09/2026, voir
+              lib/mailbox-health.ts) : le mot de passe a changé côté
+              hébergeur, Aaron s'est arrêté. Sans ce bandeau, le commercial
+              croit qu'Aaron prospecte alors qu'il est muet. */}
+          {authBroken && (
+            <div className="health health-broken">
+              <p className="health-status-blocked">{t('connexions.mailboxBrokenTitle', locale)}</p>
+              <p className="health-hint">{t('connexions.mailboxBrokenBody', locale)}</p>
+              <button type="button" className="btn-primary" onClick={onConnect}>
+                {t('connexions.mailboxBrokenCta', locale)}
+              </button>
+            </div>
+          )}
           {missingLabelScope && (
             <div className="health">
               <p className="health-title"><Ic name="bot" /> {t('connexions.labelScopeTitle', locale)}</p>
@@ -6356,6 +6371,10 @@ function ConnectionCard({
         </>
       )}
       <style jsx>{`
+        .health-broken {
+          background: rgba(201, 42, 42, 0.08);
+          border-color: rgba(201, 42, 42, 0.35);
+        }
         .health {
           background: rgba(75, 57, 239, 0.08);
           border: 1px solid var(--border);
