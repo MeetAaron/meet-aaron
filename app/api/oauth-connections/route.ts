@@ -16,10 +16,20 @@ export async function GET(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
-  const { data: connections, error } = await supabaseAdmin
+  // auth_broken_at (09/09/2026) : boîte « Autre boîte mail » qui refuse
+  // l'authentification (voir lib/mailbox-health.ts). Repli sur 42703 tant que
+  // migration_mailbox_auth_health_2026-09-09.sql n'est pas passée — sinon
+  // TOUT l'écran Connexions tomberait pour une colonne manquante.
+  let { data: connections, error } = await supabaseAdmin
     .from('oauth_connections')
-    .select('id, provider, provider_account_email, scopes, created_at')
+    .select('id, provider, provider_account_email, scopes, created_at, auth_broken_at')
     .eq('user_id', userId);
+  if (error && error.code === '42703') {
+    ({ data: connections, error } = await supabaseAdmin
+      .from('oauth_connections')
+      .select('id, provider, provider_account_email, scopes, created_at')
+      .eq('user_id', userId));
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
