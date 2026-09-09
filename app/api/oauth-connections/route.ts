@@ -20,19 +20,23 @@ export async function GET(request: NextRequest) {
   // l'authentification (voir lib/mailbox-health.ts). Repli sur 42703 tant que
   // migration_mailbox_auth_health_2026-09-09.sql n'est pas passée — sinon
   // TOUT l'écran Connexions tomberait pour une colonne manquante.
-  let { data: connections, error } = await supabaseAdmin
+  // `any` : les deux variantes de chaîne de colonnes donnent des types
+  // Postgrest incompatibles, alors que la forme runtime est identique (même
+  // motif que lib/messaging.ts pour aaron_archive_threads).
+  let res: any = await supabaseAdmin
     .from('oauth_connections')
     .select('id, provider, provider_account_email, scopes, created_at, auth_broken_at')
     .eq('user_id', userId);
-  if (error && error.code === '42703') {
-    ({ data: connections, error } = await supabaseAdmin
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
       .from('oauth_connections')
       .select('id, provider, provider_account_email, scopes, created_at')
-      .eq('user_id', userId));
+      .eq('user_id', userId);
   }
+  const connections = res.data;
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (res.error) {
+    return NextResponse.json({ error: res.error.message }, { status: 500 });
   }
 
   return NextResponse.json({ connections });
