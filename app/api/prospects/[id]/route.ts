@@ -212,10 +212,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .from('oauth_connections')
       .select('id, provider, provider_account_email, domain_health_ok, domain_health_checked_at')
       .eq('user_id', prospect.assigned_user_id)
-      .in('provider', ['google', 'microsoft']);
+      .in('provider', ['google', 'microsoft', 'imap']);
     const sendingConnection =
       (sendingConnections || []).find((c) => c.provider === 'google') ||
-      (sendingConnections || []).find((c) => c.provider === 'microsoft');
+      (sendingConnections || []).find((c) => c.provider === 'microsoft') ||
+      (sendingConnections || []).find((c) => c.provider === 'imap');
     if (sendingConnection) {
       const { healthy, domain } = await isDomainHealthyForSending(sendingConnection);
       if (!healthy && domain) {
