@@ -22,7 +22,7 @@ import { processCampaignBatch } from '@/lib/sourcing';
 import { getProspectQuota } from '@/lib/prospect-quota';
 import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
-import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
+import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { getPacing } from '@/lib/anthropic-client';
 
 function isAuthorized(request: NextRequest) {
@@ -153,7 +153,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
       // reste sans message, donc run-campaigns (ce lot) ou
       // retry-uncontacted-prospects le retenteront automatiquement au
       // prochain passage — inutile de bruiter les logs pour un cas déjà géré.
-      if (!(err instanceof DailySendCapExceededError) && !(err instanceof DomainNotDeliverableError)) {
+      if (!(err instanceof DailySendCapExceededError) && !(err instanceof DomainNotDeliverableError) && !(err instanceof MailboxAuthBrokenError)) {
         console.error(`Erreur lors du premier contact pour le prospect ${item.prospectId}:`, err);
       }
     }
