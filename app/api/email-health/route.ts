@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { autodiscoverMailServers } from '@/lib/mail-autodiscover';
 import {
   checkDomainHealth,
   checkDkim,
@@ -50,17 +51,20 @@ export async function GET(request: NextRequest) {
         if (isConsumerDomain(domain)) {
           return { provider: c.provider, domain, consumer_domain: true, health: null };
         }
-        const provider = (c.provider === 'microsoft' ? 'microsoft' : 'google') as 'google' | 'microsoft';
+        const provider = (c.provider === 'microsoft' ? 'microsoft' : c.provider === 'imap' ? 'imap' : 'google') as 'google' | 'microsoft' | 'imap';
         const [health, dkim, dnsProvider] = await Promise.all([
           checkDomainHealth(domain),
-          checkDkim(domain, provider),
+          // Pas de sélecteur DKIM standard pour un hébergeur IMAP quelconque.
+          provider === 'imap' ? Promise.resolve({ found: false, selector: null }) : checkDkim(domain, provider),
           detectDnsProvider(domain),
         ]);
 
         // Enregistrements prêts à copier-coller, seulement pour ce qui manque.
         const suggested: { spf?: string; dmarc?: string } = {};
         if (!health.spf.found) {
-          suggested.spf = suggestedSpfRecord(provider);
+          const imapSpf = provider === 'imap' ? (await autodiscoverMailServers(c.provider_account_email)).spf_include : null;
+          const spf = suggestedSpfRecord(provider, imapSpf);
+          if (spf) suggested.spf = spf;
         }
         if (!health.dmarc.found) {
           suggested.dmarc = suggestedDmarcRecord(c.provider_account_email);
