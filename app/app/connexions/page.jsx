@@ -119,6 +119,7 @@ function providerMetaFor(locale) {
   return {
     google: { name: 'Google', desc: t('connexions.googleDesc', locale) },
     microsoft: { name: 'Microsoft', desc: t('connexions.microsoftDesc', locale) },
+    imap: { name: t('connexions.imapName', locale), desc: t('connexions.imapDesc', locale) },
   };
 }
 
@@ -1493,12 +1494,20 @@ export default function ConnexionsPage() {
   // de l'adresse (voir app/api/mailbox-provider). null = inconnu → on montre
   // les deux cartes et on laisse choisir, jamais de pari.
   const [detectedProvider, setDetectedProvider] = useState(undefined); // undefined = pas encore su
+  const [detectedMailbox, setDetectedMailbox] = useState(null); // { email, provider_name, servers } quand 'imap'
   const [showAllProviders, setShowAllProviders] = useState(false);
+  // Formulaire « Autre boîte mail » (IMAP/SMTP, 09/09/2026 — voir lib/imap.ts) :
+  // ouvert par le bouton unique quand le domaine n'est ni Google ni Microsoft,
+  // ou depuis la carte « Autre boîte mail » du choix manuel.
+  const [showImapForm, setShowImapForm] = useState(false);
   useEffect(() => {
     if (activeTab !== 'connection') return;
     fetch('/api/mailbox-provider')
       .then((r) => (r.ok ? r.json() : null))
-      .then((res) => setDetectedProvider(res?.provider ?? null))
+      .then((res) => {
+        setDetectedProvider(res?.provider ?? null);
+        setDetectedMailbox(res ? { email: res.email || '', provider_name: res.provider_name || null, servers: res.servers || null } : null);
+      })
       .catch(() => setDetectedProvider(null));
   }, [activeTab]);
 
@@ -1629,6 +1638,7 @@ export default function ConnexionsPage() {
 
   const googleConnection = connections.find((c) => c.provider === 'google');
   const microsoftConnection = connections.find((c) => c.provider === 'microsoft');
+  const imapConnection = connections.find((c) => c.provider === 'imap');
   const ALL_CRM_PROVIDERS = [...DIRECT_CRM_PROVIDERS, ...API_KEY_CRM_PROVIDERS, ...TWO_FIELD_CRM_PROVIDERS];
 
   // Demande Alex (2026-08-26) : le label Gmail "🤖 Géré par Aaron" (seul repère
@@ -1658,7 +1668,7 @@ export default function ConnexionsPage() {
   // ligne RÉPOND DÉJÀ. « Boîte mail & agenda · Gmail connecté » évite d'ouvrir
   // la rubrique pour vérifier. Les états ci-dessous sont donc calculés à
   // partir des mêmes données que les panneaux eux-mêmes — jamais figés.
-  const mailboxConnection = googleConnection || microsoftConnection;
+  const mailboxConnection = googleConnection || microsoftConnection || imapConnection;
   const connectedCrm = crmConnections.length > 0 ? crmConnections[0] : null;
   const creditsPct =
     usage && usage.monthly_cap_usd
@@ -2210,6 +2220,7 @@ export default function ConnexionsPage() {
             userId={userId}
             googleConnection={googleConnection}
             microsoftConnection={microsoftConnection}
+            imapConnection={imapConnection}
             onConnect={connectProvider}
             prefs={prefs}
             onNotifyChannelChange={handleNotifyChannelChange}
@@ -2296,7 +2307,20 @@ export default function ConnexionsPage() {
               manuellement » — et redeviennent la vue par défaut dès qu'on
               ne sait pas deviner. Une fois une boîte connectée, on ne montre
               plus que la sienne : un siège = une personne = une boîte. */}
-          {!googleConnection && !microsoftConnection && !showAllProviders && detectedProvider !== null ? (
+          {showImapForm && !imapConnection ? (
+            <ImapConnectForm
+              locale={locale}
+              userId={userId}
+              initialEmail={detectedMailbox?.email || ''}
+              providerName={detectedProvider === 'imap' ? detectedMailbox?.provider_name : null}
+              initialServers={detectedProvider === 'imap' ? detectedMailbox?.servers : null}
+              onConnected={() => {
+                setShowImapForm(false);
+                load();
+              }}
+              onCancel={() => setShowImapForm(false)}
+            />
+          ) : !googleConnection && !microsoftConnection && !imapConnection && !showAllProviders && detectedProvider !== null ? (
             <div className="unified-connect">
               <p className="unified-title">{t('connexions.unifiedTitle', locale)}</p>
               <p className="unified-desc">{t('connexions.unifiedDesc', locale)}</p>
@@ -2306,6 +2330,7 @@ export default function ConnexionsPage() {
                 disabled={detectedProvider === undefined}
                 onClick={() => {
                   if (detectedProvider === 'google' || detectedProvider === 'microsoft') connectProvider(detectedProvider);
+                  else if (detectedProvider === 'imap') setShowImapForm(true);
                   else setShowAllProviders(true);
                 }}
               >
@@ -2323,7 +2348,7 @@ export default function ConnexionsPage() {
                   fois connecté, on ne montre que SA carte. Le code tolère
                   encore deux connexions pour les comptes historiques, mais
                   l'écran ne propose plus d'en ajouter une seconde. */}
-              {(googleConnection || (!microsoftConnection)) && (
+              {(googleConnection || (!microsoftConnection && !imapConnection)) && (
           <ConnectionCard
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
@@ -2345,7 +2370,7 @@ export default function ConnexionsPage() {
             onQrClose={closeQrPanel}
           />
               )}
-              {(microsoftConnection || (!googleConnection)) && (
+              {(microsoftConnection || (!googleConnection && !imapConnection)) && (
           <ConnectionCard
             title={PROVIDER_META.microsoft.name}
             desc={PROVIDER_META.microsoft.desc}
@@ -2365,6 +2390,20 @@ export default function ConnexionsPage() {
             qrError={qrOpenProvider === 'microsoft' ? qrError : null}
             onQrRetry={() => generateQr('microsoft')}
             onQrClose={closeQrPanel}
+          />
+              )}
+              {(imapConnection || (!googleConnection && !microsoftConnection)) && (
+          <ConnectionCard
+            title={PROVIDER_META.imap.name}
+            desc={PROVIDER_META.imap.desc}
+            connection={imapConnection}
+            health={emailHealth.find((h) => h.provider === 'imap')}
+            onRecheck={() => handleRecheckHealth('imap')}
+            rechecking={recheckingProvider === 'imap'}
+            recheckResult={recheckResult.imap}
+            showReportProblem
+            onConnect={() => setShowImapForm(true)}
+            onDisconnect={() => handleDisconnect(imapConnection.id)}
           />
               )}
             </>
@@ -5872,6 +5911,192 @@ function TwoFieldCrmConnectionCard({
   );
 }
 
+
+// Formulaire « Autre boîte mail » (IMAP/SMTP, 09/09/2026 — voir lib/imap.ts et
+// app/api/mailbox/imap/route.ts). Le commercial saisit son adresse et son
+// mot de passe de messagerie ; les serveurs sont pré-remplis (hébergeur
+// reconnu par les MX du domaine, base Thunderbird, sinon devinés) et ne sont
+// montrés que sous « Paramètres avancés ». Rien n'est enregistré tant que la
+// connexion IMAP ET l'envoi SMTP n'ont pas été testés avec succès.
+function ImapConnectForm({ locale, userId, initialEmail, providerName, initialServers, onConnected, onCancel }) {
+  const [email, setEmail] = useState(initialEmail || '');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [advanced, setAdvanced] = useState(false);
+  const [servers, setServers] = useState(initialServers || null);
+  const [hostedBy, setHostedBy] = useState(providerName || null);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState(null);
+  const [errorDetail, setErrorDetail] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  // Serveurs (re)devinés quand l'adresse change de domaine.
+  useEffect(() => {
+    const domain = (email.split('@')[1] || '').trim().toLowerCase();
+    if (!domain || (initialEmail && domain === (initialEmail.split('@')[1] || '').toLowerCase() && initialServers)) return;
+    const timer = setTimeout(() => {
+      fetch(`/api/mailbox/imap?user_id=${userId}&email=${encodeURIComponent(email.trim())}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          if (res?.servers) {
+            setServers(res.servers);
+            setHostedBy(res.servers.provider_name || null);
+          }
+        })
+        .catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
+  function setServer(field, value) {
+    setServers((prev) => ({ ...(prev || {}), [field]: value }));
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!email.includes('@') || !password) return;
+    setTesting(true);
+    setError(null);
+    setErrorDetail(null);
+    try {
+      const res = await fetch('/api/mailbox/imap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          email: email.trim(),
+          password,
+          username: username.trim() || undefined,
+          ...(advanced && servers
+            ? {
+                imap_host: servers.imap_host,
+                imap_port: servers.imap_port,
+                imap_secure: servers.imap_secure,
+                smtp_host: servers.smtp_host,
+                smtp_port: servers.smtp_port,
+                smtp_secure: servers.smtp_secure,
+              }
+            : {}),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok) {
+        setPassword('');
+        setSuccess(true);
+        setTimeout(() => onConnected(), 2500);
+        return;
+      }
+      setError(body.step === 'smtp' ? t('connexions.imapErrorSmtp', locale) : t('connexions.imapErrorImap', locale));
+      setErrorDetail(body.error || null);
+      if (body.step === 'smtp' || /imap\./i.test(body.error || '')) setAdvanced(true);
+    } catch (err) {
+      setError(t('connexions.imapErrorImap', locale));
+      setErrorDetail(err?.message || null);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div className="card imap-form">
+      <div className="card-head">
+        <h3>{t('connexions.imapFormTitle', locale)}</h3>
+      </div>
+      <p className="desc">{t('connexions.imapFormIntro', locale)}</p>
+      {hostedBy && (
+        <p className="hosted-by"><Ic name="mail" /> {t('connexions.imapHostedBy', locale)} <strong>{hostedBy}</strong></p>
+      )}
+      {success ? (
+        <p className="imap-success"><Ic name="check" size={14} strokeWidth={2.6} /> {t('connexions.imapSuccess', locale)}</p>
+      ) : (
+        <form onSubmit={submit}>
+          <label className="field">
+            <span>{t('connexions.imapEmailLabel', locale)}</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+          </label>
+          <label className="field">
+            <span>{t('connexions.imapPasswordLabel', locale)}</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+            <small>{t('connexions.imapPasswordHint', locale)}</small>
+          </label>
+          <button type="button" className="btn-link advanced-toggle" onClick={() => setAdvanced((a) => !a)}>
+            {advanced ? '▾' : '▸'} {t('connexions.imapAdvanced', locale)}
+          </button>
+          {advanced && (
+            <div className="advanced">
+              <label className="field">
+                <span>{t('connexions.imapUsernameLabel', locale)}</span>
+                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder={email} autoComplete="off" />
+              </label>
+              <div className="server-row">
+                <label className="field grow">
+                  <span>{t('connexions.imapImapServer', locale)}</span>
+                  <input type="text" value={servers?.imap_host || ''} onChange={(e) => setServer('imap_host', e.target.value)} />
+                </label>
+                <label className="field port">
+                  <span>{t('connexions.imapPort', locale)}</span>
+                  <input type="number" value={servers?.imap_port || 993} onChange={(e) => setServer('imap_port', Number(e.target.value))} />
+                </label>
+                <label className="field check">
+                  <span>{t('connexions.imapTls', locale)}</span>
+                  <input type="checkbox" checked={servers?.imap_secure !== false} onChange={(e) => setServer('imap_secure', e.target.checked)} />
+                </label>
+              </div>
+              <div className="server-row">
+                <label className="field grow">
+                  <span>{t('connexions.imapSmtpServer', locale)}</span>
+                  <input type="text" value={servers?.smtp_host || ''} onChange={(e) => setServer('smtp_host', e.target.value)} />
+                </label>
+                <label className="field port">
+                  <span>{t('connexions.imapPort', locale)}</span>
+                  <input type="number" value={servers?.smtp_port || 465} onChange={(e) => setServer('smtp_port', Number(e.target.value))} />
+                </label>
+                <label className="field check">
+                  <span>{t('connexions.imapTls', locale)}</span>
+                  <input type="checkbox" checked={servers?.smtp_secure !== false} onChange={(e) => setServer('smtp_secure', e.target.checked)} />
+                </label>
+              </div>
+            </div>
+          )}
+          {error && (
+            <p className="error">
+              {error}
+              {errorDetail && <span className="error-detail"> — {String(errorDetail).slice(0, 160)}</span>}
+            </p>
+          )}
+          <div className="actions">
+            <button type="submit" className="btn-primary" disabled={testing || !email.includes('@') || !password}>
+              {testing ? t('connexions.imapTesting', locale) : t('connexions.imapTestAndConnect', locale)}
+            </button>
+            <button type="button" className="btn-secondary" onClick={onCancel} disabled={testing}>
+              {t('common.cancel', locale)}
+            </button>
+          </div>
+        </form>
+      )}
+      <style jsx>{`
+        .imap-form .field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 0.8rem; font-size: 0.92rem; }
+        .imap-form .field input[type='text'], .imap-form .field input[type='email'], .imap-form .field input[type='password'], .imap-form .field input[type='number'] {
+          padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: inherit;
+        }
+        .imap-form .field small { color: var(--muted); font-size: 0.8rem; }
+        .hosted-by { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--muted); margin: 0 0 0.8rem; }
+        .advanced-toggle { margin: 0 0 0.6rem; padding: 0; font-size: 0.88rem; }
+        .advanced { border-left: 2px solid var(--border); padding-left: 0.8rem; margin: 0 0 0.8rem; }
+        .server-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+        .server-row .grow { flex: 1 1 180px; }
+        .server-row .port { width: 90px; }
+        .server-row .check { width: 60px; align-items: center; }
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 0.4rem; }
+        .error { color: var(--danger, #c92a2a); font-size: 0.9rem; margin: 0 0 0.6rem; overflow-wrap: anywhere; }
+        .error-detail { color: var(--muted); }
+        .imap-success { color: var(--success, #2b8a3e); display: flex; gap: 6px; align-items: flex-start; }
+      `}</style>
+    </div>
+  );
+}
+
 function ConnectionCard({
   title,
   desc,
@@ -6096,7 +6321,7 @@ function ConnectionCard({
               {t('connexions.reportProblemButton', locale)}
             </a>
           )}
-          {!qrOpen ? (
+          {!onShowQr ? null : !qrOpen ? (
             <button type="button" className="btn-qr-toggle" onClick={onShowQr}>
               {t('connexions.qrToggle', locale)}
             </button>
@@ -6437,6 +6662,7 @@ function SetupChecklist({
   userId,
   googleConnection,
   microsoftConnection,
+  imapConnection,
   onConnect,
   prefs,
   onNotifyChannelChange,
@@ -6444,8 +6670,11 @@ function SetupChecklist({
   onIcsGenerated,
   focusPush,
 }) {
-  const emailConnection = googleConnection || microsoftConnection;
+  const emailConnection = googleConnection || microsoftConnection || imapConnection;
   const emailDone = !!emailConnection;
+  // Une boîte IMAP (OVH, Gandi…) n'a pas d'agenda : l'étape 3 reste alors
+  // celle du flux ICS, comme sans boîte connectée.
+  const calendarViaEmail = !!(googleConnection || microsoftConnection);
 
   // --- Notifications : cet appareil + l'autre + email ---
   const [isMobile, setIsMobile] = useState(false);
@@ -6506,7 +6735,7 @@ function SetupChecklist({
 
   // --- Agenda : lien d'abonnement ICS/webcal (porté depuis Ton agenda) ---
   const icsGenerated = prefs?.ics_link_generated === true;
-  const agendaDone = emailDone || icsGenerated;
+  const agendaDone = calendarViaEmail || icsGenerated;
   const [icsPanelOpen, setIcsPanelOpen] = useState(false);
   const [icsLink, setIcsLink] = useState(null); // { httpsUrl, webcalUrl }
   const [icsLoading, setIcsLoading] = useState(false);
@@ -6719,17 +6948,19 @@ function SetupChecklist({
             {statusIcon(agendaDone ? 'done' : 'todo')}
             <div className="step-body">
               <p className="step-title">{t('connexions.setupStepAgendaTitle', locale)}</p>
-              {emailDone ? (
+              {calendarViaEmail ? (
                 <p className="step-desc">
                   {t('connexions.setupAgendaDoneEmailPrefix', locale)} {providerName}
                   {t('connexions.setupAgendaDoneEmailSuffix', locale)}
                 </p>
+              ) : imapConnection && !icsGenerated ? (
+                <p className="step-desc">{t('connexions.imapNoCalendar', locale)} {t('connexions.setupAgendaTodo', locale)}</p>
               ) : icsGenerated ? (
                 <p className="step-desc">{t('connexions.setupAgendaDoneIcs', locale)}</p>
               ) : (
                 <p className="step-desc">{t('connexions.setupAgendaTodo', locale)}</p>
               )}
-              {emailDone && <p className="hint">{t('connexions.setupAgendaOtherCalendar', locale)}</p>}
+              {calendarViaEmail && <p className="hint">{t('connexions.setupAgendaOtherCalendar', locale)}</p>}
               {/* Lot 5 (docx « mon avis », 31/08/2026) : synchronisation avec
                   l'agenda du téléphone dans les DEUX sens — rien à coder, il
                   suffit que le compte Google/Outlook soit ajouté au
@@ -6741,14 +6972,14 @@ function SetupChecklist({
                   mot ce que la ligne d'état juste au-dessus vient de dire, et
                   demandait à l'utilisateur de faire une manipulation déjà
                   faite — d'où l'impression de contradiction. */}
-              {!emailDone && (
+              {!calendarViaEmail && (
                 <p className="hint phone-cal-hint">
                   <strong><Ic name="smartphone" /> {t('connexions.setupPhoneCalendarTitle', locale)}</strong>{' '}
                   {t('connexions.setupPhoneCalendarBody', locale)}
                 </p>
               )}
               <div className="step-actions">
-                <button type="button" className={emailDone ? 'btn-link' : 'btn-secondary'} onClick={toggleIcsPanel}>
+                <button type="button" className={calendarViaEmail ? 'btn-link' : 'btn-secondary'} onClick={toggleIcsPanel}>
                   {icsPanelOpen ? t('disponibilites.syncHideLink', locale) : t('disponibilites.syncShowLink', locale)}
                 </button>
               </div>
