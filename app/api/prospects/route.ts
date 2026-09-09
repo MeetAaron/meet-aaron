@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
-import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
+import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { isGenericEmailDomain } from '@/lib/csv-import';
@@ -431,6 +431,8 @@ export async function POST(request: NextRequest) {
     emailWarning =
       err instanceof DailySendCapExceededError
         ? `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`
+        : err instanceof MailboxAuthBrokenError
+        ? "Prospect ajouté, mais le premier message n'est pas parti : ta boîte mail refuse la connexion (mot de passe changé ?). Ressaisis-le dans « Connexions » — le message partira automatiquement ensuite."
         : err instanceof DomainNotDeliverableError
         ? `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF/DMARC valide, tes emails de prospection partiraient en spam. Corrige-le dans "Connexions" — le message partira automatiquement une fois réglé.`
         : err.message?.includes('Aucune boîte mail connectée')
