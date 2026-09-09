@@ -15,15 +15,18 @@
 // vers outlook.com (mail.protection.outlook.com). Fiable en B2B, ~50 ms, et
 // aucune donnée n'est envoyée nulle part : une résolution DNS publique.
 //
-// null = on ne sait pas (boîte auto-hébergée, OVH, Gandi, Zoho…) : l'écran
-// montre alors les deux fournisseurs et laisse choisir. Ne jamais deviner au
-// hasard — envoyer quelqu'un vers le mauvais écran de consentement est pire
-// que lui poser la question.
+// 'imap' (09/09/2026) = des MX existent mais ni Google ni Microsoft (OVH,
+// Gandi, Ionos, Zoho, serveur d'entreprise…) : l'écran propose le formulaire
+// « Autre boîte mail » (adresse + mot de passe), serveurs pré-remplis.
+// null = on ne sait pas (pas de MX) : l'écran montre tous les choix. Ne jamais
+// deviner au hasard — envoyer quelqu'un vers le mauvais écran de consentement
+// est pire que lui poser la question.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { detectMailboxProvider } from '@/lib/mailbox-provider';
+import { autodiscoverMailServers } from '@/lib/mail-autodiscover';
 
 export const runtime = 'nodejs';
 
@@ -34,5 +37,24 @@ export async function GET(request: NextRequest) {
   const { data: user } = await supabaseAdmin.from('users').select('email').eq('id', authedUser.id).maybeSingle();
   const email = (user as any)?.email || '';
   const provider = await detectMailboxProvider(email);
-  return NextResponse.json({ provider, domain: email.split('@')[1] || null });
+  // 'imap' (09/09/2026) : on renvoie aussi les serveurs devinés et le nom de
+  // l'hébergeur, pour pré-remplir le formulaire « Autre boîte mail ».
+  const servers = provider === 'imap' ? await autodiscoverMailServers(email) : null;
+  return NextResponse.json({
+    provider,
+    domain: email.split('@')[1] || null,
+    email,
+    provider_name: servers?.provider_name || null,
+    servers: servers
+      ? {
+          imap_host: servers.imap_host,
+          imap_port: servers.imap_port,
+          imap_secure: servers.imap_secure,
+          smtp_host: servers.smtp_host,
+          smtp_port: servers.smtp_port,
+          smtp_secure: servers.smtp_secure,
+          source: servers.source,
+        }
+      : null,
+  });
 }
