@@ -9,6 +9,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { getConnectedProviders } from '@/lib/messaging';
+import { resolveMeetingLink } from '@/lib/meeting-link';
 
 const VALID_TYPES = ['visio', 'physique', 'telephonique'];
 
@@ -120,9 +121,22 @@ export async function POST(request: NextRequest) {
       });
       calendarProvider = 'google';
     } else if (providers.has('microsoft')) {
-      calendarEvent = await createOutlookCalendarEvent(user_id, { title, description, startISO, endISO, attendeeEmail });
+      calendarEvent = await createOutlookCalendarEvent(user_id, {
+        title,
+        description,
+        startISO,
+        endISO,
+        attendeeEmail,
+        wantsMeetLink: type === 'visio',
+      });
       calendarProvider = 'microsoft';
     }
+
+    // Lien de visio (10/09/2026) : la salle permanente du commercial
+    // (Préférences) prime sur le lien généré par Google/Microsoft — certains
+    // préfèrent leur propre Zoom — et c'est le SEUL lien possible pour une
+    // boîte IMAP, qui n'a pas d'agenda. Voir lib/meeting-link.ts.
+    const meetLink = type === 'visio' ? await resolveMeetingLink(user_id, calendarEvent?.meetLink) : null;
 
     if (calendarEvent && calendarProvider) {
       await supabaseAdmin
@@ -130,12 +144,17 @@ export async function POST(request: NextRequest) {
         .update({
           calendar_provider: calendarProvider,
           calendar_event_id: calendarEvent.id,
-          meet_link: calendarEvent.meetLink || null,
+          meet_link: meetLink,
         })
         .eq('id', appointment.id);
       appointment.calendar_provider = calendarProvider;
       appointment.calendar_event_id = calendarEvent.id;
-      appointment.meet_link = calendarEvent.meetLink || null;
+      appointment.meet_link = meetLink;
+    } else if (meetLink) {
+      // Aucun agenda connecté (IMAP) : on enregistre quand même le lien
+      // permanent pour qu'il figure dans les emails et dans l'agenda Aaron.
+      await supabaseAdmin.from('appointments').update({ meet_link: meetLink }).eq('id', appointment.id);
+      appointment.meet_link = meetLink;
     }
   } catch (calendarErr: any) {
     console.error('Erreur poussée RDV manuel vers calendrier externe:', calendarErr.message);
