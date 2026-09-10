@@ -198,7 +198,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // (Préférences), sinon le lien Meet/Teams généré ci-dessus. Voir
     // lib/meeting-link.ts.
     const meetLink =
-      appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink) : null;
+      appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink, startISO) : null;
 
     await supabaseAdmin
       .from('appointments')
