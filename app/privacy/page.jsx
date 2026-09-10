@@ -99,6 +99,7 @@ const fr = {
         ['ul', [
           "**Anthropic** (États-Unis) et **OpenAI** (États-Unis) — modèles d'intelligence artificielle qui rédigent et classent les messages. Ces prestataires n'utilisent pas vos données pour entraîner leurs modèles et ne les conservent que temporairement, à des fins de sécurité.",
           '**Google** et **Microsoft** — Gmail, Outlook et agendas, uniquement dans la limite des accès que vous autorisez.',
+          "**Daily** (États-Unis) — salles de visioconférence fournies par Aaron lorsque votre messagerie n'est ni chez Google (Meet) ni chez Microsoft (Teams). Aaron ne transmet qu'un identifiant de salle aléatoire ; les conversations vidéo ne sont ni enregistrées ni conservées.",
           '**Supabase** — base de données et stockage des fichiers.',
           "**Vercel** (États-Unis) — hébergement de l'application.",
           '**Stripe** — paiements et facturation.',
@@ -224,6 +225,7 @@ const en = {
         ['ul', [
           '**Anthropic** (United States) and **OpenAI** (United States) — AI models that draft and classify messages. These providers do not use your data to train their models and retain it only temporarily, for safety purposes.',
           '**Google** and **Microsoft** — Gmail, Outlook and calendars, strictly within the access you grant.',
+          '**Daily** (United States) — video meeting rooms provided by Aaron when your mailbox is hosted neither by Google (Meet) nor by Microsoft (Teams). Aaron sends only a random room identifier; video conversations are neither recorded nor retained.',
           '**Supabase** — database and file storage.',
           '**Vercel** (United States) — application hosting.',
           '**Stripe** — payments and invoicing.',
@@ -349,6 +351,7 @@ const de = {
         ['ul', [
           '**Anthropic** (USA) und **OpenAI** (USA) — KI-Modelle, die Nachrichten verfassen und einordnen. Diese Anbieter verwenden Ihre Daten nicht zum Training ihrer Modelle und speichern sie nur vorübergehend, zu Sicherheitszwecken.',
           '**Google** und **Microsoft** — Gmail, Outlook und Kalender, ausschließlich im Rahmen der von Ihnen erteilten Berechtigungen.',
+          '**Daily** (USA) — Videoräume, die Aaron bereitstellt, wenn Ihr Postfach weder bei Google (Meet) noch bei Microsoft (Teams) liegt. Aaron übermittelt nur eine zufällige Raumkennung; Videogespräche werden weder aufgezeichnet noch gespeichert.',
           '**Supabase** — Datenbank und Dateispeicher.',
           '**Vercel** (USA) — Hosting der Anwendung.',
           '**Stripe** — Zahlungen und Rechnungsstellung.',
@@ -474,6 +477,7 @@ const it = {
         ['ul', [
           '**Anthropic** (Stati Uniti) e **OpenAI** (Stati Uniti) — modelli di intelligenza artificiale che redigono e classificano i messaggi. Questi fornitori non usano i vostri dati per addestrare i loro modelli e li conservano solo temporaneamente, per finalità di sicurezza.',
           '**Google** e **Microsoft** — Gmail, Outlook e calendari, esclusivamente nei limiti degli accessi che autorizzate.',
+          '**Daily** (Stati Uniti) — stanze di videoconferenza fornite da Aaron quando la vostra casella non è né presso Google (Meet) né presso Microsoft (Teams). Aaron trasmette solo un identificativo di stanza casuale; le conversazioni video non sono né registrate né conservate.',
           '**Supabase** — banca dati e archiviazione dei file.',
           "**Vercel** (Stati Uniti) — hosting dell'applicazione.",
           '**Stripe** — pagamenti e fatturazione.',
@@ -599,6 +603,7 @@ const es = {
         ['ul', [
           '**Anthropic** (Estados Unidos) y **OpenAI** (Estados Unidos) — modelos de inteligencia artificial que redactan y clasifican los mensajes. Estos proveedores no usan tus datos para entrenar sus modelos y solo los conservan temporalmente, con fines de seguridad.',
           '**Google** y **Microsoft** — Gmail, Outlook y calendarios, únicamente dentro de los accesos que autorizas.',
+          '**Daily** (Estados Unidos) — salas de videollamada facilitadas por Aaron cuando tu buzón no está ni en Google (Meet) ni en Microsoft (Teams). Aaron solo transmite un identificador de sala aleatorio; las conversaciones de vídeo no se graban ni se conservan.',
           '**Supabase** — base de datos y almacenamiento de archivos.',
           '**Vercel** (Estados Unidos) — alojamiento de la aplicación.',
           '**Stripe** — pagos y facturación.',
@@ -724,6 +729,7 @@ const pt = {
         ['ul', [
           '**Anthropic** (Estados Unidos) e **OpenAI** (Estados Unidos) — modelos de inteligência artificial que redigem e classificam as mensagens. Estes prestadores não usam os seus dados para treinar os seus modelos e conservam-nos apenas temporariamente, para fins de segurança.',
           '**Google** e **Microsoft** — Gmail, Outlook e agendas, unicamente dentro dos acessos que autorizar.',
+          '**Daily** (Estados Unidos) — salas de videoconferência disponibilizadas pelo Aaron quando a sua caixa não está na Google (Meet) nem na Microsoft (Teams). O Aaron transmite apenas um identificador de sala aleatório; as conversas em vídeo não são gravadas nem conservadas.',
           '**Supabase** — base de dados e armazenamento de ficheiros.',
           '**Vercel** (Estados Unidos) — alojamento da aplicação.',
           '**Stripe** — pagamentos e faturação.',
@@ -849,6 +855,7 @@ const nl = {
         ['ul', [
           '**Anthropic** (Verenigde Staten) en **OpenAI** (Verenigde Staten) — modellen voor kunstmatige intelligentie die berichten opstellen en indelen. Deze dienstverleners gebruiken uw gegevens niet om hun modellen te trainen en bewaren ze slechts tijdelijk, om veiligheidsredenen.',
           '**Google** en **Microsoft** — Gmail, Outlook en agenda’s, uitsluitend binnen de toegang die u verleent.',
+          '**Daily** (Verenigde Staten) — videoruimtes die Aaron levert wanneer uw mailbox niet bij Google (Meet) of Microsoft (Teams) staat. Aaron geeft alleen een willekeurige ruimte-identificatie door; videogesprekken worden niet opgenomen of bewaard.',
           '**Supabase** — database en bestandsopslag.',
           '**Vercel** (Verenigde Staten) — hosting van de applicatie.',
           '**Stripe** — betalingen en facturatie.',
