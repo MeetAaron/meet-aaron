@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
     // (Préférences) prime sur le lien généré par Google/Microsoft — certains
     // préfèrent leur propre Zoom — et c'est le SEUL lien possible pour une
     // boîte IMAP, qui n'a pas d'agenda. Voir lib/meeting-link.ts.
-    const meetLink = type === 'visio' ? await resolveMeetingLink(user_id, calendarEvent?.meetLink) : null;
+    const meetLink = type === 'visio' ? await resolveMeetingLink(user_id, calendarEvent?.meetLink, startISO) : null;
 
     if (calendarEvent && calendarProvider) {
       await supabaseAdmin
