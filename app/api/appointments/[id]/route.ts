@@ -25,6 +25,7 @@ import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+import { resolveMeetingLink } from '@/lib/meeting-link';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 
 // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
@@ -161,8 +162,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       }
     }
 
-    let calendarEvent;
-    let calendarProvider: 'google' | 'microsoft';
+    let calendarEvent: any = null;
+    let calendarProvider: 'google' | 'microsoft' | null = null;
 
     if (hasGoogle) {
       calendarEvent = await createGoogleCalendarEvent(userId, {
@@ -181,24 +182,59 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         startISO,
         endISO,
         attendeeEmail: appointment.prospects.email,
+        wantsMeetLink: appointment.type === 'visio',
       });
       calendarProvider = 'microsoft';
-    } else {
-      return NextResponse.json(
-        { error: "Aucun calendrier connecté (Google ou Microsoft) pour ce commercial" },
-        { status: 400 }
-      );
     }
+    // Aucun agenda connecté (boîte « Autre boîte mail » / IMAP, 10/09/2026) :
+    // on ne refuse PLUS la validation. Avant, un commercial chez OVH ne
+    // pouvait tout simplement pas valider un RDV — le parcours entier
+    // s'arrêtait là. Le RDV est donc validé côté Aaron, sans événement
+    // externe (le flux ICS le fera apparaître dans son téléphone), et c'est
+    // Aaron lui-même qui envoie la confirmation au prospect, puisqu'aucune
+    // invitation Google/Microsoft ne partira.
+
+    // Lien de visio (10/09/2026) : salle permanente du commercial en priorité
+    // (Préférences), sinon le lien Meet/Teams généré ci-dessus. Voir
+    // lib/meeting-link.ts.
+    const meetLink =
+      appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink) : null;
 
     await supabaseAdmin
       .from('appointments')
       .update({
         status: 'validé',
         calendar_provider: calendarProvider,
-        calendar_event_id: calendarEvent.id,
-        meet_link: calendarEvent.meetLink || null,
+        calendar_event_id: calendarEvent?.id || null,
+        meet_link: meetLink,
       })
       .eq('id', appointmentId);
+
+    // Confirmation envoyée par Aaron UNIQUEMENT quand aucune invitation
+    // d'agenda ne part (cas IMAP) : avec Google ou Microsoft, le prospect
+    // reçoit déjà l'invitation de l'agenda, en doubler une serait du bruit.
+    if (!calendarProvider && appointment.prospects?.email) {
+      const dateStr = new Date(startISO).toLocaleString('fr-FR', {
+        dateStyle: 'full',
+        timeStyle: 'short',
+        timeZone: 'Europe/Paris',
+      });
+      const typeLabel =
+        appointment.type === 'visio' ? 'en visio' : appointment.type === 'telephonique' ? 'par téléphone' : 'sur place';
+      const lines = [
+        `Bonjour ${appointment.prospects.full_name},`,
+        '',
+        `C'est confirmé pour notre rendez-vous ${typeLabel}, le ${dateStr}.`,
+      ];
+      if (meetLink) lines.push('', `Voici le lien pour nous rejoindre : ${meetLink}`);
+      lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
+      try {
+        await sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'));
+      } catch (mailErr: any) {
+        // Le RDV est validé : un échec d'envoi ne doit pas le remettre en cause.
+        console.error('Erreur envoi de la confirmation de RDV au prospect:', mailErr.message);
+      }
+    }
 
     await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
 
