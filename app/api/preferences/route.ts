@@ -26,9 +26,19 @@ export async function GET(request: NextRequest) {
   // exactement le bug rencontré le 01/09/2026 sur le profil d'entreprise.
   let res: any = await supabaseAdmin
     .from('users')
-    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token, aaron_archive_threads')
+    .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token, aaron_archive_threads, meeting_link')
     .eq('id', userId)
     .single();
+  // Repli progressif : d'abord sans meeting_link (migration_meeting_link_2026-09-10),
+  // puis sans aaron_archive_threads — une colonne optionnelle manquante ne doit
+  // jamais faire tomber tout l'écran Préférences.
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
+      .from('users')
+      .select('full_name, email, notify_channel, notify_before_appointment_minutes, require_first_email_approval, daily_prospecting_email_cap, company_id, role, onboarding_tour_seen, ics_feed_token, aaron_archive_threads')
+      .eq('id', userId)
+      .single();
+  }
   if (res.error && res.error.code === '42703') {
     res = await supabaseAdmin
       .from('users')
@@ -65,6 +75,9 @@ export async function GET(request: NextRequest) {
       // n'existe pas encore (migration_aaron_archive_threads_2026-09-01.sql).
       aaron_archive_threads: (user as any).aaron_archive_threads !== false,
       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
+      // Lien de visio permanent (10/09/2026) : null tant que la migration
+      // n'est pas passée, le champ s'affiche simplement vide.
+      meeting_link: (user as any).meeting_link ?? null,
       // Nom de la société : sert de titre à la feuille d'aperçu du profil
       // d'entreprise (components/BusinessProfileSheet.jsx, 04/09/2026).
       company_name: company?.name ?? null,
@@ -126,6 +139,7 @@ export async function PATCH(request: NextRequest) {
     default_first_email_subject,
     default_first_email_body,
     public_link_url,
+    meeting_link,
   } = await request.json();
 
   if (!user_id) {
@@ -155,14 +169,31 @@ export async function PATCH(request: NextRequest) {
     updates.daily_prospecting_email_cap = Math.round(cap);
   }
 
+  // Lien de visio permanent (10/09/2026, voir migration_meeting_link_2026-09-10.sql) :
+  // même validation que public_link_url — un texte libre non-URL finirait
+  // sinon collé tel quel dans un email envoyé au prospect. Vide = retire le lien.
+  if (meeting_link !== undefined) {
+    if (meeting_link) {
+      try {
+        const parsed = new URL(meeting_link);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('protocol');
+      } catch {
+        return NextResponse.json({ error: 'Lien de visio invalide (doit être une URL complète, ex: https://meet.google.com/...)' }, { status: 400 });
+      }
+      updates.meeting_link = meeting_link;
+    } else {
+      updates.meeting_link = null;
+    }
+  }
+
   if (Object.keys(updates).length > 0) {
     let { error } = await supabaseAdmin.from('users').update(updates).eq('id', user_id);
     // Même repli qu'en lecture : on rejoue sans la colonne optionnelle
     // plutôt que de perdre l'enregistrement de TOUTES les préférences.
-    if (error && (error as any).code === '42703' && 'aaron_archive_threads' in updates) {
-      const { aaron_archive_threads: _ignored, ...withoutArchive } = updates;
-      if (Object.keys(withoutArchive).length > 0) {
-        ({ error } = await supabaseAdmin.from('users').update(withoutArchive).eq('id', user_id));
+    if (error && (error as any).code === '42703') {
+      const { aaron_archive_threads: _a, meeting_link: _m, ...withoutOptional } = updates;
+      if (Object.keys(withoutOptional).length > 0) {
+        ({ error } = await supabaseAdmin.from('users').update(withoutOptional).eq('id', user_id));
       } else {
         error = null;
       }
