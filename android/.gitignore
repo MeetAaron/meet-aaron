@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.cxx/
+# Clé d'upload de production : JAMAIS dans le dépôt (seul debug.keystore l'est).
+release.keystore
+*.jks

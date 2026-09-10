@@ -1,0 +1,18 @@
+// Projet Android « Meet Aaron » — coque TWA (Trusted Web Activity) autour de
+// https://meetaaron.app. Voir README.md dans ce dossier.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "MeetAaron"
+include ':app'
