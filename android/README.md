@@ -35,7 +35,7 @@ Tant qu'Android n'a pas vérifié que le site et l'app sont au même
 propriétaire, l'app s'ouvre avec la barre d'adresse Chrome visible. Pour la
 faire disparaître, le site doit publier l'empreinte de la clé qui a signé
 l'APK, sur `https://meetaaron.app/.well-known/assetlinks.json`
-(route `app/.well-known/assetlinks.json/route.ts`).
+(route `app/api/android/assetlinks/route.ts`, servie sous ce chemin par `next.config.js`).
 
 Sur Vercel → projet `meet-aaron` → Settings → Environment Variables :
 
