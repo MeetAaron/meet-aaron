@@ -1,0 +1,78 @@
+// Coque Android de Meet Aaron : une Trusted Web Activity (TWA).
+//
+// Pourquoi une TWA et pas une WebView : la TWA ouvre le site dans le VRAI
+// Chrome de l'appareil (onglet personnalisé plein écran, sans barre d'adresse
+// une fois le domaine vérifié). Conséquences qui comptent pour Aaron :
+//   - Google OAuth fonctionne (Google refuse les WebView, pas Chrome) ;
+//   - le service worker, les notifications push et le cache sont ceux du site,
+//     partagés avec Chrome — rien à réimplémenter en natif ;
+//   - une mise à jour du site = une mise à jour de l'app, sans passer par le Play Store.
+//
+// Signature :
+//   - debug   : app/debug.keystore, commité, identifiants « android/android »
+//               (les identifiants universels de débogage Android — ce n'est
+//               pas un secret). Sert UNIQUEMENT aux APK de test installés à
+//               la main. Son empreinte SHA-256 est dans README.md.
+//   - release : clé d'upload d'Alex, JAMAIS dans le dépôt. Fournie au build
+//               GitHub Actions par les secrets ANDROID_KEYSTORE_BASE64,
+//               ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'app.meetaaron.twa'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'app.meetaaron.twa'
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            // Renseignés par le workflow GitHub Actions à partir des secrets ;
+            // absents en local → le build release n'est pas signé (normal).
+            def ksPath = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            applicationIdSuffix ''
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Bibliothèque officielle Google pour les TWA (LauncherActivity,
+    // DelegationService pour les notifications, repli WebView si aucun
+    // navigateur compatible n'est installé).
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}
