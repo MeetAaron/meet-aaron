@@ -1005,6 +1005,7 @@ export default function ConnexionsPage() {
         default_first_email_subject: prefs.default_first_email_subject,
         default_first_email_body: prefs.default_first_email_body,
         public_link_url: prefs.public_link_url,
+        meeting_link: prefs.meeting_link ?? '',
       }),
     });
     setSaving(false);
@@ -1497,7 +1498,92 @@ export default function ConnexionsPage() {
   const [detectedProvider, setDetectedProvider] = useState(undefined); // undefined = pas encore su
   const [detectedMailbox, setDetectedMailbox] = useState(null); // { email, provider_name, servers } quand 'imap'
   const [showAllProviders, setShowAllProviders] = useState(false);
-  // Formulaire « Autre boîte mail » (IMAP/SMTP, 09/09/2026 — voir lib/imap.ts) :
+  
+// Carte « Lien de visio » de l'onglet Connexion (10/09/2026).
+//
+// Trois états, un seul endroit :
+//   - Google ou Microsoft connecté : un lien Meet/Teams est créé
+//     automatiquement à chaque RDV visio. La salle personnelle reste
+//     proposée en dessous, pour ceux qui préfèrent leur propre Zoom.
+//   - Boîte « Autre boîte mail » (IMAP) : AUCUN lien ne peut être créé
+//     (Meet exige un compte Google, Teams un compte Microsoft). On l'annonce
+//     clairement, avec la conséquence concrète : rappel de RDV sans lien, et
+//     c'est au commercial de lancer la visio ce jour-là.
+// Enregistrement direct (pas de SaveBar) : ce panneau vit hors du bloc
+// Préférences et doit rester autonome.
+function VisioLinkCard({ locale, userId, autoLink, value, onSaved }) {
+  const [link, setLink] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { setLink(value || ''); }, [value]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, meeting_link: link.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      onSaved(link.trim());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card visio-card">
+      <div className="card-head">
+        <h3><Ic name="video" /> {t('connexions.visioTitle', locale)}</h3>
+      </div>
+      <p className={autoLink ? 'desc' : 'desc visio-warning'}>
+        {autoLink ? t('connexions.visioAuto', locale) : t('connexions.visioNoneWarning', locale)}
+      </p>
+      <label className="visio-field">
+        <span>{t('connexions.visioOwnRoom', locale)}</span>
+        <input
+          type="url"
+          placeholder="https://meet.google.com/xxx-xxxx-xxx"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          onBlur={() => { if ((link || '').trim() !== (value || '').trim()) save(); }}
+        />
+      </label>
+      {error && <p className="visio-error">{error}</p>}
+      <div className="visio-actions">
+        <button type="button" className="btn-secondary" onClick={save} disabled={saving}>
+          {saving ? t('common.loading', locale) : t('common.save', locale)}
+        </button>
+        {saved && <span className="visio-saved"><Ic name="check" size={13} strokeWidth={2.6} /> {t('connexions.visioSaved', locale)}</span>}
+      </div>
+      <style jsx>{`
+        .visio-card { margin-top: 1rem; }
+        .visio-card h3 { display: flex; align-items: center; gap: 6px; }
+        .visio-warning { border-left: 3px solid var(--danger, #c92a2a); padding-left: 0.7rem; }
+        .visio-field { display: flex; flex-direction: column; gap: 5px; margin: 0.9rem 0 0.6rem; font-size: 0.9rem; }
+        .visio-field input {
+          width: 100%; max-width: 420px; box-sizing: border-box; background: var(--bg);
+          border: 1px solid var(--border); border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.86rem; font-family: inherit;
+        }
+        .visio-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .visio-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--success, #2b8a3e); font-size: 0.85rem; }
+        .visio-error { color: var(--danger, #c92a2a); font-size: 0.87rem; overflow-wrap: anywhere; }
+      `}</style>
+    </div>
+  );
+}
+
+// Formulaire « Autre boîte mail » (IMAP/SMTP, 09/09/2026 — voir lib/imap.ts) :
   // ouvert par le bouton unique quand le domaine n'est ni Google ni Microsoft,
   // ou depuis la carte « Autre boîte mail » du choix manuel.
   const [showImapForm, setShowImapForm] = useState(false);
@@ -2409,6 +2495,21 @@ export default function ConnexionsPage() {
           />
               )}
             </>
+          )}
+          {/* Lien de visio (Alex, 10/09/2026 : « il faut que ça soit dans
+              Connexions plutôt que dans Préférences, comme ça on le fait dès
+              la création du compte »). Google/Microsoft créent un lien
+              (Meet/Teams) à chaque RDV ; une boîte IMAP n'en a AUCUN moyen —
+              on le dit franchement plutôt que de promettre une visio sans
+              lien. Voir lib/meeting-link.ts. */}
+          {mailboxConnection && (
+            <VisioLinkCard
+              locale={locale}
+              userId={userId}
+              autoLink={!!(googleConnection || microsoftConnection)}
+              value={prefs?.meeting_link || ''}
+              onSaved={(v) => setPrefs((p) => (p ? { ...p, meeting_link: v } : p))}
+            />
           )}
         </div>
         </>
@@ -3508,6 +3609,18 @@ export default function ConnexionsPage() {
         input:focus {
           outline: none;
           border-color: var(--accent);
+        }
+        .text-input {
+          width: 100%;
+          max-width: 420px;
+          box-sizing: border-box;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem;
+          color: var(--text);
+          font-size: 0.86rem;
+          font-family: inherit;
         }
         .cap-input {
           width: 100%;
