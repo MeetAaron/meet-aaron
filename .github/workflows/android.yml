@@ -30,6 +30,10 @@ jobs:
     defaults:
       run:
         working-directory: android
+    env:
+      # GitHub interdit `secrets` dans les conditions `if` : on passe par une
+      # variable d'environnement, vide tant que le secret n'existe pas.
+      HAS_UPLOAD_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,11 +60,11 @@ jobs:
 
       # ---- Production : uniquement quand la clé d'upload est fournie ----
       - name: Préparer la clé d'upload
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_UPLOAD_KEY != '' }}
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       - name: AAB de production (signature release)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_UPLOAD_KEY != '' }}
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -69,7 +73,7 @@ jobs:
         run: gradle :app:bundleRelease --no-daemon
 
       - name: Publier l'AAB de production
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_UPLOAD_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: meet-aaron-release-aab
