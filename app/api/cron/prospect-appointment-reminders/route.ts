@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   // RDV validés dont l'heure tombe dans la fenêtre "~24h avant"
   const { data: appointments, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, proposed_at, type, user_id, users(id, full_name), prospects(id, full_name, email)')
+    .select('id, proposed_at, type, meet_link, user_id, users(id, full_name), prospects(id, full_name, email)')
     .eq('status', 'validé')
     .gte('proposed_at', windowStart.toISOString())
     .lte('proposed_at', windowEnd.toISOString());
@@ -63,12 +63,21 @@ export async function GET(request: NextRequest) {
       });
 
       try {
+        // Le lien de visio est répété ici (10/09/2026) : c'est le moment
+        // précis où le prospect en a besoin, et l'invitation d'agenda reçue
+        // des semaines plus tôt est souvent introuvable. Voir
+        // lib/meeting-link.ts pour son origine (Meet, Teams ou salle
+        // permanente du commercial).
+        const meetLine = (appt as any).meet_link
+          ? `Le lien pour nous rejoindre : ${(appt as any).meet_link}\n\n`
+          : '';
         await sendEmailForUser(
           appt.user_id,
           prospect.email,
           'Rappel : notre rendez-vous demain',
           `Bonjour ${prospect.full_name},\n\n` +
             `Petit rappel : nous avons rendez-vous demain, le ${dateStr}.\n\n` +
+            meetLine +
             `N'hésitez pas à me répondre directement à cet email si vous avez besoin de le décaler.\n\n` +
             `À demain,\n${commercial?.full_name || ''}`
         );
