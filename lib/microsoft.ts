@@ -550,7 +550,20 @@ export async function createOutlookCalendarEvent(
   // attendeeEmail optionnel (28/08/2026) : un RDV manuel avec un simple
   // "contact_name" (sans email connu) ou une indisponibilité doivent pouvoir
   // être poussés vers Outlook sans invité.
-  params: { title: string; description: string; startISO: string; endISO: string; attendeeEmail?: string }
+  params: {
+    title: string;
+    description: string;
+    startISO: string;
+    endISO: string;
+    attendeeEmail?: string;
+    // RDV de type « visio » (10/09/2026) : demande à Microsoft de créer une
+    // réunion Teams rattachée à l'événement, exactement comme
+    // createGoogleCalendarEvent demande un lien Google Meet. Sans ça, un RDV
+    // visio validé depuis un compte Microsoft n'avait AUCUN lien — ni pour
+    // le commercial, ni pour le prospect (trou constaté avec Open X, qui est
+    // sur Microsoft 365).
+    wantsMeetLink?: boolean;
+  }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -568,15 +581,34 @@ export async function createOutlookCalendarEvent(
       ...(params.attendeeEmail
         ? { attendees: [{ emailAddress: { address: params.attendeeEmail }, type: 'required' }] }
         : {}),
+      // teamsForBusiness : le seul fournisseur disponible pour un compte
+      // Microsoft 365 professionnel. Un compte Outlook.com PERSONNEL n'a pas
+      // Teams — d'où le repli plus bas (l'événement est recréé sans réunion
+      // en ligne plutôt que de faire échouer la validation du RDV).
+      ...(params.wantsMeetLink ? { isOnlineMeeting: true, onlineMeetingProvider: 'teamsForBusiness' } : {}),
     }),
   });
 
   if (!response.ok) {
     const err = await response.text();
+    // Repli sans réunion en ligne : mieux vaut un RDV posé sans lien Teams
+    // qu'un RDV non posé du tout. Le lien de visio permanent des Préférences
+    // (users.meeting_link) prend alors le relais côté email.
+    if (params.wantsMeetLink) {
+      console.error('[Graph] réunion Teams refusée, création sans lien:', err.slice(0, 300));
+      return createOutlookCalendarEvent(userId, { ...params, wantsMeetLink: false });
+    }
     throw new Error(`Erreur création événement Outlook: ${err}`);
   }
 
-  return response.json(); // contient event.id -> à stocker dans appointments.calendar_event_id
+  const event = await response.json();
+  return {
+    ...event,
+    // Même forme de retour que createGoogleCalendarEvent, pour que les
+    // appelants n'aient rien à savoir du fournisseur.
+    meetLink: event.onlineMeeting?.joinUrl || null,
+  };
+  // contient event.id -> à stocker dans appointments.calendar_event_id
 }
 
 // Supprime un événement du calendrier Outlook (RDV annulé côté Aaron, ou

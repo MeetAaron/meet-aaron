@@ -251,6 +251,22 @@ async function buildContext(prospectId: string) {
     new Date(validatedAppointment.proposed_at).getTime() < Date.now()
   );
 
+  // Lien de visio possible ? Agenda Google/Microsoft connecté, ou salle
+  // permanente saisie dans Connexions (users.meeting_link). Tolérant : en cas
+  // de souci on suppose que oui, pour ne pas priver inutilement le commercial
+  // de la visio. Voir lib/meeting-link.ts.
+  let canProvideVideoLink = true;
+  try {
+    const { data: mailboxes } = await supabaseAdmin
+      .from('oauth_connections')
+      .select('provider')
+      .eq('user_id', prospect.assigned_user_id || prospect.user_id);
+    const hasCalendar = (mailboxes || []).some((c: any) => c.provider === 'google' || c.provider === 'microsoft');
+    canProvideVideoLink = hasCalendar || Boolean(String((prospect.users as any)?.meeting_link || '').trim());
+  } catch {
+    canProvideVideoLink = true;
+  }
+
   return {
     company_id: prospect.company_id,
     // Imputation de l'appel API au commercial du prospect (jauge Mon équipe,
@@ -277,6 +293,13 @@ async function buildContext(prospectId: string) {
       // renseigné dans Mon compte > Connexions : Aaron ne doit JAMAIS
       // fabriquer une URL à sa place.
       lien_public_a_mentionner: sellerCompany?.public_link_url || null,
+      // Peut-on réellement fournir un lien de visio ? (10/09/2026)
+      // true = agenda Google/Microsoft connecté (lien Meet/Teams créé
+      // automatiquement à la validation) OU salle permanente renseignée dans
+      // Connexions. false = boîte « Autre boîte mail » sans salle : Aaron ne
+      // doit pas mettre la visio en avant, plutôt que de promettre un
+      // rendez-vous en ligne dont personne ne recevra le lien.
+      peut_fournir_lien_visio: canProvideVideoLink,
     },
     prospect: {
       nom: prospect.full_name,
