@@ -31,7 +31,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json({ campaign, recipients: recipients || [] });
 }
 
-const EDITABLE_FIELDS = ['name', 'subject', 'body_text', 'audience_health_filter', 'audience_min_days_since_won'];
+// include_unsubscribe (10/09/2026) : case « ajouter un lien de désabonnement »,
+// décochée par défaut — voir migration_campaign_unsubscribe_optionnel_2026-09-10.sql.
+const EDITABLE_FIELDS = ['name', 'subject', 'body_text', 'audience_health_filter', 'audience_min_days_since_won', 'include_unsubscribe'];
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const campaign = await loadCampaign(params.id);
@@ -81,15 +83,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   update.status = 'brouillon';
   update.updated_at = new Date().toISOString();
 
-  const { data: updated, error } = await supabaseAdmin
+  let res: any = await supabaseAdmin
     .from('marketing_campaigns')
     .update(update)
     .eq('id', campaign.id)
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ campaign: updated });
+  // Repli si migration_campaign_unsubscribe_optionnel_2026-09-10.sql n'est pas
+  // encore passée (42703 = colonne inconnue) : on réessaie sans le champ
+  // plutôt que de faire échouer toute la sauvegarde du contenu.
+  if (res.error?.code === '42703' && 'include_unsubscribe' in update) {
+    const { include_unsubscribe, ...withoutFlag } = update;
+    res = await supabaseAdmin
+      .from('marketing_campaigns')
+      .update(withoutFlag)
+      .eq('id', campaign.id)
+      .select()
+      .single();
+  }
+
+  if (res.error) return NextResponse.json({ error: res.error.message }, { status: 500 });
+  return NextResponse.json({ campaign: res.data });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
