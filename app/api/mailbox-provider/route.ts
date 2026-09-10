@@ -27,6 +27,7 @@ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { detectMailboxProvider } from '@/lib/mailbox-provider';
 import { autodiscoverMailServers } from '@/lib/mail-autodiscover';
+import { aaronVideoConfigured } from '@/lib/meeting-link';
 
 export const runtime = 'nodejs';
 
@@ -42,6 +43,10 @@ export async function GET(request: NextRequest) {
   const servers = provider === 'imap' ? await autodiscoverMailServers(email) : null;
   return NextResponse.json({
     provider,
+    // 10/09/2026 : l'écran Connexions doit savoir s'il peut promettre une
+    // salle de visio fournie par Aaron (variable DAILY_API_KEY côté serveur)
+    // ou s'il doit demander au commercial de coller la sienne.
+    aaron_video: aaronVideoConfigured(),
     domain: email.split('@')[1] || null,
     email,
     provider_name: servers?.provider_name || null,
