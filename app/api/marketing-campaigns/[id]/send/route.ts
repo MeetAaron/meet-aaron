@@ -42,6 +42,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .eq('id', campaign.id);
   }
 
+  // Langue du pied de page de désabonnement, quand la campagne en demande un :
+  // celle du commercial expéditeur (le destinataire, lui, n'a pas de locale
+  // connue de nous).
+  const { data: sender } = await supabaseAdmin
+    .from('users')
+    .select('locale')
+    .eq('id', campaign.created_by_user_id)
+    .maybeSingle();
+  const senderLocale = (sender as any)?.locale || null;
+
   let sent = 0;
   let failed = 0;
 
@@ -66,7 +76,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       const personalizedSubject = personalize(campaign.subject, prospect?.full_name);
       let body = personalize(campaign.body_text, prospect?.full_name);
       body = rewriteLinksForTracking(body, recipient.tracking_token);
-      body = appendUnsubscribeFooter(body, recipient.tracking_token);
+      // Pied de page de désabonnement : uniquement si la campagne l'a demandé
+      // (case décochée par défaut depuis le 10/09/2026 — voir
+      // migration_campaign_unsubscribe_optionnel_2026-09-10.sql). Colonne
+      // absente = migration pas encore passée = comportement par défaut.
+      if (campaign.include_unsubscribe === true) {
+        body = appendUnsubscribeFooter(body, recipient.tracking_token, senderLocale);
+      }
 
       await sendEmailForUser(campaign.created_by_user_id, recipient.email, personalizedSubject, body, { emailType: 'transactional' });
 
