@@ -1497,6 +1497,9 @@ export default function ConnexionsPage() {
   // les deux cartes et on laisse choisir, jamais de pari.
   const [detectedProvider, setDetectedProvider] = useState(undefined); // undefined = pas encore su
   const [detectedMailbox, setDetectedMailbox] = useState(null); // { email, provider_name, servers } quand 'imap'
+  // 10/09/2026 : le serveur sait s'il peut créer une salle de visio Aaron
+  // (DAILY_API_KEY). Sans elle, on ne promet rien au commercial.
+  const [aaronVideo, setAaronVideo] = useState(false);
   const [showAllProviders, setShowAllProviders] = useState(false);
   
 // Carte « Lien de visio » de l'onglet Connexion (10/09/2026).
@@ -1505,13 +1508,17 @@ export default function ConnexionsPage() {
 //   - Google ou Microsoft connecté : un lien Meet/Teams est créé
 //     automatiquement à chaque RDV visio. La salle personnelle reste
 //     proposée en dessous, pour ceux qui préfèrent leur propre Zoom.
-//   - Boîte « Autre boîte mail » (IMAP) : AUCUN lien ne peut être créé
-//     (Meet exige un compte Google, Teams un compte Microsoft). On l'annonce
-//     clairement, avec la conséquence concrète : rappel de RDV sans lien, et
-//     c'est au commercial de lancer la visio ce jour-là.
+//   - Boîte « Autre boîte mail » (IMAP) et salle Aaron disponible
+//     (DAILY_API_KEY posée) : Meet exige un compte Google et Teams un compte
+//     Microsoft, alors Aaron fournit lui-même la salle, créée à chaque RDV.
+//     On l'annonce comme une solution, pas comme un manque — demande d'Alex
+//     du 10/09 : « je préfère une solution plutôt qu'un frottement ».
+//   - Boîte « Autre boîte mail » sans salle Aaron : avertissement, avec la
+//     conséquence concrète : rappel de RDV sans lien, et c'est au commercial
+//     de lancer la visio ce jour-là.
 // Enregistrement direct (pas de SaveBar) : ce panneau vit hors du bloc
 // Préférences et doit rester autonome.
-function VisioLinkCard({ locale, userId, autoLink, value, onSaved }) {
+function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved }) {
   const [link, setLink] = useState(value || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1545,8 +1552,18 @@ function VisioLinkCard({ locale, userId, autoLink, value, onSaved }) {
       <div className="card-head">
         <h3><Ic name="video" /> {t('connexions.visioTitle', locale)}</h3>
       </div>
-      <p className={autoLink ? 'desc' : 'desc visio-warning'}>
-        {autoLink ? t('connexions.visioAuto', locale) : t('connexions.visioNoneWarning', locale)}
+      {/* Trois états (10/09/2026) :
+          - Google/Microsoft connecté  → Meet/Teams automatique ;
+          - ni l'un ni l'autre, mais Aaron sait créer une salle → on l'annonce,
+            c'est une solution et non un frottement ;
+          - ni l'un ni l'autre et pas de salle Aaron → avertissement rouge,
+            c'est au commercial de coller la sienne. */}
+      <p className={autoLink || aaronVideo ? 'desc' : 'desc visio-warning'}>
+        {autoLink
+          ? t('connexions.visioAuto', locale)
+          : aaronVideo
+            ? t('connexions.visioAaronProvided', locale)
+            : t('connexions.visioNoneWarning', locale)}
       </p>
       <label className="visio-field">
         <span>{t('connexions.visioOwnRoom', locale)}</span>
@@ -1593,6 +1610,7 @@ function VisioLinkCard({ locale, userId, autoLink, value, onSaved }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((res) => {
         setDetectedProvider(res?.provider ?? null);
+        setAaronVideo(Boolean(res?.aaron_video));
         setDetectedMailbox(res ? { email: res.email || '', provider_name: res.provider_name || null, servers: res.servers || null } : null);
       })
       .catch(() => setDetectedProvider(null));
@@ -2507,6 +2525,7 @@ function VisioLinkCard({ locale, userId, autoLink, value, onSaved }) {
               locale={locale}
               userId={userId}
               autoLink={!!(googleConnection || microsoftConnection)}
+              aaronVideo={aaronVideo}
               value={prefs?.meeting_link || ''}
               onSaved={(v) => setPrefs((p) => (p ? { ...p, meeting_link: v } : p))}
             />
