@@ -41,12 +41,31 @@ export function unsubscribeLink(token: string): string {
   return `${baseUrl()}/api/marketing-campaigns/track/unsubscribe/${token}`;
 }
 
-// Pied de page ajouté à CHAQUE email de campagne envoyé — lien de
-// désabonnement obligatoire (conformité, et demande implicite d'Alex : "le
-// meilleur au monde" suppose une app qui respecte les règles de base de
-// l'emailing marketing, pas seulement une app qui envoie des emails).
-export function appendUnsubscribeFooter(text: string, token: string): string {
-  return `${text}\n\n---\nPour ne plus recevoir ce type d'email : ${unsubscribeLink(token)}`;
+// Pied de page de désabonnement — OPTIONNEL depuis le 10/09/2026, et
+// DÉSACTIVÉ par défaut (colonne marketing_campaigns.include_unsubscribe,
+// voir migration_campaign_unsubscribe_optionnel_2026-09-10.sql).
+//
+// Demande d'Alex : « ça tue l'email, ça fait cold emailing (ce que je ne suis
+// pas) ». Ses campagnes sont des envois personnalisés étalés dans le temps,
+// pas des blasts — il ne veut pas d'un pied de page qui les fasse ressembler
+// à une newsletter. La case reste disponible pour qui en veut une.
+//
+// Le mécanisme de désabonnement, lui, ne dépend pas de cette case : la route
+// de tracking reste active pour les liens déjà envoyés, et un prospect
+// marketing_opt_out n'est jamais réintégré à un envoi.
+const UNSUBSCRIBE_LINE: Record<string, string> = {
+  fr: 'Pour ne plus recevoir ce type d\'email :',
+  en: 'To stop receiving this kind of email:',
+  de: 'Wenn Sie solche E-Mails nicht mehr erhalten möchten:',
+  it: 'Per non ricevere più questo tipo di email:',
+  es: 'Para dejar de recibir este tipo de correo:',
+  pt: 'Para deixar de receber este tipo de email:',
+  nl: 'Wilt u dit soort e-mails niet meer ontvangen:',
+};
+
+export function appendUnsubscribeFooter(text: string, token: string, locale?: string | null): string {
+  const line = UNSUBSCRIBE_LINE[locale || ''] || UNSUBSCRIBE_LINE.fr;
+  return `${text}\n\n---\n${line} ${unsubscribeLink(token)}`;
 }
 
 // Personnalisation simple par balise de fusion — {{prenom}} remplacé par le
