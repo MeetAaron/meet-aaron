@@ -2372,6 +2372,8 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [subjectDraft, setSubjectDraft] = useState('');
+  // Lien de désabonnement : optionnel, DÉCOCHÉ par défaut (10/09/2026).
+  const [unsubDraft, setUnsubDraft] = useState(false);
   const [bodyDraft, setBodyDraft] = useState('');
   const [healthFilterDraft, setHealthFilterDraft] = useState([]);
   const [minDaysDraft, setMinDaysDraft] = useState('');
@@ -2412,6 +2414,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
     const res = await fetch(`/api/marketing-campaigns/${id}`).then((r) => r.json());
     setDetail(res);
     setSubjectDraft(res.campaign?.subject || '');
+    setUnsubDraft(res.campaign?.include_unsubscribe === true);
     setBodyDraft(res.campaign?.body_text || '');
     setHealthFilterDraft(res.campaign?.audience_health_filter || []);
     setMinDaysDraft(res.campaign?.audience_min_days_since_won ? String(res.campaign.audience_min_days_since_won) : '');
@@ -2459,6 +2462,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
       body: JSON.stringify({
         subject: subjectDraft,
         body_text: bodyDraft,
+        include_unsubscribe: unsubDraft,
         audience_health_filter: healthFilterDraft,
         audience_min_days_since_won: minDaysDraft ? parseInt(minDaysDraft, 10) : null,
       }),
@@ -2487,6 +2491,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
       return;
     }
     setSubjectDraft(body.campaign.subject || '');
+    setUnsubDraft(body.campaign.include_unsubscribe === true);
     setBodyDraft(body.campaign.body_text || '');
     setDetail((prev) => ({ ...prev, campaign: body.campaign }));
     loadCampaigns();
@@ -2691,6 +2696,14 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
                   placeholder={t('marketing.bodyPlaceholder', locale)}
                 />
                 <p className="mk-hint">{t('marketing.mergeTagHint', locale)}</p>
+                {/* Lien de désabonnement (10/09/2026) : décoché par défaut.
+                    Voir migration_campaign_unsubscribe_optionnel_2026-09-10.sql
+                    et le commentaire de lib/marketing-tracking.ts. */}
+                <label className="mk-checkbox mk-unsub">
+                  <input type="checkbox" checked={unsubDraft} onChange={(e) => setUnsubDraft(e.target.checked)} />
+                  {t('marketing.unsubscribeLabel', locale)}
+                </label>
+                <p className="mk-hint">{t('marketing.unsubscribeHint', locale)}</p>
               </section>
 
               <section className="mk-section">
@@ -3028,6 +3041,12 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
           font-size: 0.84rem;
           color: var(--text);
         }
+        .mk-unsub {
+          margin-top: 0.7rem;
+          align-items: flex-start;
+          line-height: 1.35;
+        }
+        .mk-unsub input { margin-top: 2px; flex: 0 0 auto; }
         .mk-min-days {
           display: flex;
           align-items: center;
