@@ -4,7 +4,7 @@
 
   Le domaine meetaaron.app est « vérifié » par Android via
   https://meetaaron.app/.well-known/assetlinks.json (route Next.js
-  app/.well-known/assetlinks.json/route.ts), qui doit contenir l'empreinte
+  app/api/android/assetlinks/route.ts, réécrite sur ce chemin), qui doit contenir l'empreinte
   SHA-256 du certificat de signature de CET APK. Tant que ce n'est pas le cas,
   l'app s'ouvre quand même, mais avec la barre d'adresse Chrome visible.
 -->
