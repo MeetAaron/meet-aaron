@@ -17,6 +17,7 @@ import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { getStoredTheme, applyTheme } from '@/lib/theme';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import BusinessProfileSheet from '@/components/BusinessProfileSheet';
+import { inline } from '@/components/LegalPage';
 import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
 import QRCode from 'qrcode';
@@ -6008,6 +6009,21 @@ function ImapConnectForm({ locale, userId, initialEmail, providerName, initialSe
       {hostedBy && (
         <p className="hosted-by"><Ic name="mail" /> {t('connexions.imapHostedBy', locale)} <strong>{hostedBy}</strong></p>
       )}
+      {/* Rassurer AVANT de demander le mot de passe (Alex, 10/09/2026) : c'est
+          la seule vraie objection de ce parcours. On dit ce qu'on en fait, ce
+          qu'on n'en fait pas, comment le retirer, et pourquoi il est demandé
+          — sans jargon et sans promesse invérifiable. */}
+      {!success && (
+        <div className="security">
+          <p className="security-title"><Ic name="lock" /> {t('connexions.imapSecurityTitle', locale)}</p>
+          <ul>
+            {['connexions.imapSecurity1', 'connexions.imapSecurity2', 'connexions.imapSecurity3', 'connexions.imapSecurity4', 'connexions.imapSecurity5'].map((k) => (
+              <li key={k}>{inline(t(k, locale), k)}</li>
+            ))}
+          </ul>
+          <p className="security-why">{t('connexions.imapSecurityWhy', locale)}</p>
+        </div>
+      )}
       {success ? (
         <p className="imap-success"><Ic name="check" size={14} strokeWidth={2.6} /> {t('connexions.imapSuccess', locale)}</p>
       ) : (
@@ -6083,6 +6099,11 @@ function ImapConnectForm({ locale, userId, initialEmail, providerName, initialSe
         }
         .imap-form .field small { color: var(--muted); font-size: 0.8rem; }
         .hosted-by { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--muted); margin: 0 0 0.8rem; }
+        .security { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; margin: 0 0 1rem; background: rgba(75, 57, 239, 0.05); }
+        .security-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.92rem; margin: 0 0 0.4rem; }
+        .security ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+        .security li { font-size: 0.86rem; line-height: 1.45; overflow-wrap: anywhere; }
+        .security-why { font-size: 0.82rem; color: var(--muted); margin: 0.6rem 0 0; line-height: 1.45; }
         .advanced-toggle { margin: 0 0 0.6rem; padding: 0; font-size: 0.88rem; }
         .advanced { border-left: 2px solid var(--border); padding-left: 0.8rem; margin: 0 0 0.8rem; }
         .server-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
