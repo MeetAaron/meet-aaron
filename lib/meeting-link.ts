@@ -18,6 +18,7 @@
 // Best-effort : jamais bloquant, un souci de lecture renvoie le lien généré.
 
 import { supabaseAdmin } from './supabase-admin';
+import { createAaronVideoRoom, isAaronVideoAvailable } from './video-room';
 
 export async function getPermanentMeetingLink(userId: string): Promise<string | null> {
   try {
@@ -30,7 +31,26 @@ export async function getPermanentMeetingLink(userId: string): Promise<string | 
   }
 }
 
-export async function resolveMeetingLink(userId: string, generatedLink?: string | null): Promise<string | null> {
+// `startISO` : heure du rendez-vous, utilisée pour programmer l'expiration de
+// la salle Aaron (voir lib/video-room.ts).
+export async function resolveMeetingLink(
+  userId: string,
+  generatedLink?: string | null,
+  startISO?: string | null
+): Promise<string | null> {
   const permanent = await getPermanentMeetingLink(userId);
-  return permanent || generatedLink || null;
+  if (permanent) return permanent;
+  if (generatedLink) return generatedLink;
+  // Ni salle permanente, ni agenda Google/Microsoft : Aaron fournit la salle
+  // (10/09/2026, décision d'Alex : « je préfère une solution plutôt qu'un
+  // frottement »).
+  return createAaronVideoRoom(startISO);
+}
+
+// Le commercial aura-t-il un lien de visio, quelle que soit sa provenance ?
+// Sert au prompt d'Aaron (commercial.peut_fournir_lien_visio) et à l'écran
+// Connexions. Vrai dès qu'un agenda est connecté, qu'une salle permanente est
+// saisie, ou que la salle Aaron est disponible.
+export function aaronVideoConfigured(): boolean {
+  return isAaronVideoAvailable();
 }

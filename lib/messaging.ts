@@ -243,18 +243,22 @@ export function plainTextToEmailHtml(text: string, opts?: { trailingHtml?: strin
 // prospect) — voir lib/first-email-attachment.ts pour la récupérer avant
 // d'appeler cette fonction. Transmise telle quelle à Gmail ou Outlook selon
 // le fournisseur connecté.
-// Phrase d'opposition ajoutée en pied des emails de prospection — voir le
-// commentaire dans sendEmailForUser. Courte et polie : une ligne, pas un
-// paragraphe juridique.
-const OPT_OUT_LINE: Record<string, string> = {
-  fr: 'Si vous ne souhaitez pas être recontacté, répondez simplement à cet email pour me le dire.',
-  en: "If you'd rather not be contacted again, just reply to this email and let me know.",
-  de: 'Wenn Sie nicht erneut kontaktiert werden möchten, antworten Sie einfach auf diese E-Mail.',
-  it: 'Se preferisce non essere ricontattato, risponda semplicemente a questa email per dirmelo.',
-  es: 'Si prefiere no ser contactado de nuevo, responda simplemente a este correo para decírmelo.',
-  pt: 'Se preferir não ser contactado novamente, basta responder a este email para mo dizer.',
-  nl: 'Wilt u liever niet opnieuw benaderd worden, antwoord dan gewoon op deze e-mail.',
-};
+// Phrase d'opposition en pied des emails de prospection : RETIRÉE le
+// 10/09/2026 à la demande explicite d'Alex — « ça tue l'email, ça fait cold
+// emailing (ce que je ne suis pas), retire pour toutes les langues ».
+// Il ne s'agissait pas d'un lien de désabonnement mais d'une phrase du type
+// « si vous ne souhaitez pas être recontacté, répondez-moi ». Elle était
+// ajoutée en 7 langues au bas de chaque envoi 'prospecting'.
+//
+// Ce qui reste en place, et qui compte :
+//   - Aaron lit les réponses et arrête le contact dès qu'un prospect écrit
+//     « ne me recontactez plus » (classement des réponses, lib/aaron-sales) ;
+//   - les campagnes de MASSE gardent, elles, leur lien de désabonnement
+//     (lib/marketing-tracking.ts) — c'est là que la loi et les filtres
+//     anti-spam regardent vraiment.
+// Réserve professionnelle consignée ici : le RGPD (art. 21) et le Spam Act
+// australien de 2003 demandent un moyen d'opposition dans CHAQUE message
+// commercial, sans exception B2B en Australie. Décision assumée par Alex.
 
 export async function sendEmailForUser(
   userId: string,
@@ -352,16 +356,9 @@ export async function sendEmailForUser(
   // derrière son bouton « … / Afficher le message complet », ce qui donne au
   // destinataire l'impression d'un message tronqué — donc d'un spam.
   const signatureText = user?.email_signature ? normalizeEmailBodyLineBreaks(user.email_signature) : '';
-  // Mention d'opposition (07/09/2026). La prospection B2B par email exige
-  // d'offrir dans CHAQUE message un moyen simple de s'y opposer (RGPD art. 21,
-  // doctrine CNIL ; même exigence au Royaume-Uni et en Australie). Une simple
-  // réponse suffit juridiquement pour du B2B, et Aaron sait déjà lire un
-  // « ne me recontactez plus » et arrêter le contact. Ajoutée côté serveur
-  // et non dans le prompt, pour qu'elle soit là à coup sûr, dans la langue
-  // du commercial, sur les seuls envois de démarchage (jamais sur un email
-  // transactionnel vers un contact déjà engagé).
-  const optOutText = emailType === 'prospecting' ? OPT_OUT_LINE[(user as any)?.locale] || OPT_OUT_LINE.fr : '';
-  const textBody = [body, signatureText, optOutText].filter(Boolean).join('\n\n');
+  // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
+  // le commentaire au-dessus de sendEmailForUser.)
+  const textBody = [body, signatureText].filter(Boolean).join('\n\n');
   const signatureImageHtml = user?.email_signature_image_url
     ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';

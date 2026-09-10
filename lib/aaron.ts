@@ -6,6 +6,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { extractJsonObject } from './extract-json';
 import { callClaude, CACHE_TTL_1H } from './anthropic-client';
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
+import { aaronVideoConfigured } from './meeting-link';
 import { readFileSync } from 'fs';
 import path from 'path';
 
@@ -262,7 +263,10 @@ async function buildContext(prospectId: string) {
       .select('provider')
       .eq('user_id', prospect.assigned_user_id || prospect.user_id);
     const hasCalendar = (mailboxes || []).some((c: any) => c.provider === 'google' || c.provider === 'microsoft');
-    canProvideVideoLink = hasCalendar || Boolean(String((prospect.users as any)?.meeting_link || '').trim());
+    // Salle Aaron (lib/video-room.ts) : quand elle est configurée, un lien
+    // est TOUJOURS disponible, quel que soit l'hébergeur du commercial.
+    canProvideVideoLink =
+      hasCalendar || Boolean(String((prospect.users as any)?.meeting_link || '').trim()) || aaronVideoConfigured();
   } catch {
     canProvideVideoLink = true;
   }
