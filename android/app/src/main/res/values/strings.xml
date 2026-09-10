@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Meet Aaron</string>
+    <string name="launch_url">https://meetaaron.app/app/dashboard</string>
+    <string name="web_manifest_url">https://meetaaron.app/manifest.json</string>
+    <string name="provider_authority">app.meetaaron.twa.fileprovider</string>
+    <!-- Doit correspondre au site ; Android le confronte à
+         https://meetaaron.app/.well-known/assetlinks.json -->
+    <string name="asset_statements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://meetaaron.app\" } }]</string>
+</resources>
