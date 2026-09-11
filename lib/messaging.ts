@@ -61,6 +61,55 @@ function normalizeEmailBodyLineBreaks(text: string): string {
     .join('\n\n');
 }
 
+// ── Garde-fous contre le « [Message tronqué] » de Gmail (11/09/2026) ──────
+// Voir le commentaire détaillé dans sendEmailForUser.
+
+// Gmail coupe vers 102 400 octets. On alerte bien avant pour avoir le temps
+// de réagir, et on plafonne la signature très en dessous : une signature
+// légitime, même riche, dépasse rarement 2 000 caractères.
+const GMAIL_CLIP_BYTES = 102400;
+const GMAIL_CLIP_WARN_BYTES = 80000;
+const MAX_SIGNATURE_CHARS = 4000;
+
+// Retire toute image (ou autre ressource) collée en base64 dans un texte.
+// Une seule de ces URI suffit à faire tronquer l'email par Gmail.
+function stripDataUris(text: string): string {
+  return text.replace(/data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/gi, '');
+}
+
+function capSignature(text: string, userId: string): string {
+  if (text.length <= MAX_SIGNATURE_CHARS) return text;
+  console.error(
+    `[Email] signature de ${text.length} caracteres pour l'utilisateur ${userId} — tronquee a ${MAX_SIGNATURE_CHARS}. ` +
+      `Au-dela, Gmail coupe le message entier et affiche « [Message tronque] ».`
+  );
+  return text.slice(0, MAX_SIGNATURE_CHARS);
+}
+
+// N'accepte qu'une URL http(s) : une image doit être hébergée (bucket public
+// « signatures »), jamais embarquée dans le message.
+function safeImageUrl(url: string | null | undefined): string | null {
+  const value = (url || '').trim();
+  if (!value) return null;
+  if (!/^https?:\/\//i.test(value)) {
+    console.error(`[Email] image de signature/bandeau ignoree : ce n'est pas une URL http(s) (${value.slice(0, 40)}…).`);
+    return null;
+  }
+  // Guillemets : l'URL est injectée telle quelle dans un attribut HTML.
+  return value.replace(/"/g, '%22');
+}
+
+function warnIfNearGmailClip(html: string, userId: string) {
+  const bytes = Buffer.byteLength(html, 'utf8');
+  if (bytes >= GMAIL_CLIP_BYTES) {
+    console.error(
+      `[Email] corps HTML de ${bytes} octets pour l'utilisateur ${userId} — Gmail VA le tronquer (limite ${GMAIL_CLIP_BYTES}).`
+    );
+  } else if (bytes >= GMAIL_CLIP_WARN_BYTES) {
+    console.error(`[Email] corps HTML de ${bytes} octets pour l'utilisateur ${userId} — on approche de la coupure Gmail.`);
+  }
+}
+
 // Exportée (28/08/2026) pour être réutilisée par lib/calendar-sync.ts, qui a
 // besoin de savoir quel(s) provider(s) interroger sans dupliquer cette requête.
 export async function getConnectedProviders(userId: string): Promise<Set<string>> {
@@ -355,19 +404,40 @@ export async function sendEmailForUser(
   // Un bloc de lignes vides en fin d'email fait partie de ce que Gmail replie
   // derrière son bouton « … / Afficher le message complet », ce qui donne au
   // destinataire l'impression d'un message tronqué — donc d'un spam.
-  const signatureText = user?.email_signature ? normalizeEmailBodyLineBreaks(user.email_signature) : '';
+  // GARDE-FOU « [Message tronqué] » (11/09/2026, tests d'Alex).
+  //
+  // Gmail coupe un message au-delà d'environ 102 Ko et affiche
+  // « [Message tronqué] — Afficher l'intégralité du message », ce qui fait
+  // immédiatement penser à un spam. Le corps rédigé par Aaron fait 1 à 2 Ko :
+  // si on dépasse, ça vient forcément de ce qu'on ajoute EN DESSOUS.
+  //
+  // Deux causes possibles, les deux neutralisées ici :
+  //   - une image collée en base64 (data:image/...) dans le TEXTE de la
+  //     signature — un logo de 200 Ko devient 270 Ko de texte à lui seul ;
+  //   - une colonne d'URL d'image qui contiendrait du base64 au lieu d'une
+  //     URL https (l'upload passe par le bucket public, mais une donnée
+  //     ancienne ou importée peut être dans cet état).
+  //
+  // On coupe donc court : pas de data: dans la signature, pas de data: dans
+  // les URL d'images, et une signature plafonnée. Et on journalise la taille
+  // finale pour que le jour où ça recommence, le log le dise tout de suite.
+  const rawSignature = stripDataUris(user?.email_signature || '');
+  const signatureText = rawSignature ? normalizeEmailBodyLineBreaks(capSignature(rawSignature, userId)) : '';
   // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
   // le commentaire au-dessus de sendEmailForUser.)
   const textBody = [body, signatureText].filter(Boolean).join('\n\n');
-  const signatureImageHtml = user?.email_signature_image_url
-    ? `<img src="${user.email_signature_image_url}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
+  const signatureImageUrl = safeImageUrl(user?.email_signature_image_url);
+  const bannerImageUrl = safeImageUrl(user?.email_banner_image_url);
+  const signatureImageHtml = signatureImageUrl
+    ? `<img src="${signatureImageUrl}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';
-  const bannerImageHtml = user?.email_banner_image_url
-    ? `<img src="${user.email_banner_image_url}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
+  const bannerImageHtml = bannerImageUrl
+    ? `<img src="${bannerImageUrl}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
     : '';
   const htmlBody = plainTextToEmailHtml(textBody, {
     trailingHtml: `${signatureImageHtml}${bannerImageHtml}`,
   });
+  warnIfNearGmailClip(htmlBody, userId);
 
   let result;
   if (providers.has('google')) {
