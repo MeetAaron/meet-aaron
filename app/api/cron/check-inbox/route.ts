@@ -625,7 +625,13 @@ export async function GET(request: NextRequest) {
         prospectEmail: fromEmail,
       });
 
-      await supabaseAdmin.from('messages').insert({
+      // subject (11/09/2026) : c'est l'objet du dernier message du fil qui
+      // permet de répondre en « Re: <objet d'origine> » au lieu d'ouvrir une
+      // nouvelle conversation. Voir lib/email-threading.ts et
+      // migration_messages_sujet_fil_2026-09-11.sql. Repli 42703 si la
+      // migration n'est pas encore jouée : on réinsère sans la colonne
+      // plutôt que de perdre le message.
+      const inboundRow: any = {
         conversation_id: conversation.id,
         direction: 'inbound',
         sender_email: fromEmail,
@@ -633,7 +639,13 @@ export async function GET(request: NextRequest) {
         body: bodyText,
         provider_message_id: msg.id,
         internet_message_id: msg.internetMessageId || null,
-      });
+        subject: msg.subject || null,
+      };
+      const { error: insertErr } = await supabaseAdmin.from('messages').insert(inboundRow);
+      if (insertErr?.code === '42703') {
+        const { subject: _ignored, ...withoutSubject } = inboundRow;
+        await supabaseAdmin.from('messages').insert(withoutSubject);
+      }
 
       // Pré-filtre (05/09/2026, voir lib/inbound-triage.ts) : en-têtes, puis
       // corps, puis Haiku. Une absence ou un rebond ne mérite pas un appel
