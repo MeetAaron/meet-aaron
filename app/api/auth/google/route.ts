@@ -36,9 +36,16 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 // déjà reconnecté pour obtenir gmail.labels) doivent déconnecter puis
 // reconnecter Gmail à nouveau (Mon compte > Connexion) pour obtenir
 // gmail.modify ; leur jeton actuel ne l'obtient pas rétroactivement.
+//
+// gmail.readonly RETIRÉ le 11/09/2026 (préparation de la vérification
+// Google) : gmail.modify inclut la lecture, donc readonly faisait doublon —
+// et Google traite un scope redondant comme un motif de rejet du dossier.
+// Trois scopes Google restent demandés : gmail.send, gmail.modify,
+// calendar.events. Les jetons déjà accordés avec readonly restent valides ;
+// à retirer aussi dans la console (écran de consentement → Data access),
+// sinon la liste déclarée ne correspond plus à la liste demandée.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/calendar.events',
   'openid',
