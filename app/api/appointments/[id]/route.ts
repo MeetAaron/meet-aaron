@@ -210,10 +210,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       })
       .eq('id', appointmentId);
 
-    // Confirmation envoyée par Aaron UNIQUEMENT quand aucune invitation
-    // d'agenda ne part (cas IMAP) : avec Google ou Microsoft, le prospect
-    // reçoit déjà l'invitation de l'agenda, en doubler une serait du bruit.
-    if (!calendarProvider && appointment.prospects?.email) {
+    // Confirmation envoyée par Aaron À CHAQUE FOIS depuis le 11/09/2026.
+    //
+    // Jusqu'ici elle ne partait qu'en l'absence d'agenda connecté, en
+    // supposant que l'invitation Google/Microsoft suffisait. Les tests
+    // d'Alex du 11/09 ont montré le contraire, sur les deux boîtes
+    // Microsoft comme sur Google : « l'invitation n'est pas arrivée de
+    // suite, il a fallu que je demande ». Une invitation d'agenda peut
+    // tarder, atterrir dans les indésirables, ou être ignorée par un
+    // client de messagerie qui ne sait pas la lire — et le prospect se
+    // retrouve avec un rendez-vous confirmé sans savoir où se connecter.
+    //
+    // Un email de confirmation lisible, qui porte le lien en clair, coûte
+    // un message de plus quand l'invitation arrive bien. C'est un prix
+    // très inférieur à celui d'un rendez-vous manqué.
+    if (appointment.prospects?.email) {
       const dateStr = new Date(startISO).toLocaleString('fr-FR', {
         dateStyle: 'full',
         timeStyle: 'short',
@@ -226,7 +237,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         '',
         `C'est confirmé pour notre rendez-vous ${typeLabel}, le ${dateStr}.`,
       ];
-      if (meetLink) lines.push('', `Voici le lien pour nous rejoindre : ${meetLink}`);
+      if (meetLink) {
+        lines.push('', `Voici le lien pour nous rejoindre : ${meetLink}`);
+      } else if (appointment.type === 'visio') {
+        // Aucun lien disponible au moment de la confirmation : on le dit,
+        // plutôt que de laisser le prospect chercher.
+        lines.push('', 'Je vous envoie le lien de connexion dans un second email.');
+      }
+      if (calendarProvider) {
+        // L'invitation d'agenda part aussi : on l'annonce pour que le
+        // prospect ne prenne pas le second message pour un doublon.
+        lines.push('', "Vous recevrez également une invitation pour votre agenda.");
+      }
       lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
       try {
         await sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'));
