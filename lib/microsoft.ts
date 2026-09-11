@@ -352,7 +352,13 @@ export async function sendOutlookEmail(
   to: string,
   subject: string,
   body: string,
-  opts?: { html?: boolean; attachment?: { filename: string; contentBase64: string; mimeType: string }; skipAaronLabel?: boolean }
+  opts?: {
+    html?: boolean;
+    attachment?: { filename: string; contentBase64: string; mimeType: string };
+    skipAaronLabel?: boolean;
+    // Fil auquel rattacher cet envoi — voir lib/email-threading.ts.
+    reply?: { internetMessageId?: string | null };
+  }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -372,17 +378,32 @@ export async function sendOutlookEmail(
   // envoyés. L'id immuable survit au déplacement. Uniquement ici, sur la
   // création : la lecture de la boîte (listNewOutlookMessages) garde ses ids
   // par défaut, car les provider_message_id déjà stockés sont dans ce format.
-  const created = await graphRequest(userId, accessToken, 'POST', '/me/messages', {
-    headers: { Prefer: 'IdType="ImmutableId"' },
-    label: 'création du brouillon',
-    body: {
+  // Rattachement au fil (11/09/2026, voir lib/email-threading.ts).
+  //
+  // Graph documente n'accepter, dans internetMessageHeaders, que des en-têtes
+  // personnalisés préfixés « X- ». En pratique il tolère souvent In-Reply-To
+  // et References — mais « souvent » n'est pas « toujours », et un refus
+  // ferait échouer l'envoi entier. D'où la stratégie : on tente avec, et si
+  // Graph refuse la création du brouillon, on recommence sans. Dans ce
+  // second cas le fil tient quand même côté Outlook grâce à l'objet
+  // « Re: <objet d'origine> », qui est le principal critère de regroupement.
+  const threadHeaders = opts?.reply?.internetMessageId
+    ? [
+        { name: 'In-Reply-To', value: opts.reply.internetMessageId },
+        { name: 'References', value: opts.reply.internetMessageId },
+      ]
+    : [];
+
+  const draftBody = (withThreadHeaders: boolean) => ({
       subject,
       body: { contentType: opts?.html ? 'HTML' : 'Text', content: body },
       toRecipients: [{ emailAddress: { address: to } }],
       // Marqueur des envois d'Aaron — même rôle que côté Gmail, voir
-      // lib/google.ts (AARON_SENT_HEADER) et lib/manual-replies.ts. Graph
-      // n'accepte que des en-têtes personnalisés préfixés « X- ».
-      internetMessageHeaders: [{ name: AARON_SENT_HEADER, value: '1' }],
+      // lib/google.ts (AARON_SENT_HEADER) et lib/manual-replies.ts.
+      internetMessageHeaders: [
+        { name: AARON_SENT_HEADER, value: '1' },
+        ...(withThreadHeaders ? threadHeaders : []),
+      ],
       ...(opts?.attachment
         ? {
             attachments: [
@@ -395,8 +416,27 @@ export async function sendOutlookEmail(
             ],
           }
         : {}),
-    },
   });
+
+  let created = await graphRequest(userId, accessToken, 'POST', '/me/messages', {
+    headers: { Prefer: 'IdType="ImmutableId"' },
+    label: 'création du brouillon',
+    body: draftBody(threadHeaders.length > 0),
+  });
+
+  // Graph a refusé les en-têtes de fil : on renvoie sans eux plutôt que de
+  // perdre l'email.
+  if (!created.ok && threadHeaders.length > 0) {
+    console.error(
+      "[Outlook] création du brouillon refusée avec les en-têtes de fil, nouvelle tentative sans :",
+      String(created.errorText || '').slice(0, 300)
+    );
+    created = await graphRequest(userId, accessToken, 'POST', '/me/messages', {
+      headers: { Prefer: 'IdType="ImmutableId"' },
+      label: 'création du brouillon (sans en-têtes de fil)',
+      body: draftBody(false),
+    });
+  }
 
   if (!created.ok) {
     throw new Error(`Erreur création du brouillon Outlook: ${created.errorText}`);

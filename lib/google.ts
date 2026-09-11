@@ -214,7 +214,14 @@ export async function sendGmailEmail(
   to: string,
   subject: string,
   body: string,
-  opts?: { html?: boolean; textAlternative?: string; attachment?: EmailAttachment; skipAaronLabel?: boolean }
+  opts?: {
+    html?: boolean;
+    textAlternative?: string;
+    attachment?: EmailAttachment;
+    skipAaronLabel?: boolean;
+    // Fil auquel rattacher cet envoi — voir lib/email-threading.ts.
+    reply?: { internetMessageId?: string | null; providerThreadId?: string | null };
+  }
 ) {
   const accessToken = await getValidAccessToken(userId);
 
@@ -287,6 +294,15 @@ export async function sendGmailEmail(
     rawMessage = [`To: ${to}`, subjectHeader, aaronMarkerHeader, 'MIME-Version: 1.0', contentPart].join(CRLF);
   }
 
+  // Rattachement au fil (11/09/2026) : « In-Reply-To » et « References » sont
+  // ce qui recoud la conversation chez le destinataire, quel que soit son
+  // logiciel. Insérés juste après la ligne To:, avant le corps.
+  if (opts?.reply?.internetMessageId) {
+    const id = opts.reply.internetMessageId;
+    const threadHeaders = [`In-Reply-To: ${id}`, `References: ${id}`].join(CRLF);
+    rawMessage = rawMessage.replace(`To: ${to}${CRLF}`, `To: ${to}${CRLF}${threadHeaders}${CRLF}`);
+  }
+
   const encodedMessage = Buffer.from(rawMessage)
     .toString('base64')
     .replace(/\+/g, '-')
@@ -299,7 +315,9 @@ export async function sendGmailEmail(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ raw: encodedMessage }),
+    // threadId regroupe aussi le message dans la boîte DU COMMERCIAL ; sans
+    // lui, les en-têtes ci-dessus ne recousent le fil que côté prospect.
+    body: JSON.stringify(opts?.reply?.providerThreadId ? { raw: encodedMessage, threadId: opts.reply.providerThreadId } : { raw: encodedMessage }),
   });
 
   if (!response.ok) {

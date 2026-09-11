@@ -12,6 +12,7 @@ import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './m
 import { sendImapEmail } from './imap';
 import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
+import { findReplyContext, replySubject } from './email-threading';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
 // les emails générés par Aaron sont parfois "wrappés à la main" par le
@@ -425,6 +426,29 @@ export async function sendEmailForUser(
   const signatureText = rawSignature ? normalizeEmailBodyLineBreaks(capSignature(rawSignature, userId)) : '';
   // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
   // le commentaire au-dessus de sendEmailForUser.)
+  // ── RÉPONDRE DANS LE FIL (11/09/2026) ─────────────────────────────────
+  //
+  // Tests d'Alex : quatre conversations dans Outlook pour deux échanges
+  // réels. Chaque message d'Aaron repartait avec un objet neuf et sans
+  // en-tête de rattachement, donc chaque message ouvrait un fil.
+  //
+  // Désormais, dès qu'un message a déjà été échangé avec cette adresse pour
+  // ce commercial, on reprend l'objet d'origine en « Re: … » et on passe le
+  // Message-ID aux expéditeurs, qui posent In-Reply-To / References.
+  // Le tout premier email d'un prospect n'a évidemment aucun fil : il part
+  // avec l'objet rédigé par Aaron, comme avant.
+  //
+  // Jamais pour les emails qu'Aaron s'envoie à lui-même (rapports, alertes).
+  let finalSubject = subject;
+  let replyContext: Awaited<ReturnType<typeof findReplyContext>> = null;
+  if (!toSelf) {
+    replyContext = await findReplyContext(userId, to);
+    if (replyContext?.subject) finalSubject = replySubject(replyContext.subject);
+  }
+  const replyOpts = replyContext?.internetMessageId
+    ? { internetMessageId: replyContext.internetMessageId }
+    : undefined;
+
   const textBody = [body, signatureText].filter(Boolean).join('\n\n');
   const signatureImageUrl = safeImageUrl(user?.email_signature_image_url);
   const bannerImageUrl = safeImageUrl(user?.email_banner_image_url);
@@ -441,9 +465,9 @@ export async function sendEmailForUser(
 
   let result;
   if (providers.has('google')) {
-    result = await sendGmailEmail(userId, to, subject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment, skipAaronLabel: toSelf });
+    result = await sendGmailEmail(userId, to, finalSubject, htmlBody, { html: true, textAlternative: textBody, attachment: opts?.attachment, skipAaronLabel: toSelf, reply: replyOpts });
   } else if (providers.has('microsoft')) {
-    result = await sendOutlookEmail(userId, to, subject, htmlBody, { html: true, attachment: opts?.attachment, skipAaronLabel: toSelf });
+    result = await sendOutlookEmail(userId, to, finalSubject, htmlBody, { html: true, attachment: opts?.attachment, skipAaronLabel: toSelf, reply: replyOpts });
   } else if (providers.has('imap')) {
     // Envois en PAUSE tant que la boîte refuse l'authentification : sans ça,
     // chaque tentative repartirait dans le vide et le commercial croirait
@@ -455,13 +479,14 @@ export async function sendEmailForUser(
     // comme pour Gmail ; la copie de l'envoi est rangée directement dans le
     // dossier « Géré par Aaron » quand le rangement est activé (pas de
     // libellé ni de catégorie en IMAP — le dossier joue ce rôle).
-    result = await sendImapEmail(userId, to, subject, htmlBody, {
+    result = await sendImapEmail(userId, to, finalSubject, htmlBody, {
       html: true,
       textAlternative: textBody,
       attachment: opts?.attachment,
       skipAaronLabel: toSelf,
       archiveToAaronFolder: !toSelf && user?.aaron_archive_threads !== false,
       fromName: user?.full_name || null,
+      reply: replyOpts,
     });
   } else {
     throw new Error(`Aucune boîte mail connectée (Google ou Microsoft) pour l'utilisateur ${userId}`);

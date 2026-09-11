@@ -286,6 +286,8 @@ export async function sendImapEmail(
     // « Aaron range les fils qu'il gère ») plutôt que dans Éléments envoyés.
     archiveToAaronFolder?: boolean;
     fromName?: string | null;
+    // Fil auquel rattacher cet envoi — voir lib/email-threading.ts.
+    reply?: { internetMessageId?: string | null };
   }
 ) {
   const { row, creds } = await getImapCredentials(userId);
@@ -299,6 +301,11 @@ export async function sendImapEmail(
     messageId,
     date: new Date(),
     headers: { [AARON_SENT_HEADER]: '1' },
+    // Rattachement au fil (11/09/2026, voir lib/email-threading.ts) :
+    // MailComposer écrit lui-même les en-têtes In-Reply-To et References.
+    ...(opts?.reply?.internetMessageId
+      ? { inReplyTo: opts.reply.internetMessageId, references: [opts.reply.internetMessageId] }
+      : {}),
     textEncoding: 'quoted-printable',
   };
   if (opts?.html) {
