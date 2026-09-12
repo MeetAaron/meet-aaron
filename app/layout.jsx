@@ -1,6 +1,7 @@
 import "./globals.css";
 import React from "react";
 import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
+import TimeZoneReporter from "@/components/TimeZoneReporter";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
 
@@ -70,6 +71,9 @@ export default function RootLayout({ children }) {
             React.createElement("script", { dangerouslySetInnerHTML: { __html: THEME_INIT_SCRIPT } }),
             React.createElement("script", { dangerouslySetInnerHTML: { __html: CHUNK_ERROR_RECOVERY_SCRIPT } }),
             React.createElement(AuthFetchInterceptor, null),
+            // Remonte le fuseau horaire du navigateur (users.timezone) pour que
+            // le rapport de resultats parte a minuit chez le commercial.
+            React.createElement(TimeZoneReporter, null),
             children
           )
         );
