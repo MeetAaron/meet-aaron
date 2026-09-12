@@ -78,7 +78,7 @@
     },
     {
       "path": "/api/cron/send-results-reports",
-      "schedule": "10 0 * * *"
+      "schedule": "5 * * * *"
     },
     {
       "path": "/api/cron/collect-aaron-batches",
