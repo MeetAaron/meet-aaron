@@ -7,11 +7,17 @@
 // corriger lui-même si besoin (ajout d'un enregistrement DNS chez son
 // hébergeur — action hors de portée d'Aaron, qui n'a aucun accès DNS).
 //
-// DKIM est volontairement absent de cette vérification : la vérifier
-// nécessite de connaître le "sélecteur" DKIM utilisé (ex: google._domainkey,
-// selector1._domainkey chez Microsoft...), propre à chaque fournisseur et non
-// déductible de façon fiable depuis l'extérieur. On affiche donc une
-// recommandation générique plutôt qu'un faux résultat.
+// DKIM EST vérifié (voir checkDkim plus bas). Un sélecteur DKIM ne se devine
+// pas dans l'absolu, mais on connaît le fournisseur de la boîte connectée, et
+// chaque hébergeur utilise des sélecteurs standards — il suffit de les
+// interroger. Étendu le 12/09/2026 aux boîtes « Autre boîte mail » (IMAP) à
+// la demande d'Alex : « Aaron doit toujours vérifier ce qui est vital (donc
+// DKIM etc.), quel que soit l'email utilisé (avec OAuth ou autre) ».
+//
+// Le constat qui a déclenché ça : ni open-x.fr ni teamsystem-paris.fr — les
+// deux premiers clients — n'avaient de DKIM. Sur Microsoft 365 il n'est
+// JAMAIS posé automatiquement pour un domaine personnalisé ; seul le domaine
+// onmicrosoft.com est signé. Un trou invisible, chez presque tout le monde.
 
 import { promises as dns } from 'dns';
 import { supabaseAdmin } from './supabase-admin';
@@ -86,22 +92,57 @@ export function isConsumerDomain(domain: string): boolean {
 // fournisseur. NON BLOQUANT : c'est le "petit conseil" affiché dans
 // Connexions (item 15 du docx Modifs Aaron) — SPF+DMARC alignés suffisent à
 // passer DMARC, DKIM personnalisé est le bonus qui solidifie.
-const DKIM_SELECTORS: Record<'google' | 'microsoft', string[]> = {
+// Sélecteurs interrogés, par fournisseur. Google et Microsoft en ont un jeu
+// figé. Pour « Autre boîte mail » (IMAP) il n'y a pas UN sélecteur standard,
+// mais la douzaine d'hébergeurs qui couvrent l'essentiel du marché européen
+// en utilisent chacun un connu — on les balaie tous. Un sélecteur de plus ne
+// coûte qu'une requête DNS, exécutée en parallèle.
+const DKIM_SELECTORS: Record<'google' | 'microsoft' | 'imap', string[]> = {
   google: ['google'],
   microsoft: ['selector1', 'selector2'],
+  imap: [
+    'ovh',                    // OVH
+    'gm1', 'gm2',             // Gandi
+    'ionos1', 'ionos2',       // IONOS (1&1)
+    'infomaniak', 'k1',       // Infomaniak (k1 aussi chez Mailchimp/Mandrill)
+    'zoho', 'zmail',          // Zoho
+    'default', 'dkim',        // cPanel / Plesk / installations sur mesure
+    'mail', 'smtp', 's1',     // conventions les plus répandues ailleurs
+    'selector1', 'google',    // domaine migré depuis M365 / Workspace
+  ],
 };
 
-export async function checkDkim(domain: string, provider: 'google' | 'microsoft'): Promise<{
-  found: boolean;
-  selector: string | null;
-}> {
+// Vrai si un enregistrement DKIM répond pour au moins un sélecteur connu du
+// fournisseur. dns.resolveTxt suit les CNAME : la chaîne
+// selector1._domainkey.domaine → …onmicrosoft.com est donc résolue jusqu'au
+// TXT final, ce qui est exactement le montage de Microsoft 365.
+//
+// NON BLOQUANT : c'est un avertissement fort dans Connexions, pas un refus
+// d'envoi. Le blocage dur reste sur SPF seul (décision du 31/08 : « nous
+// sommes un abonnement à 30 €, l'utilisateur ne doit pas avoir à appeler son
+// informaticien »). Un DKIM manquant est trop fréquent — notamment sur
+// Microsoft 365 — pour empêcher de travailler.
+export async function checkDkim(
+  domain: string,
+  provider: 'google' | 'microsoft' | 'imap'
+): Promise<{ found: boolean; selector: string | null }> {
   const cleanDomain = domain.trim().toLowerCase();
-  for (const selector of DKIM_SELECTORS[provider]) {
-    const records = await lookupTxt(`${selector}._domainkey.${cleanDomain}`);
-    const dkim = records.find((r) => /v=DKIM1/i.test(r) || /(^|;)\s*p=/i.test(r));
-    if (dkim) return { found: true, selector };
-  }
-  return { found: false, selector: null };
+  const selectors = DKIM_SELECTORS[provider] || DKIM_SELECTORS.imap;
+
+  // En parallèle : la liste IMAP compte une quinzaine d'entrées, les
+  // interroger en série ferait attendre l'écran Connexions pour rien.
+  const results = await Promise.all(
+    selectors.map(async (selector) => {
+      const records = await lookupTxt(`${selector}._domainkey.${cleanDomain}`);
+      const dkim = records.find((r) => /v=DKIM1/i.test(r) || /(^|;)\s*p=/i.test(r));
+      return dkim ? selector : null;
+    })
+  );
+
+  // On garde le premier sélecteur trouvé dans l'ordre de la liste, qui va du
+  // plus probable au plus générique.
+  const found = results.find((r) => r !== null) || null;
+  return { found: !!found, selector: found };
 }
 
 // Détection de l'hébergeur DNS du domaine (via ses serveurs de noms) pour
@@ -177,17 +218,42 @@ export function suggestedDmarcRecord(reportEmail: string): string {
 // sur cet écran une fois la connexion faite. Ne bloque jamais le flux OAuth
 // (fire-and-forget côté appelant) et ne fait rien pour un domaine grand
 // public (Gmail, Outlook.com...) puisque l'utilisateur n'en gère pas le DNS.
-export async function notifyIfDeliverabilityIssue(userId: string, email: string): Promise<void> {
+export async function notifyIfDeliverabilityIssue(
+  userId: string,
+  email: string,
+  // Fournisseur de la boîte qui vient d'être connectée — détermine les
+  // sélecteurs DKIM à interroger. Défaut 'imap' : la liste la plus large,
+  // donc jamais de faux négatif si l'appelant ne le précise pas.
+  provider: 'google' | 'microsoft' | 'imap' = 'imap'
+): Promise<void> {
   try {
     const domain = email.split('@')[1];
     if (!domain || isConsumerDomain(domain)) return;
 
     const health = await checkDomainHealth(domain);
-    // Aligné sur le blocage (31/08/2026) : on ne notifie que le cas
-    // réellement bloquant (SPF absent). Un DMARC manquant reste visible en
-    // "petit conseil" dans Connexions, sans push — pas d'alarme pour un
-    // domaine qui fonctionne.
-    if (health.spf.found) return;
+    // 12/09/2026, demande d'Alex — « Aaron doit toujours vérifier ce qui est
+    // vital » : on prévient désormais aussi quand DKIM manque, pas seulement
+    // quand SPF manque. Deux messages distincts, parce que les deux
+    // situations n'ont rien à voir :
+    //   - SPF absent    = envois BLOQUÉS, urgent, action obligatoire ;
+    //   - DKIM absent   = envois autorisés mais délivrabilité dégradée.
+    // Le cas DKIM ne serait jamais découvert autrement : sur Microsoft 365
+    // il n'est jamais posé automatiquement pour un domaine personnalisé, et
+    // aucun symptôme ne le signale — juste des emails qui finissent en
+    // indésirable sans explication.
+    const dkim = await checkDkim(domain, provider);
+
+    if (health.spf.found && dkim.found) return;
+
+    if (health.spf.found && !dkim.found) {
+      const { sendPushNotification: notify } = await import('./push');
+      await notify(userId, {
+        title: 'Signature DKIM à activer',
+        body: `${domain} envoie sans signature DKIM. Tes emails partent, mais avec plus de risque d'atterrir en indésirable. Aaron t'explique quoi faire dans Connexions, en 5 min.`,
+        url: '/app/connexions',
+      });
+      return;
+    }
 
     // Import différé pour éviter une dépendance circulaire potentielle
     // (lib/push.ts n'importe pas ce fichier, mais on reste prudent puisque
