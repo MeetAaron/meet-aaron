@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
   // visite future de Connexions — voir lib/email-deliverability.ts. Ne doit
   // jamais retarder ou faire échouer la redirection.
   if (profile.email) {
-    notifyIfDeliverabilityIssue(userId, profile.email).catch(() => {});
+    notifyIfDeliverabilityIssue(userId, profile.email, 'google').catch(() => {});
   }
 
   return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google&tab=connection`);
