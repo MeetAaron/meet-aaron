@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
   // la redirection.
   const microsoftEmail = profile.mail || profile.userPrincipalName;
   if (microsoftEmail) {
-    notifyIfDeliverabilityIssue(userId, microsoftEmail).catch(() => {});
+    notifyIfDeliverabilityIssue(userId, microsoftEmail, 'microsoft').catch(() => {});
   }
 
   return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft&tab=connection`);
