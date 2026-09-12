@@ -54,8 +54,12 @@ export async function GET(request: NextRequest) {
         const provider = (c.provider === 'microsoft' ? 'microsoft' : c.provider === 'imap' ? 'imap' : 'google') as 'google' | 'microsoft' | 'imap';
         const [health, dkim, dnsProvider] = await Promise.all([
           checkDomainHealth(domain),
-          // Pas de sélecteur DKIM standard pour un hébergeur IMAP quelconque.
-          provider === 'imap' ? Promise.resolve({ found: false, selector: null }) : checkDkim(domain, provider),
+          // 12/09/2026 : DKIM vérifié aussi pour « Autre boîte mail » (IMAP).
+          // Avant, on renvoyait « absent » sans même regarder — ce qui
+          // affichait un faux négatif à tous les clients OVH, Gandi, IONOS…
+          // checkDkim balaie désormais les sélecteurs connus de ces
+          // hébergeurs (voir lib/email-deliverability.ts).
+          checkDkim(domain, provider),
           detectDnsProvider(domain),
         ]);
 
