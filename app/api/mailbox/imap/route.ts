@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { autodiscoverMailServers, guessVariants } from '@/lib/mail-autodiscover';
 import { testImapSmtp, saveImapConnection, type ImapCredentials } from '@/lib/imap';
+import { notifyIfDeliverabilityIssue } from '@/lib/email-deliverability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,13 @@ export async function POST(request: NextRequest) {
     if (result.ok === true) {
       const okResult = result as { ok: true; sentFolder: string | null; aaronFolder: string };
       await saveImapConnection(userId, creds, { sentFolder: okResult.sentFolder, aaronFolder: okResult.aaronFolder });
+      // Contrôle de délivrabilité (12/09/2026, demande d'Alex : « Aaron doit
+      // toujours vérifier ce qui est vital, quel que soit l'email utilisé »).
+      // Il n'existait que sur les connexions Google et Microsoft — une boîte
+      // OVH ou Gandi se connectait donc sans que personne ne regarde jamais
+      // son SPF ni son DKIM. Fire-and-forget : jamais bloquant pour la
+      // connexion, qui vient de réussir.
+      notifyIfDeliverabilityIssue(userId, email, 'imap').catch(() => {});
       return NextResponse.json({
         ok: true,
         email,
