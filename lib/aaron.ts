@@ -6,6 +6,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { extractJsonObject } from './extract-json';
 import { callClaude, CACHE_TTL_1H } from './anthropic-client';
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
+import { resolveProspectLocale } from './prospect-locale';
 import { aaronVideoConfigured } from './meeting-link';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -125,7 +126,7 @@ export interface AaronOutput {
 async function buildContext(prospectId: string) {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('*, users(full_name, email, locale), prospect_companies(name, domain, is_won_client, found_by_campaign_id, research_summary)')
+    .select('*, users(full_name, email, locale), prospect_companies(name, domain, address, is_won_client, found_by_campaign_id, research_summary)')
     .eq('id', prospectId)
     .single();
 
@@ -166,6 +167,9 @@ async function buildContext(prospectId: string) {
   // pour qu'Aaron adapte réellement le ton — jusqu'ici ces notes étaient
   // capturées mais jamais transmises à la génération des messages.
   let campaignContext: { zone_label: string | null; context_notes: string | null; langue_cible: string | null } | null = null;
+  // Code langue brut de la campagne (ex. 'en'), conservé hors du bloc pour
+  // servir aussi au calcul de prospect.langue_probable plus bas.
+  let campaignTargetLocale: string | null = null;
   const foundByCampaignId = (prospect as any).prospect_companies?.found_by_campaign_id;
   if (foundByCampaignId) {
     const { data: campaign } = await supabaseAdmin
@@ -173,6 +177,7 @@ async function buildContext(prospectId: string) {
       .select('zone_label, context_notes, target_locale')
       .eq('id', foundByCampaignId)
       .maybeSingle();
+    campaignTargetLocale = campaign?.target_locale || null;
     if (campaign && (campaign.zone_label || campaign.context_notes || campaign.target_locale)) {
       campaignContext = {
         zone_label: campaign.zone_label || null,
@@ -317,6 +322,22 @@ async function buildContext(prospectId: string) {
       // été trouvée — dans les deux cas, null signifie explicitement "ne
       // prétends pas connaître cette société", jamais "cherche toi-même".
       recherche_societe_prospect: prospect.prospect_companies?.research_summary || null,
+      // LANGUE PROBABLE DU PROSPECT (13/09/2026, demande d'Alex : « si je
+      // mets le pays du client, genre Australia, il faut que l'email soit
+      // rédigé en anglais »). Déduite du pays lu dans l'adresse de sa
+      // société, sinon de l'extension de son domaine email — voir
+      // lib/prospect-locale.ts, qui renvoie la langue du commercial quand
+      // aucun signal fiable n'existe (pays bilingue, domaine en .com…).
+      //
+      // Ce n'est qu'un REPÈRE POUR LE PREMIER CONTACT : dès que le prospect
+      // a écrit une fois, c'est sa langue à lui qui prime (section LANGUE DE
+      // LA RÉPONSE du prompt système).
+      langue_probable: LOCALE_NAMES[resolveProspectLocale({
+        campaignLocale: campaignTargetLocale,
+        address: prospect.prospect_companies?.address || null,
+        email: prospect.email || null,
+        sellerLocale: prospect.users?.locale || null,
+      })],
     },
     statut_actuel: prospect.status,
     // Docx pipeline (Alex, 2026-08-23) : étape actuelle de la pipeline
