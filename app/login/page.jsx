@@ -215,6 +215,21 @@ export default function LoginPage() {
   }
 
 
+  // MENTIONS LÉGALES SUR L'ÉCRAN DE CONNEXION (13/09/2026, remarque d'Alex :
+  // « ces 2 pages apparaissent en hypertexte seulement dans l'onglet
+  // préférences »). C'était vrai, et c'était un trou : /privacy et /terms
+  // n'étaient atteignables qu'une fois DANS l'app, donc après la création du
+  // compte. Or c'est précisément au moment de créer le compte qu'on doit
+  // pouvoir les lire — obligation RGPD d'information préalable, et pratique
+  // attendue par les stores comme par l'examinateur Google.
+  //
+  // Mention passive (« en créant un compte, tu acceptes ») plutôt que case à
+  // cocher : l'acceptation contraignante du paiement se fait de toute façon
+  // au checkout Stripe juste après, et un clic de plus sur cet écran ne
+  // protège pas davantage. En mode connexion/oubli, on affiche simplement
+  // les deux liens.
+  const legalParts = t('auth.legalNotice', locale).split(/(\{terms\}|\{privacy\})/);
+
   return (
     <div className="wrap">
       <div className="card">
@@ -374,6 +389,26 @@ export default function LoginPage() {
             {resendMessage && <p className="success">{resendMessage}</p>}
           </div>
         )}
+
+        {mode === 'signup' ? (
+          <p className="legal-notice">
+            {legalParts.map((part, i) =>
+              part === '{terms}' ? (
+                <a key={i} href="/terms" target="_blank" rel="noopener noreferrer">{t('preferences.legalTerms', locale)}</a>
+              ) : part === '{privacy}' ? (
+                <a key={i} href="/privacy" target="_blank" rel="noopener noreferrer">{t('preferences.legalPrivacy', locale)}</a>
+              ) : (
+                <span key={i}>{part}</span>
+              )
+            )}
+          </p>
+        ) : (
+          <p className="legal-notice">
+            <a href="/privacy" target="_blank" rel="noopener noreferrer">{t('preferences.legalPrivacy', locale)}</a>
+            <span aria-hidden="true"> · </span>
+            <a href="/terms" target="_blank" rel="noopener noreferrer">{t('preferences.legalTerms', locale)}</a>
+          </p>
+        )}
       </div>
 
       <style jsx>{`
@@ -473,6 +508,22 @@ export default function LoginPage() {
         .btn-primary:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+        .legal-notice {
+          margin: 1.4rem 0 0;
+          padding-top: 1.1rem;
+          border-top: 1px solid #232744;
+          font-size: 0.76rem;
+          line-height: 1.5;
+          color: #8B90A8;
+        }
+        .legal-notice a {
+          color: #8B90A8;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .legal-notice a:hover {
+          color: #cfd3e6;
         }
         .link-toggle {
           background: none;
