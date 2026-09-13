@@ -136,7 +136,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         console.error('Erreur envoi notification push (premier email à valider):', pushErr);
       }
     } else if (hasEmailToSend) {
-      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id);
+      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
       await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
         emailType: 'prospecting',
         attachment: firstEmailAttachment || undefined,
