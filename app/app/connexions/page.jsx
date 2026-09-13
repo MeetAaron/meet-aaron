@@ -3045,7 +3045,8 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               {/* 08/09/2026 (Alex : « supprime la partie crédits, ajoute la
                   partie boost ») : le solde en crédits disparaît. Ce que le
                   client comprend, c'est un nombre de NOUVEAUX PROSPECTS par
-                  mois — 300 par siège, campagnes et ajouts manuels compris —
+                  mois — 150 par siège depuis le 13/09/2026, campagnes et ajouts
+                  manuels compris —
                   et un boost en ajoute. Visible pour TOUS les rôles : un
                   commercial sur un siège doit voir où il en est et pouvoir
                   acheter un boost sans passer par le fondateur (l'achat se
