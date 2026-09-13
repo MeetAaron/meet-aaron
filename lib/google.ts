@@ -3,6 +3,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { encryptToken, decryptToken } from './encryption';
+import { aaronLabelName, isAaronLabelName } from './aaron-label';
 
 interface OAuthConnection {
   id: string;
@@ -61,7 +62,17 @@ async function getValidAccessToken(userId: string): Promise<string> {
   return newTokens.access_token;
 }
 
-const AARON_LABEL_NAME = '🤖 Géré par Aaron';
+// Nom du label : il suit désormais la langue du commercial (users.locale),
+// voir lib/aaron-label.ts. Le repli reste le français si la colonne est
+// absente ou la langue inconnue.
+async function aaronLabelNameForUser(userId: string): Promise<string> {
+  try {
+    const { data } = await supabaseAdmin.from('users').select('locale').eq('id', userId).single();
+    return aaronLabelName(data?.locale);
+  } catch {
+    return aaronLabelName(null);
+  }
+}
 
 // Le commercial voit ses échanges dans SA propre boîte Gmail (Aaron envoie/lit
 // en son nom). Pour qu'il sache, en un coup d'œil dans sa boîte, quels fils il
@@ -74,13 +85,31 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
   try {
     const accessToken = await getValidAccessToken(userId);
 
+    const wantedName = await aaronLabelNameForUser(userId);
+
     const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (listRes.ok) {
       const { labels } = await listRes.json();
-      const existing = labels?.find((l: any) => l.name === AARON_LABEL_NAME);
-      if (existing) return existing.id;
+      const exact = labels?.find((l: any) => l.name === wantedName);
+      if (exact) return exact.id;
+
+      // Le repère existe déjà mais dans une AUTRE langue (le commercial a
+      // changé de langue depuis). On le RENOMME au lieu d'en créer un
+      // second : les fils déjà rangés gardent leur label, et la boîte ne se
+      // retrouve pas avec deux repères Aaron concurrents.
+      const other = labels?.find((l: any) => isAaronLabelName(l.name));
+      if (other) {
+        await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/labels/${other.id}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: wantedName }),
+        });
+        // Renommage refusé (conflit de nom, label système) : on garde
+        // l'ancien plutôt que de perdre le repère.
+        return other.id;
+      }
     }
 
     const createRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
@@ -90,7 +119,7 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: AARON_LABEL_NAME,
+        name: wantedName,
         labelListVisibility: 'labelShow',
         messageListVisibility: 'show',
         // Couleur violette (palette imposée par l'API Gmail — pas de hex libre),
@@ -108,7 +137,7 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
   }
 }
 
-// Pose le label "🤖 Géré par Aaron" sur un fil Gmail entier (donc sur tous les
+// Pose le label Aaron (traduit, voir lib/aaron-label.ts) sur un fil Gmail entier (donc sur tous les
 // messages du fil, passés et à venir tant qu'ils y restent rattachés). Échec
 // silencieux : un souci de label ne doit jamais empêcher l'envoi/la lecture
 // d'un email, c'est purement un repère visuel pour le commercial.
