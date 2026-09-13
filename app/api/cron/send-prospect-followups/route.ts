@@ -39,6 +39,26 @@ import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 const RELANCE_ELIGIBLE_STATUSES = ['jaune', 'orange'];
 
 const RELANCE_SCHEDULE_DAYS = [3, 7, 14]; // due day, indexé par (nb de messages sortants déjà envoyés - 1)
+
+// RELANCES CIBLÉES (décision Alex du 13/09/2026, « option B »).
+//
+// Le quota remonte à 300 prospects par cycle. Relancer trois fois CHACUN
+// d'eux doublait la facture API sans rien rapporter : sur du démarchage à
+// froid, l'immense majorité des contacts ne répond jamais, et insister
+// quatre fois auprès de quelqu'un qui n'a jamais donné signe de vie ne
+// convertit pas — ça abîme la réputation d'expéditeur et fait ressembler
+// Aaron à du spam, exactement ce qu'Alex refuse depuis le début.
+//
+// Règle : un prospect SILENCIEUX (aucune réponse reçue, jamais, et toujours
+// au statut « en cours ») s'arrête après la PREMIÈRE relance. Deux touches
+// au total, puis il bascule en « perdu — sans réponse » et rejoint la file
+// de réactivation à J+180.
+//
+// Dès qu'il y a un signal — une réponse, même un « pas maintenant », ou un
+// statut passé en orange parce qu'Aaron a détecté un risque — le calendrier
+// complet s'applique : J+3, J+7, J+14. On investit l'effort là où il y a
+// quelqu'un en face.
+const SILENT_MAX_RELANCES = 1;
 // Jours de silence après la dernière relance au bout desquels le contact est
 // classé « perdu — sans réponse » (décision Alex, 06/09/2026).
 const NO_REPLY_LOST_AFTER_DAYS = 15;
@@ -94,7 +114,12 @@ export async function GET(request: NextRequest) {
     if (lastInbound && lastInbound.sent_at > lastOutbound.sent_at) continue;
 
     const scheduleIndex = outbound.length - 1; // combien de messages sortants déjà envoyés
-    if (scheduleIndex >= RELANCE_SCHEDULE_DAYS.length) {
+
+    // Ce prospect a-t-il donné signe de vie ? Voir SILENT_MAX_RELANCES.
+    const aDonneSigneDeVie = inbound.length > 0 || prospect.status === 'orange';
+    const relancesAutorisees = aDonneSigneDeVie ? RELANCE_SCHEDULE_DAYS.length : SILENT_MAX_RELANCES;
+
+    if (scheduleIndex >= relancesAutorisees) {
       // Calendrier épuisé (06/09/2026, décision Alex). Avant, on s'arrêtait
       // là et le contact restait « en cours » POUR TOUJOURS : des fantômes
       // s'accumulaient dans le pipeline et faussaient le taux de
