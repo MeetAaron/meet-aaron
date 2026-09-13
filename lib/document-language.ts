@@ -52,7 +52,11 @@ export function detectDocumentLanguage(text: string | null | undefined): string 
   if (!text) return null;
   const words = text
     .toLowerCase()
-    .replace(/[^\p{L}\s]/gu, ' ')
+    // Classe de caractères explicite plutôt que \p{L} : le projet compile en
+    // ES5 (voir tsconfig), où les propriétés Unicode dans les regex n'existent
+    // pas encore. « a-z » plus la plage accentuée latine couvre les sept
+    // langues de l'app, et le texte a déjà été passé en minuscules.
+    .replace(/[^a-zà-öø-ÿ\s]/g, ' ')
     .split(/\s+/)
     .filter(Boolean);
   if (words.length < MIN_WORDS) return null;
