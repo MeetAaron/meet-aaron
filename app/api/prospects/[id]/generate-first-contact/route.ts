@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // passé, ou double-appel accidentel côté frontend) — on ne relance jamais
   // une deuxième génération/un deuxième envoi pour le même prospect.
   if (prospect.aaron_advice) {
-    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, skipped: true });
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null, skipped: true });
   }
 
   const { data: conversation } = await supabaseAdmin
@@ -96,7 +96,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   let aaronOutput = null;
+  // Voir app/api/prospects/route.ts : on renvoie un CODE traduisible en plus
+  // du texte français, pour que l'alerte suive la langue de l'interface.
   let emailWarning = null;
+  let emailWarningCode: string | null = null;
+  let emailWarningParams: Record<string, string> | null = null;
 
   try {
     const { data: sender } = await supabaseAdmin
@@ -120,6 +124,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         .eq('id', prospect.id);
 
       emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+      emailWarningCode = 'pendingApproval';
 
       try {
         await sendPushNotification(prospect.assigned_user_id, {
@@ -161,14 +166,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .eq('id', prospect.id);
   } catch (err: any) {
     console.error('Erreur génération/envoi du premier message prospect:', err.message);
-    emailWarning =
-      err instanceof DailySendCapExceededError
-        ? `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`
-        : err instanceof DomainNotDeliverableError
-        ? `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF/DMARC valide, tes emails de prospection partiraient en spam. Corrige-le dans "Connexions" — le message partira automatiquement une fois réglé.`
-        : err.message?.includes('Aucune boîte mail connectée')
-        ? "Prospect ajouté, mais aucun email n'a été envoyé : connectez votre boîte mail dans \"Connexions\"."
-        : "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+    if (err instanceof DailySendCapExceededError) {
+      emailWarningCode = 'dailyCap';
+      emailWarningParams = { cap: String(err.cap) };
+      emailWarning = `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`;
+    } else if (err instanceof DomainNotDeliverableError) {
+      emailWarningCode = 'domainNotDeliverable';
+      emailWarningParams = { domain: String(err.domain) };
+      emailWarning = `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF valide, tes emails de prospection partiraient en spam. Corrige-le dans « Connexions » — le message partira automatiquement une fois réglé.`;
+    } else if (err.message?.includes('Aucune boîte mail connectée')) {
+      emailWarningCode = 'noMailbox';
+      emailWarning = "Prospect ajouté, mais aucun email n'a été envoyé : connecte ta boîte mail dans « Connexions ».";
+    } else {
+      emailWarningCode = 'sendFailed';
+      emailWarning = "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+    }
 
     // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
     // 30/08/2026, test Outlook — voir
@@ -188,5 +200,5 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
   }
 
-  return NextResponse.json({ prospect, aaronOutput, emailWarning });
+  return NextResponse.json({ prospect, aaronOutput, emailWarning, emailWarningCode, emailWarningParams });
 }
