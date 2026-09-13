@@ -344,7 +344,7 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
       }
       return;
     }
-    const attachment = owner?.company_id ? await getFirstEmailAttachment(owner.company_id) : null;
+    const attachment = owner?.company_id ? await getFirstEmailAttachment(owner.company_id, prospect.id) : null;
     await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
       emailType: 'prospecting',
       attachment: attachment || undefined,
