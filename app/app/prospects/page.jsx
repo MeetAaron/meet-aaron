@@ -1045,6 +1045,30 @@ export default function ProspectsPage() {
   );
 }
 
+// Traduit l'avertissement renvoyé après la création d'un prospect. Le serveur
+// envoie un code (`emailWarningCode`) et ses paramètres ; la phrase vit dans
+// lib/i18n.js, en sept langues, comme le reste de l'écran.
+const WARN_KEYS = {
+  pendingApproval: 'prospects.warnPendingApproval',
+  dailyCap: 'prospects.warnDailyCap',
+  mailboxAuth: 'prospects.warnMailboxAuth',
+  domainNotDeliverable: 'prospects.warnDomainNotDeliverable',
+  noMailbox: 'prospects.warnNoMailbox',
+  sendFailed: 'prospects.warnSendFailed',
+};
+
+function warningText(res, locale) {
+  if (!res) return null;
+  const key = WARN_KEYS[res.emailWarningCode];
+  if (!key) return res.emailWarning || null;
+  let text = t(key, locale);
+  const params = res.emailWarningParams || {};
+  for (const name of Object.keys(params)) {
+    text = text.split('{' + name + '}').join(params[name]);
+  }
+  return text;
+}
+
 function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContactSettled }) {
   const [locale] = useLocale();
   const [firstName, setFirstName] = useState('');
@@ -1115,10 +1139,12 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
     if (body.prospect?.id) {
       fetch(`/api/prospects/${body.prospect.id}/generate-first-contact`, { method: 'POST' })
         .then((r) => r.json())
-        .then((res) => onFirstContactSettled(res.emailWarning || null))
-        .catch(() =>
-          onFirstContactSettled("Prospect ajouté, mais le premier message n'a pas pu être généré automatiquement.")
-        );
+        // 13/09/2026 : on privilégie le CODE renvoyé par le serveur et on le
+        // traduit ici, avec la langue de l'interface. `emailWarning` (texte
+        // français) ne sert plus que de repli si une version plus ancienne de
+        // l'API répondait encore sans code.
+        .then((res) => onFirstContactSettled(warningText(res, locale)))
+        .catch(() => onFirstContactSettled(t('prospects.warnSendFailed', locale)));
     }
   }
 
