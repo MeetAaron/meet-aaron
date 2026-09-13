@@ -253,7 +253,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // voir lib/first-email-attachment.ts. Best-effort : si aucun document
     // n'est marqué (cas normal, la plupart des sociétés), retourne null et
     // l'envoi se fait normalement sans pièce jointe.
-    const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id);
+    const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
     await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody, {
       emailType: 'prospecting',
       attachment: firstEmailAttachment || undefined,
