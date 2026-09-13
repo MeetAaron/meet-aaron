@@ -296,7 +296,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
   let usableCompaniesCount = 0;
 
   // Quota de nouveaux prospects du mois (décision Alex, 08/09/2026 : « les
-  // 300 sont la limite max, 2 campagnes de 150 c'est pareil »). Lu une fois
+  // 150 sont la limite max, 2 campagnes de 75 c'est pareil »). Lu une fois
   // par lot, décrémenté localement : une campagne s'arrête proprement au
   // quota, avec un statut qui le dit, plutôt que de mourir à mi-parcours sur
   // le plafond de dollars. Illisible → on laisse passer (voir

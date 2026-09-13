@@ -2,11 +2,12 @@
 //
 // QUOTA DE NOUVEAUX PROSPECTS PAR MOIS (décision Alex, 08/09/2026).
 //
-// Ce que le client voit et achète : « 300 nouveaux prospects par mois et par
+// Ce que le client voit et achète : « 150 nouveaux prospects par mois et par
 // siège », boosts en plus. Une seule règle, lisible, qui remplace le solde de
 // crédits que personne ne savait interpréter. Elle vit ICI, pas dans
 // l'affichage : les trois portes d'entrée d'un prospect (campagne, ajout
-// manuel, import CSV) l'appliquent toutes, sinon « 300 » serait un slogan.
+// manuel, import CSV) l'appliquent toutes, sinon « 150 » serait un slogan.
+// 13/09/2026 : 300 -> 150, voir PROSPECTS_PER_SEAT_PER_MONTH dans boost-tiers.
 //
 // Le plafond de dépense en dollars (lib/anthropic-client.ts) reste en place
 // derrière, comme filet de sécurité — mais c'est ce quota-ci qui parle au
@@ -24,7 +25,7 @@ import { PROSPECTS_PER_SEAT_PER_MONTH, PROSPECTS_PER_CREDIT, USD_PER_CREDIT } fr
 
 export interface ProspectQuota {
   seats: number;
-  included: number; // sièges × 300
+  included: number; // sièges × PROSPECTS_PER_SEAT_PER_MONTH
   boostExtra: number; // prospects restants apportés par les boosts actifs
   total: number; // included + boostExtra
   used: number; // prospects créés ce mois-ci

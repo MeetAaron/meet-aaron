@@ -158,30 +158,54 @@ export function boostEndsAt(startsAt: Date): Date {
 //
 // 08/09/2026 — la valeur n'est plus posée à la main : elle DÉCOULE du quota de
 // prospects vendu au client (voir PROSPECTS_PER_SEAT_PER_MONTH ci-dessous).
-// Un siège = 21,5 $ de budget = 300 prospects, donc ~0,072 $ par prospect —
-// 3,6 fois la mesure de 0,02 $, ce qui reste très prudent. Poser 0,10 ici tout
-// en promettant 300 prospects aurait fait mentir l'app : le lissage quotidien
-// n'en aurait autorisé que 215.
-export const ESTIMATED_USD_PER_PROSPECT = (21.5 / 20) / 15; // = USD_PER_CREDIT / PROSPECTS_PER_CREDIT
+//
+// 13/09/2026 — le quota passe de 300 à 150 : la valeur double donc toute
+// seule (21,5 $ / 150 = ~0,143 $ par prospect), et c'est VOULU. Un prospect
+// ne coûte plus ce qu'il coûtait : avec les séquences de relances
+// (J0, J+3, J+8, J+15), il reçoit quatre emails rédigés au lieu d'un, et
+// génère davantage de réponses entrantes à traiter. Diviser le quota par deux
+// ne divise donc PAS la facture API par deux — elle reste du même ordre. Le
+// calcul est déplacé sous PROSPECTS_PER_CREDIT pour qu'il suive
+// automatiquement toute future révision du quota, au lieu du 15 codé en dur
+// qui aurait menti dès aujourd'hui.
+// (la constante elle-même est déclarée plus bas, juste après
+// PROSPECTS_PER_CREDIT dont elle dépend — une const ne peut pas être lue
+// avant sa ligne de déclaration.)
 
 // ── Quota de prospects (décision Alex, 08/09/2026) ──────────────────────────
 //
 // Ce que le client achète, c'est un nombre de NOUVEAUX PROSPECTS par mois, pas
 // des crédits : « les 300 sont la limite max, s'il crée 2 campagnes de 150
 // c'est pareil, s'il en ajoute manuellement ça compte aussi ». Un commercial
-// comprend « 300 prospects », il ne comprend pas « 20 crédits ».
+// comprend « 150 prospects », il ne comprend pas « 20 crédits ».
 //
 // Les boosts gardent leurs produits Stripe existants (20/40/100/250 crédits)
 // mais s'affichent et se comptent en prospects : 1 crédit = 15 prospects, donc
-// le boost de base (20 crédits, 30 €) = +300 prospects = exactement un mois de
-// siège en plus. Le budget API sous-jacent (USD_PER_CREDIT) ne change pas —
+// le boost de base (20 credits) = +150 prospects = exactement un mois de
+// siege en plus.
+//
+// 13/09/2026 — ATTENTION, arbitrage a trancher : le boost de base reste a
+// 30 EUR pour ce qui est desormais 150 prospects, alors que l'abonnement les
+// vend 59 EUR. Le boost revient donc a moitie prix pour le meme volume, et ne
+// laisse que ~10 EUR de marge. Les prix Stripe des boosts doivent monter avec
+// l'abonnement (39 / 78 / 195 / 487 EUR) au moment de recreer les produits sur
+// le compte Stripe Australie. Le budget API sous-jacent (USD_PER_CREDIT) ne change pas —
 // c'est la même valeur présentée dans l'unité que le client comprend.
 //
 // Ce qui compte dans le quota : tout prospect CRÉÉ dans le mois pour la
 // société, quelle que soit la source (campagne, ajout manuel, import CSV).
 // Voir lib/prospect-quota.ts pour le calcul et l'application.
-export const PROSPECTS_PER_SEAT_PER_MONTH = 300;
-export const PROSPECTS_PER_CREDIT = PROSPECTS_PER_SEAT_PER_MONTH / 20; // 15 — 20 crédits = un mois de siège
+// 13/09/2026 (objection du père d'Alex : « à 300 par mois, en six ou sept mois
+// il n'y a plus personne à contacter dans le secteur »). Le quota passe à 150,
+// et l'effort libéré part dans les RELANCES : quatre touches par prospect au
+// lieu d'une seule. Un prospect travaillé quatre fois vaut mieux que deux
+// prospects effleurés une fois — et la base du client dure deux fois plus
+// longtemps.
+export const PROSPECTS_PER_SEAT_PER_MONTH = 150;
+export const PROSPECTS_PER_CREDIT = PROSPECTS_PER_SEAT_PER_MONTH / 20; // 7,5 — 20 crédits = un mois de siège
+
+// Coût API estimé d'un prospect — voir le long commentaire plus haut.
+export const ESTIMATED_USD_PER_PROSPECT = USD_PER_CREDIT / PROSPECTS_PER_CREDIT;
 
 export function prospectsForTier(tier: BoostTier): number {
   return tier.credits * PROSPECTS_PER_CREDIT;
