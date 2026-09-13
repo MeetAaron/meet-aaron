@@ -408,7 +408,7 @@ export async function POST(request: NextRequest) {
       // Pièce jointe éventuelle sur ce vrai premier email (plaquette, etc.)
       // — voir lib/first-email-attachment.ts. Best-effort : null la plupart
       // du temps (aucun document marqué), l'envoi se fait alors normalement.
-      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id);
+      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
       // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
       await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
         emailType: 'prospecting',
