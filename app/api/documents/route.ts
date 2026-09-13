@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { detectDocumentLanguage } from '@/lib/document-language';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { extractDocumentText } from '@/lib/document-extraction';
 import { analyzeDocument } from '@/lib/document-summary';
@@ -115,6 +116,13 @@ export async function POST(request: NextRequest) {
     summary: analysis.summary,
     linked_category: linkedCategory || autoCategory,
     category_auto: !!autoCategory,
+    // LANGUE DU DOCUMENT (13/09/2026, plaquette par pays). Devinée à partir
+    // du texte déjà extrait — aucun appel supplémentaire, aucun coût, et
+    // surtout rien à saisir au dépôt. Le commercial voit l'étiquette à côté
+    // du fichier et la corrige d'un clic si elle est fausse (PATCH).
+    // null = langue indéterminée (document sans texte, ou deux langues au
+    // coude à coude) : l'écran propose alors « Toutes langues ».
+    language: detectDocumentLanguage(extractedText),
   };
 
   let { data: doc, error: dbError } = await supabaseAdmin
@@ -128,7 +136,10 @@ export async function POST(request: NextRequest) {
   // faire échouer l'upload — le classement reste appliqué, seul le marqueur
   // « classé par Aaron » manque.
   if (dbError && (dbError as any).code === '42703') {
-    const { category_auto, ...withoutFlag } = insertRow;
+    // Une des colonnes optionnelles manque (category_auto ou language, selon
+    // les migrations déjà jouées) : on retire les deux plutôt que de faire
+    // échouer un dépôt de document pour une étiquette.
+    const { category_auto, language, ...withoutFlag } = insertRow;
     ({ data: doc, error: dbError } = await supabaseAdmin
       .from('company_documents')
       .insert(withoutFlag)
