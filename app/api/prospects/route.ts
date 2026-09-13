@@ -294,13 +294,23 @@ export async function POST(request: NextRequest) {
   // création du prospect — on le renvoie avec un avertissement exploitable
   // par le frontend plutôt qu'une 500 sans rollback.
   let aaronOutput = null;
+  // 13/09/2026 (Alex : « quand j'ai ajouté le prospect manuellement il n'y
+  // avait pas tout le texte traduit en anglais »). Ces messages remontaient
+  // en FRANÇAIS EN DUR jusqu'à une window.alert() — l'interface avait beau
+  // être en anglais, l'alerte restait française. On renvoie désormais un
+  // CODE + ses paramètres ; la traduction se fait côté client avec les
+  // mêmes clés i18n que le reste de l'écran (voir lib/i18n.js,
+  // prospects.warn*). `emailWarning` reste renvoyé tel quel pour ne rien
+  // casser si un appelant plus ancien le lit encore.
   let emailWarning = null;
+  let emailWarningCode: string | null = null;
+  let emailWarningParams: Record<string, string> | null = null;
 
   // Voir commentaire sur asyncFirstContact plus haut : sort immédiatement,
   // AVANT même la recherche web de la société (elle aussi lente) — tout le
   // travail lent est délégué à /api/prospects/[id]/generate-first-contact.
   if (asyncFirstContact) {
-    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null });
   }
 
   // MAÎTRISE + AUTO-COMPLÉTION DE LA SOCIÉTÉ CONTACTÉE (demande Alex,
@@ -353,7 +363,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (skipFirstContact) {
-    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null });
+    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null });
   }
 
   try {
@@ -383,6 +393,7 @@ export async function POST(request: NextRequest) {
         .eq('id', prospect.id);
 
       emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+      emailWarningCode = 'pendingApproval';
 
       try {
         await sendPushNotification(assigned_user_id, {
@@ -428,16 +439,24 @@ export async function POST(request: NextRequest) {
       .eq('id', prospect.id);
   } catch (err: any) {
     console.error('Erreur génération/envoi du premier message prospect:', err.message);
-    emailWarning =
-      err instanceof DailySendCapExceededError
-        ? `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`
-        : err instanceof MailboxAuthBrokenError
-        ? "Prospect ajouté, mais le premier message n'est pas parti : ta boîte mail refuse la connexion (mot de passe changé ?). Ressaisis-le dans « Connexions » — le message partira automatiquement ensuite."
-        : err instanceof DomainNotDeliverableError
-        ? `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF/DMARC valide, tes emails de prospection partiraient en spam. Corrige-le dans "Connexions" — le message partira automatiquement une fois réglé.`
-        : err.message?.includes('Aucune boîte mail connectée')
-        ? "Prospect ajouté, mais aucun email n'a été envoyé : connectez votre boîte mail dans \"Connexions\"."
-        : "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+    if (err instanceof DailySendCapExceededError) {
+      emailWarningCode = 'dailyCap';
+      emailWarningParams = { cap: String(err.cap) };
+      emailWarning = `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`;
+    } else if (err instanceof MailboxAuthBrokenError) {
+      emailWarningCode = 'mailboxAuth';
+      emailWarning = "Prospect ajouté, mais le premier message n'est pas parti : ta boîte mail refuse la connexion (mot de passe changé ?). Ressaisis-le dans « Connexions » — le message partira automatiquement ensuite.";
+    } else if (err instanceof DomainNotDeliverableError) {
+      emailWarningCode = 'domainNotDeliverable';
+      emailWarningParams = { domain: String(err.domain) };
+      emailWarning = `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF/DMARC valide, tes emails de prospection partiraient en spam. Corrige-le dans "Connexions" — le message partira automatiquement une fois réglé.`;
+    } else if (err.message?.includes('Aucune boîte mail connectée')) {
+      emailWarningCode = 'noMailbox';
+      emailWarning = "Prospect ajouté, mais aucun email n'a été envoyé : connecte ta boîte mail dans « Connexions ».";
+    } else {
+      emailWarningCode = 'sendFailed';
+      emailWarning = "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+    }
 
     // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
     // 30/08/2026, test Outlook — voir
@@ -457,5 +476,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ prospect, aaronOutput, emailWarning });
+  return NextResponse.json({ prospect, aaronOutput, emailWarning, emailWarningCode, emailWarningParams });
 }
