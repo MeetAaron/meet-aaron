@@ -19,11 +19,15 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 
 const BUCKET = 'documents';
 const VALID_CATEGORIES = ['general', 'prospects', 'opportunites', 'clients'];
+// Langue du document (13/09/2026) : les sept langues de l'app, plus 'all'
+// pour un document valable partout (grille tarifaire, plaquette en images),
+// plus la chaîne vide pour revenir à « indéterminé ».
+const VALID_LANGUAGES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl', 'all'];
 
 async function loadDocumentForCompany(documentId: string) {
   const { data: document } = await supabaseAdmin
     .from('company_documents')
-    .select('id, company_id, storage_path')
+    .select('id, company_id, storage_path, language')
     .eq('id', documentId)
     .single();
   return document;
@@ -58,6 +62,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     update.category_auto = false;
   }
 
+  // Langue du document (13/09/2026) : devinée au dépôt, corrigée ici d'un
+  // clic. 'all' = valable dans toutes les langues, chaîne vide = on efface
+  // l'étiquette. C'est elle qui décide quelle plaquette Aaron joint au
+  // premier email — voir lib/first-email-attachment.ts.
+  if (body.language !== undefined) {
+    const lang = body.language === null || body.language === '' ? null : String(body.language);
+    if (lang !== null && !VALID_LANGUAGES.includes(lang)) {
+      return NextResponse.json({ error: 'Langue invalide' }, { status: 400 });
+    }
+    update.language = lang;
+  }
+
   if (typeof body.commercial_note === 'string') {
     // Plafond défensif (même logique que extracted_text/description) : une
     // note commerciale n'a pas vocation à être un document entier.
@@ -66,18 +82,34 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   // Pièce jointe au premier email (demande Alex, 27/08/2026 — voir
   // migration_first_email_attachment_2026-08-27.sql et
-  // lib/first-email-attachment.ts). Un seul document par société doit avoir
-  // ce champ à true : en l'activant sur celui-ci, on désactive d'abord tous
-  // les autres de la même société plutôt que de laisser l'utilisateur en
-  // marquer plusieurs par erreur (ce qui n'aurait pas de sens — un seul
-  // fichier peut être joint à un email).
+  // lib/first-email-attachment.ts).
+  //
+  // 13/09/2026 — L'EXCLUSIVITÉ DEVIENT « UN SEUL PAR LANGUE », plus « un
+  // seul tout court ». Avant, marquer la plaquette anglaise démarquait la
+  // française, ce qui rendait la plaquette par pays impossible. Un email ne
+  // porte toujours qu'une seule pièce jointe : c'est Aaron qui choisit
+  // laquelle selon la langue du prospect. On ne désactive donc que les
+  // documents marqués dans LA MÊME langue.
   if (typeof body.attach_to_first_email === 'boolean') {
     if (body.attach_to_first_email) {
-      await supabaseAdmin
+      const lang = update.language !== undefined ? update.language : (document as any).language ?? null;
+      let q = supabaseAdmin
         .from('company_documents')
         .update({ attach_to_first_email: false })
         .eq('company_id', document.company_id)
         .neq('id', documentId);
+      // `null` (langue indéterminée) se compare avec .is(), pas avec .eq().
+      q = lang === null ? q.is('language', null) : q.eq('language', lang);
+      const { error: exclusivityError } = await q;
+      // Colonne `language` absente (migration pas encore jouée) : on
+      // retombe sur l'ancienne règle, un seul document marqué en tout.
+      if (exclusivityError && (exclusivityError as any).code === '42703') {
+        await supabaseAdmin
+          .from('company_documents')
+          .update({ attach_to_first_email: false })
+          .eq('company_id', document.company_id)
+          .neq('id', documentId);
+      }
     }
     update.attach_to_first_email = body.attach_to_first_email;
   }
