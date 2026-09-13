@@ -144,7 +144,7 @@ export async function recordMailboxAuthFailure(userId: string, provider: string,
     // Email envoyé depuis la boîte de l'éditeur (aaron@meetaaron.app) et non
     // depuis celle du commercial — la sienne est justement injoignable.
     if ((user as any)?.email) {
-      await sendSystemEmail((user as any).email, texts.subject, texts.body).catch(() => {});
+      await sendSystemEmail((user as any).email, texts.subject, texts.body, (user as any)?.locale).catch(() => {});
     }
   } catch (err: any) {
     console.error('recordMailboxAuthFailure:', err?.message || err);

@@ -137,7 +137,7 @@ export async function notifyHardCeiling(companyId: string, spentUsd: number, cei
         url: '/app/dashboard',
       }).catch(() => {});
       if ((user as any).email) {
-        await sendSystemEmail((user as any).email, texts.subject, texts.body).catch(() => {});
+        await sendSystemEmail((user as any).email, texts.subject, texts.body, (user as any).locale).catch(() => {});
       }
     }
   } catch (err: any) {

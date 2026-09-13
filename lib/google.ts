@@ -4,6 +4,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { encryptToken, decryptToken } from './encryption';
 import { aaronLabelName, isAaronLabelName } from './aaron-label';
+import { aaronSenderName, encodeSenderName } from './aaron-sender';
 
 interface OAuthConnection {
   id: string;
@@ -248,6 +249,9 @@ export async function sendGmailEmail(
     textAlternative?: string;
     attachment?: EmailAttachment;
     skipAaronLabel?: boolean;
+    // Nom d'expéditeur à afficher (en-tête From). Absent = Gmail met le nom
+    // du profil du compte, en français — voir lib/aaron-sender.ts.
+    fromName?: string | null;
     // Fil auquel rattacher cet envoi — voir lib/email-threading.ts.
     reply?: { internetMessageId?: string | null; providerThreadId?: string | null };
   }
@@ -332,6 +336,23 @@ export async function sendGmailEmail(
     rawMessage = rawMessage.replace(`To: ${to}${CRLF}`, `To: ${to}${CRLF}${threadHeaders}${CRLF}`);
   }
 
+  // Nom d'expéditeur (13/09/2026). Sans cet en-tête, Gmail affiche le nom du
+  // profil du compte — donc « Aaron Assistant Commercial » en français, y
+  // compris à un client allemand. L'ADRESSE reste celle de la boîte
+  // authentifiée : Gmail refuse d'envoyer au nom d'une autre.
+  if (opts?.fromName) {
+    const { data: conn } = await supabaseAdmin
+      .from('oauth_connections')
+      .select('provider_account_email')
+      .eq('user_id', userId)
+      .eq('provider', 'google')
+      .maybeSingle();
+    const senderEmail = conn?.provider_account_email;
+    if (senderEmail) {
+      rawMessage = `From: ${encodeSenderName(opts.fromName)} <${senderEmail}>${CRLF}` + rawMessage;
+    }
+  }
+
   const encodedMessage = Buffer.from(rawMessage)
     .toString('base64')
     .replace(/\+/g, '-')
@@ -389,7 +410,7 @@ export async function sendGmailEmail(
 // dans l'app, on réutilise un compte Google déjà connecté et fonctionnel
 // (configurable via SYSTEM_EMAIL_SENDER_USER_ID) pour ne pas dépendre du SMTP
 // par défaut de Supabase (peu fiable / rate-limité).
-export async function sendSystemEmail(to: string, subject: string, body: string) {
+export async function sendSystemEmail(to: string, subject: string, body: string, locale?: string | null) {
   const senderUserId = process.env.SYSTEM_EMAIL_SENDER_USER_ID;
   if (!senderUserId) {
     throw new Error(
@@ -398,7 +419,9 @@ export async function sendSystemEmail(to: string, subject: string, body: string)
       'des emails système (confirmation de compte, etc.).'
     );
   }
-  return sendGmailEmail(senderUserId, to, subject, body);
+  // Nom d'expéditeur dans la langue du destinataire (13/09/2026). `locale`
+  // absent = comportement d'avant, Gmail met le nom du profil du compte.
+  return sendGmailEmail(senderUserId, to, subject, body, locale ? { fromName: aaronSenderName(locale) } : undefined);
 }
 
 // Vérifie les créneaux déjà occupés sur le calendrier Google du commercial
