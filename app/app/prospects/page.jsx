@@ -221,10 +221,20 @@ export default function ProspectsPage() {
   const [loading, setLoading] = useState(true);
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  // Bandeau non bloquant, en remplacement de window.alert (13/09/2026).
+  const [toast, setToast] = useState(null);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [linkedinProspect, setLinkedinProspect] = useState(null);
   const [pendingEmailProspect, setPendingEmailProspect] = useState(null);
   const [search, setSearch] = useState('');
+
+  // Le bandeau disparaît tout seul au bout de huit secondes — assez pour
+  // lire une phrase, assez peu pour ne pas encombrer l'écran.
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 8000);
+    return () => clearTimeout(id);
+  }, [toast]);
   // Fusion Prospects + Opportunités + Clients (docx « mon avis » d'Alex,
   // 31/08/2026) : un seul tableau, filtré par catégorie (prospects +
   // opportunités par défaut, clients à la demande), par étape de la ligne
@@ -395,6 +405,13 @@ export default function ProspectsPage() {
 
   return (
     <Shell active={t('nav.prospects', locale)} userId={userId} onNotificationsChanged={loadProspects} onNotificationContact={(id) => setSelectedId(id)}>
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          <span>{toast}</span>
+          <button type="button" onClick={() => setToast(null)} aria-label={t('common.close', locale)}>×</button>
+        </div>
+      )}
+
       <header className="header">
         <div>
           <p className="eyebrow">{t('prospects.eyebrow', locale)}</p>
@@ -692,11 +709,16 @@ export default function ProspectsPage() {
             setShowAddForm(false);
             loadProspects();
           }}
-          onFirstContactSettled={(emailWarning) => {
+          // 13/09/2026 (Alex : « quand on ajoute le prospect le temps de
+          // chargement est long, je veux que ça se fasse en arrière-plan »).
+          // La création était DÉJÀ instantanée — c'est cette alerte, qui
+          // surgissait 40 secondes plus tard et bloquait tout l'écran, qui
+          // donnait l'impression d'attendre. Elle devient un bandeau
+          // discret : rien n'est bloqué, la liste se rafraîchit toute seule,
+          // et le message s'efface au bout de huit secondes.
+          onFirstContactSettled={(warning) => {
             loadProspects();
-            if (emailWarning) {
-              window.alert(emailWarning);
-            }
+            if (warning) setToast(warning);
           }}
         />
       )}
@@ -715,6 +737,38 @@ export default function ProspectsPage() {
       )}
 
       <style jsx>{`
+        .toast {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
+          margin-bottom: 1rem;
+          padding: 0.8rem 1rem;
+          border: 1px solid #2C3557;
+          border-left: 3px solid #4B9EF0;
+          border-radius: 10px;
+          background: #131629;
+          color: #D6DAEC;
+          font-size: 0.88rem;
+          line-height: 1.45;
+        }
+        .toast span { flex: 1; }
+        .toast button {
+          background: none;
+          border: none;
+          color: #8B90A8;
+          font-size: 1.15rem;
+          line-height: 1;
+          cursor: pointer;
+          padding: 0 0.15rem;
+        }
+        .toast button:hover { color: #D6DAEC; }
+        @media (prefers-reduced-motion: no-preference) {
+          .toast { animation: toast-in 0.18s ease-out; }
+        }
+        @keyframes toast-in {
+          from { opacity: 0; transform: translateY(-4px); }
+          to   { opacity: 1; transform: none; }
+        }
         .header {
           display: flex;
           justify-content: space-between;
@@ -1045,6 +1099,40 @@ export default function ProspectsPage() {
   );
 }
 
+// PAYS DU PROSPECT (13/09/2026, demande d'Alex : « il faut pouvoir entrer
+// l'adresse, le pays etc. quand on ajoute un prospect manuel, car ça
+// définira la langue de l'email »).
+//
+// La valeur envoyée est le nom EN ANGLAIS, parce que c'est lui que
+// lib/prospect-locale.ts sait relier à une langue. Le pays est ajouté à
+// l'adresse de la société — pas de colonne dédiée, donc pas de migration à
+// jouer avant que ça marche.
+//
+// Les pays multilingues (Belgique, Suisse, Canada) sont volontairement
+// absents : Aaron ne doit pas deviner entre deux langues officielles, il
+// retombe alors sur celle du commercial.
+const COUNTRY_OPTIONS = [
+  { value: '', langue: '' },
+  { value: 'France', langue: 'FR' },
+  { value: 'Australia', langue: 'EN' },
+  { value: 'United Kingdom', langue: 'EN' },
+  { value: 'Ireland', langue: 'EN' },
+  { value: 'United States', langue: 'EN' },
+  { value: 'New Zealand', langue: 'EN' },
+  { value: 'Singapore', langue: 'EN' },
+  { value: 'Germany', langue: 'DE' },
+  { value: 'Austria', langue: 'DE' },
+  { value: 'Italy', langue: 'IT' },
+  { value: 'Spain', langue: 'ES' },
+  { value: 'Mexico', langue: 'ES' },
+  { value: 'Argentina', langue: 'ES' },
+  { value: 'Portugal', langue: 'PT' },
+  { value: 'Brazil', langue: 'PT' },
+  { value: 'Netherlands', langue: 'NL' },
+  { value: 'Luxembourg', langue: 'FR' },
+  { value: 'Monaco', langue: 'FR' },
+];
+
 // Traduit l'avertissement renvoyé après la création d'un prospect. Le serveur
 // envoie un code (`emailWarningCode`) et ses paramètres ; la phrase vit dans
 // lib/i18n.js, en sept langues, comme le reste de l'écran.
@@ -1080,6 +1168,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [showCompanyFields, setShowCompanyFields] = useState(false);
   const [address, setAddress] = useState('');
+  const [country, setCountry] = useState('');
   const [siret, setSiret] = useState('');
   const [website, setWebsite] = useState('');
   const [industry, setIndustry] = useState('');
@@ -1113,7 +1202,10 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
         job_title: jobTitle || null,
         company_name: companyName || null,
         linkedin_url: linkedinUrl || null,
-        address: address || null,
+        // Le pays est concaténé à l'adresse : c'est là que
+        // lib/prospect-locale.ts va le lire pour choisir la langue de
+        // l'email. Aucune colonne dédiée, donc rien à migrer.
+        address: [address, country].filter(Boolean).join(', ') || null,
         siret: siret || null,
         website: website || null,
         industry: industry || null,
@@ -1192,6 +1284,18 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
           <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder={t('prospects.linkedinPlaceholder', locale)} />
         </label>
 
+        <label>
+          {t('prospects.countryLabel', locale)} {t('prospects.optionalSuffix', locale)}
+          <select value={country} onChange={(e) => setCountry(e.target.value)}>
+            {COUNTRY_OPTIONS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.value ? `${c.value} — ${c.langue}` : t('prospects.countryUnknown', locale)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="field-hint">{t('prospects.countryHint', locale)}</p>
+
         {!showCompanyFields ? (
           <button type="button" className="toggle-company-fields" onClick={() => setShowCompanyFields(true)}>
             + {t('prospects.companyInfoTitle', locale)} {t('prospects.optionalSuffix', locale)}
@@ -1245,6 +1349,12 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
           justify-content: center;
           z-index: 100;
           padding: 1rem;
+        }
+        .field-hint {
+          margin: -0.35rem 0 0.2rem;
+          font-size: 0.75rem;
+          line-height: 1.4;
+          color: #8B90A8;
         }
         .modal {
           background: var(--surface);
