@@ -419,9 +419,33 @@ export async function sendSystemEmail(to: string, subject: string, body: string,
       'des emails système (confirmation de compte, etc.).'
     );
   }
-  // Nom d'expéditeur dans la langue du destinataire (13/09/2026). `locale`
-  // absent = comportement d'avant, Gmail met le nom du profil du compte.
-  return sendGmailEmail(senderUserId, to, subject, body, locale ? { fromName: aaronSenderName(locale) } : undefined);
+  // NOM D'EXPÉDITEUR DANS LA LANGUE DU DESTINATAIRE (13/09/2026).
+  //
+  // Si l'appelant ne précise pas la langue, on la retrouve nous-mêmes à
+  // partir de l'adresse du destinataire. C'est volontaire : tous les emails
+  // système (rapport de résultats, confirmation de compte, réinitialisation
+  // de mot de passe, alertes de plafond, panne de boîte mail) en profitent
+  // d'un coup, sans avoir à modifier chacun de leurs appelants — et un
+  // appelant futur qui oublierait de passer la langue sera correct par
+  // défaut plutôt que français par défaut.
+  //
+  // Destinataire inconnu de la table users (email de confirmation envoyé
+  // avant la création de la ligne, par exemple) : on retombe sur le
+  // français, comme avant.
+  let resolvedLocale = locale || null;
+  if (!resolvedLocale) {
+    try {
+      const { data: recipient } = await supabaseAdmin
+        .from('users')
+        .select('locale')
+        .eq('email', to)
+        .maybeSingle();
+      resolvedLocale = recipient?.locale || null;
+    } catch {
+      resolvedLocale = null;
+    }
+  }
+  return sendGmailEmail(senderUserId, to, subject, body, { fromName: aaronSenderName(resolvedLocale) });
 }
 
 // Vérifie les créneaux déjà occupés sur le calendrier Google du commercial
