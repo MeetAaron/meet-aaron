@@ -23,6 +23,9 @@ import Ic from '@/components/UiIcon';
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 
+// Les sept langues de l'app — mêmes codes que lib/document-language.ts.
+const DOC_LANGUAGES = LOCALES;
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -187,6 +190,7 @@ export default function DocumentsPage() {
   const [togglingId, setTogglingId] = useState(null);
   const [categoryUpdatingId, setCategoryUpdatingId] = useState(null);
   const [togglingAttachmentId, setTogglingAttachmentId] = useState(null);
+  const [languageUpdatingId, setLanguageUpdatingId] = useState(null);
   const [generatingAdviceId, setGeneratingAdviceId] = useState(null);
   const [adviceModalDoc, setAdviceModalDoc] = useState(null);
   // Demande Alex (2026-08-26, capture à l'appui) : la synthèse générée par
@@ -285,6 +289,28 @@ export default function DocumentsPage() {
       body: JSON.stringify({ linked_category: newCategory === 'general' ? null : newCategory }),
     });
     setCategoryUpdatingId(null);
+    if (!res.ok) {
+      setRowError(t('documents.deleteError', locale));
+      return;
+    }
+    flashSaved(doc.id);
+    load();
+  }
+
+  // LANGUE DU DOCUMENT (13/09/2026, plaquette par pays). Devinée au dépôt
+  // par lib/document-language.ts ; ce menu ne sert qu'à corriger quand la
+  // détection s'est trompée, ou à marquer un document « toutes langues »
+  // (grille tarifaire, plaquette en images) que son texte ne permettait pas
+  // de classer.
+  async function handleLanguageChange(doc, newLanguage) {
+    setLanguageUpdatingId(doc.id);
+    setRowError(null);
+    const res = await fetch(`/api/documents/${doc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: newLanguage || null }),
+    });
+    setLanguageUpdatingId(null);
     if (!res.ok) {
       setRowError(t('documents.deleteError', locale));
       return;
@@ -605,6 +631,20 @@ export default function DocumentsPage() {
                   >
                     {CATEGORIES.map((cat) => (
                       <option key={cat} value={cat}>{categoryLabelsFor(locale)[cat]}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="category-select-inline"
+                    value={d.language || ''}
+                    disabled={languageUpdatingId === d.id}
+                    onChange={(e) => handleLanguageChange(d, e.target.value)}
+                    aria-label={t('documents.languageLabel', locale)}
+                    title={t('documents.languageHint', locale)}
+                  >
+                    <option value="">{t('documents.languageUnknown', locale)}</option>
+                    <option value="all">{t('documents.languageAll', locale)}</option>
+                    {DOC_LANGUAGES.map((l) => (
+                      <option key={l} value={l}>{LOCALE_LABELS[l] || l}</option>
                     ))}
                   </select>
                   <button type="button" className="chip chip-danger" onClick={() => setConfirmDeleteId(d.id)}>
