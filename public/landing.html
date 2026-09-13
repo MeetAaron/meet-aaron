@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" id="htmlRoot">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -34,6 +34,21 @@
      #3DD68C = "en bonne voie" dans app/app/dashboard/page.jsx) pour rester
      cohérent avec l'identité déjà en place, plus un violet en complément
      pour le dégradé. */
+  /* Sélecteur de langue (13/09/2026) : la landing était la dernière surface
+     entièrement en français alors que l'app et les pages légales sont en sept
+     langues depuis le 08/09. Un visiteur allemand ou espagnol arrivait sur une
+     page qu'il ne lit pas. */
+  .lang-picker{
+    background:var(--bg-2);
+    color:var(--text-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:5px 8px;
+    font:inherit;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .lang-picker:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   :root{
     --bg:#05060f;
     --bg-2:#0b0e1a;
@@ -268,25 +283,26 @@
     <div class="word">Meet Aaron</div>
   </div>
   <nav>
-    <a href="#telecharger">Télécharger</a>
-    <a href="#tarifs">Tarifs</a>
-    <a href="#contact">Contact</a>
-    <a class="nav-cta" href="/app">Essayer →</a>
+    <a href="#telecharger" data-i18n="nav.download">Télécharger</a>
+    <a href="#tarifs" data-i18n="nav.pricing">Tarifs</a>
+    <a href="#contact" data-i18n="nav.contact">Contact</a>
+    <select id="langPicker" class="lang-picker" aria-label="Langue / Language"></select>
+    <a class="nav-cta" href="/app" data-i18n="nav.try">Essayer →</a>
   </nav>
 </header>
 
 <section class="hero">
-  <p class="eyebrow"><span class="dot"></span> Assistant commercial IA</p>
-  <h1>Aaron, le <em>copilote</em> de votre commercial</h1>
-  <p class="sub">Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.</p>
-  <button class="cta" onclick="window.location.href='/app'">Essayer maintenant →</button>
+  <p class="eyebrow"><span class="dot"></span> <span data-i18n="hero.eyebrow">Assistant commercial IA</span></p>
+  <h1 data-i18n-html="hero.title">Aaron, le <em>copilote</em> de votre commercial</h1>
+  <p class="sub" data-i18n="hero.sub">Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.</p>
+  <button class="cta" onclick="window.location.href='/app'" data-i18n="hero.cta">Essayer maintenant →</button>
 </section>
 
 <main id="telecharger">
   <div class="section-head">
-    <p class="eyebrow">Installation</p>
-    <h2>Utilisez Aaron où vous voulez</h2>
-    <p class="sub">La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.</p>
+    <p class="eyebrow" data-i18n="inst.eyebrow">Installation</p>
+    <h2 data-i18n="inst.title">Utilisez Aaron où vous voulez</h2>
+    <p class="sub" data-i18n="inst.sub">La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.</p>
   </div>
 
   <div class="grid">
@@ -295,13 +311,13 @@
     <div class="card">
       <div class="top">
         <div class="icon">🖥️</div>
-        <span class="badge live">Disponible</span>
+        <span class="badge live" data-i18n="badge.live">Disponible</span>
       </div>
       <div>
-        <h3>Sur votre PC ou Mac</h3>
-        <p class="desc">Installez Aaron comme une vraie application de bureau, avec icône et fenêtre dédiée — sans passer par un store.</p>
+        <h3 data-i18n="c1.title">Sur votre PC ou Mac</h3>
+        <p class="desc" data-i18n="c1.desc">Installez Aaron comme une vraie application de bureau, avec icône et fenêtre dédiée — sans passer par un store.</p>
       </div>
-      <button class="btn primary" id="installDesktopBtn" onclick="installDesktop()">Installer sur cet ordinateur</button>
+      <button class="btn primary" id="installDesktopBtn" onclick="installDesktop()" data-i18n="c1.btn">Installer sur cet ordinateur</button>
       <p class="install-status" id="installStatus"></p>
     </div>
 
@@ -309,15 +325,15 @@
     <div class="card">
       <div class="top">
         <div class="icon">📱</div>
-        <span class="badge live">Disponible</span>
+        <span class="badge live" data-i18n="badge.live">Disponible</span>
       </div>
       <div>
-        <h3>Sur votre téléphone (web)</h3>
-        <p class="desc">Scannez avec l'appareil photo de votre téléphone, puis choisissez "Ajouter à l'écran d'accueil" — Aaron se comporte comme une app native.</p>
+        <h3 data-i18n="c2.title">Sur votre téléphone (web)</h3>
+        <p class="desc" data-i18n="c2.desc">Scannez avec l'appareil photo de votre téléphone, puis choisissez "Ajouter à l'écran d'accueil" — Aaron se comporte comme une app native.</p>
       </div>
       <div class="qr-wrap">
         <div class="qr-box" id="qr-pwa"></div>
-        <p class="qr-note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
+        <p class="qr-note" data-i18n-html="c2.note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
       </div>
     </div>
 
@@ -325,15 +341,15 @@
     <div class="card">
       <div class="top">
         <div class="icon"></div>
-        <span class="badge soon">Bientôt disponible</span>
+        <span class="badge soon" data-i18n="badge.soon">Bientôt disponible</span>
       </div>
       <div>
-        <h3>App Store (iOS)</h3>
-        <p class="desc">L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
+        <h3 data-i18n="c3.title">App Store (iOS)</h3>
+        <p class="desc" data-i18n="c3.desc">L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
       </div>
       <div class="qr-wrap">
         <div class="qr-box" id="qr-ios"></div>
-        <p class="qr-note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
+        <p class="qr-note" data-i18n-html="c3.note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
       </div>
     </div>
 
@@ -341,15 +357,15 @@
     <div class="card">
       <div class="top">
         <div class="icon">▶</div>
-        <span class="badge soon">Bientôt disponible</span>
+        <span class="badge soon" data-i18n="badge.soon">Bientôt disponible</span>
       </div>
       <div>
-        <h3>Google Play (Android)</h3>
-        <p class="desc">L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
+        <h3 data-i18n="c4.title">Google Play (Android)</h3>
+        <p class="desc" data-i18n="c4.desc">L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
       </div>
       <div class="qr-wrap">
         <div class="qr-box" id="qr-android"></div>
-        <p class="qr-note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
+        <p class="qr-note" data-i18n-html="c3.note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
       </div>
     </div>
 
@@ -358,9 +374,9 @@
 
 <section class="page-section" id="tarifs">
   <div class="section-head">
-    <p class="eyebrow">Tarifs</p>
-    <h2>Un seul abonnement, tout inclus</h2>
-    <p class="sub">Aaron prospecte, relance, prend vos rendez-vous et suit vos opportunités jusqu'à la signature — pour un prix unique, sans engagement.</p>
+    <p class="eyebrow" data-i18n="price.eyebrow">Tarifs</p>
+    <h2 data-i18n="price.title">Un seul abonnement, tout inclus</h2>
+    <p class="sub" data-i18n="price.sub">Aaron prospecte, relance, prend vos rendez-vous et suit vos opportunités jusqu'à la signature — pour un prix unique, sans engagement.</p>
   </div>
 
   <div class="grid grid-3" style="grid-template-columns:1fr;max-width:460px;margin:0 auto;">
@@ -369,47 +385,399 @@
         <div class="icon">🎯</div>
         <span class="badge live">Aaron</span>
       </div>
-      <div class="price">30€ <span>/ mois</span></div>
-      <p class="desc">Votre commercial IA, du premier contact à la signature.</p>
+      <div class="price"><span id="priceAmount">30€</span> <span data-i18n="price.per">/ mois</span></div>
+      <p class="desc" data-i18n="price.desc">Votre commercial IA, du premier contact à la signature.</p>
       <ul>
-        <li>Recherche et contact de nouveaux prospects</li>
-        <li>Relances automatiques des sans-réponse</li>
-        <li>Prise de rendez-vous dans votre agenda</li>
-        <li>Conseils avant chaque rendez-vous et suivi des opportunités</li>
-        <li>Relances jusqu'à la signature</li>
+        <li data-i18n="price.f1">Recherche et contact de nouveaux prospects</li>
+        <li data-i18n="price.f2">Relances automatiques des sans-réponse</li>
+        <li data-i18n="price.f3">Prise de rendez-vous dans votre agenda</li>
+        <li data-i18n="price.f4">Conseils avant chaque rendez-vous et suivi des opportunités</li>
+        <li data-i18n="price.f5">Relances jusqu'à la signature</li>
       </ul>
     </div>
   </div>
-  <p class="pricing-note">Sans engagement — résiliable à tout moment depuis l'application. 30 € par compte commercial supplémentaire.</p>
+  <p class="pricing-note" data-i18n="price.note">Sans engagement — résiliable à tout moment depuis l'application. 30 € par compte commercial supplémentaire.</p>
 </section>
 
 <section class="page-section" id="contact">
   <div class="section-head">
-    <p class="eyebrow">Contact</p>
-    <h2>Une question ?</h2>
-    <p class="sub">Écrivez-nous, on répond directement.</p>
+    <p class="eyebrow" data-i18n="contact.eyebrow">Contact</p>
+    <h2 data-i18n="contact.title">Une question ?</h2>
+    <p class="sub" data-i18n="contact.sub">Écrivez-nous, on répond directement.</p>
   </div>
 
   <div class="card contact-card">
     <div class="icon">✉️</div>
     <div>
       <h3>aaron@meetaaron.app</h3>
-      <p class="desc">Support, facturation, ou simplement une question avant de vous lancer.</p>
+      <p class="desc" data-i18n="contact.desc">Support, facturation, ou simplement une question avant de vous lancer.</p>
     </div>
-    <a class="btn primary" href="mailto:aaron@meetaaron.app">Nous écrire</a>
+    <a class="btn primary" href="mailto:aaron@meetaaron.app" data-i18n="contact.btn">Nous écrire</a>
   </div>
 </section>
 
 <footer>
-  Meet Aaron — meetaaron.app
+  <span data-i18n="footer.brand">Meet Aaron — meetaaron.app</span>
   <div class="footer-links">
-    <a href="/privacy">Politique de confidentialité</a>
+    <a href="/privacy" data-i18n="footer.privacy">Politique de confidentialité</a>
     <span aria-hidden="true">·</span>
-    <a href="/terms">Conditions d'utilisation</a>
+    <a href="/terms" data-i18n="footer.terms">Conditions d'utilisation</a>
     <span aria-hidden="true">·</span>
-    <a href="mailto:aaron@meetaaron.app">Nous écrire</a>
+    <a href="mailto:aaron@meetaaron.app" data-i18n="footer.write">Nous écrire</a>
   </div>
 </footer>
+
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────────
+   TRADUCTION DE LA LANDING — 7 langues (13/09/2026)
+   Les mêmes que l'app (lib/i18n.js) et que /privacy et /terms : fr, en, de,
+   it, es, pt, nl. Cette page est un fichier statique servi depuis /public,
+   elle ne peut pas importer lib/i18n.js — d'où ce dictionnaire autonome.
+   La langue se devine depuis le navigateur au premier passage, puis suit le
+   choix mémorisé.
+   PRIX : une seule constante ci-dessous. Le jour où l'abonnement passe à
+   59 €, c'est cette ligne qu'on change et les sept langues suivent.
+   ────────────────────────────────────────────────────────────────────────── */
+var PRICE = '30 €';
+
+var I18N = {
+ fr:{
+  'nav.download':'Télécharger','nav.pricing':'Tarifs','nav.contact':'Contact','nav.try':'Essayer →',
+  'hero.eyebrow':'Assistant commercial IA',
+  'hero.title':'Aaron, le <em>copilote</em> de votre commercial',
+  'hero.sub':'Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.',
+  'hero.cta':'Essayer maintenant →',
+  'inst.eyebrow':'Installation','inst.title':'Utilisez Aaron où vous voulez',
+  'inst.sub':"La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.",
+  'badge.live':'Disponible','badge.soon':'Bientôt disponible',
+  'c1.title':'Sur votre PC ou Mac',
+  'c1.desc':'Installez Aaron comme une vraie application de bureau, avec icône et fenêtre dédiée — sans passer par un store.',
+  'c1.btn':'Installer sur cet ordinateur',
+  'c2.title':'Sur votre téléphone (web)',
+  'c2.desc':"Scannez avec l'appareil photo de votre téléphone, puis choisissez « Ajouter à l'écran d'accueil » — Aaron se comporte comme une app native.",
+  'c2.note':'Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':"L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+  'c3.note':'En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':"L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+  'price.eyebrow':'Tarifs','price.title':'Un seul abonnement, tout inclus',
+  'price.sub':"Aaron prospecte, relance, prend vos rendez-vous et suit vos opportunités jusqu'à la signature — pour un prix unique, sans engagement.",
+  'price.per':'/ mois','price.desc':'Votre commercial IA, du premier contact à la signature.',
+  'price.f1':'Recherche et contact de nouveaux prospects',
+  'price.f2':'Relances automatiques des sans-réponse',
+  'price.f3':'Prise de rendez-vous dans votre agenda',
+  'price.f4':'Conseils avant chaque rendez-vous et suivi des opportunités',
+  'price.f5':"Relances jusqu'à la signature",
+  'price.note':"Sans engagement — résiliable à tout moment depuis l'application. {price} par compte commercial supplémentaire.",
+  'contact.eyebrow':'Contact','contact.title':'Une question ?','contact.sub':'Écrivez-nous, on répond directement.',
+  'contact.desc':'Support, facturation, ou simplement une question avant de vous lancer.','contact.btn':'Nous écrire',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Politique de confidentialité',
+  'footer.terms':"Conditions d'utilisation",'footer.write':'Nous écrire',
+  'meta.title':'Meet Aaron — Le copilote de votre commercial',
+  'meta.desc':"Aaron, le copilote commercial IA : il prospecte, relance et prend vos rendez-vous pendant que vous êtes occupé. À partir de {price}/mois, sans engagement.",
+  'install.launched':'Installation lancée.',
+  'install.cancelled':'Installation annulée — vous pouvez réessayer à tout moment.',
+  'install.manual':"Ouvrez ce menu dans votre navigateur : icône ⊕ / « Installer Meet Aaron » dans la barre d'adresse (Chrome/Edge).",
+  'install.done':'Meet Aaron est installé.'
+ },
+ en:{
+  'nav.download':'Download','nav.pricing':'Pricing','nav.contact':'Contact','nav.try':'Try it →',
+  'hero.eyebrow':'AI sales assistant',
+  'hero.title':'Aaron, your salesperson’s <em>copilot</em>',
+  'hero.sub':'While you sleep, eat or drive — Aaron prospects, follows up and fills your calendar.',
+  'hero.cta':'Try it now →',
+  'inst.eyebrow':'Install','inst.title':'Use Aaron wherever you are',
+  'inst.sub':'The same app, four ways in — your data stays in sync everywhere.',
+  'badge.live':'Available','badge.soon':'Coming soon',
+  'c1.title':'On your PC or Mac',
+  'c1.desc':'Install Aaron as a real desktop app, with its own icon and window — no store required.',
+  'c1.btn':'Install on this computer',
+  'c2.title':'On your phone (web)',
+  'c2.desc':'Scan with your phone camera, then choose “Add to Home Screen” — Aaron behaves like a native app.',
+  'c2.note':'Works right now on <b>iOS</b> and <b>Android</b>, without going through a store.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'The native iOS app is under review by Apple. Scan to be redirected to the listing as soon as it goes live.',
+  'c3.note':'In the meantime, this link opens the <b>web version</b> — same features.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'The native Android app is under review by Google. Scan to be redirected to the listing as soon as it goes live.',
+  'price.eyebrow':'Pricing','price.title':'One subscription, everything included',
+  'price.sub':'Aaron prospects, follows up, books your meetings and tracks your deals through to signature — one price, no commitment.',
+  'price.per':'/ month','price.desc':'Your AI salesperson, from first contact to signature.',
+  'price.f1':'Finds and contacts new prospects',
+  'price.f2':'Automatic follow-ups for non-responders',
+  'price.f3':'Books meetings straight into your calendar',
+  'price.f4':'Advice before every meeting, and deal tracking',
+  'price.f5':'Follow-ups all the way to signature',
+  'price.note':'No commitment — cancel any time from the app. {price} per additional salesperson account.',
+  'contact.eyebrow':'Contact','contact.title':'A question?','contact.sub':'Write to us, we answer directly.',
+  'contact.desc':'Support, billing, or simply a question before you get started.','contact.btn':'Write to us',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Privacy policy',
+  'footer.terms':'Terms of use','footer.write':'Write to us',
+  'meta.title':'Meet Aaron — Your salesperson’s copilot',
+  'meta.desc':'Aaron, the AI sales copilot: it prospects, follows up and books your meetings while you are busy. From {price}/month, no commitment.',
+  'install.launched':'Installation started.',
+  'install.cancelled':'Installation cancelled — you can try again any time.',
+  'install.manual':'Open this menu in your browser: the ⊕ icon / “Install Meet Aaron” in the address bar (Chrome/Edge).',
+  'install.done':'Meet Aaron is installed.'
+ },
+ de:{
+  'nav.download':'Herunterladen','nav.pricing':'Preise','nav.contact':'Kontakt','nav.try':'Ausprobieren →',
+  'hero.eyebrow':'KI-Vertriebsassistent',
+  'hero.title':'Aaron, der <em>Copilot</em> Ihres Vertriebs',
+  'hero.sub':'Während Sie schlafen, essen oder fahren — Aaron akquiriert, hakt nach und füllt Ihren Kalender.',
+  'hero.cta':'Jetzt ausprobieren →',
+  'inst.eyebrow':'Installation','inst.title':'Nutzen Sie Aaron überall',
+  'inst.sub':'Dieselbe App, vier Zugänge — Ihre Daten bleiben überall synchron.',
+  'badge.live':'Verfügbar','badge.soon':'Demnächst verfügbar',
+  'c1.title':'Auf Ihrem PC oder Mac',
+  'c1.desc':'Installieren Sie Aaron als echte Desktop-Anwendung, mit eigenem Symbol und Fenster — ganz ohne Store.',
+  'c1.btn':'Auf diesem Computer installieren',
+  'c2.title':'Auf Ihrem Telefon (Web)',
+  'c2.desc':'Mit der Handykamera scannen und dann „Zum Startbildschirm hinzufügen“ wählen — Aaron verhält sich wie eine native App.',
+  'c2.note':'Funktioniert sofort auf <b>iOS</b> und <b>Android</b>, ohne Umweg über einen Store.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'Die native iOS-App wird gerade von Apple geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+  'c3.note':'Bis dahin öffnet dieser Link die <b>Web-Version</b> — mit denselben Funktionen.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'Die native Android-App wird gerade von Google geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+  'price.eyebrow':'Preise','price.title':'Ein Abo, alles inklusive',
+  'price.sub':'Aaron akquiriert, hakt nach, vereinbart Ihre Termine und begleitet Ihre Chancen bis zur Unterschrift — ein Preis, keine Bindung.',
+  'price.per':'/ Monat','price.desc':'Ihr KI-Vertriebler, vom ersten Kontakt bis zur Unterschrift.',
+  'price.f1':'Findet und kontaktiert neue Interessenten',
+  'price.f2':'Automatische Nachfassaktionen bei Nichtantwort',
+  'price.f3':'Termine direkt in Ihrem Kalender',
+  'price.f4':'Rat vor jedem Termin und Verfolgung der Chancen',
+  'price.f5':'Nachfassen bis zur Unterschrift',
+  'price.note':'Keine Bindung — jederzeit in der App kündbar. {price} je zusätzlichem Vertriebskonto.',
+  'contact.eyebrow':'Kontakt','contact.title':'Eine Frage?','contact.sub':'Schreiben Sie uns, wir antworten direkt.',
+  'contact.desc':'Support, Rechnungen oder einfach eine Frage, bevor Sie loslegen.','contact.btn':'Schreiben Sie uns',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Datenschutzerklärung',
+  'footer.terms':'Nutzungsbedingungen','footer.write':'Schreiben Sie uns',
+  'meta.title':'Meet Aaron — Der Copilot Ihres Vertriebs',
+  'meta.desc':'Aaron, der KI-Vertriebscopilot: akquiriert, hakt nach und vereinbart Ihre Termine, während Sie beschäftigt sind. Ab {price}/Monat, ohne Bindung.',
+  'install.launched':'Installation gestartet.',
+  'install.cancelled':'Installation abgebrochen — Sie können es jederzeit erneut versuchen.',
+  'install.manual':'Öffnen Sie dieses Menü im Browser: Symbol ⊕ / „Meet Aaron installieren“ in der Adressleiste (Chrome/Edge).',
+  'install.done':'Meet Aaron ist installiert.'
+ },
+ it:{
+  'nav.download':'Scarica','nav.pricing':'Prezzi','nav.contact':'Contatti','nav.try':'Prova →',
+  'hero.eyebrow':'Assistente commerciale IA',
+  'hero.title':'Aaron, il <em>copilota</em> del tuo commerciale',
+  'hero.sub':'Mentre dormi, mangi o guidi — Aaron cerca clienti, ricontatta e riempie la tua agenda.',
+  'hero.cta':'Prova subito →',
+  'inst.eyebrow':'Installazione','inst.title':'Usa Aaron dove vuoi',
+  'inst.sub':'La stessa app, quattro modi di accedervi — i tuoi dati restano sincronizzati ovunque.',
+  'badge.live':'Disponibile','badge.soon':'Presto disponibile',
+  'c1.title':'Sul tuo PC o Mac',
+  'c1.desc':'Installa Aaron come una vera applicazione desktop, con icona e finestra dedicate — senza passare da uno store.',
+  'c1.btn':'Installa su questo computer',
+  'c2.title':'Sul tuo telefono (web)',
+  'c2.desc':'Inquadra con la fotocamera del telefono, poi scegli « Aggiungi a Home » — Aaron si comporta come un’app nativa.',
+  'c2.note':'Funziona già su <b>iOS</b> e <b>Android</b>, senza passare da uno store.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'L’app nativa iOS è in convalida presso Apple. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+  'c3.note':'Nel frattempo questo link apre la <b>versione web</b> — stesse funzionalità.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'L’app nativa Android è in convalida presso Google. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+  'price.eyebrow':'Prezzi','price.title':'Un solo abbonamento, tutto incluso',
+  'price.sub':'Aaron cerca clienti, ricontatta, fissa i tuoi appuntamenti e segue le opportunità fino alla firma — un prezzo unico, senza vincoli.',
+  'price.per':'/ mese','price.desc':'Il tuo commerciale IA, dal primo contatto alla firma.',
+  'price.f1':'Ricerca e contatto di nuovi potenziali clienti',
+  'price.f2':'Solleciti automatici a chi non risponde',
+  'price.f3':'Appuntamenti fissati direttamente in agenda',
+  'price.f4':'Consigli prima di ogni appuntamento e monitoraggio delle opportunità',
+  'price.f5':'Solleciti fino alla firma',
+  'price.note':'Senza vincoli — disdici quando vuoi dall’app. {price} per ogni account commerciale aggiuntivo.',
+  'contact.eyebrow':'Contatti','contact.title':'Una domanda?','contact.sub':'Scrivici, rispondiamo direttamente.',
+  'contact.desc':'Assistenza, fatturazione o semplicemente una domanda prima di iniziare.','contact.btn':'Scrivici',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Informativa sulla privacy',
+  'footer.terms':"Condizioni d'uso",'footer.write':'Scrivici',
+  'meta.title':'Meet Aaron — Il copilota del tuo commerciale',
+  'meta.desc':'Aaron, il copilota commerciale IA: cerca clienti, ricontatta e fissa i tuoi appuntamenti mentre sei occupato. Da {price}/mese, senza vincoli.',
+  'install.launched':'Installazione avviata.',
+  'install.cancelled':'Installazione annullata — puoi riprovare quando vuoi.',
+  'install.manual':'Apri questo menu nel browser: icona ⊕ / « Installa Meet Aaron » nella barra degli indirizzi (Chrome/Edge).',
+  'install.done':'Meet Aaron è installato.'
+ },
+ es:{
+  'nav.download':'Descargar','nav.pricing':'Precios','nav.contact':'Contacto','nav.try':'Probar →',
+  'hero.eyebrow':'Asistente comercial IA',
+  'hero.title':'Aaron, el <em>copiloto</em> de tu comercial',
+  'hero.sub':'Mientras duermes, comes o conduces — Aaron prospecta, hace seguimiento y llena tu agenda.',
+  'hero.cta':'Probar ahora →',
+  'inst.eyebrow':'Instalación','inst.title':'Usa Aaron donde quieras',
+  'inst.sub':'La misma app, cuatro formas de acceder — tus datos siguen sincronizados en todas partes.',
+  'badge.live':'Disponible','badge.soon':'Próximamente',
+  'c1.title':'En tu PC o Mac',
+  'c1.desc':'Instala Aaron como una aplicación de escritorio de verdad, con icono y ventana propios — sin pasar por una tienda.',
+  'c1.btn':'Instalar en este ordenador',
+  'c2.title':'En tu teléfono (web)',
+  'c2.desc':'Escanea con la cámara del teléfono y elige «Añadir a pantalla de inicio» — Aaron se comporta como una app nativa.',
+  'c2.note':'Funciona ya en <b>iOS</b> y <b>Android</b>, sin pasar por una tienda.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'La app nativa de iOS está en revisión por Apple. Escanea para ir directamente a la ficha en cuanto se publique.',
+  'c3.note':'Mientras tanto, este enlace abre la <b>versión web</b> — las mismas funciones.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'La app nativa de Android está en revisión por Google. Escanea para ir directamente a la ficha en cuanto se publique.',
+  'price.eyebrow':'Precios','price.title':'Una sola suscripción, todo incluido',
+  'price.sub':'Aaron prospecta, hace seguimiento, concierta tus citas y acompaña tus oportunidades hasta la firma — un precio único, sin permanencia.',
+  'price.per':'/ mes','price.desc':'Tu comercial IA, del primer contacto a la firma.',
+  'price.f1':'Busca y contacta nuevos posibles clientes',
+  'price.f2':'Seguimientos automáticos de quienes no responden',
+  'price.f3':'Citas concertadas directamente en tu agenda',
+  'price.f4':'Consejos antes de cada cita y seguimiento de oportunidades',
+  'price.f5':'Seguimientos hasta la firma',
+  'price.note':'Sin permanencia — cancela cuando quieras desde la aplicación. {price} por cada cuenta comercial adicional.',
+  'contact.eyebrow':'Contacto','contact.title':'¿Alguna pregunta?','contact.sub':'Escríbenos, respondemos directamente.',
+  'contact.desc':'Soporte, facturación o simplemente una duda antes de empezar.','contact.btn':'Escríbenos',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Política de privacidad',
+  'footer.terms':'Condiciones de uso','footer.write':'Escríbenos',
+  'meta.title':'Meet Aaron — El copiloto de tu comercial',
+  'meta.desc':'Aaron, el copiloto comercial IA: prospecta, hace seguimiento y concierta tus citas mientras estás ocupado. Desde {price}/mes, sin permanencia.',
+  'install.launched':'Instalación iniciada.',
+  'install.cancelled':'Instalación cancelada — puedes volver a intentarlo cuando quieras.',
+  'install.manual':'Abre este menú en tu navegador: icono ⊕ / «Instalar Meet Aaron» en la barra de direcciones (Chrome/Edge).',
+  'install.done':'Meet Aaron está instalado.'
+ },
+ pt:{
+  'nav.download':'Descarregar','nav.pricing':'Preços','nav.contact':'Contacto','nav.try':'Experimentar →',
+  'hero.eyebrow':'Assistente comercial IA',
+  'hero.title':'Aaron, o <em>copiloto</em> do teu comercial',
+  'hero.sub':'Enquanto dormes, almoças ou conduzes — Aaron prospeta, faz seguimento e enche a tua agenda.',
+  'hero.cta':'Experimentar agora →',
+  'inst.eyebrow':'Instalação','inst.title':'Usa o Aaron onde quiseres',
+  'inst.sub':'A mesma aplicação, quatro formas de lá chegar — os teus dados ficam sincronizados em todo o lado.',
+  'badge.live':'Disponível','badge.soon':'Brevemente disponível',
+  'c1.title':'No teu PC ou Mac',
+  'c1.desc':'Instala o Aaron como uma verdadeira aplicação de secretária, com ícone e janela próprios — sem passar por uma loja.',
+  'c1.btn':'Instalar neste computador',
+  'c2.title':'No teu telemóvel (web)',
+  'c2.desc':'Lê com a câmara do telemóvel e escolhe «Adicionar ao ecrã principal» — o Aaron comporta-se como uma aplicação nativa.',
+  'c2.note':'Funciona já em <b>iOS</b> e <b>Android</b>, sem passar por uma loja.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'A aplicação nativa iOS está em validação pela Apple. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+  'c3.note':'Entretanto, esta ligação abre a <b>versão web</b> — as mesmas funcionalidades.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'A aplicação nativa Android está em validação pela Google. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+  'price.eyebrow':'Preços','price.title':'Uma só subscrição, tudo incluído',
+  'price.sub':'O Aaron prospeta, faz seguimento, marca as tuas reuniões e acompanha as oportunidades até à assinatura — um preço único, sem fidelização.',
+  'price.per':'/ mês','price.desc':'O teu comercial IA, do primeiro contacto à assinatura.',
+  'price.f1':'Procura e contacta novos potenciais clientes',
+  'price.f2':'Seguimentos automáticos de quem não responde',
+  'price.f3':'Reuniões marcadas diretamente na tua agenda',
+  'price.f4':'Conselhos antes de cada reunião e acompanhamento das oportunidades',
+  'price.f5':'Seguimentos até à assinatura',
+  'price.note':'Sem fidelização — cancelas quando quiseres na aplicação. {price} por cada conta comercial adicional.',
+  'contact.eyebrow':'Contacto','contact.title':'Alguma questão?','contact.sub':'Escreve-nos, respondemos diretamente.',
+  'contact.desc':'Apoio, faturação ou simplesmente uma dúvida antes de começares.','contact.btn':'Escreve-nos',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Política de privacidade',
+  'footer.terms':'Termos de utilização','footer.write':'Escreve-nos',
+  'meta.title':'Meet Aaron — O copiloto do teu comercial',
+  'meta.desc':'Aaron, o copiloto comercial IA: prospeta, faz seguimento e marca as tuas reuniões enquanto estás ocupado. A partir de {price}/mês, sem fidelização.',
+  'install.launched':'Instalação iniciada.',
+  'install.cancelled':'Instalação cancelada — podes tentar de novo quando quiseres.',
+  'install.manual':'Abre este menu no teu navegador: ícone ⊕ / «Instalar Meet Aaron» na barra de endereço (Chrome/Edge).',
+  'install.done':'O Meet Aaron está instalado.'
+ },
+ nl:{
+  'nav.download':'Downloaden','nav.pricing':'Tarieven','nav.contact':'Contact','nav.try':'Uitproberen →',
+  'hero.eyebrow':'AI-verkoopassistent',
+  'hero.title':'Aaron, de <em>copiloot</em> van je verkoper',
+  'hero.sub':'Terwijl je slaapt, eet of rijdt — Aaron prospecteert, volgt op en vult je agenda.',
+  'hero.cta':'Nu uitproberen →',
+  'inst.eyebrow':'Installatie','inst.title':'Gebruik Aaron waar je wilt',
+  'inst.sub':'Dezelfde app, vier manieren om erin te komen — je gegevens blijven overal gesynchroniseerd.',
+  'badge.live':'Beschikbaar','badge.soon':'Binnenkort beschikbaar',
+  'c1.title':'Op je pc of Mac',
+  'c1.desc':'Installeer Aaron als een echte desktoptoepassing, met eigen pictogram en venster — zonder store.',
+  'c1.btn':'Op deze computer installeren',
+  'c2.title':'Op je telefoon (web)',
+  'c2.desc':'Scan met de camera van je telefoon en kies „Zet op beginscherm” — Aaron gedraagt zich als een native app.',
+  'c2.note':'Werkt nu al op <b>iOS</b> en <b>Android</b>, zonder store.',
+  'c3.title':'App Store (iOS)',
+  'c3.desc':'De native iOS-app wordt momenteel beoordeeld door Apple. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+  'c3.note':'Tot dan opent deze link de <b>webversie</b> — dezelfde functies.',
+  'c4.title':'Google Play (Android)',
+  'c4.desc':'De native Android-app wordt momenteel beoordeeld door Google. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+  'price.eyebrow':'Tarieven','price.title':'Eén abonnement, alles inbegrepen',
+  'price.sub':'Aaron prospecteert, volgt op, plant je afspraken en volgt je kansen tot de handtekening — één prijs, zonder verplichting.',
+  'price.per':'/ maand','price.desc':'Je AI-verkoper, van eerste contact tot handtekening.',
+  'price.f1':'Zoekt en benadert nieuwe prospects',
+  'price.f2':'Automatische opvolging van wie niet antwoordt',
+  'price.f3':'Afspraken rechtstreeks in je agenda',
+  'price.f4':'Advies voor elke afspraak en opvolging van kansen',
+  'price.f5':'Opvolging tot de handtekening',
+  'price.note':'Zonder verplichting — op elk moment opzegbaar in de app. {price} per extra verkopersaccount.',
+  'contact.eyebrow':'Contact','contact.title':'Een vraag?','contact.sub':'Schrijf ons, we antwoorden rechtstreeks.',
+  'contact.desc':'Ondersteuning, facturatie, of gewoon een vraag voor je begint.','contact.btn':'Schrijf ons',
+  'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Privacybeleid',
+  'footer.terms':'Gebruiksvoorwaarden','footer.write':'Schrijf ons',
+  'meta.title':'Meet Aaron — De copiloot van je verkoper',
+  'meta.desc':'Aaron, de AI-verkoopcopiloot: prospecteert, volgt op en plant je afspraken terwijl jij bezig bent. Vanaf {price}/maand, zonder verplichting.',
+  'install.launched':'Installatie gestart.',
+  'install.cancelled':'Installatie geannuleerd — je kunt het altijd opnieuw proberen.',
+  'install.manual':'Open dit menu in je browser: pictogram ⊕ / „Meet Aaron installeren” in de adresbalk (Chrome/Edge).',
+  'install.done':'Meet Aaron is geïnstalleerd.'
+ }
+};
+
+var LOCALES = ['fr','en','de','it','es','pt','nl'];
+var LOCALE_LABELS = {fr:'Français',en:'English',de:'Deutsch',it:'Italiano',es:'Español',pt:'Português',nl:'Nederlands'};
+var LANG_KEY = 'aaron_locale';
+var currentLocale = 'fr';
+
+function tr(key){
+  var dict = I18N[currentLocale] || I18N.fr;
+  var v = dict[key];
+  if (v === undefined) v = I18N.fr[key];
+  return (v === undefined ? '' : v).replace('{price}', PRICE);
+}
+
+function detectLocale(){
+  try {
+    var saved = localStorage.getItem(LANG_KEY);
+    if (saved && I18N[saved]) return saved;
+  } catch(e){}
+  var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'fr'];
+  for (var i=0;i<langs.length;i++){
+    var code = String(langs[i]).slice(0,2).toLowerCase();
+    if (I18N[code]) return code;
+  }
+  return 'fr';
+}
+
+function applyLocale(loc){
+  currentLocale = I18N[loc] ? loc : 'fr';
+  document.getElementById('htmlRoot').setAttribute('lang', currentLocale);
+  var nodes = document.querySelectorAll('[data-i18n]');
+  for (var i=0;i<nodes.length;i++){ nodes[i].textContent = tr(nodes[i].getAttribute('data-i18n')); }
+  var html = document.querySelectorAll('[data-i18n-html]');
+  for (var j=0;j<html.length;j++){ html[j].innerHTML = tr(html[j].getAttribute('data-i18n-html')); }
+  document.title = tr('meta.title');
+  var md = document.querySelector('meta[name="description"]');
+  if (md) md.setAttribute('content', tr('meta.desc'));
+  var amount = document.getElementById('priceAmount');
+  if (amount) amount.textContent = PRICE;
+  var picker = document.getElementById('langPicker');
+  if (picker) picker.value = currentLocale;
+  try { localStorage.setItem(LANG_KEY, currentLocale); } catch(e){}
+}
+
+(function initLang(){
+  var picker = document.getElementById('langPicker');
+  for (var i=0;i<LOCALES.length;i++){
+    var o = document.createElement('option');
+    o.value = LOCALES[i];
+    o.textContent = LOCALE_LABELS[LOCALES[i]];
+    picker.appendChild(o);
+  }
+  picker.addEventListener('change', function(){ applyLocale(picker.value); });
+  applyLocale(detectLocale());
+})();
+</script>
 
 <script>
   const BASE = "https://meetaaron.app";
@@ -446,17 +814,17 @@
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then((choice) => {
         installStatus.textContent = choice.outcome === 'accepted'
-          ? "Installation lancée."
-          : "Installation annulée — vous pouvez réessayer à tout moment.";
+          ? tr('install.launched')
+          : tr('install.cancelled');
         deferredPrompt = null;
       });
     } else {
-      installStatus.textContent = "Ouvrez ce menu dans votre navigateur : icône ⊕ / \"Installer Meet Aaron\" dans la barre d'adresse (Chrome/Edge).";
+      installStatus.textContent = tr('install.manual');
     }
   }
 
 window.addEventListener('appinstalled', () => {
-    installStatus.textContent = "Meet Aaron est installé.";
+    installStatus.textContent = tr('install.done');
   });
 
   if ('serviceWorker' in navigator) {
