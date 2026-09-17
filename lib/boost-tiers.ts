@@ -33,11 +33,25 @@ export interface BoostTier {
   highlight?: boolean; // palier mis en avant
 }
 
+// PALIERS DEGRESSIFS (valides par Alex le 13/09/2026, appliques le
+// 17/09/2026). Avec PROSPECTS_PER_CREDIT = 15, les credits ci-dessous
+// correspondent a +150, +300, +750 et +1500 prospects.
+//
+// CHANGEMENT DE DOCTRINE, assume : l'ancienne grille tenait une marge
+// CONSTANTE (1,50 EUR le credit a tous les paliers, « pas de remise au
+// volume »). Elle est remplacee par une grille degressive — 3,50 EUR le
+// credit a 10 credits, 2,29 EUR a 100 — parce que le gros palier ne se vend
+// pas a prix lineaire : personne ne signe 375 EUR d'un coup sans contrepartie
+// visible. La marge reste positive partout (un credit coute ~1,08 USD de
+// budget API, voir USD_PER_CREDIT), elle se resserre simplement en haut.
+//
+// Le palier +300 est volontairement au prix exact de l'abonnement (59 EUR) :
+// c'est le repere mental le plus lisible — « un mois de plus ».
 export const BOOST_TIERS: BoostTier[] = [
-  { id: 'boost_20', credits: 20, priceEur: 30, labelKey: 'boost.tier20' },
-  { id: 'boost_40', credits: 40, priceEur: 60, labelKey: 'boost.tier40', highlight: true },
-  { id: 'boost_100', credits: 100, priceEur: 150, labelKey: 'boost.tier100' },
-  { id: 'boost_250', credits: 250, priceEur: 375, labelKey: 'boost.tier250' },
+  { id: 'boost_10', credits: 10, priceEur: 35, labelKey: 'boost.tier10' },
+  { id: 'boost_20', credits: 20, priceEur: 59, labelKey: 'boost.tier20', highlight: true },
+  { id: 'boost_50', credits: 50, priceEur: 129, labelKey: 'boost.tier50' },
+  { id: 'boost_100', credits: 100, priceEur: 229, labelKey: 'boost.tier100' },
 ];
 
 export function boostTierById(id: string): BoostTier | null {
@@ -79,17 +93,89 @@ export function currencyForCountry(country?: string | null): BoostCurrency {
   return 'eur';
 }
 
+// Meme chose a partir du NOM du pays saisi librement, et non du code ISO.
+//
+// Necessaire pour l'ecran d'inscription : le champ « Pays de votre societe »
+// est un texte libre (« France », « Australia », « Etats-Unis »...) et le code
+// ISO n'existe qu'apres le premier paiement, quand Stripe renvoie l'adresse de
+// facturation. Sans ca, un Australien voyait un prix en euros pendant toute
+// l'inscription puis un montant en dollars australiens au Checkout.
+//
+// Sert UNIQUEMENT a l'affichage. La devise reellement facturee est choisie par
+// Stripe d'apres l'adresse de facturation saisie au Checkout, pas d'apres ce
+// champ — une faute de frappe ici n'a donc aucune consequence sur le paiement.
+const COUNTRY_TEXT_CURRENCY: [BoostCurrency, string[]][] = [
+  ['aud', ['australia', 'australie']],
+  ['nzd', ['new zealand', 'nouvelle zelande']],
+  ['gbp', [
+    'united kingdom', 'uk', 'royaume uni', 'great britain', 'grande bretagne',
+    'england', 'angleterre', 'scotland', 'ecosse', 'wales', 'pays de galles',
+    'northern ireland', 'irlande du nord',
+  ]],
+  ['usd', ['united states', 'united states of america', 'usa', 'us', 'etats unis', 'america', 'amerique']],
+  ['cad', ['canada']],
+  ['chf', ['switzerland', 'suisse', 'schweiz', 'svizzera', 'liechtenstein']],
+  ['eur', [
+    'france', 'belgium', 'belgique', 'germany', 'allemagne', 'deutschland',
+    'italy', 'italie', 'italia', 'spain', 'espagne', 'espana',
+    'portugal', 'netherlands', 'pays bas', 'nederland', 'holland', 'hollande',
+    'ireland', 'irlande', 'austria', 'autriche', 'luxembourg',
+    'finland', 'finlande', 'greece', 'grece', 'slovakia', 'slovaquie',
+    'slovenia', 'slovenie', 'estonia', 'estonie', 'latvia', 'lettonie',
+    'lithuania', 'lituanie', 'croatia', 'croatie', 'cyprus', 'chypre',
+    'malta', 'malte', 'monaco', 'andorra', 'andorre',
+  ]],
+];
+
+export function currencyForCountryText(text?: string | null): BoostCurrency {
+  const norm = (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .trim();
+  if (!norm) return 'eur';
+  // Comparaison sur le libelle ENTIER : un « includes » ferait matcher « us »
+  // dans « Australia » et facturerait l'Australie en dollars americains.
+  for (const [currency, names] of COUNTRY_TEXT_CURRENCY) {
+    if (names.indexOf(norm) !== -1) return currency;
+  }
+  return 'eur';
+}
+
 // Prix par palier et par devise, dans l'ordre des BOOST_TIERS
 // (20 / 40 / 100 / 250 crédits).
 const PRICE_TABLE: Record<BoostCurrency, number[]> = {
-  eur: [30, 60, 150, 375],
-  aud: [50, 100, 250, 625],
-  usd: [35, 70, 175, 435],
-  gbp: [26, 52, 130, 325],
-  cad: [45, 90, 225, 560],
-  chf: [30, 60, 150, 375],
-  nzd: [55, 110, 275, 685],
+  eur: [35, 59, 129, 229],
+  gbp: [29, 49, 109, 195],
+  usd: [39, 65, 145, 255],
+  aud: [59, 99, 219, 389],
+  cad: [49, 89, 195, 345],
+  chf: [35, 59, 129, 229],
+  nzd: [65, 109, 239, 425],
 };
+
+// Prix de l'ABONNEMENT par devise (59 EUR HT par siege et par mois, 300
+// prospects). Memes montants que le palier de boost +300 : c'est voulu.
+//
+// Ces valeurs servent UNIQUEMENT a l'affichage (ecran d'inscription, page
+// d'accueil). Le montant reellement preleve vient du Price Stripe multi-devises
+// designe par STRIPE_PRICE_ID_AARON_PROSPECT — si les deux divergent, c'est
+// Stripe qui fait foi et l'affichage qui est faux. A garder synchronise a la
+// main avec le catalogue Stripe.
+export const SUBSCRIPTION_PRICE_TABLE: Record<BoostCurrency, number> = {
+  eur: 59,
+  gbp: 49,
+  usd: 65,
+  aud: 99,
+  cad: 89,
+  chf: 59,
+  nzd: 109,
+};
+
+export function subscriptionPrice(currency: BoostCurrency): number {
+  return SUBSCRIPTION_PRICE_TABLE[currency] ?? SUBSCRIPTION_PRICE_TABLE.eur;
+}
 
 export const CURRENCY_SYMBOLS: Record<BoostCurrency, string> = {
   eur: '€',
