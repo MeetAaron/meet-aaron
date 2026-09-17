@@ -37,6 +37,31 @@ async function billingCountryFor(companyId: string | null | undefined): Promise<
   return (data as any)?.billing_country || null;
 }
 
+// Client Stripe deja connu de la societe (cree par le checkout d'abonnement et
+// enregistre par le webhook).
+//
+// CORRECTION 17/09/2026. Le boost partait avec `customer_email` et non
+// `customer` : Stripe creait alors un NOUVEAU client a chaque achat de boost.
+// La facture existait bien (invoice_creation est actif) et Stripe l'envoyait
+// par email, mais elle etait rattachee a ce client jetable — alors que
+// /api/billing/invoices liste les factures du client enregistre sur la
+// societe. Consequence : les factures de boost n'apparaissaient JAMAIS dans
+// l'onglet Abonnement, et le client ne pouvait pas les retelecharger.
+//
+// En passant `customer`, l'abonnement et les boosts partagent le meme client
+// Stripe : une seule fiche client, un seul historique de factures, et le
+// numero de TVA intracommunautaire deja saisi est reutilise.
+async function stripeCustomerFor(companyId: string | null | undefined): Promise<string | null> {
+  if (!companyId) return null;
+  const { data, error } = await supabaseAdmin
+    .from('companies')
+    .select('stripe_customer_id')
+    .eq('id', companyId)
+    .maybeSingle();
+  if (error) return null;
+  return (data as any)?.stripe_customer_id || null;
+}
+
 export async function GET(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -73,11 +98,17 @@ export async function POST(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const currency = currencyForCountry(await billingCountryFor(authedUser.company_id));
   const amount = boostPrice(tier.id, currency);
+  // `customer` et `customer_email` s'excluent chez Stripe : on prend le client
+  // enregistre s'il existe, sinon on retombe sur l'email (premiere societe
+  // arrivee ici avant tout paiement d'abonnement).
+  const stripeCustomer = await stripeCustomerFor(authedUser.company_id);
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      customer_email: user?.email || undefined,
+      ...(stripeCustomer
+        ? { customer: stripeCustomer }
+        : { customer_email: user?.email || undefined }),
       // CORRECTION 04/09/2026 (Alex : « et la facture ne se télécharge pas ?
       // ça doit être une facture stripe non ? »).
       //
