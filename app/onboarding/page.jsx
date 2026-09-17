@@ -4,7 +4,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
-import { useLocale, localeForCountry } from '@/lib/i18n';
+import { useLocale, localeForCountry, t } from '@/lib/i18n';
+import { currencyForCountryText, subscriptionPrice, formatBoostPrice } from '@/lib/boost-tiers';
 import Ic from '@/components/UiIcon';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
@@ -334,6 +335,20 @@ export default function OnboardingPage() {
     );
   }
 
+  // PRIX AFFICHE (17/09/2026). Il etait ecrit « 30€ / mois » en dur alors que
+  // le catalogue Stripe est passe a 59 EUR HT — afficher un prix et en
+  // prelever un autre n'est pas un detail cosmetique. La valeur vient
+  // desormais de lib/boost-tiers.ts : un seul endroit a tenir synchronise
+  // avec le catalogue Stripe.
+  //
+  // La devise suit le pays saisi juste au-dessus dans le formulaire : sinon un
+  // Australien voit « 30 € » pendant toute l'inscription puis un montant en
+  // dollars australiens au Checkout. C'est de l'AFFICHAGE — le montant reel
+  // vient du Price Stripe multi-devises, choisi d'apres l'adresse de
+  // facturation saisie au Checkout.
+  const billingCurrency = currencyForCountryText(country);
+  const monthlyPriceLabel = formatBoostPrice(subscriptionPrice(billingCurrency), billingCurrency);
+
   return (
     <div className="wrap">
       {signupPath !== 'invite_code' ? (
@@ -405,10 +420,10 @@ export default function OnboardingPage() {
                       <span className="module-title">Aaron</span>
                     </span>
                     <span className="module-desc">
-                      Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
+                      300 prospects par mois. Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
                     </span>
                   </span>
-                  <span className="module-price">30€ / mois</span>
+                  <span className="module-price">{monthlyPriceLabel} {t('onboarding.perMonth', locale)}</span>
                 </div>
               </div>
             </div>
@@ -417,17 +432,27 @@ export default function OnboardingPage() {
             </p>
           </div>
 
-          {/* Demande Alex (27/08/2026, docx "Modifs Aaron") : rassurer sur les
-              technos utilisées (Supabase/GitHub/Vercel — standards
-              professionnels sécurisés) et sur le fait que le partage de
-              données reste au choix de l'utilisateur, révocable à tout
-              moment — pour lever l'inquiétude au moment de cocher la case
-              juste en dessous. */}
-          <p className="field-hint">
-            Concrètement : tes données sont hébergées chez Supabase, le code de Meet Aaron est hébergé sur GitHub et
-            l'application tourne sur Vercel — des standards professionnels et sécurisés. Pas de panique : tu
-            choisiras toi-même quelles données partager avec Aaron, et tu pourras les retirer à tout moment (on
-            verra ça ensemble un peu plus tard, directement dans l'application).
+          {/* Rassurance avant la case a cocher.
+              17/09/2026 (demande Alex) : l'ancienne version nommait les
+              prestataires techniques (Supabase / GitHub / Vercel). Retiree —
+              ce niveau de detail a sa place dans la politique de
+              confidentialite, pas sur un ecran de vente : citer trois
+              fournisseurs inconnus du lecteur inquiete plus qu'il ne rassure,
+              et alourdit l'ecran juste avant le paiement. On garde la
+              promesse (securite + maitrise de ses donnees) et on renvoie vers
+              les documents legaux, comme sur /login.
+              Traduit dans les 7 langues : cet ecran precede le checkout, il
+              ne doit pas etre le seul endroit en francais. */}
+          <p className="field-hint">{t('onboarding.securityNotice', locale)}</p>
+          <p className="legal-links">
+            <span>{t('onboarding.securityMore', locale)}</span>{' '}
+            <a href="/privacy" target="_blank" rel="noopener noreferrer">
+              {t('preferences.legalPrivacy', locale)}
+            </a>
+            <span aria-hidden="true"> · </span>
+            <a href="/terms" target="_blank" rel="noopener noreferrer">
+              {t('preferences.legalTerms', locale)}
+            </a>
           </p>
 
           <label className="checkbox-row">
@@ -576,6 +601,20 @@ export default function OnboardingPage() {
           color: #8b90a8;
           margin: -0.7rem 0 1rem;
           line-height: 1.4;
+        }
+        .legal-links {
+          font-size: 0.78rem;
+          color: #8b90a8;
+          margin: -0.6rem 0 1.1rem;
+          line-height: 1.5;
+        }
+        .legal-links a {
+          color: #8b90a8;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .legal-links a:hover {
+          color: #cfd3e6;
         }
         .modules-field {
           margin-bottom: 1.2rem;
