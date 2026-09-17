@@ -7,7 +7,7 @@
 <!-- Meta description (tâche Alex 2026-08-23) : absente jusqu'ici, Google
      générait donc l'extrait de recherche automatiquement à partir du texte
      visible de la page (une phrase de la carte d'installation desktop). -->
-<meta name="description" content="Aaron, le copilote commercial IA : il prospecte, relance et prend vos rendez-vous pendant que vous êtes occupé. À partir de 30€/mois, sans engagement.">
+<meta name="description" content="Aaron, le copilote commercial IA : il prospecte, relance et prend vos rendez-vous pendant que vous êtes occupé. 59 € HT par mois et par commercial, sans engagement.">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#05060f">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -385,7 +385,7 @@
         <div class="icon">🎯</div>
         <span class="badge live">Aaron</span>
       </div>
-      <div class="price"><span id="priceAmount">30€</span> <span data-i18n="price.per">/ mois</span></div>
+      <div class="price"><span id="priceAmount">59 € HT</span> <span data-i18n="price.per">/ mois</span></div>
       <p class="desc" data-i18n="price.desc">Votre commercial IA, du premier contact à la signature.</p>
       <ul>
         <li data-i18n="price.f1">Recherche et contact de nouveaux prospects</li>
@@ -396,7 +396,7 @@
       </ul>
     </div>
   </div>
-  <p class="pricing-note" data-i18n="price.note">Sans engagement — résiliable à tout moment depuis l'application. 30 € par compte commercial supplémentaire.</p>
+  <p class="pricing-note" data-i18n="price.note">Sans engagement — résiliable à tout moment depuis l'application. 59 € HT par compte commercial supplémentaire.</p>
 </section>
 
 <section class="page-section" id="contact">
@@ -436,10 +436,14 @@
    elle ne peut pas importer lib/i18n.js — d'où ce dictionnaire autonome.
    La langue se devine depuis le navigateur au premier passage, puis suit le
    choix mémorisé.
-   PRIX : une seule constante ci-dessous. Le jour où l'abonnement passe à
-   59 €, c'est cette ligne qu'on change et les sept langues suivent.
+   PRIX : une seule constante ci-dessous, reprise dans les sept langues.
+   Passe de 30 € a 59 € HT le 17/09/2026. ATTENTION : cette valeur est un
+   AFFICHAGE. Le montant reellement preleve vient du Price Stripe
+   multi-devises (STRIPE_PRICE_ID_AARON_PROSPECT) — si les deux divergent,
+   c'est de la publicite trompeuse, et Stripe le verifie a l'activation du
+   compte. A tenir synchronise avec lib/boost-tiers.ts et le catalogue Stripe.
    ────────────────────────────────────────────────────────────────────────── */
-var PRICE = '30 €';
+var PRICE = '59 € HT';
 
 var I18N = {
  fr:{
@@ -470,7 +474,7 @@ var I18N = {
   'price.f3':'Prise de rendez-vous dans votre agenda',
   'price.f4':'Conseils avant chaque rendez-vous et suivi des opportunités',
   'price.f5':"Relances jusqu'à la signature",
-  'price.note':"Sans engagement — résiliable à tout moment depuis l'application. {price} par compte commercial supplémentaire.",
+  'price.note':"Sans engagement — résiliable à tout moment depuis l'application. {price} par compte commercial supplémentaire. Prix ajusté à votre pays au paiement : 49 £, 65 $, 99 A$, 89 C$.",
   'contact.eyebrow':'Contact','contact.title':'Une question ?','contact.sub':'Écrivez-nous, on répond directement.',
   'contact.desc':'Support, facturation, ou simplement une question avant de vous lancer.','contact.btn':'Nous écrire',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Politique de confidentialité',
@@ -510,7 +514,7 @@ var I18N = {
   'price.f3':'Books meetings straight into your calendar',
   'price.f4':'Advice before every meeting, and deal tracking',
   'price.f5':'Follow-ups all the way to signature',
-  'price.note':'No commitment — cancel any time from the app. {price} per additional salesperson account.',
+  'price.note':'No commitment — cancel any time from the app. {price} per additional salesperson account. Price adjusted to your country at checkout: £49, $65, A$99, C$89.',
   'contact.eyebrow':'Contact','contact.title':'A question?','contact.sub':'Write to us, we answer directly.',
   'contact.desc':'Support, billing, or simply a question before you get started.','contact.btn':'Write to us',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Privacy policy',
@@ -550,7 +554,7 @@ var I18N = {
   'price.f3':'Termine direkt in Ihrem Kalender',
   'price.f4':'Rat vor jedem Termin und Verfolgung der Chancen',
   'price.f5':'Nachfassen bis zur Unterschrift',
-  'price.note':'Keine Bindung — jederzeit in der App kündbar. {price} je zusätzlichem Vertriebskonto.',
+  'price.note':'Keine Bindung — jederzeit in der App kündbar. {price} je zusätzlichem Vertriebskonto. Preis beim Bezahlen an Ihr Land angepasst: 49 £, 65 $, 99 A$, 89 C$.',
   'contact.eyebrow':'Kontakt','contact.title':'Eine Frage?','contact.sub':'Schreiben Sie uns, wir antworten direkt.',
   'contact.desc':'Support, Rechnungen oder einfach eine Frage, bevor Sie loslegen.','contact.btn':'Schreiben Sie uns',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Datenschutzerklärung',
@@ -590,7 +594,7 @@ var I18N = {
   'price.f3':'Appuntamenti fissati direttamente in agenda',
   'price.f4':'Consigli prima di ogni appuntamento e monitoraggio delle opportunità',
   'price.f5':'Solleciti fino alla firma',
-  'price.note':'Senza vincoli — disdici quando vuoi dall’app. {price} per ogni account commerciale aggiuntivo.',
+  'price.note':'Senza vincoli — disdici quando vuoi dall’app. {price} per ogni account commerciale aggiuntivo. Prezzo adattato al tuo paese al pagamento: 49 £, 65 $, 99 A$, 89 C$.',
   'contact.eyebrow':'Contatti','contact.title':'Una domanda?','contact.sub':'Scrivici, rispondiamo direttamente.',
   'contact.desc':'Assistenza, fatturazione o semplicemente una domanda prima di iniziare.','contact.btn':'Scrivici',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Informativa sulla privacy',
@@ -630,7 +634,7 @@ var I18N = {
   'price.f3':'Citas concertadas directamente en tu agenda',
   'price.f4':'Consejos antes de cada cita y seguimiento de oportunidades',
   'price.f5':'Seguimientos hasta la firma',
-  'price.note':'Sin permanencia — cancela cuando quieras desde la aplicación. {price} por cada cuenta comercial adicional.',
+  'price.note':'Sin permanencia — cancela cuando quieras desde la aplicación. {price} por cada cuenta comercial adicional. Precio adaptado a tu país al pagar: 49 £, 65 $, 99 A$, 89 C$.',
   'contact.eyebrow':'Contacto','contact.title':'¿Alguna pregunta?','contact.sub':'Escríbenos, respondemos directamente.',
   'contact.desc':'Soporte, facturación o simplemente una duda antes de empezar.','contact.btn':'Escríbenos',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Política de privacidad',
@@ -670,7 +674,7 @@ var I18N = {
   'price.f3':'Reuniões marcadas diretamente na tua agenda',
   'price.f4':'Conselhos antes de cada reunião e acompanhamento das oportunidades',
   'price.f5':'Seguimentos até à assinatura',
-  'price.note':'Sem fidelização — cancelas quando quiseres na aplicação. {price} por cada conta comercial adicional.',
+  'price.note':'Sem fidelização — cancelas quando quiseres na aplicação. {price} por cada conta comercial adicional. Preço adaptado ao teu país no pagamento: 49 £, 65 $, 99 A$, 89 C$.',
   'contact.eyebrow':'Contacto','contact.title':'Alguma questão?','contact.sub':'Escreve-nos, respondemos diretamente.',
   'contact.desc':'Apoio, faturação ou simplesmente uma dúvida antes de começares.','contact.btn':'Escreve-nos',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Política de privacidade',
@@ -710,7 +714,7 @@ var I18N = {
   'price.f3':'Afspraken rechtstreeks in je agenda',
   'price.f4':'Advies voor elke afspraak en opvolging van kansen',
   'price.f5':'Opvolging tot de handtekening',
-  'price.note':'Zonder verplichting — op elk moment opzegbaar in de app. {price} per extra verkopersaccount.',
+  'price.note':'Zonder verplichting — op elk moment opzegbaar in de app. {price} per extra verkopersaccount. Prijs bij het afrekenen aangepast aan je land: 49 £, 65 $, 99 A$, 89 C$.',
   'contact.eyebrow':'Contact','contact.title':'Een vraag?','contact.sub':'Schrijf ons, we antwoorden rechtstreeks.',
   'contact.desc':'Ondersteuning, facturatie, of gewoon een vraag voor je begint.','contact.btn':'Schrijf ons',
   'footer.brand':'Meet Aaron — meetaaron.app','footer.privacy':'Privacybeleid',
