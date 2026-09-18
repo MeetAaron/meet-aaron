@@ -167,6 +167,16 @@ export default function BilanRdvPage({ params }) {
   return (
     <div style={styles.page}>
       <div style={styles.card}>
+        <button
+          type="button"
+          onClick={() => router.push('/app/agenda')}
+          aria-label={t('bilanRdv.close', locale)}
+          title={t('bilanRdv.close', locale)}
+          style={styles.closeBtn}
+        >
+          <Ic name="x" size={16} />
+        </button>
+
         <h1 style={styles.title}>
           {appointment?.prospect_full_name
             ? t('bilanRdv.titleWithName', locale).replace('{name}', appointment.prospect_full_name)
@@ -246,6 +256,22 @@ export default function BilanRdvPage({ params }) {
         )}
         {thankYouStatus === 'sent' && <p style={styles.okText}>{t('bilanRdv.thankYouSent', locale)}</p>}
         {thankYouStatus === 'failed' && <p style={styles.errorText}>{t('bilanRdv.thankYouFailed', locale)}</p>}
+
+        {/* SORTIE DE PAGE (18/09/2026, signalee par Alex : « je ne peux pas
+            quitter cette page »). Une fois le bilan enregistre, le formulaire
+            est remplace par la note d'Aaron — et il n'y avait plus AUCUN
+            moyen de partir : ni bouton, ni lien, ni redirection. Seul le
+            bouton Retour du navigateur s'en sortait, ce qui n'existe pas dans
+            l'app installee en PWA sur telephone.
+            Deux sorties desormais : la croix en haut a droite de la carte,
+            toujours presente (y compris avant enregistrement, pour abandonner
+            sans rien casser), et ce bouton « Termine » une fois le bilan
+            enregistre. Les deux ramenent a l'agenda. */}
+        {note && (
+          <button type="button" onClick={() => router.push('/app/agenda')} style={styles.doneBtn}>
+            <Ic name="check" size={16} /> {t('bilanRdv.done', locale)}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -273,6 +299,39 @@ const styles = {
     background: 'var(--surface, #131629)',
     borderRadius: 16,
     padding: 28,
+    position: 'relative',
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 8,
+    color: 'var(--muted, #8b90a8)',
+    cursor: 'pointer',
+    lineHeight: 0,
+  },
+  doneBtn: {
+    width: '100%',
+    marginTop: 18,
+    padding: '13px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    background: '#4b39ef',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 12,
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: 'pointer',
   },
   title: {
     color: 'var(--text, #f4f1ea)',
