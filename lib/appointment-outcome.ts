@@ -25,7 +25,7 @@ import { localeInstruction, normalizeLocale } from './locale-instruction';
 export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
 
 const OUTCOME_LABELS: Record<AppointmentOutcome, string> = {
-  a_continuer: 'Bon rdv, à continuer',
+  a_continuer: 'À continuer',
   opportunite: 'Opportunité',
   devis: 'Demande de devis',
   perdu: 'Perdu',
@@ -49,6 +49,37 @@ const OUTCOME_TO_PROSPECT_STATUS: Record<AppointmentOutcome, string> = {
   devis: 'bleu',
   perdu: 'rouge',
 };
+
+// LE RESSENTI CORRIGE LE STATUT (22/09/2026, signale par Alex).
+//
+// Avant, le statut ne dependait QUE de l'issue : « ca s'est mal passe » +
+// « a continuer » rangeait le prospect en VERT (en bonne voie). Le ressenti
+// ne servait qu'a colorer la petite note d'Aaron. Resultat : le tableau de
+// bord affichait en vert des prospects en train de filer, et Aaron les
+// relancait sur un ton optimiste apres un rendez-vous rate.
+//
+// La correction ne touche QUE l'issue « a continuer » — la seule dont le
+// ressenti change reellement la lecture :
+//   bien  -> vert   (en bonne voie)
+//   moyen -> jaune  (en cours)
+//   mal   -> orange (risque de perdre)
+//
+// Les autres issues sont des FAITS, pas des impressions : une demande de
+// devis reste une demande de devis meme si l'echange a ete tendu, et un
+// prospect perdu reste perdu meme si le courant passait bien. Leur statut
+// ne bouge donc pas.
+const CONTINUER_STATUS_BY_MOOD: Record<string, string> = {
+  bien: 'vert',
+  moyen: 'jaune',
+  mal: 'orange',
+};
+
+function prospectStatusFor(outcome: AppointmentOutcome, mood?: string | null): string {
+  if (outcome === 'a_continuer' && mood && CONTINUER_STATUS_BY_MOOD[mood]) {
+    return CONTINUER_STATUS_BY_MOOD[mood];
+  }
+  return OUTCOME_TO_PROSPECT_STATUS[outcome];
+}
 
 // Ces notes sont un texte FIXE (pas généré par Claude, voir plus bas
 // pourquoi) — donc pas de traduction automatique possible. Traduites à la
@@ -201,7 +232,7 @@ export async function recordAppointmentOutcome(
 
   if (prospect?.id) {
     const now = new Date().toISOString();
-    const prospectUpdate: Record<string, any> = { status: OUTCOME_TO_PROSPECT_STATUS[outcome], status_updated_at: now };
+    const prospectUpdate: Record<string, any> = { status: prospectStatusFor(outcome, details.mood), status_updated_at: now };
 
     if (outcome === 'opportunite' || outcome === 'devis') {
       // Nouvelle opportunité (ou demande de devis) : déplace le prospect dans
