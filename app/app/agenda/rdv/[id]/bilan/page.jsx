@@ -82,16 +82,40 @@ function choicesFor(locale) {
   ];
 }
 
+// ORDRE DES QUATRE ISSUES SELON LE RESSENTI (22/09/2026, remarque d'Alex).
+//
+// L'ordre etait fige : « a continuer » toujours en premier, « perdu »
+// toujours en dernier. Apres avoir clique « Mal passe », le commercial
+// voyait donc en tete de liste la carte la moins probable, et devait
+// descendre jusqu'en bas pour trouver la bonne. L'ecran semblait ne pas
+// l'avoir ecoute.
+//
+// On ne change ni les libelles ni les valeurs : seulement l'ordre
+// d'affichage, pour que le choix le plus probable soit sous le pouce.
+// Sans ressenti choisi, on garde l'ordre historique.
+const ORDER_BY_MOOD = {
+  bien: ['opportunite', 'devis', 'a_continuer', 'perdu'],
+  moyen: ['a_continuer', 'devis', 'opportunite', 'perdu'],
+  mal: ['perdu', 'a_continuer', 'devis', 'opportunite'],
+};
+
+function orderedChoices(locale, mood) {
+  const all = choicesFor(locale);
+  const order = ORDER_BY_MOOD[mood];
+  if (!order) return all;
+  return order.map((value) => all.find((c) => c.value === value)).filter(Boolean);
+}
+
 export default function BilanRdvPage({ params }) {
   const [locale] = useLocale();
   const { ready, authError } = useAuthedUser();
-  const CHOICES = choicesFor(locale);
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [note, setNote] = useState(null);
   const [error, setError] = useState(null);
   const [mood, setMood] = useState(null); // 'bien' | 'moyen' | 'mal'
+  const CHOICES = orderedChoices(locale, mood);
   const [outcome, setOutcome] = useState(null);
   const [context, setContext] = useState('');
   const [sendThankYou, setSendThankYou] = useState(true);
