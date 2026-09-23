@@ -2,10 +2,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext } from '@/lib/supabase-browser';
+import { useRouter } from 'next/navigation';
+import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [locale, setLocale] = useLocale();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
@@ -108,7 +110,48 @@ export default function LoginPage() {
       // valide jusqu'à minuit (heure locale), donc les visites suivantes ce
       // même jour n'auront pas besoin de repasser par cet écran.
       markExplicitLoginToday();
-      window.location.href = '/onboarding';
+
+      // DESTINATION RESOLUE ICI (23/09/2026, remarque d'Alex : « on voit le
+      // logo en grand, puis un lag de 2 s, puis le dashboard — on dirait un
+      // bug »).
+      //
+      // C'en etait presque un. La connexion faisait
+      // `window.location.href = '/onboarding'` : un RECHARGEMENT COMPLET du
+      // navigateur, donc tout le bundle Next.js retelecharge et rehydrate,
+      // puis /onboarding affichait sa propre carte (logo + « Chargement… »)
+      // pendant qu'il interrogeait /api/auth/link, pour enfin rediriger vers
+      // le dashboard, qui affichait a son tour « Connexion… » en refaisant le
+      // MEME appel. Trois ecrans et deux allers-retours identiques pour une
+      // seule action.
+      //
+      // On pose la question une fois, ici, et on va directement au bon
+      // endroit en navigation cliente (pas de rechargement). L'identifiant
+      // renvoye est passe dans l'URL : le dashboard le lit immediatement et
+      // saute entierement son ecran « Connexion… » (voir le useEffect
+      // urlUserId dans app/app/dashboard/page.jsx).
+      //
+      // Toute reponse non-ok renvoie vers /onboarding, exactement comme
+      // avant : profil pas encore cree (404), abonnement inactif (403) ou
+      // erreur inattendue y sont traites par la page d'inscription.
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        const res = await fetch('/api/auth/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auth_user_id: session?.user?.id, email: session?.user?.email }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.user?.id) {
+          const next = consumePostLoginNext();
+          router.replace(next || `/app/dashboard?user_id=${body.user.id}`);
+        } else {
+          router.replace('/onboarding');
+        }
+      } catch (err) {
+        // Reseau coupe pile a cet instant : on retombe sur l'ancien chemin,
+        // qui refera le test lui-meme.
+        router.replace('/onboarding');
+      }
     } else {
       const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
       setLoading(false);
