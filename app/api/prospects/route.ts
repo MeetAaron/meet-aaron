@@ -12,7 +12,6 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { researchProspectCompany } from '@/lib/prospect-research';
-import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -405,14 +404,12 @@ export async function POST(request: NextRequest) {
         console.error('Erreur envoi notification push (premier email à valider):', pushErr);
       }
     } else if (hasEmailToSend) {
-      // Pièce jointe éventuelle sur ce vrai premier email (plaquette, etc.)
-      // — voir lib/first-email-attachment.ts. Best-effort : null la plupart
-      // du temps (aucun document marqué), l'envoi se fait alors normalement.
-      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
+      // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+      // de spam classique). La plaquette part avec la premiere reponse
+      // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
       // Envoie l'email au nom du commercial (Gmail ou Outlook selon ce qu'il a connecté)
       await sendEmailForUser(assigned_user_id, email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
         emailType: 'prospecting',
-        attachment: firstEmailAttachment || undefined,
       });
 
       // Enregistre le message envoyé
