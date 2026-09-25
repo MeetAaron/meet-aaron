@@ -80,21 +80,27 @@ export async function GET(request: NextRequest) {
   // JAMAIS reecrire a une adresse qui a rebondi. Repli si la colonne n'existe
   // pas encore (migration_delivrabilite_2026-09-25.sql pas passee).
   const BASE_SELECT = 'id, email, assigned_user_id, status, conversations(id, messages(id, direction, sent_at))';
-  let { data: candidates, error } = await supabaseAdmin
+  // `any` volontaire : les deux requetes ne renvoient pas la meme forme (la
+  // seconde n'a pas email_bounced_at), et TypeScript fige le type sur la
+  // premiere affectation. Sans ca, le repli ne compile pas.
+  let candidates: any[] | null = null;
+  let error: any = null;
+
+  ({ data: candidates, error } = await supabaseAdmin
     .from('prospects')
     .select(`${BASE_SELECT}, email_bounced_at`)
     .eq('is_won', false)
     .eq('is_lost', false)
     .is('email_bounced_at', null)
-    .in('status', RELANCE_ELIGIBLE_STATUSES);
+    .in('status', RELANCE_ELIGIBLE_STATUSES) as any);
 
-  if (error && (error as any).code === '42703') {
+  if (error && error.code === '42703') {
     ({ data: candidates, error } = await supabaseAdmin
       .from('prospects')
       .select(BASE_SELECT)
       .eq('is_won', false)
       .eq('is_lost', false)
-      .in('status', RELANCE_ELIGIBLE_STATUSES));
+      .in('status', RELANCE_ELIGIBLE_STATUSES) as any);
   }
 
   if (error) {
