@@ -25,7 +25,6 @@ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError 
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { researchProspectCompany } from '@/lib/prospect-research';
-import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -136,10 +135,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         console.error('Erreur envoi notification push (premier email à valider):', pushErr);
       }
     } else if (hasEmailToSend) {
-      const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
+      // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+      // de spam classique). La plaquette part avec la premiere reponse
+      // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
       await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
         emailType: 'prospecting',
-        attachment: firstEmailAttachment || undefined,
       });
 
       if (conversation) {
