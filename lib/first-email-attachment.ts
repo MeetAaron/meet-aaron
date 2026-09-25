@@ -40,6 +40,48 @@ export interface FirstEmailAttachment {
 // `prospectId` optionnel : sans lui (appel historique, ou envoi qui ne
 // concerne aucun prospect précis), on garde le comportement d'avant — le
 // document marqué le plus récent.
+// PLUS DE PLAQUETTE SUR LE PREMIER EMAIL (25/09/2026) — TROU N°3.
+//
+// Une piece jointe sur un premier contact FROID est un signal de spam
+// classique : l'icone trombone sur un email d'un expediteur inconnu fait
+// monter le score chez la plupart des filtres, et Outlook y est
+// particulierement sensible. On venait d'ajouter la plaquette multilingue au
+// premier email — belle fonctionnalite, mauvais moment.
+//
+// La plaquette part desormais avec la PREMIERE REPONSE d'Aaron, donc a
+// quelqu'un qui vient d'ecrire : le fil est engage, l'adresse est prouvee
+// valide, et la piece jointe ne coute plus rien en delivrabilite. Elle est
+// aussi mieux employee — on l'envoie a un interesse plutot qu'a un inconnu.
+//
+// La regle est « exactement une reponse entrante » : au-dela, on considere
+// que la plaquette est deja partie et on ne la renvoie pas a chaque echange.
+// Deterministe, sans colonne supplementaire a maintenir.
+export async function getBrochureForReply(
+  companyId: string | null | undefined,
+  prospectId: string | null | undefined
+): Promise<FirstEmailAttachment | null> {
+  if (!companyId || !prospectId) return null;
+  try {
+    const { data: convs } = await supabaseAdmin
+      .from('conversations')
+      .select('id')
+      .eq('prospect_id', prospectId);
+    const ids = (convs || []).map((c: any) => c.id);
+    if (!ids.length) return null;
+
+    const { count, error } = await supabaseAdmin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .in('conversation_id', ids)
+      .eq('direction', 'inbound');
+    if (error || count !== 1) return null;
+
+    return await getFirstEmailAttachment(companyId, prospectId);
+  } catch (err) {
+    return null;
+  }
+}
+
 export async function getFirstEmailAttachment(
   companyId: string,
   prospectId?: string | null

@@ -28,7 +28,6 @@ import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel
 import { recordUsage, usageFromApi } from './anthropic-client';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
 import { sendPushNotification } from './push';
-import { getFirstEmailAttachment } from './first-email-attachment';
 
 export type BatchKind = 'first_contact' | 'followup';
 
@@ -344,10 +343,11 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
       }
       return;
     }
-    const attachment = owner?.company_id ? await getFirstEmailAttachment(owner.company_id, prospect.id) : null;
+    // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+    // de spam classique). La plaquette part avec la premiere reponse d'Aaron —
+    // voir getBrochureForReply dans lib/first-email-attachment.ts.
     await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
       emailType: 'prospecting',
-      attachment: attachment || undefined,
     });
     await supabaseAdmin.from('messages').insert({
       conversation_id: item.conversationId,

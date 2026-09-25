@@ -183,13 +183,65 @@ function todayISODate(): string {
 // ne sera de toute façon pas envoyé. sendEmailForUser revérifie de toute façon
 // au moment de l'envoi (protection même en cas d'appel direct hors cron, ou de
 // concurrence entre deux crons pour le même commercial).
-export async function hasReachedProspectingCap(userId: string): Promise<boolean> {
+// MONTEE EN CHARGE PROGRESSIVE (25/09/2026) — TROU N°2.
+//
+// Le plafond quotidien existait deja, mais c'est un plafond de BUDGET, pas de
+// delivrabilite : une boite fraichement connectee pouvait partir a 40 emails
+// des le premier jour. Or un domaine ou une boite sans historique recent qui
+// se met soudain a envoyer 40 messages froids est exactement le profil que
+// Gmail et Outlook mettent en quarantaine.
+//
+// On demarre donc doucement et on ouvre le robinet sur deux semaines. L'age de
+// la boite est deduit du PREMIER JOUR D'ENVOI enregistre dans
+// email_send_counters — aucune colonne a ajouter, et c'est plus juste qu'une
+// date de connexion : une boite reconnectee apres trois mois de pause repart
+// de son historique reel, pas de zero.
+//
+// Le plafond effectif est le PLUS PETIT des deux (montee en charge et plafond
+// configure) : un commercial qui a baisse son plafond a 10 garde 10.
+const WARMUP_STEPS: { untilDay: number; cap: number }[] = [
+  { untilDay: 2,  cap: 8 },   // J0 a J2
+  { untilDay: 6,  cap: 15 },  // J3 a J6
+  { untilDay: 13, cap: 25 },  // J7 a J13
+];
+
+export async function warmupCapFor(userId: string): Promise<number | null> {
+  const { data, error } = await supabaseAdmin
+    .from('email_send_counters')
+    .select('day')
+    .eq('user_id', userId)
+    .order('day', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  // Table absente ou illisible : on ne bride pas, le plafond configure
+  // s'applique seul (on ne bloque jamais un envoi sur une incertitude).
+  if (error) return null;
+  if (!data?.day) return WARMUP_STEPS[0].cap; // aucun envoi encore : premier jour
+
+  const firstDay = new Date(`${data.day}T00:00:00Z`).getTime();
+  const today = new Date(`${todayISODate()}T00:00:00Z`).getTime();
+  const age = Math.max(0, Math.round((today - firstDay) / 86400000));
+
+  for (const step of WARMUP_STEPS) {
+    if (age <= step.untilDay) return step.cap;
+  }
+  return null; // au-dela de J13 : plus de bridage
+}
+
+// Plafond reellement applique aujourd'hui pour ce commercial.
+export async function effectiveProspectingCap(userId: string): Promise<number> {
   const { data: user } = await supabaseAdmin
     .from('users')
     .select('daily_prospecting_email_cap')
     .eq('id', userId)
     .maybeSingle();
-  const cap = user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP;
+  const configured = user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP;
+  const warmup = await warmupCapFor(userId);
+  return warmup === null ? configured : Math.min(configured, warmup);
+}
+
+export async function hasReachedProspectingCap(userId: string): Promise<boolean> {
+  const cap = await effectiveProspectingCap(userId);
 
   const { data: counter } = await supabaseAdmin
     .from('email_send_counters')
@@ -327,12 +379,10 @@ export async function sendEmailForUser(
   body = normalizeEmailBodyLineBreaks(body);
 
   if (emailType === 'prospecting' && (await hasReachedProspectingCap(userId))) {
-    const { data: user } = await supabaseAdmin
-      .from('users')
-      .select('daily_prospecting_email_cap')
-      .eq('id', userId)
-      .maybeSingle();
-    throw new DailySendCapExceededError(userId, user?.daily_prospecting_email_cap ?? DEFAULT_DAILY_PROSPECTING_CAP);
+    // Le plafond annonce dans l'erreur est le plafond EFFECTIF (montee en
+    // charge comprise) — sinon le message dirait « 40/jour » a quelqu'un qui
+    // vient d'etre arrete a 8, et il chercherait la panne pendant une heure.
+    throw new DailySendCapExceededError(userId, await effectiveProspectingCap(userId));
   }
 
   if (emailType === 'prospecting') {
