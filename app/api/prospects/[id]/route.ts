@@ -11,7 +11,6 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
 import { handOverWonProspect } from '@/lib/prospect-handover';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
-import { getFirstEmailAttachment } from '@/lib/first-email-attachment';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
 import { sendPushNotification } from '@/lib/push';
 
@@ -253,10 +252,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // voir lib/first-email-attachment.ts. Best-effort : si aucun document
     // n'est marqué (cas normal, la plupart des sociétés), retourne null et
     // l'envoi se fait normalement sans pièce jointe.
-    const firstEmailAttachment = await getFirstEmailAttachment(prospect.company_id, prospect.id);
+    // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+    // de spam classique). La plaquette part avec la premiere reponse
+    // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
     await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, finalBody, {
       emailType: 'prospecting',
-      attachment: firstEmailAttachment || undefined,
     });
 
     const { data: conversation } = await supabaseAdmin
