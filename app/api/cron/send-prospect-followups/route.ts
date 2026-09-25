@@ -74,14 +74,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  const { data: candidates, error } = await supabaseAdmin
+  // email_bounced_at (25/09/2026) : ceinture et bretelles. Un rebond passe
+  // deja le prospect en 'rouge', donc hors des statuts relancables — mais un
+  // statut peut etre remis a la main depuis l'ecran Prospects, et on ne veut
+  // JAMAIS reecrire a une adresse qui a rebondi. Repli si la colonne n'existe
+  // pas encore (migration_delivrabilite_2026-09-25.sql pas passee).
+  const BASE_SELECT = 'id, email, assigned_user_id, status, conversations(id, messages(id, direction, sent_at))';
+  let { data: candidates, error } = await supabaseAdmin
     .from('prospects')
-    .select(
-      'id, email, assigned_user_id, status, conversations(id, messages(id, direction, sent_at))'
-    )
+    .select(`${BASE_SELECT}, email_bounced_at`)
     .eq('is_won', false)
     .eq('is_lost', false)
+    .is('email_bounced_at', null)
     .in('status', RELANCE_ELIGIBLE_STATUSES);
+
+  if (error && (error as any).code === '42703') {
+    ({ data: candidates, error } = await supabaseAdmin
+      .from('prospects')
+      .select(BASE_SELECT)
+      .eq('is_won', false)
+      .eq('is_lost', false)
+      .in('status', RELANCE_ELIGIBLE_STATUSES));
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
