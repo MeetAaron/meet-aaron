@@ -12,6 +12,7 @@ import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAa
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { listNewImapMessages, getImapMessage, archiveImapMessage } from '@/lib/imap';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
+import { getBrochureForReply } from '@/lib/first-email-attachment';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
 import { generateDevis } from '@/lib/aaron-sales';
@@ -659,6 +660,43 @@ export async function GET(request: NextRequest) {
         companyId: prospect.company_id || null,
         userId: connection.user_id,
       });
+      // REBOND DUR (25/09/2026) — TROU N°1.
+      //
+      // Avant, un rebond etait classe puis ignore : l'adresse restait active
+      // et Aaron la relancait trois fois de plus selon le calendrier. Envoyer
+      // en boucle a une boite qui n'existe pas est le signal qui abime le plus
+      // vite une reputation d'expediteur — devant un DKIM manquant.
+      //
+      // On coupe donc a la source : date du rebond enregistree, prospect passe
+      // en perdu avec le motif 'email_invalide', relances annulees. Le motif
+      // dedie compte : « adresse morte » et « pas interesse » ne disent pas du
+      // tout la meme chose sur la qualite du sourcing, et l'ecran Resultats
+      // pourra les distinguer.
+      //
+      // Repli 42703 : tant que migration_delivrabilite_2026-09-25.sql n'est pas
+      // passee, on se contente du statut — l'essentiel (arreter d'ecrire a
+      // cette adresse) est deja obtenu.
+      if (triage.category === 'bounce') {
+        const now = new Date().toISOString();
+        const full = {
+          email_bounced_at: now,
+          status: 'rouge',
+          status_updated_at: now,
+          pipeline_lost_reason: 'email_invalide',
+        };
+        const { error: bounceErr } = await supabaseAdmin
+          .from('prospects').update(full).eq('id', prospect.id);
+        if (bounceErr) {
+          await supabaseAdmin
+            .from('prospects')
+            .update({ status: 'rouge', status_updated_at: now })
+            .eq('id', prospect.id)
+            .then(() => {}, () => {});
+        }
+        results.push({ prospect_id: prospect.id, skipped: 'bounce', bounced: true, triage_source: triage.source, confidence: triage.confidence });
+        continue;
+      }
+
       if (!triage.needsAaron) {
         results.push({ prospect_id: prospect.id, skipped: triage.category, triage_source: triage.source, confidence: triage.confidence });
         continue;
@@ -729,11 +767,15 @@ export async function GET(request: NextRequest) {
             send_after: new Date(Date.now() + delayMs).toISOString(),
           });
         } else {
+          // La plaquette voyage avec la PREMIERE reponse d'Aaron, plus avec
+          // le premier contact froid (25/09/2026, voir getBrochureForReply).
+          const brochure = await getBrochureForReply(prospect.company_id, prospect.id);
           await sendEmailForUser(
             connection.user_id,
             fromEmail,
             aaronOutput.email_draft.subject,
-            aaronOutput.email_draft.body
+            aaronOutput.email_draft.body,
+            brochure ? { attachment: brochure } : undefined
           );
 
           await supabaseAdmin.from('messages').insert({
