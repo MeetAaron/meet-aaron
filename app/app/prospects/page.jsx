@@ -1242,7 +1242,20 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
 
   return (
     <div className="overlay" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+      {/* autoComplete="off" + noms de champs prefixes « prospect- » (26/09/2026,
+          bug remonte par Alex dans « tests emails.docx » : la saisie
+          automatique du navigateur remplissait la fiche du PROSPECT avec les
+          coordonnees de l'UTILISATEUR).
+          La cause : Chrome reconnait des champs « prenom / nom / email /
+          telephone » dans un formulaire et y injecte le profil enregistre du
+          proprietaire du navigateur. Ici c'est particulierement traitre, parce
+          que le formulaire decrit quelqu'un d'AUTRE — et un prospect cree avec
+          l'adresse du commercial lui-meme, ca veut dire un premier email
+          envoye a soi-meme, sans que rien ne signale l'erreur.
+          Deux garde-fous plutot qu'un, parce que Chrome ignore autoComplete="off"
+          des qu'un champ ressemble assez a un champ connu : les attributs name
+          prefixes cassent aussi sa reconnaissance par heuristique de nom. */}
+      <form className="modal" autoComplete="off" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <h2>{t('prospects.addModalTitle', locale)}</h2>
         <p className="hint">
           {t('prospects.addModalHint', locale)}
@@ -1251,37 +1264,37 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
         <div className="name-row">
           <label>
             {t('prospects.firstNameLabel', locale)}
-            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder={t('prospects.firstNamePlaceholder', locale)} required />
+            <input name="prospect-firstname" autoComplete="off" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder={t('prospects.firstNamePlaceholder', locale)} required />
           </label>
           <label>
             {t('prospects.lastNameLabel', locale)}
-            <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder={t('prospects.lastNamePlaceholder', locale)} required />
+            <input name="prospect-lastname" autoComplete="off" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder={t('prospects.lastNamePlaceholder', locale)} required />
           </label>
         </div>
 
         <label>
           {t('modal.email', locale)}
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('prospects.emailPlaceholder', locale)} required />
+          <input type="email" name="prospect-email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('prospects.emailPlaceholder', locale)} required />
         </label>
 
         <label>
           {t('modal.phone', locale)} {t('prospects.optionalSuffix', locale)}
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t('prospects.phonePlaceholder', locale)} />
+          <input name="prospect-phone" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t('prospects.phonePlaceholder', locale)} />
         </label>
 
         <label>
           {t('prospects.colJobTitle', locale)} {t('prospects.optionalSuffix', locale)}
-          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder={t('prospects.jobTitlePlaceholder', locale)} />
+          <input name="prospect-jobtitle" autoComplete="off" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder={t('prospects.jobTitlePlaceholder', locale)} />
         </label>
 
         <label>
           {t('prospects.colCompany', locale)} {t('prospects.optionalSuffix', locale)}
-          <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder={t('prospects.companyPlaceholder', locale)} />
+          <input name="prospect-company" autoComplete="off" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder={t('prospects.companyPlaceholder', locale)} />
         </label>
 
         <label>
           LinkedIn {t('prospects.optionalSuffix', locale)}
-          <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder={t('prospects.linkedinPlaceholder', locale)} />
+          <input name="prospect-linkedin" autoComplete="off" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder={t('prospects.linkedinPlaceholder', locale)} />
         </label>
 
         <label>
@@ -1304,27 +1317,27 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
           <div className="company-fields">
             <label>
               {t('prospects.colAddress', locale)}
-              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+              <input name="prospect-address" autoComplete="off" value={address} onChange={(e) => setAddress(e.target.value)} />
             </label>
             <label>
               {t('prospects.colSiret', locale)}
-              <input value={siret} onChange={(e) => setSiret(e.target.value)} />
+              <input name="prospect-siret" autoComplete="off" value={siret} onChange={(e) => setSiret(e.target.value)} />
             </label>
             <label>
               {t('prospects.colWebsite', locale)}
-              <input value={website} onChange={(e) => setWebsite(e.target.value)} />
+              <input name="prospect-website" autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
             </label>
             <label>
               {t('prospects.colIndustry', locale)}
-              <input value={industry} onChange={(e) => setIndustry(e.target.value)} />
+              <input name="prospect-industry" autoComplete="off" value={industry} onChange={(e) => setIndustry(e.target.value)} />
             </label>
             <label>
               {t('prospects.colCompanySize', locale)}
-              <input value={companySize} onChange={(e) => setCompanySize(e.target.value)} />
+              <input name="prospect-size" autoComplete="off" value={companySize} onChange={(e) => setCompanySize(e.target.value)} />
             </label>
             <label>
               {t('prospects.colEstimatedRevenue', locale)}
-              <input value={estimatedRevenue} onChange={(e) => setEstimatedRevenue(e.target.value)} />
+              <input name="prospect-revenue" autoComplete="off" value={estimatedRevenue} onChange={(e) => setEstimatedRevenue(e.target.value)} />
             </label>
           </div>
         )}
