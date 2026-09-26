@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/credit-alerts",
       "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/cron/dns-watch",
+      "schedule": "5 6 * * *"
     }
   ]
 }
