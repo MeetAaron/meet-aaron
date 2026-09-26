@@ -46,3 +46,35 @@ export function aaronLabelName(locale: string | null | undefined): string {
 export function isAaronLabelName(name: string | null | undefined): boolean {
   return !!name && ALL_NAMES.has(name.trim());
 }
+
+// Variante SANS emoji et SANS accent, pour les serveurs IMAP qui refusent un
+// nom de dossier non-ASCII (l'UTF-7 modifie de la norme IMAP n'est pas
+// universellement implemente — certains Dovecot anciens et quelques
+// hebergeurs mutualises renvoient une erreur a la creation).
+//
+// 26/09/2026 : jusqu'ici lib/imap.ts portait ses propres constantes en
+// francais en dur, alors que Gmail et Outlook etaient traduits depuis le
+// 13/09. Un commercial allemand sur « Autre boite mail » voyait donc
+// apparaitre « Gere par Aaron » dans son client de messagerie — exactement
+// le defaut qu'on avait corrige partout ailleurs.
+export function aaronLabelNameAscii(locale: string | null | undefined): string {
+  return aaronLabelName(locale)
+    .replace(PREFIX, '')
+    .normalize('NFD')
+    // Plage des diacritiques combinants (U+0300 a U+036F).
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
+}
+
+// Toutes les variantes ASCII connues, pour RECONNAITRE un dossier deja cree
+// quelle que soit la langue — meme role que isAaronLabelName cote Gmail.
+const ALL_ASCII_NAMES = new Set(
+  Object.keys(AARON_LABEL_BY_LOCALE).map((l) => aaronLabelNameAscii(l))
+);
+
+export function isAaronFolderName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  return ALL_NAMES.has(trimmed) || ALL_ASCII_NAMES.has(trimmed);
+}

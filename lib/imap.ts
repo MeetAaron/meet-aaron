@@ -39,12 +39,19 @@ import { supabaseAdmin } from './supabase-admin';
 import { encryptToken, decryptToken } from './encryption';
 import type { MailServerSettings } from './mail-autodiscover';
 import { isAuthError, recordMailboxAuthFailure, clearMailboxAuthFailures } from './mailbox-health';
+import { aaronLabelName, aaronLabelNameAscii, isAaronFolderName } from './aaron-label';
 
 const { ImapFlow } = require('imapflow');
 const nodemailer = require('nodemailer');
 const MailComposer = require('nodemailer/lib/mail-composer');
 const { simpleParser } = require('mailparser');
 
+// Valeurs par DEFAUT (francais) conservees pour la compatibilite : un
+// dossier deja cree avant le 26/09/2026 porte ce nom, et settings.aaron_folder
+// le memorise de toute facon. Le nom d'un NOUVEAU dossier suit desormais la
+// langue du commercial — voir lib/aaron-label.ts, comme Gmail et Outlook
+// depuis le 13/09/2026. Un commercial allemand sur « Autre boite mail »
+// voyait sinon « Gere par Aaron » apparaitre dans son client de messagerie.
 export const AARON_IMAP_FOLDER = '🤖 Géré par Aaron';
 const AARON_IMAP_FOLDER_ASCII = 'Gere par Aaron';
 export const AARON_SENT_HEADER = 'X-Aaron-Sent';
@@ -172,20 +179,33 @@ async function findSentFolder(client: any, boxes?: any[]): Promise<string | null
 // Le nom avec emoji est encodé en UTF-7 modifié par imapflow (norme IMAP) ;
 // si le serveur le refuse, repli sur un nom ASCII — les deux sont mémorisés
 // dans settings.aaron_folder pour ne plus avoir à chercher.
-export async function ensureAaronImapFolder(client: any, preferred?: string | null): Promise<string> {
+export async function ensureAaronImapFolder(
+  client: any,
+  preferred?: string | null,
+  locale?: string | null
+): Promise<string> {
+  const wanted = aaronLabelName(locale);
+  const wantedAscii = aaronLabelNameAscii(locale);
   const boxes = await listMailboxes(client);
   const existing = (name: string) => boxes.find((b: any) => b.path === name || b.name === name || String(b.path).endsWith(`${b.delimiter || '.'}${name}`));
-  for (const name of [preferred, AARON_IMAP_FOLDER, AARON_IMAP_FOLDER_ASCII]) {
+  for (const name of [preferred, wanted, wantedAscii, AARON_IMAP_FOLDER, AARON_IMAP_FOLDER_ASCII]) {
     if (!name) continue;
     const found = existing(name);
     if (found) return found.path;
   }
+  // Un dossier Aaron dans UNE AUTRE langue (le commercial a change de langue
+  // depuis) : on le reprend tel quel plutot que d'en creer un second. On ne
+  // renomme pas, contrairement a Gmail : un RENAME IMAP deplace les messages
+  // et tous les serveurs ne le gerent pas proprement — deux repères valent
+  // mieux qu'une boite cassee.
+  const otherLanguage = boxes.find((b: any) => isAaronFolderName(b.name) || isAaronFolderName(b.path));
+  if (otherLanguage) return otherLanguage.path;
   // Certains serveurs (Dovecot avec namespace « INBOX. ») exigent un préfixe :
   // on l'apprend de la boîte de réception.
   const inbox = boxes.find((b: any) => String(b.path).toUpperCase() === 'INBOX');
   const prefixed = boxes.find((b: any) => /^INBOX[./]/i.test(String(b.path)) && String(b.path).toUpperCase() !== 'INBOX');
   const prefix = prefixed ? `INBOX${prefixed.delimiter || String(prefixed.path).charAt(5)}` : '';
-  for (const name of [AARON_IMAP_FOLDER, AARON_IMAP_FOLDER_ASCII]) {
+  for (const name of [wanted, wantedAscii]) {
     for (const path of Array.from(new Set([name, prefix ? `${prefix}${name}` : null, inbox && !prefix ? `INBOX${inbox.delimiter || '.'}${name}` : null].filter(Boolean) as string[]))) {
       try {
         const created = await client.mailboxCreate(path);
@@ -221,14 +241,14 @@ async function rememberFolders(rowId: string, settings: ImapSettings, patch: Par
 // Test de connexion (formulaire Connexions) — ne stocke rien
 // ---------------------------------------------------------------------------
 
-export async function testImapSmtp(creds: ImapCredentials): Promise<{ ok: true; sentFolder: string | null; aaronFolder: string } | { ok: false; step: 'imap' | 'smtp'; error: string }> {
+export async function testImapSmtp(creds: ImapCredentials, locale?: string | null): Promise<{ ok: true; sentFolder: string | null; aaronFolder: string } | { ok: false; step: 'imap' | 'smtp'; error: string }> {
   let sentFolder: string | null = null;
   let aaronFolder = '';
   try {
     await withImap(creds, async (client) => {
       const boxes = await listMailboxes(client);
       sentFolder = await findSentFolder(client, boxes);
-      aaronFolder = await ensureAaronImapFolder(client, creds.settings.aaron_folder);
+      aaronFolder = await ensureAaronImapFolder(client, creds.settings.aaron_folder, locale);
     });
   } catch (err: any) {
     return { ok: false, step: 'imap', error: String(err?.responseText || err?.message || err) };
@@ -346,7 +366,17 @@ export async function sendImapEmail(
     await withImap(creds, async (client) => {
       let target: string | null = null;
       if (!opts?.skipAaronLabel && opts?.archiveToAaronFolder) {
-        target = await ensureAaronImapFolder(client, creds.settings.aaron_folder);
+        // Langue du commercial pour le nom du dossier (lib/aaron-label.ts).
+        // Lecture best-effort : une locale introuvable retombe sur le
+        // francais, jamais sur un echec d'envoi.
+        let folderLocale: string | null = null;
+        try {
+          const { data: u } = await supabaseAdmin.from('users').select('locale').eq('id', userId).maybeSingle();
+          folderLocale = (u as any)?.locale || null;
+        } catch {
+          folderLocale = null;
+        }
+        target = await ensureAaronImapFolder(client, creds.settings.aaron_folder, folderLocale);
         await rememberFolders(row.id, creds.settings, { aaron_folder: target });
       } else {
         target = creds.settings.sent_folder || (await findSentFolder(client));
@@ -512,7 +542,7 @@ export async function listImapSentToProspect(userId: string, prospectEmail: stri
     return await withImap(creds, async (client) => {
       const boxes = await listMailboxes(client);
       const sent = creds.settings.sent_folder || (await findSentFolder(client, boxes));
-      const aaron = creds.settings.aaron_folder || boxes.find((b: any) => b.name === AARON_IMAP_FOLDER || b.name === AARON_IMAP_FOLDER_ASCII)?.path || null;
+      const aaron = creds.settings.aaron_folder || boxes.find((b: any) => isAaronFolderName(b.name) || isAaronFolderName(b.path))?.path || null;
       const out: ImapParsedMessage[] = [];
       for (const box of Array.from(new Set([sent, aaron].filter(Boolean) as string[]))) {
         const lock = await client.getMailboxLock(box);

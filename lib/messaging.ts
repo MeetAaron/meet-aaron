@@ -13,6 +13,7 @@ import { sendImapEmail } from './imap';
 import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
 import { findReplyContext, replySubject } from './email-threading';
+import { pickSignature, recipientLocaleForSignature } from './signature-locale';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
 // les emails générés par Aaron sont parfois "wrappés à la main" par le
@@ -411,23 +412,27 @@ export async function sendEmailForUser(
 
   const providers = await getConnectedProviders(userId);
 
-  // `any` : les deux variantes de chaîne de colonnes donnent des types
-  // Postgrest incompatibles, alors que la forme runtime est identique.
-  // Repli sur 42703 tant que migration_aaron_archive_threads_2026-09-01.sql
-  // n'est pas passée — sinon plus AUCUN email ne partirait.
-  let userRes: any = await supabaseAdmin
-    .from('users')
-    .select('email, full_name, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale')
-    .eq('id', userId)
-    .maybeSingle();
-  if (userRes.error && userRes.error.code === '42703') {
-    userRes = await supabaseAdmin
-      .from('users')
-      .select('email, full_name, email_signature, email_signature_image_url, email_banner_image_url, locale')
-      .eq('id', userId)
-      .maybeSingle();
+  // `any` : les variantes de chaîne de colonnes donnent des types Postgrest
+  // incompatibles, alors que la forme runtime est identique.
+  //
+  // Repli en cascade sur 42703 (colonne inexistante) : la plus complète
+  // d'abord, puis on retire une colonne à chaque échec. Deux migrations
+  // peuvent ne pas être encore passées en production au moment d'un déploiement
+  // (migration_aaron_archive_threads_2026-09-01.sql,
+  // migration_signature_multilingue_2026-09-26.sql) — sans ce repli, plus
+  // AUCUN email ne partirait, ce qui est infiniment plus grave que de perdre
+  // une signature traduite ou l'archivage automatique.
+  const USER_COLUMN_SETS = [
+    'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
+    'email, full_name, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
+    'email, full_name, email_signature, email_signature_image_url, email_banner_image_url, locale',
+  ];
+  let userRes: any = null;
+  for (const columns of USER_COLUMN_SETS) {
+    userRes = await supabaseAdmin.from('users').select(columns).eq('id', userId).maybeSingle();
+    if (!userRes.error || userRes.error.code !== '42703') break;
   }
-  const user: any = userRes.data;
+  const user: any = userRes?.data;
 
   // Email qu'Aaron envoie AU COMMERCIAL LUI-MÊME (rapports jour/semaine/mois,
   // alertes) : ni libellé « Géré par Aaron », ni rangement hors de la boîte de
@@ -472,7 +477,23 @@ export async function sendEmailForUser(
   // On coupe donc court : pas de data: dans la signature, pas de data: dans
   // les URL d'images, et une signature plafonnée. Et on journalise la taille
   // finale pour que le jour où ça recommence, le log le dise tout de suite.
-  const rawSignature = stripDataUris(user?.email_signature || '');
+  // ── SIGNATURE DANS LA LANGUE DU DESTINATAIRE (26/09/2026) ─────────────
+  //
+  // Aaron rédige déjà le message dans la langue du prospect
+  // (lib/prospect-locale.ts). La signature suivait, elle, une seule langue :
+  // un email anglais se terminait par « Cordialement, / Directeur commercial ».
+  //
+  // On ne fait la résolution de langue QUE si le commercial a réellement
+  // saisi au moins une signature traduite — sinon le résultat serait
+  // identique et on aurait ajouté deux requêtes à chaque envoi pour rien.
+  // Jamais pour les emails qu'Aaron s'envoie à lui-même : c'est la langue du
+  // commercial qui s'applique, sans aucune requête.
+  let signatureLocale: string | null = user?.locale || null;
+  if (!toSelf && user?.email_signature_by_locale) {
+    signatureLocale = await recipientLocaleForSignature(userId, to, user?.locale);
+  }
+  const chosenSignature = pickSignature(user?.email_signature, user?.email_signature_by_locale, signatureLocale);
+  const rawSignature = stripDataUris(chosenSignature);
   const signatureText = rawSignature ? normalizeEmailBodyLineBreaks(capSignature(rawSignature, userId)) : '';
   // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
   // le commentaire au-dessus de sendEmailForUser.)

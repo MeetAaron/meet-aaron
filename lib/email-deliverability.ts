@@ -243,6 +243,29 @@ export async function notifyIfDeliverabilityIssue(
     // indésirable sans explication.
     const dkim = await checkDkim(domain, provider);
 
+    // ── EMAIL PAS-A-PAS (26/09/2026, A_FAIRE.docx) ──────────────────────
+    //
+    // La notification push ci-dessous dit qu'il y a un problème. Elle ne dit
+    // pas quoi créer, où, ni avec quelle valeur — et elle disparaît. Le
+    // reproche d'Alex est juste : « JAMAIS ils ne feront ces réglages » si on
+    // se contente de les renvoyer vers un écran.
+    //
+    // L'email, lui, reste dans leur boîte, contient les valeurs exactes déjà
+    // calculées, se transfère au webmaster et se colle dans le chat Aaron.
+    // Il couvre aussi le cas DMARC seul manquant, qui ne déclenche aucune
+    // notification (à juste titre : ce n'est pas urgent) mais mérite d'être
+    // dit une fois.
+    //
+    // Import différé, comme pour push : lib/dns-setup-email.ts importe CE
+    // fichier, un import statique créerait un cycle.
+    // Best-effort et silencieux : ne doit jamais perturber le flux OAuth.
+    try {
+      const { sendDnsSetupEmail } = await import('./dns-setup-email');
+      await sendDnsSetupEmail(userId);
+    } catch (mailErr: any) {
+      console.error('[DNS] instructions non envoyées (non bloquant) :', mailErr?.message);
+    }
+
     if (health.spf.found && dkim.found) return;
 
     if (health.spf.found && !dkim.found) {

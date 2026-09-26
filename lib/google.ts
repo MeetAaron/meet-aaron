@@ -91,6 +91,18 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
     const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    // DIAGNOSTIC (26/09/2026, tests d'Alex : « le libellé n'apparaît pas sur
+    // mon Gmail perso »). Jusqu'ici, un échec ici comme plus bas renvoyait
+    // null sans un mot dans les logs : impossible de distinguer un scope
+    // gmail.modify non accordé (403) d'un conflit de nom (400) ou d'un jeton
+    // périmé (401). On journalise le code ET le corps de la réponse — c'est
+    // la seule trace qui permet de trancher au prochain test.
+    if (!listRes.ok) {
+      console.error(
+        `[Gmail] liste des libellés refusée (HTTP ${listRes.status}) pour l'utilisateur ${userId} : ` +
+        `${(await listRes.text()).slice(0, 300)}`
+      );
+    }
     if (listRes.ok) {
       const { labels } = await listRes.json();
       const exact = labels?.find((l: any) => l.name === wantedName);
@@ -129,7 +141,15 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
         color: { backgroundColor: '#a479e2', textColor: '#ffffff' },
       }),
     });
-    if (!createRes.ok) return null;
+    if (!createRes.ok) {
+      console.error(
+        `[Gmail] création du libellé « ${wantedName} » refusée (HTTP ${createRes.status}) pour ` +
+        `l'utilisateur ${userId} : ${(await createRes.text()).slice(0, 300)}. ` +
+        `HTTP 403 = le scope gmail.modify n'a pas été accordé à cette connexion (reconnexion ` +
+        `du compte nécessaire) ; HTTP 409/400 = un libellé du même nom existe déjà.`
+      );
+      return null;
+    }
     const created = await createRes.json();
     return created.id;
   } catch (err: any) {
@@ -149,7 +169,7 @@ export async function applyAaronLabel(userId: string, threadId: string | undefin
     if (!labelId) return;
 
     const accessToken = await getValidAccessToken(userId);
-    await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`, {
+    const modifyRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -157,6 +177,15 @@ export async function applyAaronLabel(userId: string, threadId: string | undefin
       },
       body: JSON.stringify({ addLabelIds: [labelId] }),
     });
+    // Le libellé existait, l'API a répondu, mais la pose sur le fil peut
+    // échouer à part (fil introuvable parce que l'envoi vient d'un autre
+    // compte, scope insuffisant...). Cette réponse n'était pas lue du tout.
+    if (!modifyRes.ok) {
+      console.error(
+        `[Gmail] pose du libellé Aaron refusée sur le fil ${threadId} (HTTP ${modifyRes.status}) ` +
+        `pour l'utilisateur ${userId} : ${(await modifyRes.text()).slice(0, 300)}`
+      );
+    }
   } catch (err: any) {
     console.error('Erreur pose du label Gmail Aaron:', err.message);
   }
