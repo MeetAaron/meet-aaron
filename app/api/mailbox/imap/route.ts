@@ -75,7 +75,10 @@ export async function POST(request: NextRequest) {
   let lastError: { step: 'imap' | 'smtp'; error: string } | null = null;
   for (const settings of attempts) {
     const creds: ImapCredentials = { email, username, password, settings };
-    const result = await testImapSmtp(creds);
+    // Langue du commercial : le dossier « Gere par Aaron » cree sur son
+    // serveur porte desormais son nom traduit (lib/aaron-label.ts), comme
+    // le libelle Gmail et la categorie Outlook depuis le 13/09/2026.
+    const result = await testImapSmtp(creds, authedUser?.locale);
     if (result.ok === true) {
       const okResult = result as { ok: true; sentFolder: string | null; aaronFolder: string };
       await saveImapConnection(userId, creds, { sentFolder: okResult.sentFolder, aaronFolder: okResult.aaronFolder });
