@@ -105,3 +105,36 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ results });
 }
+
+// POST -> « Envoie-moi les instructions par email » (A_FAIRE.docx,
+// 26/09/2026). Le même email pas-à-pas que celui envoyé automatiquement à la
+// connexion et par le cron quotidien /api/cron/dns-watch, renvoyé à la
+// demande depuis l'assistant délivrabilité de Connexions.
+//
+// Pourquoi un bouton alors que l'envoi est déjà automatique : l'email est
+// TRANSFÉRABLE. Le cas d'usage réel est « je ne vais pas y toucher, je
+// l'envoie à celui qui gère mon site » — et cette personne-là a besoin qu'on
+// puisse lui renvoyer le message plus tard, après l'avoir perdu.
+//
+// force: true — on contourne volontairement le garde-fou « une seule fois » :
+// c'est l'utilisateur qui le demande explicitement, pas nous qui relançons.
+export async function POST(request: NextRequest) {
+  const { user_id } = await request.json().catch(() => ({ user_id: null }));
+  if (!user_id) {
+    return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
+  }
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  if (authedUser.id !== user_id) return forbiddenResponse();
+
+  const { sendDnsSetupEmail } = await import('@/lib/dns-setup-email');
+  const result = await sendDnsSetupEmail(user_id, { force: true });
+
+  if (!result.sent) {
+    // `nothing_to_fix` n'est pas une erreur : c'est la meilleure réponse
+    // possible, et l'UI l'affiche comme telle.
+    return NextResponse.json({ sent: false, reason: result.reason }, { status: 200 });
+  }
+  return NextResponse.json({ sent: true, domain: result.domain });
+}
