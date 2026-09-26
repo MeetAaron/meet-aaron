@@ -144,6 +144,42 @@ export async function POST(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
 
+  // GARDE-FOU « JE ME SUIS DÉMARCHÉ MOI-MÊME » (26/09/2026).
+  //
+  // Bug remonté par Alex dans « tests emails.docx » : la saisie automatique
+  // du navigateur remplissait le formulaire d'ajout de prospect avec les
+  // coordonnées du commercial lui-même. Les attributs autoComplete du
+  // formulaire (app/app/prospects/page.jsx) traitent la cause, mais pas
+  // l'import CSV mal aligné, ni un simple copier-coller distrait.
+  //
+  // La conséquence, sans ce contrôle, n'est pas cosmétique : Aaron génère et
+  // envoie un premier email de prospection à froid À L'ADRESSE DU COMMERCIAL,
+  // qui le reçoit, ne comprend pas, et croit l'application cassée. Pire : le
+  // prospect consomme un crédit et compte dans le plafond quotidien.
+  //
+  // On refuse donc explicitement, avec un message qui dit quoi faire — jamais
+  // un 500 muet.
+  const newEmail = String(email || '').toLowerCase().trim();
+  const { data: ownMailboxes } = await supabaseAdmin
+    .from('oauth_connections')
+    .select('provider_account_email')
+    .eq('user_id', assigned_user_id);
+  const ownAddresses = new Set(
+    [String(authedUser.email || '').toLowerCase().trim()]
+      .concat((ownMailboxes || []).map((c: any) => String(c.provider_account_email || '').toLowerCase().trim()))
+      .filter(Boolean)
+  );
+  if (ownAddresses.has(newEmail)) {
+    return NextResponse.json(
+      {
+        error:
+          "Cette adresse est la vôtre : Aaron enverrait le premier email de prospection à vous-même. " +
+          "Vérifiez le champ email — la saisie automatique de votre navigateur l'a probablement rempli à votre place.",
+      },
+      { status: 400 }
+    );
+  }
+
   // Quota de nouveaux prospects du mois (décision Alex, 08/09/2026 : « s'il
   // en ajoute manuellement ça compte aussi »). Cette route sert à l'ajout
   // manuel ET à l'import CSV — c'est donc ici que la règle s'applique aux
