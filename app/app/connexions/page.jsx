@@ -482,6 +482,14 @@ export default function ConnexionsPage() {
   const importFileInputRef = useRef(null);
   const [signature, setSignature] = useState('');
   const [signatureLoaded, setSignatureLoaded] = useState(false);
+  // SIGNATURE PAR LANGUE DE DESTINATAIRE (A_FAIRE.docx, 26/09/2026).
+  // Aaron écrit déjà au prospect dans SA langue (lib/prospect-locale.ts) ;
+  // la signature suivait une seule langue. `signatureByLocale` = objet
+  // { en: '...', de: '...' } ; une langue vide retombe sur la signature par
+  // défaut ci-dessus (lib/signature-locale.ts). `signatureLang` = onglet
+  // affiché, '' pour la signature par défaut.
+  const [signatureByLocale, setSignatureByLocale] = useState({});
+  const [signatureLang, setSignatureLang] = useState('');
   const [detectingSignature, setDetectingSignature] = useState(false);
   const [signatureError, setSignatureError] = useState(null);
   const [savingSignature, setSavingSignature] = useState(false);
@@ -655,6 +663,7 @@ export default function ConnexionsPage() {
       .then((r) => r.json())
       .then((res) => {
         setSignature(res.signature || '');
+        setSignatureByLocale(res.signature_by_locale || {});
         setSignatureImageUrl(res.signature_image_url || null);
         setBannerImageUrl(res.banner_image_url || null);
         setSignatureLoaded(true);
@@ -793,7 +802,15 @@ export default function ConnexionsPage() {
       setSignatureError(body.error || t('preferences.signatureNotDetected', locale));
       return;
     }
-    setSignature(body.signature);
+    // La détection lit le dernier email envoyé par le commercial : elle
+    // alimente donc l'onglet actuellement ouvert, pas forcément la signature
+    // par défaut (s'il est en train de rédiger sa version anglaise, c'est là
+    // qu'il attend le résultat).
+    if (signatureLang) {
+      setSignatureByLocale((prev) => ({ ...prev, [signatureLang]: body.signature }));
+    } else {
+      setSignature(body.signature);
+    }
   }
 
   async function handleSaveSignature() {
@@ -802,7 +819,7 @@ export default function ConnexionsPage() {
     const res = await fetch('/api/signature', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, signature }),
+      body: JSON.stringify({ user_id: userId, signature, signature_by_locale: signatureByLocale }),
     });
     setSavingSignature(false);
     if (res.ok) {
@@ -2171,12 +2188,52 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           {signatureLoaded && (
             <div className="company-section">
               <h3 className="company-section-title">{t('preferences.signatureLabel', locale)}</h3>
+              {/* Onglets de langue (26/09/2026) : « Par défaut » + les 7
+                  langues. Une langue laissée vide n'est pas enregistrée et
+                  retombe sur la signature par défaut à l'envoi — voir
+                  lib/signature-locale.ts. La puce indique d'un coup d'œil
+                  les langues déjà traduites. */}
+              <div className="sig-lang-tabs">
+                <button
+                  type="button"
+                  className={`sig-lang-tab${signatureLang === '' ? ' is-active' : ''}`}
+                  onClick={() => setSignatureLang('')}
+                >
+                  {t('preferences.signatureDefaultTab', locale)}
+                </button>
+                {LOCALES.map((loc) => (
+                  <button
+                    key={loc}
+                    type="button"
+                    className={`sig-lang-tab${signatureLang === loc ? ' is-active' : ''}${(signatureByLocale[loc] || '').trim() ? ' is-filled' : ''}`}
+                    onClick={() => setSignatureLang(loc)}
+                  >
+                    {LOCALE_LABELS[loc]}
+                  </button>
+                ))}
+              </div>
               <textarea
                 rows={4}
-                value={signature}
-                onChange={(e) => setSignature(e.target.value)}
-                placeholder={t('preferences.signaturePlaceholder', locale)}
+                value={signatureLang ? (signatureByLocale[signatureLang] || '') : signature}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (signatureLang) {
+                    setSignatureByLocale((prev) => ({ ...prev, [signatureLang]: value }));
+                  } else {
+                    setSignature(value);
+                  }
+                }}
+                placeholder={
+                  signatureLang
+                    ? (signature || t('preferences.signaturePlaceholder', locale))
+                    : t('preferences.signaturePlaceholder', locale)
+                }
               />
+              <p className="collab-extra-hint">
+                {signatureLang
+                  ? t('preferences.signatureLocaleHint', locale)
+                  : t('preferences.signatureDefaultHint', locale)}
+              </p>
               {signatureError && <p className="error">{signatureError}</p>}
               <div className="actions">
                 <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
@@ -2455,6 +2512,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   l'écran ne propose plus d'en ajouter une seconde. */}
               {(googleConnection || (!microsoftConnection && !imapConnection)) && (
           <ConnectionCard
+            userId={userId}
             title={PROVIDER_META.google.name}
             desc={PROVIDER_META.google.desc}
             connection={googleConnection}
@@ -2477,6 +2535,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               )}
               {(microsoftConnection || (!googleConnection && !imapConnection)) && (
           <ConnectionCard
+            userId={userId}
             title={PROVIDER_META.microsoft.name}
             desc={PROVIDER_META.microsoft.desc}
             connection={microsoftConnection}
@@ -2499,6 +2558,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               )}
               {(imapConnection || (!googleConnection && !microsoftConnection)) && (
           <ConnectionCard
+            userId={userId}
             title={PROVIDER_META.imap.name}
             desc={PROVIDER_META.imap.desc}
             connection={imapConnection}
@@ -3914,6 +3974,48 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         }
         .analyze-change-note p:last-child {
           margin: 0;
+        }
+        /* Onglets de langue de la signature (26/09/2026). Une pastille
+           discrète marque les langues déjà renseignées, pour qu'on voie d'un
+           coup d'oeil ce qui reste à traduire. */
+        .sig-lang-tabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          margin-bottom: 0.6rem;
+        }
+        .sig-lang-tab {
+          padding: 0.32rem 0.7rem;
+          font-size: 0.8rem;
+          font-weight: 500;
+          color: var(--text-muted);
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .sig-lang-tab:hover {
+          color: var(--text);
+          border-color: var(--accent);
+        }
+        .sig-lang-tab.is-active {
+          color: #fff;
+          background: var(--accent);
+          border-color: var(--accent);
+        }
+        .sig-lang-tab.is-filled::before {
+          content: '';
+          display: inline-block;
+          width: 5px;
+          height: 5px;
+          margin-right: 0.35rem;
+          vertical-align: middle;
+          border-radius: 50%;
+          background: var(--accent);
+        }
+        .sig-lang-tab.is-active.is-filled::before {
+          background: #fff;
         }
         .signature-image-block {
           margin-top: 1.2rem;
@@ -6254,6 +6356,9 @@ function ImapConnectForm({ locale, userId, initialEmail, providerName, initialSe
 function ConnectionCard({
   title,
   desc,
+  // userId : necessaire pour POST /api/email-health (« Recevoir le guide par
+  // email »), ajoute le 26/09/2026.
+  userId,
   connection,
   health,
   missingLabelScope,
@@ -6281,6 +6386,8 @@ function ConnectionCard({
   // coller, calculée côté API (voir app/api/email-health/route.ts et
   // lib/email-deliverability.ts).
   const [copiedField, setCopiedField] = useState(null);
+  const [sendingDnsEmail, setSendingDnsEmail] = useState(false);
+  const [dnsEmailResult, setDnsEmailResult] = useState(null);
   function copyRecord(value, field) {
     navigator.clipboard.writeText(value).then(() => {
       setCopiedField(field);
@@ -6313,6 +6420,32 @@ function ConnectionCard({
     }
     lines.push(t('connexions.deliverabilityEmailThanks', locale));
     copyRecord(lines.join('\n'), 'deliverability-email');
+  }
+
+  // « Envoie-moi les instructions par email » (A_FAIRE.docx, 26/09/2026).
+  //
+  // Le bouton ci-dessus copie un message dans le presse-papier : il suppose
+  // que l'utilisateur sache où le coller, et il disparaît dès qu'il copie
+  // autre chose. Celui-ci fait arriver dans sa boîte le guide pas-à-pas
+  // complet — valeurs exactes, nom de son hébergeur DNS, lien direct — qu'il
+  // peut transférer à son informaticien ou coller dans le chat Aaron, et
+  // retrouver par recherche trois semaines plus tard.
+  // Voir lib/dns-setup-email.ts et POST /api/email-health.
+  async function sendDnsInstructions() {
+    setSendingDnsEmail(true);
+    setDnsEmailResult(null);
+    try {
+      const res = await fetch('/api/email-health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const body = await res.json();
+      setDnsEmailResult(body.sent ? 'sent' : (body.reason || 'error'));
+    } catch {
+      setDnsEmailResult('error');
+    }
+    setSendingDnsEmail(false);
   }
   return (
     <div className="card">
@@ -6462,6 +6595,22 @@ function ConnectionCard({
                   {copiedField === 'deliverability-email' ? t('team.copied', locale) : t('connexions.copyEmailForItButton', locale)}
                 </button>
                 <p className="health-hint">{t('connexions.copyEmailForItHint', locale)}</p>
+              </div>
+              <div className="record-row deliverability-email-row">
+                <button type="button" className="btn-secondary" onClick={sendDnsInstructions} disabled={sendingDnsEmail}>
+                  {sendingDnsEmail
+                    ? t('connexions.sendDnsGuideSending', locale)
+                    : t('connexions.sendDnsGuideButton', locale)}
+                </button>
+                <p className="health-hint">
+                  {dnsEmailResult === 'sent'
+                    ? t('connexions.sendDnsGuideSent', locale)
+                    : dnsEmailResult === 'nothing_to_fix'
+                    ? t('connexions.sendDnsGuideNothing', locale)
+                    : dnsEmailResult
+                    ? t('connexions.sendDnsGuideError', locale)
+                    : t('connexions.sendDnsGuideHint', locale)}
+                </p>
               </div>
             </div>
           )}
