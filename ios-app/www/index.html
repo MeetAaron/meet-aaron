@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meet Aaron</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #0D0F20; }
+  body { display: flex; align-items: center; justify-content: center;
+         font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+         color: #B0B6CE; text-align: center; padding: 24px; }
+  .box { max-width: 320px; }
+  h1 { color: #fff; font-size: 22px; margin: 0 0 10px; }
+  p { font-size: 15px; line-height: 1.5; margin: 0; }
+  .bar { width: 48px; height: 4px; border-radius: 2px; background: #8B6CFC; margin: 18px auto 0; }
+</style>
+</head>
+<body>
+  <!--
+    PAGE DE REPLI, ET RIEN D'AUTRE.
+
+    L'application charge https://meetaaron.app (voir server.url dans
+    capacitor.config.json). Ce fichier ne s'affiche que si le telephone n'a
+    aucune connexion au lancement. Capacitor EXIGE un webDir non vide, et un
+    dossier vide ferait echouer `cap sync`.
+  -->
+  <div class="box">
+    <h1>Meet Aaron</h1>
+    <p>Pas de connexion internet pour le moment. Reessayez dans un instant.</p>
+    <div class="bar"></div>
+  </div>
+</body>
+</html>
