@@ -1,0 +1,105 @@
+# codemagic.yaml
+#
+# COMPILATION iOS SANS POSSEDER DE MAC.
+#
+# Apple n'autorise la compilation d'une application iOS que sur macOS. Alex
+# est sous Windows, l'environnement de developpement tourne sous Linux :
+# personne ici ne peut produire le fichier. On loue donc une machine macOS a
+# la demande — Codemagic en offre 500 minutes par mois, largement de quoi
+# publier et mettre a jour.
+#
+# Le projet Xcode n'est PAS dans le depot : il est genere a chaque
+# compilation par `npx cap add ios` (voir ios-app/README.md pour le
+# pourquoi), puis retouche par ios-app/patch-ios.rb.
+#
+# CE QU'IL FAUT AVOIR CONFIGURE DANS CODEMAGIC AVANT LE PREMIER LANCEMENT :
+#   - une integration « App Store Connect » nommee  meet-aaron-asc
+#     (Codemagic → Teams → Integrations → App Store Connect → Add key).
+#     C'est elle qui genere et renouvelle les certificats tout seule : c'est
+#     la partie qui fait perdre des journees quand on la fait a la main.
+#   - rien d'autre. Pas de certificat a telecharger, pas de profil a creer.
+
+workflows:
+  ios-release:
+    name: Meet Aaron — iOS (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+      cocoapods: default
+      node: 20
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: app.meetaaron.twa
+      vars:
+        APP_VERSION: '1.0.0'
+      groups:
+        # Groupe de variables a creer dans Codemagic, contenant :
+        #   APP_STORE_CONNECT_ISSUER_ID
+        #   APP_STORE_CONNECT_KEY_IDENTIFIER
+        #   APP_STORE_CONNECT_PRIVATE_KEY
+        - appstore_credentials
+
+    scripts:
+      - name: Installer les dependances de la coque
+        script: |
+          cd ios-app
+          npm ci || npm install
+
+      - name: Generer le projet Xcode
+        script: |
+          cd ios-app
+          # `cap add ios` echoue s'il existe deja : on repart toujours propre,
+          # c'est le principe d'un projet genere.
+          rm -rf ios
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Generer les icones et l'ecran de lancement
+        script: |
+          cd ios-app
+          npx @capacitor/assets generate --ios --assetPath assets
+
+      - name: Retoucher le projet Xcode (habilitations, version, Info.plist)
+        script: |
+          cd ios-app
+          gem install xcodeproj plist --no-document
+          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID" 2>/dev/null || echo 0) + 1))
+          echo "BUILD_NUMBER=$BUILD_NUMBER"
+          APP_VERSION="$APP_VERSION" BUILD_NUMBER="$BUILD_NUMBER" ruby patch-ios.rb
+
+      - name: Installer les pods
+        script: |
+          cd ios-app/ios/App
+          pod install
+
+      - name: Appliquer la signature automatique
+        script: |
+          cd ios-app/ios/App
+          keychain initialize
+          app-store-connect fetch-signing-files app.meetaaron.twa --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Compiler l'archive
+        script: |
+          cd ios-app/ios/App
+          xcode-project build-ipa --workspace App.xcworkspace --scheme App
+
+    artifacts:
+      - ios-app/ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Envoi sur TestFlight uniquement. La mise en vente publique reste un
+        # clic manuel dans App Store Connect : on ne publie jamais tout seul.
+        submit_to_testflight: true
+        submit_to_app_store: false
+      email:
+        recipients:
+          - alexandre@meetaaron.app
+        notify:
+          success: true
+          failure: true
