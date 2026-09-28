@@ -1,0 +1,28 @@
+{
+  "appId": "app.meetaaron.twa",
+  "appName": "Meet Aaron",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://meetaaron.app/app/dashboard",
+    "hostname": "meetaaron.app",
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false,
+    "backgroundColor": "#0D0F20"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#0D0F20",
+      "showSpinner": false
+    }
+  }
+}

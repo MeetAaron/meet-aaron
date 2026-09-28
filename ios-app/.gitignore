@@ -1,0 +1,5 @@
+# Le projet Xcode est GENERE a chaque compilation (npx cap add ios) — il ne
+# doit jamais etre commite. Voir README.md.
+ios/
+node_modules/
+package-lock.json

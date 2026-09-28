@@ -1,0 +1,24 @@
+{
+  "name": "meet-aaron-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coque iOS de Meet Aaron. Volontairement isolee du projet Next.js : ses dependances ne doivent jamais remonter dans le build Vercel.",
+  "scripts": {
+    "ios:add": "cap add ios",
+    "ios:sync": "cap sync ios",
+    "assets": "capacitor-assets generate --ios --assetPath assets"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/browser": "^6.0.3",
+    "@capacitor/push-notifications": "^6.0.2",
+    "@capacitor/splash-screen": "^6.0.2",
+    "@capacitor/status-bar": "^6.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/assets": "^3.0.5"
+  }
+}
