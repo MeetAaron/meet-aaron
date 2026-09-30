@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   // avec la seule signature par défaut.
   let userRes: any = await supabaseAdmin
     .from('users')
-    .select('email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url')
+    .select('email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, email_banner_by_locale')
     .eq('id', userId)
     .maybeSingle();
   if (userRes.error && userRes.error.code === '42703') {
@@ -50,6 +50,9 @@ export async function GET(request: NextRequest) {
     // Modifs Aaron, bloc "AJOUT signature", 30/08/2026) — voir
     // migration_email_banner_2026-08-31.sql et lib/messaging.ts.
     banner_image_url: user?.email_banner_image_url || null,
+    // Bandeau par langue de destinataire (30/09/2026) — meme mecanique que
+    // signature_by_locale : une langue absente retombe sur banner_image_url.
+    banner_by_locale: user?.email_banner_by_locale || null,
   });
 }
 
