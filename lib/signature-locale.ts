@@ -65,6 +65,49 @@ export function pickSignature(
   return fallback;
 }
 
+// ── BANDEAU PAR LANGUE (30/09/2026) ────────────────────────────────────────
+//
+// Meme logique que la signature texte, appliquee a l'image du bandeau. Elle
+// manquait : le texte etait traduit depuis le 26/09, mais l'image restait
+// unique, donc un email allemand se terminait par un bandeau francais.
+//
+// Une valeur n'est acceptee que si c'est une URL http(s). C'est la meme
+// regle que safeImageUrl dans lib/messaging.ts, redite ici pour que rien
+// d'invalide n'entre en base : une data: URI de 200 Ko dans la signature,
+// c'est le « [Message tronque] » de Gmail garanti.
+function isHttpUrl(value: any): boolean {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+export function normalizeBannerMap(input: any): Record<string, string> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const out: Record<string, string> = {};
+  for (const locale of SIGNATURE_LOCALES) {
+    const raw = (input as any)[locale];
+    if (isHttpUrl(raw)) out[locale] = String(raw).trim();
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+export function pickBannerUrl(
+  defaultUrl: string | null | undefined,
+  byLocale: any,
+  locale: string | null | undefined
+): string | null {
+  const fallback = isHttpUrl(defaultUrl) ? String(defaultUrl).trim() : null;
+  const key = String(locale || '').trim().toLowerCase();
+  if (!key) return fallback;
+
+  let map: any = byLocale;
+  if (typeof map === 'string') {
+    try { map = JSON.parse(map); } catch { map = null; }
+  }
+  if (!map || typeof map !== 'object') return fallback;
+
+  const candidate = map[key];
+  return isHttpUrl(candidate) ? String(candidate).trim() : fallback;
+}
+
 // Langue probable du DESTINATAIRE d'un envoi, a partir de sa seule adresse
 // email — le seul element dont dispose sendEmailForUser.
 //

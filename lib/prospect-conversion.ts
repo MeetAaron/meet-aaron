@@ -43,11 +43,15 @@ import { triggerAutomaticOnboarding } from './aaron-customer';
 import { autoSyncWonProspect } from './crm-sync';
 import { handOverWonProspect } from './prospect-handover';
 
+// Renvoie le NOMBRE de prospects effectivement bascules en client
+// (30/09/2026). L'appelant en a besoin : le webhook Stripe cree une fiche
+// client « inscription directe » quand ce nombre vaut zero — voir
+// lib/self-signup-client.ts. Renvoyait void jusqu'ici.
 export async function convertMatchingProspectsToClients(
   signupEmail: string,
   companyId?: string
-): Promise<void> {
-  if (!signupEmail) return;
+): Promise<number> {
+  if (!signupEmail) return 0;
 
   try {
     let query = supabaseAdmin
@@ -63,11 +67,12 @@ export async function convertMatchingProspectsToClients(
 
     if (error) {
       console.error('Erreur recherche prospect correspondant à un nouvel inscrit:', error.message);
-      return;
+      return 0;
     }
-    if (!matches || matches.length === 0) return;
+    if (!matches || matches.length === 0) return 0;
 
     const now = new Date().toISOString();
+    let converted = 0;
 
     for (const prospect of matches) {
       const { error: updateError } = await supabaseAdmin
@@ -104,8 +109,11 @@ export async function convertMatchingProspectsToClients(
       // Passage de relais (« géré par moi ») + notification au commercial —
       // voir lib/prospect-handover.ts.
       handOverWonProspect(prospect.id).catch(() => {});
+      converted += 1;
     }
+    return converted;
   } catch (err: any) {
     console.error('Erreur convertMatchingProspectsToClients:', err.message);
+    return 0;
   }
 }

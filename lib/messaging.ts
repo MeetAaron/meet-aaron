@@ -13,7 +13,7 @@ import { sendImapEmail } from './imap';
 import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
 import { findReplyContext, replySubject } from './email-threading';
-import { pickSignature, recipientLocaleForSignature } from './signature-locale';
+import { pickSignature, pickBannerUrl, recipientLocaleForSignature } from './signature-locale';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
 // les emails générés par Aaron sont parfois "wrappés à la main" par le
@@ -423,6 +423,7 @@ export async function sendEmailForUser(
   // AUCUN email ne partirait, ce qui est infiniment plus grave que de perdre
   // une signature traduite ou l'archivage automatique.
   const USER_COLUMN_SETS = [
+    'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, email_banner_by_locale, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_image_url, email_banner_image_url, locale',
@@ -489,7 +490,7 @@ export async function sendEmailForUser(
   // Jamais pour les emails qu'Aaron s'envoie à lui-même : c'est la langue du
   // commercial qui s'applique, sans aucune requête.
   let signatureLocale: string | null = user?.locale || null;
-  if (!toSelf && user?.email_signature_by_locale) {
+  if (!toSelf && (user?.email_signature_by_locale || user?.email_banner_by_locale)) {
     signatureLocale = await recipientLocaleForSignature(userId, to, user?.locale);
   }
   const chosenSignature = pickSignature(user?.email_signature, user?.email_signature_by_locale, signatureLocale);
@@ -522,7 +523,12 @@ export async function sendEmailForUser(
 
   const textBody = [body, signatureText].filter(Boolean).join('\n\n');
   const signatureImageUrl = safeImageUrl(user?.email_signature_image_url);
-  const bannerImageUrl = safeImageUrl(user?.email_banner_image_url);
+  // Bandeau dans la meme langue que le corps et que la signature texte
+  // (30/09/2026). On reutilise signatureLocale, deja calcule plus haut :
+  // le bandeau et la signature ne peuvent donc jamais diverger.
+  const bannerImageUrl = safeImageUrl(
+    pickBannerUrl(user?.email_banner_image_url, user?.email_banner_by_locale, signatureLocale)
+  );
   const signatureImageHtml = signatureImageUrl
     ? `<img src="${signatureImageUrl}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';
