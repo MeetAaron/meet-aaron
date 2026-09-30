@@ -19,6 +19,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { SIGNATURE_LOCALES } from '@/lib/signature-locale';
+
+// Langue de destinataire pour laquelle ce bandeau est prevu (30/09/2026).
+// Vide = le bandeau PAR DEFAUT, celui qui sert pour toute langue non
+// renseignee. Une valeur inconnue est ignoree plutot que refusee : mieux vaut
+// enregistrer le bandeau par defaut que de renvoyer une erreur au commercial.
+function localeParam(value: any): string | null {
+  const key = String(value || '').trim().toLowerCase();
+  return (SIGNATURE_LOCALES as readonly string[]).includes(key) ? key : null;
+}
+
+// Fusionne une URL dans la colonne jsonb { langue: url }, ou l'en retire.
+// `null` en valeur = suppression de cette langue ; un objet vide redevient
+// null pour que la colonne reste propre.
+function mergeLocaleMap(current: any, locale: string, url: string | null): Record<string, string> | null {
+  let map: any = current;
+  if (typeof map === 'string') {
+    try { map = JSON.parse(map); } catch { map = null; }
+  }
+  const out: Record<string, string> = (map && typeof map === 'object' && !Array.isArray(map)) ? { ...map } : {};
+  if (url) out[locale] = url;
+  else delete out[locale];
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 const BUCKET = 'signatures';
 const MAX_SIZE_BYTES = 2 * 1024 * 1024; // 2 Mo — largement suffisant pour un logo/une carte de visite
@@ -40,6 +64,10 @@ export async function POST(request: NextRequest) {
   const userId = formData.get('user_id') as string | null;
   const kind = formData.get('kind') === 'banner' ? 'banner' : 'signature';
   const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
+  // Seul le BANDEAU est decline par langue. L'image de signature est une
+  // carte de visite — nom, fonction, telephone — elle ne se traduit pas ;
+  // en faire sept versions serait sept fois le meme fichier.
+  const locale = kind === 'banner' ? localeParam(formData.get('locale')) : null;
 
   if (!file || !userId) {
     return NextResponse.json({ error: 'Fichier ou user_id manquant' }, { status: 400 });
@@ -75,6 +103,34 @@ export async function POST(request: NextRequest) {
   const { data: publicUrlData } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(storagePath);
   const publicUrl = publicUrlData.publicUrl;
 
+  // Bandeau d'une langue precise : on fusionne dans la colonne jsonb, sans
+  // toucher au bandeau par defaut. Repli 42703 tant que
+  // migration_bandeau_multilingue_2026-09-30.sql n'est pas passee : on
+  // enregistre alors le bandeau par defaut et on le dit, plutot que de
+  // renvoyer une erreur incomprehensible.
+  if (locale) {
+    const { data: row, error: readErr } = await supabaseAdmin
+      .from('users')
+      .select('email_banner_by_locale')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (!readErr) {
+      const merged = mergeLocaleMap((row as any)?.email_banner_by_locale, locale, publicUrl);
+      const { error: mergeErr } = await supabaseAdmin
+        .from('users')
+        .update({ email_banner_by_locale: merged })
+        .eq('id', userId);
+      if (!mergeErr) return NextResponse.json({ url: publicUrl, locale });
+      if ((mergeErr as any).code !== '42703') {
+        return NextResponse.json({ error: mergeErr.message }, { status: 500 });
+      }
+    } else if ((readErr as any).code !== '42703') {
+      return NextResponse.json({ error: readErr.message }, { status: 500 });
+    }
+    return NextResponse.json({ url: publicUrl, locale, locale_saved: false });
+  }
+
   const { error: updateError } = await supabaseAdmin
     .from('users')
     .update({ [column]: publicUrl })
@@ -91,6 +147,7 @@ export async function DELETE(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
   const kind = request.nextUrl.searchParams.get('kind') === 'banner' ? 'banner' : 'signature';
   const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
+  const locale = kind === 'banner' ? localeParam(request.nextUrl.searchParams.get('locale')) : null;
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
@@ -98,6 +155,28 @@ export async function DELETE(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
+
+  // Retirer le bandeau d'UNE langue : elle retombe simplement sur le bandeau
+  // par defaut, elle ne devient pas vide.
+  if (locale) {
+    const { data: row, error: readErr } = await supabaseAdmin
+      .from('users')
+      .select('email_banner_by_locale')
+      .eq('id', userId)
+      .maybeSingle();
+    if (readErr && (readErr as any).code !== '42703') {
+      return NextResponse.json({ error: readErr.message }, { status: 500 });
+    }
+    const merged = mergeLocaleMap((row as any)?.email_banner_by_locale, locale, null);
+    const { error: mergeErr } = await supabaseAdmin
+      .from('users')
+      .update({ email_banner_by_locale: merged })
+      .eq('id', userId);
+    if (mergeErr && (mergeErr as any).code !== '42703') {
+      return NextResponse.json({ error: mergeErr.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, locale });
+  }
 
   const { error } = await supabaseAdmin
     .from('users')
