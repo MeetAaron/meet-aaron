@@ -46,6 +46,8 @@ const ORIGIN_KEYS = {
   amene_par_aaron: 'pipeline.origin.aaron',
   amene_par_toi: 'pipeline.origin.you',
   reactive_par_aaron: 'pipeline.origin.reactivated',
+  // 30/09/2026 : inscription spontanee, sans demarchage prealable.
+  inscription_directe: 'pipeline.origin.inbound',
 };
 
 export function DiscBadge({ type, locale, size = 'md' }) {
