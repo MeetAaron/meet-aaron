@@ -25,6 +25,7 @@ import { generateInviteCode } from '@/lib/invite-code';
 import { boostEndsAt } from '@/lib/credit-boosts';
 import { getSubscriptionState, setSubscriptionState, graceEndFrom } from '@/lib/subscription-status';
 import { convertMatchingProspectsToClients } from '@/lib/prospect-conversion';
+import { ensureSelfSignupClient } from '@/lib/self-signup-client';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -268,8 +269,28 @@ export async function POST(request: NextRequest) {
     // -forget, ne doit jamais retarder ni faire échouer la réponse au webhook
     // Stripe — la création du compte ci-dessus est l'action critique.
     if (email) {
-      convertMatchingProspectsToClients(email).catch((err: any) => {
-        console.error('Erreur convertMatchingProspectsToClients (webhook Stripe):', err.message);
+      (async () => {
+        const converted = await convertMatchingProspectsToClients(email);
+        // Personne ne l'avait démarché : c'est une inscription spontanée
+        // (bouche à oreille, recherche Google, recommandation). Demande
+        // d'Alex du 30/09/2026 — sans ça, ces clients-là n'apparaissaient
+        // NULLE PART dans le suivi commercial de Meet Aaron, alors que ce
+        // sont eux qui disent si le produit se vend tout seul.
+        //
+        // Le code promo ne change rien à ce chemin : une session Checkout
+        // avec réduction totale ou partielle reste un
+        // checkout.session.completed. C'était la question explicite d'Alex.
+        if (converted === 0) {
+          await ensureSelfSignupClient({
+            email,
+            fullName: full_name || null,
+            companyName: company_name || null,
+            country: country || null,
+            stripeCustomerId: typeof session.customer === 'string' ? session.customer : null,
+          });
+        }
+      })().catch((err: any) => {
+        console.error('Erreur suivi client du nouvel inscrit (webhook Stripe):', err.message);
       });
     }
   }
