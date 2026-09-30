@@ -505,6 +505,11 @@ export default function ConnexionsPage() {
   // signature", 30/08/2026) — même mécanique que l'image de signature,
   // via /api/signature/image avec kind=banner.
   const [bannerImageUrl, setBannerImageUrl] = useState(null);
+  // BANDEAU PAR LANGUE (30/09/2026). Meme mecanique que la signature texte :
+  // un objet { en: url, de: url } ; une langue absente retombe sur le
+  // bandeau par defaut ci-dessus. `bannerLang` = onglet ouvert, '' = defaut.
+  const [bannerByLocale, setBannerByLocale] = useState({});
+  const [bannerLang, setBannerLang] = useState('');
   const [bannerImageFile, setBannerImageFile] = useState(null);
   const [bannerImageUploading, setBannerImageUploading] = useState(false);
   const [bannerImageError, setBannerImageError] = useState(null);
@@ -666,6 +671,7 @@ export default function ConnexionsPage() {
         setSignatureByLocale(res.signature_by_locale || {});
         setSignatureImageUrl(res.signature_image_url || null);
         setBannerImageUrl(res.banner_image_url || null);
+        setBannerByLocale(res.banner_by_locale || {});
         setSignatureLoaded(true);
       })
       .catch(() => setSignatureLoaded(true));
@@ -864,6 +870,8 @@ export default function ConnexionsPage() {
     formData.append('file', bannerImageFile);
     formData.append('user_id', userId);
     formData.append('kind', 'banner');
+    // Langue de l'onglet ouvert : vide = bandeau par defaut.
+    if (bannerLang) formData.append('locale', bannerLang);
     const res = await fetch('/api/signature/image', { method: 'POST', body: formData });
     const body = await res.json();
     setBannerImageUploading(false);
@@ -871,16 +879,27 @@ export default function ConnexionsPage() {
       setBannerImageError(body.error || t('common.error', locale));
       return;
     }
-    setBannerImageUrl(body.url);
+    if (bannerLang) setBannerByLocale((prev) => ({ ...prev, [bannerLang]: body.url }));
+    else setBannerImageUrl(body.url);
     setBannerImageFile(null);
   }
 
   async function handleRemoveBannerImage() {
     setBannerImageUploading(true);
     setBannerImageError(null);
-    const res = await fetch(`/api/signature/image?user_id=${userId}&kind=banner`, { method: 'DELETE' });
+    const suffix = bannerLang ? `&locale=${bannerLang}` : '';
+    const res = await fetch(`/api/signature/image?user_id=${userId}&kind=banner${suffix}`, { method: 'DELETE' });
     setBannerImageUploading(false);
-    if (res.ok) setBannerImageUrl(null);
+    if (!res.ok) return;
+    if (bannerLang) {
+      setBannerByLocale((prev) => {
+        const next = { ...prev };
+        delete next[bannerLang];
+        return next;
+      });
+    } else {
+      setBannerImageUrl(null);
+    }
   }
 
   async function handleSaveSummary() {
@@ -2287,9 +2306,33 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               <div className="signature-image-block">
                 <label className="sub-label">{t('connexions.bannerImageLabel', locale)}</label>
                 <p className="collab-extra-hint">{t('connexions.bannerImageHint', locale)}</p>
-                {bannerImageUrl && (
+                {/* Onglets de langue du bandeau (30/09/2026) : memes reperes
+                    visuels que pour la signature texte, pastille comprise. */}
+                <div className="sig-lang-tabs">
+                  <button
+                    type="button"
+                    className={`sig-lang-tab${bannerLang === '' ? ' is-active' : ''}${bannerImageUrl ? ' is-filled' : ''}`}
+                    onClick={() => setBannerLang('')}
+                  >
+                    {t('preferences.signatureDefaultTab', locale)}
+                  </button>
+                  {LOCALES.map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      className={`sig-lang-tab${bannerLang === loc ? ' is-active' : ''}${bannerByLocale[loc] ? ' is-filled' : ''}`}
+                      onClick={() => setBannerLang(loc)}
+                    >
+                      {LOCALE_LABELS[loc]}
+                    </button>
+                  ))}
+                </div>
+                <p className="collab-extra-hint">
+                  {bannerLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
+                </p>
+                {(bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl) && (
                   <div className="signature-image-preview">
-                    <img src={bannerImageUrl} alt="" />
+                    <img src={bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl} alt="" />
                     <button type="button" className="btn-secondary" onClick={handleRemoveBannerImage} disabled={bannerImageUploading}>
                       {t('connexions.signatureImageRemoveButton', locale)}
                     </button>
