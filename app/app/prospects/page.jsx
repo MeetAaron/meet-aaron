@@ -17,7 +17,7 @@ import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder, baselineConfidence } from '@/lib/pipeline';
 import PipelineIcon from '@/components/PipelineIcon';
-import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle } from 'lucide-react';
+import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
 
 function useAuthedUser() {
@@ -365,6 +365,10 @@ export default function ProspectsPage() {
   function originLabel(p) {
     if (p.origin === 'amene_par_aaron') return { icon: ic(Bot), text: t('pipeline.origin.aaron', locale) };
     if (p.origin === 'reactive_par_aaron') return { icon: ic(RefreshCw), text: t('pipeline.origin.reactivated', locale) };
+    // Inscription spontanee (30/09/2026) : il a paye sans avoir ete demarche.
+    // C'est la provenance la plus precieuse a distinguer — elle dit si le
+    // produit se vend tout seul.
+    if (p.origin === 'inscription_directe') return { icon: ic(Sparkles), text: t('pipeline.origin.inbound', locale) };
     return { icon: ic(User), text: t('pipeline.origin.you', locale) };
   }
 
