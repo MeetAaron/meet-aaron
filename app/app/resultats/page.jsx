@@ -1455,6 +1455,17 @@ export default function ResultatsPage() {
         .header {
           margin-bottom: 1.2rem;
         }
+        /* Sur telephone, la barre du haut (MobileChrome) affiche DEJA
+           « Mes resultats ». Ce titre-ci le repetait mot pour mot, et comme
+           la barre est fixe, il glissait dessous des le premier defilement :
+           on voyait un titre a moitie coupe sous un titre identique. On le
+           retire sous 900 px — rien n'est perdu, la page est nommee juste
+           au-dessus. (Capture envoyee par Alex, 01/10/2026.) */
+        @media (max-width: 900px) {
+          .header {
+            display: none;
+          }
+        }
         .eyebrow {
           text-transform: uppercase;
           letter-spacing: 0.12em;
@@ -1478,6 +1489,13 @@ export default function ResultatsPage() {
         .account-panel {
           min-width: 0;
         }
+        /* Meme garde-fou que dans components/AccountNav.jsx : sans
+           min-width, cet element de grille ne descend jamais sous la largeur
+           de son contenu et la liste deborde de l'ecran sur telephone. */
+        .account-layout > :global(.account-nav) {
+          min-width: 0;
+        }
+
         .account-panel .panel {
           margin-bottom: 0;
         }
