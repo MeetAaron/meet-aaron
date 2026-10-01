@@ -3323,6 +3323,13 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           grid-template-columns: 1fr;
           gap: 1.4rem;
         }
+        /* Meme garde-fou que dans components/AccountNav.jsx : sans
+           min-width, cet element de grille ne descend jamais sous la largeur
+           de son contenu et la liste deborde de l'ecran sur telephone. */
+        .account-layout > :global(.account-nav) {
+          min-width: 0;
+        }
+
         .panel-back {
           display: inline-flex;
           align-items: center;
@@ -4584,6 +4591,19 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
       <style jsx>{`
         .header {
           margin-bottom: 1.8rem;
+        }
+        /* Meme raison que sur Mes resultats : la barre du haut affiche deja
+           le nom de la page. On masque le sur-titre et le titre sur
+           telephone, mais on garde le sous-titre, qui lui explique quelque
+           chose. */
+        @media (max-width: 900px) {
+          .header .eyebrow,
+          .header h1 {
+            display: none;
+          }
+          .header {
+            margin-bottom: 0.9rem;
+          }
         }
         .eyebrow {
           text-transform: uppercase;
