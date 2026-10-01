@@ -43,6 +43,18 @@ prete. Il manque la partie serveur : `lib/push.ts` envoie du Web Push
 Ce n'est pas bloquant pour une premiere mise en ligne, mais il faut le savoir
 avant de promettre les notifications a un client sur iPhone.
 
+## iPhone et iPad
+
+`patch-ios.rb` declare `TARGETED_DEVICE_FAMILY = '1,2'` : l'application est
+proposee sur iPhone **et** sur iPad (choix d'Alex, 01/10/2026).
+
+Consequence concrete : App Store Connect reclamera un jeu complet de captures
+iPad 13 pouces (2064 x 2752) en plus des captures iPhone, et la revue Apple
+regardera la mise en page sur tablette. L'interface etant responsive le risque
+est faible, mais une colonne qui s'etire sur toute la largeur d'un iPad en
+paysage peut valoir un refus au titre de la regle 4.0 (Design) — a verifier
+sur un vrai iPad avant de soumettre.
+
 ## Compilation
 
 Rien a lancer a la main : `codemagic.yaml`, a la racine du depot, fait tout.

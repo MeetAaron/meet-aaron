@@ -54,12 +54,17 @@ target.build_configurations.each do |config|
   config.build_settings['MARKETING_VERSION']      = VERSION
   config.build_settings['CURRENT_PROJECT_VERSION'] = BUILD_NUM
   config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'app.meetaaron.twa'
-  # iPhone UNIQUEMENT pour la premiere version ('1' ; '1,2' ajouterait l'iPad).
-  # Ce n'est pas un detail technique mais un choix de charge : declarer l'iPad
-  # oblige a fournir un jeu complet de captures 12,9 pouces et expose la mise
-  # en page tablette a la revue Apple. L'interface web est responsive, on
-  # pourra ouvrir l'iPad en version 1.1 une fois la premiere passee.
-  config.build_settings['TARGETED_DEVICE_FAMILY'] = '1'
+  # iPhone ET iPad ('1,2'), choix d'Alex du 01/10/2026 (j'avais propose
+  # iPhone seul pour la v1, il a tranche l'inverse).
+  #
+  # Ce que ca implique, et ce n'est pas qu'une case a cocher : App Store
+  # Connect exigera un jeu complet de captures iPad 13 pouces
+  # (2064 x 2752) EN PLUS des captures iPhone, et la revue Apple regardera
+  # reellement la mise en page sur tablette. L'interface web etant
+  # responsive, le risque est faible, mais il n'est pas nul : une colonne
+  # de 1200 px de large qui s'etire sur un iPad en paysage peut valoir un
+  # refus au titre de la regle 4.0 (Design).
+  config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
   config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
 end
 project.save
