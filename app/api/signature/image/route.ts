@@ -64,10 +64,12 @@ export async function POST(request: NextRequest) {
   const userId = formData.get('user_id') as string | null;
   const kind = formData.get('kind') === 'banner' ? 'banner' : 'signature';
   const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
-  // Seul le BANDEAU est decline par langue. L'image de signature est une
-  // carte de visite — nom, fonction, telephone — elle ne se traduit pas ;
-  // en faire sept versions serait sept fois le meme fichier.
-  const locale = kind === 'banner' ? localeParam(formData.get('locale')) : null;
+  // 02/10/2026 : l'image de signature est elle aussi declinable par langue.
+  // Mon raisonnement precedent — « une carte de visite ne se traduit pas » —
+  // valait pour une carte de visite, pas pour ce qu'Alex y met reellement :
+  // un visuel de marque portant du texte, en sept versions.
+  const locale = localeParam(formData.get('locale'));
+  const localeColumn = kind === 'banner' ? 'email_banner_by_locale' : 'email_signature_image_by_locale';
 
   if (!file || !userId) {
     return NextResponse.json({ error: 'Fichier ou user_id manquant' }, { status: 400 });
@@ -111,15 +113,15 @@ export async function POST(request: NextRequest) {
   if (locale) {
     const { data: row, error: readErr } = await supabaseAdmin
       .from('users')
-      .select('email_banner_by_locale')
+      .select(localeColumn)
       .eq('id', userId)
       .maybeSingle();
 
     if (!readErr) {
-      const merged = mergeLocaleMap((row as any)?.email_banner_by_locale, locale, publicUrl);
+      const merged = mergeLocaleMap((row as any)?.[localeColumn], locale, publicUrl);
       const { error: mergeErr } = await supabaseAdmin
         .from('users')
-        .update({ email_banner_by_locale: merged })
+        .update({ [localeColumn]: merged })
         .eq('id', userId);
       if (!mergeErr) return NextResponse.json({ url: publicUrl, locale });
       if ((mergeErr as any).code !== '42703') {
@@ -147,7 +149,8 @@ export async function DELETE(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
   const kind = request.nextUrl.searchParams.get('kind') === 'banner' ? 'banner' : 'signature';
   const column = kind === 'banner' ? 'email_banner_image_url' : 'email_signature_image_url';
-  const locale = kind === 'banner' ? localeParam(request.nextUrl.searchParams.get('locale')) : null;
+  const locale = localeParam(request.nextUrl.searchParams.get('locale'));
+  const localeColumnDel = kind === 'banner' ? 'email_banner_by_locale' : 'email_signature_image_by_locale';
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
@@ -161,16 +164,16 @@ export async function DELETE(request: NextRequest) {
   if (locale) {
     const { data: row, error: readErr } = await supabaseAdmin
       .from('users')
-      .select('email_banner_by_locale')
+      .select(localeColumnDel)
       .eq('id', userId)
       .maybeSingle();
     if (readErr && (readErr as any).code !== '42703') {
       return NextResponse.json({ error: readErr.message }, { status: 500 });
     }
-    const merged = mergeLocaleMap((row as any)?.email_banner_by_locale, locale, null);
+    const merged = mergeLocaleMap((row as any)?.[localeColumnDel], locale, null);
     const { error: mergeErr } = await supabaseAdmin
       .from('users')
-      .update({ email_banner_by_locale: merged })
+      .update({ [localeColumnDel]: merged })
       .eq('id', userId);
     if (mergeErr && (mergeErr as any).code !== '42703') {
       return NextResponse.json({ error: mergeErr.message }, { status: 500 });
