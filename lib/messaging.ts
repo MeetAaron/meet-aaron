@@ -423,6 +423,7 @@ export async function sendEmailForUser(
   // AUCUN email ne partirait, ce qui est infiniment plus grave que de perdre
   // une signature traduite ou l'archivage automatique.
   const USER_COLUMN_SETS = [
+    'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_signature_image_by_locale, email_banner_image_url, email_banner_by_locale, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, email_banner_by_locale, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_by_locale, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
     'email, full_name, email_signature, email_signature_image_url, email_banner_image_url, aaron_archive_threads, locale',
@@ -490,7 +491,7 @@ export async function sendEmailForUser(
   // Jamais pour les emails qu'Aaron s'envoie à lui-même : c'est la langue du
   // commercial qui s'applique, sans aucune requête.
   let signatureLocale: string | null = user?.locale || null;
-  if (!toSelf && (user?.email_signature_by_locale || user?.email_banner_by_locale)) {
+  if (!toSelf && (user?.email_signature_by_locale || user?.email_banner_by_locale || user?.email_signature_image_by_locale)) {
     signatureLocale = await recipientLocaleForSignature(userId, to, user?.locale);
   }
   const chosenSignature = pickSignature(user?.email_signature, user?.email_signature_by_locale, signatureLocale);
@@ -522,7 +523,12 @@ export async function sendEmailForUser(
     : undefined;
 
   const textBody = [body, signatureText].filter(Boolean).join('\n\n');
-  const signatureImageUrl = safeImageUrl(user?.email_signature_image_url);
+  // Image de signature dans la langue du destinataire (02/10/2026) —
+  // meme calcul de langue que le texte et le bandeau, les trois ne
+  // peuvent donc pas diverger.
+  const signatureImageUrl = safeImageUrl(
+    pickBannerUrl(user?.email_signature_image_url, user?.email_signature_image_by_locale, signatureLocale)
+  );
   // Bandeau dans la meme langue que le corps et que la signature texte
   // (30/09/2026). On reutilise signatureLocale, deja calcule plus haut :
   // le bandeau et la signature ne peuvent donc jamais diverger.
