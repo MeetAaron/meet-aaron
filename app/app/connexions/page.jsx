@@ -498,6 +498,10 @@ export default function ConnexionsPage() {
   // app/api/signature/image/route.ts et lib/messaging.ts (bascule HTML à
   // l'envoi quand cette image est présente).
   const [signatureImageUrl, setSignatureImageUrl] = useState(null);
+  // Image de signature par langue (02/10/2026) — meme mecanique que le
+  // bandeau. '' = image par defaut.
+  const [signatureImageByLocale, setSignatureImageByLocale] = useState({});
+  const [signatureImageLang, setSignatureImageLang] = useState('');
   const [signatureImageFile, setSignatureImageFile] = useState(null);
   const [signatureImageUploading, setSignatureImageUploading] = useState(false);
   const [signatureImageError, setSignatureImageError] = useState(null);
@@ -509,6 +513,11 @@ export default function ConnexionsPage() {
   // un objet { en: url, de: url } ; une langue absente retombe sur le
   // bandeau par defaut ci-dessus. `bannerLang` = onglet ouvert, '' = defaut.
   const [bannerByLocale, setBannerByLocale] = useState({});
+  // MARGE PAR CLIENT (02/10/2026, demande d'Alex : « voir si je gagne de la
+  // marge ou non »). Reserve au compte fondateur, cote serveur comme ici —
+  // voir app/api/admin/margin/route.ts.
+  const [margin, setMargin] = useState(null);
+  const [marginError, setMarginError] = useState(null);
   const [bannerLang, setBannerLang] = useState('');
   const [bannerImageFile, setBannerImageFile] = useState(null);
   const [bannerImageUploading, setBannerImageUploading] = useState(false);
@@ -656,6 +665,12 @@ export default function ConnexionsPage() {
       .then((r) => r.json())
       .then((res) => setUsage(res))
       .catch(() => {});
+    // 403 attendu pour tout compte autre que le fondateur : on ne montre
+    // simplement rien, sans message d'erreur — ce n'est pas une panne.
+    fetch('/api/admin/margin')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => { if (res && res.rows) setMargin(res); })
+      .catch(() => setMarginError(true));
     fetch('/api/billing/invoices')
       .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
       .then(({ ok, body }) => {
@@ -670,6 +685,7 @@ export default function ConnexionsPage() {
         setSignature(res.signature || '');
         setSignatureByLocale(res.signature_by_locale || {});
         setSignatureImageUrl(res.signature_image_url || null);
+        setSignatureImageByLocale(res.signature_image_by_locale || {});
         setBannerImageUrl(res.banner_image_url || null);
         setBannerByLocale(res.banner_by_locale || {});
         setSignatureLoaded(true);
@@ -841,6 +857,7 @@ export default function ConnexionsPage() {
     const formData = new FormData();
     formData.append('file', signatureImageFile);
     formData.append('user_id', userId);
+    if (signatureImageLang) formData.append('locale', signatureImageLang);
     const res = await fetch('/api/signature/image', { method: 'POST', body: formData });
     const body = await res.json();
     setSignatureImageUploading(false);
@@ -848,17 +865,29 @@ export default function ConnexionsPage() {
       setSignatureImageError(body.error || t('common.error', locale));
       return;
     }
-    setSignatureImageUrl(body.url);
+    if (signatureImageLang) setSignatureImageByLocale((prev) => ({ ...prev, [signatureImageLang]: body.url }));
+    else setSignatureImageUrl(body.url);
     setSignatureImageFile(null);
   }
 
   async function handleRemoveSignatureImage() {
     setSignatureImageUploading(true);
     setSignatureImageError(null);
-    const res = await fetch(`/api/signature/image?user_id=${userId}`, { method: 'DELETE' });
+    const suffix = signatureImageLang ? `&locale=${signatureImageLang}` : '';
+    const res = await fetch(`/api/signature/image?user_id=${userId}${suffix}`, { method: 'DELETE' });
     setSignatureImageUploading(false);
-    if (res.ok) setSignatureImageUrl(null);
+    if (!res.ok) return;
+    if (signatureImageLang) {
+      setSignatureImageByLocale((prev) => {
+        const next = { ...prev };
+        delete next[signatureImageLang];
+        return next;
+      });
+    } else {
+      setSignatureImageUrl(null);
+    }
   }
+
 
   // Bandeau publicitaire sous la signature — même route que l'image de
   // signature avec kind=banner (voir app/api/signature/image/route.ts).
@@ -2274,9 +2303,33 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               <div className="signature-image-block">
                 <label className="sub-label">{t('connexions.signatureImageLabel', locale)}</label>
                 <p className="collab-extra-hint">{t('connexions.signatureImageHint', locale)}</p>
-                {signatureImageUrl && (
+                {/* Onglets de langue (02/10/2026) : memes reperes que pour la
+                    signature texte et le bandeau. */}
+                <div className="sig-lang-tabs">
+                  <button
+                    type="button"
+                    className={`sig-lang-tab${signatureImageLang === '' ? ' is-active' : ''}${signatureImageUrl ? ' is-filled' : ''}`}
+                    onClick={() => setSignatureImageLang('')}
+                  >
+                    {t('preferences.signatureDefaultTab', locale)}
+                  </button>
+                  {LOCALES.map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      className={`sig-lang-tab${signatureImageLang === loc ? ' is-active' : ''}${signatureImageByLocale[loc] ? ' is-filled' : ''}`}
+                      onClick={() => setSignatureImageLang(loc)}
+                    >
+                      {LOCALE_LABELS[loc]}
+                    </button>
+                  ))}
+                </div>
+                <p className="collab-extra-hint">
+                  {signatureImageLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
+                </p>
+                {(signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl) && (
                   <div className="signature-image-preview">
-                    <img src={signatureImageUrl} alt="Signature" />
+                    <img src={signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl} alt="Signature" />
                     <button type="button" className="btn-secondary" onClick={handleRemoveSignatureImage} disabled={signatureImageUploading}>
                       {t('connexions.signatureImageRemoveButton', locale)}
                     </button>
@@ -3301,6 +3354,54 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 </div>
               </div>
             )}
+
+            {/* MARGE PAR CLIENT — compte fondateur uniquement (02/10/2026).
+                « Voir si je gagne de la marge ou non. » Le bloc de suivi des
+                couts juste au-dessus ne montre QUE la societe connectee ;
+                celui-ci montre toutes les societes, du plus gourmand au
+                moins gourmand. */}
+            {margin && margin.rows && (
+              <div className="field margin-field">
+                <label>{t('margin.title', locale)}</label>
+                <div className="usage-box">
+                  <div className="margin-totals">
+                    <span><strong>{margin.totals.companies}</strong> {t('margin.companies', locale)}</span>
+                    <span><strong>{margin.totals.subscribed}</strong> {t('margin.subscribed', locale)}</span>
+                    <span><strong>{margin.totals.credits}</strong> {t('connexions.creditsUnit', locale)}</span>
+                  </div>
+                  {margin.rows.length === 0 ? (
+                    <p className="usage-hint">{t('margin.empty', locale)}</p>
+                  ) : (
+                    <div className="margin-rows">
+                      {margin.rows.map((r) => {
+                        // Marge approchee : le revenu est dans la devise du
+                        // client, le cout en dollars. On ne convertit pas
+                        // (voir la route) — le ratio reste parlant tant que
+                        // les devises restent proches, et le detail est
+                        // affiche a cote.
+                        const tight = r.subscribed && r.revenue_month > 0 && r.cost_usd_month > r.revenue_month * 0.5;
+                        return (
+                          <div key={r.company_id} className={`margin-row${tight ? ' tight' : ''}`}>
+                            <span className="margin-name">{r.name}</span>
+                            <span className="margin-cost">
+                              {r.credits_month} {t('connexions.creditsUnit', locale)}
+                              <em>${r.cost_usd_month.toFixed(2)}</em>
+                            </span>
+                            <span className="margin-rev">
+                              {r.subscribed
+                                ? `${r.revenue_month.toFixed(0)} ${r.currency_symbol}`
+                                : t('margin.noSubscription', locale)}
+                              {r.seats > 1 && <em>{r.seats} {t('margin.seats', locale)}</em>}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="usage-hint">{t('margin.hint', locale)}</p>
+                </div>
+              </div>
+            )}
           </div>
         )
       ) : activeTab === 'delete' ? (
@@ -4066,6 +4167,79 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         }
         .sig-lang-tab.is-active.is-filled::before {
           background: #fff;
+        }
+        /* Marge par client (compte fondateur uniquement, 02/10/2026). */
+        .margin-totals {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem 1.2rem;
+          padding-bottom: 0.7rem;
+          margin-bottom: 0.3rem;
+          border-bottom: 1px solid var(--border);
+          font-size: 0.82rem;
+          color: var(--muted);
+        }
+        .margin-totals strong {
+          color: var(--text);
+        }
+        .margin-rows {
+          display: flex;
+          flex-direction: column;
+          max-height: 340px;
+          overflow-y: auto;
+        }
+        .margin-row {
+          display: grid;
+          /* minmax(0, …) partout : meme garde-fou que la liste de navigation,
+             sans quoi un nom de societe long fait deborder le bloc. */
+          grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, auto);
+          gap: 0.5rem 0.9rem;
+          align-items: baseline;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid var(--border);
+          font-size: 0.85rem;
+        }
+        .margin-row:last-child {
+          border-bottom: 0;
+        }
+        .margin-name {
+          font-weight: 600;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .margin-cost,
+        .margin-rev {
+          white-space: nowrap;
+          color: var(--muted);
+          text-align: right;
+        }
+        .margin-cost em,
+        .margin-rev em {
+          display: block;
+          font-style: normal;
+          font-size: 0.72rem;
+          color: var(--muted-soft);
+        }
+        .margin-rev {
+          color: var(--accent-green);
+          font-weight: 600;
+        }
+        /* Rouge quand le cout API depasse la moitie de ce que le client paie :
+           c'est le seuil ou la marge commence vraiment a fondre. */
+        .margin-row.tight .margin-cost {
+          color: var(--accent-red);
+          font-weight: 600;
+        }
+        @media (max-width: 560px) {
+          .margin-row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+          }
+          .margin-rev {
+            grid-column: 1 / -1;
+            text-align: left;
+          }
         }
         .signature-image-block {
           margin-top: 1.2rem;
