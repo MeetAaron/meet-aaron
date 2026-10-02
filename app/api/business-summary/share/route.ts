@@ -28,8 +28,30 @@ function sanitizeForFilename(name: string): string {
   return cleaned || 'entreprise';
 }
 
+// DIAGNOSTIC (02/10/2026) — « Share by email ne fonctionne pas », Alex.
+//
+// L'écran affichait « Something went wrong. », c'est-à-dire le message
+// générique de l'interface — pas celui de cette route. Autrement dit la
+// réponse n'était PAS le JSON d'erreur prévu ici : quelque chose levait une
+// exception AVANT ou EN DEHORS du try, Next renvoyait une page d'erreur 500
+// en HTML, res.json() échouait côté navigateur, et l'interface retombait sur
+// son texte par défaut. Le vrai message n'arrivait donc jamais jusqu'à
+// l'utilisateur — ni jusqu'à moi.
+//
+// Deux candidats se partageaient le silence : la génération du PDF (pdfkit,
+// hors du try) et l'envoi lui-même. On ne peut pas trancher sans la trace,
+// alors on la produit : chaque étape est nommée, toute exception est
+// convertie en JSON lisible, et les logs portent le contexte.
+type ShareStep = 'lecture_utilisateur' | 'lecture_societe' | 'generation_pdf' | 'envoi_email';
+
+function shareFailure(step: ShareStep, err: any, status = 500) {
+  const detail = (err && (err.message || err.toString())) || 'cause inconnue';
+  console.error(`[Partage profil] echec a l'etape « ${step} » : ${detail}`, err?.stack || '');
+  return NextResponse.json({ error: `${step} : ${detail}`, step }, { status });
+}
+
 export async function POST(request: NextRequest) {
-  const { user_id, email } = await request.json();
+  const { user_id, email } = await request.json().catch(() => ({ user_id: null, email: null }));
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
@@ -42,20 +64,22 @@ export async function POST(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== user_id) return forbiddenResponse();
 
-  const { data: user } = await supabaseAdmin
+  const { data: user, error: userErr } = await supabaseAdmin
     .from('users')
     .select('company_id, full_name, first_name')
     .eq('id', user_id)
-    .single();
+    .maybeSingle();
+  if (userErr) return shareFailure('lecture_utilisateur', userErr);
   if (!user?.company_id) {
     return NextResponse.json({ error: 'Société introuvable pour cet utilisateur' }, { status: 404 });
   }
 
-  const { data: company } = await supabaseAdmin
+  const { data: company, error: companyErr } = await supabaseAdmin
     .from('companies')
     .select('name, business_summary, siret, legal_address, legal_form')
     .eq('id', user.company_id)
-    .single();
+    .maybeSingle();
+  if (companyErr) return shareFailure('lecture_societe', companyErr);
   if (!company?.business_summary) {
     return NextResponse.json({ error: "Le profil de l'entreprise n'est pas encore rédigé" }, { status: 400 });
   }
@@ -66,12 +90,22 @@ export async function POST(request: NextRequest) {
   if (company.siret) legalLines.push(`SIRET : ${company.siret}`);
 
   const now = new Date();
-  const pdf = await buildBusinessProfilePdf({
-    companyName: company.name || 'Profil de l’entreprise',
-    legalLines,
-    bodyText: company.business_summary,
-    generatedAtLabel: `Document généré automatiquement par Meet Aaron le ${now.toLocaleDateString('fr-FR')} à ${now.toLocaleTimeString('fr-FR')}`,
-  });
+  // pdfkit lit ses metriques de police (.afm) depuis le disque. En
+  // environnement serverless, ces fichiers ne sont pas toujours embarques
+  // dans le bundle : l'appel leve alors un ENOENT, hors de tout try, et
+  // toute la route part en 500 muet. C'est le premier suspect, il est
+  // desormais nomme.
+  let pdf: Buffer;
+  try {
+    pdf = await buildBusinessProfilePdf({
+      companyName: company.name || 'Profil de l’entreprise',
+      legalLines,
+      bodyText: company.business_summary,
+      generatedAtLabel: `Document généré automatiquement par Meet Aaron le ${now.toLocaleDateString('fr-FR')} à ${now.toLocaleTimeString('fr-FR')}`,
+    });
+  } catch (err: any) {
+    return shareFailure('generation_pdf', err);
+  }
 
   const companyName = company.name || 'notre entreprise';
   const senderName = user.first_name || user.full_name || '';
@@ -92,11 +126,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err: any) {
-    console.error('Erreur partage profil entreprise:', err?.message || err);
-    return NextResponse.json(
-      { error: err?.message || "Impossible d'envoyer l'email — vérifie que ta boîte email est bien connectée" },
-      { status: 502 }
-    );
+    return shareFailure('envoi_email', err, 502);
   }
 
   return NextResponse.json({ success: true });
