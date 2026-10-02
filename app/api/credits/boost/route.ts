@@ -131,6 +131,24 @@ export async function POST(request: NextRequest) {
               // facture Stripe doit dire la même chose que l'écran.
               name: `Meet Aaron — Boost +${prospectsForTier(tier)} prospects`,
               description: `+${prospectsForTier(tier)} nouveaux prospects, valables 1 mois à compter de l'achat. S'ajoutent aux prospects inclus dans ton abonnement, qui ne sont pas entamés.`,
+              // CODE FISCAL OBLIGATOIRE (02/10/2026) — sans lui, Stripe
+              // refuse la session et l'écran « Plan & boosts » affiche en
+              // rouge : « Invalid line_items[0]: the product tax code is
+              // missing ». Aucun bouton d'achat ne fonctionnait.
+              //
+              // Cause : Managed Payments est actif par défaut sur le compte
+              // Stripe (Stripe devient redevable de la TVA/GST et exige donc
+              // de savoir ce qui est vendu). Un produit du CATALOGUE porte
+              // son code fiscal dans le Dashboard ; une ligne créée à la
+              // volée en price_data, non — il faut le poser ici.
+              //
+              // txcd_10103001 = « Software as a service (SaaS) - business
+              // use » : logiciel en ligne, non personnalisé, sans
+              // téléchargement, destiné à une entreprise. C'est exactement
+              // ce qu'est un boost. Ne pas prendre txcd_10103000 (usage
+              // personnel) ni txcd_10000000 (générique) : la TVA calculée
+              // ne serait pas la bonne dans plusieurs pays.
+              tax_code: 'txcd_10103001',
             },
           },
         },
