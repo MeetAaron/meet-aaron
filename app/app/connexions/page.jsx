@@ -463,6 +463,33 @@ export default function ConnexionsPage() {
   // un agrandissement en plein écran pour relire/éditer le texte en entier
   // confortablement.
   const [summaryExpanded, setSummaryExpanded] = useState(false);
+  // « Mon entreprise » en accordeon (demande Alex, 02/10/2026 : « la rubrique
+  // my company a trop de texte je trouve cela indigeste »). Le diagnostic :
+  // les quatre sections (profil, lien public, signature, infos legales)
+  // etaient toutes deployees en meme temps, chacune avec ses paragraphes
+  // d'aide permanents — soit un mur de texte des l'ouverture de l'onglet,
+  // alors qu'on vient presque toujours ne modifier QU'UNE chose.
+  //
+  // Ici une seule section est ouverte a la fois, et chaque carte fermee
+  // affiche l'essentiel : son etat actuel en une ligne (« Complet »,
+  // « 3 langues sur 7 », « Non renseigne »). On voit donc tout d'un coup
+  // d'oeil sans rien lire, et on ne deplie que ce qu'on veut toucher.
+  // null = tout replie. L'ouverture automatique de la premiere section
+  // incomplete se fait plus bas, une seule fois, au chargement.
+  const [openCompanySection, setOpenCompanySection] = useState(null);
+  const companyAutoOpenedRef = useRef(false);
+
+  // Ouverture automatique, une seule fois : si le profil d'entreprise
+  // n'existe pas encore, c'est LA chose a faire sur cet onglet, et la
+  // laisser repliee derriere un clic serait la cacher. Des qu'il existe,
+  // tout reste ferme — l'ecran redevient un sommaire.
+  // Le ref evite que la section se rouvre toute seule apres que l'utilisateur
+  // l'a fermee (sinon chaque re-rendu la ramenerait).
+  useEffect(() => {
+    if (companyAutoOpenedRef.current || !summaryLoaded) return;
+    companyAutoOpenedRef.current = true;
+    if (!businessSummary) setOpenCompanySection('profile');
+  }, [summaryLoaded, businessSummary]);
   // Export Word/PDF + import d'une version modifiée (demande Alex,
   // 27/08/2026) : "Profil de l'entreprise" plutôt que "résumé" côté libellés
   // (même champ business_summary, juste renommé côté UI). exportingFormat
@@ -526,6 +553,13 @@ export default function ConnexionsPage() {
   const [legalInfoLoaded, setLegalInfoLoaded] = useState(false);
   const [savingLegalInfo, setSavingLegalInfo] = useState(false);
   const [legalInfoSaved, setLegalInfoSaved] = useState(false);
+
+  // Resumes affiches sur les cartes repliees de « Mon entreprise ». Ce sont
+  // eux qui remplacent le mur de texte : l'etat de chaque section se lit
+  // sans rien deplier.
+  const signatureLangCount = LOCALES.filter((loc) => (signatureByLocale[loc] || '').trim()).length;
+  const legalInfoFilled = Object.keys(legalInfo).some((k) => String(legalInfo[k] || '').trim());
+
   // docx (2026-08-27, retour Alex) : le "Lien public" vivait dans Préférences
   // alors qu'il s'agit d'une info d'entreprise — déplacé dans l'onglet "Mon
   // entreprise", avec sa propre sauvegarde dédiée (même patron que
@@ -1583,6 +1617,174 @@ export default function ConnexionsPage() {
 //     de lancer la visio ce jour-là.
 // Enregistrement direct (pas de SaveBar) : ce panneau vit hors du bloc
 // Préférences et doit rester autonome.
+// Carte repliable de l'onglet « Mon entreprise » (demande Alex, 02/10/2026).
+//
+// Meme langage visuel que components/AccountNav : grille « icone / contenu /
+// chevron », icone en carre arrondi, titre et pastille d'etat sur la premiere
+// ligne, resume sur toute la largeur en dessous.
+//
+// minmax(0, 1fr) sur la colonne du milieu, et min-width: 0 sur ce qu'elle
+// contient : sans ca une colonne de grille ne descend jamais sous la largeur
+// de son contenu, et la carte deborde de l'ecran sur telephone. Ce bug est
+// deja survenu deux fois dans ce projet (AccountNav le 01/10, Resultats le
+// meme jour) — d'ou le rappel ici.
+function CompanyCard({ icon, title, status, tone, open, onToggle, children }) {
+  return (
+    <div className={`co-card${open ? ' is-open' : ''}`}>
+      <button type="button" className="co-head" onClick={onToggle} aria-expanded={open ? 'true' : 'false'}>
+        <span className={`co-icon tone-${tone || 'brand'}`}>
+          <Ic name={icon} size={19} />
+        </span>
+        <span className="co-text">
+          <span className="co-title">{title}</span>
+          {status ? (
+            // title : une pastille bavarde se tronque, le texte complet
+            // reste lisible au survol et a l'appui long.
+            <span className={`co-status st-${tone || 'brand'}`} title={status}>
+              {status}
+            </span>
+          ) : null}
+        </span>
+        <span className="co-chev">
+          <Ic name={open ? 'chevronUp' : 'chevronDown'} size={18} />
+        </span>
+      </button>
+      {open ? <div className="co-body">{children}</div> : null}
+
+      <style jsx>{`
+        .co-card {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          background: var(--surface);
+          overflow: hidden;
+          transition: border-color var(--fast), box-shadow var(--fast);
+        }
+        .co-card.is-open {
+          border-color: var(--accent);
+          box-shadow: 0 1px 16px rgba(0, 0, 0, 0.06);
+        }
+        .co-head {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 0.85rem;
+          width: 100%;
+          min-height: 56px;
+          padding: 0.85rem 0.95rem;
+          background: transparent;
+          border: 0;
+          text-align: left;
+          cursor: pointer;
+          font: inherit;
+          color: inherit;
+        }
+        .co-head:hover {
+          background: var(--surface-hover);
+        }
+        .co-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          width: 38px;
+          height: 38px;
+          /* Carre arrondi, pas un cercle : meme langage que AccountNav et
+             que les icones d'application. */
+          border-radius: 12px;
+        }
+        .co-icon.tone-brand {
+          background: linear-gradient(145deg, rgba(124, 110, 245, 0.22), rgba(75, 57, 239, 0.12));
+          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.22);
+          color: var(--accent-light);
+        }
+        .co-icon.tone-ok {
+          background: linear-gradient(145deg, rgba(61, 214, 140, 0.2), rgba(61, 214, 140, 0.08));
+          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
+          color: var(--accent-green);
+        }
+        .co-icon.tone-off {
+          background: var(--tint-7);
+          box-shadow: inset 0 0 0 1px var(--border);
+          color: var(--muted);
+        }
+        .co-icon.tone-todo {
+          background: linear-gradient(145deg, rgba(245, 166, 35, 0.22), rgba(245, 166, 35, 0.1));
+          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.24);
+          color: var(--accent-amber);
+        }
+        .co-text {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          min-width: 0;
+        }
+        .co-title {
+          display: block;
+          min-width: 0;
+          font-family: var(--font-display);
+          font-size: 0.97rem;
+          font-weight: 600;
+          color: var(--text);
+          line-height: 1.25;
+        }
+        .co-status {
+          display: inline-block;
+          align-self: flex-start;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          line-height: 1.6;
+          padding: 2px 9px;
+          border-radius: 999px;
+        }
+        .co-status.st-brand {
+          background: rgba(124, 110, 245, 0.16);
+          color: var(--accent-light);
+          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.24);
+        }
+        .co-status.st-ok {
+          background: rgba(61, 214, 140, 0.15);
+          color: var(--accent-green);
+          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
+        }
+        .co-status.st-off {
+          background: var(--tint-7);
+          color: var(--muted);
+          box-shadow: inset 0 0 0 1px var(--border);
+        }
+        .co-status.st-todo {
+          background: rgba(245, 166, 35, 0.15);
+          color: var(--accent-amber);
+          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.22);
+        }
+        .co-chev {
+          display: inline-flex;
+          flex-shrink: 0;
+          color: var(--muted);
+        }
+        .co-body {
+          padding: 0.2rem 0.95rem 1.05rem;
+          border-top: 1px solid var(--border-soft);
+          margin-top: -1px;
+        }
+        @media (max-width: 480px) {
+          .co-head {
+            gap: 0.7rem;
+            padding: 0.8rem 0.75rem;
+          }
+          .co-body {
+            padding: 0.2rem 0.75rem 1rem;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved }) {
   const [link, setLink] = useState(value || '');
   const [saving, setSaving] = useState(false);
@@ -2032,10 +2234,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
       ) : activeTab === 'company' ? (
         <div className="company-panel">
           {summaryLoaded && (
-            <div className="company-section">
-              <div className="header-row">
-                <h3 className="company-section-title">{t('preferences.businessProfileLabel', locale)}</h3>
-              </div>
+            <CompanyCard
+              icon="building"
+              tone={businessSummary ? 'ok' : 'todo'}
+              title={t('connexions.coSectionProfile', locale)}
+              status={businessSummary ? t('connexions.coStateComplete', locale) : t('connexions.coStateTodo', locale)}
+              open={openCompanySection === 'profile'}
+              onToggle={() => setOpenCompanySection((v) => (v === 'profile' ? null : 'profile'))}
+            >
 
               {/* Redesign (demande Alex, 29/08/2026 : "lorsqu'on est dans
                   'mon entreprise' tu peux supprimer cette zone de texte. A
@@ -2175,7 +2381,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   setSummaryDirty(false);
                 }}
               />
-            </div>
+            </CompanyCard>
           )}
 
           {summaryExpanded && (
@@ -2211,8 +2417,18 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               cet onglet ont leur propre garde (summaryLoaded, signatureLoaded,
               legalInfoLoaded) ; celle-ci utilise directement prefs. */}
           {prefs && (
-            <div className="company-section">
-              <h3 className="company-section-title">{t('preferences.publicLinkLabel', locale)}</h3>
+            <CompanyCard
+              icon="globe"
+              tone={(prefs.public_link_url || '').trim() ? 'ok' : 'off'}
+              title={t('connexions.coSectionLink', locale)}
+              status={
+                (prefs.public_link_url || '').trim()
+                  ? t('connexions.coStateFilled', locale)
+                  : t('connexions.coStateTodo', locale)
+              }
+              open={openCompanySection === 'link'}
+              onToggle={() => setOpenCompanySection((v) => (v === 'link' ? null : 'link'))}
+            >
               <input
                 type="text"
                 className="cap-input"
@@ -2230,12 +2446,24 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 </button>
                 {publicLinkSaved && <span className="saved-msg">{t('preferences.prefsSavedMsg', locale)}</span>}
               </div>
-            </div>
+            </CompanyCard>
           )}
 
           {signatureLoaded && (
-            <div className="company-section">
-              <h3 className="company-section-title">{t('preferences.signatureLabel', locale)}</h3>
+            <CompanyCard
+              icon="pencil"
+              tone={signatureLangCount > 0 ? 'ok' : (signature || '').trim() ? 'brand' : 'off'}
+              title={t('connexions.coSectionSignature', locale)}
+              status={
+                signatureLangCount > 0
+                  ? t('connexions.coStateLangs', locale).replace('{count}', signatureLangCount)
+                  : (signature || '').trim()
+                    ? t('connexions.coStateDefaultOnly', locale)
+                    : t('connexions.coStateTodo', locale)
+              }
+              open={openCompanySection === 'signature'}
+              onToggle={() => setOpenCompanySection((v) => (v === 'signature' ? null : 'signature'))}
+            >
               {/* Onglets de langue (26/09/2026) : « Par défaut » + les 7
                   langues. Une langue laissée vide n'est pas enregistrée et
                   retombe sur la signature par défaut à l'envoi — voir
@@ -2408,12 +2636,18 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 </div>
                 {bannerImageError && <p className="error">{bannerImageError}</p>}
               </div>
-            </div>
+            </CompanyCard>
           )}
 
           {legalInfoLoaded && (
-            <div className="company-section">
-              <h3 className="company-section-title">{t('preferences.legalInfoLabel', locale)}</h3>
+            <CompanyCard
+              icon="landmark"
+              tone={legalInfoFilled ? 'ok' : 'off'}
+              title={t('connexions.coSectionLegal', locale)}
+              status={legalInfoFilled ? t('connexions.coStateFilled', locale) : t('connexions.coStateTodo', locale)}
+              open={openCompanySection === 'legal'}
+              onToggle={() => setOpenCompanySection((v) => (v === 'legal' ? null : 'legal'))}
+            >
               <p className="collab-extra-hint">{t('preferences.legalInfoHint', locale)}</p>
               <div className="legal-grid">
                 <div className="legal-field">
@@ -2468,7 +2702,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 </button>
                 {legalInfoSaved && <span className="saved-msg">{t('preferences.legalInfoSavedMsg', locale)}</span>}
               </div>
-            </div>
+            </CompanyCard>
           )}
         </div>
       ) : activeTab === 'connection' ? (
@@ -3885,7 +4119,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           resize: vertical;
         }
         .field .cap-input[type='text'],
-        .company-section .cap-input[type='text'] {
+        .company-panel .cap-input[type='text'] {
           max-width: 100%;
           margin-top: 0.6rem;
         }
@@ -3977,66 +4211,19 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
            clairement délimitée par un titre marqué (barre d'accent + police
            de titre) et un séparateur, au lieu d'un simple <label> qui se
            confondait avec le reste du texte. */
+        /* Accordeon (02/10/2026) : le panneau n'est plus UNE carte contenant
+           quatre sections empilees et toutes ouvertes, mais quatre cartes
+           repliables. Il ne porte donc plus ni fond, ni bordure, ni padding —
+           chaque carte apporte les siens. Le gap remplace les separateurs. */
         .company-panel {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: 1.6rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.7rem;
           max-width: 640px;
-        }
-        .company-section {
-          padding: 1.6rem 0;
-          border-bottom: 1px solid var(--border-soft);
-        }
-        .company-section:first-child {
-          padding-top: 0;
-        }
-        .company-section:last-child {
-          border-bottom: none;
-          padding-bottom: 0;
-        }
-        .company-section-title {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          font-family: var(--font-display);
-          font-size: 1.02rem;
-          font-weight: 600;
-          color: var(--text);
-          margin: 0 0 0.9rem;
-        }
-        .company-section-title::before {
-          content: '';
-          flex-shrink: 0;
-          width: 4px;
-          height: 1.05rem;
-          border-radius: 2px;
-          background: var(--accent);
-        }
-        .header-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.6rem;
-          margin-bottom: 0.9rem;
-        }
-        .header-row .company-section-title {
-          margin-bottom: 0;
-        }
-        .expand-btn {
-          background: transparent;
-          border: 1px solid var(--border);
-          color: var(--muted);
-          border-radius: var(--radius-sm);
-          padding: 0.35rem 0.7rem;
-          font-size: 0.78rem;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .expand-btn:hover {
-          background: var(--surface-hover);
-          border-color: var(--accent);
-          color: var(--text);
+          /* Une colonne flex ne descend pas sous la largeur de son contenu
+             sans ca : c'est ce qui faisait deborder les cartes sur telephone
+             (meme bug que AccountNav et Resultats, 01/10/2026). */
+          min-width: 0;
         }
         .company-panel .actions {
           display: flex;
