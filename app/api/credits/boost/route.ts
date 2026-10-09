@@ -142,13 +142,25 @@ export async function POST(request: NextRequest) {
               // son code fiscal dans le Dashboard ; une ligne créée à la
               // volée en price_data, non — il faut le poser ici.
               //
-              // txcd_10103001 = « Software as a service (SaaS) - business
-              // use » : logiciel en ligne, non personnalisé, sans
-              // téléchargement, destiné à une entreprise. C'est exactement
-              // ce qu'est un boost. Ne pas prendre txcd_10103000 (usage
-              // personnel) ni txcd_10000000 (générique) : la TVA calculée
-              // ne serait pas la bonne dans plusieurs pays.
-              tax_code: 'txcd_10103001',
+              // ALIGNE SUR LE PRODUIT D'ABONNEMENT LE 09/10/2026.
+              //
+              // Valait txcd_10103001 (« SaaS - business use »), alors que le
+              // produit « Meet Aaron » du catalogue Stripe porte
+              // txcd_10103101. Meme client, meme facture, deux traitements
+              // fiscaux : incoherent.
+              //
+              // C'est le produit qui a raison. Dans l'interface Stripe ce
+              // code se lit « SaaS > With mobile app or plugin > Business
+              // use » — la question posee n'est pas « le logiciel se
+              // telecharge-t-il ? » mais « le service est-il accompagne
+              // d'une application mobile ? ». Meet Aaron sort sur l'App
+              // Store et le Play Store, donc oui.
+              //
+              // Ne pas prendre la variante « Personal use » ni
+              // txcd_10000000 (generique) : la TVA calculee ne serait pas la
+              // bonne dans plusieurs pays. La distinction entre les deux
+              // codes SaaS ne joue que sur les ventes aux Etats-Unis.
+              tax_code: 'txcd_10103101',
             },
           },
         },
