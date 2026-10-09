@@ -8,10 +8,12 @@ import { stripe } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { ModuleCode, getModulePriceId } from '@/lib/subscription';
 
-// Configurable via Vercel (STRIPE_PRICE_ID_AARON_PROSPECT) pour basculer test/live
-// ou changer de tarif sans redéploiement de code — la valeur actuelle reste le
-// fallback pour ne rien casser tant que la variable n'est pas définie.
-const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'price_1U28xj7srPu7DrXAy07EdRs7';
+// Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
+// de tarif sans redeployer. Le repli en dur a ete retire le 09/10/2026 : il
+// pointait vers un prix du compte Stripe Singapour, qui n'existe pas sur le
+// compte Australie passe en reel le 18/09. Voir lib/subscription.ts pour le
+// raisonnement complet — getAaronPriceId() leve desormais une erreur claire
+// si la variable manque, au lieu de viser un prix mort.
 
 // Choix des modules à l'inscription (demande d'Alex 2026-08-17) : l'onboarding
 // ne propose plus uniquement Aaron Prospect — le futur patron choisit 1, 2 ou
@@ -19,12 +21,12 @@ const PRICE_ID_AARON_PROSPECT = process.env.STRIPE_PRICE_ID_AARON_PROSPECT || 'p
 // compte, chacun devenant sa propre ligne d'abonnement Stripe (même
 // architecture "un abonnement, plusieurs subscription items" que la bascule
 // après-coup dans Préférences, voir lib/subscription.ts et
-// app/api/subscription/modules/route.ts). Aaron Prospect garde son fallback
-// de Price ID en dur (PRICE_ID_AARON_PROSPECT ci-dessus, comportement
-// préexistant) ; Opportunités/Clients passent par getModulePriceId, qui
-// renvoie null si la variable Vercel correspondante n'est pas configurée.
+// app/api/subscription/modules/route.ts). Les trois modules passent
+// desormais par getModulePriceId : Aaron Prospect leve une erreur explicite
+// si sa variable manque, Opportunites/Clients renvoient null si la leur
+// n'est pas configuree.
 function priceIdFor(module: ModuleCode): string | null {
-  return module === 'AP' ? PRICE_ID_AARON_PROSPECT : getModulePriceId(module);
+  return getModulePriceId(module);
 }
 
 // Marchés visés pour l'expansion internationale (voir statut projet) :
