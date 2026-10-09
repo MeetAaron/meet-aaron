@@ -101,6 +101,14 @@ const ICONS = {
   ),
   steps: <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />,
   clients: <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />,
+  // Vue fondateur (09/10/2026) : marge par client + seuil GST. Visible du
+  // seul compte editeur, voir l'item correspondant dans connexions/page.jsx.
+  marge: (
+    <>
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <path d="m19 9-5 5-4-4-3 3" />
+    </>
+  ),
   compare: (
     <>
       <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3" />
