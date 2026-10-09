@@ -238,6 +238,10 @@ function offersFor(locale) {
 
 export default function ConnexionsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
+  // useAuthedUser a son propre router, hors de portee ici : la rubrique
+  // « Marge par client » ouvre un ecran a part (/app/marge) plutot qu'un
+  // panneau de cette page, donc il en faut un dans ce composant aussi.
+  const router = useRouter();
   const [locale] = useLocale();
   const PROVIDER_META = providerMetaFor(locale);
   const CRM_META = crmMetaFor(locale);
@@ -2116,6 +2120,34 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
     },
   ];
 
+  // ── Vue fondateur ──────────────────────────────────────────────────────
+  //
+  // Une rubrique de plus, visible du seul compte editeur : marge par client
+  // et suivi du seuil GST australien (/app/marge).
+  //
+  // Ce test cote client ne PROTEGE rien — il decide seulement de l'affichage
+  // d'un lien. Le controle qui compte est celui de /api/admin/margin, cote
+  // serveur : une route qui expose le chiffre d'affaires de toutes les
+  // societes ne se protege pas avec un `if` dans du JSX.
+  //
+  // Non traduite, comme la page qu'elle ouvre : un ecran destine a une seule
+  // personne ne gagne rien a exister en sept langues.
+  const isFounder =
+    String(currentEmail || '').toLowerCase() === 'aaron@meetaaron.app' ||
+    String(currentEmail || '').toLowerCase() === 'alexandre.fevre01@gmail.com';
+  if (isFounder) {
+    accountNavGroups.push({
+      label: 'Fondateur',
+      items: [
+        {
+          key: 'marge',
+          title: 'Marge par client',
+          description: 'Ce que chaque client rapporte et coute, et ou en est le seuil GST.',
+        },
+      ],
+    });
+  }
+
   return (
     <Shell active={t('nav.connections', locale)} userId={userId}>
       <header className="header">
@@ -2138,7 +2170,12 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         <AccountNav
           groups={accountNavGroups}
           activeTab={activeTab}
-          onSelect={setActiveTab}
+          onSelect={(key) => {
+            // 'marge' n'est pas un panneau de cette page mais un ecran a
+            // part : on navigue au lieu de changer d'onglet.
+            if (key === 'marge') { router.push('/app/marge'); return; }
+            setActiveTab(key);
+          }}
           locale={locale}
         />
 
