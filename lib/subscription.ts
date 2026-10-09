@@ -19,20 +19,28 @@ export const MODULE_CODES: ModuleCode[] = ['AP', 'AS', 'AC'];
 // pour pouvoir basculer test/live ou changer de tarif sans redéploiement.
 // Alex doit créer les 2 nouveaux prix (Aaron Opportunités, Aaron Clients)
 // dans son Dashboard Stripe et fournir les Price ID — voir statut projet.
-// Abonnement unique "Aaron" à 30 €/mois (docx Modifs Aaron 30/08/2026 +
-// décision Alex 31/08/2026 : "on ne garde que l'abonnement aaron à 30 €",
-// les anciens abonnés multi-modules passent sur l'offre unique). Le prix
-// Stripe de l'ancien module Aaron Prospect EST ce prix à 30 € — il devient
-// le seul prix vendu. Même valeur par défaut que app/api/checkout/route.ts,
-// pour que l'ajout d'un compte équipe fonctionne même sans variable
-// d'environnement (bug capturé par Alex le 31/08 : "Module AP pas encore
-// configuré côté serveur (Price ID Stripe manquant)" — la variable
-// STRIPE_PRICE_ID_AARON_PROSPECT n'est pas définie sur Vercel alors que le
-// checkout, lui, avait ce repli).
-export const DEFAULT_AARON_PRICE_ID = 'price_1U28xj7srPu7DrXAy07EdRs7';
-
-export function getAaronPriceId(): string {
-  return process.env.STRIPE_PRICE_ID_AARON_PROSPECT || DEFAULT_AARON_PRICE_ID;
+// REPLI EN DUR SUPPRIME LE 09/10/2026.
+//
+// Il valait 'price_1U28xj7srPu7DrXAy07EdRs7' — un prix du compte Stripe
+// SINGAPOUR, qui servait d'environnement de test. Depuis le 18/09/2026 la
+// facturation reelle vit sur le compte AUSTRALIEN acct_1UFCusLYAwldh31D,
+// ou ce prix n'existe pas.
+//
+// Le repli avait ete ajoute le 31/08 pour un bon motif : la variable
+// manquait sur Vercel et l'ajout d'un compte equipe echouait. Mais depuis
+// la bascule en reel il est devenu un piege : si la variable disparait ou
+// est mal saisie, le code ne crie pas — il vise silencieusement un prix
+// mort d'un autre compte, et le client voit une erreur de paiement
+// incomprehensible au pire moment.
+//
+// Desormais la variable absente renvoie null, exactement comme pour les deux
+// autres modules — et les quatre appelants ont deja leur message explicite
+// (« Price ID Stripe manquant »). On ne LEVE pas d'exception ici : deux de
+// ces appelants lisent le prix HORS try/catch, une exception y deviendrait un
+// 500 HTML muet cote client, c'est-a-dire precisement le symptome qu'on
+// cherche a eviter.
+export function getAaronPriceId(): string | null {
+  return process.env.STRIPE_PRICE_ID_AARON_PROSPECT || null;
 }
 
 export function getModulePriceId(module: ModuleCode): string | null {
