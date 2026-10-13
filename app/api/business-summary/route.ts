@@ -228,6 +228,29 @@ export async function POST(request: NextRequest) {
     `de remplir une section avec un contenu concret et vrai, SUPPRIME CETTE SECTION ENTIÈREMENT (son titre inclus) ` +
     `plutôt que d'écrire une généralité vague ou un contenu fabriqué pour la remplir. Chaque phrase du document ` +
     `doit pouvoir être reliée à une information réellement donnée par le commercial. ` +
+    // EXCEPTION UNIQUE, ajoutée le 13/10/2026 avec Alex. La règle ci-dessus
+    // protège contre le vrai danger : un fait inventé sur l'entreprise finit
+    // dans un email de prospection signé par le commercial, envoyé à un vrai
+    // prospect. Une fausse référence ou une fausse ancienneté, c'est un
+    // mensonge à un client.
+    //
+    // « Qui achète à ce métier » n'est pas de cette nature. Ce n'est pas une
+    // affirmation sur l'entreprise, c'est de la connaissance de secteur. Si
+    // Aaron se trompe, ça coûte une campagne mal ciblée — visible tout de
+    // suite, et réparable. Alors que supprimer la section laissait Aaron
+    // incapable de proposer quoi que ce soit au moment de la campagne.
+    //
+    // D'où : déduction autorisée ICI et NULLE PART AILLEURS, et toujours
+    // présentée comme une proposition, jamais comme un fait établi.
+    `EXCEPTION, pour la seule section "Clientèle cible" : si le commercial n'a pas décrit ses clients, tu as le ` +
+    `droit de DÉDUIRE de son métier quels types d'entreprises lui achètent habituellement, et de garder la ` +
+    `section. Dans ce cas et dans ce cas seulement, écris-la explicitement comme une hypothèse à confirmer ` +
+    `(commence la phrase concernée par "À confirmer :"), et reste factuel sur les CATÉGORIES d'acheteurs — ` +
+    `n'invente ni volumes, ni noms de clients, ni chiffres. Cette exception ne s'applique à AUCUNE autre ` +
+    `section : légitimité, preuves, ancienneté, références et résultats restent strictement interdits à la ` +
+    `déduction. ` +
+    `Rappel : ce produit ne démarche QUE des entreprises. Si le métier du commercial s'adresse d'abord à des ` +
+    `particuliers, dis-le dans cette section plutôt que d'inventer une clientèle professionnelle. ` +
     `Réponds uniquement avec ce document, ${localeInstruction(authedUser.locale)}, sans préambule ni titre général ` +
     `avant la première section "## ".`;
 
