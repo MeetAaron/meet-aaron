@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
   const { data: candidateProspects, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, assigned_user_id, conversations(id, messages(id))')
+    .select('id, email, assigned_user_id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
     .eq('is_won', false)
     .eq('is_lost', false);
 
@@ -57,7 +57,21 @@ export async function GET(request: NextRequest) {
   // Vraiment "jamais contacté" = aucun message (sortant ou entrant) dans
   // aucune de ses conversations — voir la note en tête de fichier sur
   // pourquoi personality_type seul n'est pas un critère fiable.
+  //
+  // IMPORTANT (corrigé le 12/10/2026) : il manquait ici le second filtre que
+  // run-campaigns applique déjà — « pas de premier email en attente de
+  // validation ». Un prospect dont le brouillon attend la relecture du
+  // commercial n'a, par construction, AUCUN message (le message n'est inséré
+  // qu'à l'envoi). Il repassait donc "jamais contacté" à chaque passage de ce
+  // cron : nouvel appel Claude payé, brouillon réécrit sous les yeux du
+  // commercial, et nouvelle notification push. Symptôme signalé par Alex :
+  // « tu m'envoies la notification "valider premier email" toutes les 10 min ».
   const stuckProspects = (candidateProspects || []).filter((p: any) => {
+    if (p.pending_first_email_subject) return false;
+    // Repris en main par le commercial (ai_managed = false) : applyAaronOutput
+    // refuse déjà d'écrire quoi que ce soit, mais sans ce filtre on payait
+    // quand même un appel Claude par passage de cron pour rien.
+    if (p.ai_managed === false) return false;
     const totalMessages = (p.conversations || []).reduce(
       (sum: number, c: any) => sum + (c.messages?.length || 0),
       0
