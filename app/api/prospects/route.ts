@@ -433,8 +433,14 @@ export async function POST(request: NextRequest) {
       try {
         await sendPushNotification(assigned_user_id, {
           title: 'Premier email prêt à valider',
-          body: `Aaron a préparé le premier email pour ${email}. À relire avant envoi.`,
-          url: `/app/prospects?user_id=${assigned_user_id}`,
+          // Le NOM, pas l'adresse email : c'est plus lisible sur un écran
+          // verrouillé, et ça évite d'y afficher l'adresse d'un prospect.
+          body: `Aaron a préparé le premier email pour ${full_name}. À relire avant envoi.`,
+          tag: `premier_email:${prospect.id}`,
+          // Lien profond : ouvre directement la fiche du prospect ET la modale
+          // de validation, au lieu de déposer le commercial sur la liste
+          // complète sans lui dire quel prospect valider (retour d'Alex, 12/10/2026).
+          url: `/app/prospects?user_id=${assigned_user_id}&contact=${prospect.id}&action=valider_email`,
         });
       } catch (pushErr) {
         console.error('Erreur envoi notification push (premier email à valider):', pushErr);
