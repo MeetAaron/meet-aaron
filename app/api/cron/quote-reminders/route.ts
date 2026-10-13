@@ -52,6 +52,9 @@ export async function GET(request: NextRequest) {
       title,
       body: `${days} jour${days > 1 ? 's' : ''} d'attente. ${QUOTE_ADVICE_FR[level]}`,
       url: `/app/prospects?user_id=${p.assigned_user_id}&contact=${p.id}`,
+      // Relance QUOTIDIENNE par construction : sans tag, le commercial
+      // accumule une vignette par jour pour le meme devis.
+      tag: `devis_a_faire:${p.id}`,
     }).catch(() => {});
     sent.push(p.id);
   }
