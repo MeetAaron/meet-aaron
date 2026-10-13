@@ -282,8 +282,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   // Abandonne le premier email en attente sans l'envoyer (ex: le commercial
   // juge le prospect finalement non pertinent) — le prospect reste dans la
-  // liste, sans email envoyé ; il peut être relancé plus tard en le
-  // supprimant/recréant, ou laissé tel quel.
+  // liste, sans email envoyé.
+  //
+  // IMPORTANT (12/10/2026) : vider les colonnes pending_* ne suffit PAS. Le
+  // prospect redevient alors « jamais contacté » aux yeux des crons (il n'a
+  // aucun message, puisque rien n'a été envoyé), donc Aaron lui regénère un
+  // premier email dans les vingt minutes — et renvoie la notification. Le
+  // bouton « Refuser » ne refusait donc rien : il relançait la boucle.
+  // On repasse le prospect en gestion manuelle : c'est le sens du refus
+  // (« Aaron ne démarche pas celui-là »), c'est visible dans la liste
+  // (filtre « gérés par moi ») et c'est réversible d'un clic sur la fiche.
   if (action === 'rejeter_premier_email') {
     const authedUser = await getAuthedUser(request);
     if (!authedUser) return unauthorizedResponse();
@@ -295,6 +303,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         pending_first_email_subject: null,
         pending_first_email_body: null,
         pending_first_email_generated_at: null,
+        ai_managed: false,
       })
       .eq('id', prospectId);
 
