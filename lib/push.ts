@@ -34,6 +34,21 @@ type PushPayload = {
   title: string;
   body: string;
   url?: string; // page à ouvrir au clic (ex: /app/agenda?user_id=...)
+  // Identifiant de REGROUPEMENT (norme Web Notifications). Deux notifications
+  // portant le même tag ne s'empilent pas : la seconde REMPLACE la première
+  // dans le centre de notifications du téléphone.
+  //
+  // Ajouté le 13/10/2026 après qu'Alex a reçu QUATORZE fois la même
+  // notification « Premier email prêt à valider » pour le même prospect, à
+  // cause d'une boucle de régénération (corrigée par ailleurs). La boucle
+  // était le bug ; l'empilement, lui, est une faiblesse propre à la
+  // notification : même sans bug, deux envois légitimes à quelques heures
+  // d'écart pour le même prospect n'ont aucune raison de laisser deux
+  // vignettes. Le tag est donc une protection qui vaut indépendamment.
+  //
+  // Convention : `<type>:<id de l'objet concerné>` — par exemple
+  // `premier_email:<prospect_id>`.
+  tag?: string;
 };
 
 // Envoie une notification push à TOUS les appareils abonnés d'un utilisateur

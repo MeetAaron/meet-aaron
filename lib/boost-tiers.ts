@@ -201,6 +201,21 @@ export function formatBoostPrice(amount: number, currency: BoostCurrency): strin
   return currency === 'eur' || currency === 'chf' ? `${amount} ${symbol}` : `${symbol}${amount}`;
 }
 
+// Prix de l'abonnement, formate dans la devise demandee.
+//
+// Ajoute le 12/10/2026 apres un bug grave : les libelles d'interface
+// annoncaient « 30 € » EN DUR dans les sept langues, alors que le produit
+// Stripe facture 59 €. Un prix affiche avant achat qui ne correspond pas a
+// ce qui est preleve n'est pas une coquille — c'est une promesse non tenue,
+// et le premier motif de litige avec un client.
+//
+// Le montant vient desormais d'ici, c'est-a-dire de la meme source que le
+// calcul de marge et que le checkout. Changer un tarif se fait a un seul
+// endroit, et les sept traductions suivent toutes seules.
+export function formatSubscriptionPrice(currency: BoostCurrency = 'eur'): string {
+  return formatBoostPrice(subscriptionPrice(currency), currency);
+}
+
 export function capUsdForCredits(credits: number): number {
   return Math.round(credits * USD_PER_CREDIT * 100) / 100;
 }

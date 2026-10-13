@@ -272,13 +272,22 @@ export async function collectAaronBatches(): Promise<{ checked: number; complete
 export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronOutput): Promise<void> {
   const { data: prospect } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, full_name, assigned_user_id, company_id, is_lost, is_won, ai_managed')
+    .select('id, email, full_name, assigned_user_id, company_id, is_lost, is_won, ai_managed, pending_first_email_subject')
     .eq('id', item.prospectId)
     .single();
   if (!prospect) return;
   // Le prospect a pu changer de main pendant l'attente du lot : on n'écrit
   // rien pour un contact repris par le commercial, perdu ou déjà client.
   if (prospect.ai_managed === false || prospect.is_lost || prospect.is_won) return;
+  // Un premier email attend déjà la validation du commercial : ne RIEN
+  // refaire. Sans ce garde-fou, tout cron qui considère ce prospect comme
+  // « jamais contacté » (il n'a effectivement aucun message tant que l'email
+  // n'est pas parti) relance Aaron, réécrit le brouillon sous les yeux du
+  // commercial et renvoie la notification push — boucle constatée par Alex le
+  // 12/10/2026 (« tu m'envoies la notification toutes les 10 min »). Le vrai
+  // correctif est dans retry-uncontacted-prospects ; celui-ci protège aussi
+  // tous les appelants futurs, et évite de repayer un appel Claude.
+  if (item.kind === 'first_contact' && prospect.pending_first_email_subject) return;
 
   const baseUpdate = {
     status: aaronOutput.prospect_status,
@@ -335,8 +344,11 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
       try {
         await sendPushNotification(prospect.assigned_user_id, {
           title: 'Premier email prêt à valider',
-          body: `Aaron a préparé le premier email pour ${prospect.email}. À relire avant envoi.`,
-          url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
+          // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
+          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+          tag: `premier_email:${prospect.id}`,
+          // Lien profond : fiche + modale de validation ouvertes d'emblée.
+          url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
         });
       } catch {
         // push best-effort
