@@ -152,6 +152,8 @@ export async function GET(request: NextRequest) {
           title: message.subject,
           body: message.body.split('\n')[0],
           url: '/app/connexions',
+          // Alerte quotidienne tant que le DNS n'est pas corrige.
+          tag: `dns:${userId}`,
         }).catch(() => {});
         // Drapeau remis à zéro : une régression future relancera tout le
         // processus toute seule.
