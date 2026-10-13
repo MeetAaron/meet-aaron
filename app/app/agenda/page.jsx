@@ -1455,11 +1455,41 @@ export default function AgendaPage() {
           border: 1px solid rgba(75, 57, 239, 0.35);
         }
         .today-main {
-          flex: 0 0 auto;
+          /* min-width: 0 et non 180px : une colonne flex ne descend jamais
+             sous la largeur de son contenu sans ca, et c'est ce qui ecrasait
+             la colonne voisine sur telephone. La largeur minimale est reprise
+             en flex-basis, qui, elle, cede quand la place manque. */
+          flex: 1 1 180px;
           display: flex;
           flex-direction: column;
           justify-content: center;
-          min-width: 180px;
+          min-width: 0;
+        }
+        /* MISE EN PAGE TELEPHONE (12/10/2026) — ces deux regles vivaient dans
+           le bloc de style du composant Shell, ou elles ne pouvaient pas
+           s'appliquer : styled-jsx donne une classe de portee differente a
+           chaque composant. Deplacees ici, dans le composant qui rend
+           reellement le bandeau. */
+        @media (max-width: 900px) {
+          .today-hero {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0.9rem;
+            padding: 1.1rem;
+          }
+          .today-main {
+            flex: 0 0 auto;
+          }
+          .today-next {
+            padding-left: 0;
+            border-left: 0;
+            padding-top: 0.9rem;
+            border-top: 1px solid rgba(244, 241, 234, 0.12);
+          }
+          .today-empty {
+            padding-top: 0.9rem;
+            border-top: 1px solid rgba(244, 241, 234, 0.12);
+          }
         }
         .today-eyebrow {
           margin: 0 0 0.3rem;
@@ -3396,19 +3426,15 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
         .sidebar-overlay {
           display: none;
         }
+        /* Les regles .today-hero / .today-next qui vivaient ici ont ete
+           deplacees le 12/10/2026 dans le bloc de style d'AgendaPage.
+           Elles n'ont JAMAIS fonctionne : styled-jsx attribue une classe de
+           portee differente a chaque composant, donc une regle ecrite dans
+           Shell ne touche pas un element rendu par AgendaPage. Resultat sur
+           telephone : le bandeau restait en ligne au lieu de passer en
+           colonne, et « Aucun rendez-vous a venir » se retrouvait essore sur
+           une colonne d'un caractere de large. */
         @media (max-width: 900px) {
-          .today-hero {
-            flex-direction: column;
-            gap: 0.9rem;
-            padding: 1.1rem 1.1rem;
-          }
-          .today-next {
-            padding-left: 0;
-            border-left: 0;
-            padding-top: 0.9rem;
-            border-top: 1px solid rgba(244, 241, 234, 0.12);
-          }
-
           .shell {
             grid-template-columns: 1fr;
           }
