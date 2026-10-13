@@ -870,13 +870,31 @@ export default function ChatPage() {
   // profil (sinon ses réponses auraient écrasé celui du fondateur). Chargé
   // uniquement sur l'accueil (?welcome=1), seul endroit où ça se décide.
   const [companyProfileExists, setCompanyProfileExists] = useState(null); // null = pas encore su
+  // CHARGE SUR TOUTE OUVERTURE DU CHAT DEPUIS LE 12/10/2026 — avant, la
+  // condition etait « !userId || !isWelcome », donc cette information
+  // n'etait lue QUE sur l'accueil (?welcome=1).
+  //
+  // Consequence : le garde-fou « questionnaire fantome » plus bas commence
+  // par `if (companyProfileExists !== true) return;`. Sur une arrivee directe
+  // sur /app/chat — c'est-a-dire le cas NORMAL, celui du menu de gauche —
+  // la valeur restait a null, le garde-fou ne s'executait jamais, et un
+  // onboarding_step residuel en base relancait le questionnaire depuis la
+  // question 1. Exactement le symptome remonte par Alex le 12/10 apres avoir
+  // deconnecte sa boite mail : « ca me redemande a nouveau mon activite,
+  // c'est idiot ».
+  //
+  // Le correctif du 04/09 etait donc juste sur le fond et trop etroit sur la
+  // portee. Regle voulue : le questionnaire ne se demande QU'UNE FOIS, sauf
+  // relance explicite (?restart_questionnaire=1) ou compte supprime puis
+  // recree. Deconnecter une boite mail n'a rien a voir avec le profil
+  // d'entreprise et ne doit evidemment rien relancer.
   useEffect(() => {
-    if (!userId || !isWelcome) return;
+    if (!userId) return;
     fetch(`/api/business-summary?user_id=${userId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((res) => setCompanyProfileExists(!!res?.summary))
       .catch(() => setCompanyProfileExists(false));
-  }, [userId, isWelcome]);
+  }, [userId]);
 
   // Item 11 (docx Modifs Aaron 30/08/2026) : "au bout de 24 h la conversation
   // est classée en historique — mais pas 24 h après le DÉBUT : imagine
