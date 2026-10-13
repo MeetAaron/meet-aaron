@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import { formatSubscriptionPrice } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -1550,7 +1551,7 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
 
-        {!isEditing && <p className="seat-plan-line">{t('team.addSeatPlanLine', locale)}</p>}
+        {!isEditing && <p className="seat-plan-line">{t('team.addSeatPlanLine', locale).replace('{price}', formatSubscriptionPrice())}</p>}
 
         {error && <p className="error">{error}</p>}
 
