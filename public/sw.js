@@ -26,14 +26,22 @@ self.addEventListener('push', (event) => {
     // que de faire échouer l'affichage de la notification.
   }
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/icon.png',
-      badge: '/icon.png',
-      data: { url: data.url || '/app/dashboard' },
-    })
-  );
+  // `tag` regroupe : une notification portant le même tag qu'une précédente la
+  // REMPLACE au lieu de s'empiler dessous (voir PushPayload dans lib/push.ts).
+  // `renotify` reste à false : le remplacement est silencieux, il ne refait
+  // pas vibrer le téléphone pour la même information.
+  const options = {
+    body: data.body,
+    icon: '/icon.png',
+    badge: '/icon.png',
+    data: { url: data.url || '/app/dashboard' },
+  };
+  if (data.tag) {
+    options.tag = data.tag;
+    options.renotify = false;
+  }
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 // Au clic sur la notification : ramène au premier plan un onglet Meet Aaron
