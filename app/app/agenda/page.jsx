@@ -711,7 +711,7 @@ export default function AgendaPage() {
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
-                        {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                        <span className="meta-date">{' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                       </div>
                     </div>
                     <div className="row-actions">
@@ -781,7 +781,7 @@ export default function AgendaPage() {
                       )}
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
-                        {' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                        <span className="meta-date">{' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                         {a.source === 'manuel' && ` · ${t('agenda.addedManually', locale)}`}
                       </div>
                       {a.meet_link && (
@@ -1305,6 +1305,50 @@ export default function AgendaPage() {
           display: flex;
           gap: 0.5rem;
           flex-shrink: 0;
+        }
+        /* LIGNES DE RENDEZ-VOUS SUR TELEPHONE (13/10/2026, capture d'Alex).
+           Une ligne alignait sur UN SEUL rang la pastille de date, le nom, le
+           type, la date longue, la pastille de statut, le bouton de bilan et
+           la croix. Les boutons ne se compriment pas (flex-shrink: 0), donc
+           c'est le texte qui encaissait : « test 1 — societe inconnue »
+           tombait a un mot par ligne et la date se coupait en trois.
+           Sur telephone, la ligne passe donc sur deux rangs : date + identite
+           d'abord, etats et actions ensuite. Et la date longue disparait :
+           la pastille de gauche dit deja « 15 SEPT 16:00 », l'afficher une
+           seconde fois coutait la moitie de la largeur pour rien. */
+        @media (max-width: 640px) {
+          .row {
+            flex-wrap: wrap;
+            align-items: flex-start;
+            row-gap: 0.7rem;
+            column-gap: 0.8rem;
+            padding: 0.95rem 1rem;
+          }
+          /* 100% moins la pastille et l'ecart : l'identite occupe tout le
+             reste du premier rang, ce qui renvoie statut et actions au
+             second. */
+          .row-info {
+            flex: 1 1 calc(100% - 60px);
+            font-size: 0.98rem;
+          }
+          .meta {
+            font-size: 0.85rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+          }
+          .meta-date { display: none; }
+          .day-chip { width: 56px; }
+          .day-chip-num { font-size: 1.15rem; }
+          .day-chip-mon, .day-chip-time { font-size: 0.68rem; }
+          .meet-link { font-size: 0.85rem; }
+          .row-actions {
+            flex: 1 0 100%;
+            flex-wrap: wrap;
+          }
+          .row-actions button { flex: 1 1 auto; }
+          .btn-valid, .btn-neutral, .btn-danger { padding: 0.65rem 0.9rem; font-size: 0.86rem; }
         }
         .btn-valid, .btn-neutral, .btn-danger {
           border: none;
