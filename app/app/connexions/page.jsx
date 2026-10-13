@@ -8,7 +8,7 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
 // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
-import { BOOST_TIERS, boostPrice, formatBoostPrice, USD_PER_CREDIT, prospectsForTier } from '@/lib/boost-tiers';
+import { BOOST_TIERS, boostPrice, formatBoostPrice, formatSubscriptionPrice, USD_PER_CREDIT, prospectsForTier } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
@@ -232,7 +232,7 @@ function defaultFirstEmailOptionsFor(locale) {
 // modules Opportunités/Clients sont inclus et ne se gèrent plus séparément.
 function offersFor(locale) {
   return [
-    { value: 'AP', label: t('team.seatPlanAaron', locale), desc: t('preferences.offers.aaronDesc', locale), available: true },
+    { value: 'AP', label: t('team.seatPlanAaron', locale), desc: t('preferences.offers.aaronDesc', locale).replace('{price}', formatSubscriptionPrice()), available: true },
   ];
 }
 
