@@ -97,6 +97,16 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
   const [open, setOpen] = useState(null); // { deck: NotificationItem[], index }
   // Panneau « rien à traiter » de la cloche (01/09/2026) — voir openAll.
   const [emptyOpen, setEmptyOpen] = useState(false);
+  // Bandeau d'echec d'un envoi parti en arriere-plan. Il vit ICI et non dans
+  // StoryViewer, parce que le viewer se ferme a l'instant ou l'envoi part :
+  // c'est tout l'interet de l'envoi optimiste, mais ca veut dire que le
+  // composant qui a lance la requete n'existe plus quand la reponse arrive.
+  const [bgError, setBgError] = useState(null);
+  useEffect(() => {
+    if (!bgError) return;
+    const id = setTimeout(() => setBgError(null), 10000);
+    return () => clearTimeout(id);
+  }, [bgError]);
 
   function openGroup(type) {
     const ordered = [...groups.filter((g) => g.type === type), ...groups.filter((g) => g.type !== type)];
@@ -148,8 +158,17 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
             <p>{t('stories.emptyBody', locale)}</p>
           </div>
         )}
-        {open && <StoryViewer state={open} setState={setOpen} locale={locale} userId={userId} onResolved={resolveCurrent} onOpenContact={onOpenContact} />}
+        {open && <StoryViewer state={open} setState={setOpen} locale={locale} userId={userId} onResolved={resolveCurrent} onOpenContact={onOpenContact} onBackgroundError={setBgError} />}
+        {bgError && (
+          <p className="bg-error" role="alert">{bgError}</p>
+        )}
         <style jsx>{`
+          .bg-error {
+            margin: 0.5rem 0 0;
+            font-size: 0.8rem;
+            line-height: 1.45;
+            color: var(--accent-red);
+          }
           .bell-empty {
             position: absolute;
             z-index: 60;
@@ -233,8 +252,17 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
           <span className="lbl">{t(`stories.type.${g.type}`, locale)}</span>
         </button>
       ))}
-      {open && <StoryViewer state={open} setState={setOpen} locale={locale} userId={userId} onResolved={resolveCurrent} onOpenContact={onOpenContact} />}
+      {open && <StoryViewer state={open} setState={setOpen} locale={locale} userId={userId} onResolved={resolveCurrent} onOpenContact={onOpenContact} onBackgroundError={setBgError} />}
+      {bgError && (
+        <p className="bg-error" role="alert">{bgError}</p>
+      )}
       <style jsx>{`
+        .bg-error {
+          margin: 0 0 0.9rem;
+          font-size: 0.84rem;
+          line-height: 1.45;
+          color: var(--accent-red);
+        }
         .stories {
           display: flex;
           gap: 0.9rem;
@@ -293,7 +321,7 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
   );
 }
 
-function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContact }) {
+function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContact, onBackgroundError }) {
   const { deck, index } = state;
   const item = deck[index];
   const [acting, setActing] = useState(false);
@@ -402,6 +430,42 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
     } finally {
       setActing(false);
     }
+  }
+
+  // ENVOI OPTIMISTE (13/10/2026, demande d'Alex : « quand je clique sur
+  // envoyer tu dois ecrire message envoye, peu importe s'il part 30 secondes
+  // apres »). Le serveur contacte vraiment Gmail ou Outlook : une dizaine de
+  // secondes pendant lesquelles la story restait figee.
+  //
+  // On passe donc a la suite immediatement et on laisse la requete finir
+  // derriere. L'echec remonte au composant Stories, qui lui reste monte et
+  // affiche un bandeau : annoncer « envoye » pour un email jamais parti
+  // serait pire que l'attente.
+  function sendFirstEmailNow() {
+    const name = item.prospect_name;
+    const url = prospectUrl;
+    onResolved();
+    fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'envoyer_premier_email' }),
+    })
+      .then(async (res) => {
+        if (res.ok) return;
+        const json = await res.json().catch(() => ({}));
+        onBackgroundError?.(
+          t('prospects.firstEmailSendFailedToast', locale)
+            .replace('{name}', name)
+            .replace('{error}', json.error || t('stories.actionError', locale))
+        );
+      })
+      .catch(() => {
+        onBackgroundError?.(
+          t('prospects.firstEmailSendFailedToast', locale)
+            .replace('{name}', name)
+            .replace('{error}', t('stories.actionError', locale))
+        );
+      });
   }
 
   const [planCall, setPlanCall] = useState(false);
@@ -628,7 +692,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       );
       actions = (
         <>
-          <button type="button" className="btn-primary" disabled={acting} onClick={() => act(prospectUrl, { action: 'envoyer_premier_email' })}>{t('stories.sendAsIs', locale)}</button>
+          <button type="button" className="btn-primary" disabled={acting} onClick={sendFirstEmailNow}>{t('stories.sendAsIs', locale)}</button>
           <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.editBeforeSend', locale)}</button>
           <button type="button" className="btn-danger" disabled={acting} onClick={() => act(prospectUrl, { action: 'rejeter_premier_email' })}>{t('stories.refuse', locale)}</button>
         </>
