@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
           title: 'Rappel de rendez-vous',
           body: message,
           url: `/app/agenda?user_id=${appt.users.id}`,
+          tag: `rappel_rdv:${appt.id}`,
         });
       }
     }
