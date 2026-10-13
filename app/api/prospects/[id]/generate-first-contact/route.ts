@@ -29,7 +29,7 @@ import { researchProspectCompany } from '@/lib/prospect-research';
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, company_id, assigned_user_id, email, prospect_company_id, aaron_advice, origin')
+    .select('id, company_id, assigned_user_id, full_name, email, prospect_company_id, aaron_advice, origin')
     .eq('id', params.id)
     .single();
 
@@ -128,8 +128,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       try {
         await sendPushNotification(prospect.assigned_user_id, {
           title: 'Premier email prêt à valider',
-          body: `Aaron a préparé le premier email pour ${prospect.email}. À relire avant envoi.`,
-          url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
+          // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
+          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+          tag: `premier_email:${prospect.id}`,
+          // Lien profond : fiche + modale de validation ouvertes d'emblée.
+          url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
         });
       } catch (pushErr) {
         console.error('Erreur envoi notification push (premier email à valider):', pushErr);
