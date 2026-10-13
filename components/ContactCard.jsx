@@ -477,20 +477,63 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
 
         {alerts.length > 0 && (
           <div className="alerts">
-            {alerts.map((a) => (
-              <div key={a.key} className={`alert ${a.level}`}>
+            {alerts.map((a) => {
+              // TOUTE LA BANDE EST CLIQUABLE DEPUIS LE 12/10/2026.
+              //
+              // Alex : « en voulant cliquer sur le texte jaune, je n'arrive
+              // pas a voir l'email a valider ». Seul le petit bouton de droite
+              // portait l'action ; le libelle, qui occupe les trois quarts de
+              // la bande et nomme exactement ce qu'on veut faire, etait inerte.
+              //
+              // Une bande d'alerte annonce une chose a faire et porte une
+              // seule action : il n'y a aucune raison qu'une moitie reagisse
+              // et pas l'autre, surtout au doigt sur telephone ou la cible du
+              // bouton fait quelques millimetres.
+              //
+              // Le bouton garde son clic propre (il reste le reperage visuel
+              // de l'action) mais arrete la propagation, sinon l'action
+              // partirait deux fois.
+              const rowAction =
+                a.key === 'email_to_validate' && onValidateEmail
+                  ? () => onValidateEmail(prospect)
+                  : a.key === 'first_order_to_confirm' && !acting
+                    ? handleConfirmFirstOrder
+                    : null;
+              const bilanHref =
+                a.key === 'bilan_to_do' && prospect.latest_appointment
+                  ? `/app/agenda/rdv/${prospect.latest_appointment.id}/bilan?user_id=${userId}`
+                  : null;
+              return (
+              <div
+                key={a.key}
+                className={`alert ${a.level}${rowAction || bilanHref ? ' clickable' : ''}`}
+                role={rowAction || bilanHref ? 'button' : undefined}
+                tabIndex={rowAction || bilanHref ? 0 : undefined}
+                onClick={rowAction ? rowAction : bilanHref ? () => { window.location.href = bilanHref; } : undefined}
+                onKeyDown={
+                  rowAction || bilanHref
+                    ? (e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
+                        if (rowAction) rowAction();
+                        else window.location.href = bilanHref;
+                      }
+                    : undefined
+                }
+              >
                 <span>{t(a.labelKey, locale)}</span>
                 {a.key === 'email_to_validate' && onValidateEmail && (
-                  <button type="button" className="mini" onClick={() => onValidateEmail(prospect)}>{t('prospects.validateFirstEmailButton', locale)}</button>
+                  <button type="button" className="mini" onClick={(e) => { e.stopPropagation(); onValidateEmail(prospect); }}>{t('prospects.validateFirstEmailButton', locale)}</button>
                 )}
                 {a.key === 'first_order_to_confirm' && (
-                  <button type="button" className="mini" disabled={acting} onClick={handleConfirmFirstOrder}>{t('prospects.confirmOrderButton', locale)}</button>
+                  <button type="button" className="mini" disabled={acting} onClick={(e) => { e.stopPropagation(); handleConfirmFirstOrder(); }}>{t('prospects.confirmOrderButton', locale)}</button>
                 )}
                 {a.key === 'bilan_to_do' && prospect.latest_appointment && (
-                  <a className="mini" href={`/app/agenda/rdv/${prospect.latest_appointment.id}/bilan?user_id=${userId}`}>{t('agenda.bilanTodo', locale)}</a>
+                  <a className="mini" href={bilanHref} onClick={(e) => e.stopPropagation()}>{t('agenda.bilanTodo', locale)}</a>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -943,6 +986,20 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         }
         .progress-wrap { margin: 1.3rem 0 0.4rem; padding: 0 0.2rem; }
         .alerts { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 1rem; }
+        /* Bande d'alerte cliquable sur toute sa surface (12/10/2026) : le
+           libelle etait inerte, seul le petit bouton reagissait. */
+        .alert.clickable {
+          cursor: pointer;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .alert.clickable:hover,
+        .alert.clickable:focus-visible {
+          filter: brightness(1.12);
+        }
+        .alert.clickable:focus-visible {
+          outline: 2px solid currentColor;
+          outline-offset: 2px;
+        }
         .alert {
           display: flex;
           align-items: center;

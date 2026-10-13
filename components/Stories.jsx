@@ -343,14 +343,31 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
     };
   }, [close, next, prev]);
 
+  // Gestes tactiles (13/10/2026) — bug signalé par Alex : « je maintiens le
+  // doigt enfoncé pour lire l'email, mais dès que je lâche, le message
+  // disparaît ». Le touchend remontait depuis le corps de l'email jusqu'à la
+  // carte, et son geste de DÉFILEMENT était lu comme un balayage vers le bas,
+  // c'est-à-dire « fermer ». Impossible de lire un email plus long que l'écran.
+  //
+  // Deux garde-fous :
+  //   1. un geste qui COMMENCE dans une zone défilante (le corps de l'email,
+  //      un champ de saisie) sert à lire ou à écrire, jamais à naviguer ;
+  //   2. un geste LENT n'est pas un balayage. On lit lentement, on balaie vite.
+  const SWIPE_MAX_MS = 500;
   function onTouchStart(e) {
-    touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    if (e.target?.closest?.('.mail, .mailbody, textarea, input, .plan-row')) {
+      touch.current = null;
+      return;
+    }
+    touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
   }
   function onTouchEnd(e) {
     if (!touch.current) return;
     const dx = e.changedTouches[0].clientX - touch.current.x;
     const dy = e.changedTouches[0].clientY - touch.current.y;
+    const elapsed = Date.now() - touch.current.t;
     touch.current = null;
+    if (elapsed > SWIPE_MAX_MS) return;
     if (Math.abs(dy) > 70 && Math.abs(dy) > Math.abs(dx)) {
       close();
     } else if (Math.abs(dx) > 50) {
@@ -682,11 +699,16 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   return (
     <div className="viewer" onClick={close}>
       <div className="story-card" onClick={(e) => e.stopPropagation()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ '--ring': RING[item.type] }}>
-        <div className="segments">
-          {deck.map((d, i) => (
-            <span key={d.id} className={`seg${i < index ? ' done' : ''}${i === index ? ' cur' : ''}`} />
-          ))}
-        </div>
+        {/* Une seule story : la barre de progression n'indique rien, et à
+            `flex: 1` sur un seul segment elle s'affichait comme une grosse
+            bande blanche en haut de la carte (signalé par Alex, 13/10/2026). */}
+        {deck.length > 1 && (
+          <div className="segments">
+            {deck.map((d, i) => (
+              <span key={d.id} className={`seg${i < index ? ' done' : ''}${i === index ? ' cur' : ''}`} />
+            ))}
+          </div>
+        )}
         <div className="head">
           <span className="type-ic"><TypeIcon type={item.type} size={18} /></span>
           <div className="head-text">
@@ -930,7 +952,14 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
             flex-direction: column;
           }
           .story-card::before { display: none; }
-          .body { flex: 1; }
+          /* Sur téléphone la carte occupe tout l'écran, mais l'encadré de
+             l'email gardait sa hauteur fixe de 220px : le texte était coupé en
+             plein milieu d'une phrase et un grand vide s'étalait en dessous
+             (capture d'Alex, 13/10/2026). On laisse l'email prendre toute la
+             place disponible. min-height: 0 est indispensable, sinon un enfant
+             flex refuse de se réduire sous la taille de son contenu. */
+          .body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+          .body :global(.mail) { flex: 1; min-height: 0; max-height: none; }
           .actions :global(.btn-primary), .actions :global(.btn-secondary), .actions :global(.btn-danger) { flex: 1 1 45%; justify-content: center; padding: 0.8rem 0.9rem; }
         }
       `}</style>
