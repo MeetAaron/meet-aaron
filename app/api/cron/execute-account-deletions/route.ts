@@ -7,11 +7,32 @@
 //
 // GET plutôt que POST : convention Vercel Cron (appelle toujours en GET).
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { executeAccountDeletion } from '@/lib/account-deletion';
 
-export async function GET() {
+// GARDE AJOUTEE LE 10/10/2026 — elle manquait.
+//
+// Les 22 autres crons du projet verifient tous l'en-tete
+// « authorization: Bearer <CRON_SECRET> ». Celui-ci, non : il etait
+// appelable par n'importe qui, en GET, sans rien.
+//
+// Portee reelle du trou : on ne pouvait pas supprimer un compte au hasard,
+// seulement EXECUTER EN AVANCE des suppressions deja demandees et dont le
+// delai de 24 h etait ecoule. Mais c'est deja trop : ce delai existe
+// precisement pour qu'on puisse changer d'avis, et une route publique qui
+// declenche une suppression definitive n'a aucune raison d'exister.
+//
+// Trouve en auditant le code avant l'evaluation CASA.
+function isAuthorized(request: NextRequest) {
+  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
   const now = new Date().toISOString();
 
   const { data: dueUsers, error } = await supabaseAdmin
