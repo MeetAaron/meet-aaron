@@ -293,6 +293,54 @@ export default function ProspectsPage() {
     } catch {}
   }, [userId]);
 
+  // ENVOI OPTIMISTE DU PREMIER EMAIL (13/10/2026, demande d'Alex : « quand je
+  // clique sur envoyer tu dois écrire message envoyé, peu importe s'il part
+  // 30 secondes après »). L'appel prend une dizaine de secondes, parce que le
+  // serveur contacte vraiment Gmail ou Outlook, enregistre le message et met
+  // la fiche à jour. Pendant ce temps, le bouton restait figé sur « Envoi… »
+  // et on avait l'impression que l'application avait planté.
+  //
+  // On ferme donc la modale et on affiche la confirmation TOUT DE SUITE, puis
+  // la requête finit en arrière-plan. Ce n'est pas un vrai traitement
+  // asynchrone côté serveur (il faudrait une file d'attente) : c'est
+  // l'interface qui n'attend plus la réponse.
+  //
+  // Contrepartie assumée, et c'est pour ça que l'échec est traité à part : si
+  // l'envoi rate, on le dit franchement dans le bandeau. Annoncer « envoyé »
+  // pour un email jamais parti serait pire que l'attente.
+  function sendFirstEmailInBackground(prospect, subject, body) {
+    setPendingEmailProspect(null);
+    setToast(t('prospects.firstEmailSentToast', locale).replace('{name}', prospect.full_name));
+    fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'envoyer_premier_email',
+        first_email_subject: subject,
+        first_email_body: body,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}));
+          setToast(
+            t('prospects.firstEmailSendFailedToast', locale)
+              .replace('{name}', prospect.full_name)
+              .replace('{error}', b.error || t('prospects.sendErrorFallback', locale))
+          );
+        }
+        loadProspects();
+      })
+      .catch(() => {
+        setToast(
+          t('prospects.firstEmailSendFailedToast', locale)
+            .replace('{name}', prospect.full_name)
+            .replace('{error}', t('prospects.sendErrorFallback', locale))
+        );
+        loadProspects();
+      });
+  }
+
   useEffect(() => {
     if (!deepLinkEmailId || deepLinkEmailDoneRef.current || !prospects.length) return;
     const found = prospects.find((x) => x.id === deepLinkEmailId);
@@ -714,6 +762,7 @@ export default function ProspectsPage() {
         <FirstEmailApprovalModal
           prospect={pendingEmailProspect}
           onClose={() => setPendingEmailProspect(null)}
+          onSend={(subject, body) => sendFirstEmailInBackground(pendingEmailProspect, subject, body)}
           onDone={() => {
             setPendingEmailProspect(null);
             loadProspects();
@@ -1511,7 +1560,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
 // contrairement au reste de l'outbound (relances, devis) qui ne propose que
 // l'approbation telle quelle, ici l'édition est utile car c'est le tout
 // premier contact avec le prospect.
-function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
+function FirstEmailApprovalModal({ prospect, onClose, onSend, onDone }) {
   const [locale] = useLocale();
   const [subject, setSubject] = useState(prospect.pending_first_email_subject || '');
   const [body, setBody] = useState(prospect.pending_first_email_body || '');
@@ -1519,10 +1568,18 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
   const [rejecting, setRejecting] = useState(false);
   const [error, setError] = useState(null);
 
-  async function handleSend() {
+  // L'envoi part en arrière-plan et la modale se ferme immédiatement : voir
+  // sendFirstEmailInBackground dans ProspectsPage pour le pourquoi. On garde
+  // l'ancien chemin bloquant en repli, au cas où ce composant serait réutilisé
+  // ailleurs sans la prop onSend.
+  function handleSend() {
+    if (onSend) {
+      onSend(subject, body);
+      return;
+    }
     setSending(true);
     setError(null);
-    const res = await fetch(`/api/prospects/${prospect.id}`, {
+    fetch(`/api/prospects/${prospect.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1530,14 +1587,15 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
         first_email_subject: subject,
         first_email_body: body,
       }),
+    }).then(async (res) => {
+      setSending(false);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        setError(b.error || t('prospects.sendErrorFallback', locale));
+        return;
+      }
+      onDone();
     });
-    setSending(false);
-    if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      setError(b.error || t('prospects.sendErrorFallback', locale));
-      return;
-    }
-    onDone();
   }
 
   async function handleReject() {
