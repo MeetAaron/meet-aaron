@@ -71,7 +71,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
 
   const { data: candidateProspects } = await supabaseAdmin
     .from('prospects')
-    .select('id, email, assigned_user_id, pending_first_email_subject, conversations(id, messages(id))')
+    .select('id, email, assigned_user_id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
     .in('prospect_company_id', companyIds.length > 0 ? companyIds : ['00000000-0000-0000-0000-000000000000']);
 
   // Vraiment "jamais contacté" = aucun message dans aucune de ses
@@ -85,6 +85,10 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   // production).
   const newProspects = (candidateProspects || []).filter((p: any) => {
     if (p.pending_first_email_subject) return false;
+    // Repris en main par le commercial, ou premier email refusé (le refus
+    // repasse le prospect en gestion manuelle — voir rejeter_premier_email) :
+    // Aaron ne le démarche plus, et on ne paie pas d'appel Claude pour lui.
+    if (p.ai_managed === false) return false;
     const totalMessages = (p.conversations || []).reduce(
       (sum: number, c: any) => sum + (c.messages?.length || 0),
       0
