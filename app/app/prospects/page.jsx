@@ -1,7 +1,7 @@
 // app/app/prospects/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -226,6 +226,12 @@ export default function ProspectsPage() {
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [linkedinProspect, setLinkedinProspect] = useState(null);
   const [pendingEmailProspect, setPendingEmailProspect] = useState(null);
+  // Lien profond depuis la notification push « Premier email prêt à valider » :
+  // ?contact=<id>&action=valider_email ouvre la fiche ET la modale de
+  // validation, pour que le commercial n'ait pas à chercher le prospect dans
+  // la liste en arrivant depuis son téléphone (retour d'Alex, 12/10/2026).
+  const [deepLinkEmailId, setDeepLinkEmailId] = useState(null);
+  const deepLinkEmailDoneRef = useRef(false);
   const [search, setSearch] = useState('');
 
   // Le bandeau disparaît tout seul au bout de huit secondes — assez pour
@@ -272,6 +278,7 @@ export default function ProspectsPage() {
       const params = new URLSearchParams(window.location.search);
       const wanted = params.get('contact');
       if (wanted) setSelectedId(wanted);
+      if (wanted && params.get('action') === 'valider_email') setDeepLinkEmailId(wanted);
       // Liens profonds depuis la page Résultats (01/09/2026) :
       // ?stage=<etape> ouvre la liste filtrée sur une étape,
       // ?filter=risk|lost sur les raccourcis « à risque » / « perdus ».
@@ -285,6 +292,16 @@ export default function ProspectsPage() {
       if (extra === 'risk' || extra === 'lost') setExtraFilter(extra);
     } catch {}
   }, [userId]);
+
+  useEffect(() => {
+    if (!deepLinkEmailId || deepLinkEmailDoneRef.current || !prospects.length) return;
+    const found = prospects.find((x) => x.id === deepLinkEmailId);
+    if (!found) return;
+    deepLinkEmailDoneRef.current = true;
+    // Si l'email a déjà été envoyé entre-temps, on laisse simplement la fiche
+    // ouverte plutôt que d'afficher une modale vide.
+    if (found.pending_first_email_subject) setPendingEmailProspect(found);
+  }, [deepLinkEmailId, prospects]);
 
   const rows = prospects.map((p) => ({ p, position: derivePipelinePosition(p), alerts: contactAlerts(p) }));
   const counts = countPipeline(prospects);
@@ -1584,7 +1601,9 @@ function FirstEmailApprovalModal({ prospect, onClose, onDone }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 100;
+          /* Au-dessus de la fiche contact (.card-overlay = 120) : cette modale
+             s ouvre DEPUIS la fiche, qui reste montee derriere elle. */
+          z-index: 140;
           padding: 1rem;
         }
         .modal {
@@ -1760,7 +1779,9 @@ function LinkedInDraftModal({ prospect, onClose }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 100;
+          /* Au-dessus de la fiche contact (.card-overlay = 120) : cette modale
+             s ouvre DEPUIS la fiche, qui reste montee derriere elle. */
+          z-index: 140;
           padding: 1rem;
         }
         .modal {
