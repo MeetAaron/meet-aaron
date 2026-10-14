@@ -2384,8 +2384,14 @@ function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </a>
       )}
-      <p className="empty-title">{title}</p>
-      <p className="empty-body">{body}</p>
+      {/* Les deux textes sont groupés pour pouvoir se placer EN COLONNE à
+          droite du rond quand l'état vide passe en ligne sur téléphone (voir
+          la media query plus bas). Sans ce groupe, titre et texte
+          deviendraient deux colonnes côte à côte. */}
+      <div className="empty-text">
+        <p className="empty-title">{title}</p>
+        <p className="empty-body">{body}</p>
+      </div>
       {/* Plus de bouton texte sous le « + » (Alex, 05/09/2026 : « supprime
           "ajouter un rdv" et "lancer une campagne" puisqu'on a le + ») : le
           rond est l'action, son libellé reste en info-bulle et pour les
@@ -2435,6 +2441,40 @@ function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
           padding: 0.55rem 1.1rem;
           border-radius: 999px;
           box-shadow: var(--shadow-glow);
+        }
+        /* ÉTAT VIDE SUR TÉLÉPHONE (13/10/2026). Capture d'Alex : son tableau
+           de bord n'affichait que deux grands cadres vides empilés, 4rem de
+           marge verticale chacun, un gros rond « + » centré, et rien d'autre
+           sur tout l'écran. Ce n'est pas un problème de couleurs : c'est du
+           vide qui occupe la place du contenu.
+           Sur téléphone, l'état vide passe donc en LIGNE — le rond à gauche,
+           le texte à côté, aligné à gauche comme le reste de la page. Deux
+           pavés de 250 px deviennent deux lignes de 80 px, et l'écran cesse
+           de ressembler à une page qui n'a pas fini de charger. */
+        @media (max-width: 900px) {
+          .empty {
+            flex-direction: row;
+            align-items: center;
+            text-align: left;
+            gap: 1rem;
+            padding: 1.35rem 1.1rem;
+          }
+          .empty-plus {
+            margin-bottom: 0;
+            flex: 0 0 auto;
+            width: 46px;
+            height: 46px;
+          }
+          .empty-text {
+            min-width: 0;
+          }
+          .empty-title {
+            font-size: 1rem;
+          }
+          .empty-body {
+            font-size: 0.86rem;
+            line-height: 1.45;
+          }
         }
       `}</style>
     </div>
