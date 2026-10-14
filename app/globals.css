@@ -935,3 +935,109 @@ html[data-theme='light'] .shell > .sidebar {
 .rail-bell {
   display: none !important;
 }
+
+/* =====================================================================
+   PASSE VISUELLE DU 13/10/2026 — « ça fait vieux jeu à côté d'Instagram »
+   (Alex, captures iPhone à l'appui).
+
+   Pourquoi TOUT tient dans ce fichier : chaque page duplique son propre
+   bloc `:root` avec les mêmes variables (convention du projet). Les
+   surcharger ici, avec un sélecteur plus spécifique, change les 17 pages
+   d'un coup au lieu de 17 fichiers à éditer et à garder synchronisés.
+
+   `html:root` vaut (0,1,1) contre (0,1,0) pour `:root` seul : la surcharge
+   l'emporte quel que soit l'ordre d'insertion des styles injectés par les
+   pages. C'est exactement le mécanisme déjà utilisé plus haut pour le mode
+   clair, et la raison pour laquelle il fonctionne.
+
+   Ce qui est changé, et pourquoi — trois constats sur les captures :
+
+   1. TOUT EST ENCADRÉ. Chaque bloc porte un trait à 1px bien visible. Les
+      applications qu'Alex trouve modernes ne dessinent pas de cadres :
+      elles posent des surfaces plus claires que le fond et laissent
+      l'ombre faire le travail. On garde la bordure (elle structure les
+      formulaires) mais on la recule nettement, et on écarte la surface du
+      fond pour que la carte se lise par son élévation.
+
+   2. LE TEXTE EST PETIT. Mesuré sur l'agenda : nom du contact à 14,4 px,
+      contexte à 12,5 px, mois à 10 px. Apple recommande 17 px pour le
+      texte courant sur iPhone et ne descend pas sous 13 px. Le socle passe
+      donc à 17 px SOUS 900 px seulement : tout le reste étant en rem, la
+      page entière remonte d'un cran sans toucher à une seule page, et
+      l'ordinateur ne bouge pas.
+
+   3. LES ANGLES SONT SERRÉS. 16 px sur les grandes cartes, c'était la
+      norme il y a cinq ans. On ouvre.
+   ===================================================================== */
+
+html:root {
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+}
+
+/* Réglages propres au thème sombre. `:not([data-theme='light'])` évite
+   d'écraser la palette claire définie plus haut, qui a la même
+   spécificité. */
+html:root:not([data-theme='light']) {
+  /* Surface détachée du fond : c'est elle, et non le trait, qui doit faire
+     exister la carte. */
+  --bg: #080a14;
+  --bg-elevated: #10142a;
+  --surface: #151a33;
+  --surface-hover: #1c2140;
+  /* Bordure reculée : présente pour les champs, discrète sur les cartes. */
+  --border: #262c4d;
+  --border-soft: rgba(244, 241, 234, 0.055);
+  /* Ombres plus douces et plus larges : une ombre courte et dure fait
+     « boîte » ; une ombre longue et faible fait « posé sur la page ». */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.38);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+/* MODE CLAIR — « ça me gêne » (Alex, 13/10/2026). L'ancienne palette était
+   correcte mais plate : le fond et la surface se touchaient presque, et la
+   bordure beige tirait vers le jauni. On creuse l'écart entre les trois
+   niveaux et on refroidit très légèrement la bordure pour qu'elle dessine
+   sans salir. L'encre reste chaude. */
+html[data-theme='light']:root {
+  --bg: #f1eee6;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f5f2ea;
+  --border: #e2ded1;
+  --border-soft: rgba(20, 21, 31, 0.07);
+  --muted: #595d70;
+  --shadow-sm: 0 1px 2px rgba(20, 21, 31, 0.05);
+  --shadow-md: 0 8px 24px rgba(20, 21, 31, 0.07);
+  --shadow-lg: 0 20px 56px rgba(20, 21, 31, 0.1);
+}
+
+@media (max-width: 900px) {
+  /* Le socle typographique. Tout le reste de l'application étant exprimé en
+     rem, cette seule ligne remonte chaque texte de l'interface d'environ
+     6 %. L'ordinateur garde 16 px. */
+  html:root {
+    font-size: 17px;
+  }
+
+  /* De l'air. Une page qui respire paraît plus moderne qu'une page qui
+     change de couleurs. 1,15rem de marge latérale au lieu de 1rem, et le
+     bas dégagé pour que la barre d'onglets ne mange plus le dernier bloc. */
+  .shell > main.content {
+    padding-left: 1.15rem !important;
+    padding-right: 1.15rem !important;
+  }
+
+  /* Titres de page : plus affirmés, et surtout plus serrés en interlettrage.
+     Un grand titre à interlettrage neutre fait « document » ; resserré, il
+     fait « produit ». */
+  .shell > main.content > h1,
+  .shell > main.content h1 {
+    font-size: 1.7rem;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+  }
+}
