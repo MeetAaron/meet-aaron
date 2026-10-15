@@ -422,6 +422,38 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   // contact passe en « proposition demandée » et une notification « Devis à
   // faire » est créée (push + story sur le tableau de bord, voir
   // app/api/notifications).
+  // Le commercial a traité la relance téléphonique après ouverture du devis
+  // (15/10/2026). Un seul effet : la story « il lit ton devis » disparaît et
+  // ne revient jamais pour ce devis-là.
+  //
+  // Volontairement SANS distinction entre « j'ai appelé » et « je n'appellerai
+  // pas ». Demander laquelle des deux transformerait une carte à un geste en
+  // formulaire, et surtout : Aaron n'a pas à savoir si le commercial a obéi.
+  // Une carte qu'on ne peut pas faire taire devient du bruit, et du bruit on
+  // se protège en coupant toutes les notifications.
+  if (action === 'devis_appel_fait') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+
+    const { error: callError } = await supabaseAdmin
+      .from('prospects')
+      .update({ devis_call_done_at: new Date().toISOString() })
+      .eq('id', prospectId);
+    if (callError) {
+      return NextResponse.json(
+        {
+          error:
+            callError.code === '42703'
+              ? "Lance d'abord la migration migration_devis_ouverture_2026-10-15.sql"
+              : callError.message,
+        },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ success: true });
+  }
+
   if (action === 'quote_requested') {
     const authedUser = await getAuthedUser(request);
     if (!authedUser) return unauthorizedResponse();
