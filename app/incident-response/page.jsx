@@ -41,7 +41,7 @@ const fr = {
     {
       id: 'perimetre',
       h: '1. Périmètre',
-      body: [
+      b: [
         'Ce document couvre l\'application Meet Aaron (https://meetaaron.app), ses interfaces de programmation, ses applications mobiles — qui ne sont que des coques affichant cette même application web — et les comptes d\'hébergement et de base de données qui la font tourner.',
         'L\'éditeur et seul responsable de la réponse aux incidents est **Alexandre Fevre**, entreprise individuelle australienne (ABN 72 369 751 951), exerçant sous le nom commercial **Meet Aaron**.',
       ],
@@ -49,7 +49,7 @@ const fr = {
     {
       id: 'definition',
       h: '2. Ce que nous appelons un incident',
-      body: [
+      b: [
         'Est traité comme incident de sécurité tout événement qui compromet, ou peut compromettre, la confidentialité, l\'intégrité ou la disponibilité des données des utilisateurs :',
         ['ul', [
           'un accès non autorisé à la base de données, à l\'hébergement, ou à un compte administrateur ;',
@@ -65,7 +65,7 @@ const fr = {
     {
       id: 'gravite',
       h: '3. Niveaux de gravité',
-      body: [
+      b: [
         '**P1 — Critique.** Données d\'utilisateurs accessibles par un tiers, jetons d\'accès exposés, ou envoi de messages non autorisés en cours. Traitement immédiat, avant toute autre tâche.',
         '**P2 — Élevé.** Faille exploitable identifiée mais sans preuve d\'exploitation, ou compromission d\'un compte de service sans accès aux données utilisateurs.',
         '**P3 — Modéré.** Faiblesse réelle mais dont l\'exploitation suppose des conditions improbables, ou indisponibilité du service sans perte de données.',
@@ -75,7 +75,7 @@ const fr = {
     {
       id: 'detection',
       h: '4. Détection',
-      body: [
+      b: [
         'Un incident peut nous parvenir par quatre voies :',
         ['ul', [
           'une alerte automatique de l\'hébergeur ou de la base de données (erreurs applicatives, pics de trafic, échecs d\'authentification répétés) ;',
@@ -89,7 +89,7 @@ const fr = {
     {
       id: 'roles',
       h: '5. Rôles',
-      body: [
+      b: [
         'Meet Aaron est édité par une seule personne. En cas d\'incident, cette personne cumule les rôles de coordinateur, d\'analyste technique et de point de contact pour les utilisateurs et les autorités.',
         'C\'est une limite et nous la déclarons comme telle à la dernière section. Son revers est qu\'il n\'y a aucune chaîne d\'escalade à remonter : la décision de couper le service, de révoquer tous les jetons ou de notifier les utilisateurs peut être prise en quelques minutes.',
       ],
@@ -97,7 +97,7 @@ const fr = {
     {
       id: 'procedure',
       h: '6. Procédure de réponse',
-      body: [
+      b: [
         '**Étape 1 — Confinement.** Avant tout diagnostic, arrêter l\'exposition. Selon l\'incident : révocation des jetons d\'accès concernés, désactivation des tâches planifiées qui envoient des messages, suspension du compte compromis, retrait en ligne de la version fautive, ou mise hors service du site si rien d\'autre ne suffit. Couper le service est une décision acceptable ; laisser une fuite ouverte pendant l\'enquête ne l\'est pas.',
         '**Étape 2 — Évaluation.** Déterminer ce qui a été atteint, par qui, pendant combien de temps, et quels utilisateurs sont concernés. Les journaux d\'accès de l\'hébergement et de la base de données sont conservés à cette fin.',
         '**Étape 3 — Éradication.** Corriger la cause, pas seulement le symptôme : rotation de tous les secrets susceptibles d\'avoir été exposés, correctif de code, fermeture de l\'accès utilisé.',
@@ -109,7 +109,7 @@ const fr = {
     {
       id: 'delais',
       h: '7. Délais',
-      body: [
+      b: [
         'Les délais ci-dessous courent à partir du moment où l\'incident nous est **connu**, et non du moment où il s\'est produit.',
         ['ul', [
           '**P1** : première action de confinement sous 4 heures ; information des utilisateurs concernés sous 72 heures.',
@@ -123,7 +123,7 @@ const fr = {
     {
       id: 'notification',
       h: '8. Notification',
-      body: [
+      b: [
         '**Aux utilisateurs concernés.** En cas de violation de données personnelles susceptible de leur porter atteinte, nous les informons par courriel à l\'adresse de leur compte, sous 72 heures à compter de la prise de connaissance. Le message indique ce qui s\'est passé, quelles données sont concernées, ce que nous avons fait, et ce qu\'ils doivent faire de leur côté.',
         '**Aux autorités de protection des données.** Pour les utilisateurs établis dans l\'Union européenne, nous notifions l\'autorité compétente sous 72 heures lorsque le RGPD l\'exige. Pour l\'Australie, nous notifions l\'Office of the Australian Information Commissioner lorsque le régime des Notifiable Data Breaches s\'applique, et nous le faisons volontairement lorsqu\'un doute subsiste sur son applicabilité à une entreprise de notre taille.',
         '**Aux prestataires.** Si l\'incident implique Google, Microsoft, Supabase, Vercel, Stripe, Anthropic ou OpenAI, nous les informons par leurs canaux de signalement dédiés. Pour les données issues des interfaces Google, nous respectons les obligations de notification du programme de vérification OAuth.',
@@ -133,7 +133,7 @@ const fr = {
     {
       id: 'preuves',
       h: '9. Preuves et revue',
-      body: [
+      b: [
         'Chaque incident, à partir du niveau P3, donne lieu à une fiche écrite conservée au moins deux ans : date de détection, voie de détection, gravité retenue, chronologie des actions, données concernées, cause racine, et la mesure prise pour que cela ne se reproduise pas.',
         'Une revue est menée dans les deux semaines qui suivent le rétablissement. Elle doit produire au moins une modification concrète — un correctif, un contrôle supplémentaire, une alerte, une procédure — et non un simple constat. Un incident sans mesure corrective est considéré comme non clos.',
       ],
@@ -141,7 +141,7 @@ const fr = {
     {
       id: 'limites',
       h: '10. Limites connues',
-      body: [
+      b: [
         'Nous préférons les déclarer plutôt que de laisser croire à des moyens que nous n\'avons pas :',
         ['ul', [
           '**Pas d\'astreinte 24/7.** Meet Aaron est édité par une seule personne. Un incident survenant la nuit australienne peut n\'être pris en charge qu\'au matin. Les alertes automatiques et les notifications mobiles réduisent ce délai mais ne le suppriment pas.',
@@ -154,7 +154,7 @@ const fr = {
     {
       id: 'contact',
       h: '11. Contact',
-      body: [
+      b: [
         `Pour signaler un incident en cours : [${MAIL}](mailto:${MAIL}), avec « INCIDENT » en objet.`,
         'Pour signaler une faille non encore exploitée, suivez notre [politique de divulgation des vulnérabilités](/vulnerability-disclosure).',
         'Les mesures de sécurité en place sont décrites dans notre [politique de sécurité de l\'information](/security).',
@@ -175,7 +175,7 @@ const en = {
     {
       id: 'perimetre',
       h: '1. Scope',
-      body: [
+      b: [
         'This document covers the Meet Aaron application (https://meetaaron.app), its programming interfaces, its mobile applications — which are only shells displaying that same web application — and the hosting and database accounts that run it.',
         'The publisher and sole party responsible for incident response is **Alexandre Fevre**, an Australian sole trader (ABN 72 369 751 951), trading as **Meet Aaron**.',
       ],
@@ -183,7 +183,7 @@ const en = {
     {
       id: 'definition',
       h: '2. What we treat as an incident',
-      body: [
+      b: [
         'Any event that compromises, or may compromise, the confidentiality, integrity or availability of user data is handled as a security incident:',
         ['ul', [
           'unauthorised access to the database, the hosting, or an administrator account;',
@@ -199,7 +199,7 @@ const en = {
     {
       id: 'gravite',
       h: '3. Severity levels',
-      body: [
+      b: [
         '**P1 — Critical.** User data accessible to a third party, access tokens exposed, or unauthorised message sending under way. Handled immediately, ahead of any other task.',
         '**P2 — High.** An exploitable flaw identified but with no evidence of exploitation, or compromise of a service account without access to user data.',
         '**P3 — Moderate.** A real weakness whose exploitation requires improbable conditions, or unavailability of the service without data loss.',
@@ -209,7 +209,7 @@ const en = {
     {
       id: 'detection',
       h: '4. Detection',
-      body: [
+      b: [
         'An incident can reach us through four channels:',
         ['ul', [
           'an automated alert from the host or the database (application errors, traffic spikes, repeated authentication failures);',
@@ -223,7 +223,7 @@ const en = {
     {
       id: 'roles',
       h: '5. Roles',
-      body: [
+      b: [
         'Meet Aaron is published by one person. During an incident, that person holds the roles of coordinator, technical analyst and point of contact for users and authorities.',
         'This is a limitation and we declare it as such in the last section. Its upside is that there is no escalation chain to climb: the decision to take the service down, revoke every token or notify users can be taken within minutes.',
       ],
@@ -231,7 +231,7 @@ const en = {
     {
       id: 'procedure',
       h: '6. Response procedure',
-      body: [
+      b: [
         '**Step 1 — Containment.** Before any diagnosis, stop the exposure. Depending on the incident: revoking the affected access tokens, disabling the scheduled tasks that send messages, suspending the compromised account, rolling back the faulty release, or taking the site offline if nothing else is enough. Taking the service down is an acceptable decision; leaving a leak open during the investigation is not.',
         '**Step 2 — Assessment.** Establish what was reached, by whom, for how long, and which users are affected. Access logs from the host and the database are retained for this purpose.',
         '**Step 3 — Eradication.** Fix the cause, not just the symptom: rotation of every secret that may have been exposed, code fix, closing of the access path used.',
@@ -243,7 +243,7 @@ const en = {
     {
       id: 'delais',
       h: '7. Timeframes',
-      body: [
+      b: [
         'The timeframes below run from the moment the incident becomes **known** to us, not from the moment it occurred.',
         ['ul', [
           '**P1**: first containment action within 4 hours; affected users informed within 72 hours.',
@@ -257,7 +257,7 @@ const en = {
     {
       id: 'notification',
       h: '8. Notification',
-      body: [
+      b: [
         '**Affected users.** In the event of a personal data breach likely to adversely affect them, we inform them by email at their account address, within 72 hours of becoming aware of it. The message states what happened, which data is affected, what we have done, and what they should do on their side.',
         '**Data protection authorities.** For users established in the European Union, we notify the competent authority within 72 hours where the GDPR requires it. For Australia, we notify the Office of the Australian Information Commissioner where the Notifiable Data Breaches scheme applies, and we do so voluntarily where there is any doubt as to its applicability to a business of our size.',
         '**Subprocessors.** If the incident involves Google, Microsoft, Supabase, Vercel, Stripe, Anthropic or OpenAI, we inform them through their dedicated reporting channels. For data obtained from Google APIs, we comply with the notification obligations of the OAuth verification programme.',
@@ -267,7 +267,7 @@ const en = {
     {
       id: 'preuves',
       h: '9. Evidence and review',
-      body: [
+      b: [
         'Every incident of severity P3 or above is recorded in a written record kept for at least two years: detection date, detection channel, severity assigned, timeline of actions, data affected, root cause, and the measure taken so that it does not happen again.',
         'A review is carried out within two weeks of recovery. It must produce at least one concrete change — a fix, an additional control, an alert, a procedure — rather than a mere observation. An incident with no corrective measure is treated as not closed.',
       ],
@@ -275,7 +275,7 @@ const en = {
     {
       id: 'limites',
       h: '10. Known limitations',
-      body: [
+      b: [
         'We would rather declare these than imply resources we do not have:',
         ['ul', [
           '**No 24/7 on-call.** Meet Aaron is published by one person. An incident occurring during the Australian night may only be picked up the following morning. Automated alerts and mobile notifications shorten that delay but do not remove it.',
@@ -288,7 +288,7 @@ const en = {
     {
       id: 'contact',
       h: '11. Contact',
-      body: [
+      b: [
         `To report an incident in progress: [${MAIL}](mailto:${MAIL}), with "INCIDENT" in the subject line.`,
         'To report a flaw that has not yet been exploited, please follow our [vulnerability disclosure policy](/vulnerability-disclosure).',
         'The security measures in place are described in our [information security policy](/security).',
