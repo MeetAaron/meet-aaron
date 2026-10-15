@@ -328,6 +328,16 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
                     {sendingDevis ? t('sales.sending', locale) : t('quote.sendNow', locale)}
                   </button>
                 </div>
+                {/* Annonce du suivi d'ouverture (Alex, 15/10/2026). Elle est
+                    ICI et NULLE PART AILLEURS : c'est le seul endroit de
+                    l'application où le commercial décide d'envoyer un devis
+                    suivi, donc le seul où la précision sur la fiabilité a sa
+                    place. La notification, elle, parlera normalement —
+                    « Dupont est en train de lire ton devis » — parce qu'une
+                    interface qui s'excuse à chaque écran n'inspire pas
+                    confiance. Pas de « appelle-le » ici non plus : c'est le
+                    travail de la notification, pas du texte de bas de page. */}
+                <p className="muted small">{t('quote.openTrackingNote', locale)}</p>
               </>
             )}
 

@@ -28,6 +28,11 @@ import { DiscBadge } from '@/components/ContactCard';
 
 const RING = {
   mise_en_route: 'linear-gradient(135deg, #4b39ef, #c93f8c)',
+  // Le seul anneau VERT de la série, et c'est volontaire : toutes les autres
+  // stories annoncent une chose en retard ou à corriger. Celle-ci annonce une
+  // bonne nouvelle. Au premier coup d'œil, avant même d'avoir lu, le
+  // commercial doit savoir que ce cercle-là n'est pas un reproche.
+  devis_ouvert: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
   devis_a_faire: 'linear-gradient(135deg, #ef4459, #f5a623)',
   rdv_a_valider: 'linear-gradient(135deg, #f5a623, #ffd166)',
   rdv_aujourdhui: 'linear-gradient(135deg, #4b39ef, #7c6ef5)',
@@ -49,6 +54,7 @@ const ICON_NAME = {
   // le tableau de bord via `extraGroups`, pas par /api/notifications : les
   // étapes sont calculées côté client à partir des connexions et réglages.
   mise_en_route: 'rocket',
+  devis_ouvert: 'phone',
   devis_a_faire: 'file',
   rdv_a_valider: 'calendar',
   rdv_aujourdhui: 'calendar',
@@ -560,6 +566,55 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   let body = null;
   let actions = null;
   switch (item.type) {
+    case 'devis_ouvert': {
+      // La carte la plus courte de toute l'application, et ça n'est pas une
+      // économie d'écriture : elle s'ouvre au moment où le client a le devis
+      // sous les yeux. Chaque ligne lue ici est une seconde perdue.
+      //
+      // Un seul bouton, et c'est un lien tel: — sur téléphone il lance
+      // l'appel, sur ordinateur il ouvre le logiciel d'appel. Pas de « voir
+      // la fiche » en premier : la fiche, il la connaît, il vient d'en
+      // envoyer le devis.
+      const phone = item.meta?.phone || null;
+      const opened = item.at ? new Date(item.at) : null;
+      body = (
+        <>
+          <p className="lead">
+            {t(item.meta?.reading_now ? 'stories.devisOpenLeadNow' : 'stories.devisOpenLead', locale)
+              .replace('{name}', item.prospect_name)}
+          </p>
+          {opened && (
+            <p className="when">
+              <Ic name="clock" /> {opened.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
+              {item.meta?.open_count > 1 ? ` · ${t('stories.devisOpenCount', locale).replace('{n}', item.meta.open_count)}` : ''}
+            </p>
+          )}
+          {!phone && <p className="hint">{t('stories.devisOpenNoPhone', locale)}</p>}
+        </>
+      );
+      actions = (
+        <>
+          {phone ? (
+            <a className="btn-primary" href={`tel:${String(phone).replace(/\s/g, '')}`}>
+              {t('stories.devisOpenCall', locale)}
+            </a>
+          ) : (
+            <button type="button" className="btn-primary" onClick={openContact}>
+              {t('stories.openCard', locale)}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={acting}
+            onClick={() => act(prospectUrl, { action: 'devis_appel_fait' })}
+          >
+            {t('stories.devisOpenDone', locale)}
+          </button>
+        </>
+      );
+      break;
+    }
     case 'devis_a_faire':
       // Lot 3 « Devis » : « Répondre » → soit Aaron rédige un email pour
       // demander les infos manquantes (modifiable avant envoi), soit « je lui
