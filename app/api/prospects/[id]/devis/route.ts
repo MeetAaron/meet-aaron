@@ -18,6 +18,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { generateDevis, summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
 import { sendEmailForUser } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
 
 const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu'];
 
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // la migration n'est pas passée → deuxième lecture sans elles sur 42703.
   let res: any = await supabaseAdmin
     .from('prospects')
-    .select('id, assigned_user_id, full_name, email, deal_stage, devis_subject, devis_body, devis_recap, devis_sent_at, devis_file_path, devis_file_name, devis_file_type')
+    .select('id, assigned_user_id, full_name, email, deal_stage, devis_subject, devis_body, devis_recap, devis_sent_at, devis_file_path, devis_file_name, devis_file_type, devis_track_token')
     .eq('id', prospectId)
     .single();
   if (res.error && res.error.code === '42703') {
@@ -141,8 +142,35 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     };
   }
 
+  // Pixel de suivi d'ouverture — devis UNIQUEMENT (Alex, 15/10/2026). Le
+  // jeton est tiré ici, à l'envoi, et pas à la génération : un devis généré
+  // puis jamais envoyé ne doit pas laisser de jeton actif derrière lui.
+  //
+  // Le `catch` vide n'est pas de la négligence : si la colonne n'existe pas
+  // encore (migration_devis_ouverture_2026-10-15.sql pas passée), le devis
+  // doit partir quand même. Perdre le suivi est contrariant ; bloquer un
+  // devis que le commercial attend d'envoyer serait inacceptable.
+  let trackToken: string | null = (prospect as any).devis_track_token || null;
+  if (!trackToken) {
+    trackToken = newDevisTrackToken();
+    const { error: tokenError } = await supabaseAdmin
+      .from('prospects')
+      .update({ devis_track_token: trackToken })
+      .eq('id', prospectId);
+    if (tokenError) trackToken = null;
+  }
+
   try {
-    await sendEmailForUser(prospect.assigned_user_id, prospect.email, finalSubject, `${finalBody}${recapText}`, attachment ? { attachment } : undefined);
+    await sendEmailForUser(
+      prospect.assigned_user_id,
+      prospect.email,
+      finalSubject,
+      `${finalBody}${recapText}`,
+      {
+        ...(attachment ? { attachment } : {}),
+        ...(trackToken ? { trailingHtml: devisPixelHtml(trackToken) } : {}),
+      }
+    );
   } catch (err: any) {
     console.error("Erreur envoi devis:", err.message);
     const message = err.message?.includes('Aucune boîte mail connectée')
