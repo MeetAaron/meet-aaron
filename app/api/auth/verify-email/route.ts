@@ -24,21 +24,64 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?verified=error`);
   }
 
-  const { data: verification } = await supabaseAdmin
+  // Format vérifié avant d'interroger la base : les jetons font 64
+  // caractères hexadécimaux (crypto.randomBytes(32)). Tout le reste est
+  // écarté sans requête.
+  if (!/^[a-f0-9]{64}$/.test(token)) {
+    return NextResponse.redirect(`${origin}/login?verified=error`);
+  }
+
+  // expires_at est lu dans un select séparé, toléré absent : si
+  // migration_verif_email_expiration_2026-10-15.sql n'est pas encore
+  // passée, la colonne n'existe pas et Postgrest répond 42703. Dans ce cas
+  // on retombe sur l'ancien comportement plutôt que d'empêcher tout le
+  // monde de confirmer son adresse.
+  let res: any = await supabaseAdmin
     .from('email_verifications')
-    .select('id, auth_user_id, verified')
+    .select('id, auth_user_id, verified, expires_at')
     .eq('token', token)
     .maybeSingle();
+  if (res.error && res.error.code === '42703') {
+    res = await supabaseAdmin
+      .from('email_verifications')
+      .select('id, auth_user_id, verified')
+      .eq('token', token)
+      .maybeSingle();
+  }
+  const verification: any = res.data;
 
   if (!verification) {
     return NextResponse.redirect(`${origin}/login?verified=error`);
   }
 
-  if (!verification.verified) {
-    await supabaseAdmin
-      .from('email_verifications')
-      .update({ verified: true, verified_at: new Date().toISOString() })
-      .eq('id', verification.id);
+  // USAGE UNIQUE (CASA 1.3.2). Jusqu'au 15/10/2026 cette route acceptait un
+  // jeton déjà utilisé et reconfirmait le compte — un lien de confirmation
+  // retrouvé dans une vieille boîte mail restait éternellement valable.
+  if (verification.verified) {
+    return NextResponse.redirect(`${origin}/login?verified=expired`);
+  }
+
+  // EXPIRATION (CASA 1.3.1). Le même message que pour un jeton déjà
+  // utilisé : l'utilisateur n'a pas à savoir laquelle des deux raisons
+  // s'applique, et dans les deux cas le geste est identique — redemander un
+  // lien depuis la page de connexion.
+  if (verification.expires_at && new Date(verification.expires_at) < new Date()) {
+    return NextResponse.redirect(`${origin}/login?verified=expired`);
+  }
+
+  // Marquage AVANT la confirmation côté Supabase Auth, et conditionné à
+  // `verified` encore faux : deux clics simultanés sur le même lien ne
+  // peuvent pas passer tous les deux.
+  const { data: claimed } = await supabaseAdmin
+    .from('email_verifications')
+    .update({ verified: true, verified_at: new Date().toISOString() })
+    .eq('id', verification.id)
+    .is('verified', false)
+    .select('id')
+    .maybeSingle();
+
+  if (!claimed) {
+    return NextResponse.redirect(`${origin}/login?verified=expired`);
   }
 
   // Confirme réellement l'email côté Supabase Auth — sans ça, signInWithPassword
