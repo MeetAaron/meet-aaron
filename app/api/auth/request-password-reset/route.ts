@@ -18,11 +18,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
+import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
 
 export async function POST(request: NextRequest) {
   const { email } = await request.json();
+
+  // Limitation de débit (15/10/2026, audit CASA). Deux compteurs, parce
+  // qu'ils arrêtent deux abus différents : par IP, quelqu'un qui balaye des
+  // adresses ; par adresse, quelqu'un qui harcèle UNE personne de mails de
+  // réinitialisation depuis plusieurs machines.
+  //
+  // La réponse reste un 429 au message générique, comme le 200 générique
+  // plus bas : dire « trop de demandes POUR CETTE ADRESSE » révélerait que
+  // l'adresse existe, ce que tout le reste de cette route s'applique à taire.
+  const ipLimit = checkRateLimit(callerKey(request, 'pwreset'), 5, 15 * 60 * 1000);
+  if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+  if (typeof email === 'string' && email.trim()) {
+    const perEmail = checkRateLimit(emailKey('pwreset', email), 3, 60 * 60 * 1000);
+    if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+  }
   const normalized = typeof email === 'string' ? email.trim().toLowerCase() : '';
   if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
     return NextResponse.json({ error: 'Adresse email invalide' }, { status: 400 });
