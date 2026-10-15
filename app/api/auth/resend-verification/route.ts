@@ -13,9 +13,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
+import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   const { email } = await request.json();
+
+  // Limitation de débit (15/10/2026, audit CASA). Plus permissive que les
+  // deux autres, à dessein : cette route existe précisément pour quelqu'un
+  // de bloqué qui n'a pas reçu son premier email et qui va cliquer
+  // plusieurs fois. La serrer trop, c'est enfermer dehors la personne
+  // qu'elle sert.
+  const ipLimit = checkRateLimit(callerKey(request, 'resendverif'), 10, 15 * 60 * 1000);
+  if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+  if (typeof email === 'string' && email.trim()) {
+    const perEmail = checkRateLimit(emailKey('resendverif', email), 5, 60 * 60 * 1000);
+    if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+  }
 
   if (!email) {
     return NextResponse.json({ error: 'email manquant' }, { status: 400 });
