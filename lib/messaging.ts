@@ -371,6 +371,11 @@ export async function sendEmailForUser(
   opts?: {
     emailType?: 'prospecting' | 'transactional';
     attachment?: { filename: string; contentBase64: string; mimeType: string };
+    // HTML ajouté tout en fin de message, après la signature et la bannière.
+    // Sert UNIQUEMENT au pixel de suivi d'ouverture des devis (lib/devis-
+    // tracking.ts) — jamais sur un email de prospection, où une image
+    // distante dans un message non sollicité pèse sur le score de spam.
+    trailingHtml?: string;
   }
 ) {
   const emailType = opts?.emailType || 'transactional';
@@ -542,7 +547,7 @@ export async function sendEmailForUser(
     ? `<img src="${bannerImageUrl}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
     : '';
   const htmlBody = plainTextToEmailHtml(textBody, {
-    trailingHtml: `${signatureImageHtml}${bannerImageHtml}`,
+    trailingHtml: `${signatureImageHtml}${bannerImageHtml}${opts?.trailingHtml || ''}`,
   });
   warnIfNearGmailClip(htmlBody, userId);
 

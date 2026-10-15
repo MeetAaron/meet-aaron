@@ -14,6 +14,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { derivePipelinePosition } from './pipeline';
 
 export type NotificationType =
+  | 'devis_ouvert'
   | 'devis_a_faire'
   | 'rdv_a_valider'
   | 'rdv_aujourdhui'
@@ -27,6 +28,12 @@ export type NotificationType =
 
 // Ordre d'urgence des groupes (ordre d'affichage des stories).
 export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
+  // En TÊTE, devant la demande de devis (15/10/2026). Tout le reste de cette
+  // liste peut attendre une heure sans rien perdre ; ça, non. Un devis ouvert
+  // est le seul évènement de l'application où la valeur s'effondre avec les
+  // minutes : le client l'a sous les yeux maintenant, et dans vingt minutes
+  // il sera en réunion.
+  'devis_ouvert',
   'devis_a_faire',
   'rdv_a_valider',
   'rdv_aujourdhui',
@@ -86,7 +93,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
   const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
-  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at';
+  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at';
   async function loadProspects() {
     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
     // incompatibles entre les trois variantes (GenericStringError), alors que
@@ -124,6 +131,36 @@ export async function buildNotifications(userId: string, now: Date = new Date())
       company_name: p.prospect_companies?.name || null,
       personality_type: p.personality_type || null,
     };
+    // Devis ouvert par le client, relance téléphonique pas encore traitée.
+    //
+    // Fenêtre de 24 h : au-delà, « il est en train de lire » serait faux, et
+    // une story qui ment une fois n'est plus jamais crue. Le prospect ne
+    // disparaît pas pour autant — il reste dans le pipeline et dans les
+    // relances automatiques ; c'est seulement l'urgence qui retombe.
+    //
+    // devis_call_done_at coupe la story définitivement dès que le commercial
+    // a cliqué, même s'il n'a pas appelé. Aaron ne fait pas la morale.
+    if (p.devis_opened_at && !p.devis_call_done_at && !pos.lost) {
+      const openedAt = new Date(p.devis_last_opened_at || p.devis_opened_at);
+      const minutesSince = Math.floor((now.getTime() - openedAt.getTime()) / 60000);
+      if (minutesSince <= 24 * 60) {
+        push({
+          ...base,
+          id: `devis_ouvert:${p.id}`,
+          type: 'devis_ouvert',
+          at: p.devis_last_opened_at || p.devis_opened_at,
+          days_waiting: null,
+          meta: {
+            minutes_since: minutesSince,
+            // « en train de lire » n'est tenable que dans les premières
+            // minutes. Au-delà on dit « a ouvert », qui reste vrai.
+            reading_now: minutesSince <= 30,
+            open_count: p.devis_open_count || 0,
+            phone: p.phone || null,
+          },
+        });
+      }
+    }
     if (!pos.lost && pos.stage !== 'client' && p.quote_requested_at && !p.devis_sent_at) {
       const days = daysBetween(p.quote_requested_at, now);
       push({
