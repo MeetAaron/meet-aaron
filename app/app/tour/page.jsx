@@ -262,12 +262,12 @@ export default function TourPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: #0b0e1a;
-          color: #8b90a8;
+          background: var(--bg);
+          color: var(--muted);
           font-family: 'Inter', sans-serif;
         }
         .loading.error {
-          color: #e5484d;
+          color: var(--accent-red);
           text-align: center;
           padding: 2rem;
         }
@@ -277,13 +277,13 @@ export default function TourPage() {
           align-items: center;
           justify-content: center;
           gap: 1.5rem;
-          background: #0b0e1a;
+          background: var(--bg);
           font-family: 'Inter', sans-serif;
           padding: 1.5rem;
         }
         .tour-sidebar {
-          background: #131629;
-          border: 1px solid #232744;
+          background: var(--surface);
+          border: 1px solid var(--border);
           border-radius: 18px;
           padding: 1.4rem 1rem;
           width: 240px;
@@ -306,7 +306,7 @@ export default function TourPage() {
         }
         .brand span {
           font-family: 'Space Grotesk', sans-serif;
-          color: #f4f1ea;
+          color: var(--text);
           font-weight: 600;
           font-size: 0.94rem;
         }
@@ -325,16 +325,16 @@ export default function TourPage() {
           padding: 0.6rem 0.7rem;
           border-radius: 8px;
           font-size: 0.86rem;
-          color: #8b90a8;
+          color: var(--muted);
           cursor: pointer;
           transition: background 0.15s ease, color 0.15s ease;
         }
         .nav-list li:hover {
-          color: #f4f1ea;
+          color: var(--text);
         }
         .nav-list li.active {
           background: rgba(75, 57, 239, 0.18);
-          color: #f4f1ea;
+          color: var(--text);
           font-weight: 500;
         }
         .nav-icon {
@@ -348,8 +348,8 @@ export default function TourPage() {
           flex-shrink: 0;
         }
         .tour-card {
-          background: #131629;
-          border: 1px solid #232744;
+          background: var(--surface);
+          border: 1px solid var(--border);
           border-radius: 18px;
           padding: 2.6rem 2.2rem;
           width: 460px;
@@ -357,7 +357,7 @@ export default function TourPage() {
           text-align: center;
         }
         .tour-progress {
-          color: #8b90a8;
+          color: var(--muted);
           font-size: 0.76rem;
           text-transform: uppercase;
           letter-spacing: 0.1em;
@@ -371,18 +371,18 @@ export default function TourPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          color: #f4f1ea;
+          color: var(--text);
           background: radial-gradient(circle at 32% 28%, #6a5bf5, #4b39ef 55%, #362a9e);
           box-shadow: 0 10px 28px rgba(75, 57, 239, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
         }
         h1 {
           font-family: 'Space Grotesk', sans-serif;
-          color: #f4f1ea;
+          color: var(--text);
           font-size: 1.5rem;
           margin: 0 0 0.8rem;
         }
         .tour-text {
-          color: #c7cadd;
+          color: var(--text);
           font-size: 0.94rem;
           line-height: 1.6;
           margin: 0 0 1.6rem;
@@ -397,10 +397,10 @@ export default function TourPage() {
           width: 6px;
           height: 6px;
           border-radius: 50%;
-          background: #232744;
+          background: var(--border);
         }
         .dot.active {
-          background: #4b39ef;
+          background: var(--accent);
           width: 18px;
           border-radius: 4px;
         }
@@ -420,18 +420,18 @@ export default function TourPage() {
           border: none;
         }
         .btn-primary {
-          background: #4b39ef;
+          background: var(--accent);
           color: #fff;
         }
         .btn-secondary {
           background: transparent;
-          color: #8b90a8;
-          border: 1px solid #232744;
+          color: var(--muted);
+          border: 1px solid var(--border);
         }
         .skip {
           display: inline-block;
           margin-top: 1.4rem;
-          color: #8b90a8;
+          color: var(--muted);
           font-size: 0.8rem;
           text-decoration: underline;
         }
