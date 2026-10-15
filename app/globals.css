@@ -975,6 +975,23 @@ html:root {
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 28px;
+
+  /* ACCENTS ET STATUTS — identiques dans les deux thèmes (ils fonctionnent
+     sur fond clair comme sur fond sombre), donc définis une seule fois ici.
+     Ils vivaient uniquement dans le bloc `:root` dupliqué de chaque page :
+     une page qui n'avait pas ce bloc, comme la visite guidée, ne pouvait
+     donc pas s'en servir. */
+  --accent: #4b39ef;
+  --accent-light: #7c6ef5;
+  --accent-dark: #3627c0;
+  --accent-glow: rgba(75, 57, 239, 0.4);
+  --accent-green: #3dd68c;
+  --accent-red: #ef4459;
+  --accent-amber: #f5a623;
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --fast: 0.15s var(--ease);
+  --normal: 0.25s var(--ease);
 }
 
 /* Réglages propres au thème sombre. `:not([data-theme='light'])` évite
@@ -995,6 +1012,14 @@ html:root:not([data-theme='light']) {
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
   --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.38);
   --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5);
+  /* Encre du thème sombre. Même raison que les accents ci-dessus : sans
+     définition globale, une page sans bloc `:root` propre (la visite
+     guidée) n'avait aucune valeur pour --text et --muted. Les valeurs sont
+     celles qu'utilisaient déjà les 17 pages, donc rien ne change pour
+     elles ; le thème clair les redéfinit plus bas. */
+  --text: #f4f1ea;
+  --muted: #8b90a8;
+  --muted-soft: #666b85;
 }
 
 /* MODE CLAIR — « ça me gêne » (Alex, 13/10/2026). L'ancienne palette était
@@ -1039,5 +1064,85 @@ html[data-theme='light']:root {
     font-size: 1.7rem;
     line-height: 1.15;
     letter-spacing: -0.025em;
+  }
+}
+
+/* =====================================================================
+   RAIL D'ICÔNES SUR ÉCRAN PEU HAUT (15/10/2026) — « sur PC il faut
+   dézoomer à 80 % pour voir toutes les rubriques ».
+
+   Cause : `.shell > .sidebar` a `height: 100vh` et `overflow: visible`.
+   Hauteur figée, aucun défilement : dès que la pile d'icônes dépasse la
+   fenêtre, les dernières (Équipe, l'état de connexion, la déconnexion)
+   sont simplement coupées, sans aucun moyen de les atteindre.
+
+   Pourquoi PAS `overflow-y: auto` tout court : le `overflow: visible` est
+   délibéré. Les libellés du rail (`.nav-label`) sont des info-bulles
+   positionnées À DROITE, en dehors du rail. Les mettre dans un conteneur
+   de défilement les rognerait — c'est un bug déjà vécu et documenté plus
+   haut dans ce fichier.
+
+   La solution tient donc en deux temps. D'abord on fait TENIR le rail en
+   le compactant quand la fenêtre est basse : icônes et espacements
+   réduits, ce qui récupère environ 170 px — exactement ce qui manquait à
+   Alex. Et seulement en dernier recours, sur une fenêtre vraiment très
+   basse, on autorise la liste à défiler : on y perd les info-bulles, mais
+   on ne perd plus l'accès aux rubriques.
+
+   Ces règles ne concernent QUE l'ordinateur (min-width: 901px) : sous
+   900 px, le rail est déjà remplacé par la barre d'onglets du bas.
+   ===================================================================== */
+
+@media (min-width: 901px) and (max-height: 900px) {
+  .shell > .sidebar {
+    padding-top: 0.7rem !important;
+    padding-bottom: 0.6rem !important;
+  }
+  .sidebar .brand {
+    margin-bottom: 0.6rem !important;
+  }
+  .sidebar .lang-wrap {
+    margin-bottom: 0.55rem;
+  }
+  .sidebar .lang-wrap::before {
+    height: 26px;
+  }
+  .sidebar .nav-list li {
+    padding: 0.34rem 0 !important;
+  }
+  .sidebar .nav-icon {
+    width: 2.25em !important;
+    height: 2.25em !important;
+    font-size: 0.92rem !important;
+  }
+  .sidebar .logout-btn {
+    padding: 0.34rem 0 !important;
+  }
+  .sidebar .conn-status {
+    padding: 0.2rem 0 0.25rem !important;
+  }
+  .sidebar .account-section {
+    padding-top: 0.5rem;
+  }
+}
+
+/* Fenêtre très basse (portable 13 pouces barre des tâches comprise, ou
+   fenêtre réduite) : on compacte encore, et on accepte le défilement. */
+@media (min-width: 901px) and (max-height: 700px) {
+  .sidebar .nav-list li {
+    padding: 0.24rem 0 !important;
+  }
+  .sidebar .nav-icon {
+    width: 2.05em !important;
+    height: 2.05em !important;
+    font-size: 0.88rem !important;
+  }
+  .sidebar .nav-list {
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: none;
+  }
+  .sidebar .nav-list::-webkit-scrollbar {
+    display: none;
   }
 }
