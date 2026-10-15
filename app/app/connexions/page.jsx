@@ -3373,6 +3373,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               <a href="/privacy" target="_blank" rel="noopener noreferrer">{t('preferences.legalPrivacy', locale)}</a>
               <span aria-hidden="true">·</span>
               <a href="/terms" target="_blank" rel="noopener noreferrer">{t('preferences.legalTerms', locale)}</a>
+              <span aria-hidden="true">·</span>
+              {/* Securite (15/10/2026) : un seul lien ajoute ici, et non trois.
+                  /security renvoie lui-meme vers /incident-response et
+                  /vulnerability-disclosure. Trois liens de plus dans les
+                  preferences d'un utilisateur qui vend des fenetres, c'est du
+                  bruit ; un seul, qui ouvre le document que CASA et les
+                  directions informatiques demandent, suffit. */}
+              <a href="/security" target="_blank" rel="noopener noreferrer">{t('preferences.legalSecurity', locale)}</a>
             </div>
           </div>
         )
