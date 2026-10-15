@@ -41,6 +41,12 @@ export default function LoginPage() {
     const verified = params.get('verified');
     if (verified === '1') {
       setMessage(t('auth.verifiedMessage', locale));
+    } else if (verified === 'expired') {
+      // Lien de confirmation perime ou deja utilise (15/10/2026). Message
+      // distinct de verifyError : « ce lien ne marche pas » laisse la
+      // personne sans solution, alors que la seule chose a faire ici est de
+      // s'en faire renvoyer un — et le bouton existe plus bas sur la page.
+      setError(t('auth.verifyExpired', locale));
     } else if (verified === 'error') {
       setError(t('auth.verifyError', locale));
     }
