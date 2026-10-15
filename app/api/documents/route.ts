@@ -76,6 +76,50 @@ export async function POST(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== userId) return forbiddenResponse();
 
+  // VALIDATION DU FICHIER (15/10/2026, audit CASA). Cette route n'en avait
+  // AUCUNE : ni type, ni taille. C'était le seul point de dépôt de
+  // l'application dans ce cas — devis a un plafond, signature a les deux,
+  // business-summary a une liste de types.
+  //
+  // Les types acceptés sont ceux que `extractDocumentText` sait lire plus
+  // bas, plus les images : accepter un fichier dont on ne tirera rien
+  // n'aide personne. La liste est fermée et non une interdiction de
+  // certains types — une liste de refus se contourne toujours.
+  //
+  // Le type est DÉCLARÉ par le navigateur, donc falsifiable. Il reste utile :
+  // le fichier est stocké dans un bucket privé, servi par des URL signées
+  // d'une heure, et l'en-tête X-Content-Type-Options: nosniff ajouté dans
+  // next.config.js empêche un navigateur d'exécuter comme du HTML un fichier
+  // qu'on lui sert.
+  const MAX_BYTES = 15 * 1024 * 1024; // 15 Mo, comme le dépôt de devis
+  const ALLOWED_TYPES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/rtf',
+    'text/plain',
+    'text/csv',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+  ];
+
+  if (file.size > MAX_BYTES) {
+    return NextResponse.json(
+      { error: 'Fichier trop volumineux (15 Mo maximum).' },
+      { status: 413 }
+    );
+  }
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return NextResponse.json(
+      { error: "Type de fichier non accepté. Formats pris en charge : PDF, Word, Excel, PowerPoint, texte, CSV, PNG, JPEG, WebP." },
+      { status: 415 }
+    );
+  }
+
   const { data: user } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).single();
   if (!user) {
     return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 });
