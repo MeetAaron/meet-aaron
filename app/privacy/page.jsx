@@ -165,7 +165,7 @@ const fr = {
       ],
     },
   ],
-  footer: 'Voir aussi nos [conditions générales d’utilisation](/terms).',
+  footer: 'Voir aussi nos [conditions générales d’utilisation](/terms) et notre [politique de sécurité de l’information](/security).',
 };
 
 const en = {
@@ -291,7 +291,7 @@ const en = {
       ],
     },
   ],
-  footer: 'See also our [terms of service](/terms).',
+  footer: 'See also our [terms of service](/terms) and our [information security policy](/security).',
 };
 
 const de = {
@@ -417,7 +417,7 @@ const de = {
       ],
     },
   ],
-  footer: 'Siehe auch unsere [Nutzungsbedingungen](/terms). Diese Übersetzung dient Ihrer Bequemlichkeit; bei Abweichungen ist die englische Fassung maßgeblich.',
+  footer: 'Siehe auch unsere [Nutzungsbedingungen](/terms) und unsere [Informationssicherheitsrichtlinie](/security). Diese Übersetzung dient Ihrer Bequemlichkeit; bei Abweichungen ist die englische Fassung maßgeblich.',
 };
 
 const it = {
@@ -543,7 +543,7 @@ const it = {
       ],
     },
   ],
-  footer: "Vedi anche i nostri [termini di servizio](/terms). Questa traduzione è fornita per comodità; in caso di divergenza prevale la versione inglese.",
+  footer: "Vedi anche i nostri [termini di servizio](/terms) e la nostra [politica di sicurezza delle informazioni](/security). Questa traduzione è fornita per comodità; in caso di divergenza prevale la versione inglese.",
 };
 
 const es = {
@@ -669,7 +669,7 @@ const es = {
       ],
     },
   ],
-  footer: 'Consulta también nuestros [términos del servicio](/terms). Esta traducción se ofrece por comodidad; en caso de discrepancia prevalece la versión en inglés.',
+  footer: 'Consulta también nuestros [términos del servicio](/terms) y nuestra [política de seguridad de la información](/security). Esta traducción se ofrece por comodidad; en caso de discrepancia prevalece la versión en inglés.',
 };
 
 const pt = {
@@ -795,7 +795,7 @@ const pt = {
       ],
     },
   ],
-  footer: 'Consulte também os nossos [termos de serviço](/terms). Esta tradução é fornecida por conveniência; em caso de divergência prevalece a versão inglesa.',
+  footer: 'Consulte também os nossos [termos de serviço](/terms) e a nossa [política de segurança da informação](/security). Esta tradução é fornecida por conveniência; em caso de divergência prevalece a versão inglesa.',
 };
 
 const nl = {
@@ -921,7 +921,7 @@ const nl = {
       ],
     },
   ],
-  footer: 'Zie ook onze [gebruiksvoorwaarden](/terms). Deze vertaling is bedoeld voor uw gemak; bij afwijkingen prevaleert de Engelse versie.',
+  footer: 'Zie ook onze [gebruiksvoorwaarden](/terms) en ons [informatiebeveiligingsbeleid](/security). Deze vertaling is bedoeld voor uw gemak; bij afwijkingen prevaleert de Engelse versie.',
 };
 
 const POLICIES = { fr, en, de, it, es, pt, nl };
