@@ -7,9 +7,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
+import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   const { auth_user_id, email } = await request.json();
+
+  // Limitation de débit (15/10/2026, audit CASA). Cette route était la plus
+  // exposée des trois : non authentifiée, elle fait confiance à un
+  // auth_user_id et à un email fournis par l'appelant, et elle ENVOIE un
+  // message. Sans compteur, elle offrait à n'importe qui un moyen d'envoyer
+  // du courrier depuis notre domaine vers l'adresse de son choix — donc de
+  // détruire notre réputation d'expéditeur, et avec elle la délivrabilité
+  // des emails de prospection de tous les clients.
+  const ipLimit = checkRateLimit(callerKey(request, 'sendverif'), 10, 15 * 60 * 1000);
+  if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+  if (typeof email === 'string' && email.trim()) {
+    const perEmail = checkRateLimit(emailKey('sendverif', email), 3, 60 * 60 * 1000);
+    if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+  }
 
   if (!auth_user_id || !email) {
     return NextResponse.json({ error: 'auth_user_id ou email manquant' }, { status: 400 });
