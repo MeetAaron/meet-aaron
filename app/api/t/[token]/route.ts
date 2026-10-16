@@ -88,7 +88,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
       await sendPushNotification(prospect.assigned_user_id, {
         title: 'Devis ouvert',
         body: `${prospect.full_name} est en train de lire ton devis. Appelle-le.`,
-        url: `/app/prospects?prospect=${prospect.id}`,
+        url: `/app/prospects?contact=${prospect.id}`,
         // Un tag par prospect : si un second devis était suivi pour la même
         // personne, la notification remplacerait la précédente au lieu de
         // s'empiler.
