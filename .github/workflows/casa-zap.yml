@@ -31,7 +31,7 @@ permissions:
 jobs:
   zap:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 
@@ -56,45 +56,86 @@ jobs:
         run: python3 security/casa/get_test_token.py
 
       - name: Spécification API (routes en lecture seule)
-        run: sed "s/__USER_ID__/${USER_ID}/g" security/casa/openapi-readonly.json > wrk/openapi.json
+        run: |
+          sed "s/__USER_ID__/${USER_ID}/g" security/casa/openapi-readonly.json > wrk/openapi.json
+          python3 - <<'PY'
+          import json
+          spec = json.load(open("wrk/openapi.json"))
+          paths = list(spec["paths"].items())
+          half = (len(paths) + 1) // 2
+          for n, part in ((1, paths[:half]), (2, paths[half:])):
+              out = dict(spec, paths=dict(part))
+              json.dump(out, open("wrk/openapi-%d.json" % n, "w"), indent=1)
+              print("moitié", n, ":", len(part), "routes")
+          PY
 
       # Débit volontairement limité (1 requête à la fois, 400 ms entre deux) :
       # au run #3 (16/10), la protection DDoS de Vercel a présenté sa page
       # « Vercel Security Checkpoint » au scanner, qui a alors analysé cette
       # page au lieu de l'application (réponses 403 partout).
+      # Durées (run #4, 16/10) : à ce débit, le scan web complet a pris 80 min
+      # et le scan API, sans limite, a été coupé par le plafond de 3 h du job
+      # sans écrire de rapport. Le job a maintenant 5 h 30 et chaque scan un
+      # plafond (90 min web, 2 x 50 min API) qui laisse toujours le temps
+      # d'écrire les rapports ; PYTHONUNBUFFERED rend la progression visible
+      # en direct dans le journal.
       - name: ZAP full scan (application web, authentifié)
         continue-on-error: true
         run: |
-          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" \
+          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
             -e ZAP_AUTH_HEADER=Authorization \
             -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
             -t https://meetaaron.app -c ada-full.conf -m 5 -T 90 -j \
-            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config spider.thread=1 -config ajaxSpider.numberOfBrowsers=1" \
+            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=90 -config scanner.maxRuleDurationInMins=8 -config spider.thread=1 -config ajaxSpider.numberOfBrowsers=1" \
             -x results-full.xml -r results-full.html -J results-full.json -I 2>&1 | tee wrk/results-full-log.txt
 
-      # Facultatif : le jeton du début reste valable 1 h et le scan web dure
-      # quelques minutes. Run #2 (16/10) : après le scan, le pare-feu Vercel
-      # a répondu 403 à cette requête ; on garde alors le premier jeton.
-      - name: Nouveau jeton (le premier expire au bout d'une heure)
+      # Le jeton Supabase expire au bout d'une heure, et le scan API, au débit
+      # limité, dure plus longtemps (run #4 : coupé après 98 min sans
+      # rapport). Les 27 routes sont donc scannées en DEUX moitiés, chacune
+      # avec un jeton neuf et un plafond de 50 min : le jeton reste valable
+      # pendant toute la moitié, sinon la fin du scan ne verrait que des 401.
+      # Le renouvellement ne touche que Supabase (URL et clé publique gardées
+      # du premier appel) : rien n'est redemandé à meetaaron.app, dont le
+      # pare-feu avait répondu 403 au run #2.
+      - name: Nouveau jeton (moitié 1)
         continue-on-error: true
         env:
           CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
           CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
         run: python3 security/casa/get_test_token.py
 
-      - name: ZAP API scan (routes authentifiées)
+      - name: ZAP API scan, moitié 1 (routes authentifiées)
         continue-on-error: true
         run: |
-          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" \
+          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
             -e ZAP_AUTH_HEADER=Authorization \
             -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
-            -t /zap/wrk/openapi.json -f openapi -c ada-api.conf -T 45 \
-            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400" \
-            -x results-api.xml -r results-api.html -J results-api.json -I 2>&1 | tee wrk/results-api-log.txt
+            -t /zap/wrk/openapi-1.json -f openapi -c ada-api.conf -T 52 \
+            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=50 -config scanner.maxRuleDurationInMins=4" \
+            -x results-api1.xml -r results-api1.html -J results-api1.json -I 2>&1 | tee wrk/results-api1-log.txt
+
+      - name: Nouveau jeton (moitié 2)
+        continue-on-error: true
+        env:
+          CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
+          CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
+        run: python3 security/casa/get_test_token.py
+
+      - name: ZAP API scan, moitié 2 (routes authentifiées)
+        continue-on-error: true
+        run: |
+          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
+            -e ZAP_AUTH_HEADER=Authorization \
+            -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
+            -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
+            ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
+            -t /zap/wrk/openapi-2.json -f openapi -c ada-api.conf -T 52 \
+            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=50 -config scanner.maxRuleDurationInMins=4" \
+            -x results-api2.xml -r results-api2.html -J results-api2.json -I 2>&1 | tee wrk/results-api2-log.txt
 
       - name: Artefact
         if: always()
