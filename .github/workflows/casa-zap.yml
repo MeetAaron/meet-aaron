@@ -67,9 +67,13 @@ jobs:
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
             -t https://meetaaron.app -c ada-full.conf -m 5 -T 60 -j \
-            -x results-full.xml -r results-full.html -J results-full.json -I
+            -x results-full.xml -r results-full.html -J results-full.json -I 2>&1 | tee wrk/results-full-log.txt
 
+      # Facultatif : le jeton du début reste valable 1 h et le scan web dure
+      # quelques minutes. Run #2 (16/10) : après le scan, le pare-feu Vercel
+      # a répondu 403 à cette requête ; on garde alors le premier jeton.
       - name: Nouveau jeton (le premier expire au bout d'une heure)
+        continue-on-error: true
         env:
           CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
           CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
@@ -83,10 +87,11 @@ jobs:
             -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
-            -t /zap/wrk/openapi.json -f openapi -c ada-api.conf -T 60 \
-            -x results-api.xml -r results-api.html -J results-api.json -I
+            -t /zap/wrk/openapi.json -f openapi -c ada-api.conf -T 45 \
+            -x results-api.xml -r results-api.html -J results-api.json -I 2>&1 | tee wrk/results-api-log.txt
 
       - name: Artefact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: casa-zap-results
@@ -95,6 +100,7 @@ jobs:
             wrk/ada-config-sha256.txt
 
       - name: Publication sur la branche casa-zap-results
+        if: always()
         run: |
           set -e
           D="results/$(date -u +%Y-%m-%d_%H%M)"
