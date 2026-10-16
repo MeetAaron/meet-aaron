@@ -95,7 +95,7 @@ export function useNotifications(userId, { refreshMs = 60000 } = {}) {
   return { groups, total, loaded, reload: load };
 }
 
-export default function Stories({ userId, locale, mode = 'strip', onOpenContact, onChanged, extraGroups = [] }) {
+export default function Stories({ userId, locale, mode = 'strip', onOpenContact, onChanged, extraGroups = [], allClear = false }) {
   const { groups: apiGroups, total, loaded, reload } = useNotifications(userId);
   // Les groupes injectés (mise en route) passent EN PREMIER : tant que la
   // boîte mail n'est pas branchée, rien d'autre ne peut se passer.
@@ -243,7 +243,62 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
     );
   }
 
-  if (!loaded || groups.length === 0) return null;
+  if (!loaded) return null;
+
+  // Modernisation 16/10/2026, point 2 : quand la file est vide, le tableau
+  // de bord (et lui seul, via `allClear`) le dit : « Rien à faire. Aaron
+  // s'en occupe. » Test d'Alex : savoir en moins de cinq secondes s'il y a
+  // quelque chose à faire. Un bandeau absent ne répond pas ; ce cercle vert, si.
+  if (groups.length === 0) {
+    if (!allClear) return null;
+    return (
+      <div className="all-clear" role="status">
+        <span className="all-clear-ring" aria-hidden="true">
+          <span className="all-clear-inner"><Ic name="check" size={26} strokeWidth={2.6} /></span>
+        </span>
+        <span className="all-clear-text">
+          <strong>{t('stories.allClearTitle', locale)}</strong>
+          <span>{t('stories.allClearBody', locale)}</span>
+        </span>
+        <style jsx>{`
+          .all-clear {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.2rem 0.2rem 0.6rem;
+            margin: 0 0 1.2rem;
+            animation: all-clear-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+          }
+          @keyframes all-clear-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: none; }
+          }
+          .all-clear-ring {
+            flex: 0 0 auto;
+            width: 66px;
+            height: 66px;
+            border-radius: 50%;
+            padding: 3px;
+            display: inline-flex;
+            background: linear-gradient(135deg, #3dd68c, #4b9ef0);
+          }
+          .all-clear-inner {
+            flex: 1;
+            border-radius: 50%;
+            background: var(--surface);
+            border: 2px solid var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #3dd68c;
+          }
+          .all-clear-text { display: flex; flex-direction: column; gap: 0.15rem; line-height: 1.25; }
+          .all-clear-text strong { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--text); }
+          .all-clear-text span { font-size: 0.86rem; color: var(--muted); }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="stories">
