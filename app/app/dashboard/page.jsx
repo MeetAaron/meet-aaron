@@ -716,7 +716,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll} extraStoryGroups={onboardingStoryGroups}>
+    <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll} extraStoryGroups={onboardingStoryGroups} storiesAllClear>
       <header className="header">
         <div>
           <p className="eyebrow">{t('nav.dashboard', locale)}</p>
@@ -2496,7 +2496,7 @@ function EmptyState({ title, body, compact, ctaHref, ctaLabel }) {
   );
 }
 
-function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact, extraStoryGroups }) {
+function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact, extraStoryGroups, storiesAllClear = false }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
@@ -2673,7 +2673,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             Coût nul quand il n'y a rien à traiter : Stories rend `null` si
             aucun groupe n'est en attente (voir components/Stories.jsx), donc
             aucune page ne perd de hauteur utile. */}
-        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} extraGroups={extraStoryGroups || []} />
+        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} extraGroups={extraStoryGroups || []} allClear={storiesAllClear} />
         {/* Installation sur l'écran d'accueil (08/09/2026) — voir
             components/InstallPrompt.jsx. Uniquement sur le tableau de bord :
             c'est la page d'arrivée, une fois suffit. */}
