@@ -76,7 +76,12 @@ def main():
     password = os.environ.get("CASA_TEST_PASSWORD")
     if not email or not password:
         sys.exit("Secrets CASA_TEST_EMAIL / CASA_TEST_PASSWORD manquants")
-    sb_url, anon = find_public_supabase_config()
+    # Renouvellements : l'URL et la clé publique gardées du premier appel
+    # évitent de redemander le JavaScript à meetaaron.app (dont le pare-feu
+    # peut répondre 403 juste après un scan) ; seul Supabase est contacté.
+    sb_url, anon = os.environ.get("SB_URL"), os.environ.get("SB_ANON")
+    if not (sb_url and anon):
+        sb_url, anon = find_public_supabase_config()
     tok = post(
         sb_url + "/auth/v1/token?grant_type=password",
         {"email": email, "password": password},
@@ -84,14 +89,18 @@ def main():
     )
     access = tok["access_token"]
     print("::add-mask::" + access)
-    link = post(SITE + "/api/auth/link", {}, {"Authorization": "Bearer " + access, "Content-Type": "application/json"})
-    user_id = (link.get("user") or {}).get("id")
+    user_id = os.environ.get("USER_ID")
+    if not user_id:
+        link = post(SITE + "/api/auth/link", {}, {"Authorization": "Bearer " + access, "Content-Type": "application/json"})
+        user_id = (link.get("user") or {}).get("id")
     if not user_id:
         sys.exit("Profil Meet Aaron du compte de test introuvable")
     with open(os.environ["GITHUB_ENV"], "a") as f:
         f.write("ZAP_TOKEN=" + access + "\n")
         f.write("USER_ID=" + user_id + "\n")
-    print("Compte de test authentifié, user_id " + user_id)
+        f.write("SB_URL=" + sb_url + "\n")
+        f.write("SB_ANON=" + anon + "\n")
+    print("Compte de test authentifié, user_id " + user_id + ", jeton valable " + str(tok.get("expires_in", "?")) + " s")
 
 
 if __name__ == "__main__":
