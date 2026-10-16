@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getAuthedUserFromToken } from '@/lib/auth-helpers';
+import { resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 
 const JOBBER_AUTH_URL = 'https://api.getjobber.com/api/oauth/authorize';
 
@@ -29,15 +29,17 @@ export async function GET(request: NextRequest) {
   }
 
   const searchParams = request.nextUrl.searchParams;
-  const token = searchParams.get('token');
+  // Jeton de passage a usage unique (16/10/2026) : le jeton de session ne
+  // va plus dans l'URL (CASA 2.1.1). Voir app/api/auth/qr-token.
+  const token = searchParams.get('qr');
 
   if (!token) {
-    return NextResponse.json({ error: 'token manquant' }, { status: 400 });
+    return NextResponse.json({ error: 'jeton de passage manquant' }, { status: 400 });
   }
 
-  const authedUser = await getAuthedUserFromToken(token);
+  const authedUser = await resolveAndConsumeQrToken(token, 'jobber');
   if (!authedUser) {
-    return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
+    return NextResponse.json({ error: 'Lien expiré ou déjà utilisé — relance la connexion depuis Connexions.' }, { status: 401 });
   }
   if (authedUser.role !== 'patron') {
     return NextResponse.json({ error: "Seul le patron peut connecter le CRM de l'entreprise." }, { status: 403 });
