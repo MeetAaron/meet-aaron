@@ -1,0 +1,915 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Meet Aaron API (authenticated, read-only routes)",
+  "version": "2026-10-16",
+  "description": "Read-only GET endpoints used by the Meet Aaron web app. Write endpoints are excluded from automated active scanning because they send e-mails or trigger paid AI calls."
+ },
+ "servers": [
+  {
+   "url": "https://meetaaron.app"
+  }
+ ],
+ "components": {
+  "securitySchemes": {
+   "bearer": {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "JWT"
+   }
+  }
+ },
+ "paths": {
+  "/api/chat-history": {
+   "get": {
+    "summary": "GET /api/chat-history",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/email-health": {
+   "get": {
+    "summary": "GET /api/email-health",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/sales/pipeline": {
+   "get": {
+    "summary": "GET /api/sales/pipeline",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/prospects": {
+   "get": {
+    "summary": "GET /api/prospects",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     },
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "example": "all"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/activity": {
+   "get": {
+    "summary": "GET /api/activity",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/team": {
+   "get": {
+    "summary": "GET /api/team",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     },
+     {
+      "name": "period",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "example": "month"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/team/results": {
+   "get": {
+    "summary": "GET /api/team/results",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/company-legal-info": {
+   "get": {
+    "summary": "GET /api/company-legal-info",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/feedback": {
+   "get": {
+    "summary": "GET /api/feedback",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/customers/pipeline": {
+   "get": {
+    "summary": "GET /api/customers/pipeline",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/support-drafts": {
+   "get": {
+    "summary": "GET /api/support-drafts",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/marketing-campaigns": {
+   "get": {
+    "summary": "GET /api/marketing-campaigns",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/won-clients": {
+   "get": {
+    "summary": "GET /api/won-clients",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/oauth-connections": {
+   "get": {
+    "summary": "GET /api/oauth-connections",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/notifications": {
+   "get": {
+    "summary": "GET /api/notifications",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/api-usage": {
+   "get": {
+    "summary": "GET /api/api-usage",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/reply-rate": {
+   "get": {
+    "summary": "GET /api/reply-rate",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     },
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      },
+      "example": "2026-01-01"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/preferences": {
+   "get": {
+    "summary": "GET /api/preferences",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/products": {
+   "get": {
+    "summary": "GET /api/products",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/signature": {
+   "get": {
+    "summary": "GET /api/signature",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/chat-conversations": {
+   "get": {
+    "summary": "GET /api/chat-conversations",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/appointments": {
+   "get": {
+    "summary": "GET /api/appointments",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/business-summary": {
+   "get": {
+    "summary": "GET /api/business-summary",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/business-summary/versions": {
+   "get": {
+    "summary": "GET /api/business-summary/versions",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/campaigns": {
+   "get": {
+    "summary": "GET /api/campaigns",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/availability": {
+   "get": {
+    "summary": "GET /api/availability",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  },
+  "/api/documents": {
+   "get": {
+    "summary": "GET /api/documents",
+    "security": [
+     {
+      "bearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "example": "__USER_ID__"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     },
+     "401": {
+      "description": "Unauthenticated"
+     },
+     "403": {
+      "description": "Forbidden"
+     }
+    }
+   }
+  }
+ }
+}
