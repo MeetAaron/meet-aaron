@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getAuthedUserFromToken, resolveAndConsumeQrToken } from '@/lib/auth-helpers';
+import { resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 
@@ -46,7 +46,6 @@ const SCOPES = [
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const token = searchParams.get('token');
   const qrToken = searchParams.get('qr');
 
   // Même correctif que pour Google : l'identité vient du token vérifié (ou du
@@ -60,13 +59,8 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
-  } else if (token) {
-    authedUser = await getAuthedUserFromToken(token);
-    if (!authedUser) {
-      return NextResponse.json({ error: 'Non authentifié — reconnectez-vous.' }, { status: 401 });
-    }
   } else {
-    return NextResponse.json({ error: 'token manquant' }, { status: 400 });
+    return NextResponse.json({ error: 'jeton de passage manquant' }, { status: 400 });
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/microsoft/callback`;
