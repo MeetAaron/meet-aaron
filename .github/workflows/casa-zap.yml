@@ -31,7 +31,7 @@ permissions:
 jobs:
   zap:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +58,10 @@ jobs:
       - name: Spécification API (routes en lecture seule)
         run: sed "s/__USER_ID__/${USER_ID}/g" security/casa/openapi-readonly.json > wrk/openapi.json
 
+      # Débit volontairement limité (1 requête à la fois, 400 ms entre deux) :
+      # au run #3 (16/10), la protection DDoS de Vercel a présenté sa page
+      # « Vercel Security Checkpoint » au scanner, qui a alors analysé cette
+      # page au lieu de l'application (réponses 403 partout).
       - name: ZAP full scan (application web, authentifié)
         continue-on-error: true
         run: |
@@ -66,7 +70,8 @@ jobs:
             -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
-            -t https://meetaaron.app -c ada-full.conf -m 5 -T 60 -j \
+            -t https://meetaaron.app -c ada-full.conf -m 5 -T 90 -j \
+            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config spider.thread=1 -config ajaxSpider.numberOfBrowsers=1" \
             -x results-full.xml -r results-full.html -J results-full.json -I 2>&1 | tee wrk/results-full-log.txt
 
       # Facultatif : le jeton du début reste valable 1 h et le scan web dure
@@ -88,6 +93,7 @@ jobs:
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
             ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
             -t /zap/wrk/openapi.json -f openapi -c ada-api.conf -T 45 \
+            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400" \
             -x results-api.xml -r results-api.html -J results-api.json -I 2>&1 | tee wrk/results-api-log.txt
 
       - name: Artefact
