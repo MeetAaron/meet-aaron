@@ -14,6 +14,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
 import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
@@ -316,6 +317,7 @@ export default function CustomerPage() {
   const [companyId, setCompanyId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
+  const [showTools, setShowTools] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -528,32 +530,45 @@ export default function CustomerPage() {
 
   return (
     <Shell active={t('nav.client', locale)} userId={userId}>
+      {/* Refonte 16/10/2026 (Alex : « ça fait vieux ») : un titre, une
+          phrase, UN bouton principal. Les outils de fichier (exporter,
+          modèle vierge, importer) passent derrière « Importer / Exporter » :
+          on s'en sert une fois, ils n'ont pas à occuper l'écran tous les
+          jours. */}
       <header className="header">
-        <p className="eyebrow">{t('customer.eyebrow', locale)}</p>
-        <h1>{t('nav.client', locale)}</h1>
-        <p className="subtitle">
-          {t('customer.subtitle', locale)}
-        </p>
-        <div className="header-actions">
-          {/* Voir le même correctif dans app/app/prospects/page.jsx : bouton
-              toujours visible (désactivé plutôt que masqué si rien à
-              exporter), pour ne plus donner l'impression qu'il manque. */}
-          <ExportFormatMenu
-            label={t('customer.exportCsv', locale)}
-            disabled={customers.length === 0}
-            onChoose={(format) => exportCustomersToCsv(customers, locale, format)}
-          />
-          <ExportFormatMenu
-            label={t('customer.downloadTemplate', locale)}
-            onChoose={(format) => downloadBlankCustomersTemplate(locale, format)}
-          />
-          <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
-            {t('csvImport.button', locale)}
-          </button>
-          <button className="btn-primary" onClick={() => setShowAddForm(true)}>
-            {t('customer.addButton', locale)}
+        <div className="header-row">
+          <div className="header-text">
+            <h1>{t('nav.client', locale)}</h1>
+            <p className="subtitle">{t('customer.subtitleShort', locale)}</p>
+          </div>
+          <button className="btn-primary add-btn" onClick={() => setShowAddForm(true)}>
+            <Ic name="plus" size={18} strokeWidth={2.4} />
+            <span className="add-label">{t('customer.addButton', locale).replace(/^\+\s*/, '')}</span>
           </button>
         </div>
+        <button type="button" className="tools-toggle" onClick={() => setShowTools((v) => !v)} aria-expanded={showTools}>
+          <Ic name="upload" size={15} />
+          {t('customer.toolsButton', locale)}
+          <span className={`chev${showTools ? ' open' : ''}`} aria-hidden="true">›</span>
+        </button>
+        {showTools && (
+          <div className="header-actions">
+            {/* Bouton toujours visible (désactivé plutôt que masqué si rien
+                à exporter), comme dans app/app/prospects/page.jsx. */}
+            <ExportFormatMenu
+              label={t('customer.exportCsv', locale)}
+              disabled={customers.length === 0}
+              onChoose={(format) => exportCustomersToCsv(customers, locale, format)}
+            />
+            <ExportFormatMenu
+              label={t('customer.downloadTemplate', locale)}
+              onChoose={(format) => downloadBlankCustomersTemplate(locale, format)}
+            />
+            <button className="btn-secondary" onClick={() => setShowCsvImport(true)}>
+              {t('csvImport.button', locale)}
+            </button>
+          </div>
+        )}
       </header>
 
       {showAddForm && (
@@ -622,9 +637,11 @@ export default function CustomerPage() {
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : customers.length === 0 ? (
-        <p className="muted">
-          {t('customer.emptyList', locale)}
-        </p>
+        <div className="empty-card">
+          <span className="empty-icon" aria-hidden="true"><Ic name="trophy" size={28} strokeWidth={1.9} /></span>
+          <p className="empty-title">{t('customer.emptyTitle', locale)}</p>
+          <p className="empty-body">{t('customer.emptyList', locale)}</p>
+        </div>
       ) : (
         <div className="board-layout">
           <div className="list">
@@ -1077,6 +1094,76 @@ export default function CustomerPage() {
           flex-wrap: wrap;
           gap: 0.6rem;
           margin-top: 0.9rem;
+        }
+        .header-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+        }
+        .header-text { min-width: 0; }
+        .header-text h1 { margin: 0 0 0.25rem; }
+        .add-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          flex-shrink: 0;
+          border-radius: 999px;
+          padding: 0.6rem 1.1rem;
+        }
+        .tools-toggle {
+          margin-top: 0.8rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          background: none;
+          border: none;
+          padding: 0.2rem 0;
+          color: var(--muted);
+          font: inherit;
+          font-size: 0.84rem;
+          cursor: pointer;
+        }
+        .tools-toggle:hover { color: var(--text); }
+        .chev { display: inline-block; transition: transform var(--fast); }
+        .chev.open { transform: rotate(90deg); }
+        .empty-card {
+          max-width: 460px;
+          margin: 2.5rem auto 0;
+          padding: 2rem 1.5rem;
+          text-align: center;
+          border: 1px solid var(--border-soft);
+          border-radius: var(--radius-lg);
+          background: var(--surface);
+          animation: empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+        @keyframes empty-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        .empty-icon {
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          background: linear-gradient(135deg, #3dd68c, #4b9ef0);
+          box-shadow: 0 8px 24px rgba(61, 214, 140, 0.25);
+          margin-bottom: 0.9rem;
+        }
+        .empty-title {
+          margin: 0 0 0.4rem;
+          font-family: var(--font-display);
+          font-size: 1.15rem;
+          font-weight: 700;
+        }
+        .empty-body { margin: 0; color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
+        @media (max-width: 900px) {
+          .add-btn { padding: 0.55rem 0.8rem; }
+          .add-label { display: none; }
+          .header-text h1 { font-size: 1.5rem !important; }
+          .header-text .subtitle { font-size: 0.86rem !important; line-height: 1.4 !important; }
+          .empty-card { margin-top: 1.5rem; }
+          .empty-card .empty-body { font-size: 0.86rem !important; }
         }
         .muted {
           color: var(--muted);
