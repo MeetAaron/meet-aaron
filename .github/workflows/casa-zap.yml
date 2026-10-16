@@ -1,0 +1,116 @@
+# Scan de sécurité DAST exigé par CASA (App Defense Alliance), lancé sur les
+# serveurs GitHub — rien à installer sur le PC d'Alex.
+#
+# TAC Security ne lance pas le scan (réponse du support, 16/10/2026) : c'est
+# à nous de le faire avec la configuration ADA, en couvrant la partie
+# connectée de l'application, puis de déposer les résultats dans le portail.
+#
+# Deux scans OWASP ZAP, avec la configuration officielle ADA
+# (appdefensealliance.dev/casa/tier-2/ast-guide/dynamic-scan) :
+#   1. zap-full-scan  sur https://meetaaron.app (pages publiques et
+#      connectées, en-tête Authorization du compte de test) ;
+#   2. zap-api-scan   sur les routes API en LECTURE SEULE
+#      (security/casa/openapi-readonly.json). Les routes qui envoient des
+#      e-mails ou appellent l'IA payante ne sont pas attaquées
+#      automatiquement.
+#
+# Pré-requis (une fois, par Alex) : secrets GitHub CASA_TEST_EMAIL et
+# CASA_TEST_PASSWORD = compte de TEST dédié, sans boîte mail connectée.
+#
+# Résultats : publiés sur la branche casa-zap-results (dossier
+# results/<date>/) et en artefact du run.
+
+name: CASA ZAP scan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configuration ADA
+        run: |
+          mkdir -p wrk
+          curl -sSfL -o ada.zip https://appdefensealliance.dev/static/casa/tier-2/files/zap-casa-config.zip
+          curl -sSfL -o ada-api.zip https://appdefensealliance.dev/static/casa/tier-2/files/zap-casa-api-config.zip
+          unzip -l ada.zip; unzip -l ada-api.zip
+          mkdir -p ada-full ada-api
+          unzip -o -j ada.zip -d ada-full
+          unzip -o -j ada-api.zip -d ada-api
+          cp "$(ls ada-full/*.conf | head -1)" wrk/ada-full.conf
+          cp "$(ls ada-api/*.conf | head -1)" wrk/ada-api.conf
+          ls -la wrk
+          sha256sum ada.zip ada-api.zip | tee wrk/ada-config-sha256.txt
+
+      - name: Jeton du compte de test
+        env:
+          CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
+          CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
+        run: python3 security/casa/get_test_token.py
+
+      - name: Spécification API (routes en lecture seule)
+        run: sed "s/__USER_ID__/${USER_ID}/g" security/casa/openapi-readonly.json > wrk/openapi.json
+
+      - name: ZAP full scan (application web, authentifié)
+        continue-on-error: true
+        run: |
+          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" \
+            -e ZAP_AUTH_HEADER=Authorization \
+            -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
+            -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
+            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
+            -t https://meetaaron.app -c ada-full.conf -m 5 -T 60 -j \
+            -x results-full.xml -r results-full.html -J results-full.json -I
+
+      - name: Nouveau jeton (le premier expire au bout d'une heure)
+        env:
+          CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
+          CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
+        run: python3 security/casa/get_test_token.py
+
+      - name: ZAP API scan (routes authentifiées)
+        continue-on-error: true
+        run: |
+          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" \
+            -e ZAP_AUTH_HEADER=Authorization \
+            -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
+            -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
+            ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
+            -t /zap/wrk/openapi.json -f openapi -c ada-api.conf -T 60 \
+            -x results-api.xml -r results-api.html -J results-api.json -I
+
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: casa-zap-results
+          path: |
+            wrk/results-*
+            wrk/ada-config-sha256.txt
+
+      - name: Publication sur la branche casa-zap-results
+        run: |
+          set -e
+          D="results/$(date -u +%Y-%m-%d_%H%M)"
+          mkdir -p "/tmp/out/$D"
+          cp wrk/results-* wrk/ada-config-sha256.txt "/tmp/out/$D/" 2>/dev/null || true
+          git config user.name "casa-scan"
+          git config user.email "noreply@meetaaron.app"
+          git fetch origin casa-zap-results || true
+          if git rev-parse --verify origin/casa-zap-results >/dev/null 2>&1; then
+            git checkout -B casa-zap-results origin/casa-zap-results
+          else
+            git checkout --orphan casa-zap-results
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p results
+          cp -r "/tmp/out/results/." results/
+          git add results
+          git commit -m "Résultats scan ZAP CASA $D"
+          git push origin casa-zap-results
