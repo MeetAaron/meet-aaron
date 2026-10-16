@@ -1495,7 +1495,19 @@ export default function ConnexionsPage() {
       window.location.href = '/login';
       return;
     }
-    window.location.href = `/api/auth/${provider}?token=${encodeURIComponent(session.access_token)}`;
+    // Jeton de passage a usage unique (16/10/2026) : le jeton de session ne
+    // part plus dans l'URL (CASA 2.1.1). Meme mecanisme que le QR telephone.
+    const handoffRes = await fetch('/api/auth/qr-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ provider }),
+    });
+    const handoff = handoffRes.ok ? await handoffRes.json() : null;
+    if (!handoff?.token) {
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
   }
 
   async function handleDisconnectCrm(provider) {
@@ -1893,7 +1905,19 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
       window.location.href = '/login';
       return;
     }
-    window.location.href = `/api/auth/${provider}?token=${encodeURIComponent(session.access_token)}`;
+    // Jeton de passage a usage unique (16/10/2026) : le jeton de session ne
+    // part plus dans l'URL (CASA 2.1.1). Meme mecanisme que le QR telephone.
+    const handoffRes = await fetch('/api/auth/qr-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ provider }),
+    });
+    const handoff = handoffRes.ok ? await handoffRes.json() : null;
+    if (!handoff?.token) {
+      window.location.href = '/login';
+      return;
+    }
+    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
   }
 
   // --- QR code de connexion depuis le téléphone (28/08/2026) ---
