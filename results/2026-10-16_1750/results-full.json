@@ -1,0 +1,1245 @@
+{
+	"@programName": "ZAP",
+	"@version": "2.17.0",
+	"@generated": "Fri, 16 Oct 2026 16:11:43",
+	"created": "2026-10-16T16:11:43.875299750Z",
+	"insights":[
+		{
+			"level": "Medium",
+			"reason": "Exceeded High",
+			"site": "https://meetaaron.app",
+			"key": "insight.code.4xx",
+			"description": "Percentage of responses with status code 4xx",
+			"statistic": "52"
+		},
+		{
+			"level": "Low",
+			"reason": "Warning",
+			"site": "",
+			"key": "insight.log.error",
+			"description": "ZAP errors logged - see the zap.log file for details",
+			"statistic": "2"
+		},
+		{
+			"level": "Low",
+			"reason": "Warning",
+			"site": "",
+			"key": "insight.log.warn",
+			"description": "ZAP warnings logged - see the zap.log file for details",
+			"statistic": "17"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "http://meetaaron.app",
+			"key": "insight.code.3xx",
+			"description": "Percentage of responses with status code 3xx",
+			"statistic": "100"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "http://meetaaron.app",
+			"key": "insight.response.slow",
+			"description": "Percentage of slow responses",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.code.2xx",
+			"description": "Percentage of responses with status code 2xx",
+			"statistic": "47"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.code.3xx",
+			"description": "Percentage of responses with status code 3xx",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.application/javascript",
+			"description": "Percentage of endpoints with content type application/javascript",
+			"statistic": "29"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.application/json",
+			"description": "Percentage of endpoints with content type application/json",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.application/xml",
+			"description": "Percentage of endpoints with content type application/xml",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.image/png",
+			"description": "Percentage of endpoints with content type image/png",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.image/vnd.microsoft.icon",
+			"description": "Percentage of endpoints with content type image/vnd.microsoft.icon",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.text/css",
+			"description": "Percentage of endpoints with content type text/css",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.text/html",
+			"description": "Percentage of endpoints with content type text/html",
+			"statistic": "59"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.text/plain",
+			"description": "Percentage of endpoints with content type text/plain",
+			"statistic": "4"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.method.GET",
+			"description": "Percentage of endpoints with method GET",
+			"statistic": "100"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.total",
+			"description": "Count of total endpoints",
+			"statistic": "72"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.response.slow",
+			"description": "Percentage of slow responses",
+			"statistic": "1"
+		}
+	],
+	"site":[ 
+		{
+			"@name": "https://meetaaron.app",
+			"@host": "meetaaron.app",
+			"@port": "443",
+			"@ssl": "true",
+			"alerts": [ 
+				{
+					"pluginid": "10055",
+					"alertRef": "10055-13",
+					"alert": "CSP: Failure to Define Directive with No Fallback",
+					"name": "CSP: Failure to Define Directive with No Fallback",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>The Content Security Policy fails to define one of the directives that has no fallback. Missing/excluding them is the same as allowing anything.</p>",
+					"instances":[ 
+						{
+							"id": "7",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The directive(s): form-action is/are among the directives that do not fallback to default-src."
+						},
+						{
+							"id": "0",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The directive(s): form-action is/are among the directives that do not fallback to default-src."
+						},
+						{
+							"id": "14",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The directive(s): form-action is/are among the directives that do not fallback to default-src."
+						}
+					],
+					"count": "3",
+					"systemic": false,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is properly configured to set the Content-Security-Policy header.</p>",
+					"otherinfo": "<p>The directive(s): form-action is/are among the directives that do not fallback to default-src.</p>",
+					"reference": "<p>https://www.w3.org/TR/CSP/</p><p>https://caniuse.com/#search=content+security+policy</p><p>https://content-security-policy.com/</p><p>https://github.com/HtmlUnit/htmlunit-csp</p><p>https://web.dev/articles/csp#resource-options</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10055",
+					"alertRef": "10055-4",
+					"alert": "CSP: Wildcard Directive",
+					"name": "CSP: Wildcard Directive",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>Content Security Policy (CSP) is an added layer of security that helps to detect and mitigate certain types of attacks. Including (but not limited to) Cross Site Scripting (XSS), and data injection attacks. These attacks are used for everything from data theft to site defacement or distribution of malware. CSP provides a set of standard HTTP headers that allow website owners to declare approved sources of content that browsers should be allowed to load on that page \u2014 covered types are JavaScript, CSS, HTML frames, fonts, images and embeddable objects such as Java applets, ActiveX, audio and video files.</p>",
+					"instances":[ 
+						{
+							"id": "8",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The following directives either allow wildcard sources (or ancestors), are not defined, or are overly broadly defined:\nscript-src, style-src, img-src, connect-src, frame-src, font-src, media-src, object-src, manifest-src, worker-src"
+						},
+						{
+							"id": "1",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The following directives either allow wildcard sources (or ancestors), are not defined, or are overly broadly defined:\nscript-src, style-src, img-src, connect-src, frame-src, font-src, media-src, object-src, manifest-src, worker-src"
+						},
+						{
+							"id": "15",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "The following directives either allow wildcard sources (or ancestors), are not defined, or are overly broadly defined:\nscript-src, style-src, img-src, connect-src, frame-src, font-src, media-src, object-src, manifest-src, worker-src"
+						}
+					],
+					"count": "3",
+					"systemic": false,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is properly configured to set the Content-Security-Policy header.</p>",
+					"otherinfo": "<p>The following directives either allow wildcard sources (or ancestors), are not defined, or are overly broadly defined:</p><p>script-src, style-src, img-src, connect-src, frame-src, font-src, media-src, object-src, manifest-src, worker-src</p>",
+					"reference": "<p>https://www.w3.org/TR/CSP/</p><p>https://caniuse.com/#search=content+security+policy</p><p>https://content-security-policy.com/</p><p>https://github.com/HtmlUnit/htmlunit-csp</p><p>https://web.dev/articles/csp#resource-options</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10055",
+					"alertRef": "10055-5",
+					"alert": "CSP: script-src unsafe-inline",
+					"name": "CSP: script-src unsafe-inline",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>Content Security Policy (CSP) is an added layer of security that helps to detect and mitigate certain types of attacks. Including (but not limited to) Cross Site Scripting (XSS), and data injection attacks. These attacks are used for everything from data theft to site defacement or distribution of malware. CSP provides a set of standard HTTP headers that allow website owners to declare approved sources of content that browsers should be allowed to load on that page \u2014 covered types are JavaScript, CSS, HTML frames, fonts, images and embeddable objects such as Java applets, ActiveX, audio and video files.</p>",
+					"instances":[ 
+						{
+							"id": "9",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "script-src includes unsafe-inline."
+						},
+						{
+							"id": "2",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "script-src includes unsafe-inline."
+						},
+						{
+							"id": "16",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "script-src includes unsafe-inline."
+						}
+					],
+					"count": "3",
+					"systemic": false,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is properly configured to set the Content-Security-Policy header.</p>",
+					"otherinfo": "<p>script-src includes unsafe-inline.</p>",
+					"reference": "<p>https://www.w3.org/TR/CSP/</p><p>https://caniuse.com/#search=content+security+policy</p><p>https://content-security-policy.com/</p><p>https://github.com/HtmlUnit/htmlunit-csp</p><p>https://web.dev/articles/csp#resource-options</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10055",
+					"alertRef": "10055-6",
+					"alert": "CSP: style-src unsafe-inline",
+					"name": "CSP: style-src unsafe-inline",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>Content Security Policy (CSP) is an added layer of security that helps to detect and mitigate certain types of attacks. Including (but not limited to) Cross Site Scripting (XSS), and data injection attacks. These attacks are used for everything from data theft to site defacement or distribution of malware. CSP provides a set of standard HTTP headers that allow website owners to declare approved sources of content that browsers should be allowed to load on that page \u2014 covered types are JavaScript, CSS, HTML frames, fonts, images and embeddable objects such as Java applets, ActiveX, audio and video files.</p>",
+					"instances":[ 
+						{
+							"id": "10",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "style-src includes unsafe-inline."
+						},
+						{
+							"id": "3",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "style-src includes unsafe-inline."
+						},
+						{
+							"id": "18",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "Content-Security-Policy",
+							"attack": "",
+							"evidence": "frame-ancestors 'none'",
+							"otherinfo": "style-src includes unsafe-inline."
+						}
+					],
+					"count": "3",
+					"systemic": false,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is properly configured to set the Content-Security-Policy header.</p>",
+					"otherinfo": "<p>style-src includes unsafe-inline.</p>",
+					"reference": "<p>https://www.w3.org/TR/CSP/</p><p>https://caniuse.com/#search=content+security+policy</p><p>https://content-security-policy.com/</p><p>https://github.com/HtmlUnit/htmlunit-csp</p><p>https://web.dev/articles/csp#resource-options</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "40025",
+					"alertRef": "40025-2",
+					"alert": "Proxy Disclosure",
+					"name": "Proxy Disclosure",
+					"riskcode": "2",
+					"confidence": "2",
+					"riskdesc": "Medium (Medium)",
+					"desc": "<p>1 proxy server(s) were detected or fingerprinted. This information helps a potential attacker to determine</p><p>- A list of targets for an attack against the application.</p><p> - Potential vulnerabilities on the proxy servers that service the application.</p><p> - The presence or absence of any proxy-based components that might cause attacks against the application to be detected, prevented, or mitigated.</p>",
+					"instances":[ 
+						{
+							"id": "822",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "TRACE, OPTIONS methods with 'Max-Forwards' header. TRACK method.",
+							"evidence": "",
+							"otherinfo": "Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:\n- Vercel\nThe following web/application server has been identified:\n- Vercel\n"
+						},
+						{
+							"id": "821",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "TRACE, OPTIONS methods with 'Max-Forwards' header. TRACK method.",
+							"evidence": "",
+							"otherinfo": "Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:\n- Vercel\nThe following web/application server has been identified:\n- Vercel\n"
+						},
+						{
+							"id": "823",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "",
+							"attack": "TRACE, OPTIONS methods with 'Max-Forwards' header. TRACK method.",
+							"evidence": "",
+							"otherinfo": "Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:\n- Vercel\nThe following web/application server has been identified:\n- Vercel\n"
+						},
+						{
+							"id": "820",
+							"uri": "https://meetaaron.app/api/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/",
+							"method": "GET",
+							"param": "",
+							"attack": "TRACE, OPTIONS methods with 'Max-Forwards' header. TRACK method.",
+							"evidence": "",
+							"otherinfo": "Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:\n- Vercel\nThe following web/application server has been identified:\n- Vercel\n"
+						},
+						{
+							"id": "819",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "TRACE, OPTIONS methods with 'Max-Forwards' header. TRACK method.",
+							"evidence": "",
+							"otherinfo": "Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:\n- Vercel\nThe following web/application server has been identified:\n- Vercel\n"
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Disable the 'TRACE' method on the proxy servers, as well as the origin web/application server.</p><p>Disable the 'OPTIONS' method on the proxy servers, as well as the origin web/application server, if it is not required for other purposes, such as 'CORS' (Cross Origin Resource Sharing).</p><p>Configure the web and application servers with custom error pages, to prevent 'fingerprintable' product-specific error pages being leaked to the user in the event of HTTP errors, such as 'TRACK' requests for non-existent pages.</p><p>Configure all proxies, application servers, and web servers to prevent disclosure of the technology and version information in the 'Server' and 'X-Powered-By' HTTP response headers.</p><p></p>",
+					"otherinfo": "<p>Using the TRACE, OPTIONS, and TRACK methods, the following proxy servers have been identified between ZAP and the application/web server:</p><p>- Vercel</p><p>The following web/application server has been identified:</p><p>- Vercel</p><p></p>",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7231#section-5.1.2</p>",
+					"cweid": "204",
+					"wascid": "45",
+					"sourceid": "10166"
+				},
+				{
+					"pluginid": "10051",
+					"alertRef": "10051",
+					"alert": "Relative Path Confusion",
+					"name": "Relative Path Confusion",
+					"riskcode": "2",
+					"confidence": "2",
+					"riskdesc": "Medium (Medium)",
+					"desc": "<p>The web server is configured to serve responses to ambiguous URLs in a manner that is likely to lead to confusion about the correct \"relative path\" for the URL. Resources (CSS, images, etc.) are also specified in the page response using relative, rather than absolute URLs. In an attack, if the web browser parses the \"cross-content\" response in a permissive manner, or can be tricked into permissively parsing the \"cross-content\" response, using techniques such as framing, then the web browser may be fooled into interpreting HTML as CSS (or other content types), leading to an XSS vulnerability.</p>",
+					"instances":[ 
+						{
+							"id": "791",
+							"uri": "https://meetaaron.app/_next/static/chunks/3688-f66c8fb7afc5ce27.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/3688-f66c8fb7afc5ce27.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/3688-f66c8fb7afc5ce27.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "792",
+							"uri": "https://meetaaron.app/_next/static/chunks/44530001-0350bd7e7d681000.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/44530001-0350bd7e7d681000.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/44530001-0350bd7e7d681000.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "793",
+							"uri": "https://meetaaron.app/_next/static/chunks/7023-13524e36f68ad9e3.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/7023-13524e36f68ad9e3.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/7023-13524e36f68ad9e3.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "794",
+							"uri": "https://meetaaron.app/_next/static/chunks/8059-90b02939e12f202d.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/8059-90b02939e12f202d.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/8059-90b02939e12f202d.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "795",
+							"uri": "https://meetaaron.app/_next/static/chunks/8112-615deed7d9adf701.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/8112-615deed7d9adf701.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/8112-615deed7d9adf701.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "796",
+							"uri": "https://meetaaron.app/_next/static/chunks/9994-c133fc24f5380d8f.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/9994-c133fc24f5380d8f.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/9994-c133fc24f5380d8f.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "797",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/app/page-7eb88a806a90ac79.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/app\/page-7eb88a806a90ac79.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/app/page-7eb88a806a90ac79.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "798",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/app/preferences/page-eb5be4ab4b4f6999.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/app\/preferences\/page-eb5be4ab4b4f6999.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/app/preferences/page-eb5be4ab4b4f6999.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "799",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/incident-response/page-28f718cf2fe562d2.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/incident-response\/page-28f718cf2fe562d2.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/incident-response/page-28f718cf2fe562d2.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "800",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/layout-a62294f3fc471ac3.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/layout-a62294f3fc471ac3.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/layout-a62294f3fc471ac3.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "801",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/login/page-decc75523c300509.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/login\/page-decc75523c300509.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/login/page-decc75523c300509.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "802",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/onboarding/page-60b3b2ee9c62ec54.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/onboarding\/page-60b3b2ee9c62ec54.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/onboarding/page-60b3b2ee9c62ec54.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "803",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/privacy/page-4a3d9604a9deedb4.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/privacy\/page-4a3d9604a9deedb4.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/privacy/page-4a3d9604a9deedb4.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "804",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/security/page-df7b6039717efffa.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/security\/page-df7b6039717efffa.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/security/page-df7b6039717efffa.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "805",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/terms/page-c8b1bf314ff5def8.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/terms\/page-c8b1bf314ff5def8.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/terms/page-c8b1bf314ff5def8.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "806",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/unsubscribe/page-d9c9143237be0896.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/unsubscribe\/page-d9c9143237be0896.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/unsubscribe/page-d9c9143237be0896.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "807",
+							"uri": "https://meetaaron.app/_next/static/chunks/app/vulnerability-disclosure/page-2c8c0a967b634015.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/app\/vulnerability-disclosure\/page-2c8c0a967b634015.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/app/vulnerability-disclosure/page-2c8c0a967b634015.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "808",
+							"uri": "https://meetaaron.app/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/fd9d1056-9b63fae6da14f993.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/fd9d1056-9b63fae6da14f993.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "809",
+							"uri": "https://meetaaron.app/_next/static/chunks/main-app-881f01dbe13267cd.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/main-app-881f01dbe13267cd.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/main-app-881f01dbe13267cd.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "810",
+							"uri": "https://meetaaron.app/_next/static/chunks/polyfills-78c92fac7aa8fdd8.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/polyfills-78c92fac7aa8fdd8.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/polyfills-78c92fac7aa8fdd8.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "811",
+							"uri": "https://meetaaron.app/_next/static/chunks/webpack-331fd0dbfb1db448.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/webpack-331fd0dbfb1db448.js\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/chunks/webpack-331fd0dbfb1db448.js/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "812",
+							"uri": "https://meetaaron.app/_next/static/css/b7c7d4040678a1a2.css?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/css\/b7c7d4040678a1a2.css\/tawye\/nh5sq (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/_next/static/css/b7c7d4040678a1a2.css/tawye/nh5sq?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "813",
+							"uri": "https://meetaaron.app/favicon.ico",
+							"nodeName": "https:\/\/meetaaron.app\/favicon.ico\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/favicon.ico/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "814",
+							"uri": "https://meetaaron.app/icon.png",
+							"nodeName": "https:\/\/meetaaron.app\/icon.png\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/icon.png/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "815",
+							"uri": "https://meetaaron.app/landing.html",
+							"nodeName": "https:\/\/meetaaron.app\/landing.html\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/landing.html/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "816",
+							"uri": "https://meetaaron.app/manifest.json",
+							"nodeName": "https:\/\/meetaaron.app\/manifest.json\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/manifest.json/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "817",
+							"uri": "https://meetaaron.app/robots.txt",
+							"nodeName": "https:\/\/meetaaron.app\/robots.txt\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/robots.txt/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						},
+						{
+							"id": "818",
+							"uri": "https://meetaaron.app/sitemap.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemap.xml\/tawye\/nh5sq",
+							"method": "GET",
+							"param": "",
+							"attack": "https://meetaaron.app/sitemap.xml/tawye/nh5sq",
+							"evidence": "<link rel=\"icon\" href=\"data:,\">",
+							"otherinfo": "No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.\nA Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.\nNo X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed."
+						}
+					],
+					"count": "28",
+					"systemic": false,
+					"solution": "<p>Web servers and frameworks should be updated to be configured to not serve responses to ambiguous URLs in such a way that the relative path of such URLs could be mis-interpreted by components on either the client side, or server side.</p><p>Within the application, the correct use of the \"<base>\" HTML tag in the HTTP response will unambiguously specify the base URL for all relative URLs in the document.</p><p>Use the \"Content-Type\" HTTP response header to make it harder for the attacker to force the web browser to mis-interpret the content type of the response.</p><p>Use the \"X-Content-Type-Options: nosniff\" HTTP response header to prevent the web browser from \"sniffing\" the content type of the response.</p><p>Use a modern DOCTYPE such as \"<!doctype html>\" to prevent the page from being rendered in the web browser using \"Quirks Mode\", since this results in the content type being ignored by the web browser.</p><p>Specify the \"X-Frame-Options\" HTTP response header to prevent Quirks Mode from being enabled in the web browser using framing attacks.</p>",
+					"otherinfo": "<p>No <base> tag was specified in the HTML <head> tag to define the location for relative URLs.</p><p>A Content Type of \"text/html; charset=utf-8\" was specified. If the web browser is employing strict parsing rules, this will prevent cross-content attacks from succeeding. Quirks Mode in the web browser would disable strict parsing.</p><p>No X-Frame-Options header was specified, so the page can be framed, and this can be used to enable Quirks Mode, allowing the specified Content Type to be bypassed.</p>",
+					"reference": "<p>https://arxiv.org/abs/1811.00917</p><p>https://hsivonen.fi/doctype/</p><p>https://www.w3schools.com/tags/tag_base.asp</p>",
+					"cweid": "20",
+					"wascid": "20",
+					"sourceid": "8348"
+				},
+				{
+					"pluginid": "90003",
+					"alertRef": "90003",
+					"alert": "Sub Resource Integrity Attribute Missing",
+					"name": "Sub Resource Integrity Attribute Missing",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>The integrity attribute is missing on a script or link tag served by an external server. The integrity tag prevents an attacker who have gained access to this server from injecting a malicious content.</p>",
+					"instances":[ 
+						{
+							"id": "55",
+							"uri": "https://meetaaron.app/landing.html",
+							"nodeName": "https:\/\/meetaaron.app\/landing.html",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap\" rel=\"stylesheet\">",
+							"otherinfo": ""
+						}
+					],
+					"count": "1",
+					"systemic": false,
+					"solution": "<p>Provide a valid integrity attribute to the tag.</p>",
+					"otherinfo": "",
+					"reference": "<p>https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity</p>",
+					"cweid": "345",
+					"wascid": "15",
+					"sourceid": "33"
+				},
+				{
+					"pluginid": "90004",
+					"alertRef": "90004-2",
+					"alert": "Cross-Origin-Embedder-Policy Header Missing or Invalid",
+					"name": "Cross-Origin-Embedder-Policy Header Missing or Invalid",
+					"riskcode": "1",
+					"confidence": "2",
+					"riskdesc": "Low (Medium)",
+					"desc": "<p>Cross-Origin-Embedder-Policy header is a response header that prevents a document from loading any cross-origin resources that don't explicitly grant the document permission (using CORP or CORS).</p>",
+					"instances":[ 
+						{
+							"id": "36",
+							"uri": "https://meetaaron.app/login",
+							"nodeName": "https:\/\/meetaaron.app\/login",
+							"method": "GET",
+							"param": "Cross-Origin-Embedder-Policy",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "38",
+							"uri": "https://meetaaron.app/privacy",
+							"nodeName": "https:\/\/meetaaron.app\/privacy",
+							"method": "GET",
+							"param": "Cross-Origin-Embedder-Policy",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "24",
+							"uri": "https://meetaaron.app/sitemap.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemap.xml",
+							"method": "GET",
+							"param": "Cross-Origin-Embedder-Policy",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "44",
+							"uri": "https://meetaaron.app/terms",
+							"nodeName": "https:\/\/meetaaron.app\/terms",
+							"method": "GET",
+							"param": "Cross-Origin-Embedder-Policy",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "53",
+							"uri": "https://meetaaron.app/unsubscribe",
+							"nodeName": "https:\/\/meetaaron.app\/unsubscribe",
+							"method": "GET",
+							"param": "Cross-Origin-Embedder-Policy",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Ensure that the application/web server sets the Cross-Origin-Embedder-Policy header appropriately, and that it sets the Cross-Origin-Embedder-Policy header to 'require-corp' for documents.</p><p>If possible, ensure that the end user uses a standards-compliant and modern web browser that supports the Cross-Origin-Embedder-Policy header (https://caniuse.com/mdn-http_headers_cross-origin-embedder-policy).</p>",
+					"otherinfo": "",
+					"reference": "<p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy</p>",
+					"cweid": "693",
+					"wascid": "14",
+					"sourceid": "35"
+				},
+				{
+					"pluginid": "10027",
+					"alertRef": "10027",
+					"alert": "Information Disclosure - Suspicious Comments",
+					"name": "Information Disclosure - Suspicious Comments",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The response appears to contain suspicious comments which may help an attacker.</p>",
+					"instances":[ 
+						{
+							"id": "61",
+							"uri": "https://meetaaron.app/_next/static/chunks/3688-f66c8fb7afc5ce27.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/chunks\/3688-f66c8fb7afc5ce27.js (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "* The buffer module from node.js, for the br",
+							"otherinfo": "The following pattern was used: \\bFROM\\b and was detected in likely comment: \"/*!\n * The buffer module from node.js, for the browser.\n *\n * @author   Feross Aboukhadijeh <https://feross.org>\n * @license  MI\", see evidence field for the suspicious comment/snippet."
+						}
+					],
+					"count": "1",
+					"systemic": false,
+					"solution": "<p>Remove all comments that return information that may help an attacker and fix any underlying problems they refer to.</p>",
+					"otherinfo": "<p>The following pattern was used: \\bFROM\\b and was detected in likely comment: \"/*!</p><p> * The buffer module from node.js, for the browser.</p><p> *</p><p> * @author   Feross Aboukhadijeh <https://feross.org></p><p> * @license  MI\", see evidence field for the suspicious comment/snippet.</p>",
+					"reference": "",
+					"cweid": "615",
+					"wascid": "13",
+					"sourceid": "68"
+				},
+				{
+					"pluginid": "10109",
+					"alertRef": "10109",
+					"alert": "Modern Web Application",
+					"name": "Modern Web Application",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The application appears to be a modern web application. If you need to explore it automatically then the Client Spider may well be more effective than the standard one.</p>",
+					"instances":[ 
+						{
+							"id": "11",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<script src=\"/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ\" async=\"\"></script>",
+							"otherinfo": "No links have been found while there are scripts, which is an indication that this is a modern web application."
+						},
+						{
+							"id": "4",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<script src=\"/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ\" async=\"\"></script>",
+							"otherinfo": "No links have been found while there are scripts, which is an indication that this is a modern web application."
+						},
+						{
+							"id": "27",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<script src=\"/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ\" async=\"\"></script>",
+							"otherinfo": "No links have been found while there are scripts, which is an indication that this is a modern web application."
+						},
+						{
+							"id": "59",
+							"uri": "https://meetaaron.app/app",
+							"nodeName": "https:\/\/meetaaron.app\/app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<script src=\"/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ\" async=\"\"></script>",
+							"otherinfo": "No links have been found while there are scripts, which is an indication that this is a modern web application."
+						},
+						{
+							"id": "48",
+							"uri": "https://meetaaron.app/onboarding",
+							"nodeName": "https:\/\/meetaaron.app\/onboarding",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<script src=\"/_next/static/chunks/fd9d1056-9b63fae6da14f993.js?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ\" async=\"\"></script>",
+							"otherinfo": "No links have been found while there are scripts, which is an indication that this is a modern web application."
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>This is an informational alert and so no changes are required.</p>",
+					"otherinfo": "<p>No links have been found while there are scripts, which is an indication that this is a modern web application.</p>",
+					"reference": "",
+					"cweid": "-1",
+					"wascid": "-1",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10049",
+					"alertRef": "10049-1",
+					"alert": "Non-Storable Content",
+					"name": "Non-Storable Content",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The response contents are not storable by caching components such as proxy servers. If the response does not contain sensitive, personal or user-specific information, it may benefit from being stored and cached, to improve performance.</p>",
+					"instances":[ 
+						{
+							"id": "52",
+							"uri": "https://meetaaron.app/_next/static/css/b7c7d4040678a1a2.css?dpl=dpl_3nXNh9d4GJGdE6dRxzJR6JN54LaQ",
+							"nodeName": "https:\/\/meetaaron.app\/_next\/static\/css\/b7c7d4040678a1a2.css (dpl)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "authorization:",
+							"otherinfo": ""
+						}
+					],
+					"count": "1",
+					"systemic": false,
+					"solution": "<p>The content may be marked as storable by ensuring that the following conditions are satisfied:</p><p>The request method must be understood by the cache and defined as being cacheable (\"GET\", \"HEAD\", and \"POST\" are currently defined as cacheable)</p><p>The response status code must be understood by the cache (one of the 1XX, 2XX, 3XX, 4XX, or 5XX response classes are generally understood)</p><p>The \"no-store\" cache directive must not appear in the request or response header fields</p><p>For caching by \"shared\" caches such as \"proxy\" caches, the \"private\" response directive must not appear in the response</p><p>For caching by \"shared\" caches such as \"proxy\" caches, the \"Authorization\" header field must not appear in the request, unless the response explicitly allows it (using one of the \"must-revalidate\", \"public\", or \"s-maxage\" Cache-Control response directives)</p><p>In addition to the conditions above, at least one of the following conditions must also be satisfied by the response:</p><p>It must contain an \"Expires\" header field</p><p>It must contain a \"max-age\" response directive</p><p>For \"shared\" caches such as \"proxy\" caches, it must contain a \"s-maxage\" response directive</p><p>It must contain a \"Cache Control Extension\" that allows it to be cached</p><p>It must have a status code that is defined as cacheable by default (200, 203, 204, 206, 300, 301, 404, 405, 410, 414, 501).</p>",
+					"otherinfo": "",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7234</p><p>https://datatracker.ietf.org/doc/html/rfc7231</p><p>https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html</p>",
+					"cweid": "524",
+					"wascid": "13",
+					"sourceid": "55"
+				},
+				{
+					"pluginid": "10015",
+					"alertRef": "10015",
+					"alert": "Re-examine Cache-control Directives",
+					"name": "Re-examine Cache-control Directives",
+					"riskcode": "0",
+					"confidence": "1",
+					"riskdesc": "Informational (Low)",
+					"desc": "<p>The cache-control header has not been set properly or is missing, allowing the browser and proxies to cache content. For static assets like css, js, or image files this might be intended, however, the resources should be reviewed to ensure that no sensitive content will be cached.</p>",
+					"instances":[ 
+						{
+							"id": "31",
+							"uri": "https://meetaaron.app/login",
+							"nodeName": "https:\/\/meetaaron.app\/login",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						},
+						{
+							"id": "32",
+							"uri": "https://meetaaron.app/privacy",
+							"nodeName": "https:\/\/meetaaron.app\/privacy",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						},
+						{
+							"id": "19",
+							"uri": "https://meetaaron.app/robots.txt",
+							"nodeName": "https:\/\/meetaaron.app\/robots.txt",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						},
+						{
+							"id": "17",
+							"uri": "https://meetaaron.app/sitemap.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemap.xml",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						},
+						{
+							"id": "39",
+							"uri": "https://meetaaron.app/terms",
+							"nodeName": "https:\/\/meetaaron.app\/terms",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>For secure content, ensure the cache-control HTTP header is set with \"no-cache, no-store, must-revalidate\". If an asset should be cached consider setting the directives \"public, max-age, immutable\".</p>",
+					"otherinfo": "",
+					"reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#web-content-caching</p><p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control</p><p>https://grayduck.mn/2021/09/13/cache-control-recommendations/</p>",
+					"cweid": "525",
+					"wascid": "13",
+					"sourceid": "35"
+				},
+				{
+					"pluginid": "10050",
+					"alertRef": "10050-2",
+					"alert": "Retrieved from Cache",
+					"name": "Retrieved from Cache",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The content was retrieved from a shared cache. If the response data is sensitive, personal or user-specific, this may result in sensitive information being leaked. In some cases, this may even result in a user gaining complete control of the session of another user, depending on the configuration of the caching components in use in their environment. This is primarily an issue where caching servers such as \"proxy\" caches are configured on the local network. This configuration is typically found in corporate or educational environments, for instance.</p>",
+					"instances":[ 
+						{
+							"id": "12",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Age: 90",
+							"otherinfo": "The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use."
+						},
+						{
+							"id": "5",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Age: 88",
+							"otherinfo": "The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use."
+						},
+						{
+							"id": "26",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Age: 91",
+							"otherinfo": "The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use."
+						},
+						{
+							"id": "21",
+							"uri": "https://meetaaron.app/robots.txt",
+							"nodeName": "https:\/\/meetaaron.app\/robots.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Age: 0",
+							"otherinfo": "The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use."
+						},
+						{
+							"id": "20",
+							"uri": "https://meetaaron.app/sitemap.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemap.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "Age: 0",
+							"otherinfo": "The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use."
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Validate that the response does not contain sensitive, personal or user-specific information. If it does, consider the use of the following HTTP response headers, to limit, or prevent the content being stored and retrieved from the cache by another user:</p><p>Cache-Control: no-cache, no-store, must-revalidate, private</p><p>Pragma: no-cache</p><p>Expires: 0</p><p>This configuration directs both HTTP 1.0 and HTTP 1.1 compliant caching servers to not store the response, and to not retrieve the response (without validation) from the cache, in response to a similar request.</p>",
+					"otherinfo": "<p>The presence of the 'Age' header indicates that a HTTP/1.1 compliant caching server is in use.</p>",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7234</p><p>https://datatracker.ietf.org/doc/html/rfc7231</p><p>https://www.rfc-editor.org/rfc/rfc9110.html</p>",
+					"cweid": "525",
+					"wascid": "-1",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10049",
+					"alertRef": "10049-2",
+					"alert": "Storable but Non-Cacheable Content",
+					"name": "Storable but Non-Cacheable Content",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The response contents are storable by caching components such as proxy servers, but will not be retrieved directly from the cache, without validating the request upstream, in response to similar requests from other users.</p>",
+					"instances":[ 
+						{
+							"id": "13",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						},
+						{
+							"id": "6",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						},
+						{
+							"id": "30",
+							"uri": "https://meetaaron.app/$",
+							"nodeName": "https:\/\/meetaaron.app\/$",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						},
+						{
+							"id": "23",
+							"uri": "https://meetaaron.app/robots.txt",
+							"nodeName": "https:\/\/meetaaron.app\/robots.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						},
+						{
+							"id": "22",
+							"uri": "https://meetaaron.app/sitemap.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemap.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7234</p><p>https://datatracker.ietf.org/doc/html/rfc7231</p><p>https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html</p>",
+					"cweid": "524",
+					"wascid": "13",
+					"sourceid": "7"
+				},
+				{
+					"pluginid": "10104",
+					"alertRef": "10104",
+					"alert": "User Agent Fuzzer",
+					"name": "User Agent Fuzzer",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>Check for differences in response based on fuzzed User Agent (eg. mobile sites, access as a Search Engine Crawler). Compares the response statuscode and the hashcode of the response body with the original response.</p>",
+					"instances":[ 
+						{
+							"id": "73",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "72",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "71",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "74",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/5.0 (Windows NT 10.0; Trident/7.0; rv:11.0) like Gecko",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "75",
+							"uri": "https://meetaaron.app/app/",
+							"nodeName": "https:\/\/meetaaron.app\/app\/",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3739.0 Safari/537.36 Edg/75.0.109.0",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "<p>https://owasp.org/www-project-web-security-testing-guide/</p>",
+					"cweid": "0",
+					"wascid": "0",
+					"sourceid": "5870"
+				}
+			]
+		}
+	],
+	"sequences":[
+	]
+
+}
