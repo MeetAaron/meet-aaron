@@ -175,13 +175,11 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
 // paramètre "?token=..." plutôt que le user_id brut, pour empêcher quiconque de
 // forger un lien "Connecter Gmail" qui lierait sa propre boîte mail au compte
 // Meet Aaron d'un tiers.
-export async function getAuthedUserFromToken(token: string): Promise<AuthedUser | null> {
-  return getCachedAuthedUser(token, async () => {
-    const identity = await resolveIdentityFromToken(token);
-    if (!identity) return null;
-    return fetchUserRow(identity.auth_user_id);
-  });
-}
+// getAuthedUserFromToken (jeton de session en ?token=) a ete SUPPRIME le
+// 16/10/2026 : un jeton de session dans une URL finit dans les journaux
+// d'acces, l'historique du navigateur et le Referer (CASA 2.1.1). Les routes
+// atteintes par navigation passent par un jeton de passage a usage unique,
+// voir resolveAndConsumeQrToken ci-dessous et app/api/auth/qr-token.
 
 // Consomme un jeton QR OAuth à usage unique (demande Alex, 28/08/2026 : un QR
 // code à côté des boutons "Connecter" Google/Outlook dans Connexions, pour
@@ -197,10 +195,14 @@ export async function getAuthedUserFromToken(token: string): Promise<AuthedUser 
 // UPDATE...WHERE used_at IS NULL AND expires_at > now()...RETURNING est une
 // opération atomique côté Postgres : deux scans/consommations concurrentes
 // du même QR ne peuvent pas toutes les deux réussir.
+export type HandoffProvider = 'google' | 'microsoft' | 'hubspot' | 'salesforce' | 'jobber' | 'pipedrive' | 'vcard';
+
 export async function resolveAndConsumeQrToken(
   qrToken: string,
-  provider: 'google' | 'microsoft'
+  provider: HandoffProvider
 ): Promise<AuthedUser | null> {
+  // Format verifie avant la requete : le jeton est un uuid genere en base.
+  if (!/^[0-9a-f-]{36}$/i.test(qrToken)) return null;
   const { data: row, error } = await supabaseAdmin
     .from('oauth_qr_tokens')
     .update({ used_at: new Date().toISOString() })
