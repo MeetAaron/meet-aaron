@@ -21,12 +21,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getAuthedUserFromToken } from '@/lib/auth-helpers';
+import { resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 import { buildVCard } from '@/lib/vcard';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
-  const token = request.nextUrl.searchParams.get('token') || '';
-  const authedUser = token ? await getAuthedUserFromToken(token) : null;
+  // Jeton de passage a usage unique (16/10/2026), plus jamais le jeton de
+  // session en clair dans l'URL (CASA 2.1.1). lib/vcard.js le demande a
+  // app/api/auth/qr-token juste avant d'ouvrir l'iframe.
+  const token = request.nextUrl.searchParams.get('qr') || '';
+  const authedUser = token ? await resolveAndConsumeQrToken(token, 'vcard') : null;
   if (!authedUser) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   }
