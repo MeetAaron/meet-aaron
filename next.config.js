@@ -54,6 +54,14 @@ const nextConfig = {
           // évite qu'un script tiers compromis les réclame un jour.
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
           { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+          // Scan CASA du 16/10/2026 (ZAP 10098) : sans cette ligne, le CDN de
+          // Vercel répondait « Access-Control-Allow-Origin: * » sur les pages.
+          // Aucun site tiers n'a à lire nos réponses ; on limite à nous-mêmes.
+          { key: 'Access-Control-Allow-Origin', value: 'https://meetaaron.app' },
+          // Isole la fenêtre de l'application des fenêtres ouvertes par
+          // d'autres sites (ZAP 90004). Les connexions OAuth se font par
+          // navigation pleine page, pas par fenêtre surgissante : rien ne casse.
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
         ],
       },
       {
