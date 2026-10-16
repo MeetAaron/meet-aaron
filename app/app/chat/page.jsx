@@ -1820,6 +1820,12 @@ export default function ChatPage() {
           barre d'en-tête (avatar + nom + statut), le fil au centre et la
           zone de saisie collée en bas. La liste des conversations passe
           dans un tiroir latéral, comme sur Messenger. */}
+      {/* .mg-page (16/10/2026, Alex : « tout doit être sur une page, même
+          sur téléphone — on ne doit pas avoir à descendre ») : sur
+          téléphone, ce bloc occupe exactement l'espace entre la barre du
+          haut et la barre d'onglets du bas (encoches comprises) ; seul le
+          fil défile, la zone de saisie reste toujours visible. */}
+      <div className="mg-page">
       <header className="mg-head">
         <span className="mg-avatar"><img src="/icon.png" alt="" /></span>
         <div className="mg-id">
@@ -2238,6 +2244,7 @@ export default function ChatPage() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
           </button>
         </form>
+      </div>
       </div>
 
       {/* "possibilité d'ouvrir une nouvelle conversation" + "possibilité de
@@ -3021,18 +3028,47 @@ export default function ChatPage() {
           backdrop-filter: blur(2px);
           z-index: 118;
         }
+        .mg-page { display: contents; }
         @media (max-width: 900px) {
-          .messenger {
-            height: calc(100dvh - 52px - 62px - 7.5rem);
-            min-height: 340px;
-          }
-          .mg-head { padding-bottom: 0.7rem; }
-          .bubble { max-width: 82%; font-size: 0.95rem; }
-          .mg-composer {
-            position: sticky;
-            bottom: 0;
+          /* Bloc plein écran entre les deux barres fixes (MobileChrome,
+             globals.css : haut 52 px, bas 62 px, plus les encoches). */
+          .mg-page {
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: calc(52px + env(safe-area-inset-top, 0px));
+            bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+            left: 0;
+            right: 0;
+            z-index: 20;
             background: var(--bg);
-            padding-bottom: 0.4rem;
+            padding: 0 0.75rem;
+          }
+          .messenger {
+            flex: 1;
+            min-height: 0;
+            height: auto;
+          }
+          /* En-tête réduit à une ligne : le titre « Chat avec Aaron » est
+             déjà dans la barre du haut. */
+          .mg-head { padding: 0.45rem 0.1rem; gap: 0.55rem; }
+          .mg-avatar { width: 30px; height: 30px; }
+          .mg-page .mg-name { font-size: 0.92rem !important; line-height: 1.2 !important; margin: 0 !important; }
+          .mg-page .mg-status { font-size: 0.72rem !important; line-height: 1.2 !important; margin: 0 !important; }
+          .mg-icon-btn { width: 34px; height: 34px; }
+          .mg-messages { padding: 0.7rem 0.1rem 0.4rem; }
+          .mg-page .intro { margin-top: 1rem; font-size: 0.92rem !important; }
+          .bubble { max-width: 86%; font-size: 0.95rem; }
+          .mg-composer {
+            background: var(--bg);
+            padding: 0.45rem 0 0.5rem;
+            gap: 0.35rem;
+          }
+          /* Zone de saisie plus haute : on voit ce qu'on écrit (Alex). */
+          .mg-input {
+            min-height: 48px;
+            max-height: 38dvh;
+            padding: 0.75rem 1rem;
           }
         }
       `}</style>
