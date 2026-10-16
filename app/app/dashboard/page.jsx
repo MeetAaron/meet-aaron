@@ -9,6 +9,7 @@ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import ActivityFeed from '@/components/ActivityFeed';
 import InstallPrompt from '@/components/InstallPrompt';
 import Ic from '@/components/UiIcon';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } from '@/lib/pipeline';
@@ -831,6 +832,20 @@ export default function DashboardPage() {
               résument : la pastille jour/mois/heure de l'Agenda, la barre de
               progression avec pourcentage des Campagnes. Un en-tête avec
               lien « Voir tout » : le bloc est un aperçu, pas la page. */}
+
+          {/* Modernisation 16/10/2026, point 1 (Alex : « ça manque de
+              sérotonine ») : fil « Pendant ton absence » — ce qu'Aaron a
+              fait pour l'utilisateur ces 7 derniers jours, façon fil
+              Instagram. Lecture seule, zéro action demandée ; cliquer une
+              ligne ouvre la fiche. */}
+          {userId && (
+            <ActivityFeed
+              userId={userId}
+              locale={locale}
+              onOpenContact={(id) => { window.location.href = `/app/prospects?user_id=${userId}&contact=${id}`; }}
+            />
+          )}
+
           <section className="grid-two">
             <div className="panel">
               <div className="panel-head">
