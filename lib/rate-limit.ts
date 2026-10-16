@@ -36,9 +36,12 @@ const buckets = new Map<string, Bucket>();
 // empêcherait une instance serverless de s'endormir.
 function sweep(now: number) {
   if (buckets.size < 500) return;
-  for (const [key, b] of buckets) {
+  // forEach et non for...of : la cible TypeScript du projet est ES5, et
+  // iterer une Map avec for...of y exige --downlevelIteration. C'est
+  // exactement l'erreur qui a casse le build du 15/10 au 16/10.
+  buckets.forEach((b, key) => {
     if (b.resetAt <= now) buckets.delete(key);
-  }
+  });
 }
 
 export interface RateLimitResult {
