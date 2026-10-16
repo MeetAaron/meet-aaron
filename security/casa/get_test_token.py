@@ -35,27 +35,40 @@ def post(url, body, headers):
 
 
 def find_public_supabase_config():
-    url = key = None
+    """Cherche l'URL Supabase et la clé publique dans les chunks JS de /login.
+
+    Les balises <script> de Next.js portent un paramètre ?dpl=… (Vercel) :
+    on l'accepte. On privilégie le chunk qui contient À LA FOIS l'URL du
+    projet et une clé, c'est-à-dire la configuration de l'app, et non une
+    chaîne d'exemple de la bibliothèque Supabase.
+    """
     html = get(SITE + "/login")
-    scripts = sorted(set(re.findall(r'src="(/_next/static/[^"]+\.js)"', html)))
+    scripts = []
+    for m in re.finditer(r'src="(/_next/static/[^"?]+\.js(?:\?[^"]*)?)"', html):
+        if m.group(1) not in scripts:
+            scripts.append(m.group(1))
+    fallback_url = fallback_key = None
     for s in scripts:
-        js = get(SITE + s)
-        if not url:
-            m = re.search(r"https://[a-z0-9]{10,}\.supabase\.co", js)
-            if m:
-                url = m.group(0)
-        if not key:
-            m = re.search(r"sb_publishable_[A-Za-z0-9_-]{20,}", js)
-            if m:
-                key = m.group(0)
+        js = get(SITE + s.replace("&amp;", "&"))
+        m = re.search(r"https://[a-z0-9]{15,}\.supabase\.co", js)
+        url = m.group(0) if m else None
+        key = None
+        m = re.search(r"sb_publishable_[A-Za-z0-9_-]{20,}", js)
+        if m:
+            key = m.group(0)
         if not key:
             for m in re.finditer(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}", js):
-                if '"anon"' in base64.urlsafe_b64decode(m.group(0).split(".")[1] + "==").decode("utf-8", "ignore"):
+                payload = base64.urlsafe_b64decode(m.group(0).split(".")[1] + "==").decode("utf-8", "ignore")
+                if '"anon"' in payload:
                     key = m.group(0)
                     break
         if url and key:
             return url, key
-    sys.exit("Configuration Supabase publique introuvable dans le JavaScript du site")
+        fallback_url = fallback_url or url
+        fallback_key = fallback_key or key
+    if fallback_url and fallback_key:
+        return fallback_url, fallback_key
+    sys.exit("Configuration Supabase publique introuvable dans le JavaScript du site (%d scripts lus)" % len(scripts))
 
 
 def main():
