@@ -1310,6 +1310,11 @@ export default function ConnexionsPage() {
       setPasswordChangeError(updateError.message || t('common.error', locale));
       return;
     }
+    // Déconnexion des AUTRES appareils (16/10/2026, CASA 2.2.2) : la session
+    // en cours reste ouverte, toutes les autres sont révoquées côté Supabase
+    // Auth (jetons de rafraîchissement supprimés). Échec non bloquant : le
+    // mot de passe est déjà changé.
+    try { await supabaseBrowser.auth.signOut({ scope: 'others' }); } catch {}
     setPasswordChangeSaved(true);
     setCurrentPassword('');
     setNewPassword('');
