@@ -23,7 +23,7 @@ SITE = "https://meetaaron.app"
 
 
 def get(url, headers=None):
-    req = urllib.request.Request(url, headers=headers or {"User-Agent": "casa-scan"})
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) casa-scan"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read().decode("utf-8", "replace")
 
