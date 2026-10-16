@@ -40,6 +40,8 @@ import { encryptToken, decryptToken } from './encryption';
 import type { MailServerSettings } from './mail-autodiscover';
 import { isAuthError, recordMailboxAuthFailure, clearMailboxAuthFailures } from './mailbox-health';
 import { aaronLabelName, aaronLabelNameAscii, isAaronFolderName } from './aaron-label';
+import { promises as dnsPromises } from 'dns';
+import net from 'net';
 
 const { ImapFlow } = require('imapflow');
 const nodemailer = require('nodemailer');
@@ -241,7 +243,51 @@ async function rememberFolders(rowId: string, settings: ImapSettings, patch: Par
 // Test de connexion (formulaire Connexions) — ne stocke rien
 // ---------------------------------------------------------------------------
 
+// Protection SSRF (16/10/2026, CASA 5.1.5). Sur « Autre boîte mail », le
+// commercial peut saisir lui-même ses serveurs IMAP/SMTP : sans contrôle, le
+// serveur Meet Aaron ouvrirait une connexion vers N'IMPORTE QUELLE adresse —
+// y compris 127.0.0.1, le réseau interne de l'hébergeur ou l'adresse de
+// métadonnées 169.254.169.254. On n'accepte donc que les ports de messagerie
+// standard et des hôtes dont TOUTES les adresses résolues sont publiques.
+const MAIL_PORTS = new Set([25, 143, 465, 587, 993, 2525]);
+
+function isPrivateAddress(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) || // CGNAT
+      (a === 169 && b === 254) ||           // lien local / métadonnées cloud
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224                              // multicast et réservé
+    );
+  }
+  const v6 = ip.toLowerCase();
+  if (v6.startsWith('::ffff:')) return isPrivateAddress(v6.slice(7));
+  return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80') || v6.startsWith('ff');
+}
+
+export async function assertPublicMailServer(host: string, port: number): Promise<string | null> {
+  if (!MAIL_PORTS.has(port)) return `Port ${port} non autorisé pour un serveur de messagerie`;
+  if (!host || host.length > 253 || !/^[a-z0-9.-]+$/i.test(host)) return 'Nom de serveur invalide';
+  let addresses: string[];
+  try {
+    addresses = net.isIP(host) ? [host] : (await dnsPromises.lookup(host, { all: true })).map((r) => r.address);
+  } catch {
+    return `Serveur introuvable : ${host}`;
+  }
+  if (addresses.length === 0 || addresses.some(isPrivateAddress)) return `Adresse de serveur non autorisée : ${host}`;
+  return null;
+}
+
 export async function testImapSmtp(creds: ImapCredentials, locale?: string | null): Promise<{ ok: true; sentFolder: string | null; aaronFolder: string } | { ok: false; step: 'imap' | 'smtp'; error: string }> {
+  const imapBlocked = await assertPublicMailServer(creds.settings.imap_host, creds.settings.imap_port);
+  if (imapBlocked) return { ok: false, step: 'imap', error: imapBlocked };
+  const smtpBlocked = await assertPublicMailServer(creds.settings.smtp_host, creds.settings.smtp_port);
+  if (smtpBlocked) return { ok: false, step: 'smtp', error: smtpBlocked };
   let sentFolder: string | null = null;
   let aaronFolder = '';
   try {

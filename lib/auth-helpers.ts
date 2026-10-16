@@ -168,13 +168,6 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
   });
 }
 
-// Même chose que getAuthedUser, mais à partir d'un token déjà extrait (pas d'un
-// en-tête Authorization) — nécessaire pour /api/auth/google et /api/auth/microsoft,
-// atteintes par navigation complète (window.location.href) et non par fetch(),
-// donc invisibles pour AuthFetchInterceptor. Le frontend passe le token en
-// paramètre "?token=..." plutôt que le user_id brut, pour empêcher quiconque de
-// forger un lien "Connecter Gmail" qui lierait sa propre boîte mail au compte
-// Meet Aaron d'un tiers.
 // getAuthedUserFromToken (jeton de session en ?token=) a ete SUPPRIME le
 // 16/10/2026 : un jeton de session dans une URL finit dans les journaux
 // d'acces, l'historique du navigateur et le Referer (CASA 2.1.1). Les routes
