@@ -329,7 +329,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               required
-              minLength={6}
+              minLength={8}
             />
             <input
               type="password"
@@ -338,7 +338,7 @@ export default function LoginPage() {
               onChange={(e) => setPasswordConfirm(e.target.value)}
               autoComplete="new-password"
               required
-              minLength={6}
+              minLength={8}
             />
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? t('common.loading', locale) : t('auth.resetSubmit', locale)}
