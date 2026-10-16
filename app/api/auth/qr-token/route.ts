@@ -23,7 +23,12 @@ export async function POST(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
 
   const { provider } = await request.json();
-  if (provider !== 'google' && provider !== 'microsoft') {
+  // Depuis le 16/10/2026 cette route sert aussi de jeton de PASSAGE pour
+  // toutes les routes atteintes par navigation complete (demarrage OAuth
+  // des CRM, fiche vCard) : le jeton de session ne va plus jamais dans une
+  // URL (CASA 2.1.1). Meme table, meme usage unique, meme duree.
+  const PROVIDERS = ['google', 'microsoft', 'hubspot', 'salesforce', 'jobber', 'pipedrive', 'vcard'];
+  if (!PROVIDERS.includes(provider)) {
     return NextResponse.json({ error: 'provider invalide' }, { status: 400 });
   }
 
