@@ -31,6 +31,26 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: 'Fichier trop lourd (15 Mo max)' }, { status: 400 });
   }
+  // Liste fermee des types acceptes (15/10/2026, audit CASA). Le plafond de
+  // taille existait deja ; le type, lui, etait repris tel quel du navigateur
+  // et stocke sans controle. Un devis est un PDF, un Word ou une image : il
+  // n'y a aucune raison d'accepter autre chose.
+  const ALLOWED_TYPES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/rtf',
+    'text/plain',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+  ];
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return NextResponse.json(
+      { error: 'Type de fichier non accepte. Depose un PDF, un Word ou une image.' },
+      { status: 415 }
+    );
+  }
 
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
