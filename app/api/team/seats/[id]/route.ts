@@ -17,6 +17,7 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { MODULE_CODES, ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
+import { readJsonBody, serverError } from '@/lib/http';
 
 function moduleColumn(module: ModuleCode) {
   return {
@@ -46,7 +47,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const seat = await loadSeat(params.id, authedUser.company_id);
   if (!seat) return NextResponse.json({ error: 'Compte équipe introuvable' }, { status: 404 });
 
-  const body = await request.json();
+  const body = await readJsonBody(request);
 
   if (body.action === 'cancel') {
     if (seat.status === 'cancelled') {
@@ -78,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .select('id, status')
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return serverError(error, '/api/team/seats/[id]');
     return NextResponse.json({ seat: updated });
   }
 
@@ -110,7 +111,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
             await stripe.subscriptionItems.del(itemId);
           } catch (err: any) {
             console.error(`Modification siège ${params.id} : suppression ligne Stripe ${itemId} (module ${module}) a échoué`, err.message);
-            return NextResponse.json({ error: `Erreur Stripe en retirant le module ${module} : ${err.message}` }, { status: 500 });
+            return NextResponse.json({ error: `Erreur Stripe en retirant le module ${module}. Réessaie dans un instant.` }, { status: 500 });
           }
         }
         updates[cols.active] = false;
@@ -154,7 +155,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .select('id, first_name, last_name, job_title, email, status, ap_active, as_active, ac_active')
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/team/seats/[id]');
   return NextResponse.json({ seat: updated });
 }
 
@@ -187,7 +188,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   // sans action explicite dédiée, voir lib/account-deletion.ts). Il perd
   // simplement son rattachement à ce siège.
   const { error } = await supabaseAdmin.from('team_seats').delete().eq('id', params.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/team/seats/[id]');
 
   return NextResponse.json({ success: true });
 }
