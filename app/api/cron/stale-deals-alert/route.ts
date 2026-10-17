@@ -14,6 +14,7 @@ import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { serverError } from '@/lib/http';
 
 const STALE_DAYS = 5;
 const NON_TERMINAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation'];
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
     .lt('deal_stage_updated_at', staleBefore);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/stale-deals-alert');
   }
 
   const alerted: string[] = [];
