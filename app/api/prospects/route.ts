@@ -12,6 +12,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { researchProspectCompany } from '@/lib/prospect-research';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
   const { data: prospects, error } = await query.order('updated_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/prospects');
   }
 
   if (scope !== 'all') {
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
 
   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : d'où vient ce prospect —
@@ -273,7 +274,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (companyError) {
-      return NextResponse.json({ error: companyError.message }, { status: 500 });
+      return serverError(companyError, '/api/prospects');
     }
     prospectCompany = newCompany;
   } else {
@@ -313,7 +314,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (prospectError) {
-    return NextResponse.json({ error: prospectError.message }, { status: 500 });
+    return serverError(prospectError, '/api/prospects');
   }
 
   // Crée la conversation associée
