@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
+import { serverError } from '@/lib/http';
 
 const FOLLOWUP_DELAY_DAYS = 4;
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     .eq('ai_managed', true);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/kickoff-followup');
   }
 
   const sent: string[] = [];
