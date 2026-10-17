@@ -14,9 +14,10 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { email } = await request.json();
+  const { email } = await readJsonBody(request);
 
   // Limitation de débit (15/10/2026, audit CASA). Plus permissive que les
   // deux autres, à dessein : cette route existe précisément pour quelqu'un
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return serverError(insertError, '/api/auth/resend-verification');
   }
 
   const origin = request.nextUrl.origin;
