@@ -14,9 +14,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, invite_code } = await request.json();
+  const { first_name, full_name, invite_code } = await readJsonBody(request);
 
   if (!first_name || !full_name || !invite_code) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError(error, '/api/join-company');
     }
 
     const { error: seatError } = await supabaseAdmin
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/join-company');
   }
 
   return NextResponse.json({ user, company_name: company.name });
