@@ -19,6 +19,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { generateCheckinMessage } from '@/lib/aaron-customer';
+import { serverError } from '@/lib/http';
 
 // Paliers en jours après la signature (won_at) pour les 3 premiers
 // check-ins ; au-delà, CHECKIN_INTERVAL_AFTER_MILESTONES_DAYS s'applique en
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
     .in('company_id', allowedCompanyIds);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/customer-checkins');
   }
 
   const due = (customers || []).filter((c) => isDue(c as any, now));
