@@ -20,6 +20,7 @@ import { localeInstruction } from '@/lib/locale-instruction';
 // partagée avec app/api/business-summary/versions/route.ts (réactivation
 // d'une ancienne version) — voir lib/business-summary-store.ts.
 import { backupThenReplaceBusinessSummary } from '@/lib/business-summary-store';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
 // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
   // doit surtout pas être rendue comme "profil vide" : l'UI sait afficher un
   // vrai message d'erreur (summaryLoadError) sur un statut non-200.
   if (res.error) {
-    return NextResponse.json({ error: res.error.message }, { status: 500 });
+    return serverError(res.error, '/api/business-summary');
   }
   const company: any = res.data;
 
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
 // PATCH -> permet au commercial de corriger/étoffer le résumé à la main,
 // sans repasser par une régénération via Claude.
 export async function PATCH(request: NextRequest) {
-  const { user_id, summary } = await request.json();
+  const { user_id, summary } = await readJsonBody(request);
 
   if (!user_id || typeof summary !== 'string') {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -107,14 +108,14 @@ export async function PATCH(request: NextRequest) {
   const { error } = await backupThenReplaceBusinessSummary(user.company_id, summary.trim());
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/business-summary');
   }
 
   return NextResponse.json({ success: true });
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, description, qa } = await request.json();
+  const { user_id, description, qa } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -292,6 +293,6 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/business-summary');
   }
 }
