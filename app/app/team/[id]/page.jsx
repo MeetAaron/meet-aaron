@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
+import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 
@@ -461,13 +462,15 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             <Link
               key={item.label}
               href={`/app/${item.slug}${userId ? `?user_id=${userId}` : ''}`}
-              className="nav-link"
+              className={railLinkClass(item.slug, item.label, active)}
               onClick={() => setMobileOpen(false)}
             >
               <li className={`${item.label === active ? 'active' : ''}${item.locked ? ' locked' : ''}`}><span className="nav-icon"><NavIcon slug={item.slug} /></span><span className="nav-label">{item.label}</span>{item.locked && <span className="lock-badge" title={t('shell.notIncluded', locale)}><LockIcon /></span>}</li>
             </Link>
           ))}
         </ul>
+        {/* Rubriques rares dans « Plus » (modernisation 16/10/2026, point 4) — components/RailMore.jsx */}
+        <RailMore items={NAV_ITEMS.filter((item) => item.slug !== 'customer' || userEmail === 'aaron@meetaaron.app')} active={active} userId={userId} label={t('shell.more', locale)} notIncludedLabel={t('shell.notIncluded', locale)} />
         <div className="rail-bell">
           <Stories mode="bell" userId={userId} locale={locale} />
         </div>
