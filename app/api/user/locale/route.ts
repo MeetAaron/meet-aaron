@@ -14,12 +14,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { LOCALE_NAMES } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const body = await request.json();
+  const body = await readJsonBody(request);
 
   if (typeof body.locale !== 'string' || !LOCALE_NAMES[body.locale]) {
     return NextResponse.json({ error: 'Langue invalide' }, { status: 400 });
@@ -31,7 +32,7 @@ export async function PATCH(request: NextRequest) {
     .eq('id', authedUser.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/user/locale');
   }
 
   return NextResponse.json({ success: true });
