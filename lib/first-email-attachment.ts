@@ -113,14 +113,31 @@ export async function getFirstEmailAttachment(
     // Langue du prospect : même calcul que pour le corps de l'email.
     let locale: string | null = null;
     if (prospectId) {
+      // 17/10/2026 : la langue de la campagne d'origine (target_locale) est
+      // désormais prise en compte, exactement comme pour la signature et le
+      // bandeau (lib/signature-locale.ts, recipientLocaleForSignature). Avant,
+      // un prospect sans adresse et avec un domaine en .com, trouvé par une
+      // campagne allemande, recevait une signature allemande mais la
+      // plaquette de la langue du commercial.
       const { data: p } = await supabaseAdmin
         .from('prospects')
-        .select('email, users(locale), prospect_companies(address)')
+        .select('email, users(locale), prospect_companies(address, found_by_campaign_id)')
         .eq('id', prospectId)
         .maybeSingle();
       if (p) {
+        const company: any = (p as any).prospect_companies || null;
+        let campaignLocale: string | null = null;
+        if (company?.found_by_campaign_id) {
+          const { data: campaign } = await supabaseAdmin
+            .from('prospecting_campaigns')
+            .select('target_locale')
+            .eq('id', company.found_by_campaign_id)
+            .maybeSingle();
+          campaignLocale = (campaign as any)?.target_locale || null;
+        }
         locale = resolveProspectLocale({
-          address: (p as any).prospect_companies?.address || null,
+          campaignLocale,
+          address: company?.address || null,
           email: (p as any).email || null,
           sellerLocale: (p as any).users?.locale || null,
         });
