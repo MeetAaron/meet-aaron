@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+import { readJsonBody } from '@/lib/http';
 
 // Colonne ajoutée par migration_push_user_agent_2026-08-31.sql. Tant que la
 // migration n'a pas été exécutée, Postgres renvoie 42703 (undefined_column) :
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const { subscription } = await request.json();
+  const { subscription } = await readJsonBody(request);
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     return NextResponse.json({ error: 'Abonnement push invalide' }, { status: 400 });
   }
@@ -93,7 +94,7 @@ export async function DELETE(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const { endpoint } = await request.json();
+  const { endpoint } = await readJsonBody(request);
   if (!endpoint) {
     return NextResponse.json({ error: 'endpoint manquant' }, { status: 400 });
   }
