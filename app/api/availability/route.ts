@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -32,10 +33,10 @@ export async function GET(request: NextRequest) {
   ]);
 
   if (rulesRes.error) {
-    return NextResponse.json({ error: rulesRes.error.message }, { status: 500 });
+    return serverError(rulesRes.error, '/api/availability');
   }
   if (blocksRes.error) {
-    return NextResponse.json({ error: blocksRes.error.message }, { status: 500 });
+    return serverError(blocksRes.error, '/api/availability');
   }
 
   return NextResponse.json({ rules: rulesRes.data || [], blocks: blocksRes.data || [] });
