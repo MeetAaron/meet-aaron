@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { extractFullDocumentText } from '@/lib/document-extraction';
+import { serverError } from '@/lib/http';
 
 const ACCEPTED_MIMES = new Set([
   'application/pdf',
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     .eq('id', user.company_id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/business-summary/import');
   }
 
   return NextResponse.json({
