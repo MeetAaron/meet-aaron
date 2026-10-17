@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const PREVIEW_LENGTH = 80;
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     .order('updated_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/chat-conversations');
   }
 
   // Aperçu du dernier message de chaque conversation — une seule requête
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id } = await request.json();
+  const { user_id } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/chat-conversations');
   }
 
   return NextResponse.json({ conversation: { ...conversation, preview: null } });
