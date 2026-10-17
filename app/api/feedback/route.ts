@@ -5,9 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { user_id, message } = await request.json();
+  const { user_id, message } = await readJsonBody(request);
 
   if (!user_id || !message) {
     return NextResponse.json({ error: 'user_id ou message manquant' }, { status: 400 });
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/feedback');
   }
 
   return NextResponse.json({ success: true });
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/feedback');
   }
 
   return NextResponse.json({ feedback });
