@@ -28,6 +28,7 @@ import {
   CURRENCY_SYMBOLS,
   type BoostCurrency,
 } from '@/lib/boost-tiers';
+import { serverError } from '@/lib/http';
 
 const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
 
@@ -159,7 +160,7 @@ export async function GET(request: NextRequest) {
   ]);
 
   if (companiesRes.error) {
-    return NextResponse.json({ error: companiesRes.error.message }, { status: 500 });
+    return serverError(companiesRes.error, '/api/admin/margin');
   }
 
   const costByCompany: Record<string, number> = {};
