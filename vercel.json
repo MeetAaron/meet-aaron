@@ -1,4 +1,10 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "casa-zap-results": false,
+      "erreurs-api": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/check-inbox",
