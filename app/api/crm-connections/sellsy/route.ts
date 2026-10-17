@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { encryptToken } from '@/lib/encryption';
+import { readJsonBody } from '@/lib/http';
 
 const SELLSY_TOKEN_URL = 'https://login.sellsy.com/oauth2/access-tokens';
 
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
   let clientId: string | null = null;
   let clientSecret: string | null = null;
   try {
-    const body = await request.json();
+    const body = await readJsonBody(request);
     clientId = typeof body?.client_id === 'string' ? body.client_id.trim() : null;
     clientSecret = typeof body?.client_secret === 'string' ? body.client_secret.trim() : null;
   } catch {
