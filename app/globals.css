@@ -1146,3 +1146,226 @@ html[data-theme='light']:root {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------
+   Célébration « Nouveau client ! » (modernisation 16/10/2026, point 3)
+   components/WinCelebration.jsx, monté dans app/layout.jsx.
+   ------------------------------------------------------------------ */
+.win-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(75, 57, 239, 0.38), rgba(10, 12, 23, 0.92) 62%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: win-fade 0.28s ease-out both;
+}
+.win-confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.win-card {
+  position: relative;
+  width: min(420px, 100%);
+  text-align: center;
+  padding: 2.2rem 1.6rem 1.6rem;
+  border-radius: var(--radius-xl, 24px);
+  background: linear-gradient(180deg, var(--surface, #12162a), var(--bg-elevated, #0f1224));
+  border: 1px solid var(--border, #232744);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(124, 110, 245, 0.15);
+  animation: win-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.win-ring {
+  width: 112px;
+  height: 112px;
+  margin: 0 auto 1.2rem;
+  border-radius: 50%;
+  padding: 4px;
+  background: conic-gradient(from 210deg, #f5a623, #ef4459, #7c6ef5, #3dd68c, #f5a623);
+  box-shadow: 0 0 46px rgba(245, 166, 35, 0.35);
+  animation: win-spin 6s linear infinite;
+}
+.win-ring-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--bg-elevated, #0f1224);
+  color: #f5c35b;
+  animation: win-spin 6s linear infinite reverse;
+}
+.win-title {
+  margin: 0 0 0.4rem;
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: clamp(1.9rem, 7vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text, #f4f1ea);
+}
+.win-who {
+  margin: 0 0 0.6rem;
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: var(--accent-light, #7c6ef5);
+  overflow-wrap: anywhere;
+}
+.win-body {
+  margin: 0 0 1.5rem;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--muted, #8b90a8);
+}
+.win-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.8rem 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--border, #232744);
+  background: transparent;
+  color: var(--text, #f4f1ea);
+  font: 600 1rem 'Inter', sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.win-btn-primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent-light, #7c6ef5), var(--accent, #4b39ef));
+  color: #fff;
+  box-shadow: 0 10px 26px var(--accent-glow, rgba(75, 57, 239, 0.4));
+}
+.win-btn:focus-visible {
+  outline: 2px solid var(--accent-light, #7c6ef5);
+  outline-offset: 2px;
+}
+@keyframes win-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes win-pop {
+  from { opacity: 0; transform: translateY(18px) scale(0.86); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes win-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .win-overlay, .win-card, .win-ring, .win-ring-inner { animation: none !important; }
+}
+
+/* ------------------------------------------------------------------
+   Rail « Plus » (modernisation 16/10/2026, point 4)
+   components/RailMore.jsx. Ordinateur (≥ 901 px) : les rubriques rares
+   (.nav-rare) quittent le rail et passent dans ce menu. Téléphone : le
+   tiroir garde toute la liste, ce bouton est masqué.
+   Styles entièrement ici : les styles du rail de chaque page sont
+   scopés par styled-jsx et ne s'appliquent pas à ce composant.
+   ------------------------------------------------------------------ */
+.rail-more { display: none; }
+@media (min-width: 901px) {
+  .sidebar .nav-rare { display: none !important; }
+  .sidebar .rail-more {
+    display: flex;
+    flex-direction: column;
+    list-style: none;
+    margin: 0.2rem 0 0;
+    padding: 0;
+    /* Porte aussi la classe nav-list : sur fenêtre basse, .nav-list passe en
+       overflow-y: auto et couperait le menu qui sort du rail. */
+    overflow: visible !important;
+    flex-shrink: 0;
+  }
+  .sidebar .rail-more > li {
+    position: relative;
+    display: flex;
+    align-items: center;
+    border-radius: var(--radius-md, 12px);
+    color: var(--muted);
+  }
+  .rail-more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .rail-more .nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tint-4, rgba(244, 241, 234, 0.04));
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .rail-more-btn:hover .nav-icon,
+  .rail-more-open .nav-icon {
+    background: rgba(124, 110, 245, 0.22);
+    color: var(--text);
+  }
+  .rail-more-btn:focus-visible .nav-icon {
+    outline: 2px solid var(--accent-light);
+    outline-offset: 2px;
+  }
+  .rail-more-open .nav-label { opacity: 0 !important; }
+  .rail-more-pop {
+    position: absolute;
+    left: calc(100% + 12px);
+    bottom: -0.4rem;
+    z-index: 95;
+    min-width: 232px;
+    padding: 0.4rem;
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    animation: rail-more-in 0.16s ease-out both;
+  }
+  .rail-more-item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 11px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .rail-more-item:hover,
+  .rail-more-item:focus-visible {
+    background: var(--surface-hover);
+    outline: none;
+  }
+  .rail-more-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: var(--tint-4, rgba(244, 241, 234, 0.04));
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .rail-more-lock { margin-left: auto; color: var(--muted); }
+}
+@keyframes rail-more-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}

@@ -2,6 +2,7 @@ import "./globals.css";
 import React from "react";
 import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
 import TimeZoneReporter from "@/components/TimeZoneReporter";
+import WinCelebration from "@/components/WinCelebration";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
 
@@ -74,6 +75,9 @@ export default function RootLayout({ children }) {
             // Remonte le fuseau horaire du navigateur (users.timezone) pour que
             // le rapport de resultats parte a minuit chez le commercial.
             React.createElement(TimeZoneReporter, null),
+            // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
+            // point 3) : écoute un événement, n'affiche rien sinon.
+            React.createElement(WinCelebration, null),
             children
           )
         );
