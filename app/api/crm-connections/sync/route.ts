@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { syncWonProspectToCrm } from '@/lib/crm-sync';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // Plafond par appel : un déclenchement manuel reste rapide et lisible pour le
 // commercial qui clique, et borne le pire cas si beaucoup de prospects
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   let requestedProvider: string | null = null;
   try {
-    const body = await request.json();
+    const body = await readJsonBody(request);
     requestedProvider = body?.provider || null;
   } catch {
     // Corps vide accepté (appel historique sans provider) — repli ci-dessous.
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     .limit(MAX_PER_SYNC);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/crm-connections/sync');
   }
 
   let synced = 0;
