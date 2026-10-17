@@ -16,6 +16,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { extractDocumentText } from '@/lib/document-extraction';
 import { analyzeDocument } from '@/lib/document-summary';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
+import { serverError } from '@/lib/http';
 
 const BUCKET = 'documents';
 
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/documents');
   }
 
   const documentsWithUrls = await Promise.all(
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
     .upload(storagePath, buffer, { contentType: file.type });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    return serverError(uploadError, '/api/documents');
   }
 
   const extractedText = await extractDocumentText(buffer, file.type);
@@ -192,7 +193,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (dbError) {
-    return NextResponse.json({ error: dbError.message }, { status: 500 });
+    return serverError(dbError, '/api/documents');
   }
 
   return NextResponse.json({ document: doc });
