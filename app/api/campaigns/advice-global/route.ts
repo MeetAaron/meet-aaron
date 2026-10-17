@@ -12,9 +12,10 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { getPastCampaignStats } from '@/lib/campaign-insights';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { user_id, scope } = await request.json();
+  const { user_id, scope } = await readJsonBody(request);
 
   if (!user_id || (scope !== 'ongoing' && scope !== 'past')) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -89,6 +90,6 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/campaigns/advice-global');
   }
 }
