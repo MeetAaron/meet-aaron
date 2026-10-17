@@ -32,6 +32,7 @@ import { computePeriodSummary } from '@/lib/results-report';
 import { sendSystemEmail } from '@/lib/google';
 import { sendPushNotification } from '@/lib/push';
 import { resolveUserTimeZone, localParts } from '@/lib/user-timezone';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
     res = await supabaseAdmin.from('users').select('id, full_name, email').not('email', 'is', null);
   }
   if (res.error) {
-    return NextResponse.json({ error: res.error.message }, { status: 500 });
+    return serverError(res.error, '/api/cron/send-results-reports');
   }
   users = res.data;
 
