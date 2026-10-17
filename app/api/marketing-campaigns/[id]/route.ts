@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 async function loadCampaign(id: string) {
   const { data } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', id).single();
@@ -43,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== campaign.created_by_user_id) return forbiddenResponse();
 
-  const body = await request.json();
+  const body = await readJsonBody(request);
 
   // Pause / reprise manuelle, indépendant de l'édition de contenu.
   if (body.action === 'pause' || body.action === 'reprendre') {
@@ -57,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', campaign.id)
       .select()
       .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return serverError(error, '/api/marketing-campaigns/[id]');
     return NextResponse.json({ campaign: updated });
   }
 
@@ -103,7 +104,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .single();
   }
 
-  if (res.error) return NextResponse.json({ error: res.error.message }, { status: 500 });
+  if (res.error) return serverError(res.error, '/api/marketing-campaigns/[id]');
   return NextResponse.json({ campaign: res.data });
 }
 
@@ -120,7 +121,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   }
 
   const { error } = await supabaseAdmin.from('marketing_campaigns').delete().eq('id', campaign.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/marketing-campaigns/[id]');
 
   return NextResponse.json({ success: true });
 }
