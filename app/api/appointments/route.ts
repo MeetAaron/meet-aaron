@@ -10,6 +10,7 @@ import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { getConnectedProviders } from '@/lib/messaging';
 import { resolveMeetingLink } from '@/lib/meeting-link';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const VALID_TYPES = ['visio', 'physique', 'telephonique'];
 
@@ -40,14 +41,14 @@ export async function GET(request: NextRequest) {
     .order('proposed_at', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/appointments');
   }
 
   return NextResponse.json({ appointments });
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const { user_id, type, proposed_at, prospect_id, contact_name } = body;
 
   if (!user_id || !type || !proposed_at) {
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/appointments');
   }
 
   // Pousse le RDV vers Google/Outlook (28/08/2026, demande Alex : "quand le
