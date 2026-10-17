@@ -9,10 +9,11 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { generateAppointmentDebrief } from '@/lib/aaron-sales';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { readJsonBody } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const appointmentId = params.id;
-  const { notes } = await request.json();
+  const { notes } = await readJsonBody(request);
 
   if (!notes || typeof notes !== 'string' || !notes.trim()) {
     return NextResponse.json({ error: 'Notes manquantes — quelques lignes suffisent.' }, { status: 400 });
