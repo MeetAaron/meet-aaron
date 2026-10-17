@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
+import { serverError } from '@/lib/http';
 
 const REMINDER_TYPE = 'prospect_appointment_reminder_24h';
 const TARGET_HOURS_BEFORE = 24;
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
     .lte('proposed_at', windowEnd.toISOString());
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/prospect-appointment-reminders');
   }
 
   // Chaque RDV appartient à un commercial différent (comptes distincts) — les
