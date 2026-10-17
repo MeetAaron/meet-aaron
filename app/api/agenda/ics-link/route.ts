@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 function urlsForToken(token: string) {
   const base = (process.env.APP_URL || '').replace(/\/$/, '');
@@ -43,7 +44,7 @@ async function handler(request: NextRequest, regenerate: boolean) {
     token = randomUUID();
     const { error } = await supabaseAdmin.from('users').update({ ics_feed_token: token }).eq('id', userId);
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError(error, '/api/agenda/ics-link');
     }
   }
 
