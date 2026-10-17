@@ -27,6 +27,7 @@ import {
   suggestedSpfRecord,
   suggestedDmarcRecord,
 } from '@/lib/email-deliverability';
+import { readJsonBody } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -119,7 +120,7 @@ export async function GET(request: NextRequest) {
 // force: true — on contourne volontairement le garde-fou « une seule fois » :
 // c'est l'utilisateur qui le demande explicitement, pas nous qui relançons.
 export async function POST(request: NextRequest) {
-  const { user_id } = await request.json().catch(() => ({ user_id: null }));
+  const { user_id } = await readJsonBody(request).catch(() => ({ user_id: null }));
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }
