@@ -177,6 +177,11 @@ function categoryLabelsFor(locale) {
 }
 
 export default function DocumentsPage() {
+  // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
+  // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
+  // qu'un élément était affiché, le rendu levait « savedKey is not
+  // defined » et la page restait vide.
+  const { savedKey, flash: flashSaved } = useSavedFlash();
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [documents, setDocuments] = useState([]);
@@ -1269,7 +1274,6 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
   // « Changement enregistré » sous la carte du document concerné (05/09/2026).
-  const { savedKey, flash: flashSaved } = useSavedFlash();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
   // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
