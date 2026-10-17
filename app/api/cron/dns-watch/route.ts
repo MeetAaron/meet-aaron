@@ -37,6 +37,7 @@ import { computeDnsSetupNeeds, buildDnsSetupEmail } from '@/lib/dns-setup-email'
 import type { MailProvider } from '@/lib/dns-setup-email';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -114,7 +115,7 @@ export async function GET(request: NextRequest) {
       .in('provider', ['google', 'microsoft', 'imap']);
   }
   if (connsRes.error) {
-    return NextResponse.json({ error: connsRes.error.message }, { status: 500 });
+    return serverError(connsRes.error, '/api/cron/dns-watch');
   }
 
   // Un seul passage par utilisateur : quelqu'un qui a connecté Gmail ET
