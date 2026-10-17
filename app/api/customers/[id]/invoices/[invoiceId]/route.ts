@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string; invoiceId: string } }) {
   const { id: prospectId, invoiceId } = params;
@@ -34,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: 'Facture introuvable' }, { status: 404 });
   }
 
-  const { status } = await request.json();
+  const { status } = await readJsonBody(request);
   if (!['payee', 'annulee'].includes(status)) {
     return NextResponse.json({ error: 'Statut invalide (attendu : payee ou annulee).' }, { status: 400 });
   }
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const { error: updateError } = await supabaseAdmin.from('client_invoices').update(updates).eq('id', invoiceId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return serverError(updateError, '/api/customers/[id]/invoices/[invoiceId]');
   }
 
   return NextResponse.json({ success: true, status });

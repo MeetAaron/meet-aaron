@@ -13,6 +13,7 @@ import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { generateUpsellSuggestion } from '@/lib/aaron-customer';
+import { serverError } from '@/lib/http';
 
 const MIN_HEALTH_SCORE = 80;
 const MIN_TENURE_DAYS = 60;
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     .is('upsell_dismissed_at', null);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/upsell-signals');
   }
 
   const suggested: string[] = [];

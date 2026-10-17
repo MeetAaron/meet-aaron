@@ -11,6 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { sendEmailForUser } from '@/lib/messaging';
 import { personalize, rewriteLinksForTracking, appendUnsubscribeFooter } from '@/lib/marketing-tracking';
+import { serverError } from '@/lib/http';
 
 const BATCH_SIZE = 20;
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .eq('status', 'en_attente')
     .limit(BATCH_SIZE);
 
-  if (batchError) return NextResponse.json({ error: batchError.message }, { status: 500 });
+  if (batchError) return serverError(batchError, '/api/marketing-campaigns/[id]/send');
 
   if (campaign.status === 'prete') {
     await supabaseAdmin

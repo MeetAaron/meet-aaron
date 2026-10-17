@@ -20,6 +20,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { BOOST_TIERS, boostTierById, capUsdForCredits, listActiveBoosts } from '@/lib/credit-boosts';
 import { boostPrice, currencyForCountry, prospectsForTier } from '@/lib/boost-tiers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 
 // Pays de facturation de la société, renseigné automatiquement au premier
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { tier: tierId, locale } = await request.json();
+  const { tier: tierId, locale } = await readJsonBody(request);
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -186,6 +187,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
     console.error('Erreur création session Stripe (boost):', err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return serverError(err, '/api/credits/boost');
   }
 }

@@ -15,6 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { buildBusinessProfilePdf } from '@/lib/business-profile-pdf';
 import { sendEmailForUser } from '@/lib/messaging';
+import { readJsonBody } from '@/lib/http';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -51,7 +52,7 @@ function shareFailure(step: ShareStep, err: any, status = 500) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, email } = await request.json().catch(() => ({ user_id: null, email: null }));
+  const { user_id, email } = await readJsonBody(request).catch(() => ({ user_id: null, email: null }));
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
   }

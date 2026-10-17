@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { sendSystemEmail } from '@/lib/google';
+import { serverError } from '@/lib/http';
 
 // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
 // la durée de l'abonnement le client ne pourra plus accéder à rien. Il
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError(error, '/api/auth/link');
     }
     const inactiveError = await subscriptionInactiveError(updated.company_id);
     if (inactiveError) {

@@ -15,6 +15,7 @@ import PDFDocument from 'pdfkit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { computePeriodSummary } from '@/lib/results-report';
+import { readJsonBody } from '@/lib/http';
 
 const TYPE_LABELS: Record<string, string> = {
   day: 'Jour',
@@ -41,7 +42,7 @@ function csvEscape(value: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, type, period_start, period_end, format, title } = await request.json();
+  const { user_id, type, period_start, period_end, format, title } = await readJsonBody(request);
 
   if (!user_id || !period_start) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });

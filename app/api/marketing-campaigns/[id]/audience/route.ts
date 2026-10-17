@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { resolveAudience } from '@/lib/marketing-audience';
+import { serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: campaign } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', params.id).single();
@@ -28,6 +29,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       })),
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/marketing-campaigns/[id]/audience');
   }
 }

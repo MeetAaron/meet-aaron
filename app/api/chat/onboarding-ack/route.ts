@@ -26,6 +26,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody } from '@/lib/http';
 
 const SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA, en plein questionnaire de découverte avec un commercial/fondateur. Tu viens de lui poser une question de ce questionnaire, et il vient de répondre — mais "répondre" est à vérifier : c'est parfois une vraie réponse, parfois une question EN RETOUR, une incompréhension, ou un aparté sans lien.
 
@@ -43,7 +44,7 @@ Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour ni balises mark
 {"is_answer": true|false, "reply": "..."}`;
 
 export async function POST(request: NextRequest) {
-  const { user_id, question, answer, previous_answers } = await request.json();
+  const { user_id, question, answer, previous_answers } = await readJsonBody(request);
 
   if (!user_id || !question || !answer) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });

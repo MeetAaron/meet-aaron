@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { syncExternalCalendarForUser } from '@/lib/calendar-sync';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
     .in('provider', ['google', 'microsoft']);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/sync-external-calendar');
   }
 
   const userIds = Array.from(new Set((connections || []).map((c) => c.user_id)));

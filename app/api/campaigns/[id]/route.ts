@@ -16,9 +16,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action } = await request.json();
+  const { action } = await readJsonBody(request);
   const campaignId = params.id;
 
   const { data: campaign, error } = await supabaseAdmin

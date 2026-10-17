@@ -33,6 +33,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { encryptToken } from '@/lib/encryption';
+import { readJsonBody } from '@/lib/http';
 
 const SERVICEM8_BASE_URL = 'https://api.servicem8.com/api_1.0';
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
 
   let apiKey: string | null = null;
   try {
-    const body = await request.json();
+    const body = await readJsonBody(request);
     apiKey = typeof body?.api_key === 'string' ? body.api_key.trim() : null;
   } catch {
     // corps absent/invalide -> traité comme clé manquante ci-dessous

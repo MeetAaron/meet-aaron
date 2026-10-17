@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { executeAccountDeletion } from '@/lib/account-deletion';
+import { serverError } from '@/lib/http';
 
 // GARDE AJOUTEE LE 10/10/2026 — elle manquait.
 //
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error('[execute-account-deletions] Erreur requête users:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/execute-account-deletions');
   }
 
   let succeeded = 0;

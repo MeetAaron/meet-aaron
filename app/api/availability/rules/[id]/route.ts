@@ -8,9 +8,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const userId = body.user_id;
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -48,7 +49,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/rules/[id]');
   }
 
   return NextResponse.json({ rule: updated });
@@ -77,7 +78,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const { error } = await supabaseAdmin.from('availability_rules').delete().eq('id', params.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/rules/[id]');
   }
 
   return NextResponse.json({ success: true });

@@ -8,9 +8,10 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { auth_user_id, email } = await request.json();
+  const { auth_user_id, email } = await readJsonBody(request);
 
   // Limitation de débit (15/10/2026, audit CASA). Cette route était la plus
   // exposée des trois : non authentifiée, elle fait confiance à un
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return serverError(insertError, '/api/auth/send-verification');
   }
 
   const origin = request.nextUrl.origin;

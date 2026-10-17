@@ -19,11 +19,12 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+import { readJsonBody } from '@/lib/http';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
 
 export async function POST(request: NextRequest) {
-  const { email } = await request.json();
+  const { email } = await readJsonBody(request);
 
   // Limitation de débit (15/10/2026, audit CASA). Deux compteurs, parce
   // qu'ils arrêtent deux abus différents : par IP, quelqu'un qui balaye des

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 async function loadProductCompanyId(productId: string): Promise<string | null> {
   const { data: product } = await supabaseAdmin.from('products').select('company_id').eq('id', productId).maybeSingle();
@@ -19,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const productCompanyId = await loadProductCompanyId(params.id);
   if (!productCompanyId || productCompanyId !== authedUser.company_id) return forbiddenResponse();
 
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const updates: Record<string, any> = { updated_at: new Date().toISOString() };
 
   if (body.reference !== undefined) updates.reference = body.reference || null;
@@ -44,7 +45,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/products/[id]');
   }
 
   return NextResponse.json({ product });
@@ -60,7 +61,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const { error } = await supabaseAdmin.from('products').update({ is_active: false }).eq('id', params.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/products/[id]');
   }
 
   return NextResponse.json({ success: true });

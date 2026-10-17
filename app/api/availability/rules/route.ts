@@ -4,9 +4,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { user_id, day_of_week, start_time, end_time, appointment_type } = await request.json();
+  const { user_id, day_of_week, start_time, end_time, appointment_type } = await readJsonBody(request);
 
   if (user_id === undefined || day_of_week === undefined || !start_time || !end_time) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/rules');
   }
 
   return NextResponse.json({ rule: data });

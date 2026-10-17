@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { runOutlookDiagnostics } from '@/lib/outlook-diagnostics';
+import { serverError } from '@/lib/http';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,6 @@ export async function GET(request: NextRequest) {
     const report = await runOutlookDiagnostics(target, { fix });
     return NextResponse.json({ target_user_id: target, ...report });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return serverError(err, '/api/diagnostics/outlook');
   }
 }

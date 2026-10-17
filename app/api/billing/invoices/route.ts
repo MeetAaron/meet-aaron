@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
@@ -58,6 +59,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ invoices: simplified });
   } catch (err: any) {
     console.error('Erreur récupération factures Stripe:', err);
-    return NextResponse.json({ error: err.message || 'Erreur Stripe inconnue' }, { status: 500 });
+    return serverError(err, '/api/billing/invoices');
   }
 }

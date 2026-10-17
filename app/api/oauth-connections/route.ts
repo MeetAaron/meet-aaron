@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
   const connections = res.data;
 
   if (res.error) {
-    return NextResponse.json({ error: res.error.message }, { status: 500 });
+    return serverError(res.error, '/api/oauth-connections');
   }
 
   return NextResponse.json({ connections });
@@ -61,7 +62,7 @@ export async function DELETE(request: NextRequest) {
     .eq('user_id', userId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/oauth-connections');
   }
 
   return NextResponse.json({ success: true });

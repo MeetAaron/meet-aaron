@@ -17,6 +17,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { generateSeatActivationCode } from '@/lib/invite-code';
 import { ModuleCode, getModulePriceId, describeStripeSubscriptionError } from '@/lib/subscription';
+import { readJsonBody, serverError } from '@/lib/http';
 
 function moduleColumn(module: ModuleCode) {
   return {
@@ -40,14 +41,14 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/team/seats');
   }
 
   return NextResponse.json({ seats: seats || [] });
 }
 
 export async function POST(request: NextRequest) {
-  const { first_name, last_name, job_title, email } = await request.json();
+  const { first_name, last_name, job_title, email } = await readJsonBody(request);
 
   if (!first_name || !last_name || !email) {
     return NextResponse.json({ error: 'Prénom, nom et email sont requis' }, { status: 400 });

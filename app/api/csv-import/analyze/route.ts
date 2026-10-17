@@ -20,12 +20,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { readJsonBody } from '@/lib/http';
 
 const MAX_ROWS_PER_CALL = 40;
 const ALLOWED_MODULES = ['ap', 'as', 'ac'];
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const { user_id, company_id, module, rows } = body;
 
   if (!user_id || !company_id || !ALLOWED_MODULES.includes(module) || !Array.isArray(rows) || rows.length === 0) {

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 async function loadOwnedConversation(id: string, userId: string) {
   const { data } = await supabaseAdmin.from('chat_conversations').select('id, user_id').eq('id', id).maybeSingle();
@@ -15,7 +16,7 @@ async function loadOwnedConversation(id: string, userId: string) {
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { user_id, is_favorite, title } = await request.json();
+  const { user_id, is_favorite, title } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -44,7 +45,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/chat-conversations/[id]');
   }
 
   return NextResponse.json({ conversation });
@@ -67,7 +68,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   // cascade — les messages de la conversation sont supprimés automatiquement.
   const { error } = await supabaseAdmin.from('chat_conversations').delete().eq('id', params.id);
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/chat-conversations/[id]');
   }
 
   return NextResponse.json({ success: true });

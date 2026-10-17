@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
   if (res.error && res.error.code === '42703') {
     res = await supabaseAdmin.from('prospects').select(baseCols).eq('assigned_user_id', userId);
   }
-  if (res.error) return NextResponse.json({ error: res.error.message }, { status: 500 });
+  if (res.error) return serverError(res.error, '/api/activity');
   const prospects: any[] = res.data || [];
   const byId = new Map<string, any>();
   for (const p of prospects) byId.set(p.id, p);

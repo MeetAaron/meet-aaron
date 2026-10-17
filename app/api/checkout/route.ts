@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { ModuleCode, getModulePriceId } from '@/lib/subscription';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
 // de tarif sans redeployer. Le repli en dur a ete retire le 09/10/2026 : il
@@ -51,7 +52,7 @@ const STRIPE_LOCALE_MAP: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country, locale, modules, role } = await request.json();
+  const { first_name, full_name, company_name, country, locale, modules, role } = await readJsonBody(request);
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -142,6 +143,6 @@ try {
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
     console.error('Erreur création session Stripe:', err);
-    return NextResponse.json({ error: err.message || 'Erreur Stripe inconnue' }, { status: 500 });
+    return serverError(err, '/api/checkout');
   }
 }

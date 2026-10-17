@@ -16,6 +16,7 @@ import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { computeHealthScore, HEALTH_LABEL_META } from '@/lib/customer-health';
+import { serverError } from '@/lib/http';
 
 const RE_ALERT_AFTER_DAYS = 14;
 
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
     .in('company_id', allowedCompanyIds);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/customer-health');
   }
 
   const customerIds = (customers || []).map((c) => c.id);

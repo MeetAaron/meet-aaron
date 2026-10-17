@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+import { readJsonBody } from '@/lib/http';
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes — largement suffisant pour scanner + autoriser
 
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const { provider } = await request.json();
+  const { provider } = await readJsonBody(request);
   // Depuis le 16/10/2026 cette route sert aussi de jeton de PASSAGE pour
   // toutes les routes atteintes par navigation complete (demarrage OAuth
   // des CRM, fiche vCard) : le jeton de session ne va plus jamais dans une

@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
+import { serverError } from '@/lib/http';
 
 const WINDOW_HOURS = 48;
 const NOTIFICATION_TYPE = 'appointment_feedback_prompt';
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     .gt('proposed_at', windowStart.toISOString());
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/appointment-feedback-prompts');
   }
 
   const notified = [];

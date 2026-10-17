@@ -5,9 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { readJsonBody } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { token, password } = await request.json();
+  const { token, password } = await readJsonBody(request);
   if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
     return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
   }

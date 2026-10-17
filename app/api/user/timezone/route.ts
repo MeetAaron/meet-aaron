@@ -22,12 +22,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { isValidTimeZone } from '@/lib/user-timezone';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const body = await request.json().catch(() => ({}));
+  const body = await readJsonBody(request).catch(() => ({}));
   const timezone = typeof body.timezone === 'string' ? body.timezone.trim() : '';
 
   // On refuse tout ce qu'Intl ne reconnaît pas : la valeur finit dans un
@@ -46,7 +47,7 @@ export async function PATCH(request: NextRequest) {
     if ((error as any).code === '42703') {
       return NextResponse.json({ success: true, stored: false });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/user/timezone');
   }
 
   return NextResponse.json({ success: true, stored: true });

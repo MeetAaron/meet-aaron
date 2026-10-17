@@ -18,10 +18,11 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { sendEmailForUser } from '@/lib/messaging';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const prospectId = params.id;
-  const { action, details, subject, body } = await request.json();
+  const { action, details, subject, body } = await readJsonBody(request);
 
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     try {
       await pause();
     } catch (err: any) {
-      return NextResponse.json({ error: err.message }, { status: 500 });
+      return serverError(err, '/api/prospects/[id]/quote-reply');
     }
     return NextResponse.json({ success: true });
   }

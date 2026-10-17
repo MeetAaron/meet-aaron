@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { getNextInvoiceNumber, computeInvoiceTotals, lineItemsFromDevisRecap, DEFAULT_PAYMENT_TERMS_FR, InvoiceLineItem } from '@/lib/client-invoices';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const prospectId = params.id;
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     .order('issue_date', { ascending: false });
 
   if (invError) {
-    return NextResponse.json({ error: invError.message }, { status: 500 });
+    return serverError(invError, '/api/customers/[id]/invoices');
   }
 
   return NextResponse.json({ invoices: invoices || [] });
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "Ce prospect n'est pas (encore) un client gagné" }, { status: 400 });
   }
 
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const {
     line_items: rawLineItems,
     prefill_from_devis,
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     invoiceNumber = await getNextInvoiceNumber(prospect.company_id);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return serverError(err, '/api/customers/[id]/invoices');
   }
 
   const { data: invoice, error: insertError } = await supabaseAdmin
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .single();
 
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return serverError(insertError, '/api/customers/[id]/invoices');
   }
 
   return NextResponse.json({ invoice });

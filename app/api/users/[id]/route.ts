@@ -11,9 +11,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
@@ -43,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/users/[id]');
   }
 
   return NextResponse.json({ user: updated });

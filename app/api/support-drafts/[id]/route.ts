@@ -8,10 +8,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { sendEmailForUser } from '@/lib/messaging';
+import { readJsonBody } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const draftId = params.id;
-  const { action } = await request.json();
+  const { action } = await readJsonBody(request);
 
   const { data: draft, error } = await supabaseAdmin
     .from('customer_support_drafts')

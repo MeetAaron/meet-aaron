@@ -20,6 +20,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { resolveAudience } from '@/lib/marketing-audience';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: campaign } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', params.id).single();
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: 'Cette campagne ne peut plus être modifiée (envoi déjà commencé)' }, { status: 400 });
   }
 
-  const { goal } = await request.json();
+  const { goal } = await readJsonBody(request);
   if (!goal || !goal.trim()) {
     return NextResponse.json({ error: "Objectif de la campagne manquant (ex: \"annoncer une nouveauté\")" }, { status: 400 });
   }
@@ -108,6 +109,6 @@ Réponds STRICTEMENT en JSON valide, ${localeInstruction(authedUser.locale)}, su
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/marketing-campaigns/[id]/draft');
   return NextResponse.json({ campaign: updated });
 }

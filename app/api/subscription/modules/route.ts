@@ -38,6 +38,7 @@ import {
   isModuleActive,
   resolveSubscriptionItemId,
 } from '@/lib/subscription';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const MODULE_LABELS: Record<ModuleCode, string> = {
   AP: 'Aaron Prospect',
@@ -46,7 +47,7 @@ const MODULE_LABELS: Record<ModuleCode, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const { module, action } = await request.json();
+  const { module, action } = await readJsonBody(request);
 
   if (!MODULE_CODES.includes(module)) {
     return NextResponse.json({ error: 'Module invalide' }, { status: 400 });
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
       }
     } catch (err: any) {
       console.error(`Erreur désactivation module ${module} (Stripe):`, err.message);
-      return NextResponse.json({ error: err.message || 'Erreur Stripe' }, { status: 500 });
+      return serverError(err, '/api/subscription/modules');
     }
 
     return NextResponse.json({ success: true });
@@ -219,6 +220,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ checkout_url: session.url });
   } catch (err: any) {
     console.error(`Erreur activation module ${module} (Stripe):`, err.message);
-    return NextResponse.json({ error: err.message || 'Erreur Stripe' }, { status: 500 });
+    return serverError(err, '/api/subscription/modules');
   }
 }

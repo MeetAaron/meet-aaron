@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
@@ -39,6 +40,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: portalSession.url });
   } catch (err: any) {
     console.error('Erreur création session Billing Portal Stripe:', err);
-    return NextResponse.json({ error: err.message || 'Erreur Stripe inconnue' }, { status: 500 });
+    return serverError(err, '/api/billing-portal');
   }
 }

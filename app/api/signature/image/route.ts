@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { SIGNATURE_LOCALES } from '@/lib/signature-locale';
+import { serverError } from '@/lib/http';
 
 // Langue de destinataire pour laquelle ce bandeau est prevu (30/09/2026).
 // Vide = le bandeau PAR DEFAUT, celui qui sert pour toute langue non
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
     .upload(storagePath, buffer, { contentType: file.type, upsert: true });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    return serverError(uploadError, '/api/signature/image');
   }
 
   const { data: publicUrlData } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(storagePath);
@@ -125,10 +126,10 @@ export async function POST(request: NextRequest) {
         .eq('id', userId);
       if (!mergeErr) return NextResponse.json({ url: publicUrl, locale });
       if ((mergeErr as any).code !== '42703') {
-        return NextResponse.json({ error: mergeErr.message }, { status: 500 });
+        return serverError(mergeErr, '/api/signature/image');
       }
     } else if ((readErr as any).code !== '42703') {
-      return NextResponse.json({ error: readErr.message }, { status: 500 });
+      return serverError(readErr, '/api/signature/image');
     }
     return NextResponse.json({ url: publicUrl, locale, locale_saved: false });
   }
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
     .eq('id', userId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return serverError(updateError, '/api/signature/image');
   }
 
   return NextResponse.json({ url: publicUrl });
@@ -168,7 +169,7 @@ export async function DELETE(request: NextRequest) {
       .eq('id', userId)
       .maybeSingle();
     if (readErr && (readErr as any).code !== '42703') {
-      return NextResponse.json({ error: readErr.message }, { status: 500 });
+      return serverError(readErr, '/api/signature/image');
     }
     const merged = mergeLocaleMap((row as any)?.[localeColumnDel], locale, null);
     const { error: mergeErr } = await supabaseAdmin
@@ -176,7 +177,7 @@ export async function DELETE(request: NextRequest) {
       .update({ [localeColumnDel]: merged })
       .eq('id', userId);
     if (mergeErr && (mergeErr as any).code !== '42703') {
-      return NextResponse.json({ error: mergeErr.message }, { status: 500 });
+      return serverError(mergeErr, '/api/signature/image');
     }
     return NextResponse.json({ success: true, locale });
   }
@@ -187,7 +188,7 @@ export async function DELETE(request: NextRequest) {
     .eq('id', userId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/signature/image');
   }
 
   return NextResponse.json({ success: true });

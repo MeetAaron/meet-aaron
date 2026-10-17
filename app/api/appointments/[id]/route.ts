@@ -27,6 +27,7 @@ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/cal
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { resolveMeetingLink } from '@/lib/meeting-link';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
 // le calendrier et pour la vérification de conflit. Avant, une durée fixe de
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { action, force } = await request.json();
+  const { action, force } = await readJsonBody(request);
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin
@@ -388,7 +389,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const { error: deleteError } = await supabaseAdmin.from('appointments').delete().eq('id', appointmentId);
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    return serverError(deleteError, '/api/appointments/[id]');
   }
 
   return NextResponse.json({ success: true });

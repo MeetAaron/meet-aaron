@@ -11,9 +11,10 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const userId = body.user_id;
   if (!userId) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -50,7 +51,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/blocks/[id]');
   }
 
   // Répercute la modification sur Google/Outlook si cette indisponibilité y
@@ -111,7 +112,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const { error } = await supabaseAdmin.from('availability_blocks').delete().eq('id', params.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/blocks/[id]');
   }
 
   // Nettoie l'événement sur Google/Outlook si cette indisponibilité y avait

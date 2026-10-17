@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { buildNotifications, countNotifications } from '@/lib/notifications';
+import { serverError } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,6 @@ export async function GET(request: NextRequest) {
     const groups = await buildNotifications(userId);
     return NextResponse.json({ groups, total: countNotifications(groups) });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return serverError(err, '/api/notifications');
   }
 }

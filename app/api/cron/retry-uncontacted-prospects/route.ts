@@ -28,6 +28,7 @@ import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { serverError } from '@/lib/http';
 
 // Plafond par commercial et par passage, pour ne jamais déclencher une rafale
 // d'envois Gmail/Outlook d'un coup si beaucoup de prospects étaient restés
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     .eq('is_lost', false);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/retry-uncontacted-prospects');
   }
 
   // Vraiment "jamais contacté" = aucun message (sortant ou entrant) dans

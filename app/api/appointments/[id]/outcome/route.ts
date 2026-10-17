@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { recordAppointmentOutcome, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
+import { readJsonBody } from '@/lib/http';
 
 const VALID_OUTCOMES: AppointmentOutcome[] = ['a_continuer', 'opportunite', 'devis', 'perdu'];
 
@@ -15,7 +16,7 @@ const VALID_MOODS: AppointmentMood[] = ['bien', 'moyen', 'mal'];
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   // Docx 30/08 (items 3 et 7) : en plus de l'issue, ressenti (mood), contexte
   // libre/chips, et demande d'email de remerciement rédigé par Aaron.
-  const { outcome, mood, context, send_thank_you } = await request.json();
+  const { outcome, mood, context, send_thank_you } = await readJsonBody(request);
 
   if (!VALID_OUTCOMES.includes(outcome)) {
     return NextResponse.json({ error: 'Réponse invalide' }, { status: 400 });

@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getBudgetSnapshot } from '@/lib/anthropic-client';
 import { sendPushNotification } from '@/lib/push';
+import { serverError } from '@/lib/http';
 
 // Textes en dur ici, PAS via lib/i18n : ce module importe React (useLocale)
 // et pèse 1 Mo — l'importer depuis une route serveur fait échouer le build
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { data: companies, error } = await supabaseAdmin.from('companies').select('id');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/cron/credit-alerts');
 
   const ym = yearMonth();
   let sent = 0;
