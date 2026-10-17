@@ -19,6 +19,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude } from '@/lib/anthropic-client';
 import { computeStatsForMembers, periodRangeFor, MemberStats } from '@/lib/team-stats';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody } from '@/lib/http';
 
 const PERIOD_LABELS: Record<string, string> = {
   all: "Depuis l'ouverture du compte",
@@ -56,7 +57,7 @@ function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, period, since: customSince, until: customUntil } = await request.json();
+  const { user_id, period, since: customSince, until: customUntil } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
