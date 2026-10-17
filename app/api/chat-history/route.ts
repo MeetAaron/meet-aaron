@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // Nombre de messages les plus récents renvoyés/conservés en contexte — évite
 // qu'une conversation très longue (des mois d'historique) fasse grossir sans
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
     .limit(HISTORY_LIMIT);
 
   if (messagesError) {
-    return NextResponse.json({ error: messagesError.message }, { status: 500 });
+    return serverError(messagesError, '/api/chat-history');
   }
 
   const { data: user, error: userError } = await supabaseAdmin
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (userError) {
-    return NextResponse.json({ error: userError.message }, { status: 500 });
+    return serverError(userError, '/api/chat-history');
   }
 
   return NextResponse.json({
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, conversation_id, messages, onboarding_step, onboarding_answers } = await request.json();
+  const { user_id, conversation_id, messages, onboarding_step, onboarding_answers } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
     if (rows.length > 0) {
       const { error: insertError } = await supabaseAdmin.from('chat_messages').insert(rows);
       if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+        return serverError(insertError, '/api/chat-history');
       }
       // Fait remonter la conversation en haut de la liste (triée par
       // updated_at, voir GET /api/chat-conversations) et lui donne un titre
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     const { error: updateError } = await supabaseAdmin.from('users').update(update).eq('id', user_id);
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return serverError(updateError, '/api/chat-history');
     }
   }
 
