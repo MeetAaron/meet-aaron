@@ -44,7 +44,7 @@ const GOOGLE_LIMITED_USE_TERMS =
 
 const fr = {
   title: "Conditions générales d'utilisation",
-  updated: 'Dernière mise à jour : 8 septembre 2026',
+  updated: 'Dernière mise à jour : 17 octobre 2026',
   intro: [
     "Les présentes conditions encadrent l'utilisation de Meet Aaron, un assistant commercial basé sur l'intelligence artificielle accessible sur meetaaron.app. En créant un compte, vous les acceptez sans réserve.",
   ],
@@ -74,7 +74,7 @@ const fr = {
       h: '4. Abonnement, prix et résiliation',
       b: [
         ['ul', [
-          "L'abonnement Aaron est facturé **30 € par mois et par utilisateur**, sans engagement de durée.",
+          "L'abonnement Aaron est facturé **59 € HT par mois et par utilisateur**, sans engagement de durée.",
           'Le paiement est traité par Stripe. Nous ne stockons jamais vos coordonnées bancaires.',
           "L'abonnement se renouvelle automatiquement chaque mois jusqu'à résiliation.",
           'Vous pouvez résilier à tout moment depuis votre espace client. La résiliation prend effet à la fin de la période déjà payée : le service reste accessible jusque-là, et aucun prélèvement supplémentaire n\'est effectué ensuite.',
@@ -168,7 +168,7 @@ const fr = {
 
 const en = {
   title: 'Terms of Service',
-  updated: 'Last updated: 8 September 2026',
+  updated: 'Last updated: 17 October 2026',
   intro: [
     'These terms govern the use of Meet Aaron, an AI-powered sales assistant available at meetaaron.app. By creating an account, you accept them in full.',
   ],
@@ -198,7 +198,7 @@ const en = {
       h: '4. Subscription, price and cancellation',
       b: [
         ['ul', [
-          'The Aaron subscription is billed at **€30 per month per user**, with no minimum term.',
+          'The Aaron subscription is billed at **€59 (excl. VAT) per month per user**, with no minimum term.',
           'Payment is handled by Stripe. We never store your card details.',
           'The subscription renews automatically each month until cancelled.',
           'You can cancel at any time from your account area. Cancellation takes effect at the end of the period already paid for: the service stays available until then, and no further payment is taken.',
@@ -292,7 +292,7 @@ const en = {
 
 const de = {
   title: 'Nutzungsbedingungen',
-  updated: 'Zuletzt aktualisiert: 8. September 2026',
+  updated: 'Zuletzt aktualisiert: 17. Oktober 2026',
   intro: [
     'Diese Bedingungen regeln die Nutzung von Meet Aaron, einem KI-gestützten Vertriebsassistenten, erreichbar unter meetaaron.app. Mit der Erstellung eines Kontos akzeptieren Sie sie vollständig.',
   ],
@@ -322,7 +322,7 @@ const de = {
       h: '4. Abonnement, Preis und Kündigung',
       b: [
         ['ul', [
-          'Das Aaron-Abonnement wird mit **30 € pro Monat und Nutzer** abgerechnet, ohne Mindestlaufzeit.',
+          'Das Aaron-Abonnement wird mit **59 € zzgl. MwSt. pro Monat und Nutzer** abgerechnet, ohne Mindestlaufzeit.',
           'Die Zahlung wird von Stripe abgewickelt. Wir speichern niemals Ihre Kartendaten.',
           'Das Abonnement verlängert sich automatisch monatlich bis zur Kündigung.',
           'Sie können jederzeit in Ihrem Kundenbereich kündigen. Die Kündigung wird zum Ende des bereits bezahlten Zeitraums wirksam: Der Dienst bleibt bis dahin verfügbar, danach wird nichts mehr abgebucht.',
@@ -416,7 +416,7 @@ const de = {
 
 const it = {
   title: 'Condizioni generali di utilizzo',
-  updated: 'Ultimo aggiornamento: 8 settembre 2026',
+  updated: 'Ultimo aggiornamento: 17 ottobre 2026',
   intro: [
     "Le presenti condizioni disciplinano l'utilizzo di Meet Aaron, un assistente commerciale basato sull'intelligenza artificiale accessibile su meetaaron.app. Creando un account, le accettate integralmente.",
   ],
@@ -446,7 +446,7 @@ const it = {
       h: '4. Abbonamento, prezzo e disdetta',
       b: [
         ['ul', [
-          "L'abbonamento Aaron è fatturato **30 € al mese per utente**, senza vincolo di durata.",
+          "L'abbonamento Aaron è fatturato **59 € + IVA al mese per utente**, senza vincolo di durata.",
           'Il pagamento è gestito da Stripe. Non conserviamo mai i dati della vostra carta.',
           "L'abbonamento si rinnova automaticamente ogni mese fino alla disdetta.",
           'Potete disdire in qualsiasi momento dalla vostra area cliente. La disdetta ha effetto alla fine del periodo già pagato: il servizio resta accessibile fino ad allora e non viene effettuato alcun ulteriore addebito.',
@@ -540,7 +540,7 @@ const it = {
 
 const es = {
   title: 'Condiciones generales de uso',
-  updated: 'Última actualización: 8 de septiembre de 2026',
+  updated: 'Última actualización: 17 de octubre de 2026',
   intro: [
     'Estas condiciones regulan el uso de Meet Aaron, un asistente comercial basado en inteligencia artificial accesible en meetaaron.app. Al crear una cuenta, las aceptas sin reservas.',
   ],
@@ -570,7 +570,7 @@ const es = {
       h: '4. Suscripción, precio y cancelación',
       b: [
         ['ul', [
-          'La suscripción Aaron se factura a **30 € al mes por usuario**, sin permanencia.',
+          'La suscripción Aaron se factura a **59 € + IVA al mes por usuario**, sin permanencia.',
           'El pago lo gestiona Stripe. Nunca almacenamos los datos de tu tarjeta.',
           'La suscripción se renueva automáticamente cada mes hasta su cancelación.',
           'Puedes cancelar en cualquier momento desde tu área de cliente. La cancelación surte efecto al final del periodo ya pagado: el servicio sigue disponible hasta entonces y no se efectúa ningún cargo adicional.',
@@ -664,7 +664,7 @@ const es = {
 
 const pt = {
   title: 'Condições gerais de utilização',
-  updated: 'Última atualização: 8 de setembro de 2026',
+  updated: 'Última atualização: 17 de outubro de 2026',
   intro: [
     'Estas condições regulam a utilização da Meet Aaron, um assistente comercial baseado em inteligência artificial acessível em meetaaron.app. Ao criar uma conta, aceita-as sem reservas.',
   ],
@@ -694,7 +694,7 @@ const pt = {
       h: '4. Subscrição, preço e cancelamento',
       b: [
         ['ul', [
-          'A subscrição Aaron é faturada a **30 € por mês e por utilizador**, sem período mínimo.',
+          'A subscrição Aaron é faturada a **59 € + IVA por mês e por utilizador**, sem período mínimo.',
           'O pagamento é tratado pela Stripe. Nunca guardamos os dados do seu cartão.',
           'A subscrição renova-se automaticamente todos os meses até ao cancelamento.',
           'Pode cancelar a qualquer momento na sua área de cliente. O cancelamento produz efeitos no fim do período já pago: o serviço permanece acessível até lá e não é efetuada qualquer cobrança adicional.',
@@ -788,7 +788,7 @@ const pt = {
 
 const nl = {
   title: 'Gebruiksvoorwaarden',
-  updated: 'Laatst bijgewerkt: 8 september 2026',
+  updated: 'Laatst bijgewerkt: 17 oktober 2026',
   intro: [
     'Deze voorwaarden regelen het gebruik van Meet Aaron, een verkoopassistent op basis van kunstmatige intelligentie, bereikbaar op meetaaron.app. Door een account aan te maken aanvaardt u ze zonder voorbehoud.',
   ],
@@ -818,7 +818,7 @@ const nl = {
       h: '4. Abonnement, prijs en opzegging',
       b: [
         ['ul', [
-          'Het Aaron-abonnement wordt gefactureerd tegen **€ 30 per maand per gebruiker**, zonder minimumduur.',
+          'Het Aaron-abonnement wordt gefactureerd tegen **€ 59 excl. btw per maand per gebruiker**, zonder minimumduur.',
           'De betaling wordt door Stripe afgehandeld. Wij bewaren nooit uw kaartgegevens.',
           'Het abonnement wordt elke maand automatisch verlengd tot opzegging.',
           'U kunt op elk moment opzeggen via uw klantenruimte. De opzegging gaat in aan het einde van de reeds betaalde periode: de dienst blijft tot dan beschikbaar en er wordt daarna niets meer afgeschreven.',
