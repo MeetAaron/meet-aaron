@@ -16,6 +16,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { computeStatsForMembers, periodRangeFor } from '@/lib/team-stats';
 import { listActiveBoosts } from '@/lib/credit-boosts';
 import { USD_PER_CREDIT } from '@/lib/boost-tiers';
+import { serverError } from '@/lib/http';
 
 // Même valeur que DEFAULT_MONTHLY_CAP_USD dans lib/anthropic-client.ts
 // (21,5 USD ≈ 20 € par utilisateur et par mois) — utilisée quand la société
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/team');
   }
 
   // Calcule les 6 stats clés pour chaque membre de l'équipe, en une seule
