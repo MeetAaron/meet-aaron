@@ -13,6 +13,7 @@ import { handOverWonProspect } from '@/lib/prospect-handover';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
 import { sendPushNotification } from '@/lib/push';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: prospect, error } = await supabaseAdmin
@@ -78,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     stage,
     lost_reason,
     risk,
-  } = await request.json();
+  } = await readJsonBody(request);
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -378,7 +379,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ({ error: stageError } = await supabaseAdmin.from('prospects').update(legacyOnly).eq('id', prospectId));
     }
     if (stageError) {
-      return NextResponse.json({ error: stageError.message }, { status: 500 });
+      return serverError(stageError, '/api/prospects/[id]');
     }
 
     if (stage === 'client' && !wasClient) {
@@ -441,15 +442,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .update({ devis_call_done_at: new Date().toISOString() })
       .eq('id', prospectId);
     if (callError) {
-      return NextResponse.json(
-        {
-          error:
-            callError.code === '42703'
-              ? "Lance d'abord la migration migration_devis_ouverture_2026-10-15.sql"
-              : callError.message,
-        },
-        { status: 500 }
-      );
+      return serverError(callError, '/api/prospects/[id]');
     }
     return NextResponse.json({ success: true });
   }
@@ -469,7 +462,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
     const { error: quoteError } = await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
     if (quoteError) {
-      return NextResponse.json({ error: quoteError.code === '42703' ? 'Lance d\'abord la migration migration_pipeline_fusion_2026-09-01.sql' : quoteError.message }, { status: 500 });
+      return serverError(quoteError, '/api/prospects/[id]');
     }
     sendPushNotification(prospect.assigned_user_id, {
       title: 'Devis à faire',
@@ -800,7 +793,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospect.prospect_company_id);
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return serverError(updateError, '/api/prospects/[id]');
     }
 
     return NextResponse.json({ success: true });
@@ -844,7 +837,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', prospectId);
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return serverError(updateError, '/api/prospects/[id]');
     }
 
     return NextResponse.json({ success: true });
@@ -891,7 +884,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const { error: deleteError } = await supabaseAdmin.from('prospects').delete().eq('id', prospectId);
 
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    return serverError(deleteError, '/api/prospects/[id]');
   }
 
   return NextResponse.json({ success: true });
