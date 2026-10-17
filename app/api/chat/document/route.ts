@@ -25,6 +25,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { extractDocumentText } from '@/lib/document-extraction';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
+import { serverError } from '@/lib/http';
 
 const BUCKET = 'documents';
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 Mo — cohérent avec un document commercial usuel (pas un usage de stockage de masse)
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error('Erreur upload document (chat) :', uploadError.message);
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      return serverError(uploadError, '/api/chat/document');
     }
 
     const extractedText = await extractDocumentText(buffer, file.type);
