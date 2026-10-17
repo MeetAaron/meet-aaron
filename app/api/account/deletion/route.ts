@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 const DELAY_MS = 24 * 60 * 60 * 1000;
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     .eq('id', authedUser.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/account/deletion');
   }
 
   return NextResponse.json({ requested: true, scheduled_for: scheduledFor.toISOString() });
@@ -93,7 +94,7 @@ export async function DELETE(request: NextRequest) {
     .eq('id', authedUser.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/account/deletion');
   }
 
   return NextResponse.json({ requested: false });
