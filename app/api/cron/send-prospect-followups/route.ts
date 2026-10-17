@@ -29,6 +29,7 @@ import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnab
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { serverError } from '@/lib/http';
 
 // Statuts sur lesquels une relance automatique a du sens : conversation en
 // cours sans signal fort dans un sens ou l'autre (jaune), ou signaux de
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/send-prospect-followups');
   }
 
   const now = Date.now();
