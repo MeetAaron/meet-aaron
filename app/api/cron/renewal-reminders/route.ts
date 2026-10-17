@@ -14,6 +14,7 @@ import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { generateRenewalOutreach } from '@/lib/aaron-customer';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+import { serverError } from '@/lib/http';
 
 const RENEWAL_WINDOW_DAYS = 30;
 
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
     .lte('contract_renewal_date', windowEnd);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/renewal-reminders');
   }
 
   const alerted: string[] = [];
