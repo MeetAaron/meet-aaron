@@ -1,0 +1,5099 @@
+{
+	"@programName": "ZAP",
+	"@version": "2.17.0",
+	"@generated": "Sat, 17 Oct 2026 00:28:15",
+	"created": "2026-10-17T00:28:15.175359Z",
+	"insights":[
+		{
+			"level": "Medium",
+			"reason": "Exceeded High",
+			"site": "https://meetaaron.app",
+			"key": "insight.code.4xx",
+			"description": "Percentage of responses with status code 4xx",
+			"statistic": "99"
+		},
+		{
+			"level": "Low",
+			"reason": "Warning",
+			"site": "",
+			"key": "insight.log.error",
+			"description": "ZAP errors logged - see the zap.log file for details",
+			"statistic": "1"
+		},
+		{
+			"level": "Low",
+			"reason": "Warning",
+			"site": "",
+			"key": "insight.log.warn",
+			"description": "ZAP warnings logged - see the zap.log file for details",
+			"statistic": "2"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "http://meetaaron.app",
+			"key": "insight.code.3xx",
+			"description": "Percentage of responses with status code 3xx",
+			"statistic": "100"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.code.2xx",
+			"description": "Percentage of responses with status code 2xx",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.application/json",
+			"description": "Percentage of endpoints with content type application/json",
+			"statistic": "1"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.ctype.text/html",
+			"description": "Percentage of endpoints with content type text/html",
+			"statistic": "99"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.method.GET",
+			"description": "Percentage of endpoints with method GET",
+			"statistic": "78"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.method.POST",
+			"description": "Percentage of endpoints with method POST",
+			"statistic": "21"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.endpoint.total",
+			"description": "Count of total endpoints",
+			"statistic": "213"
+		},
+		{
+			"level": "Info",
+			"reason": "Informational",
+			"site": "https://meetaaron.app",
+			"key": "insight.response.slow",
+			"description": "Percentage of slow responses",
+			"statistic": "1"
+		}
+	],
+	"site":[ 
+		{
+			"@name": "https://meetaaron.app",
+			"@host": "meetaaron.app",
+			"@port": "443",
+			"@ssl": "true",
+			"alerts": [ 
+				{
+					"pluginid": "10038",
+					"alertRef": "10038-1",
+					"alert": "Content Security Policy (CSP) Header Not Set",
+					"name": "Content Security Policy (CSP) Header Not Set",
+					"riskcode": "2",
+					"confidence": "3",
+					"riskdesc": "Medium (High)",
+					"desc": "<p>Content Security Policy (CSP) is an added layer of security that helps to detect and mitigate certain types of attacks, including Cross Site Scripting (XSS) and data injection attacks. These attacks are used for everything from data theft to site defacement or distribution of malware. CSP provides a set of standard HTTP headers that allow website owners to declare approved sources of content that browsers should be allowed to load on that page \u2014 covered types are JavaScript, CSS, HTML frames, fonts, images and embeddable objects such as Java applets, ActiveX, audio and video files.</p>",
+					"instances":[ 
+						{
+							"id": "38",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "37",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "62",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "35",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "76",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to set the Content-Security-Policy header.</p>",
+					"otherinfo": "",
+					"reference": "<p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP</p><p>https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html</p><p>https://www.w3.org/TR/CSP/</p><p>https://w3c.github.io/webappsec-csp/</p><p>https://web.dev/articles/csp</p><p>https://caniuse.com/#feat=contentsecuritypolicy</p><p>https://content-security-policy.com/</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10063",
+					"alertRef": "10063-1",
+					"alert": "Permissions Policy Header Not Set",
+					"name": "Permissions Policy Header Not Set",
+					"riskcode": "1",
+					"confidence": "2",
+					"riskdesc": "Low (Medium)",
+					"desc": "<p>Permissions Policy Header is an added layer of security that helps to restrict from unauthorized access or usage of browser/client features by web resources. This policy ensures the user privacy by limiting or specifying the features of the browsers can be used by the web resources. Permissions Policy provides a set of standard HTTP headers that allow website owners to limit which features of browsers can be used by the page such as camera, microphone, location, full screen etc.</p>",
+					"instances":[ 
+						{
+							"id": "65",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "86",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "72",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "75",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "60",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to set the Permissions-Policy header.</p>",
+					"otherinfo": "",
+					"reference": "<p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy</p><p>https://developer.chrome.com/blog/feature-policy/</p><p>https://scotthelme.co.uk/a-new-security-header-feature-policy/</p><p>https://w3c.github.io/webappsec-feature-policy/</p><p>https://www.smashingmagazine.com/2018/12/feature-policy/</p>",
+					"cweid": "693",
+					"wascid": "15",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10035",
+					"alertRef": "10035-1",
+					"alert": "Strict-Transport-Security Header Not Set",
+					"name": "Strict-Transport-Security Header Not Set",
+					"riskcode": "1",
+					"confidence": "3",
+					"riskdesc": "Low (High)",
+					"desc": "<p>HTTP Strict Transport Security (HSTS) is a web security policy mechanism whereby a web server declares that complying user agents (such as a web browser) are to interact with it using only secure HTTPS connections (i.e. HTTP layered over TLS/SSL). HSTS is an IETF standards track protocol and is specified in RFC 6797.</p>",
+					"instances":[ 
+						{
+							"id": "50",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "82",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "61",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "73",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "44",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Ensure that your web server, application server, load balancer, etc. is configured to enforce Strict-Transport-Security.</p>",
+					"otherinfo": "",
+					"reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html</p><p>https://owasp.org/www-community/Security_Headers</p><p>https://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security</p><p>https://caniuse.com/stricttransportsecurity</p><p>https://datatracker.ietf.org/doc/html/rfc6797</p>",
+					"cweid": "319",
+					"wascid": "15",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10096",
+					"alertRef": "10096",
+					"alert": "Timestamp Disclosure - Unix",
+					"name": "Timestamp Disclosure - Unix",
+					"riskcode": "1",
+					"confidence": "1",
+					"riskdesc": "Low (Low)",
+					"desc": "<p>A timestamp was disclosed by the application/web server. - Unix</p>",
+					"instances":[ 
+						{
+							"id": "51",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "X-Vercel-Challenge-Token",
+							"attack": "",
+							"evidence": "1792195305",
+							"otherinfo": "1792195305, which evaluates to: 2026-10-17 00:01:45."
+						},
+						{
+							"id": "52",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "X-Vercel-Id",
+							"attack": "",
+							"evidence": "1792195305",
+							"otherinfo": "1792195305, which evaluates to: 2026-10-17 00:01:45."
+						},
+						{
+							"id": "47",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "1792195305",
+							"otherinfo": "1792195305, which evaluates to: 2026-10-17 00:01:45."
+						},
+						{
+							"id": "45",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "X-Vercel-Challenge-Token",
+							"attack": "",
+							"evidence": "1792195305",
+							"otherinfo": "1792195305, which evaluates to: 2026-10-17 00:01:45."
+						},
+						{
+							"id": "46",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "X-Vercel-Id",
+							"attack": "",
+							"evidence": "1792195305",
+							"otherinfo": "1792195305, which evaluates to: 2026-10-17 00:01:45."
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Manually confirm that the timestamp data is not sensitive, and that the data cannot be aggregated to disclose exploitable patterns.</p>",
+					"otherinfo": "<p>1792195305, which evaluates to: 2026-10-17 00:01:45.</p>",
+					"reference": "<p>https://cwe.mitre.org/data/definitions/200.html</p>",
+					"cweid": "497",
+					"wascid": "13",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "100001",
+					"alertRef": "100001",
+					"alert": "Unexpected Content-Type was returned",
+					"name": "Unexpected Content-Type was returned",
+					"riskcode": "1",
+					"confidence": "3",
+					"riskdesc": "Low (High)",
+					"desc": "<p>A Content-Type of text/html was returned by the server.</p><p>This is not one of the types expected to be returned by an API.</p><p>Raised by the 'Alert on Unexpected Content Types' script</p>",
+					"instances":[ 
+						{
+							"id": "31",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5656",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6138",
+							"uri": "https://meetaaron.app/.DS_Store",
+							"nodeName": "https:\/\/meetaaron.app\/.DS_Store",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6196",
+							"uri": "https://meetaaron.app/._darcs",
+							"nodeName": "https:\/\/meetaaron.app\/._darcs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6194",
+							"uri": "https://meetaaron.app/.bzr",
+							"nodeName": "https:\/\/meetaaron.app\/.bzr",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6084",
+							"uri": "https://meetaaron.app/.env",
+							"nodeName": "https:\/\/meetaaron.app\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6108",
+							"uri": "https://meetaaron.app/.git/config",
+							"nodeName": "https:\/\/meetaaron.app\/.git\/config",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6192",
+							"uri": "https://meetaaron.app/.hg",
+							"nodeName": "https:\/\/meetaaron.app\/.hg",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6072",
+							"uri": "https://meetaaron.app/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6102",
+							"uri": "https://meetaaron.app/.idea/WebServers.xml",
+							"nodeName": "https:\/\/meetaaron.app\/.idea\/WebServers.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6140",
+							"uri": "https://meetaaron.app/.php_cs.cache",
+							"nodeName": "https:\/\/meetaaron.app\/.php_cs.cache",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6162",
+							"uri": "https://meetaaron.app/.ssh/id_dsa",
+							"nodeName": "https:\/\/meetaaron.app\/.ssh\/id_dsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6160",
+							"uri": "https://meetaaron.app/.ssh/id_rsa",
+							"nodeName": "https:\/\/meetaaron.app\/.ssh\/id_rsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6110",
+							"uri": "https://meetaaron.app/.svn/entries",
+							"nodeName": "https:\/\/meetaaron.app\/.svn\/entries",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6112",
+							"uri": "https://meetaaron.app/.svn/wc.db",
+							"nodeName": "https:\/\/meetaaron.app\/.svn\/wc.db",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6098",
+							"uri": "https://meetaaron.app/.zap5389669602600294863",
+							"nodeName": "https:\/\/meetaaron.app\/.zap5389669602600294863",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "25",
+							"uri": "https://meetaaron.app/9126435633389766924",
+							"nodeName": "https:\/\/meetaaron.app\/9126435633389766924",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6198",
+							"uri": "https://meetaaron.app/BitKeeper",
+							"nodeName": "https:\/\/meetaaron.app\/BitKeeper",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6168",
+							"uri": "https://meetaaron.app/CHANGELOG.txt",
+							"nodeName": "https:\/\/meetaaron.app\/CHANGELOG.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6114",
+							"uri": "https://meetaaron.app/CVS/root",
+							"nodeName": "https:\/\/meetaaron.app\/CVS\/root",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6142",
+							"uri": "https://meetaaron.app/DEADJOE",
+							"nodeName": "https:\/\/meetaaron.app\/DEADJOE",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6132",
+							"uri": "https://meetaaron.app/FileZilla.xml",
+							"nodeName": "https:\/\/meetaaron.app\/FileZilla.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "921",
+							"uri": "https://meetaaron.app/WEB-INF/applicationContext.xml",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/applicationContext.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "923",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/2rem.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/2rem.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "927",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/4rem.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/4rem.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "929",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/55.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/55.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "925",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/65.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/65.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "947",
+							"uri": "https://meetaaron.app/WEB-INF/classes/2/1792195493/60/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7NmY1ODNiMjY7YTdkZDJiNDM5NzdiNmIxZTEyYWM2OGY1ZTIwNTM0NzQ5YjBjMzFlMzszO88dEup6gXiBF2iv2jQEuaxOFIsy7YlH8zAbVtf42PK3l2z2I97EINhVAatdo.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/2\/1792195493\/60\/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7NmY1ODNiMjY7YTdkZDJiNDM5NzdiNmIxZTEyYWM2OGY1ZTIwNTM0NzQ5YjBjMzFlMzszO88dEup6gXiBF2iv2jQEuaxOFIsy7YlH8zAbVtf42PK3l2z2I97EINhVAatdo.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "965",
+							"uri": "https://meetaaron.app/WEB-INF/classes/2/1792195493/60/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7YjZlYWUzNzc7YzNhNzYxNzA1NzAyOGVhYTRkZDNhYzVmNWJkZDlmMDYzZDI5NzVjOTszO4IYmlRk45KJ.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/2\/1792195493\/60\/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7YjZlYWUzNzc7YzNhNzYxNzA1NzAyOGVhYTRkZDNhYzVmNWJkZDlmMDYzZDI5NzVjOTszO4IYmlRk45KJ.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "963",
+							"uri": "https://meetaaron.app/WEB-INF/classes/B/toString.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/B\/toString.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "953",
+							"uri": "https://meetaaron.app/WEB-INF/classes/M/port1.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/M\/port1.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "941",
+							"uri": "https://meetaaron.app/WEB-INF/classes/Math/abs.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/Math\/abs.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "943",
+							"uri": "https://meetaaron.app/WEB-INF/classes/Math/trunc.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/Math\/trunc.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "949",
+							"uri": "https://meetaaron.app/WEB-INF/classes/N6XshAzIFtRQLAgh6572Z3iOG/20df101c766c1117cb1c5d459a040585.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/N6XshAzIFtRQLAgh6572Z3iOG\/20df101c766c1117cb1c5d459a040585.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "939",
+							"uri": "https://meetaaron.app/WEB-INF/classes/c/en.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/c\/en.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "961",
+							"uri": "https://meetaaron.app/WEB-INF/classes/n/apply.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/n\/apply.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "951",
+							"uri": "https://meetaaron.app/WEB-INF/classes/n/js.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/n\/js.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "967",
+							"uri": "https://meetaaron.app/WEB-INF/classes/nqDk0TqDHMge9vZ6j/ea2acbb65cdf641bb98ba83141342a46.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/nqDk0TqDHMge9vZ6j\/ea2acbb65cdf641bb98ba83141342a46.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "959",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/blocked.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/blocked.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "955",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/code.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/code.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "935",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/push.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/push.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "957",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/rtl.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/rtl.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "937",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/shift.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/shift.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "933",
+							"uri": "https://meetaaron.app/WEB-INF/classes/vercel/link.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/vercel\/link.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "945",
+							"uri": "https://meetaaron.app/WEB-INF/classes/window/eval.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/window\/eval.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "931",
+							"uri": "https://meetaaron.app/WEB-INF/classes/www/w3/org.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/www\/w3\/org.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "919",
+							"uri": "https://meetaaron.app/WEB-INF/web.xml",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/web.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6126",
+							"uri": "https://meetaaron.app/WS_FTP.INI",
+							"nodeName": "https:\/\/meetaaron.app\/WS_FTP.INI",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6122",
+							"uri": "https://meetaaron.app/WS_FTP.ini",
+							"nodeName": "https:\/\/meetaaron.app\/WS_FTP.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6136",
+							"uri": "https://meetaaron.app/WinSCP.ini",
+							"nodeName": "https:\/\/meetaaron.app\/WinSCP.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6190",
+							"uri": "https://meetaaron.app/_framework/blazor.boot.json",
+							"nodeName": "https:\/\/meetaaron.app\/_framework\/blazor.boot.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6188",
+							"uri": "https://meetaaron.app/_wpeprivate/config.json",
+							"nodeName": "https:\/\/meetaaron.app\/_wpeprivate\/config.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6202",
+							"uri": "https://meetaaron.app/actuator/health",
+							"nodeName": "https:\/\/meetaaron.app\/actuator\/health",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6164",
+							"uri": "https://meetaaron.app/adminer.php",
+							"nodeName": "https:\/\/meetaaron.app\/adminer.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "33",
+							"uri": "https://meetaaron.app/api",
+							"nodeName": "https:\/\/meetaaron.app\/api",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3495",
+							"uri": "https://meetaaron.app/api?class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api (class.module.classLoader.DefaultAssertio...)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7056",
+							"uri": "https://meetaaron.app/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5658",
+							"uri": "https://meetaaron.app/api/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6086",
+							"uri": "https://meetaaron.app/api/.env",
+							"nodeName": "https:\/\/meetaaron.app\/api\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6074",
+							"uri": "https://meetaaron.app/api/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/api\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "27",
+							"uri": "https://meetaaron.app/api/1174253142734582825",
+							"nodeName": "https:\/\/meetaaron.app\/api\/1174253142734582825",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7072",
+							"uri": "https://meetaaron.app/api/api-usage",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3499",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5660",
+							"uri": "https://meetaaron.app/api/api-usage/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7074",
+							"uri": "https://meetaaron.app/api/appointments",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3503",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "13",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5662",
+							"uri": "https://meetaaron.app/api/appointments/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7078",
+							"uri": "https://meetaaron.app/api/availability",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3509",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "21",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5666",
+							"uri": "https://meetaaron.app/api/availability/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "195",
+							"uri": "https://meetaaron.app/api/business-summary",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3513",
+							"uri": "https://meetaaron.app/api/business-summary?class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (class.module.classLoader.DefaultAssertio...)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3521",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "15",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5668",
+							"uri": "https://meetaaron.app/api/business-summary/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6090",
+							"uri": "https://meetaaron.app/api/business-summary/.env",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6078",
+							"uri": "https://meetaaron.app/api/business-summary/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "29",
+							"uri": "https://meetaaron.app/api/business-summary/8763147613729833707",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/8763147613729833707",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6066",
+							"uri": "https://meetaaron.app/api/business-summary/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7082",
+							"uri": "https://meetaaron.app/api/business-summary/versions",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3517",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "17",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5670",
+							"uri": "https://meetaaron.app/api/business-summary/versions/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7086",
+							"uri": "https://meetaaron.app/api/campaigns",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3525",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "19",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5674",
+							"uri": "https://meetaaron.app/api/campaigns/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7088",
+							"uri": "https://meetaaron.app/api/chat-conversations",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3529",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "11",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5676",
+							"uri": "https://meetaaron.app/api/chat-conversations/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7090",
+							"uri": "https://meetaaron.app/api/documents",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3533",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "23",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5678",
+							"uri": "https://meetaaron.app/api/documents/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7092",
+							"uri": "https://meetaaron.app/api/notifications",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1037",
+							"uri": "https://meetaaron.app/api/notifications?-s",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-s)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3537",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "413",
+							"uri": "https://meetaaron.app/api/notifications?user_id=c%3A%2FWindows%2Fsystem.ini",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5680",
+							"uri": "https://meetaaron.app/api/notifications/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7094",
+							"uri": "https://meetaaron.app/api/preferences",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3541",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5682",
+							"uri": "https://meetaaron.app/api/preferences/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7096",
+							"uri": "https://meetaaron.app/api/products",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3545",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5684",
+							"uri": "https://meetaaron.app/api/products/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7098",
+							"uri": "https://meetaaron.app/api/reply-rate",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3549",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (class.module.classLoader.DefaultAssertio...,since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5686",
+							"uri": "https://meetaaron.app/api/reply-rate/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7100",
+							"uri": "https://meetaaron.app/api/signature",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3553",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "9",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "5688",
+							"uri": "https://meetaaron.app/api/signature/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6062",
+							"uri": "https://meetaaron.app/api/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/api\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6146",
+							"uri": "https://meetaaron.app/app/etc/local.xml",
+							"nodeName": "https:\/\/meetaaron.app\/app\/etc\/local.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6172",
+							"uri": "https://meetaaron.app/composer.json",
+							"nodeName": "https:\/\/meetaaron.app\/composer.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6174",
+							"uri": "https://meetaaron.app/composer.lock",
+							"nodeName": "https:\/\/meetaaron.app\/composer.lock",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4439",
+							"uri": "https://meetaaron.app/computeMetadata/v1/",
+							"nodeName": "https:\/\/meetaaron.app\/computeMetadata\/v1\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6106",
+							"uri": "https://meetaaron.app/config/database.yml",
+							"nodeName": "https:\/\/meetaaron.app\/config\/database.yml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6104",
+							"uri": "https://meetaaron.app/config/databases.yml",
+							"nodeName": "https:\/\/meetaaron.app\/config\/databases.yml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6118",
+							"uri": "https://meetaaron.app/core",
+							"nodeName": "https:\/\/meetaaron.app\/core",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7058",
+							"uri": "https://meetaaron.app/docs/",
+							"nodeName": "https:\/\/meetaaron.app\/docs\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6056",
+							"uri": "https://meetaaron.app/elmah.axd",
+							"nodeName": "https:\/\/meetaaron.app\/elmah.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6128",
+							"uri": "https://meetaaron.app/filezilla.xml",
+							"nodeName": "https:\/\/meetaaron.app\/filezilla.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6184",
+							"uri": "https://meetaaron.app/i.php",
+							"nodeName": "https:\/\/meetaaron.app\/i.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6158",
+							"uri": "https://meetaaron.app/id_dsa",
+							"nodeName": "https:\/\/meetaaron.app\/id_dsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6156",
+							"uri": "https://meetaaron.app/id_rsa",
+							"nodeName": "https:\/\/meetaaron.app\/id_rsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6182",
+							"uri": "https://meetaaron.app/info.php",
+							"nodeName": "https:\/\/meetaaron.app\/info.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6154",
+							"uri": "https://meetaaron.app/key.pem",
+							"nodeName": "https:\/\/meetaaron.app\/key.pem",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4435",
+							"uri": "https://meetaaron.app/latest/meta-data/",
+							"nodeName": "https:\/\/meetaaron.app\/latest\/meta-data\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6100",
+							"uri": "https://meetaaron.app/lfm.php",
+							"nodeName": "https:\/\/meetaaron.app\/lfm.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4455",
+							"uri": "https://meetaaron.app/metadata/instance",
+							"nodeName": "https:\/\/meetaaron.app\/metadata\/instance",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6152",
+							"uri": "https://meetaaron.app/myserver.key",
+							"nodeName": "https:\/\/meetaaron.app\/myserver.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4443",
+							"uri": "https://meetaaron.app/opc/v1/instance/",
+							"nodeName": "https:\/\/meetaaron.app\/opc\/v1\/instance\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4447",
+							"uri": "https://meetaaron.app/opc/v2/instance/",
+							"nodeName": "https:\/\/meetaaron.app\/opc\/v2\/instance\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7054",
+							"uri": "https://meetaaron.app/openapi.json",
+							"nodeName": "https:\/\/meetaaron.app\/openapi.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7066",
+							"uri": "https://meetaaron.app/openapi.yaml",
+							"nodeName": "https:\/\/meetaaron.app\/openapi.yaml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "4458",
+							"uri": "https://meetaaron.app/openstack/latest/meta_data.json",
+							"nodeName": "https:\/\/meetaaron.app\/openstack\/latest\/meta_data.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6180",
+							"uri": "https://meetaaron.app/phpinfo.php",
+							"nodeName": "https:\/\/meetaaron.app\/phpinfo.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6150",
+							"uri": "https://meetaaron.app/privatekey.key",
+							"nodeName": "https:\/\/meetaaron.app\/privatekey.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6178",
+							"uri": "https://meetaaron.app/server-info",
+							"nodeName": "https:\/\/meetaaron.app\/server-info",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6116",
+							"uri": "https://meetaaron.app/server-status",
+							"nodeName": "https:\/\/meetaaron.app\/server-status",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6148",
+							"uri": "https://meetaaron.app/server.key",
+							"nodeName": "https:\/\/meetaaron.app\/server.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6120",
+							"uri": "https://meetaaron.app/sftp-config.json",
+							"nodeName": "https:\/\/meetaaron.app\/sftp-config.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6130",
+							"uri": "https://meetaaron.app/sitemanager.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemanager.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6170",
+							"uri": "https://meetaaron.app/sites/default/files/.ht.sqlite",
+							"nodeName": "https:\/\/meetaaron.app\/sites\/default\/files\/.ht.sqlite",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6144",
+							"uri": "https://meetaaron.app/sites/default/private/files/backup_migrate/scheduled/test.txt",
+							"nodeName": "https:\/\/meetaaron.app\/sites\/default\/private\/files\/backup_migrate\/scheduled\/test.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7060",
+							"uri": "https://meetaaron.app/swagger",
+							"nodeName": "https:\/\/meetaaron.app\/swagger",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7048",
+							"uri": "https://meetaaron.app/swagger-ui/",
+							"nodeName": "https:\/\/meetaaron.app\/swagger-ui\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7064",
+							"uri": "https://meetaaron.app/swagger-ui/index.html",
+							"nodeName": "https:\/\/meetaaron.app\/swagger-ui\/index.html",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7052",
+							"uri": "https://meetaaron.app/swagger.json",
+							"nodeName": "https:\/\/meetaaron.app\/swagger.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7068",
+							"uri": "https://meetaaron.app/swagger.yaml",
+							"nodeName": "https:\/\/meetaaron.app\/swagger.yaml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7070",
+							"uri": "https://meetaaron.app/swagger/ui/index.html",
+							"nodeName": "https:\/\/meetaaron.app\/swagger\/ui\/index.html",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6186",
+							"uri": "https://meetaaron.app/test.php",
+							"nodeName": "https:\/\/meetaaron.app\/test.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6060",
+							"uri": "https://meetaaron.app/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7062",
+							"uri": "https://meetaaron.app/v2/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/v2\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "7050",
+							"uri": "https://meetaaron.app/v3/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/v3\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6166",
+							"uri": "https://meetaaron.app/vb_test.php",
+							"nodeName": "https:\/\/meetaaron.app\/vb_test.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6176",
+							"uri": "https://meetaaron.app/vim_settings.xml",
+							"nodeName": "https:\/\/meetaaron.app\/vim_settings.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6134",
+							"uri": "https://meetaaron.app/winscp.ini",
+							"nodeName": "https:\/\/meetaaron.app\/winscp.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6124",
+							"uri": "https://meetaaron.app/ws_ftp.ini",
+							"nodeName": "https:\/\/meetaaron.app\/ws_ftp.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "6096",
+							"uri": "https://meetaaron.app/zap273134629991754134",
+							"nodeName": "https:\/\/meetaaron.app\/zap273134629991754134",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3493",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3561",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app ()(multipart:1,0)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1043",
+							"uri": "https://meetaaron.app/?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/ (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1045",
+							"uri": "https://meetaaron.app/?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/ (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3497",
+							"uri": "https://meetaaron.app/api",
+							"nodeName": "https:\/\/meetaaron.app\/api ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1047",
+							"uri": "https://meetaaron.app/api?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1049",
+							"uri": "https://meetaaron.app/api?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1051",
+							"uri": "https://meetaaron.app/api/api-usage?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1053",
+							"uri": "https://meetaaron.app/api/api-usage?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3501",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1055",
+							"uri": "https://meetaaron.app/api/appointments?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1057",
+							"uri": "https://meetaaron.app/api/appointments?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3505",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1061",
+							"uri": "https://meetaaron.app/api/availability?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1063",
+							"uri": "https://meetaaron.app/api/availability?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3511",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3515",
+							"uri": "https://meetaaron.app/api/business-summary",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1065",
+							"uri": "https://meetaaron.app/api/business-summary?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1067",
+							"uri": "https://meetaaron.app/api/business-summary?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3523",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1069",
+							"uri": "https://meetaaron.app/api/business-summary/versions?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1071",
+							"uri": "https://meetaaron.app/api/business-summary/versions?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3519",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1077",
+							"uri": "https://meetaaron.app/api/campaigns?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1079",
+							"uri": "https://meetaaron.app/api/campaigns?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3527",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1081",
+							"uri": "https://meetaaron.app/api/chat-conversations?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1083",
+							"uri": "https://meetaaron.app/api/chat-conversations?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3531",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1085",
+							"uri": "https://meetaaron.app/api/documents?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1087",
+							"uri": "https://meetaaron.app/api/documents?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3535",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1089",
+							"uri": "https://meetaaron.app/api/notifications?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1091",
+							"uri": "https://meetaaron.app/api/notifications?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3539",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1093",
+							"uri": "https://meetaaron.app/api/preferences?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1095",
+							"uri": "https://meetaaron.app/api/preferences?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3543",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1097",
+							"uri": "https://meetaaron.app/api/products?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1099",
+							"uri": "https://meetaaron.app/api/products?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3547",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1101",
+							"uri": "https://meetaaron.app/api/reply-rate?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1103",
+							"uri": "https://meetaaron.app/api/reply-rate?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3551",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1105",
+							"uri": "https://meetaaron.app/api/signature?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "1107",
+							"uri": "https://meetaaron.app/api/signature?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						},
+						{
+							"id": "3555",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "text/html",
+							"otherinfo": ""
+						}
+					],
+					"count": "215",
+					"systemic": false,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "",
+					"cweid": "-1",
+					"wascid": "-1",
+					"sourceid": "23"
+				},
+				{
+					"pluginid": "100000",
+					"alertRef": "100000-1",
+					"alert": "A Client Error response code was returned by the server",
+					"name": "A Client Error response code was returned by the server",
+					"riskcode": "0",
+					"confidence": "3",
+					"riskdesc": "Informational (High)",
+					"desc": "<p>A response code of 403 was returned by the server.</p><p>This may indicate that the application is failing to handle unexpected input correctly.</p><p>Raised by the 'Alert on HTTP Response Code Error' script</p>",
+					"instances":[ 
+						{
+							"id": "30",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3491",
+							"uri": "https://meetaaron.app?aaa=bbb",
+							"nodeName": "https:\/\/meetaaron.app (aaa)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "400",
+							"otherinfo": ""
+						},
+						{
+							"id": "3490",
+							"uri": "https://meetaaron.app?class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app (class.module.classLoader.DefaultAssertio...)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "400",
+							"otherinfo": ""
+						},
+						{
+							"id": "5655",
+							"uri": "https://meetaaron.app/",
+							"nodeName": "https:\/\/meetaaron.app\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6137",
+							"uri": "https://meetaaron.app/.DS_Store",
+							"nodeName": "https:\/\/meetaaron.app\/.DS_Store",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6195",
+							"uri": "https://meetaaron.app/._darcs",
+							"nodeName": "https:\/\/meetaaron.app\/._darcs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6193",
+							"uri": "https://meetaaron.app/.bzr",
+							"nodeName": "https:\/\/meetaaron.app\/.bzr",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6083",
+							"uri": "https://meetaaron.app/.env",
+							"nodeName": "https:\/\/meetaaron.app\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6107",
+							"uri": "https://meetaaron.app/.git/config",
+							"nodeName": "https:\/\/meetaaron.app\/.git\/config",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6191",
+							"uri": "https://meetaaron.app/.hg",
+							"nodeName": "https:\/\/meetaaron.app\/.hg",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6071",
+							"uri": "https://meetaaron.app/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6101",
+							"uri": "https://meetaaron.app/.idea/WebServers.xml",
+							"nodeName": "https:\/\/meetaaron.app\/.idea\/WebServers.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6139",
+							"uri": "https://meetaaron.app/.php_cs.cache",
+							"nodeName": "https:\/\/meetaaron.app\/.php_cs.cache",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6161",
+							"uri": "https://meetaaron.app/.ssh/id_dsa",
+							"nodeName": "https:\/\/meetaaron.app\/.ssh\/id_dsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6159",
+							"uri": "https://meetaaron.app/.ssh/id_rsa",
+							"nodeName": "https:\/\/meetaaron.app\/.ssh\/id_rsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6109",
+							"uri": "https://meetaaron.app/.svn/entries",
+							"nodeName": "https:\/\/meetaaron.app\/.svn\/entries",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6111",
+							"uri": "https://meetaaron.app/.svn/wc.db",
+							"nodeName": "https:\/\/meetaaron.app\/.svn\/wc.db",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6097",
+							"uri": "https://meetaaron.app/.zap5389669602600294863",
+							"nodeName": "https:\/\/meetaaron.app\/.zap5389669602600294863",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "24",
+							"uri": "https://meetaaron.app/9126435633389766924",
+							"nodeName": "https:\/\/meetaaron.app\/9126435633389766924",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6197",
+							"uri": "https://meetaaron.app/BitKeeper",
+							"nodeName": "https:\/\/meetaaron.app\/BitKeeper",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6167",
+							"uri": "https://meetaaron.app/CHANGELOG.txt",
+							"nodeName": "https:\/\/meetaaron.app\/CHANGELOG.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6113",
+							"uri": "https://meetaaron.app/CVS/root",
+							"nodeName": "https:\/\/meetaaron.app\/CVS\/root",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6141",
+							"uri": "https://meetaaron.app/DEADJOE",
+							"nodeName": "https:\/\/meetaaron.app\/DEADJOE",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6131",
+							"uri": "https://meetaaron.app/FileZilla.xml",
+							"nodeName": "https:\/\/meetaaron.app\/FileZilla.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "920",
+							"uri": "https://meetaaron.app/WEB-INF/applicationContext.xml",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/applicationContext.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "922",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/2rem.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/2rem.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "926",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/4rem.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/4rem.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "928",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/55.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/55.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "924",
+							"uri": "https://meetaaron.app/WEB-INF/classes/1/65.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/1\/65.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "946",
+							"uri": "https://meetaaron.app/WEB-INF/classes/2/1792195493/60/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7NmY1ODNiMjY7YTdkZDJiNDM5NzdiNmIxZTEyYWM2OGY1ZTIwNTM0NzQ5YjBjMzFlMzszO88dEup6gXiBF2iv2jQEuaxOFIsy7YlH8zAbVtf42PK3l2z2I97EINhVAatdo.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/2\/1792195493\/60\/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7NmY1ODNiMjY7YTdkZDJiNDM5NzdiNmIxZTEyYWM2OGY1ZTIwNTM0NzQ5YjBjMzFlMzszO88dEup6gXiBF2iv2jQEuaxOFIsy7YlH8zAbVtf42PK3l2z2I97EINhVAatdo.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "964",
+							"uri": "https://meetaaron.app/WEB-INF/classes/2/1792195493/60/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7YjZlYWUzNzc7YzNhNzYxNzA1NzAyOGVhYTRkZDNhYzVmNWJkZDlmMDYzZDI5NzVjOTszO4IYmlRk45KJ.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/2\/1792195493\/60\/ZWQxOGIwN2EzNzNiYjJmZTI2ZGFlM2ZjN2EyZmMzODA7YjZlYWUzNzc7YzNhNzYxNzA1NzAyOGVhYTRkZDNhYzVmNWJkZDlmMDYzZDI5NzVjOTszO4IYmlRk45KJ.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "962",
+							"uri": "https://meetaaron.app/WEB-INF/classes/B/toString.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/B\/toString.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "952",
+							"uri": "https://meetaaron.app/WEB-INF/classes/M/port1.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/M\/port1.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "940",
+							"uri": "https://meetaaron.app/WEB-INF/classes/Math/abs.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/Math\/abs.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "942",
+							"uri": "https://meetaaron.app/WEB-INF/classes/Math/trunc.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/Math\/trunc.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "948",
+							"uri": "https://meetaaron.app/WEB-INF/classes/N6XshAzIFtRQLAgh6572Z3iOG/20df101c766c1117cb1c5d459a040585.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/N6XshAzIFtRQLAgh6572Z3iOG\/20df101c766c1117cb1c5d459a040585.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "938",
+							"uri": "https://meetaaron.app/WEB-INF/classes/c/en.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/c\/en.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "960",
+							"uri": "https://meetaaron.app/WEB-INF/classes/n/apply.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/n\/apply.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "950",
+							"uri": "https://meetaaron.app/WEB-INF/classes/n/js.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/n\/js.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "966",
+							"uri": "https://meetaaron.app/WEB-INF/classes/nqDk0TqDHMge9vZ6j/ea2acbb65cdf641bb98ba83141342a46.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/nqDk0TqDHMge9vZ6j\/ea2acbb65cdf641bb98ba83141342a46.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "958",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/blocked.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/blocked.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "954",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/code.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/code.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "934",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/push.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/push.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "956",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/rtl.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/rtl.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "936",
+							"uri": "https://meetaaron.app/WEB-INF/classes/r/shift.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/r\/shift.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "932",
+							"uri": "https://meetaaron.app/WEB-INF/classes/vercel/link.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/vercel\/link.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "944",
+							"uri": "https://meetaaron.app/WEB-INF/classes/window/eval.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/window\/eval.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "930",
+							"uri": "https://meetaaron.app/WEB-INF/classes/www/w3/org.class",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/classes\/www\/w3\/org.class",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "918",
+							"uri": "https://meetaaron.app/WEB-INF/web.xml",
+							"nodeName": "https:\/\/meetaaron.app\/WEB-INF\/web.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6125",
+							"uri": "https://meetaaron.app/WS_FTP.INI",
+							"nodeName": "https:\/\/meetaaron.app\/WS_FTP.INI",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6121",
+							"uri": "https://meetaaron.app/WS_FTP.ini",
+							"nodeName": "https:\/\/meetaaron.app\/WS_FTP.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6135",
+							"uri": "https://meetaaron.app/WinSCP.ini",
+							"nodeName": "https:\/\/meetaaron.app\/WinSCP.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6189",
+							"uri": "https://meetaaron.app/_framework/blazor.boot.json",
+							"nodeName": "https:\/\/meetaaron.app\/_framework\/blazor.boot.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6187",
+							"uri": "https://meetaaron.app/_wpeprivate/config.json",
+							"nodeName": "https:\/\/meetaaron.app\/_wpeprivate\/config.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6201",
+							"uri": "https://meetaaron.app/actuator/health",
+							"nodeName": "https:\/\/meetaaron.app\/actuator\/health",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6163",
+							"uri": "https://meetaaron.app/adminer.php",
+							"nodeName": "https:\/\/meetaaron.app\/adminer.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "32",
+							"uri": "https://meetaaron.app/api",
+							"nodeName": "https:\/\/meetaaron.app\/api",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3494",
+							"uri": "https://meetaaron.app/api?class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api (class.module.classLoader.DefaultAssertio...)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7055",
+							"uri": "https://meetaaron.app/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5657",
+							"uri": "https://meetaaron.app/api/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6085",
+							"uri": "https://meetaaron.app/api/.env",
+							"nodeName": "https:\/\/meetaaron.app\/api\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6073",
+							"uri": "https://meetaaron.app/api/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/api\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "26",
+							"uri": "https://meetaaron.app/api/1174253142734582825",
+							"nodeName": "https:\/\/meetaaron.app\/api\/1174253142734582825",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7071",
+							"uri": "https://meetaaron.app/api/api-usage",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3498",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "0",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5659",
+							"uri": "https://meetaaron.app/api/api-usage/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7073",
+							"uri": "https://meetaaron.app/api/appointments",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3502",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "12",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5661",
+							"uri": "https://meetaaron.app/api/appointments/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7077",
+							"uri": "https://meetaaron.app/api/availability",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3508",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "20",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5665",
+							"uri": "https://meetaaron.app/api/availability/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "194",
+							"uri": "https://meetaaron.app/api/business-summary",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3512",
+							"uri": "https://meetaaron.app/api/business-summary?class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (class.module.classLoader.DefaultAssertio...)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3520",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "14",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5667",
+							"uri": "https://meetaaron.app/api/business-summary/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6089",
+							"uri": "https://meetaaron.app/api/business-summary/.env",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/.env",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6077",
+							"uri": "https://meetaaron.app/api/business-summary/.htaccess",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/.htaccess",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "28",
+							"uri": "https://meetaaron.app/api/business-summary/8763147613729833707",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/8763147613729833707",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6065",
+							"uri": "https://meetaaron.app/api/business-summary/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7081",
+							"uri": "https://meetaaron.app/api/business-summary/versions",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3516",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "16",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5669",
+							"uri": "https://meetaaron.app/api/business-summary/versions/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7085",
+							"uri": "https://meetaaron.app/api/campaigns",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3524",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "18",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5673",
+							"uri": "https://meetaaron.app/api/campaigns/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7087",
+							"uri": "https://meetaaron.app/api/chat-conversations",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3528",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "10",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5675",
+							"uri": "https://meetaaron.app/api/chat-conversations/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7089",
+							"uri": "https://meetaaron.app/api/documents",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3532",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "22",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5677",
+							"uri": "https://meetaaron.app/api/documents/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7091",
+							"uri": "https://meetaaron.app/api/notifications",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1036",
+							"uri": "https://meetaaron.app/api/notifications?-s",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-s)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3536",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "412",
+							"uri": "https://meetaaron.app/api/notifications?user_id=c%3A%2FWindows%2Fsystem.ini",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5679",
+							"uri": "https://meetaaron.app/api/notifications/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7093",
+							"uri": "https://meetaaron.app/api/preferences",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3540",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5681",
+							"uri": "https://meetaaron.app/api/preferences/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7095",
+							"uri": "https://meetaaron.app/api/products",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3544",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5683",
+							"uri": "https://meetaaron.app/api/products/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7097",
+							"uri": "https://meetaaron.app/api/reply-rate",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3548",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (class.module.classLoader.DefaultAssertio...,since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "2",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5685",
+							"uri": "https://meetaaron.app/api/reply-rate/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7099",
+							"uri": "https://meetaaron.app/api/signature",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3552",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&class.module.classLoader.DefaultAssertionStatus=nonsense",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (class.module.classLoader.DefaultAssertio...,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "8",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "5687",
+							"uri": "https://meetaaron.app/api/signature/",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6061",
+							"uri": "https://meetaaron.app/api/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/api\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6145",
+							"uri": "https://meetaaron.app/app/etc/local.xml",
+							"nodeName": "https:\/\/meetaaron.app\/app\/etc\/local.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6171",
+							"uri": "https://meetaaron.app/composer.json",
+							"nodeName": "https:\/\/meetaaron.app\/composer.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6173",
+							"uri": "https://meetaaron.app/composer.lock",
+							"nodeName": "https:\/\/meetaaron.app\/composer.lock",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4438",
+							"uri": "https://meetaaron.app/computeMetadata/v1/",
+							"nodeName": "https:\/\/meetaaron.app\/computeMetadata\/v1\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6105",
+							"uri": "https://meetaaron.app/config/database.yml",
+							"nodeName": "https:\/\/meetaaron.app\/config\/database.yml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6103",
+							"uri": "https://meetaaron.app/config/databases.yml",
+							"nodeName": "https:\/\/meetaaron.app\/config\/databases.yml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6117",
+							"uri": "https://meetaaron.app/core",
+							"nodeName": "https:\/\/meetaaron.app\/core",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7057",
+							"uri": "https://meetaaron.app/docs/",
+							"nodeName": "https:\/\/meetaaron.app\/docs\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6055",
+							"uri": "https://meetaaron.app/elmah.axd",
+							"nodeName": "https:\/\/meetaaron.app\/elmah.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6127",
+							"uri": "https://meetaaron.app/filezilla.xml",
+							"nodeName": "https:\/\/meetaaron.app\/filezilla.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6183",
+							"uri": "https://meetaaron.app/i.php",
+							"nodeName": "https:\/\/meetaaron.app\/i.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6157",
+							"uri": "https://meetaaron.app/id_dsa",
+							"nodeName": "https:\/\/meetaaron.app\/id_dsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6155",
+							"uri": "https://meetaaron.app/id_rsa",
+							"nodeName": "https:\/\/meetaaron.app\/id_rsa",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6181",
+							"uri": "https://meetaaron.app/info.php",
+							"nodeName": "https:\/\/meetaaron.app\/info.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6153",
+							"uri": "https://meetaaron.app/key.pem",
+							"nodeName": "https:\/\/meetaaron.app\/key.pem",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4434",
+							"uri": "https://meetaaron.app/latest/meta-data/",
+							"nodeName": "https:\/\/meetaaron.app\/latest\/meta-data\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6099",
+							"uri": "https://meetaaron.app/lfm.php",
+							"nodeName": "https:\/\/meetaaron.app\/lfm.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4454",
+							"uri": "https://meetaaron.app/metadata/instance",
+							"nodeName": "https:\/\/meetaaron.app\/metadata\/instance",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4456",
+							"uri": "https://meetaaron.app/metadata/v1",
+							"nodeName": "https:\/\/meetaaron.app\/metadata\/v1",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6151",
+							"uri": "https://meetaaron.app/myserver.key",
+							"nodeName": "https:\/\/meetaaron.app\/myserver.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4442",
+							"uri": "https://meetaaron.app/opc/v1/instance/",
+							"nodeName": "https:\/\/meetaaron.app\/opc\/v1\/instance\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4446",
+							"uri": "https://meetaaron.app/opc/v2/instance/",
+							"nodeName": "https:\/\/meetaaron.app\/opc\/v2\/instance\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7053",
+							"uri": "https://meetaaron.app/openapi.json",
+							"nodeName": "https:\/\/meetaaron.app\/openapi.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7065",
+							"uri": "https://meetaaron.app/openapi.yaml",
+							"nodeName": "https:\/\/meetaaron.app\/openapi.yaml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "4457",
+							"uri": "https://meetaaron.app/openstack/latest/meta_data.json",
+							"nodeName": "https:\/\/meetaaron.app\/openstack\/latest\/meta_data.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6179",
+							"uri": "https://meetaaron.app/phpinfo.php",
+							"nodeName": "https:\/\/meetaaron.app\/phpinfo.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6149",
+							"uri": "https://meetaaron.app/privatekey.key",
+							"nodeName": "https:\/\/meetaaron.app\/privatekey.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6177",
+							"uri": "https://meetaaron.app/server-info",
+							"nodeName": "https:\/\/meetaaron.app\/server-info",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6115",
+							"uri": "https://meetaaron.app/server-status",
+							"nodeName": "https:\/\/meetaaron.app\/server-status",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6147",
+							"uri": "https://meetaaron.app/server.key",
+							"nodeName": "https:\/\/meetaaron.app\/server.key",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6119",
+							"uri": "https://meetaaron.app/sftp-config.json",
+							"nodeName": "https:\/\/meetaaron.app\/sftp-config.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6129",
+							"uri": "https://meetaaron.app/sitemanager.xml",
+							"nodeName": "https:\/\/meetaaron.app\/sitemanager.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6169",
+							"uri": "https://meetaaron.app/sites/default/files/.ht.sqlite",
+							"nodeName": "https:\/\/meetaaron.app\/sites\/default\/files\/.ht.sqlite",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6143",
+							"uri": "https://meetaaron.app/sites/default/private/files/backup_migrate/scheduled/test.txt",
+							"nodeName": "https:\/\/meetaaron.app\/sites\/default\/private\/files\/backup_migrate\/scheduled\/test.txt",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7059",
+							"uri": "https://meetaaron.app/swagger",
+							"nodeName": "https:\/\/meetaaron.app\/swagger",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7047",
+							"uri": "https://meetaaron.app/swagger-ui/",
+							"nodeName": "https:\/\/meetaaron.app\/swagger-ui\/",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7063",
+							"uri": "https://meetaaron.app/swagger-ui/index.html",
+							"nodeName": "https:\/\/meetaaron.app\/swagger-ui\/index.html",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7051",
+							"uri": "https://meetaaron.app/swagger.json",
+							"nodeName": "https:\/\/meetaaron.app\/swagger.json",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7067",
+							"uri": "https://meetaaron.app/swagger.yaml",
+							"nodeName": "https:\/\/meetaaron.app\/swagger.yaml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7069",
+							"uri": "https://meetaaron.app/swagger/ui/index.html",
+							"nodeName": "https:\/\/meetaaron.app\/swagger\/ui\/index.html",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6185",
+							"uri": "https://meetaaron.app/test.php",
+							"nodeName": "https:\/\/meetaaron.app\/test.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6059",
+							"uri": "https://meetaaron.app/trace.axd",
+							"nodeName": "https:\/\/meetaaron.app\/trace.axd",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7061",
+							"uri": "https://meetaaron.app/v2/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/v2\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "7049",
+							"uri": "https://meetaaron.app/v3/api-docs",
+							"nodeName": "https:\/\/meetaaron.app\/v3\/api-docs",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6165",
+							"uri": "https://meetaaron.app/vb_test.php",
+							"nodeName": "https:\/\/meetaaron.app\/vb_test.php",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6175",
+							"uri": "https://meetaaron.app/vim_settings.xml",
+							"nodeName": "https:\/\/meetaaron.app\/vim_settings.xml",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6133",
+							"uri": "https://meetaaron.app/winscp.ini",
+							"nodeName": "https:\/\/meetaaron.app\/winscp.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6123",
+							"uri": "https://meetaaron.app/ws_ftp.ini",
+							"nodeName": "https:\/\/meetaaron.app\/ws_ftp.ini",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "6095",
+							"uri": "https://meetaaron.app/zap273134629991754134",
+							"nodeName": "https:\/\/meetaaron.app\/zap273134629991754134",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3492",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3560",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app ()(multipart:1,0)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1042",
+							"uri": "https://meetaaron.app/?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/ (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1044",
+							"uri": "https://meetaaron.app/?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/ (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3496",
+							"uri": "https://meetaaron.app/api",
+							"nodeName": "https:\/\/meetaaron.app\/api ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1046",
+							"uri": "https://meetaaron.app/api?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1048",
+							"uri": "https://meetaaron.app/api?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1050",
+							"uri": "https://meetaaron.app/api/api-usage?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1052",
+							"uri": "https://meetaaron.app/api/api-usage?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3500",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1054",
+							"uri": "https://meetaaron.app/api/appointments?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1056",
+							"uri": "https://meetaaron.app/api/appointments?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3504",
+							"uri": "https://meetaaron.app/api/appointments?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/appointments (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1060",
+							"uri": "https://meetaaron.app/api/availability?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1062",
+							"uri": "https://meetaaron.app/api/availability?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3510",
+							"uri": "https://meetaaron.app/api/availability?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/availability (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3514",
+							"uri": "https://meetaaron.app/api/business-summary",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary ()(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1064",
+							"uri": "https://meetaaron.app/api/business-summary?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1066",
+							"uri": "https://meetaaron.app/api/business-summary?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3522",
+							"uri": "https://meetaaron.app/api/business-summary?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1068",
+							"uri": "https://meetaaron.app/api/business-summary/versions?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1070",
+							"uri": "https://meetaaron.app/api/business-summary/versions?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3518",
+							"uri": "https://meetaaron.app/api/business-summary/versions?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/business-summary\/versions (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1076",
+							"uri": "https://meetaaron.app/api/campaigns?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1078",
+							"uri": "https://meetaaron.app/api/campaigns?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3526",
+							"uri": "https://meetaaron.app/api/campaigns?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/campaigns (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1080",
+							"uri": "https://meetaaron.app/api/chat-conversations?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1082",
+							"uri": "https://meetaaron.app/api/chat-conversations?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3530",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1084",
+							"uri": "https://meetaaron.app/api/documents?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1086",
+							"uri": "https://meetaaron.app/api/documents?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3534",
+							"uri": "https://meetaaron.app/api/documents?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/documents (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1088",
+							"uri": "https://meetaaron.app/api/notifications?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1090",
+							"uri": "https://meetaaron.app/api/notifications?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3538",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1092",
+							"uri": "https://meetaaron.app/api/preferences?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1094",
+							"uri": "https://meetaaron.app/api/preferences?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3542",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1096",
+							"uri": "https://meetaaron.app/api/products?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1098",
+							"uri": "https://meetaaron.app/api/products?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3546",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1100",
+							"uri": "https://meetaaron.app/api/reply-rate?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1102",
+							"uri": "https://meetaaron.app/api/reply-rate?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3550",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1104",
+							"uri": "https://meetaaron.app/api/signature?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('cmd.exe \/C echo re3ikwzrjknm...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "1106",
+							"uri": "https://meetaaron.app/api/signature?-d+allow_url_include%3d1+-d+auto_prepend_file%3dphp://input",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (-d allow_url_include=1 -d auto_prepend_f...)(<?php exec('echo re3ikwzrjknmuq014009',$...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						},
+						{
+							"id": "3554",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)(class.module.classLoader.DefaultAssertio...)",
+							"method": "POST",
+							"param": "",
+							"attack": "",
+							"evidence": "403",
+							"otherinfo": ""
+						}
+					],
+					"count": "218",
+					"systemic": false,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "",
+					"cweid": "388",
+					"wascid": "20",
+					"sourceid": "23"
+				},
+				{
+					"pluginid": "10024",
+					"alertRef": "10024",
+					"alert": "Information Disclosure - Sensitive Information in URL",
+					"name": "Information Disclosure - Sensitive Information in URL",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The request appeared to contain sensitive information leaked in the URL. This can violate PCI and most organizational compliance policies. You can configure the list of strings for this check to add or remove values specific to your environment.</p>",
+					"instances":[ 
+						{
+							"id": "42",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "user_id",
+							"attack": "",
+							"evidence": "user_id",
+							"otherinfo": "The URL contains potentially sensitive information. The following string was found via the pattern: user\nuser_id"
+						},
+						{
+							"id": "36",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)",
+							"method": "GET",
+							"param": "user_id",
+							"attack": "",
+							"evidence": "user_id",
+							"otherinfo": "The URL contains potentially sensitive information. The following string was found via the pattern: user\nuser_id"
+						},
+						{
+							"id": "56",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "user_id",
+							"attack": "",
+							"evidence": "user_id",
+							"otherinfo": "The URL contains potentially sensitive information. The following string was found via the pattern: user\nuser_id"
+						},
+						{
+							"id": "70",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "user_id",
+							"attack": "",
+							"evidence": "user_id",
+							"otherinfo": "The URL contains potentially sensitive information. The following string was found via the pattern: user\nuser_id"
+						},
+						{
+							"id": "40",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "user_id",
+							"attack": "",
+							"evidence": "user_id",
+							"otherinfo": "The URL contains potentially sensitive information. The following string was found via the pattern: user\nuser_id"
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>Do not pass sensitive information in URIs.</p>",
+					"otherinfo": "<p>The URL contains potentially sensitive information. The following string was found via the pattern: user</p><p>user_id</p>",
+					"reference": "",
+					"cweid": "598",
+					"wascid": "13",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10109",
+					"alertRef": "10109",
+					"alert": "Modern Web Application",
+					"name": "Modern Web Application",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The application appears to be a modern web application. If you need to explore it automatically then the Client Spider may well be more effective than the standard one.</p>",
+					"instances":[ 
+						{
+							"id": "43",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<noscript><div class=\"container\" data-astro-cid-4wdtffzm><main data-astro-cid-4wdtffzm><div class=\"spinner\" data-astro-cid-ijmsm3te><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" data-astro-cid-ijmsm3te><g class=\"spinner-circle\" data-astro-cid-ijmsm3te><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" opacity=\"1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(36 12 12)\" opacity=\".1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(72 12 12)\" opacity=\".2\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(108 12 12)\" opacity=\".3\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(144 12 12)\" opacity=\".4\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(180 12 12)\" opacity=\".5\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(216 12 12)\" opacity=\".6\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(252 12 12)\" opacity=\".7\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(288 12 12)\" opacity=\".8\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(324 12 12)\" opacity=\".9\" data-astro-cid-ijmsm3te></rect></g></svg></div><p id=\"header-noscript-text\" data-astro-cid-4wdtffzm>Enable JavaScript to continue</p></main><footer data-astro-cid-4wdtffzm><div data-astro-cid-4wdtffzm><p data-astro-cid-4wdtffzm>Vercel Security Checkpoint</p><p class=\"hide-mobile\" data-astro-cid-4wdtffzm>|</p><p data-astro-cid-4wdtffzm>cle1::1792195305-kyrR2KDw1DAexon02ekm0XREhE0mz9tS</p></div></footer></div></noscript>",
+							"otherinfo": "A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not."
+						},
+						{
+							"id": "58",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<noscript><div class=\"container\" data-astro-cid-4wdtffzm><main data-astro-cid-4wdtffzm><div class=\"spinner\" data-astro-cid-ijmsm3te><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" data-astro-cid-ijmsm3te><g class=\"spinner-circle\" data-astro-cid-ijmsm3te><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" opacity=\"1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(36 12 12)\" opacity=\".1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(72 12 12)\" opacity=\".2\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(108 12 12)\" opacity=\".3\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(144 12 12)\" opacity=\".4\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(180 12 12)\" opacity=\".5\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(216 12 12)\" opacity=\".6\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(252 12 12)\" opacity=\".7\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(288 12 12)\" opacity=\".8\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(324 12 12)\" opacity=\".9\" data-astro-cid-ijmsm3te></rect></g></svg></div><p id=\"header-noscript-text\" data-astro-cid-4wdtffzm>Enable JavaScript to continue</p></main><footer data-astro-cid-4wdtffzm><div data-astro-cid-4wdtffzm><p data-astro-cid-4wdtffzm>Vercel Security Checkpoint</p><p class=\"hide-mobile\" data-astro-cid-4wdtffzm>|</p><p data-astro-cid-4wdtffzm>cle1::1792195305-7o1TZ3OV6pzkug7dO9Q3Yc7ic6O8xcHm</p></div></footer></div></noscript>",
+							"otherinfo": "A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not."
+						},
+						{
+							"id": "71",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<noscript><div class=\"container\" data-astro-cid-4wdtffzm><main data-astro-cid-4wdtffzm><div class=\"spinner\" data-astro-cid-ijmsm3te><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" data-astro-cid-ijmsm3te><g class=\"spinner-circle\" data-astro-cid-ijmsm3te><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" opacity=\"1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(36 12 12)\" opacity=\".1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(72 12 12)\" opacity=\".2\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(108 12 12)\" opacity=\".3\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(144 12 12)\" opacity=\".4\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(180 12 12)\" opacity=\".5\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(216 12 12)\" opacity=\".6\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(252 12 12)\" opacity=\".7\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(288 12 12)\" opacity=\".8\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(324 12 12)\" opacity=\".9\" data-astro-cid-ijmsm3te></rect></g></svg></div><p id=\"header-noscript-text\" data-astro-cid-4wdtffzm>Enable JavaScript to continue</p></main><footer data-astro-cid-4wdtffzm><div data-astro-cid-4wdtffzm><p data-astro-cid-4wdtffzm>Vercel Security Checkpoint</p><p class=\"hide-mobile\" data-astro-cid-4wdtffzm>|</p><p data-astro-cid-4wdtffzm>cle1::1792195305-MHwEUt6qOkrOM48C1Fv85c9YoVzRemNg</p></div></footer></div></noscript>",
+							"otherinfo": "A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not."
+						},
+						{
+							"id": "41",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<noscript><div class=\"container\" data-astro-cid-4wdtffzm><main data-astro-cid-4wdtffzm><div class=\"spinner\" data-astro-cid-ijmsm3te><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" data-astro-cid-ijmsm3te><g class=\"spinner-circle\" data-astro-cid-ijmsm3te><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" opacity=\"1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(36 12 12)\" opacity=\".1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(72 12 12)\" opacity=\".2\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(108 12 12)\" opacity=\".3\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(144 12 12)\" opacity=\".4\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(180 12 12)\" opacity=\".5\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(216 12 12)\" opacity=\".6\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(252 12 12)\" opacity=\".7\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(288 12 12)\" opacity=\".8\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(324 12 12)\" opacity=\".9\" data-astro-cid-ijmsm3te></rect></g></svg></div><p id=\"header-noscript-text\" data-astro-cid-4wdtffzm>Enable JavaScript to continue</p></main><footer data-astro-cid-4wdtffzm><div data-astro-cid-4wdtffzm><p data-astro-cid-4wdtffzm>Vercel Security Checkpoint</p><p class=\"hide-mobile\" data-astro-cid-4wdtffzm>|</p><p data-astro-cid-4wdtffzm>cle1::1792195305-GmslKN3Q3v4rcqwHBKL48YVRPsRoC72D</p></div></footer></div></noscript>",
+							"otherinfo": "A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not."
+						},
+						{
+							"id": "79",
+							"uri": "https://meetaaron.app/api/signature?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/signature (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "<noscript><div class=\"container\" data-astro-cid-4wdtffzm><main data-astro-cid-4wdtffzm><div class=\"spinner\" data-astro-cid-ijmsm3te><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" data-astro-cid-ijmsm3te><g class=\"spinner-circle\" data-astro-cid-ijmsm3te><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" opacity=\"1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(36 12 12)\" opacity=\".1\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(72 12 12)\" opacity=\".2\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(108 12 12)\" opacity=\".3\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(144 12 12)\" opacity=\".4\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(180 12 12)\" opacity=\".5\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(216 12 12)\" opacity=\".6\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(252 12 12)\" opacity=\".7\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(288 12 12)\" opacity=\".8\" data-astro-cid-ijmsm3te></rect><rect x=\"11\" y=\"1\" width=\"2\" height=\"6\" transform=\"rotate(324 12 12)\" opacity=\".9\" data-astro-cid-ijmsm3te></rect></g></svg></div><p id=\"header-noscript-text\" data-astro-cid-4wdtffzm>Enable JavaScript to continue</p></main><footer data-astro-cid-4wdtffzm><div data-astro-cid-4wdtffzm><p data-astro-cid-4wdtffzm>Vercel Security Checkpoint</p><p class=\"hide-mobile\" data-astro-cid-4wdtffzm>|</p><p data-astro-cid-4wdtffzm>cle1::1792195305-ny9XyqzHMCH1ACVKxMKcvZu9RTGDwxMn</p></div></footer></div></noscript>",
+							"otherinfo": "A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not."
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>This is an informational alert and so no changes are required.</p>",
+					"otherinfo": "<p>A noScript tag has been found, which is an indication that the application works differently with JavaScript enabled compared to when it is not.</p>",
+					"reference": "",
+					"cweid": "-1",
+					"wascid": "-1",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10049",
+					"alertRef": "10049-1",
+					"alert": "Non-Storable Content",
+					"name": "Non-Storable Content",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The response contents are not storable by caching components such as proxy servers. If the response does not contain sensitive, personal or user-specific information, it may benefit from being stored and cached, to improve performance.</p>",
+					"instances":[ 
+						{
+							"id": "59",
+							"uri": "https://meetaaron.app/api/api-usage?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/api-usage (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "no-store",
+							"otherinfo": ""
+						},
+						{
+							"id": "84",
+							"uri": "https://meetaaron.app/api/chat-conversations?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/chat-conversations (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "no-store",
+							"otherinfo": ""
+						},
+						{
+							"id": "69",
+							"uri": "https://meetaaron.app/api/preferences?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/preferences (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "no-store",
+							"otherinfo": ""
+						},
+						{
+							"id": "74",
+							"uri": "https://meetaaron.app/api/products?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/products (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "no-store",
+							"otherinfo": ""
+						},
+						{
+							"id": "54",
+							"uri": "https://meetaaron.app/api/reply-rate?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4&since=2026-01-01",
+							"nodeName": "https:\/\/meetaaron.app\/api\/reply-rate (since,user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "no-store",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "<p>The content may be marked as storable by ensuring that the following conditions are satisfied:</p><p>The request method must be understood by the cache and defined as being cacheable (\"GET\", \"HEAD\", and \"POST\" are currently defined as cacheable)</p><p>The response status code must be understood by the cache (one of the 1XX, 2XX, 3XX, 4XX, or 5XX response classes are generally understood)</p><p>The \"no-store\" cache directive must not appear in the request or response header fields</p><p>For caching by \"shared\" caches such as \"proxy\" caches, the \"private\" response directive must not appear in the response</p><p>For caching by \"shared\" caches such as \"proxy\" caches, the \"Authorization\" header field must not appear in the request, unless the response explicitly allows it (using one of the \"must-revalidate\", \"public\", or \"s-maxage\" Cache-Control response directives)</p><p>In addition to the conditions above, at least one of the following conditions must also be satisfied by the response:</p><p>It must contain an \"Expires\" header field</p><p>It must contain a \"max-age\" response directive</p><p>For \"shared\" caches such as \"proxy\" caches, it must contain a \"s-maxage\" response directive</p><p>It must contain a \"Cache Control Extension\" that allows it to be cached</p><p>It must have a status code that is defined as cacheable by default (200, 203, 204, 206, 300, 301, 404, 405, 410, 414, 501).</p>",
+					"otherinfo": "",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7234</p><p>https://datatracker.ietf.org/doc/html/rfc7231</p><p>https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html</p>",
+					"cweid": "524",
+					"wascid": "13",
+					"sourceid": "4"
+				},
+				{
+					"pluginid": "10015",
+					"alertRef": "10015",
+					"alert": "Re-examine Cache-control Directives",
+					"name": "Re-examine Cache-control Directives",
+					"riskcode": "0",
+					"confidence": "1",
+					"riskdesc": "Informational (Low)",
+					"desc": "<p>The cache-control header has not been set properly or is missing, allowing the browser and proxies to cache content. For static assets like css, js, or image files this might be intended, however, the resources should be reviewed to ensure that no sensitive content will be cached.</p>",
+					"instances":[ 
+						{
+							"id": "34",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)",
+							"method": "GET",
+							"param": "cache-control",
+							"attack": "",
+							"evidence": "public, max-age=0, must-revalidate",
+							"otherinfo": ""
+						}
+					],
+					"count": "1",
+					"systemic": false,
+					"solution": "<p>For secure content, ensure the cache-control HTTP header is set with \"no-cache, no-store, must-revalidate\". If an asset should be cached consider setting the directives \"public, max-age, immutable\".</p>",
+					"otherinfo": "",
+					"reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#web-content-caching</p><p>https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control</p><p>https://grayduck.mn/2021/09/13/cache-control-recommendations/</p>",
+					"cweid": "525",
+					"wascid": "13",
+					"sourceid": "1"
+				},
+				{
+					"pluginid": "10049",
+					"alertRef": "10049-2",
+					"alert": "Storable but Non-Cacheable Content",
+					"name": "Storable but Non-Cacheable Content",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>The response contents are storable by caching components such as proxy servers, but will not be retrieved directly from the cache, without validating the request upstream, in response to similar requests from other users.</p>",
+					"instances":[ 
+						{
+							"id": "39",
+							"uri": "https://meetaaron.app/api/notifications?user_id=9884c39b-a7f8-4f6e-bac1-4bae4d607ca4",
+							"nodeName": "https:\/\/meetaaron.app\/api\/notifications (user_id)",
+							"method": "GET",
+							"param": "",
+							"attack": "",
+							"evidence": "max-age=0",
+							"otherinfo": ""
+						}
+					],
+					"count": "1",
+					"systemic": false,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "<p>https://datatracker.ietf.org/doc/html/rfc7234</p><p>https://datatracker.ietf.org/doc/html/rfc7231</p><p>https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html</p>",
+					"cweid": "524",
+					"wascid": "13",
+					"sourceid": "1"
+				},
+				{
+					"pluginid": "10104",
+					"alertRef": "10104",
+					"alert": "User Agent Fuzzer",
+					"name": "User Agent Fuzzer",
+					"riskcode": "0",
+					"confidence": "2",
+					"riskdesc": "Informational (Medium)",
+					"desc": "<p>Check for differences in response based on fuzzed User Agent (eg. mobile sites, access as a Search Engine Crawler). Compares the response statuscode and the hashcode of the response body with the original response.</p>",
+					"instances":[ 
+						{
+							"id": "6455",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "6452",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "6449",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1)",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "6458",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/5.0 (Windows NT 10.0; Trident/7.0; rv:11.0) like Gecko",
+							"evidence": "",
+							"otherinfo": ""
+						},
+						{
+							"id": "6461",
+							"uri": "https://meetaaron.app",
+							"nodeName": "https:\/\/meetaaron.app",
+							"method": "GET",
+							"param": "Header User-Agent",
+							"attack": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3739.0 Safari/537.36 Edg/75.0.109.0",
+							"evidence": "",
+							"otherinfo": ""
+						}
+					],
+					"count": "5",
+					"systemic": true,
+					"solution": "",
+					"otherinfo": "",
+					"reference": "<p>https://owasp.org/www-project-web-security-testing-guide/</p>",
+					"cweid": "0",
+					"wascid": "0",
+					"sourceid": "3252"
+				}
+			]
+		}
+	],
+	"sequences":[
+	]
+
+}
