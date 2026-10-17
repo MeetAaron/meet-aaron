@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const BUCKET = 'documents';
 const VALID_CATEGORIES = ['general', 'prospects', 'opportunites', 'clients'];
@@ -35,7 +36,7 @@ async function loadDocumentForCompany(documentId: string) {
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const documentId = params.id;
-  const body = await request.json();
+  const body = await readJsonBody(request);
 
   const document = await loadDocumentForCompany(documentId);
   if (!document) {
@@ -138,7 +139,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/documents/[id]');
   }
 
   return NextResponse.json({ document: updated });
@@ -166,7 +167,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const { error: dbError } = await supabaseAdmin.from('company_documents').delete().eq('id', documentId);
   if (dbError) {
-    return NextResponse.json({ error: dbError.message }, { status: 500 });
+    return serverError(dbError, '/api/documents/[id]');
   }
 
   return NextResponse.json({ success: true });
