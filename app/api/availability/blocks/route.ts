@@ -7,9 +7,10 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { getConnectedProviders } from '@/lib/messaging';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest) {
-  const { user_id, start_at, end_at, reason } = await request.json();
+  const { user_id, start_at, end_at, reason } = await readJsonBody(request);
 
   if (!user_id || !start_at || !end_at) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/availability/blocks');
   }
 
   // Pousse l'indisponibilité vers Google/Outlook (28/08/2026, demande Alex —
