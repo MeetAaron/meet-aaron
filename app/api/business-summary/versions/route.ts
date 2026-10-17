@@ -18,6 +18,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import { backupThenReplaceBusinessSummary } from '@/lib/business-summary-store';
+import { readJsonBody, serverError } from '@/lib/http';
 
 // Longueur d'aperçu plus courte qu'ailleurs (280) : ici affiché à côté d'une
 // date dans une petite ligne de liste, pas en tête d'un document complet.
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     .limit(5);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/business-summary/versions');
   }
 
   return NextResponse.json({
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, version_id } = await request.json();
+  const { user_id, version_id } = await readJsonBody(request);
 
   if (!user_id || !version_id) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
 
   const { error } = await backupThenReplaceBusinessSummary(companyId, version.summary);
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/business-summary/versions');
   }
 
   return NextResponse.json({ success: true, summary: version.summary });
