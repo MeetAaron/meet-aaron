@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -140,7 +141,7 @@ export async function PATCH(request: NextRequest) {
     default_first_email_body,
     public_link_url,
     meeting_link,
-  } = await request.json();
+  } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -199,7 +200,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError(error, '/api/preferences');
     }
   }
 
