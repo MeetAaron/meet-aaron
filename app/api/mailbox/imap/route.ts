@@ -16,6 +16,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { autodiscoverMailServers, guessVariants } from '@/lib/mail-autodiscover';
 import { testImapSmtp, saveImapConnection, type ImapCredentials } from '@/lib/imap';
 import { notifyIfDeliverabilityIssue } from '@/lib/email-deliverability';
+import { readJsonBody } from '@/lib/http';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,7 +42,7 @@ function toInt(v: any, fallback: number) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
+  const body = await readJsonBody(request).catch(() => ({}));
   const userId = String(body.user_id || '');
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
