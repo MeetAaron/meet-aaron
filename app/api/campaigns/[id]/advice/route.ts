@@ -20,6 +20,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const campaignId = params.id;
@@ -94,7 +95,7 @@ Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resser
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/campaigns/[id]/advice');
   }
 
   const generatedAt = new Date().toISOString();
