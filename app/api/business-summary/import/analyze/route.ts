@@ -14,6 +14,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const NEW_PROFILE_MARKER = 'NOUVEAU_PROFIL:';
 const CHANGES_MARKER = 'CHANGEMENTS_REMARQUES:';
@@ -40,7 +41,7 @@ function parseAnalysisResponse(text: string): { updatedSummary: string; changeNo
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id } = await request.json();
+  const { user_id } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.company_id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return serverError(error, '/api/business-summary/import/analyze');
     }
 
     return NextResponse.json({ summary: updatedSummary, changeNote });
@@ -137,6 +138,6 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/business-summary/import/analyze');
   }
 }
