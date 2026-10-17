@@ -17,6 +17,7 @@ import { extractDocumentText } from '@/lib/document-extraction';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { serverError } from '@/lib/http';
 
 const BUCKET = 'documents';
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const storagePath = `${prospect.company_id}/devis/${prospectId}-${Date.now()}-${sanitizeFilenameForStorageKey(file.name)}`;
   const { error: uploadError } = await supabaseAdmin.storage.from(BUCKET).upload(storagePath, buffer, { contentType: file.type || 'application/octet-stream' });
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    return serverError(uploadError, '/api/prospects/[id]/devis/upload');
   }
 
   // Lecture du document (PDF, Word, texte) — extrait limité pour les tokens.
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     if (updateError.code === '42703') {
       return NextResponse.json({ error: "Lance d'abord la migration migration_devis_upload_2026-09-01.sql" }, { status: 500 });
     }
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return serverError(updateError, '/api/prospects/[id]/devis/upload');
   }
 
   return NextResponse.json({ success: true, check, email_subject: emailSubject, email_body: emailBody, file_name: file.name });
