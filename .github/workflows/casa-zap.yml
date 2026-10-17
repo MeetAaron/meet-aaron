@@ -5,33 +5,68 @@
 # à nous de le faire avec la configuration ADA, en couvrant la partie
 # connectée de l'application, puis de déposer les résultats dans le portail.
 #
-# Deux scans OWASP ZAP, avec la configuration officielle ADA
+# Scans OWASP ZAP, avec la configuration officielle ADA
 # (appdefensealliance.dev/casa/tier-2/ast-guide/dynamic-scan) :
-#   1. zap-full-scan  sur https://meetaaron.app (pages publiques et
-#      connectées, en-tête Authorization du compte de test) ;
-#   2. zap-api-scan   sur les routes API en LECTURE SEULE
-#      (security/casa/openapi-readonly.json). Les routes qui envoient des
-#      e-mails ou appellent l'IA payante ne sont pas attaquées
-#      automatiquement.
+#   - full : zap-full-scan sur https://meetaaron.app (pages publiques et
+#     connectées, en-tête Authorization du compte de test) ;
+#   - api1, api2 : zap-api-scan sur les routes API en LECTURE SEULE
+#     (security/casa/openapi-readonly.json, coupé en deux moitiés). Les
+#     routes qui envoient des e-mails ou appellent l'IA payante ne sont pas
+#     attaquées automatiquement.
+#
+# UN JOB PAR SCAN, L'UN APRÈS L'AUTRE (run #5, 17/10/2026) : après le scan
+# web, toutes les requêtes du scan API, lancé depuis la même machine, ont
+# reçu la page « Vercel Security Checkpoint » (403) : la protection
+# anti-robots de Vercel avait repéré l'adresse IP. Chaque job tourne sur une
+# machine GitHub neuve, donc une autre adresse IP, et commence par vérifier
+# qu'une route API répond bien en JSON : sinon il s'arrête au lieu de
+# scanner la page de blocage pendant une heure.
 #
 # Pré-requis (une fois, par Alex) : secrets GitHub CASA_TEST_EMAIL et
 # CASA_TEST_PASSWORD = compte de TEST dédié, sans boîte mail connectée.
 #
 # Résultats : publiés sur la branche casa-zap-results (dossier
-# results/<date>/) et en artefact du run.
+# results/<date>/) et en artefacts du run.
 
 name: CASA ZAP scan
 
 on:
   workflow_dispatch:
+    inputs:
+      scans:
+        description: "Scans à lancer : api (routes connectées), full (site web) ou all"
+        type: choice
+        options: [api, all, full]
+        default: api
 
 permissions:
   contents: write
 
 jobs:
-  zap:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    outputs:
+      list: ${{ steps.p.outputs.list }}
+    steps:
+      - id: p
+        run: |
+          case "${{ inputs.scans }}" in
+            api)  echo 'list=["api1","api2"]' >> "$GITHUB_OUTPUT" ;;
+            full) echo 'list=["full"]' >> "$GITHUB_OUTPUT" ;;
+            *)    echo 'list=["api1","api2","full"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  scan:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      # Un seul à la fois : deux scanners en parallèle doubleraient le débit
+      # vu par Vercel et déclencheraient sa protection.
+      max-parallel: 1
+      matrix:
+        scan: ${{ fromJSON(needs.plan.outputs.list) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,8 +81,8 @@ jobs:
           unzip -o -j ada-api.zip -d ada-api
           cp "$(ls ada-full/*.conf | head -1)" wrk/ada-full.conf
           cp "$(ls ada-api/*.conf | head -1)" wrk/ada-api.conf
-          ls -la wrk
           sha256sum ada.zip ada-api.zip | tee wrk/ada-config-sha256.txt
+          echo "Adresse IP publique de cette machine : $(curl -s https://api.ipify.org || echo inconnue)"
 
       - name: Jeton du compte de test
         env:
@@ -69,90 +104,80 @@ jobs:
               print("moitié", n, ":", len(part), "routes")
           PY
 
+      # Vérification avant scan : une route connectée doit répondre en JSON.
+      # Si Vercel renvoie sa page de blocage, on s'arrête tout de suite.
+      - name: Vérification (l'API répond-elle, ou Vercel bloque-t-il ?)
+        run: |
+          code=$(curl -s -o wrk/preflight.txt -w '%{http_code}' \
+            -H "Authorization: Bearer ${ZAP_TOKEN}" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0" \
+            "https://meetaaron.app/api/preferences?user_id=${USER_ID}")
+          echo "HTTP ${code}"; head -c 300 wrk/preflight.txt; echo
+          if grep -q "Security Checkpoint" wrk/preflight.txt; then
+            echo "::error::Vercel Security Checkpoint : l'adresse IP de cette machine est bloquée par Vercel. Scan annulé."
+            exit 1
+          fi
+          [ "$code" = "200" ] || { echo "::error::La route de test ne répond pas 200 (HTTP ${code}). Scan annulé."; exit 1; }
+
       # Débit volontairement limité (1 requête à la fois, 400 ms entre deux) :
       # au run #3 (16/10), la protection DDoS de Vercel a présenté sa page
-      # « Vercel Security Checkpoint » au scanner, qui a alors analysé cette
-      # page au lieu de l'application (réponses 403 partout).
-      # Durées (run #4, 16/10) : à ce débit, le scan web complet a pris 80 min
-      # et le scan API, sans limite, a été coupé par le plafond de 3 h du job
-      # sans écrire de rapport. Le job a maintenant 5 h 30 et chaque scan un
-      # plafond (90 min web, 2 x 50 min API) qui laisse toujours le temps
-      # d'écrire les rapports ; PYTHONUNBUFFERED rend la progression visible
-      # en direct dans le journal.
-      - name: ZAP full scan (application web, authentifié)
+      # « Vercel Security Checkpoint » au scanner. Plafonds de durée : le
+      # jeton Supabase vaut 1 h (scans API plafonnés à 50 min) et le job a
+      # 2 h. PYTHONUNBUFFERED rend la progression visible en direct.
+      - name: Scan ZAP (${{ matrix.scan }})
         continue-on-error: true
         run: |
+          S="${{ matrix.scan }}"
+          if [ "$S" = "full" ]; then
+            CMD="zap-full-scan.py -t https://meetaaron.app -c ada-full.conf -m 5 -T 100 -j"
+            Z="-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=90 -config scanner.maxRuleDurationInMins=8 -config spider.thread=1 -config ajaxSpider.numberOfBrowsers=1"
+          else
+            N="${S#api}"
+            CMD="zap-api-scan.py -t /zap/wrk/openapi-${N}.json -f openapi -c ada-api.conf -T 55"
+            Z="-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=50 -config scanner.maxRuleDurationInMins=4"
+          fi
           docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
             -e ZAP_AUTH_HEADER=Authorization \
             -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
             -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
-            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
-            -t https://meetaaron.app -c ada-full.conf -m 5 -T 90 -j \
-            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=90 -config scanner.maxRuleDurationInMins=8 -config spider.thread=1 -config ajaxSpider.numberOfBrowsers=1" \
-            -x results-full.xml -r results-full.html -J results-full.json -I 2>&1 | tee wrk/results-full-log.txt
+            ghcr.io/zaproxy/zaproxy:stable $CMD -z "$Z" \
+            -x "results-${S}.xml" -r "results-${S}.html" -J "results-${S}.json" -I 2>&1 | tee "wrk/results-${S}-log.txt"
 
-      # Le jeton Supabase expire au bout d'une heure, et le scan API, au débit
-      # limité, dure plus longtemps (run #4 : coupé après 98 min sans
-      # rapport). Les 27 routes sont donc scannées en DEUX moitiés, chacune
-      # avec un jeton neuf et un plafond de 50 min : le jeton reste valable
-      # pendant toute la moitié, sinon la fin du scan ne verrait que des 401.
-      # Le renouvellement ne touche que Supabase (URL et clé publique gardées
-      # du premier appel) : rien n'est redemandé à meetaaron.app, dont le
-      # pare-feu avait répondu 403 au run #2.
-      - name: Nouveau jeton (moitié 1)
-        continue-on-error: true
-        env:
-          CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
-          CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
-        run: python3 security/casa/get_test_token.py
-
-      - name: ZAP API scan, moitié 1 (routes authentifiées)
-        continue-on-error: true
+      - name: Contrôle des résultats (page de blocage Vercel ?)
+        if: always()
         run: |
-          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
-            -e ZAP_AUTH_HEADER=Authorization \
-            -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
-            -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
-            ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
-            -t /zap/wrk/openapi-1.json -f openapi -c ada-api.conf -T 52 \
-            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=50 -config scanner.maxRuleDurationInMins=4" \
-            -x results-api1.xml -r results-api1.html -J results-api1.json -I 2>&1 | tee wrk/results-api1-log.txt
-
-      - name: Nouveau jeton (moitié 2)
-        continue-on-error: true
-        env:
-          CASA_TEST_EMAIL: ${{ secrets.CASA_TEST_EMAIL }}
-          CASA_TEST_PASSWORD: ${{ secrets.CASA_TEST_PASSWORD }}
-        run: python3 security/casa/get_test_token.py
-
-      - name: ZAP API scan, moitié 2 (routes authentifiées)
-        continue-on-error: true
-        run: |
-          docker run --rm -u root -v "$PWD/wrk:/zap/wrk:rw" -e PYTHONUNBUFFERED=1 \
-            -e ZAP_AUTH_HEADER=Authorization \
-            -e ZAP_AUTH_HEADER_VALUE="Bearer ${ZAP_TOKEN}" \
-            -e ZAP_AUTH_HEADER_SITE=meetaaron.app \
-            ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py \
-            -t /zap/wrk/openapi-2.json -f openapi -c ada-api.conf -T 52 \
-            -z "-config scanner.threadPerHost=1 -config scanner.delayInMs=400 -config scanner.maxScanDurationInMins=50 -config scanner.maxRuleDurationInMins=4" \
-            -x results-api2.xml -r results-api2.html -J results-api2.json -I 2>&1 | tee wrk/results-api2-log.txt
+          S="${{ matrix.scan }}"
+          n=$(grep -o "Security Checkpoint" "wrk/results-${S}.json" 2>/dev/null | wc -l || true)
+          echo "Occurrences de « Vercel Security Checkpoint » dans le rapport ${S} : ${n}" | tee "wrk/results-${S}-checkpoint.txt"
+          [ "${n:-0}" = "0" ] || echo "::warning::Le rapport ${S} contient la page de blocage Vercel (${n} fois)."
 
       - name: Artefact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: casa-zap-results
+          name: casa-zap-${{ matrix.scan }}
           path: |
             wrk/results-*
             wrk/ada-config-sha256.txt
 
+  publish:
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: casa-zap-*
+          path: dl
+          merge-multiple: true
       - name: Publication sur la branche casa-zap-results
-        if: always()
         run: |
           set -e
           D="results/$(date -u +%Y-%m-%d_%H%M)"
           mkdir -p "/tmp/out/$D"
-          cp wrk/results-* wrk/ada-config-sha256.txt "/tmp/out/$D/" 2>/dev/null || true
+          cp -r dl/. "/tmp/out/$D/" 2>/dev/null || true
+          ls -la "/tmp/out/$D"
           git config user.name "casa-scan"
           git config user.email "noreply@meetaaron.app"
           git fetch origin casa-zap-results || true
