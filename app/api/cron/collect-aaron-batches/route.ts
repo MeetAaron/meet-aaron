@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { collectAaronBatches } from '@/lib/aaron-batch';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -24,6 +25,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
   } catch (err: any) {
     console.error('collect-aaron-batches:', err?.message);
-    return NextResponse.json({ error: err?.message || 'erreur' }, { status: 500 });
+    return serverError(err, '/api/cron/collect-aaron-batches');
   }
 }
