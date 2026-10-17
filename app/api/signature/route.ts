@@ -11,6 +11,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { getLastSentGmailBodyText } from '@/lib/google';
 import { guessEmailSignature } from '@/lib/signature';
 import { normalizeSignatureMap } from '@/lib/signature-locale';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, signature, signature_by_locale } = await request.json();
+  const { user_id, signature, signature_by_locale } = await readJsonBody(request);
 
   if (!user_id || typeof signature !== 'string') {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -85,20 +86,20 @@ export async function PATCH(request: NextRequest) {
       .update({ email_signature: signature.trim() || null })
       .eq('id', user_id);
     if (retry.error) {
-      return NextResponse.json({ error: retry.error.message }, { status: 500 });
+      return serverError(retry.error, '/api/signature');
     }
     return NextResponse.json({ success: true, locale_signatures_saved: false });
   }
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/signature');
   }
 
   return NextResponse.json({ success: true, locale_signatures_saved: hasLocaleMap });
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id } = await request.json();
+  const { user_id } = await readJsonBody(request);
 
   if (!user_id) {
     return NextResponse.json({ error: 'user_id manquant' }, { status: 400 });
@@ -135,6 +136,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ signature: guess });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erreur lors de la détection' }, { status: 500 });
+    return serverError(err, '/api/signature');
   }
 }
