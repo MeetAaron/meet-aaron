@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { resolveAudience } from '@/lib/marketing-audience';
+import { serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: campaign } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', params.id).single();
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     prospects = await resolveAudience(campaign);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/marketing-campaigns/[id]/recipients');
   }
 
   if (prospects.length === 0) {
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   if (toInsert.length > 0) {
     const { error: insertError } = await supabaseAdmin.from('marketing_campaign_recipients').insert(toInsert);
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+    if (insertError) return serverError(insertError, '/api/marketing-campaigns/[id]/recipients');
   }
 
   const { data: updated, error } = await supabaseAdmin
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error, '/api/marketing-campaigns/[id]/recipients');
 
   return NextResponse.json({ campaign: updated, recipient_count: prospects.length, added: toInsert.length });
 }
