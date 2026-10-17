@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { readJsonBody, serverError } from '@/lib/http';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -29,14 +30,14 @@ export async function GET(request: NextRequest) {
     .order('name', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/products');
   }
 
   return NextResponse.json({ products: products || [] });
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const body = await readJsonBody(request);
   const { user_id, reference, name, description, category, unit, unit_price_eur } = body;
 
   if (!user_id || !name || unit_price_eur === undefined || unit_price_eur === null || unit_price_eur === '') {
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/products');
   }
 
   return NextResponse.json({ product });
