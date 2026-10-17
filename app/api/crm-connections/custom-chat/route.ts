@@ -21,6 +21,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const CUSTOM_CRM_CHAT_SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA. Un commercial ou le fondateur d'une petite entreprise veut connecter un CRM qui n'est pas dans la liste des intégrations déjà proposées par l'application (HubSpot, Salesforce, Pipedrive, Jobber, Axonaut, Sellsy, Housecall Pro, Capsule CRM, ServiceM8). Ton rôle ici est UNIQUEMENT de récolter les informations nécessaires pour que l'équipe technique de l'application puisse ensuite construire cette intégration — tu ne peux pas la construire toi-même dans cette conversation, ne le promets jamais. Tutoie la personne, sois chaleureux et concret, comme un collègue technique qui aide à cadrer une demande.
 
@@ -55,7 +56,7 @@ Réponds ${localeInstruction(locale)} — mais garde bien le vocabulaire fixe de
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, message, history } = await request.json();
+  const { user_id, message, history } = await readJsonBody(request);
 
   if (!user_id || !message) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -113,6 +114,6 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/crm-connections/custom-chat');
   }
 }
