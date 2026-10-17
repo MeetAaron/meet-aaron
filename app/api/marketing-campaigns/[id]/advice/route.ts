@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { serverError } from '@/lib/http';
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const { data: campaign } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', params.id).single();
@@ -71,7 +72,7 @@ Donne un avis concret en 3-4 phrases maximum : la campagne a-t-elle plutôt bien
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/marketing-campaigns/[id]/advice');
   }
 
   const generatedAt = new Date().toISOString();
