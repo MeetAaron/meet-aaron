@@ -27,7 +27,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Ic from '@/components/UiIcon';
-import { t, useLocale } from '@/lib/i18n';
+import { useLocale } from '@/lib/i18n';
+
+// Textes de la célébration, dans les 7 langues de l'app. Gardés ici plutôt
+// que dans lib/i18n.js : ce fichier dépasse 1 Mo et l'envoi web de GitHub
+// bloque dessus ; ces six phrases n'ont pas besoin d'y être.
+const TEXT = {
+  fr: { title: 'Nouveau client !', titleMany: '{n} nouveaux clients !', body: "Il vient de signer. Aaron s'occupe de son accueil.", bodyMany: "Ils viennent de signer. Aaron s'occupe de leur accueil.", open: 'Voir la fiche', close: 'Continuer' },
+  en: { title: 'New client!', titleMany: '{n} new clients!', body: 'They just signed. Aaron is taking care of onboarding.', bodyMany: 'They just signed. Aaron is taking care of onboarding.', open: 'Open the contact', close: 'Continue' },
+  de: { title: 'Neuer Kunde!', titleMany: '{n} neue Kunden!', body: 'Gerade unterschrieben. Aaron kümmert sich um das Onboarding.', bodyMany: 'Gerade unterschrieben. Aaron kümmert sich um das Onboarding.', open: 'Kontakt öffnen', close: 'Weiter' },
+  it: { title: 'Nuovo cliente!', titleMany: '{n} nuovi clienti!', body: "Ha appena firmato. Aaron si occupa dell'accoglienza.", bodyMany: "Hanno appena firmato. Aaron si occupa dell'accoglienza.", open: 'Apri la scheda', close: 'Continua' },
+  es: { title: '¡Nuevo cliente!', titleMany: '¡{n} nuevos clientes!', body: 'Acaba de firmar. Aaron se encarga de su bienvenida.', bodyMany: 'Acaban de firmar. Aaron se encarga de su bienvenida.', open: 'Ver la ficha', close: 'Continuar' },
+  pt: { title: 'Novo cliente!', titleMany: '{n} novos clientes!', body: 'Acabou de assinar. O Aaron trata do acolhimento.', bodyMany: 'Acabaram de assinar. O Aaron trata do acolhimento.', open: 'Ver a ficha', close: 'Continuar' },
+  nl: { title: 'Nieuwe klant!', titleMany: '{n} nieuwe klanten!', body: 'Net getekend. Aaron regelt de onboarding.', bodyMany: 'Net getekend. Aaron regelt de onboarding.', open: 'Fiche openen', close: 'Doorgaan' },
+};
+const t = (key, locale) => (TEXT[locale] || TEXT.fr)[key.replace('win.', '')] || TEXT.fr[key.replace('win.', '')];
 
 const EVENT = 'aaron:client-won';
 const seenKey = (userId) => `aaron_last_win_celebrated:${userId}`;
