@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPushNotification } from '@/lib/push';
 import { sendEmailForUser } from '@/lib/messaging';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     .not('due_date', 'is', null);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/invoice-late-payments');
   }
 
   let flagged = 0;
