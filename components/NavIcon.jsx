@@ -30,6 +30,7 @@ import {
   Lock,
   Bell,
   LogOut,
+  MoreHorizontal,
 } from 'lucide-react';
 
 const NAV_ICON_BY_SLUG = {
@@ -55,6 +56,9 @@ const NAV_ICON_BY_SLUG = {
   // Bouton de déconnexion du rail (remplace l'emoji 🚪, docx 05/09/2026 :
   // « tous les symboles doivent être modernisés »).
   logout: LogOut,
+  // Bouton « Plus » du rail (modernisation 16/10/2026, point 4,
+  // components/RailMore.jsx).
+  more: MoreHorizontal,
 };
 
 // size en px (l'icône est centrée dans le conteneur .nav-icon existant, qui gère

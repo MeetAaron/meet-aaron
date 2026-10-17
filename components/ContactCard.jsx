@@ -34,6 +34,7 @@ import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smar
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
+import { celebrateWin } from '@/components/WinCelebration';
 
 const PERSONALITY_COLORS = {
   dominant: '#E5484D',
@@ -280,6 +281,14 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   async function handleWon(firstOrderConfirmed) {
     if (await patch({ action: 'marquer_gagne', first_order_confirmed: firstOrderConfirmed })) {
       setPanel(null);
+      // Modernisation 16/10/2026, point 3 : le client gagné se fête en plein
+      // écran (components/WinCelebration.jsx).
+      celebrateWin({
+        userId,
+        prospectId: prospect.id,
+        name: prospect.full_name,
+        company: prospect.prospect_companies?.name || prospect.company_name || null,
+      });
       onChanged();
     }
   }
