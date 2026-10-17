@@ -142,6 +142,11 @@ function quickSectorsFor(locale) {
 }
 
 export default function CampaignsPage() {
+  // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
+  // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
+  // qu'un élément était affiché, le rendu levait « savedKey is not
+  // defined » et la page restait vide.
+  const { savedKey, flash: flashSaved } = useSavedFlash();
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
   const STATUS_LABELS = statusLabelsFor(locale);
@@ -3173,7 +3178,6 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // Suggestions devient un onglet de Mon équipe (voir app/app/team/page.jsx).
   const [userEmail, setUserEmail] = useState(null);
   const [locale, setLocale] = useLocale();
-  const { savedKey, flash: flashSaved } = useSavedFlash();
 
   // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : abonnement
   // multi-module — chacun des 3 modules Aaron Prospect/Opportunités/Clients
