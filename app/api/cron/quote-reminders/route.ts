@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPushNotification } from '@/lib/push';
 import { derivePipelinePosition } from '@/lib/pipeline';
 import { quoteAdviceLevel, QUOTE_ADVICE_FR } from '@/lib/notifications';
+import { serverError } from '@/lib/http';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
     if (error.code === '42703') {
       return NextResponse.json({ skipped: true, reason: 'migration_pipeline_fusion_2026-09-01.sql pas encore lancée' });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/cron/quote-reminders');
   }
 
   const sent: string[] = [];
