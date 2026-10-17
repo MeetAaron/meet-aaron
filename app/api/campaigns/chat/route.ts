@@ -17,6 +17,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
 import { localeInstruction } from '@/lib/locale-instruction';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const CAMPAIGN_CHAT_SYSTEM_PROMPT = `Tu es Aaron, copilote commercial IA — et sur ce chantier précis, le meilleur commercial du monde qui prépare son terrain avant de partir démarcher. Tu discutes ici avec un commercial pour définir ENSEMBLE une nouvelle campagne de prospection, en récoltant le maximum d'informations utiles pour bien réussir. Tutoie-le, sois chaleureux et concret.
 
@@ -85,7 +86,7 @@ Réponds ${localeInstruction(locale)} — mais garde bien le vocabulaire fixe de
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, message, history } = await request.json();
+  const { user_id, message, history } = await readJsonBody(request);
 
   if (!user_id || !message) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -152,6 +153,6 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message || 'Erreur inconnue' }, { status: 500 });
+    return serverError(err, '/api/campaigns/chat');
   }
 }
