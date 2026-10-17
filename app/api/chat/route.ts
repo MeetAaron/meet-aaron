@@ -7,6 +7,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { summarizeDocument } from '@/lib/document-summary';
+import { readJsonBody, serverError } from '@/lib/http';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
@@ -519,7 +520,7 @@ async function detectFounderSuggestion(
 }
 
 export async function POST(request: NextRequest) {
-  const { user_id, conversation_id, message, history, attached_document } = await request.json();
+  const { user_id, conversation_id, message, history, attached_document } = await readJsonBody(request);
   // Document joint à CETTE conversation (pas encore sauvegardé), voir
   // app/api/chat/document/route.ts : le frontend le renvoie sur chaque tour
   // tant qu'il reste "en attente" côté client (chip affiché dans l'UI), ce qui
@@ -695,7 +696,7 @@ export async function POST(request: NextRequest) {
         { status: 429 }
       );
     }
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return serverError(err, '/api/chat');
   }
 
   if (suggestion.isSuggestion && user?.company_id) {
