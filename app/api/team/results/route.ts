@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { serverError } from '@/lib/http';
 
 const DEAL_STAGE_LABELS: Record<string, string> = {
   rdv_fait: 'RDV fait',
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     .in('assigned_user_id', memberIds);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error, '/api/team/results');
   }
 
   // Une seule ligne par prospect, catégorisée Prospect / Opportunité / Client
