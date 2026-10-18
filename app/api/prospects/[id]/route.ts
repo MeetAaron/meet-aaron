@@ -55,6 +55,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 const VALID_DEAL_STAGES = ['rdv_fait', 'devis_envoye', 'en_negociation', 'signe', 'perdu'];
 const VALID_ONBOARDING_STATUSES = ['a_demarrer', 'en_cours', 'termine'];
 
+// Vide la proposition en attente (sauvetage ou relance d'actualité) en plus
+// des champs donnés. rescue_proposal_source n'existe qu'après
+// migration_declencheurs_actualite_2026-10-18.sql : si la colonne manque,
+// on réécrit sans elle.
+async function updateProspectClearingRescue(prospectId: string, fields: Record<string, any>) {
+  const base = { ...fields, rescue_proposal_pending: false, rescue_proposal_subject: null, rescue_proposal_body: null };
+  const first = await supabaseAdmin.from('prospects').update({ ...base, rescue_proposal_source: null }).eq('id', prospectId);
+  if (first.error?.code === '42703' || first.error?.code === 'PGRST204') {
+    await supabaseAdmin.from('prospects').update(base).eq('id', prospectId);
+  }
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const {
     action,
@@ -138,31 +150,28 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       });
     }
 
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        status: 'jaune',
-        status_updated_at: new Date().toISOString(),
-        rescue_proposal_pending: false,
-        rescue_proposal_subject: null,
-        rescue_proposal_body: null,
-      })
-      .eq('id', prospectId);
+    // Relance d'actualité (lib/news-triggers.ts) sur un prospect classé
+    // « perdu sans réponse » : l'email est parti, la conversation est
+    // rouverte — il ressort des perdus et repasse en jaune, check-inbox et
+    // les relances le reprennent. Un sauvetage classique (prospect rouge
+    // mais pas « perdu ») garde le comportement d'avant.
+    const reopen = prospect.is_lost === true && prospect.pipeline_lost_reason === 'sans_reponse'
+      ? { is_lost: false, lost_at: null, pipeline_lost_reason: null, pipeline_lost_at_stage: null }
+      : {};
+    await updateProspectClearingRescue(prospectId, {
+      status: 'jaune',
+      status_updated_at: new Date().toISOString(),
+      ...reopen,
+    });
 
     return NextResponse.json({ success: true, status: 'sauvetage_envoye' });
   }
 
   if (action === 'rejeter_sauvetage') {
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        status: 'rouge',
-        status_updated_at: new Date().toISOString(),
-        rescue_proposal_pending: false,
-        rescue_proposal_subject: null,
-        rescue_proposal_body: null,
-      })
-      .eq('id', prospectId);
+    await updateProspectClearingRescue(prospectId, {
+      status: 'rouge',
+      status_updated_at: new Date().toISOString(),
+    });
 
     return NextResponse.json({ success: true, status: 'abandonne' });
   }
