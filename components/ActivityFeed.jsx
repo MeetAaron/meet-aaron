@@ -63,6 +63,48 @@ function textFor(ev, locale) {
   }
 }
 
+// Refonte visuelle 17/10/2026 (maquettes validées par Alex) : le fil
+// s'ouvre sur un RÉSUMÉ en une phrase + 4 chiffres, puis les lignes. Les
+// textes vivent ici (lib/i18n.js dépasse la taille acceptée par l'envoi
+// GitHub, voir ContactCard.jsx — même compromis).
+const HERO_TEXT = {
+  fr: { contacted: 'prospects contactés', replies: 'réponses', appts: 'rendez-vous', quotes: 'devis demandés', won: 'clients gagnés', more: 'Tout voir', less: 'Réduire', sentence: 'Aaron a contacté {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obtenu {n} {w}', r1: 'réponse', rN: 'réponses', a: ' et {n} {w}', a1: 'rendez-vous', aN: 'rendez-vous', w: ' · {n} {w}', w1: 'client gagné', wN: 'clients gagnés', quiet: 'Aaron travaille : {n} {w} depuis une semaine.', qw1: 'nouvelle', qwN: 'nouvelles' },
+  en: { contacted: 'prospects contacted', replies: 'replies', appts: 'meetings', quotes: 'quotes requested', won: 'clients won', more: 'See all', less: 'Collapse', sentence: 'Aaron contacted {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', got {n} {w}', r1: 'reply', rN: 'replies', a: ' and {n} {w}', a1: 'meeting', aN: 'meetings', w: ' · {n} {w}', w1: 'client won', wN: 'clients won', quiet: 'Aaron is at work: {n} {w} this week.', qw1: 'update', qwN: 'updates' },
+  de: { contacted: 'Interessenten kontaktiert', replies: 'Antworten', appts: 'Termine', quotes: 'Angebote angefragt', won: 'Kunden gewonnen', more: 'Alle anzeigen', less: 'Einklappen', sentence: 'Aaron hat {c} {cw} kontaktiert{r}{a}{w}.', cw1: 'Interessenten', cwN: 'Interessenten', r: ', {n} {w} erhalten', r1: 'Antwort', rN: 'Antworten', a: ' und {n} {w} vereinbart', a1: 'Termin', aN: 'Termine', w: ' · {n} {w}', w1: 'Kunde gewonnen', wN: 'Kunden gewonnen', quiet: 'Aaron arbeitet: {n} {w} diese Woche.', qw1: 'Neuigkeit', qwN: 'Neuigkeiten' },
+  it: { contacted: 'prospect contattati', replies: 'risposte', appts: 'appuntamenti', quotes: 'preventivi richiesti', won: 'clienti acquisiti', more: 'Vedi tutto', less: 'Riduci', sentence: 'Aaron ha contattato {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospect', r: ', ottenuto {n} {w}', r1: 'risposta', rN: 'risposte', a: ' e {n} {w}', a1: 'appuntamento', aN: 'appuntamenti', w: ' · {n} {w}', w1: 'cliente acquisito', wN: 'clienti acquisiti', quiet: 'Aaron è al lavoro: {n} {w} questa settimana.', qw1: 'novità', qwN: 'novità' },
+  es: { contacted: 'prospectos contactados', replies: 'respuestas', appts: 'citas', quotes: 'presupuestos pedidos', won: 'clientes ganados', more: 'Ver todo', less: 'Reducir', sentence: 'Aaron contactó a {c} {cw}{r}{a}{w}.', cw1: 'prospecto', cwN: 'prospectos', r: ', obtuvo {n} {w}', r1: 'respuesta', rN: 'respuestas', a: ' y {n} {w}', a1: 'cita', aN: 'citas', w: ' · {n} {w}', w1: 'cliente ganado', wN: 'clientes ganados', quiet: 'Aaron está trabajando: {n} {w} esta semana.', qw1: 'novedad', qwN: 'novedades' },
+  pt: { contacted: 'prospects contactados', replies: 'respostas', appts: 'reuniões', quotes: 'orçamentos pedidos', won: 'clientes ganhos', more: 'Ver tudo', less: 'Reduzir', sentence: 'O Aaron contactou {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obteve {n} {w}', r1: 'resposta', rN: 'respostas', a: ' e {n} {w}', a1: 'reunião', aN: 'reuniões', w: ' · {n} {w}', w1: 'cliente ganho', wN: 'clientes ganhos', quiet: 'O Aaron está a trabalhar: {n} {w} esta semana.', qw1: 'novidade', qwN: 'novidades' },
+  nl: { contacted: 'prospects benaderd', replies: 'reacties', appts: 'afspraken', quotes: 'offertes gevraagd', won: 'klanten gewonnen', more: 'Alles tonen', less: 'Inklappen', sentence: 'Aaron heeft {c} {cw} benaderd{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', {n} {w} gekregen', r1: 'reactie', rN: 'reacties', a: ' en {n} {w} geregeld', a1: 'afspraak', aN: 'afspraken', w: ' · {n} {w}', w1: 'klant gewonnen', wN: 'klanten gewonnen', quiet: 'Aaron is aan het werk: {n} {w} deze week.', qw1: 'update', qwN: 'updates' },
+};
+const ht = (key, locale) => (HERO_TEXT[locale] || HERO_TEXT.fr)[key] || HERO_TEXT.fr[key];
+const COLLAPSED_ROWS = 5;
+
+function summarize(events) {
+  const s = { contacted: 0, replies: 0, appts: 0, quotes: 0, won: 0 };
+  for (const ev of events) {
+    if (ev.kind === 'contacted') s.contacted += ev.count || 1;
+    else if (ev.kind === 'replied') s.replies += 1;
+    else if (ev.kind === 'appointment_confirmed' || ev.kind === 'appointment_proposed') s.appts += 1;
+    else if (ev.kind === 'quote_requested') s.quotes += 1;
+    else if (ev.kind === 'won') s.won += 1;
+  }
+  return s;
+}
+
+function heroSentence(s, total, locale) {
+  const pl = (n, one, many) => ht(n === 1 ? one : many, locale);
+  if (s.contacted === 0) {
+    return ht('quiet', locale).replace('{n}', total).replace('{w}', pl(total, 'qw1', 'qwN'));
+  }
+  const part = (n, key, one, many) => (n > 0 ? ht(key, locale).replace('{n}', n).replace('{w}', pl(n, one, many)) : '');
+  return ht('sentence', locale)
+    .replace('{c}', s.contacted)
+    .replace('{cw}', pl(s.contacted, 'cw1', 'cwN'))
+    .replace('{r}', part(s.replies, 'r', 'r1', 'rN'))
+    .replace('{a}', part(s.appts, 'a', 'a1', 'aN'))
+    .replace('{w}', part(s.won, 'w', 'w1', 'wN'));
+}
+
 function dayLabel(iso, locale, now) {
   const d = new Date(iso);
   const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -76,6 +118,7 @@ function dayLabel(iso, locale, now) {
 export default function ActivityFeed({ userId, locale, onOpenContact }) {
   const [events, setEvents] = useState(null);
   const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -94,15 +137,27 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
   }, [userId]);
 
   const now = new Date();
+  const summary = summarize(events || []);
+  const total = (events || []).length;
 
-  // Groupes par jour, dans l'ordre d'arrivée (déjà trié côté API).
+  // Groupes par jour, dans l'ordre d'arrivée (déjà trié côté API). Replié
+  // par défaut aux COLLAPSED_ROWS premières lignes : le résumé dit déjà
+  // l'essentiel, les lignes sont le détail.
+  const visible = expanded ? events || [] : (events || []).slice(0, COLLAPSED_ROWS);
   const groups = [];
-  for (const ev of events || []) {
+  for (const ev of visible) {
     const label = dayLabel(ev.at, locale, now);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(ev);
     else groups.push({ label, items: [ev] });
   }
+
+  const kpis = [
+    { key: 'contacted', value: summary.contacted, label: ht('contacted', locale) },
+    { key: 'replies', value: summary.replies, label: ht('replies', locale) },
+    { key: 'appts', value: summary.appts, label: ht('appts', locale) },
+    { key: summary.won > 0 ? 'won' : 'quotes', value: summary.won > 0 ? summary.won : summary.quotes, label: ht(summary.won > 0 ? 'won' : 'quotes', locale) },
+  ];
 
   return (
     <section className="feed" aria-live="polite">
@@ -126,35 +181,52 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
           </div>
         </div>
       ) : (
-        groups.map((g) => (
-          <div key={g.label} className="feed-day">
-            <p className="feed-day-label">{g.label}</p>
-            <ul className="feed-list">
-              {g.items.map((ev) => {
-                const Tag = ev.prospect_id && onOpenContact ? 'button' : 'div';
-                const time = new Date(ev.at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-                return (
-                  <li key={ev.id}>
-                    <Tag
-                      type={Tag === 'button' ? 'button' : undefined}
-                      className={`feed-row${ev.kind === 'won' ? ' won' : ''}${Tag === 'button' ? ' clickable' : ''}`}
-                      onClick={Tag === 'button' ? () => onOpenContact(ev.prospect_id) : undefined}
-                    >
-                      <span className={`feed-icon ${ev.kind}`} aria-hidden="true">
-                        <Ic name={ICON[ev.kind] || 'message'} size={15} strokeWidth={2.2} />
-                      </span>
-                      <span className="feed-text">
-                        {textFor(ev, locale)}
-                        {ev.company_name && ev.prospect_id ? <span className="feed-company"> · {ev.company_name}</span> : null}
-                      </span>
-                      <span className="feed-time">{time}</span>
-                    </Tag>
-                  </li>
-                );
-              })}
-            </ul>
+        <>
+          <p className="feed-hero">{heroSentence(summary, total, locale)}</p>
+          <div className="feed-kpis">
+            {kpis.map((k) => (
+              <div key={k.key} className={`feed-kpi ${k.key}`}>
+                <b>{k.value}</b>
+                <span>{k.label}</span>
+              </div>
+            ))}
           </div>
-        ))
+          {groups.map((g) => (
+            <div key={g.label} className="feed-day">
+              <p className="feed-day-label">{g.label}</p>
+              <ul className="feed-list">
+                {g.items.map((ev) => {
+                  const Tag = ev.prospect_id && onOpenContact ? 'button' : 'div';
+                  const time = new Date(ev.at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <li key={ev.id}>
+                      <Tag
+                        type={Tag === 'button' ? 'button' : undefined}
+                        className={`feed-row${ev.kind === 'won' ? ' won' : ''}${Tag === 'button' ? ' clickable' : ''}`}
+                        onClick={Tag === 'button' ? () => onOpenContact(ev.prospect_id) : undefined}
+                      >
+                        <span className={`feed-icon ${ev.kind}`} aria-hidden="true">
+                          <Ic name={ICON[ev.kind] || 'message'} size={15} strokeWidth={2.2} />
+                        </span>
+                        <span className="feed-text">
+                          {textFor(ev, locale)}
+                          {ev.company_name && ev.prospect_id ? <span className="feed-company"> · {ev.company_name}</span> : null}
+                        </span>
+                        <span className="feed-time">{time}</span>
+                      </Tag>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+          {total > COLLAPSED_ROWS && (
+            <button type="button" className="feed-more" onClick={() => setExpanded(!expanded)}>
+              {expanded ? ht('less', locale) : `${ht('more', locale)} (${total})`}
+              <Ic name={expanded ? 'chevronUp' : 'chevronDown'} size={13} />
+            </button>
+          )}
+        </>
       )}
 
       <style jsx>{`
@@ -183,6 +255,61 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
           font-size: 0.78rem;
           color: var(--muted);
         }
+        .feed-hero {
+          margin: 0.5rem 0 0.9rem;
+          font-size: 1.25rem;
+          font-weight: 700;
+          line-height: 1.3;
+          letter-spacing: -0.01em;
+          text-wrap: balance;
+        }
+        .feed-kpis {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 0.6rem;
+          margin-bottom: 0.4rem;
+        }
+        .feed-kpi {
+          background: var(--bg-elevated);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 0.6rem 0.75rem;
+          min-width: 0;
+        }
+        .feed-kpi b {
+          display: block;
+          font-size: 1.4rem;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+        }
+        .feed-kpi span {
+          display: block;
+          margin-top: 0.15rem;
+          font-size: 0.7rem;
+          color: var(--muted);
+          line-height: 1.2;
+        }
+        .feed-kpi.replies b { color: var(--accent-light, var(--accent)); }
+        .feed-kpi.appts b { color: #b07cf5; }
+        .feed-kpi.won b { color: var(--accent-green, #3dd68c); }
+        .feed-more {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          margin: 0.4rem 0 0.5rem;
+          padding: 0.45rem 0.8rem;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          background: transparent;
+          color: var(--muted);
+          font: inherit;
+          font-size: 0.78rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .feed-more:hover { color: var(--text); border-color: var(--accent); }
         .feed-day-label {
           margin: 0.75rem 0 0.25rem;
           font-size: 0.72rem;
@@ -283,6 +410,8 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
         @media (max-width: 640px) {
           .feed { padding: 0.9rem 0.9rem 0.4rem; }
           .feed-time { display: none; }
+          .feed-hero { font-size: 1.1rem; }
+          .feed-kpis { grid-template-columns: repeat(2, 1fr); }
         }
       `}</style>
     </section>
