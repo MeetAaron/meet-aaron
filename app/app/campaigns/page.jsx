@@ -396,8 +396,12 @@ export default function CampaignsPage() {
           },
           { contacts: 0, active: 0, won: 0, lost: 0, running: 0 }
         );
-        const decided = totals.won + totals.lost;
-        const winRate = decided > 0 ? Math.round((totals.won / decided) * 100) : null;
+        // Refonte 17/10/2026 (proposition 7 validée) : l'anneau disait
+        // « 17 % de contacts gagnés » en calculant gagnés / (gagnés + perdus)
+        // — un taux parmi les affaires tranchées, pas parmi les contacts. Le
+        // chiffre et son libellé disent désormais la même chose : gagnés sur
+        // contactés, avec la fraction écrite en clair sous l'anneau.
+        const winRate = totals.contacts > 0 ? Math.round((totals.won / totals.contacts) * 1000) / 10 : null;
         const R = 24;
         const C = 2 * Math.PI * R;
         return (
@@ -412,10 +416,10 @@ export default function CampaignsPage() {
                   transform="rotate(-90 32 32)"
                 />
                 <text x="32" y="36" textAnchor="middle" fontFamily="IBM Plex Mono, monospace" fontSize="12" fill="var(--text)">
-                  {winRate === null ? '—' : `${winRate}%`}
+                  {winRate === null ? '—' : `${winRate < 10 ? winRate : Math.round(winRate)}%`}
                 </text>
               </svg>
-              <span className="camp-summary-ring-label">{t('campaigns.summaryWinRate', locale)}</span>
+              <span className="camp-summary-ring-label"><b>{totals.won} / {totals.contacts}</b> {t('campaigns.summaryWinRate', locale)}</span>
             </div>
             <div className="camp-summary-cell">
               <span className="camp-summary-num num-contacts">{totals.contacts}</span>
@@ -877,9 +881,10 @@ export default function CampaignsPage() {
         .camp-summary-ring-label {
           font-size: 0.74rem;
           color: var(--muted);
-          max-width: 7em;
+          max-width: 8em;
           line-height: 1.3;
         }
+        .camp-summary-ring-label b { display: block; color: var(--text); font-family: var(--font-mono); font-size: 0.86rem; }
         .camp-summary-cell {
           display: flex;
           flex-direction: column;
