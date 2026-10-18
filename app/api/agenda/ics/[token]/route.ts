@@ -80,13 +80,27 @@ export async function GET(request: NextRequest, { params }: { params: { token: s
   const windowEnd = new Date(now.getTime() + WINDOW_FUTURE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   const [{ data: appointments }, { data: blocks }] = await Promise.all([
-    supabaseAdmin
-      .from('appointments')
-      .select('id, proposed_at, type, status, contact_name, prospects(full_name)')
-      .eq('user_id', user.id)
-      .eq('status', 'validé')
-      .gte('proposed_at', windowStart)
-      .lte('proposed_at', windowEnd),
+    (async () => {
+      // duration_minutes peut manquer (migration_duree_rdv_2026-10-18.sql
+      // pas jouée) : on retombe sur la sélection d'avant.
+      let r: any = await supabaseAdmin
+        .from('appointments')
+        .select('id, proposed_at, type, status, contact_name, duration_minutes, prospects(full_name)')
+        .eq('user_id', user.id)
+        .eq('status', 'validé')
+        .gte('proposed_at', windowStart)
+        .lte('proposed_at', windowEnd);
+      if (r.error?.code === '42703') {
+        r = await supabaseAdmin
+          .from('appointments')
+          .select('id, proposed_at, type, status, contact_name, prospects(full_name)')
+          .eq('user_id', user.id)
+          .eq('status', 'validé')
+          .gte('proposed_at', windowStart)
+          .lte('proposed_at', windowEnd);
+      }
+      return r;
+    })(),
     supabaseAdmin
       .from('availability_blocks')
       .select('id, start_at, end_at, reason')
@@ -115,9 +129,11 @@ export async function GET(request: NextRequest, { params }: { params: { token: s
 
   for (const appt of appointments || []) {
     const startISO = appt.proposed_at;
-    const endISO = new Date(
-      new Date(startISO).getTime() + (APPOINTMENT_DURATION_MINUTES[appt.type] || 30) * 60 * 1000
-    ).toISOString();
+    // Durée saisie (appointments.duration_minutes, 18/10/2026) ; sinon 60 min
+    // par défaut quel que soit le type (décision Alex), l'ancien barème
+    // par type ne sert plus que de repli lisible.
+    const minutes = Number((appt as any).duration_minutes) >= 15 ? Number((appt as any).duration_minutes) : 60;
+    const endISO = new Date(new Date(startISO).getTime() + minutes * 60 * 1000).toISOString();
     const contactName = (appt as any).prospects?.full_name || appt.contact_name || 'un contact';
 
     lines.push(
