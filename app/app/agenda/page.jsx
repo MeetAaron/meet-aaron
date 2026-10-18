@@ -659,14 +659,23 @@ export default function AgendaPage() {
                       className="today-next-card"
                       onClick={next.prospect_id ? () => setDetailAppointment(next) : undefined}
                     >
-                      <span className="today-next-time">
-                        {nextIsToday || nextIsTomorrow
-                          ? new Date(next.proposed_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-                          : new Date(next.proposed_at).toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })}
-                      </span>
+                      {/* Refonte 17/10/2026 : même tuile de date que la liste
+                          « à venir » (jour / mois / heure), et une grille à
+                          trois colonnes au lieu d'un flex qui pliait le nom
+                          sur deux lignes entre l'heure et la pastille. */}
+                      {(() => {
+                        const chip = dayChipInfo(next.proposed_at, locale);
+                        return (
+                          <span className={`day-chip${chip.isToday ? ' today' : ''}`} aria-hidden="true">
+                            <span className="day-chip-num">{chip.day}</span>
+                            <span className="day-chip-mon">{chip.month}</span>
+                            <span className="day-chip-time">{chip.time}</span>
+                          </span>
+                        );
+                      })()}
                       <span className="today-next-who">
                         <strong>{who(next)}</strong>
-                        {where(next) && <span className="muted"> — {where(next)}</span>}
+                        {where(next) && <span className="muted today-next-where">{where(next)}</span>}
                       </span>
                       <span className={`type-badge type-${next.type}`}><TypeIcon type={next.type} />{TYPE_LABELS[next.type]}</span>
                     </button>
@@ -1535,6 +1544,8 @@ export default function AgendaPage() {
             padding-top: 0.9rem;
             border-top: 1px solid rgba(244, 241, 234, 0.12);
           }
+          .today-next-card { grid-template-columns: auto 1fr; }
+          .today-next-card .type-badge { grid-column: 2; justify-self: start; }
         }
         .today-eyebrow {
           margin: 0 0 0.3rem;
@@ -1574,10 +1585,10 @@ export default function AgendaPage() {
           letter-spacing: 0.06em;
         }
         .today-next-card {
-          display: flex;
+          display: grid;
+          grid-template-columns: auto 1fr auto;
           align-items: center;
           gap: 0.8rem;
-          flex-wrap: wrap;
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-md);
@@ -1596,7 +1607,9 @@ export default function AgendaPage() {
           color: var(--accent-light);
           flex-shrink: 0;
         }
-        .today-next-who { flex: 1; min-width: 0; }
+        .today-next-who { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .today-next-who strong { font-size: 0.98rem; line-height: 1.25; }
+        .today-next-where { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .today-join {
           align-self: flex-start;
           font-size: 0.82rem;
