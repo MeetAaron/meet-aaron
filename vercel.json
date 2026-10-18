@@ -97,6 +97,18 @@
     {
       "path": "/api/cron/dns-watch",
       "schedule": "5 6 * * *"
+    },
+    {
+      "path": "/api/cron/compute-send-insights",
+      "schedule": "0 3 * * 1"
+    },
+    {
+      "path": "/api/cron/referral-requests",
+      "schedule": "40 * * * *"
+    },
+    {
+      "path": "/api/cron/news-triggers",
+      "schedule": "10 6 * * 1-5"
     }
   ]
 }
