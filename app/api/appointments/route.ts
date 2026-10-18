@@ -18,6 +18,9 @@ const VALID_TYPES = ['visio', 'physique', 'telephonique'];
 // commentaire) — dupliquée ici plutôt qu'importée, aucune route API n'importe
 // une autre route API dans ce projet (uniquement lib/), donc on garde ce
 // petit tableau self-contained comme le reste du fichier.
+const DEFAULT_APPOINTMENT_DURATION_MINUTES = 60;
+// Conservé pour l'historique ; la durée vient désormais de duration_minutes
+// (60 par défaut, quel que soit le type — décision Alex, 18/10/2026).
 const APPOINTMENT_DURATION_MINUTES: Record<string, number> = {
   telephonique: 30,
   visio: 60,
@@ -49,7 +52,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await readJsonBody(request);
-  const { user_id, type, proposed_at, prospect_id, contact_name } = body;
+  const { user_id, type, proposed_at, prospect_id, contact_name, duration_minutes } = body;
+  // Durée (18/10/2026, Alex : « il faut une heure de fin, de base 1 h ») :
+  // 15 min à 8 h, 60 par défaut. Colonne appointments.duration_minutes
+  // (migration_duree_rdv_2026-10-18.sql) ; si elle n'est pas encore jouée,
+  // l'insert est retenté sans et la durée par défaut s'applique.
+  const durationMinutes = Number.isFinite(Number(duration_minutes)) && Number(duration_minutes) >= 15 && Number(duration_minutes) <= 480
+    ? Math.round(Number(duration_minutes))
+    : DEFAULT_APPOINTMENT_DURATION_MINUTES;
 
   if (!user_id || !type || !proposed_at) {
     return NextResponse.json({ error: 'Champs requis manquants (user_id, type, proposed_at)' }, { status: 400 });
@@ -74,19 +84,29 @@ export async function POST(request: NextRequest) {
     if (!prospect || prospect.assigned_user_id !== user_id) return forbiddenResponse();
   }
 
-  const { data: appointment, error } = await supabaseAdmin
+  const baseRow = {
+    user_id,
+    prospect_id: prospect_id || null,
+    contact_name: prospect_id ? null : contact_name.trim(),
+    type,
+    proposed_at,
+    status: 'validé',
+    source: 'manuel',
+  };
+  let insertRes: any = await supabaseAdmin
     .from('appointments')
-    .insert({
-      user_id,
-      prospect_id: prospect_id || null,
-      contact_name: prospect_id ? null : contact_name.trim(),
-      type,
-      proposed_at,
-      status: 'validé',
-      source: 'manuel',
-    })
+    .insert({ ...baseRow, duration_minutes: durationMinutes })
     .select('*, prospects(full_name, email, prospect_companies(name))')
     .single();
+  if (insertRes.error?.code === '42703') {
+    insertRes = await supabaseAdmin
+      .from('appointments')
+      .insert(baseRow)
+      .select('*, prospects(full_name, email, prospect_companies(name))')
+      .single();
+  }
+  const appointment: any = insertRes.data;
+  const error = insertRes.error;
 
   if (error) {
     return serverError(error, '/api/appointments');
@@ -98,18 +118,20 @@ export async function POST(request: NextRequest) {
   // le RDV est déjà créé côté Aaron à ce stade, un souci de calendrier externe
   // (token expiré, aucun provider connecté...) ne doit pas faire échouer la
   // création — juste ne pas apparaître sur le calendrier externe.
+  let calendarWarning: string | null = null;
   try {
     const providers = await getConnectedProviders(user_id);
     const startISO = proposed_at;
-    const endISO = new Date(
-      new Date(startISO).getTime() + (APPOINTMENT_DURATION_MINUTES[type] || 30) * 60 * 1000
-    ).toISOString();
+    const endISO = new Date(new Date(startISO).getTime() + durationMinutes * 60 * 1000).toISOString();
     const title = `RDV avec ${appointment.prospects?.full_name || appointment.contact_name || 'un contact'}`;
     const description = `Rendez-vous ${type} ajouté manuellement dans l'agenda Meet Aaron.`;
     const attendeeEmail = appointment.prospects?.email || undefined;
 
     let calendarEvent: any = null;
     let calendarProvider: 'google' | 'microsoft' | null = null;
+    if (!providers.has('google') && !providers.has('microsoft')) {
+      calendarWarning = "Aucun agenda Google ou Outlook connecté : ce rendez-vous n'est pas poussé dans le calendrier de ton téléphone. Il y apparaîtra via l'abonnement calendrier (Mon compte → Connexion → Mise en route), au prochain rafraîchissement — sur iPhone, cela peut prendre jusqu'à une heure.";
+    }
 
     if (providers.has('google')) {
       calendarEvent = await createGoogleCalendarEvent(user_id, {
@@ -159,7 +181,9 @@ export async function POST(request: NextRequest) {
     }
   } catch (calendarErr: any) {
     console.error('Erreur poussée RDV manuel vers calendrier externe:', calendarErr.message);
+    calendarWarning = `Rendez-vous créé dans Aaron, mais pas dans ton calendrier Google/Outlook : ${calendarErr.message}. Vérifie la connexion dans Mon compte → Connexion.`;
   }
 
-  return NextResponse.json({ appointment });
+  // calendar_warning (18/10/2026) : la page Agenda l'affiche en bandeau.
+  return NextResponse.json({ appointment, calendar_warning: calendarWarning });
 }
