@@ -11,6 +11,7 @@
 // l'action est faite (devis envoyé, RDV validé, bilan rempli…).
 
 import { supabaseAdmin } from './supabase-admin';
+import { resolveUserTimeZone, localDayBounds } from './user-timezone';
 import { derivePipelinePosition } from './pipeline';
 
 export type NotificationType =
@@ -86,9 +87,12 @@ export const QUOTE_ADVICE_FR: Record<0 | 1 | 2 | 3, string> = {
 };
 
 export async function buildNotifications(userId: string, now: Date = new Date()): Promise<NotificationGroup[]> {
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  // « Aujourd'hui » dans le fuseau du COMMERCIAL, pas celui du serveur
+  // (UTC) — voir localDayBounds. Repli Paris si la colonne manque.
+  let tzRes: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', userId).maybeSingle();
+  if (tzRes.error?.code === '42703') tzRes = { data: {} };
+  const userTz = resolveUserTimeZone(tzRes.data || {});
+  const { start: startOfToday, end: endOfToday } = localDayBounds(now, userTz);
 
   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
@@ -111,7 +115,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     loadProspects(),
     supabaseAdmin
       .from('appointments')
-      .select('id, prospect_id, proposed_at, type, status, outcome, purpose, cancelled_by, client_cancel_acknowledged, missed_action_acknowledged, meet_link, prospects(full_name, personality_type, prospect_companies(name))')
+      .select('id, prospect_id, proposed_at, type, status, outcome, purpose, cancelled_by, client_cancel_acknowledged, missed_action_acknowledged, meet_link, contact_name, prospects(full_name, personality_type, prospect_companies(name))')
       .eq('user_id', userId)
       .gt('proposed_at', new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString())
       .order('proposed_at', { ascending: true }),
@@ -191,7 +195,9 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     const base = {
       prospect_id: a.prospect_id,
       appointment_id: a.id,
-      prospect_name: a.prospects?.full_name || '',
+      // RDV « mon propre prospect » (sans fiche) : le nom saisi à la main,
+      // sinon la story disait « Rendez-vous avec  aujourd'hui ».
+      prospect_name: a.prospects?.full_name || a.contact_name || '',
       company_name: a.prospects?.prospect_companies?.name || null,
       personality_type: a.prospects?.personality_type || null,
       at: a.proposed_at,

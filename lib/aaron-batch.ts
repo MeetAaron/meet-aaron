@@ -27,6 +27,8 @@ import { supabaseAdmin } from './supabase-admin';
 import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel, type AaronOutput } from './aaron';
 import { recordUsage, usageFromApi } from './anthropic-client';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
+import { isSendWindowOpen } from './send-window';
+import { resolveUserTimeZone } from './user-timezone';
 import { sendPushNotification } from './push';
 
 export type BatchKind = 'first_contact' | 'followup';
@@ -326,11 +328,38 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
 
   if (hasEmailToSend && item.kind === 'first_contact') {
     // Premier email : relecture avant envoi (option) et pièce jointe.
-    const { data: owner } = await supabaseAdmin
+    // timezone / billing_country : repli sur la sélection d'avant si la
+    // migration fuseau (2026-09-12) n'est pas jouée — comme send-results-reports.
+    let ownerRes: any = await supabaseAdmin
       .from('users')
-      .select('require_first_email_approval, company_id, email')
+      .select('require_first_email_approval, company_id, email, timezone, billing_country')
       .eq('id', prospect.assigned_user_id)
       .single();
+    if (ownerRes.error?.code === '42703') {
+      ownerRes = await supabaseAdmin
+        .from('users')
+        .select('require_first_email_approval, company_id, email')
+        .eq('id', prospect.assigned_user_id)
+        .single();
+    }
+    const owner = ownerRes.data as { require_first_email_approval?: boolean | null; company_id?: string | null; email?: string | null; timezone?: string | null; billing_country?: string | null } | null;
+    // Créneau d'envoi (lib/send-window.ts, 18/10/2026) : hors 8 h–12 h en
+    // semaine (heure du commercial), le premier email n'est pas perdu — il
+    // est stocké comme brouillon et part au prochain créneau via
+    // app/api/cron/retry-uncontacted-prospects (sendDeferredFirstEmails).
+    // Pas de notification : rien n'est demandé au commercial.
+    if (owner?.require_first_email_approval !== true && !isSendWindowOpen('prospecting', resolveUserTimeZone(owner || {}))) {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          ...baseUpdate,
+          pending_first_email_subject: aaronOutput.email_draft.subject,
+          pending_first_email_body: aaronOutput.email_draft.body,
+          pending_first_email_generated_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+      return;
+    }
     if (owner?.require_first_email_approval === true) {
       await supabaseAdmin
         .from('prospects')

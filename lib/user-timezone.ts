@@ -107,3 +107,19 @@ export function localParts(instant: Date, timeZone: string): {
     dayOfMonth: Number(day),
   };
 }
+
+// Bornes (instants UTC) de la journée LOCALE qui contient `instant` dans le
+// fuseau donné. Sert à « aujourd'hui » côté serveur : Vercel tourne en UTC,
+// donc `setHours(0,0,0,0)` y donne la journée UTC — un RDV à 4 h 30 du matin
+// à Saïgon tombait « aujourd'hui » dès la veille 17 h (bug remonté par Alex,
+// 18/10/2026 : « notif RDV aujourd'hui alors que ça a lieu demain »).
+export function localDayBounds(instant: Date, timeZone: string): { start: Date; end: Date } {
+  const tz = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIMEZONE;
+  // Date dont les champs « horloge » (en UTC) valent l'heure locale.
+  const wall = new Date(instant.toLocaleString('en-US', { timeZone: tz }));
+  const offsetMs = instant.getTime() - wall.getTime();
+  const wallStart = new Date(wall);
+  wallStart.setHours(0, 0, 0, 0);
+  const start = new Date(wallStart.getTime() + offsetMs);
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+}
