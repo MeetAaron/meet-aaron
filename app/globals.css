@@ -988,6 +988,16 @@ html:root {
   --accent-green: #3dd68c;
   --accent-red: #ef4459;
   --accent-amber: #f5a623;
+  /* Refonte visuelle 17/10/2026 : couleurs d'ÉTAT lisibles en texte sur
+     chaque thème (vert = tout va bien, ambre = à faire, rouge = urgent).
+     Les pastilles et libellés d'état doivent prendre ces variables, pas un
+     hexa pâle qui disparaît sur fond clair. */
+  --state-good-text: #157a4b;
+  --state-warn-text: #9a5b00;
+  --state-bad-text: #b3261e;
+  --state-good-bg: rgba(61, 214, 140, 0.12);
+  --state-warn-bg: rgba(245, 166, 35, 0.12);
+  --state-bad-bg: rgba(239, 68, 89, 0.10);
 
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --fast: 0.15s var(--ease);
@@ -1020,6 +1030,9 @@ html:root:not([data-theme='light']) {
   --text: #f4f1ea;
   --muted: #8b90a8;
   --muted-soft: #666b85;
+  --state-good-text: #a9e9c9;
+  --state-warn-text: #ffd9a0;
+  --state-bad-text: #ff9aa4;
 }
 
 /* MODE CLAIR — « ça me gêne » (Alex, 13/10/2026). L'ancienne palette était
