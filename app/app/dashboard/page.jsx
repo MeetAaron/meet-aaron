@@ -1847,12 +1847,12 @@ export default function DashboardPage() {
           margin: 0.9rem 0 0;
           padding: 0.6rem 0.8rem;
           border-left: 3px solid var(--accent-green, #3dd68c);
-          background: rgba(61, 214, 140, 0.08);
+          background: var(--state-good-bg);
           border-radius: 0 10px 10px 0;
           font-size: 0.86rem;
           line-height: 1.45;
         }
-        .next-tip b { color: #a9e9c9; font-weight: 600; }
+        .next-tip b { color: var(--state-good-text); font-weight: 600; }
         .next-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
         .btn-primary,
         .btn-ghost {
@@ -1931,8 +1931,8 @@ export default function DashboardPage() {
           margin-top: 0.9rem;
           padding: 0.7rem 0.85rem;
           border-radius: var(--radius-md);
-          background: rgba(245, 166, 35, 0.08);
-          border: 1px solid rgba(245, 166, 35, 0.3);
+          background: var(--state-warn-bg);
+          border: 1px solid rgba(245, 166, 35, 0.35);
         }
         .suggest-ic {
           flex: 0 0 auto;
@@ -1943,10 +1943,10 @@ export default function DashboardPage() {
           align-items: center;
           justify-content: center;
           background: rgba(245, 166, 35, 0.16);
-          color: #ffd9a0;
+          color: var(--state-warn-text);
         }
         .suggest-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-        .suggest-body b { font-size: 0.82rem; color: #ffd9a0; }
+        .suggest-body b { font-size: 0.82rem; color: var(--state-warn-text); }
         .suggest-body span { font-size: 0.84rem; line-height: 1.4; }
         .panel {
           background: var(--surface);
