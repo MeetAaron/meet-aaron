@@ -418,7 +418,7 @@ export default function AccountNav({ groups, activeTab, onSelect, locale }) {
     <nav className="account-nav" aria-label={t('connexions.navBack', locale)}>
       {groups.map((group) => (
         <section className="nav-group" key={group.label}>
-          <h2 className="nav-group-label">{group.label}</h2>
+          <p className="nav-group-label">{group.label}</p>
           <div className="nav-card">
             {group.items.map((item) => (
               <Row key={item.key} item={item} active={activeTab === item.key} onSelect={onSelect} locale={locale} />
