@@ -18,6 +18,7 @@ import MobileChrome from '@/components/MobileChrome';
 import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS, PIPELINE_STAGES, CATEGORY_ICONS } from '@/lib/pipeline';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
+import SendInsightsCard from '@/components/SendInsightsCard';
 import AccountNav from '@/components/AccountNav';
 import ReportDetail from '@/components/ReportDetail';
 import { MiniBarChart } from '@/components/charts/MiniBarChart';
@@ -992,6 +993,10 @@ export default function ResultatsPage() {
                 hint={t('results.statReplyRateHint', locale)}
               />
             </div>
+
+            {/* « Aaron apprend de tes résultats » (18/10/2026) : créneaux
+                d'envoi qui marchent SUR CE COMPTE — voir lib/send-insights.ts. */}
+            <SendInsightsCard userId={userId} locale={locale} />
 
             <div className="sourcing-row">
               <p className="sourcing-title">{t('results.sourcingTitle', locale)}</p>
