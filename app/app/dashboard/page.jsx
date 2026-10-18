@@ -11,6 +11,7 @@ import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import ActivityFeed from '@/components/ActivityFeed';
+import SendInsightsCard from '@/components/SendInsightsCard';
 import InstallPrompt from '@/components/InstallPrompt';
 import Ic from '@/components/UiIcon';
 import { checkNewWins } from '@/components/WinCelebration';
@@ -24,13 +25,13 @@ import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 // dépasse la taille acceptée par l'envoi GitHub — même compromis que
 // components/ContactCard.jsx et components/ActivityFeed.jsx).
 const DASH_TEXT = {
-  fr: { hello: 'Bonjour {name}', helloAnon: 'Bonjour', next: 'Prochain rendez-vous', agenda: 'Agenda', brief: "Brief d'Aaron :", prepare: 'Préparer', join: 'Rejoindre', then: 'Ensuite', funnel: 'Ton entonnoir', results: 'Résultats', funnelRead: '{rate} % des contacts obtiennent un rendez-vous · 1 contact sur {ratio} devient client', funnelReadNoClient: '{rate} % des contacts obtiennent un rendez-vous', funnelEmpty: 'Dès que la première campagne tourne, tes chiffres apparaissent ici.', byType: 'Rendez-vous obtenus aujourd\'hui', campaign: 'Campagne en cours', campaigns: 'Campagnes', see: 'Voir', suggestion: "Suggestion d'Aaron", suggestDone: 'La campagne « {name} » a atteint son objectif ({n} contacts). On en lance une nouvelle sur une zone voisine ?', suggestBest: 'La campagne « {name} » a déjà signé {n} {w} : c\'est ta meilleure zone pour l\'instant.', client1: 'client', clientN: 'clients', launch: 'Lancer', inProgress: '{active} en cours · {won} {w}' },
-  en: { hello: 'Hello {name}', helloAnon: 'Hello', next: 'Next meeting', agenda: 'Calendar', brief: "Aaron's brief:", prepare: 'Prepare', join: 'Join', then: 'Then', funnel: 'Your funnel', results: 'Results', funnelRead: '{rate}% of contacts get a meeting · 1 contact in {ratio} becomes a client', funnelReadNoClient: '{rate}% of contacts get a meeting', funnelEmpty: 'As soon as your first campaign runs, your numbers show up here.', byType: 'Meetings booked today', campaign: 'Running campaign', campaigns: 'Campaigns', see: 'View', suggestion: "Aaron's suggestion", suggestDone: 'Campaign “{name}” reached its target ({n} contacts). Launch a new one in a nearby area?', suggestBest: 'Campaign “{name}” already signed {n} {w}: your best area so far.', client1: 'client', clientN: 'clients', launch: 'Launch', inProgress: '{active} active · {won} {w}' },
-  de: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Nächster Termin', agenda: 'Kalender', brief: 'Aarons Briefing:', prepare: 'Vorbereiten', join: 'Beitreten', then: 'Danach', funnel: 'Dein Funnel', results: 'Ergebnisse', funnelRead: '{rate} % der Kontakte führen zu einem Termin · 1 von {ratio} Kontakten wird Kunde', funnelReadNoClient: '{rate} % der Kontakte führen zu einem Termin', funnelEmpty: 'Sobald die erste Kampagne läuft, erscheinen hier deine Zahlen.', byType: 'Heute vereinbarte Termine', campaign: 'Laufende Kampagne', campaigns: 'Kampagnen', see: 'Ansehen', suggestion: 'Aarons Vorschlag', suggestDone: 'Die Kampagne „{name}“ hat ihr Ziel erreicht ({n} Kontakte). Eine neue in einer Nachbarregion starten?', suggestBest: 'Die Kampagne „{name}“ hat bereits {n} {w} gewonnen: bisher deine beste Region.', client1: 'Kunden', clientN: 'Kunden', launch: 'Starten', inProgress: '{active} aktiv · {won} {w}' },
-  it: { hello: 'Ciao {name}', helloAnon: 'Ciao', next: 'Prossimo appuntamento', agenda: 'Agenda', brief: 'Brief di Aaron:', prepare: 'Preparare', join: 'Partecipa', then: 'Poi', funnel: 'Il tuo funnel', results: 'Risultati', funnelRead: 'Il {rate} % dei contatti ottiene un appuntamento · 1 contatto su {ratio} diventa cliente', funnelReadNoClient: 'Il {rate} % dei contatti ottiene un appuntamento', funnelEmpty: 'Appena la prima campagna parte, i tuoi numeri compaiono qui.', byType: 'Appuntamenti ottenuti oggi', campaign: 'Campagna in corso', campaigns: 'Campagne', see: 'Vedi', suggestion: 'Suggerimento di Aaron', suggestDone: 'La campagna « {name} » ha raggiunto l\'obiettivo ({n} contatti). Ne lanciamo una nuova in una zona vicina?', suggestBest: 'La campagna « {name} » ha già firmato {n} {w}: la tua zona migliore finora.', client1: 'cliente', clientN: 'clienti', launch: 'Lancia', inProgress: '{active} in corso · {won} {w}' },
-  es: { hello: 'Hola {name}', helloAnon: 'Hola', next: 'Próxima cita', agenda: 'Agenda', brief: 'Brief de Aaron:', prepare: 'Preparar', join: 'Unirse', then: 'Después', funnel: 'Tu embudo', results: 'Resultados', funnelRead: 'El {rate} % de los contactos consigue una cita · 1 contacto de cada {ratio} se convierte en cliente', funnelReadNoClient: 'El {rate} % de los contactos consigue una cita', funnelEmpty: 'En cuanto arranque la primera campaña, tus cifras aparecen aquí.', byType: 'Citas conseguidas hoy', campaign: 'Campaña en curso', campaigns: 'Campañas', see: 'Ver', suggestion: 'Sugerencia de Aaron', suggestDone: 'La campaña « {name} » alcanzó su objetivo ({n} contactos). ¿Lanzamos otra en una zona cercana?', suggestBest: 'La campaña « {name} » ya firmó {n} {w}: tu mejor zona por ahora.', client1: 'cliente', clientN: 'clientes', launch: 'Lanzar', inProgress: '{active} en curso · {won} {w}' },
-  pt: { hello: 'Olá {name}', helloAnon: 'Olá', next: 'Próxima reunião', agenda: 'Agenda', brief: 'Brief do Aaron:', prepare: 'Preparar', join: 'Entrar', then: 'Depois', funnel: 'O teu funil', results: 'Resultados', funnelRead: '{rate} % dos contactos obtêm uma reunião · 1 contacto em {ratio} torna-se cliente', funnelReadNoClient: '{rate} % dos contactos obtêm uma reunião', funnelEmpty: 'Assim que a primeira campanha arrancar, os teus números aparecem aqui.', byType: 'Reuniões obtidas hoje', campaign: 'Campanha em curso', campaigns: 'Campanhas', see: 'Ver', suggestion: 'Sugestão do Aaron', suggestDone: 'A campanha « {name} » atingiu o objetivo ({n} contactos). Lançamos uma nova numa zona vizinha?', suggestBest: 'A campanha « {name} » já fechou {n} {w}: a tua melhor zona até agora.', client1: 'cliente', clientN: 'clientes', launch: 'Lançar', inProgress: '{active} em curso · {won} {w}' },
-  nl: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Volgende afspraak', agenda: 'Agenda', brief: 'Briefing van Aaron:', prepare: 'Voorbereiden', join: 'Deelnemen', then: 'Daarna', funnel: 'Je funnel', results: 'Resultaten', funnelRead: '{rate} % van de contacten levert een afspraak op · 1 op {ratio} contacten wordt klant', funnelReadNoClient: '{rate} % van de contacten levert een afspraak op', funnelEmpty: 'Zodra je eerste campagne loopt, verschijnen je cijfers hier.', byType: 'Vandaag geregelde afspraken', campaign: 'Lopende campagne', campaigns: 'Campagnes', see: 'Bekijk', suggestion: 'Suggestie van Aaron', suggestDone: 'Campagne « {name} » heeft haar doel bereikt ({n} contacten). Een nieuwe starten in een naburige regio?', suggestBest: 'Campagne « {name} » leverde al {n} {w} op: tot nu toe je beste regio.', client1: 'klant', clientN: 'klanten', launch: 'Starten', inProgress: '{active} actief · {won} {w}' },
+  fr: { hello: 'Bonjour {name}', helloAnon: 'Bonjour', next: 'Prochain rendez-vous', agenda: 'Agenda', brief: "Brief d'Aaron :", prepare: 'Préparer', join: 'Rejoindre', then: 'Ensuite', funnel: 'Ton entonnoir', results: 'Résultats', funnelRead: '{rate} % des contacts obtiennent un rendez-vous · 1 contact sur {ratio} devient client', funnelReadNoClient: '{rate} % des contacts obtiennent un rendez-vous', funnelEmpty: 'Dès que la première campagne tourne, tes chiffres apparaissent ici.', byType: 'Rendez-vous obtenus aujourd\'hui', campaign: 'Campagne en cours', campaigns: 'Campagnes', see: 'Voir', suggestion: "Suggestion d'Aaron", suggestDone: 'La campagne « {name} » a atteint son objectif ({n} contacts). On en lance une nouvelle sur une zone voisine ?', suggestBest: 'La campagne « {name} » a déjà signé {n} {w} : c\'est ta meilleure zone pour l\'instant.', client1: 'client', clientN: 'clients', launch: 'Lancer', inProgress: '{active} en cours · {won} {w}', newsPill: 'Actualité repérée', newsLead: 'Aaron a repéré du nouveau chez {company} :', newsSend: 'Envoyer cette relance', newsSkip: 'Laisser de côté', newsSource: 'Voir la source' },
+  en: { hello: 'Hello {name}', helloAnon: 'Hello', next: 'Next meeting', agenda: 'Calendar', brief: "Aaron's brief:", prepare: 'Prepare', join: 'Join', then: 'Then', funnel: 'Your funnel', results: 'Results', funnelRead: '{rate}% of contacts get a meeting · 1 contact in {ratio} becomes a client', funnelReadNoClient: '{rate}% of contacts get a meeting', funnelEmpty: 'As soon as your first campaign runs, your numbers show up here.', byType: 'Meetings booked today', campaign: 'Running campaign', campaigns: 'Campaigns', see: 'View', suggestion: "Aaron's suggestion", suggestDone: 'Campaign “{name}” reached its target ({n} contacts). Launch a new one in a nearby area?', suggestBest: 'Campaign “{name}” already signed {n} {w}: your best area so far.', client1: 'client', clientN: 'clients', launch: 'Launch', inProgress: '{active} active · {won} {w}', newsPill: 'News spotted', newsLead: 'Aaron spotted something new at {company}:', newsSend: 'Send this follow-up', newsSkip: 'Leave it', newsSource: 'View source' },
+  de: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Nächster Termin', agenda: 'Kalender', brief: 'Aarons Briefing:', prepare: 'Vorbereiten', join: 'Beitreten', then: 'Danach', funnel: 'Dein Funnel', results: 'Ergebnisse', funnelRead: '{rate} % der Kontakte führen zu einem Termin · 1 von {ratio} Kontakten wird Kunde', funnelReadNoClient: '{rate} % der Kontakte führen zu einem Termin', funnelEmpty: 'Sobald die erste Kampagne läuft, erscheinen hier deine Zahlen.', byType: 'Heute vereinbarte Termine', campaign: 'Laufende Kampagne', campaigns: 'Kampagnen', see: 'Ansehen', suggestion: 'Aarons Vorschlag', suggestDone: 'Die Kampagne „{name}“ hat ihr Ziel erreicht ({n} Kontakte). Eine neue in einer Nachbarregion starten?', suggestBest: 'Die Kampagne „{name}“ hat bereits {n} {w} gewonnen: bisher deine beste Region.', client1: 'Kunden', clientN: 'Kunden', launch: 'Starten', inProgress: '{active} aktiv · {won} {w}', newsPill: 'Neuigkeit entdeckt', newsLead: 'Aaron hat bei {company} etwas Neues entdeckt:', newsSend: 'Diese Nachfassmail senden', newsSkip: 'Liegen lassen', newsSource: 'Quelle ansehen' },
+  it: { hello: 'Ciao {name}', helloAnon: 'Ciao', next: 'Prossimo appuntamento', agenda: 'Agenda', brief: 'Brief di Aaron:', prepare: 'Preparare', join: 'Partecipa', then: 'Poi', funnel: 'Il tuo funnel', results: 'Risultati', funnelRead: 'Il {rate} % dei contatti ottiene un appuntamento · 1 contatto su {ratio} diventa cliente', funnelReadNoClient: 'Il {rate} % dei contatti ottiene un appuntamento', funnelEmpty: 'Appena la prima campagna parte, i tuoi numeri compaiono qui.', byType: 'Appuntamenti ottenuti oggi', campaign: 'Campagna in corso', campaigns: 'Campagne', see: 'Vedi', suggestion: 'Suggerimento di Aaron', suggestDone: 'La campagna « {name} » ha raggiunto l\'obiettivo ({n} contatti). Ne lanciamo una nuova in una zona vicina?', suggestBest: 'La campagna « {name} » ha già firmato {n} {w}: la tua zona migliore finora.', client1: 'cliente', clientN: 'clienti', launch: 'Lancia', inProgress: '{active} in corso · {won} {w}', newsPill: 'Novità individuata', newsLead: 'Aaron ha notato una novità da {company}:', newsSend: 'Invia questo follow-up', newsSkip: 'Lascia stare', newsSource: 'Vedi la fonte' },
+  es: { hello: 'Hola {name}', helloAnon: 'Hola', next: 'Próxima cita', agenda: 'Agenda', brief: 'Brief de Aaron:', prepare: 'Preparar', join: 'Unirse', then: 'Después', funnel: 'Tu embudo', results: 'Resultados', funnelRead: 'El {rate} % de los contactos consigue una cita · 1 contacto de cada {ratio} se convierte en cliente', funnelReadNoClient: 'El {rate} % de los contactos consigue una cita', funnelEmpty: 'En cuanto arranque la primera campaña, tus cifras aparecen aquí.', byType: 'Citas conseguidas hoy', campaign: 'Campaña en curso', campaigns: 'Campañas', see: 'Ver', suggestion: 'Sugerencia de Aaron', suggestDone: 'La campaña « {name} » alcanzó su objetivo ({n} contactos). ¿Lanzamos otra en una zona cercana?', suggestBest: 'La campaña « {name} » ya firmó {n} {w}: tu mejor zona por ahora.', client1: 'cliente', clientN: 'clientes', launch: 'Lanzar', inProgress: '{active} en curso · {won} {w}', newsPill: 'Novedad detectada', newsLead: 'Aaron ha detectado algo nuevo en {company}:', newsSend: 'Enviar este seguimiento', newsSkip: 'Dejarlo', newsSource: 'Ver la fuente' },
+  pt: { hello: 'Olá {name}', helloAnon: 'Olá', next: 'Próxima reunião', agenda: 'Agenda', brief: 'Brief do Aaron:', prepare: 'Preparar', join: 'Entrar', then: 'Depois', funnel: 'O teu funil', results: 'Resultados', funnelRead: '{rate} % dos contactos obtêm uma reunião · 1 contacto em {ratio} torna-se cliente', funnelReadNoClient: '{rate} % dos contactos obtêm uma reunião', funnelEmpty: 'Assim que a primeira campanha arrancar, os teus números aparecem aqui.', byType: 'Reuniões obtidas hoje', campaign: 'Campanha em curso', campaigns: 'Campanhas', see: 'Ver', suggestion: 'Sugestão do Aaron', suggestDone: 'A campanha « {name} » atingiu o objetivo ({n} contactos). Lançamos uma nova numa zona vizinha?', suggestBest: 'A campanha « {name} » já fechou {n} {w}: a tua melhor zona até agora.', client1: 'cliente', clientN: 'clientes', launch: 'Lançar', inProgress: '{active} em curso · {won} {w}', newsPill: 'Novidade detetada', newsLead: 'O Aaron detetou algo novo na {company}:', newsSend: 'Enviar este seguimento', newsSkip: 'Deixar de lado', newsSource: 'Ver a fonte' },
+  nl: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Volgende afspraak', agenda: 'Agenda', brief: 'Briefing van Aaron:', prepare: 'Voorbereiden', join: 'Deelnemen', then: 'Daarna', funnel: 'Je funnel', results: 'Resultaten', funnelRead: '{rate} % van de contacten levert een afspraak op · 1 op {ratio} contacten wordt klant', funnelReadNoClient: '{rate} % van de contacten levert een afspraak op', funnelEmpty: 'Zodra je eerste campagne loopt, verschijnen je cijfers hier.', byType: 'Vandaag geregelde afspraken', campaign: 'Lopende campagne', campaigns: 'Campagnes', see: 'Bekijk', suggestion: 'Suggestie van Aaron', suggestDone: 'Campagne « {name} » heeft haar doel bereikt ({n} contacten). Een nieuwe starten in een naburige regio?', suggestBest: 'Campagne « {name} » leverde al {n} {w} op: tot nu toe je beste regio.', client1: 'klant', clientN: 'klanten', launch: 'Starten', inProgress: '{active} actief · {won} {w}', newsPill: 'Nieuws gespot', newsLead: 'Aaron zag iets nieuws bij {company}:', newsSend: 'Deze opvolging versturen', newsSkip: 'Laten liggen', newsSource: 'Bron bekijken' },
 };
 const dt = (key, locale) => (DASH_TEXT[locale] || DASH_TEXT.fr)[key] || DASH_TEXT.fr[key];
 const fill = (s, vars) => Object.keys(vars).reduce((acc, k) => acc.split(`{${k}}`).join(vars[k]), s);
@@ -1036,6 +1037,7 @@ export default function DashboardPage() {
                 <span className="today-stat"><b style={{ color: '#b07cf5' }}>{propositionsToday}</b> {t('dash.todayPropositions', locale)}</span>
                 <span className="today-stat"><b style={{ color: PIPELINE_COLORS.client }}>{clientsGagnesToday}</b> {t('dash.todayClients', locale)}</span>
               </div>
+              {userId && <SendInsightsCard userId={userId} locale={locale} compact />}
               {rdvObtenus24h.length > 0 && (
                 <p className="today-types">
                   {dt('byType', locale)} : {t('apptType.visio', locale)} {rdvObtenusByType.visio} · {t('apptType.telephonique', locale)} {rdvObtenusByType.telephonique} · {t('apptType.physique', locale)} {rdvObtenusByType.physique}
@@ -2326,6 +2328,10 @@ function ActionCardModal({ appointment, onClose, onDone }) {
 function RescueModal({ prospect, onClose, onDone }) {
   const [locale] = useLocale();
   const [acting, setActing] = useState(false);
+  // Relance d'actualité (lib/news-triggers.ts) : même circuit de validation
+  // que le sauvetage, mais on montre POURQUOI Aaron écrit maintenant.
+  const isNews = prospect.rescue_proposal_source === 'actualite';
+  const newsSignal = prospect.prospect_companies?.news_signal || null;
 
   async function handleAction(action) {
     setActing(true);
@@ -2347,10 +2353,25 @@ function RescueModal({ prospect, onClose, onDone }) {
           <div className="avatar">{prospect.full_name?.[0] || '?'}</div>
           <h2>{prospect.full_name}</h2>
           <p className="company muted">{prospect.prospect_companies?.name || t('dash.unknownCompany', locale)}</p>
-          <span className="status-pill" style={{ color: '#8B90A8', borderColor: '#8B90A8' }}>
-            {t('rescue.title', locale)}
+          <span className="status-pill" style={isNews ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : { color: '#8B90A8', borderColor: '#8B90A8' }}>
+            {isNews ? dt('newsPill', locale) : t('rescue.title', locale)}
           </span>
         </div>
+
+        {isNews && newsSignal && (
+          <div className="news-box">
+            <Ic name="newspaper" size={15} />
+            <div>
+              <p className="news-lead">{fill(dt('newsLead', locale), { company: prospect.prospect_companies?.name || prospect.full_name })}</p>
+              <p className="news-signal">{newsSignal}</p>
+              {prospect.prospect_companies?.news_signal_url && (
+                <a className="news-src" href={prospect.prospect_companies.news_signal_url} target="_blank" rel="noopener noreferrer">
+                  {dt('newsSource', locale)}
+                </a>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="scroll-section">
           <p className="rescue-subject"><strong>{prospect.rescue_proposal_subject}</strong></p>
@@ -2359,10 +2380,10 @@ function RescueModal({ prospect, onClose, onDone }) {
 
         <div className="actions-row">
           <button className="btn-valid" disabled={acting} onClick={() => handleAction('approuver_sauvetage')}>
-            {t('rescue.sendAttempt', locale)}
+            {isNews ? dt('newsSend', locale) : t('rescue.sendAttempt', locale)}
           </button>
           <button className="btn-danger" disabled={acting} onClick={() => handleAction('rejeter_sauvetage')}>
-            {t('rescue.abandon', locale)}
+            {isNews ? dt('newsSkip', locale) : t('rescue.abandon', locale)}
           </button>
         </div>
       </div>
@@ -2440,6 +2461,38 @@ function RescueModal({ prospect, onClose, onDone }) {
           background: var(--bg);
           border-radius: var(--radius-md);
           padding: 1rem;
+        }
+        .news-box {
+          display: flex;
+          gap: 0.6rem;
+          align-items: flex-start;
+          margin-bottom: 0.9rem;
+          padding: 0.75rem 0.9rem;
+          border-radius: var(--radius-md);
+          background: var(--accent-soft, rgba(99, 102, 241, 0.1));
+          color: var(--text);
+        }
+        .news-box :global(svg) {
+          flex-shrink: 0;
+          margin-top: 2px;
+          color: var(--accent);
+        }
+        .news-lead {
+          margin: 0 0 0.2rem;
+          font-size: 0.78rem;
+          color: var(--muted);
+        }
+        .news-signal {
+          margin: 0;
+          font-size: 0.88rem;
+          font-weight: 500;
+        }
+        .news-src {
+          display: inline-block;
+          margin-top: 0.3rem;
+          font-size: 0.76rem;
+          color: var(--accent);
+          text-decoration: underline;
         }
         .rescue-subject {
           margin: 0 0 0.6rem;
