@@ -56,7 +56,7 @@
     },
     {
       "path": "/api/cron/send-prospect-followups",
-      "schedule": "30 8 * * *"
+      "schedule": "20 * * * *"
     },
     {
       "path": "/api/cron/customer-checkin-digest",
