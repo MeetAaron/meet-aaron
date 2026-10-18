@@ -904,7 +904,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.3rem; padding: 0.55rem 0.35rem;
           border-radius: 12px; background: var(--bg); border: 1px solid var(--border); color: var(--text); cursor: pointer; font: inherit; font-size: 0.72rem; font-weight: 600; line-height: 1.15; text-align: center; min-width: 0;
         }
-        .act-primary:first-child { background: rgba(75, 57, 239, 0.22); border-color: rgba(124, 110, 245, 0.6); color: #d9d4ff; }
+        .act-primary:first-child { background: linear-gradient(135deg, var(--accent), var(--accent-light)); border-color: transparent; color: #fff; }
         .act-primary.quote { border-color: rgba(124, 110, 245, 0.5); }
         .act-primary.ai.off { border-color: rgba(61, 214, 140, 0.5); }
         .act-primary:disabled { opacity: 0.55; cursor: default; }
