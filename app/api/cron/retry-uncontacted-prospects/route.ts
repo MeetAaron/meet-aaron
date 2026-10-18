@@ -29,6 +29,7 @@ import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnab
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { serverError } from '@/lib/http';
+import { sendDeferredFirstEmails } from '@/lib/first-email-deferred';
 
 // Plafond par commercial et par passage, pour ne jamais déclencher une rafale
 // d'envois Gmail/Outlook d'un coup si beaucoup de prospects étaient restés
@@ -43,6 +44,17 @@ function isAuthorized(request: NextRequest) {
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
+  // Créneau d'envoi (18/10/2026) : d'abord les premiers emails déjà
+  // rédigés mais reportés hors 8 h–12 h en semaine — voir
+  // lib/first-email-deferred.ts. Best-effort : une erreur ici ne doit pas
+  // empêcher le filet de sécurité historique ci-dessous de tourner.
+  let deferred: any = null;
+  try {
+    deferred = await sendDeferredFirstEmails();
+  } catch (err: any) {
+    deferred = { error: err?.message || String(err) };
   }
 
   const { data: candidateProspects, error } = await supabaseAdmin
@@ -81,7 +93,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (stuckProspects.length === 0) {
-    return NextResponse.json({ contacted: 0 });
+    return NextResponse.json({ contacted: 0, deferred });
   }
 
   // Ne retente que pour les commerciaux ayant désormais une boîte mail
@@ -147,7 +159,7 @@ export async function GET(request: NextRequest) {
   if (items.length > 0 && batchEnabled()) {
     try {
       const enq = await enqueueAaronBatch(items);
-      return NextResponse.json({ batched: enq.submitted, contacted: enq.appliedNow, batch_id: enq.batchId });
+      return NextResponse.json({ batched: enq.submitted, contacted: enq.appliedNow, batch_id: enq.batchId, deferred });
     } catch (err: any) {
       console.error('Batch Aaron indisponible, passage en temps réel :', err?.message);
     }
@@ -174,5 +186,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ contacted });
+  return NextResponse.json({ contacted, deferred });
 }
