@@ -36,7 +36,7 @@ import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, 
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { serverError } from '@/lib/http';
-import { isSendWindowOpen } from '@/lib/send-window';
+import { isProspectingWindowOpenForUser } from '@/lib/send-window';
 import { resolveUserTimeZone } from '@/lib/user-timezone';
 
 // Statuts sur lesquels une relance automatique a du sens : conversation en
@@ -178,7 +178,7 @@ export async function GET(request: NextRequest) {
     if (!windowOpenByUser.has(prospect.assigned_user_id)) {
       let tzRes: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', prospect.assigned_user_id).maybeSingle();
       if (tzRes.error?.code === '42703') tzRes = { data: {} };
-      windowOpenByUser.set(prospect.assigned_user_id, isSendWindowOpen('prospecting', resolveUserTimeZone(tzRes.data || {})));
+      windowOpenByUser.set(prospect.assigned_user_id, await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(tzRes.data || {})));
     }
     if (!windowOpenByUser.get(prospect.assigned_user_id)) continue;
 
