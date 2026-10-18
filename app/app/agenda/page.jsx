@@ -13,6 +13,16 @@ import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
 
+// Textes ajoutés le 18/10/2026 (lib/i18n.js dépasse la taille acceptée par
+// l'envoi GitHub — même compromis que components/ContactCard.jsx).
+const AGENDA_TEXT = {
+  past: { fr: 'Rendez-vous passés', en: 'Past appointments', de: 'Vergangene Termine', it: 'Appuntamenti passati', es: 'Citas pasadas', pt: 'Reuniões passadas', nl: 'Afgelopen afspraken' },
+  endTime: { fr: 'Fin', en: 'End', de: 'Ende', it: 'Fine', es: 'Fin', pt: 'Fim', nl: 'Einde' },
+  duration: { fr: 'Durée', en: 'Duration', de: 'Dauer', it: 'Durata', es: 'Duración', pt: 'Duração', nl: 'Duur' },
+  min: { fr: 'min', en: 'min', de: 'Min.', it: 'min', es: 'min', pt: 'min', nl: 'min' },
+  h: { fr: 'h', en: 'h', de: 'Std.', it: 'h', es: 'h', pt: 'h', nl: 'u' },
+};
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -216,12 +226,35 @@ export default function AgendaPage() {
   const STATUS_META = statusMetaFor(locale);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Alex (18/10/2026, capture iPhone) : le renvoi « Synchronisation avec le
+  // calendrier de ton téléphone… Ouvrir la mise en route » s'affichait même
+  // une fois la synchro en place. Même critère que l'étape de la checklist
+  // du tableau de bord : boîte Google/Outlook connectée (synchro
+  // bidirectionnelle) OU lien ICS généré. null = pas encore su → rien.
+  const [calendarSynced, setCalendarSynced] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      fetch(`/api/preferences?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+    ]).then(([conn, pref]) => {
+      if (cancelled) return;
+      const connections = conn.connections || [];
+      const calendarCapable = connections.some((c) => c.provider === 'google' || c.provider === 'microsoft');
+      setCalendarSynced(calendarCapable || pref.preferences?.ics_link_generated === true);
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
   const [actingOn, setActingOn] = useState(null);
   const [conflict, setConflict] = useState(null); // { appointmentId, reasons }
   const [showAddModal, setShowAddModal] = useState(false);
   const [addModalPreset, setAddModalPreset] = useState(null); // { kind, date, hideUnavailability } quand ouvert depuis le calendrier
   const [detailAppointment, setDetailAppointment] = useState(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false); // docx AGENDA #19 : liste repliable (5 par défaut)
+  const [showPast, setShowPast] = useState(false);
+  const [calendarWarning, setCalendarWarning] = useState(null);
+  const [showAllPast, setShowAllPast] = useState(false);
   // Demande d'Alex (25/08/2026) : mêmes listes repliables (5 par défaut) pour
   // les créneaux récurrents et les indisponibilités ponctuelles.
   const [showAllRules, setShowAllRules] = useState(false);
@@ -575,11 +608,19 @@ export default function AgendaPage() {
             setShowAddModal(false);
             setAddModalPreset(null);
           }}
-          onCreated={() => {
+          onCreated={(warning) => {
             setShowAddModal(false);
             setAddModalPreset(null);
             load();
             loadAvailability();
+            // Le RDV est créé côté Aaron, mais pas poussé vers Google/Outlook
+            // (pas d'agenda connecté, jeton expiré…) : on le DIT, au lieu de
+            // laisser croire qu'il est sur le téléphone (Alex, 18/10/2026 :
+            // « le RDV du 19 ne s'est pas synchro sur mon téléphone »).
+            if (warning) {
+              setCalendarWarning(warning);
+              window.setTimeout(() => setCalendarWarning(null), 15000);
+            }
           }}
         />
       )}
@@ -621,6 +662,12 @@ export default function AgendaPage() {
               que j'ai aujourd'hui, et c'est quand le prochain ? Avant, on
               arrivait sur une liste plate qu'il fallait lire. Ce bloc est
               calculé sur les mêmes rendez-vous que la liste, jamais figé. */}
+          {calendarWarning && (
+            <div className="cal-warning" role="status">
+              <span>{calendarWarning}</span>
+              <button type="button" onClick={() => setCalendarWarning(null)} aria-label="×">×</button>
+            </div>
+          )}
           {(() => {
             const now = new Date();
             const live = appointments.filter((a) => a.status !== 'annulé');
@@ -721,7 +768,7 @@ export default function AgendaPage() {
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
-                        <span className="meta-date">{' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                        <span className="meta-date">{' · '}{new Date(a.proposed_at).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}{' – '}{new Date(new Date(a.proposed_at).getTime() + (Number(a.duration_minutes) >= 15 ? Number(a.duration_minutes) : 60) * 60 * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </div>
                     <div className="row-actions">
@@ -762,10 +809,12 @@ export default function AgendaPage() {
             </section>
           )}
 
-          <section className="block">
-            <h2>{t('agenda.sectionAll', locale)}</h2>
-            <div className="list">
-              {(showAllUpcoming ? rest : rest.slice(0, 5)).map((a) => {
+          {/* « 15 septembre en RDV à venir ???? » (Alex, 18/10/2026) : la liste
+              mélangeait tout ce qui n'était pas « proposé », passé compris.
+              Désormais : à venir d'un côté, passés de l'autre (repliés), les
+              actions (bilan, annuler) restent disponibles sur les passés. */}
+          {(() => {
+            const renderApptRow = (a) => {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
                 return (
                   <div className="row" key={a.id}>
@@ -826,20 +875,45 @@ export default function AgendaPage() {
                     )}
                   </div>
                 );
-              })}
-            </div>
-            {rest.length > 5 && (
-              <button
-                type="button"
-                className="btn-link-more"
-                onClick={() => setShowAllUpcoming((prev) => !prev)}
-              >
-                {showAllUpcoming
-                  ? t('agenda.showLess', locale)
-                  : `${t('agenda.showMore', locale)} (${rest.length - 5})`}
-              </button>
-            )}
-          </section>
+            };
+            const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+            const restUpcoming = rest.filter((a) => new Date(a.proposed_at).getTime() >= cutoff);
+            const restPast = rest.filter((a) => new Date(a.proposed_at).getTime() < cutoff).slice().reverse();
+            return (
+              <>
+                <section className="block">
+                  <h2>{t('agenda.sectionAll', locale)}</h2>
+                  {restUpcoming.length === 0 && <p className="muted small">{t('agenda.noUpcoming', locale)}</p>}
+                  <div className="list">
+                    {(showAllUpcoming ? restUpcoming : restUpcoming.slice(0, 5)).map(renderApptRow)}
+                  </div>
+                  {restUpcoming.length > 5 && (
+                    <button type="button" className="btn-link-more" onClick={() => setShowAllUpcoming((prev) => !prev)}>
+                      {showAllUpcoming ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${restUpcoming.length - 5})`}
+                    </button>
+                  )}
+                </section>
+                {restPast.length > 0 && (
+                  <section className="block past-block">
+                    <button type="button" className="past-toggle" onClick={() => setShowPast((v) => !v)} aria-expanded={showPast}>
+                      <h2>{AGENDA_TEXT.past[locale] || AGENDA_TEXT.past.fr} · {restPast.length}</h2>
+                      <span className="chev-small" aria-hidden="true">{showPast ? '▴' : '▾'}</span>
+                    </button>
+                    {showPast && (
+                      <div className="list">
+                        {(showAllPast ? restPast : restPast.slice(0, 5)).map(renderApptRow)}
+                        {restPast.length > 5 && (
+                          <button type="button" className="btn-link-more" onClick={() => setShowAllPast((prev) => !prev)}>
+                            {showAllPast ? t('agenda.showLess', locale) : `${t('agenda.showMore', locale)} (${restPast.length - 5})`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
+              </>
+            );
+          })()}
         </>
       )}
 
@@ -1155,10 +1229,12 @@ export default function AgendaPage() {
           Connexion (docx Modifs Aaron 30/08 — "toutes les étapes nécessaires
           au bon fonctionnement d'Aaron au même endroit"). On laisse juste un
           renvoi pour ne pas perdre ceux qui la cherchaient ici. */}
-      <p className="sync-moved muted small">
-        {t('disponibilites.syncMovedHint', locale)}{' '}
-        <a href={`/app/connexions?tab=connection${userId ? `&user_id=${userId}` : ''}`}>{t('disponibilites.syncMovedLink', locale)} →</a>
-      </p>
+      {calendarSynced === false && (
+        <p className="sync-moved muted small">
+          {t('disponibilites.syncMovedHint', locale)}{' '}
+          <a href={`/app/connexions?tab=connection${userId ? `&user_id=${userId}` : ''}`}>{t('disponibilites.syncMovedLink', locale)} →</a>
+        </p>
+      )}
 
       <style jsx>{`
         .header {
@@ -1627,10 +1703,15 @@ export default function AgendaPage() {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 0.6rem;
           margin-bottom: 0.7rem;
           font-size: 0.9rem;
-          text-transform: capitalize;
         }
+        /* Majuscule sur le nom du mois / du jour seulement — appliqué à tout
+           l'en-tête, le compteur devenait « 0 Rendez-Vous Ce Mois-Ci »
+           (capture Alex, 18/10/2026). */
+        .day-detail-header strong { text-transform: capitalize; }
+        .day-detail-header .muted { text-align: right; }
         .day-detail-list {
           list-style: none;
           margin: 0 0 0.6rem;
@@ -1644,7 +1725,15 @@ export default function AgendaPage() {
           align-items: center;
           gap: 0.6rem;
           font-size: 0.82rem;
+          min-width: 0;
         }
+        /* Sur téléphone, le nom et la pastille se coupaient en deux
+           (« Physiq/ue ») : la pastille ne se casse jamais, le nom prend
+           la place restante et s'abrège si besoin. */
+        .day-detail-item { flex-wrap: wrap; row-gap: 0.25rem; }
+        .day-detail-item > span:not(.type-badge):not(.side-date):not(.block-dot) { flex: 1 1 7rem; min-width: 0; }
+        .day-detail-item .type-badge { flex: 0 0 auto; white-space: nowrap; }
+        .day-detail-item .side-date { flex: 0 0 auto; white-space: nowrap; }
         .block-dot {
           width: 8px;
           height: 8px;
@@ -1652,11 +1741,47 @@ export default function AgendaPage() {
           background: var(--accent-red);
           flex-shrink: 0;
         }
+        .cal-warning {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.6rem;
+          margin-bottom: 1rem;
+          padding: 0.7rem 0.9rem;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(245, 166, 35, 0.4);
+          background: var(--state-warn-bg, rgba(245, 166, 35, 0.12));
+          color: var(--state-warn-text, #ffd9a0);
+          font-size: 0.85rem;
+          line-height: 1.4;
+        }
+        .cal-warning span { flex: 1; }
+        .cal-warning button { background: none; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; line-height: 1; }
+        .duration-hint { align-self: flex-end; margin: 0 0 0.45rem; white-space: nowrap; }
+        .past-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          background: none;
+          border: 0;
+          padding: 0;
+          color: var(--text);
+          font-family: inherit;
+          cursor: pointer;
+          text-align: left;
+        }
+        .past-toggle h2 { margin: 0; color: var(--muted); }
+        .past-block .list { margin-top: 0.8rem; }
+        .chev-small { color: var(--muted); font-size: 0.9rem; }
         .day-detail-actions {
           display: flex;
+          flex-wrap: wrap;
           gap: 0.6rem;
           margin-top: 0.8rem;
         }
+        /* Les deux boutons débordaient du cadre sur iPhone (capture Alex,
+           18/10/2026) : ils passent l'un sous l'autre quand la place manque. */
+        .day-detail-actions .btn-secondary { flex: 1 1 auto; min-width: 0; white-space: normal; }
 
         /* Disponibilités fusionnées (#86) */
         .panel {
@@ -2186,6 +2311,24 @@ function entryKindsFor(locale) {
 }
 
 // Formate une Date en 'YYYY-MM-DD' pour préremplir un <input type="date">.
+// Heure de fin par défaut d'un RDV = début + 60 min (Alex, 18/10/2026 :
+// « il faut une heure de fin, de base ça se met sur 1 h »). Reste dans la
+// journée : 23:30 + 1 h → 23:55.
+function addMinutesToTime(hhmm, minutes) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const total = Math.min(23 * 60 + 55, h * 60 + m + minutes);
+  const nh = Math.floor(total / 60);
+  const nm = Math.round((total % 60) / 5) * 5;
+  return `${String(nh).padStart(2, '0')}:${String(nm === 60 ? 55 : nm).padStart(2, '0')}`;
+}
+function minutesBetween(startHHMM, endHHMM) {
+  if (!startHHMM || !endHHMM) return null;
+  const [sh, sm] = startHHMM.split(':').map(Number);
+  const [eh, em] = endHHMM.split(':').map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
+}
+
 function toDateInputValue(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -2265,11 +2408,15 @@ function SimpleDatePicker({ value, onChange }) {
               if (!day) return <span key={i} className="cal-cell empty" />;
               const dateStr = toDateInputValue(day);
               const isSelected = value === dateStr;
+              // Alex (18/10/2026, capture iPhone) : « le calendrier doit avoir
+              // le jour du jour en évidence pour qu'on sache où on est ».
+              const isToday = dateStr === toDateInputValue(new Date());
               return (
                 <button
                   type="button"
                   key={i}
-                  className={`cal-cell${isSelected ? ' selected' : ''}`}
+                  className={`cal-cell${isSelected ? ' selected' : ''}${isToday ? ' today' : ''}`}
+                  aria-current={isToday ? 'date' : undefined}
                   onClick={() => { onChange(dateStr); setOpen(false); }}
                 >
                   {day.getDate()}
@@ -2355,6 +2502,11 @@ function SimpleDatePicker({ value, onChange }) {
         .cal-cell.selected {
           border-color: var(--accent);
           background: rgba(75, 57, 239, 0.18);
+        }
+        .cal-cell.today {
+          color: var(--accent-light);
+          font-weight: 700;
+          box-shadow: inset 0 0 0 2px var(--accent-light);
         }
         .cal-cell:not(.empty):hover {
           border-color: var(--accent);
@@ -2524,6 +2676,11 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
       setError(t('agenda.errApptDateTime', locale));
       return;
     }
+    const durationMinutes = minutesBetween(time, endTime);
+    if (endTime && (durationMinutes == null || durationMinutes <= 0)) {
+      setError(t('agenda.errUnavailabilityRange', locale));
+      return;
+    }
     if (prospectSource === 'aaron' && !prospectId) {
       setError(t('agenda.errChooseProspect', locale));
       return;
@@ -2541,6 +2698,7 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
         user_id: userId,
         type: kind,
         proposed_at: new Date(`${date}T${time}`).toISOString(),
+        duration_minutes: durationMinutes && durationMinutes > 0 ? durationMinutes : 60,
         prospect_id: prospectSource === 'aaron' ? prospectId : null,
         contact_name: prospectSource === 'perso' ? contactName.trim() : null,
       }),
@@ -2552,7 +2710,8 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
       setError(body.error || t('agenda.errCreateGeneric', locale));
       return;
     }
-    onCreated();
+    const created = await res.json().catch(() => ({}));
+    onCreated(created?.calendar_warning || null);
   }
 
   return (
@@ -2634,6 +2793,7 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
                     // la date de début tant que le commercial ne l'a pas
                     // modifiée lui-même — évite de retomber sur le mois du
                     // jour en ouvrant le sélecteur de fin juste après.
+                    setError(null);
                     setDate(newDate);
                     if (kind === 'indisponibilite') {
                       setEndDate((prevEnd) => (!prevEnd || prevEnd === date ? newDate : prevEnd));
@@ -2643,9 +2803,29 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
               </label>
               <label>
                 {t('agenda.timeLabel', locale)}
-                <TimeSelectField value={time} onChange={setTime} />
+                <TimeSelectField
+                  value={time}
+                  onChange={(v) => {
+                    setError(null);
+                    // La fin suit le début (+1 h) tant que le commercial ne
+                    // l'a pas réglée lui-même.
+                    setEndTime((prevEnd) => (!prevEnd || prevEnd === addMinutesToTime(time, 60) ? addMinutesToTime(v, 60) : prevEnd));
+                    setTime(v);
+                  }}
+                />
               </label>
             </div>
+            {kind !== 'indisponibilite' && (
+              <div className="date-row">
+                <label>
+                  {AGENDA_TEXT.endTime[locale] || AGENDA_TEXT.endTime.fr}
+                  <TimeSelectField value={endTime} onChange={(v) => { setError(null); setEndTime(v); }} />
+                </label>
+                <p className="muted small duration-hint">
+                  {AGENDA_TEXT.duration[locale] || AGENDA_TEXT.duration.fr} : {(() => { const d = minutesBetween(time, endTime); if (d == null || d <= 0) return '—'; return d >= 60 ? `${Math.floor(d / 60)} ${AGENDA_TEXT.h[locale] || 'h'}${d % 60 ? ` ${String(d % 60).padStart(2, '0')}` : ''}` : `${d} ${AGENDA_TEXT.min[locale] || 'min'}`; })()}
+                </p>
+              </div>
+            )}
 
             {kind === 'indisponibilite' && (
               <div className="date-row">
@@ -2999,8 +3179,12 @@ function MonthCalendar({ month, onChangeMonth, appointments, blocks, selectedDay
           border: none;
           cursor: default;
         }
+        /* Le jour du jour se voit de loin : chiffre en couleur, gras, double
+           liseré — un simple contour ne suffisait pas (Alex, 18/10/2026). */
         .cal-cell.today {
-          border-color: var(--accent);
+          color: var(--accent-light);
+          font-weight: 700;
+          box-shadow: inset 0 0 0 2px var(--accent-light);
         }
         .cal-cell.selected {
           border-color: var(--accent);
