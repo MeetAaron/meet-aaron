@@ -139,7 +139,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
   }
 
-  const userId = appointment.prospects.assigned_user_id;
+  // RDV « mon propre prospect » (18/10/2026) : prospect_id null, donc
+  // appointment.prospects est null — on plantait en 500 sur TOUTE action,
+  // annulation comprise. Le propriétaire est alors appointments.user_id.
+  const userId = appointment.prospects?.assigned_user_id || appointment.user_id;
 
   // Empêche d'agir sur le RDV d'un autre commercial en devinant/connaissant son id.
   const authedUser = await getAuthedUser(request);
@@ -265,7 +268,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
 
-    return NextResponse.json({ success: true, status: 'validé' });
+    return NextResponse.json({ success: true, status: 'validé', calendar_warning: calendarWarning });
   }
 
   if (action === 'reporter') {
@@ -300,7 +303,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     // ce cas on ne prévient pas le prospect ici ; le commercial choisira lui-
     // même de relancer (action "relancer", voir plus bas) via la notif moins
     // urgente qui apparaît désormais au tableau de bord pour ce cas.
-    if (!alreadyPast) {
+    if (!alreadyPast && appointment.prospects?.email) {
       await sendEmailForUser(
         userId,
         appointment.prospects.email,
@@ -309,7 +312,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       );
     }
 
-    await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+    if (appointment.prospect_id) {
+      await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+    }
 
     return NextResponse.json({ success: true, status: 'annulé' });
   }
