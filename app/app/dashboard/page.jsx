@@ -18,6 +18,23 @@ import { countPipeline, derivePipelinePosition, stageOrder, PIPELINE_COLORS } fr
 import { frenchTypography } from '@/lib/text-typography';
 import { HorizontalBarChart } from '@/components/charts/MiniBarChart';
 
+// Refonte visuelle 17/10/2026 (maquettes validées par Alex) : textes du
+// nouvel en-tête, de la carte « Prochain rendez-vous », de l'entonnoir en
+// colonnes et de la suggestion d'Aaron. Dictionnaire local (lib/i18n.js
+// dépasse la taille acceptée par l'envoi GitHub — même compromis que
+// components/ContactCard.jsx et components/ActivityFeed.jsx).
+const DASH_TEXT = {
+  fr: { hello: 'Bonjour {name}', helloAnon: 'Bonjour', next: 'Prochain rendez-vous', agenda: 'Agenda', brief: "Brief d'Aaron :", prepare: 'Préparer', join: 'Rejoindre', then: 'Ensuite', funnel: 'Ton entonnoir', results: 'Résultats', funnelRead: '{rate} % des contacts obtiennent un rendez-vous · 1 contact sur {ratio} devient client', funnelReadNoClient: '{rate} % des contacts obtiennent un rendez-vous', funnelEmpty: 'Dès que la première campagne tourne, tes chiffres apparaissent ici.', byType: 'Rendez-vous obtenus aujourd\'hui', campaign: 'Campagne en cours', campaigns: 'Campagnes', see: 'Voir', suggestion: "Suggestion d'Aaron", suggestDone: 'La campagne « {name} » a atteint son objectif ({n} contacts). On en lance une nouvelle sur une zone voisine ?', suggestBest: 'La campagne « {name} » a déjà signé {n} {w} : c\'est ta meilleure zone pour l\'instant.', client1: 'client', clientN: 'clients', launch: 'Lancer', inProgress: '{active} en cours · {won} {w}' },
+  en: { hello: 'Hello {name}', helloAnon: 'Hello', next: 'Next meeting', agenda: 'Calendar', brief: "Aaron's brief:", prepare: 'Prepare', join: 'Join', then: 'Then', funnel: 'Your funnel', results: 'Results', funnelRead: '{rate}% of contacts get a meeting · 1 contact in {ratio} becomes a client', funnelReadNoClient: '{rate}% of contacts get a meeting', funnelEmpty: 'As soon as your first campaign runs, your numbers show up here.', byType: 'Meetings booked today', campaign: 'Running campaign', campaigns: 'Campaigns', see: 'View', suggestion: "Aaron's suggestion", suggestDone: 'Campaign “{name}” reached its target ({n} contacts). Launch a new one in a nearby area?', suggestBest: 'Campaign “{name}” already signed {n} {w}: your best area so far.', client1: 'client', clientN: 'clients', launch: 'Launch', inProgress: '{active} active · {won} {w}' },
+  de: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Nächster Termin', agenda: 'Kalender', brief: 'Aarons Briefing:', prepare: 'Vorbereiten', join: 'Beitreten', then: 'Danach', funnel: 'Dein Funnel', results: 'Ergebnisse', funnelRead: '{rate} % der Kontakte führen zu einem Termin · 1 von {ratio} Kontakten wird Kunde', funnelReadNoClient: '{rate} % der Kontakte führen zu einem Termin', funnelEmpty: 'Sobald die erste Kampagne läuft, erscheinen hier deine Zahlen.', byType: 'Heute vereinbarte Termine', campaign: 'Laufende Kampagne', campaigns: 'Kampagnen', see: 'Ansehen', suggestion: 'Aarons Vorschlag', suggestDone: 'Die Kampagne „{name}“ hat ihr Ziel erreicht ({n} Kontakte). Eine neue in einer Nachbarregion starten?', suggestBest: 'Die Kampagne „{name}“ hat bereits {n} {w} gewonnen: bisher deine beste Region.', client1: 'Kunden', clientN: 'Kunden', launch: 'Starten', inProgress: '{active} aktiv · {won} {w}' },
+  it: { hello: 'Ciao {name}', helloAnon: 'Ciao', next: 'Prossimo appuntamento', agenda: 'Agenda', brief: 'Brief di Aaron:', prepare: 'Preparare', join: 'Partecipa', then: 'Poi', funnel: 'Il tuo funnel', results: 'Risultati', funnelRead: 'Il {rate} % dei contatti ottiene un appuntamento · 1 contatto su {ratio} diventa cliente', funnelReadNoClient: 'Il {rate} % dei contatti ottiene un appuntamento', funnelEmpty: 'Appena la prima campagna parte, i tuoi numeri compaiono qui.', byType: 'Appuntamenti ottenuti oggi', campaign: 'Campagna in corso', campaigns: 'Campagne', see: 'Vedi', suggestion: 'Suggerimento di Aaron', suggestDone: 'La campagna « {name} » ha raggiunto l\'obiettivo ({n} contatti). Ne lanciamo una nuova in una zona vicina?', suggestBest: 'La campagna « {name} » ha già firmato {n} {w}: la tua zona migliore finora.', client1: 'cliente', clientN: 'clienti', launch: 'Lancia', inProgress: '{active} in corso · {won} {w}' },
+  es: { hello: 'Hola {name}', helloAnon: 'Hola', next: 'Próxima cita', agenda: 'Agenda', brief: 'Brief de Aaron:', prepare: 'Preparar', join: 'Unirse', then: 'Después', funnel: 'Tu embudo', results: 'Resultados', funnelRead: 'El {rate} % de los contactos consigue una cita · 1 contacto de cada {ratio} se convierte en cliente', funnelReadNoClient: 'El {rate} % de los contactos consigue una cita', funnelEmpty: 'En cuanto arranque la primera campaña, tus cifras aparecen aquí.', byType: 'Citas conseguidas hoy', campaign: 'Campaña en curso', campaigns: 'Campañas', see: 'Ver', suggestion: 'Sugerencia de Aaron', suggestDone: 'La campaña « {name} » alcanzó su objetivo ({n} contactos). ¿Lanzamos otra en una zona cercana?', suggestBest: 'La campaña « {name} » ya firmó {n} {w}: tu mejor zona por ahora.', client1: 'cliente', clientN: 'clientes', launch: 'Lanzar', inProgress: '{active} en curso · {won} {w}' },
+  pt: { hello: 'Olá {name}', helloAnon: 'Olá', next: 'Próxima reunião', agenda: 'Agenda', brief: 'Brief do Aaron:', prepare: 'Preparar', join: 'Entrar', then: 'Depois', funnel: 'O teu funil', results: 'Resultados', funnelRead: '{rate} % dos contactos obtêm uma reunião · 1 contacto em {ratio} torna-se cliente', funnelReadNoClient: '{rate} % dos contactos obtêm uma reunião', funnelEmpty: 'Assim que a primeira campanha arrancar, os teus números aparecem aqui.', byType: 'Reuniões obtidas hoje', campaign: 'Campanha em curso', campaigns: 'Campanhas', see: 'Ver', suggestion: 'Sugestão do Aaron', suggestDone: 'A campanha « {name} » atingiu o objetivo ({n} contactos). Lançamos uma nova numa zona vizinha?', suggestBest: 'A campanha « {name} » já fechou {n} {w}: a tua melhor zona até agora.', client1: 'cliente', clientN: 'clientes', launch: 'Lançar', inProgress: '{active} em curso · {won} {w}' },
+  nl: { hello: 'Hallo {name}', helloAnon: 'Hallo', next: 'Volgende afspraak', agenda: 'Agenda', brief: 'Briefing van Aaron:', prepare: 'Voorbereiden', join: 'Deelnemen', then: 'Daarna', funnel: 'Je funnel', results: 'Resultaten', funnelRead: '{rate} % van de contacten levert een afspraak op · 1 op {ratio} contacten wordt klant', funnelReadNoClient: '{rate} % van de contacten levert een afspraak op', funnelEmpty: 'Zodra je eerste campagne loopt, verschijnen je cijfers hier.', byType: 'Vandaag geregelde afspraken', campaign: 'Lopende campagne', campaigns: 'Campagnes', see: 'Bekijk', suggestion: 'Suggestie van Aaron', suggestDone: 'Campagne « {name} » heeft haar doel bereikt ({n} contacten). Een nieuwe starten in een naburige regio?', suggestBest: 'Campagne « {name} » leverde al {n} {w} op: tot nu toe je beste regio.', client1: 'klant', clientN: 'klanten', launch: 'Starten', inProgress: '{active} actief · {won} {w}' },
+};
+const dt = (key, locale) => (DASH_TEXT[locale] || DASH_TEXT.fr)[key] || DASH_TEXT.fr[key];
+const fill = (s, vars) => Object.keys(vars).reduce((acc, k) => acc.split(`{${k}}`).join(vars[k]), s);
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -248,6 +265,9 @@ export default function DashboardPage() {
   // "garantie souple" : personne ne peut manquer ces étapes sans s'en rendre
   // compte à chaque passage sur le tableau de bord.
   const [onboardingTourSeen, setOnboardingTourSeen] = useState(true);
+  // Refonte 17/10/2026 : « Bonjour {prénom} » — full_name vient déjà de
+  // /api/preferences, chargé ci-dessous, pas d'appel de plus.
+  const [firstName, setFirstName] = useState('');
   const [businessSummaryDone, setBusinessSummaryDone] = useState(true);
   const [emailConnected, setEmailConnected] = useState(true);
   // Étape "Agenda synchronisé" de la checklist (demande Alex, 29/08/2026) —
@@ -318,6 +338,7 @@ export default function DashboardPage() {
     setSalesModuleActive(prefs.offer_as_active === true);
     setCustomerModuleActive(prefs.offer_ac_active === true);
     setOnboardingTourSeen(prefs.onboarding_tour_seen === true);
+    setFirstName(String(prefs.full_name || '').trim().split(/\s+/)[0] || '');
     // Sur erreur (_ok false), on laisse la valeur optimiste par défaut
     // (true) plutôt que d'inventer une étape à faire.
     if (bsRes._ok !== false) setBusinessSummaryDone(!!bsRes.summary);
@@ -446,6 +467,38 @@ export default function DashboardPage() {
     .filter((a) => a.status === 'validé' && new Date(a.proposed_at) > now)
     .slice(0, 20);
   const upcomingGroups = groupAppointmentsByDay(upcomingAppointments, locale);
+
+  // Refonte 17/10/2026 : UN prochain rendez-vous mis en avant (pastille date,
+  // brief d'Aaron déjà en cache sur appointments.pre_brief — aucun appel en
+  // plus, et rien d'affiché tant qu'il n'a pas été généré depuis l'Agenda),
+  // puis les suivants en liste courte.
+  const nextAppt = upcomingAppointments[0] || null;
+  const laterAppts = upcomingAppointments.slice(1, 4);
+  const nextBrief = nextAppt?.pre_brief?.angle_approche_suggere || null;
+
+  // Lecture en toutes lettres de l'entonnoir (« je ne comprends pas les % »,
+  // Alex, 04/09/2026) : une phrase, pas des pourcentages par étape.
+  const funnelRdvRate = funnelContacts > 0 ? Math.round((funnelRdv / funnelContacts) * 100) : null;
+  const funnelClientRatio = funnelClients > 0 ? Math.max(1, Math.round(funnelContacts / funnelClients)) : null;
+
+  // « Suggestion d'Aaron » (ampoule — Alex : « ça par contre j'adore »).
+  // Pour l'instant une règle déterministe sur les données réelles, pas un
+  // appel modèle : (1) campagne qui a atteint son objectif → en relancer
+  // une ; (2) campagne qui a déjà signé le plus de clients → la meilleure
+  // zone. Rien à dire → pas de bloc (pas de conseil creux).
+  function campaignSuggestion() {
+    const done = campaigns.find((c) => c.target_count > 0 && c.contacts_found >= c.target_count && (c.status === 'en_cours' || c.status === 'terminee' || c.status === 'terminée'));
+    if (done) {
+      return { text: fill(dt('suggestDone', locale), { name: done.zone_label, n: done.contacts_found }), href: `/app/campaigns${userId ? `?user_id=${userId}` : ''}`, cta: dt('launch', locale) };
+    }
+    const best = campaigns.filter((c) => (c.stats?.won || 0) > 0).sort((a, b) => (b.stats?.won || 0) - (a.stats?.won || 0))[0];
+    if (best && campaigns.length > 1) {
+      const n = best.stats.won;
+      return { text: fill(dt('suggestBest', locale), { name: best.zone_label, n, w: dt(n > 1 ? 'clientN' : 'client1', locale) }), href: `/app/campaigns${userId ? `?user_id=${userId}` : ''}`, cta: dt('see', locale) };
+    }
+    return null;
+  }
+  const suggestion = loading ? null : campaignSuggestion();
 
   // #2 — RDV jamais validés dont la date est dépassée -> bandeau rouge dédié,
   // au lieu de rester noyés (sans distinction visuelle) dans les actions
@@ -729,8 +782,10 @@ export default function DashboardPage() {
     <Shell active={t('nav.dashboard', locale)} userId={userId} onNotificationsChanged={loadAll} extraStoryGroups={onboardingStoryGroups} storiesAllClear>
       <header className="header">
         <div>
-          <p className="eyebrow">{t('nav.dashboard', locale)}</p>
-          <h1>{t('dash.title', locale)}</h1>
+          {/* Refonte 17/10/2026 : la date du jour en sur-titre et un bonjour
+              au prénom — le titre « Tableau de bord » n'apprenait rien. */}
+          <p className="eyebrow">{(() => { const d = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' }); return d.charAt(0).toUpperCase() + d.slice(1); })()}</p>
+          <h1>{firstName ? fill(dt('hello', locale), { name: firstName }) : dt('helloAnon', locale)}</h1>
         </div>
         <ConnectionStatusBadge />
       </header>
@@ -848,21 +903,27 @@ export default function DashboardPage() {
               fait pour l'utilisateur ces 7 derniers jours, façon fil
               Instagram. Lecture seule, zéro action demandée ; cliquer une
               ligne ouvre la fiche. */}
-          {userId && (
-            <ActivityFeed
-              userId={userId}
-              locale={locale}
-              onOpenContact={(id) => { window.location.href = `/app/prospects?user_id=${userId}&contact=${id}`; }}
-            />
-          )}
+          {/* Refonte 17/10/2026 (maquettes validées) : rangée haute = résumé
+              « Pendant ton absence » + prochain rendez-vous ; rangée basse =
+              entonnoir en colonnes + campagne en cours avec la suggestion
+              d'Aaron. La checklist de mise en route reste au-dessus tant
+              qu'elle n'est pas finie — et revient si la boîte mail est
+              déconnectée (emailConnected relu à chaque chargement). */}
+          <section className="top-row">
+            {userId && (
+              <ActivityFeed
+                userId={userId}
+                locale={locale}
+                onOpenContact={(id) => { window.location.href = `/app/prospects?user_id=${userId}&contact=${id}`; }}
+              />
+            )}
 
-          <section className="grid-two">
-            <div className="panel">
+            <div className="panel next-panel">
               <div className="panel-head">
-                <h2>{t('dash.upcomingAppointments', locale)}</h2>
-                <a className="panel-link" href="/app/agenda">{t('dash.seeAll', locale)} →</a>
+                <h2>{dt('next', locale)}</h2>
+                <a className="panel-link" href={`/app/agenda${userId ? `?user_id=${userId}` : ''}`}>{dt('agenda', locale)} →</a>
               </div>
-              {upcomingGroups.length === 0 ? (
+              {!nextAppt ? (
                 <EmptyState
                   title={t('dash.emptyNothingPlanned', locale)}
                   body={t('dash.emptyNoConfirmedAppt', locale)}
@@ -870,36 +931,122 @@ export default function DashboardPage() {
                   ctaHref="/app/agenda"
                   ctaLabel={t('dash.emptyApptCta', locale)}
                 />
+              ) : (() => {
+                const d = new Date(nextAppt.proposed_at);
+                const isToday = d.toDateString() === now.toDateString();
+                const company = nextAppt.prospects?.prospect_companies?.name;
+                return (
+                  <>
+                    <div className="next-main">
+                      <span className={`next-date${isToday ? ' today' : ''}`} aria-hidden="true">
+                        <span className="next-dow">{d.toLocaleDateString(locale, { weekday: 'short' }).replace('.', '')}</span>
+                        <b>{d.toLocaleDateString(locale, { day: 'numeric' })}</b>
+                        <em>{d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</em>
+                      </span>
+                      <div className="next-body">
+                        <strong>{nextAppt.prospects?.full_name || t('dash.unknownCompany', locale)}</strong>
+                        <span className="muted next-sub">
+                          {company || t('dash.unknownCompany', locale)}
+                          {nextAppt.type ? ` · ${t(`apptType.${nextAppt.type}`, locale)}` : ''}
+                        </span>
+                      </div>
+                    </div>
+                    {nextBrief && (
+                      <p className="next-tip"><b>{dt('brief', locale)}</b> {frenchTypography(nextBrief)}</p>
+                    )}
+                    <div className="next-actions">
+                      <a className="btn-primary" href={`/app/agenda${userId ? `?user_id=${userId}` : ''}`}>{dt('prepare', locale)}</a>
+                      {nextAppt.meet_link && (
+                        <a className="btn-ghost" href={nextAppt.meet_link} target="_blank" rel="noreferrer">{dt('join', locale)}</a>
+                      )}
+                    </div>
+                    {laterAppts.length > 0 && (
+                      <>
+                        <p className="next-then">{dt('then', locale)}</p>
+                        <div className="mini-list">
+                          {laterAppts.map((a) => {
+                            const dd = new Date(a.proposed_at);
+                            return (
+                              <a key={a.id} className="mini-row" href="/app/agenda">
+                                <span className="mini-chip" aria-hidden="true">
+                                  <span className="mini-chip-num">{dd.toLocaleDateString(locale, { day: 'numeric' })}</span>
+                                  <span className="mini-chip-mon">{dd.toLocaleDateString(locale, { month: 'short' }).replace('.', '')}</span>
+                                </span>
+                                <span className="mini-body">
+                                  <strong>{a.prospects?.full_name}</strong>
+                                  <span className="muted mini-sub">
+                                    {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}
+                                    {a.type ? ` · ${t(`apptType.${a.type}`, locale)}` : ''}
+                                  </span>
+                                </span>
+                                <span className="mini-time">{dd.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </section>
+
+          <section className="grid-two">
+            <div className="panel">
+              <div className="panel-head">
+                <h2>{dt('funnel', locale)}</h2>
+                <a className="panel-link" href={`/app/resultats${userId ? `?user_id=${userId}` : ''}`}>{dt('results', locale)} →</a>
+              </div>
+              {funnelContacts === 0 ? (
+                <p className="muted funnel-empty">{dt('funnelEmpty', locale)}</p>
               ) : (
-                <div className="mini-list">
-                  {upcomingGroups.flatMap((group) => group.items).slice(0, 5).map((a) => {
-                    const d = new Date(a.proposed_at);
-                    const isToday = d.toDateString() === now.toDateString();
-                    return (
-                      <a key={a.id} className="mini-row" href="/app/agenda">
-                        <span className={`mini-chip${isToday ? ' today' : ''}`} aria-hidden="true">
-                          <span className="mini-chip-num">{d.toLocaleDateString(locale, { day: 'numeric' })}</span>
-                          <span className="mini-chip-mon">{d.toLocaleDateString(locale, { month: 'short' }).replace('.', '')}</span>
-                        </span>
-                        <span className="mini-body">
-                          <strong>{a.prospects?.full_name}</strong>
-                          <span className="muted mini-sub">
-                            {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}
-                            {a.type ? ` · ${t(`apptType.${a.type}`, locale)}` : ''}
-                          </span>
-                        </span>
-                        <span className="mini-time">{d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
-                      </a>
-                    );
-                  })}
-                </div>
+                <>
+                  {/* Entonnoir en colonnes (maquette) : une colonne par étape,
+                      hauteur = part des contacts, le chiffre au-dessus. */}
+                  <a className="funnel-cols" href={`/app/prospects?user_id=${userId}`}>
+                    {funnelSteps.map((step) => {
+                      const h = Math.max(6, Math.round((step.value / funnelContacts) * 100));
+                      return (
+                        <div className="fcol" key={step.key}>
+                          <b>{step.value}</b>
+                          <span className="fbar-track"><i style={{ height: `${h}%`, background: step.color }} /></span>
+                          <span className="flabel">{step.label}</span>
+                        </div>
+                      );
+                    })}
+                  </a>
+                  <p className="funnel-read">
+                    {funnelClientRatio
+                      ? fill(dt('funnelRead', locale), { rate: funnelRdvRate, ratio: funnelClientRatio })
+                      : fill(dt('funnelReadNoClient', locale), { rate: funnelRdvRate })}
+                    {pipelineCounts.risk > 0 ? ` · ${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()}` : ''}
+                    {pipelineCounts.lost > 0 ? ` · ${pipelineCounts.lost} ${t('pipeline.lostLabel', locale).toLowerCase()}` : ''}.
+                  </p>
+                </>
+              )}
+
+              {/* Les chiffres du jour (remise à zéro à minuit) : une ligne
+                  discrète, avec le détail des RDV obtenus par type (option 2
+                  d'Alex, 04/09/2026) en toutes lettres. */}
+              <div className="today-inline">
+                <span className="today-chip">{t('dash.todayResultsTitle', locale)}</span>
+                <span className="today-stat"><b style={{ color: PIPELINE_COLORS.prospect }}>{prospectsContactesToday}</b> {t('dash.todayProspects', locale)}</span>
+                <span className="today-stat"><b style={{ color: '#4B9EF0' }}>{rdvObtenus24h.length}</b> {t('dash.todayRdv', locale)}</span>
+                <span className="today-stat"><b style={{ color: '#b07cf5' }}>{propositionsToday}</b> {t('dash.todayPropositions', locale)}</span>
+                <span className="today-stat"><b style={{ color: PIPELINE_COLORS.client }}>{clientsGagnesToday}</b> {t('dash.todayClients', locale)}</span>
+              </div>
+              {rdvObtenus24h.length > 0 && (
+                <p className="today-types">
+                  {dt('byType', locale)} : {t('apptType.visio', locale)} {rdvObtenusByType.visio} · {t('apptType.telephonique', locale)} {rdvObtenusByType.telephonique} · {t('apptType.physique', locale)} {rdvObtenusByType.physique}
+                </p>
               )}
             </div>
 
             <div className="panel">
               <div className="panel-head">
-                <h2>{t('dash.ongoingCampaigns', locale)}</h2>
-                <a className="panel-link" href="/app/campaigns">{t('dash.seeAll', locale)} →</a>
+                <h2>{activeCampaigns.length > 1 ? t('dash.ongoingCampaigns', locale) : dt('campaign', locale)}</h2>
+                <a className="panel-link" href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`}>{dt('see', locale)} →</a>
               </div>
               {activeCampaigns.length === 0 ? (
                 <EmptyState
@@ -911,106 +1058,33 @@ export default function DashboardPage() {
                 />
               ) : (
                 <div className="mini-list">
-                  {activeCampaigns.slice(0, 4).map((c) => {
+                  {activeCampaigns.slice(0, 3).map((c) => {
                     const pct = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+                    const won = c.stats?.won || 0;
                     return (
-                      <a key={c.id} className="mini-camp" href="/app/campaigns">
+                      <a key={c.id} className="mini-camp" href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`}>
                         <span className="mini-camp-head">
                           <strong>{c.zone_label}</strong>
-                          <span className="mini-camp-pct">{pct} %</span>
+                          <span className="mini-camp-pct">{c.contacts_found} / {c.target_count}</span>
                         </span>
                         <span className="muted mini-sub">{c.sector_keywords?.join(', ')}</span>
                         <span className="mini-camp-track"><span className="mini-camp-fill" style={{ width: `${pct}%` }} /></span>
-                        <span className="muted mini-sub">{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
+                        <span className="muted mini-sub">{fill(dt('inProgress', locale), { active: c.stats?.active || 0, won, w: dt(won > 1 ? 'clientN' : 'client1', locale) })}</span>
                       </a>
                     );
                   })}
                 </div>
               )}
-            </div>
-          </section>
-
-          {/* "petit truc pourris : merci de bien remettre rdv obtenu a côté
-              de 'en bonne voie'" (Alex, 2026-08-25) — la carte RDV obtenu
-              revient dans la même rangée que le pipeline Prospect, en
-              première position (à gauche de "En bonne voie"), comme avant
-              le découpage en bloc séparé du 2026-08-23. */}
-          <section className="panel today-panel">
-            {/* Refonte 04/09/2026 (demande Alex) : les 4 grandes cartes
-                « prospects contactés / RDV obtenus / propositions / clients »
-                ont été supprimées — elles répétaient, en plus gros, ce que les
-                barres colorées disaient déjà juste en dessous. Les barres
-                remontent donc en tête du bloc.
-
-                Sous la barre « RDV obtenu », les 3 types de rendez-vous ont
-                leur propre mini-barre (option 2 proposée par Alex, préférée à
-                l'option 1 qui aurait entassé 3 symboles dans la barre
-                principale : à la largeur d'un téléphone, ça devient illisible). */}
-            <div className="panel-head">
-              <h2>{t('dash.todayResultsTitle', locale)}</h2>
-              <span className="reset-chip">{t('dash.resetDailyNote', locale)}</span>
-            </div>
-
-            <a className="funnel" href={`/app/prospects?user_id=${userId}`}>
-              {funnelSteps.map((step, i) => {
-                const prev = i > 0 ? funnelSteps[i - 1].value : null;
-                const rate = prev ? Math.round((step.value / prev) * 100) : null;
-                const width = funnelContacts > 0 ? Math.max(8, Math.round((step.value / funnelContacts) * 100)) : 8;
-                return (
-                  <div className="funnel-step" key={step.key}>
-                    <div className="funnel-head">
-                      <span className="funnel-label">{step.label}</span>
-                      {/* Le « → 67 % » n'était pas compris (Alex, 04/09/2026 :
-                          « je ne comprends pas les % à droite »). C'est la
-                          part de l'étape PRÉCÉDENTE qui est passée à
-                          celle-ci. On le dit en toutes lettres. */}
-                      {rate != null && (
-                        <span className="funnel-rate" title={t('dash.funnelRateHint', locale)}>
-                          {t('dash.funnelRateLabel', locale).replace('{rate}', rate).replace('{prev}', funnelSteps[i - 1].label.toLowerCase())}
-                        </span>
-                      )}
-                    </div>
-                    <div className="funnel-bar-track">
-                      <span className="funnel-bar" style={{ width: `${width}%`, background: step.color }}>{step.value}</span>
-                    </div>
-                    {step.key === 'rdv' && (
-                      <div className="rdv-split">
-                        {[
-                          // « On peut enlever le RDV devant visio,
-                          // téléphonique et physique, l'utilisateur
-                          // comprendra » (Alex, 04/09/2026) : on est sous la
-                          // barre « RDV obtenu », le mot est déjà là.
-                          { k: 'visio', label: t('apptType.visio', locale), value: rdvObtenusByType.visio },
-                          { k: 'telephonique', label: t('apptType.telephonique', locale), value: rdvObtenusByType.telephonique },
-                          { k: 'physique', label: t('apptType.physique', locale), value: rdvObtenusByType.physique },
-                        ].map((r) => {
-                          const total = rdvObtenusByType.visio + rdvObtenusByType.telephonique + rdvObtenusByType.physique;
-                          const w = total > 0 ? Math.max(6, Math.round((r.value / total) * 100)) : 6;
-                          return (
-                            <div className="rdv-split-row" key={r.k}>
-                              <span className="rdv-split-label">{r.label}</span>
-                              <span className="rdv-split-track">
-                                <span className="rdv-split-bar" style={{ width: `${w}%` }} />
-                              </span>
-                              <span className="rdv-split-value">{r.value}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+              {suggestion && (
+                <div className="suggest">
+                  <span className="suggest-ic" aria-hidden="true"><Ic name="bulb" size={16} /></span>
+                  <div className="suggest-body">
+                    <b>{dt('suggestion', locale)}</b>
+                    <span>{suggestion.text}</span>
                   </div>
-                );
-              })}
-              <span className="funnel-hint">{t('dash.funnelHint', locale)} · {pipelineCounts.risk > 0 ? `${pipelineCounts.risk} ${t('pipeline.riskLabel', locale).toLowerCase()} · ` : ''}{pipelineCounts.lost} {t('pipeline.lostLabel', locale).toLowerCase()}</span>
-            </a>
-
-            {/* Les chiffres du jour restent, mais sur une seule ligne discrète
-                au lieu de quatre grosses cartes. */}
-            <div className="today-inline">
-              <span className="today-stat"><b style={{ color: PIPELINE_COLORS.prospect }}>{prospectsContactesToday}</b> {t('dash.todayProspects', locale)}</span>
-              <span className="today-stat"><b style={{ color: '#4B9EF0' }}>{rdvObtenus24h.length}</b> {t('dash.todayRdv', locale)}</span>
-              <span className="today-stat"><b style={{ color: '#b07cf5' }}>{propositionsToday}</b> {t('dash.todayPropositions', locale)}</span>
-              <span className="today-stat"><b style={{ color: PIPELINE_COLORS.client }}>{clientsGagnesToday}</b> {t('dash.todayClients', locale)}</span>
+                  {suggestion.href && <a className="btn-ghost small" href={suggestion.href}>{suggestion.cta}</a>}
+                </div>
+              )}
             </div>
           </section>
         </>
@@ -1733,6 +1807,147 @@ export default function DashboardPage() {
           grid-template-columns: 1fr 1fr;
           gap: 1.25rem;
         }
+        /* Refonte 17/10/2026 — rangée haute : fil « Pendant ton absence »
+           (components/ActivityFeed.jsx) + prochain rendez-vous. */
+        .top-row {
+          display: grid;
+          grid-template-columns: 1.35fr 1fr;
+          gap: 1.25rem;
+          align-items: start;
+          margin-bottom: 1.25rem;
+        }
+        .top-row :global(.feed) { margin-bottom: 0; }
+        .next-main {
+          display: flex;
+          gap: 0.9rem;
+          align-items: flex-start;
+        }
+        .next-date {
+          flex: 0 0 auto;
+          width: 58px;
+          border-radius: 12px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          text-align: center;
+          padding: 0.5rem 0 0.45rem;
+          line-height: 1.1;
+        }
+        .next-date.today {
+          background: rgba(75, 57, 239, 0.14);
+          border-color: rgba(75, 57, 239, 0.5);
+        }
+        .next-dow { display: block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+        .next-date b { display: block; font-size: 1.35rem; font-weight: 700; margin: 0.1rem 0; font-variant-numeric: tabular-nums; }
+        .next-date.today b { color: var(--accent-light); }
+        .next-date em { display: block; font-style: normal; font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-light); }
+        .next-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 0.2rem; }
+        .next-body strong { font-size: 1rem; line-height: 1.25; }
+        .next-sub { font-size: 0.82rem; }
+        .next-tip {
+          margin: 0.9rem 0 0;
+          padding: 0.6rem 0.8rem;
+          border-left: 3px solid var(--accent-green, #3dd68c);
+          background: rgba(61, 214, 140, 0.08);
+          border-radius: 0 10px 10px 0;
+          font-size: 0.86rem;
+          line-height: 1.45;
+        }
+        .next-tip b { color: #a9e9c9; font-weight: 600; }
+        .next-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
+        .btn-primary,
+        .btn-ghost {
+          flex: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          height: 40px;
+          padding: 0 0.9rem;
+          border-radius: 12px;
+          font-size: 0.86rem;
+          font-weight: 600;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+        .btn-primary {
+          background: linear-gradient(135deg, var(--accent), var(--accent-light));
+          color: #fff;
+          box-shadow: 0 6px 18px rgba(75, 57, 239, 0.28);
+        }
+        .btn-ghost {
+          border: 1px solid var(--border);
+          color: var(--text);
+          background: var(--bg);
+        }
+        .btn-ghost.small { flex: 0 0 auto; height: 34px; padding: 0 0.75rem; font-size: 0.8rem; }
+        .btn-primary:hover { filter: brightness(1.08); }
+        .btn-ghost:hover { border-color: var(--accent); }
+        .next-then {
+          margin: 1rem 0 0.45rem;
+          font-size: 0.68rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: var(--muted);
+        }
+        /* Entonnoir en colonnes. */
+        .funnel-cols {
+          display: flex;
+          gap: 0.5rem;
+          align-items: stretch;
+          height: 150px;
+          text-decoration: none;
+          color: inherit;
+        }
+        .fcol {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 0.35rem;
+          min-width: 0;
+        }
+        .fcol b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+        .fbar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+        .fbar-track i { display: block; width: 100%; border-radius: 8px 8px 4px 4px; transition: height 0.4s var(--ease); }
+        .flabel { font-size: 0.7rem; color: var(--muted); text-align: center; line-height: 1.15; }
+        .funnel-cols:hover .flabel { color: var(--text); }
+        .funnel-read { margin: 0.8rem 0 0; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+        .funnel-empty { font-size: 0.88rem; }
+        .today-chip {
+          font-size: 0.68rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--muted);
+          flex-basis: 100%;
+        }
+        .today-types { margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--muted); }
+        /* Suggestion d'Aaron (ampoule). */
+        .suggest {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          margin-top: 0.9rem;
+          padding: 0.7rem 0.85rem;
+          border-radius: var(--radius-md);
+          background: rgba(245, 166, 35, 0.08);
+          border: 1px solid rgba(245, 166, 35, 0.3);
+        }
+        .suggest-ic {
+          flex: 0 0 auto;
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(245, 166, 35, 0.16);
+          color: #ffd9a0;
+        }
+        .suggest-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .suggest-body b { font-size: 0.82rem; color: #ffd9a0; }
+        .suggest-body span { font-size: 0.84rem; line-height: 1.4; }
         .panel {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -1776,9 +1991,13 @@ export default function DashboardPage() {
           .stat-row {
             grid-template-columns: repeat(2, 1fr);
           }
-          .grid-two {
+          .grid-two,
+          .top-row {
             grid-template-columns: 1fr;
           }
+          .funnel-cols { height: 130px; }
+          .suggest { flex-wrap: wrap; }
+          .suggest .btn-ghost.small { flex-basis: 100%; }
         }
         @media (max-width: 480px) {
           .stat-row {
