@@ -20,6 +20,7 @@ import CsvImportModal from '@/components/CsvImportModal';
 import ExportFormatMenu from '@/components/ExportFormatMenu';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
+import ConfidenceRing from '@/components/ConfidenceRing';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 
 function useAuthedUser() {
@@ -101,6 +102,22 @@ function onboardingMetaFor(locale) {
     termine: { label: t('customer.onboardingDone', locale), color: '#3DD68C' },
   };
 }
+
+// Refonte visuelle 17/10/2026 (maquettes validées par Alex) : chiffres clés,
+// groupe « À faire cette semaine », lignes avec anneau de santé, fiche en
+// volet sur téléphone. Dictionnaire local (lib/i18n.js dépasse la taille
+// acceptée par l'envoi GitHub — même compromis que ContactCard.jsx).
+const CUST_TEXT = {
+  fr: { others: 'Les autres clients', kClients: 'clients', kGood: 'en bonne santé', kWatch: 'à surveiller', kRisk: 'à risque', week: 'À faire cette semaine', all: 'Tous les clients', nextOnboarding: 'Onboarding à finir', nextRenewal: 'Renouvellement le {d}', nextRisk: 'Risque de départ · santé {n}/100', nextWatch: 'À surveiller · santé {n}/100', nextCheckin: 'Aaron prend de ses nouvelles régulièrement', nextWelcome: 'Email de bienvenue à envoyer', since: 'client depuis {n} j', health: 'santé', close: 'Fermer' },
+  en: { others: 'Other clients', kClients: 'clients', kGood: 'healthy', kWatch: 'to watch', kRisk: 'at risk', week: 'To do this week', all: 'All clients', nextOnboarding: 'Onboarding to finish', nextRenewal: 'Renewal on {d}', nextRisk: 'Churn risk · health {n}/100', nextWatch: 'To watch · health {n}/100', nextCheckin: 'Aaron checks in regularly', nextWelcome: 'Welcome email to send', since: 'client for {n} d', health: 'health', close: 'Close' },
+  de: { others: 'Weitere Kunden', kClients: 'Kunden', kGood: 'gesund', kWatch: 'zu beobachten', kRisk: 'gefährdet', week: 'Diese Woche zu tun', all: 'Alle Kunden', nextOnboarding: 'Onboarding abschließen', nextRenewal: 'Verlängerung am {d}', nextRisk: 'Abwanderungsrisiko · Gesundheit {n}/100', nextWatch: 'Beobachten · Gesundheit {n}/100', nextCheckin: 'Aaron meldet sich regelmäßig', nextWelcome: 'Willkommens-E-Mail senden', since: 'Kunde seit {n} T.', health: 'Gesundheit', close: 'Schließen' },
+  it: { others: 'Gli altri clienti', kClients: 'clienti', kGood: 'in salute', kWatch: 'da seguire', kRisk: 'a rischio', week: 'Da fare questa settimana', all: 'Tutti i clienti', nextOnboarding: 'Onboarding da completare', nextRenewal: 'Rinnovo il {d}', nextRisk: 'Rischio di abbandono · salute {n}/100', nextWatch: 'Da seguire · salute {n}/100', nextCheckin: 'Aaron si tiene in contatto regolarmente', nextWelcome: 'Email di benvenuto da inviare', since: 'cliente da {n} g', health: 'salute', close: 'Chiudi' },
+  es: { others: 'Los demás clientes', kClients: 'clientes', kGood: 'con buena salud', kWatch: 'a vigilar', kRisk: 'en riesgo', week: 'Para hacer esta semana', all: 'Todos los clientes', nextOnboarding: 'Onboarding por terminar', nextRenewal: 'Renovación el {d}', nextRisk: 'Riesgo de baja · salud {n}/100', nextWatch: 'A vigilar · salud {n}/100', nextCheckin: 'Aaron se mantiene en contacto con regularidad', nextWelcome: 'Email de bienvenida por enviar', since: 'cliente desde hace {n} d', health: 'salud', close: 'Cerrar' },
+  pt: { others: 'Os outros clientes', kClients: 'clientes', kGood: 'saudáveis', kWatch: 'a vigiar', kRisk: 'em risco', week: 'A fazer esta semana', all: 'Todos os clientes', nextOnboarding: 'Onboarding por terminar', nextRenewal: 'Renovação a {d}', nextRisk: 'Risco de saída · saúde {n}/100', nextWatch: 'A vigiar · saúde {n}/100', nextCheckin: 'O Aaron mantém o contacto regularmente', nextWelcome: 'Email de boas-vindas por enviar', since: 'cliente há {n} d', health: 'saúde', close: 'Fechar' },
+  nl: { others: 'Overige klanten', kClients: 'klanten', kGood: 'gezond', kWatch: 'in de gaten houden', kRisk: 'risico', week: 'Deze week te doen', all: 'Alle klanten', nextOnboarding: 'Onboarding afronden', nextRenewal: 'Verlenging op {d}', nextRisk: 'Vertrekrisico · gezondheid {n}/100', nextWatch: 'In de gaten houden · gezondheid {n}/100', nextCheckin: 'Aaron houdt regelmatig contact', nextWelcome: 'Welkomstmail te versturen', since: 'klant sinds {n} d', health: 'gezondheid', close: 'Sluiten' },
+};
+const ctx = (key, locale) => (CUST_TEXT[locale] || CUST_TEXT.fr)[key] || CUST_TEXT.fr[key];
+const initialsOfName = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || '').join('') || '?';
 
 function healthMetaFor(locale) {
   return {
@@ -500,6 +517,36 @@ export default function CustomerPage() {
     await loadSupportDrafts();
   }
 
+  // Chiffres clés + « À faire cette semaine » (refonte 17/10/2026).
+  const activeCustomers = customers.filter((c) => !c.is_lost);
+  const kpi = {
+    total: activeCustomers.length,
+    good: activeCustomers.filter((c) => c.customer_health_label === 'saine').length,
+    watch: activeCustomers.filter((c) => c.customer_health_label === 'a_surveiller').length,
+    risk: activeCustomers.filter((c) => c.customer_health_label === 'a_risque' || c.churn_risk === true).length,
+  };
+  function nextActionFor(c) {
+    const score = c.customer_health_score ?? null;
+    if (c.is_lost) return { text: t('customer.lostBadge', locale), Icon: 'x', level: 'muted' };
+    const withScore = (key) => (score != null ? ctx(key, locale).replace('{n}', score) : ctx(key, locale).split(' · ')[0]);
+    if (c.customer_health_label === 'a_risque' || c.churn_risk === true) return { text: withScore('nextRisk'), Icon: 'alert', level: 'urgent', week: true };
+    if (c.onboarding_status === 'a_demarrer' && !c.welcome_email_sent_at) return { text: ctx('nextWelcome', locale), Icon: 'mail', level: 'todo', week: true };
+    if (c.onboarding_status === 'a_demarrer' || c.onboarding_status === 'en_cours') return { text: ctx('nextOnboarding', locale), Icon: 'notes', level: 'todo', week: true };
+    if (c.contract_renewal_date) {
+      const d = new Date(c.contract_renewal_date);
+      const days = (d.getTime() - Date.now()) / 86400000;
+      if (days <= 30) return { text: ctx('nextRenewal', locale).replace('{d}', d.toLocaleDateString(locale, { day: 'numeric', month: 'short' })), Icon: 'refresh', level: 'todo', week: true };
+    }
+    if (c.customer_health_label === 'a_surveiller') return { text: withScore('nextWatch'), Icon: 'alert', level: 'todo', week: true };
+    return { text: ctx('nextCheckin', locale), Icon: 'bot', level: 'muted', week: false };
+  }
+  const weekRows = customers.filter((c) => nextActionFor(c).week);
+  const otherRows = customers.filter((c) => !nextActionFor(c).week);
+  const customerGroups = [
+    { key: 'week', label: ctx('week', locale), rows: weekRows },
+    { key: 'all', label: ctx(weekRows.length > 0 ? 'others' : 'all', locale), rows: otherRows },
+  ].filter((g) => g.rows.length > 0);
+
   if (authLoading) {
     return (
       <div className="auth-loading">
@@ -571,6 +618,15 @@ export default function CustomerPage() {
           </div>
         )}
       </header>
+
+      {!loading && customers.length > 0 && (
+        <div className="kpis">
+          <div className="kpi"><b>{kpi.total}</b><span>{ctx('kClients', locale)}</span></div>
+          <div className="kpi good"><b>{kpi.good}</b><span>{ctx('kGood', locale)}</span></div>
+          <div className="kpi watch"><b>{kpi.watch}</b><span>{ctx('kWatch', locale)}</span></div>
+          <div className="kpi risk"><b>{kpi.risk}</b><span>{ctx('kRisk', locale)}</span></div>
+        </div>
+      )}
 
       {showAddForm && (
         <AddClientModal
@@ -646,66 +702,74 @@ export default function CustomerPage() {
       ) : (
         <div className="board-layout">
           <div className="list">
-            {customers.map((customer) => {
-              const health = customer.customer_health_label ? HEALTH_META[customer.customer_health_label] : null;
-              return (
-                <button
-                  key={customer.id}
-                  type="button"
-                  className={`customer-card ${selectedId === customer.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedId(customer.id)}
-                >
-                  <div className="customer-card-top">
-                    <span className="customer-name">{customer.full_name}</span>
-                    {customer.is_lost ? (
-                      <span className="health-badge" style={{ color: '#E5484D', borderColor: '#E5484D' }}>
-                        {t('customer.lostBadge', locale)}
-                      </span>
-                    ) : (
-                      health && (
-                        <span className="health-badge" style={{ color: health.color, borderColor: health.color }}>
-                          {health.label}
+            {customerGroups.map((g) => (
+              <section key={g.key} className="group">
+                <p className="group-title"><span>{g.label} · {g.rows.length}</span><i aria-hidden="true" /></p>
+                {g.rows.map((customer) => {
+                  const health = customer.customer_health_label ? HEALTH_META[customer.customer_health_label] : null;
+                  const color = customer.is_lost ? '#E5484D' : health?.color || '#3DD68C';
+                  const next = nextActionFor(customer);
+                  return (
+                    <button
+                      key={`${g.key}:${customer.id}`}
+                      type="button"
+                      className={`customer-card ${selectedId === customer.id ? 'selected' : ''} ${next.level}`}
+                      onClick={() => setSelectedId(customer.id)}
+                    >
+                      <span className="avatar" style={{ background: `linear-gradient(135deg, ${color}, ${color}88)` }} aria-hidden="true">{initialsOfName(customer.full_name)}</span>
+                      <span className="customer-body">
+                        <span className="customer-card-top">
+                          <span className="customer-name">{customer.full_name}</span>
+                          {customer.is_lost ? (
+                            <span className="health-badge" style={{ color: '#E5484D', borderColor: '#E5484D' }}>{t('customer.lostBadge', locale)}</span>
+                          ) : (
+                            health && <span className="health-badge" style={{ color: health.color, borderColor: health.color }}>{health.label}</span>
+                          )}
+                          {customer.ai_managed === false && (
+                            <span className="onboarding-dot" style={{ background: 'var(--muted)' }}>{t('customer.aiManagedBadge', locale)}</span>
+                          )}
                         </span>
-                      )
-                    )}
-                  </div>
-                  {customer.prospect_companies?.name && <span className="customer-company">{customer.prospect_companies.name}</span>}
-                  <span className="customer-meta">
-                    {t('customer.clientSince', locale).replace('{days}', daysSince(customer.won_at))}
-                    {!customer.is_lost && customer.customer_health_updated_at && (
-                      <span
-                        className="health-since"
-                        title={new Date(customer.customer_health_updated_at).toLocaleString(locale)}
-                      >
-                        {' · '}
-                        {t('customer.healthSince', locale).replace('{days}', daysSince(customer.customer_health_updated_at))}
+                        <span className="customer-company">
+                          {customer.prospect_companies?.name ? `${customer.prospect_companies.name} · ` : ''}
+                          {ctx('since', locale).replace('{n}', daysSince(customer.won_at))}
+                        </span>
+                        <span className={`customer-next ${next.level}`}>
+                          <Ic name={next.Icon} size={13} />
+                          <span>{next.text}</span>
+                          {customer.onboarding_status && !customer.is_lost && (
+                            <span className="onboarding-dot" style={{ background: ONBOARDING_META[customer.onboarding_status].color }}>
+                              {ONBOARDING_META[customer.onboarding_status].label}
+                            </span>
+                          )}
+                        </span>
                       </span>
-                    )}
-                    {customer.onboarding_status && (
-                      <span className="onboarding-dot" style={{ background: ONBOARDING_META[customer.onboarding_status].color }}>
-                        {ONBOARDING_META[customer.onboarding_status].label}
-                      </span>
-                    )}
-                    {customer.ai_managed === false && (
-                      <span className="onboarding-dot" style={{ background: 'var(--muted)' }}>
-                        {t('customer.aiManagedBadge', locale)}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
+                      {!customer.is_lost && customer.customer_health_score != null && (
+                        <span className="customer-ring"><ConfidenceRing score={customer.customer_health_score} size={36} title={`${ctx('health', locale)} ${customer.customer_health_score}/100`} /></span>
+                      )}
+                    </button>
+                  );
+                })}
+              </section>
+            ))}
           </div>
 
-          <aside className="detail">
+          <aside className={`detail${selectedCustomer ? ' open' : ''}`}>
             {!selectedCustomer ? (
               <p className="muted">{t('customer.selectPrompt', locale)}</p>
             ) : (
               <>
-                <h2>{selectedCustomer.full_name}</h2>
-                {selectedCustomer.prospect_companies?.name && (
-                  <p className="muted">{selectedCustomer.prospect_companies.name}{selectedCustomer.job_title ? ` — ${selectedCustomer.job_title}` : ''}</p>
-                )}
+                <div className="detail-head">
+                  {!selectedCustomer.is_lost && selectedCustomer.customer_health_score != null && (
+                    <span className="detail-ring"><ConfidenceRing score={selectedCustomer.customer_health_score} size={56} label={ctx('health', locale)} /></span>
+                  )}
+                  <div className="detail-head-text">
+                    <h2>{selectedCustomer.full_name}</h2>
+                    {selectedCustomer.prospect_companies?.name && (
+                      <p className="muted">{selectedCustomer.prospect_companies.name}{selectedCustomer.job_title ? ` — ${selectedCustomer.job_title}` : ''}</p>
+                    )}
+                  </div>
+                  <button type="button" className="detail-close" onClick={() => setSelectedId(null)} aria-label={ctx('close', locale)}><Ic name="x" size={16} /></button>
+                </div>
 
                 <section className="block">
                   <ContactInfoEditor prospect={selectedCustomer} locale={locale} onSaved={load} />
@@ -731,7 +795,7 @@ export default function CustomerPage() {
                         className="health-badge large"
                         style={{ color: HEALTH_META[selectedCustomer.customer_health_label].color, borderColor: HEALTH_META[selectedCustomer.customer_health_label].color }}
                       >
-                        {HEALTH_META[selectedCustomer.customer_health_label].label} — {selectedCustomer.customer_health_score}/100
+                        {HEALTH_META[selectedCustomer.customer_health_label].label}
                       </span>
                     </div>
                   )
@@ -1180,10 +1244,85 @@ export default function CustomerPage() {
           flex-direction: column;
           gap: 0.6rem;
         }
+        .kpis {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 0.7rem;
+          margin: 0 0 1.2rem;
+        }
+        .kpi {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.75rem 0.9rem;
+        }
+        .kpi b { display: block; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+        .kpi span { display: block; margin-top: 0.15rem; font-size: 0.72rem; color: var(--muted); }
+        .kpi.good b { color: #3DD68C; }
+        .kpi.watch b { color: #F0C94E; }
+        .kpi.risk b { color: #E5484D; }
+        .group { margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.55rem; }
+        .group-title {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin: 0.2rem 0 0;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .group-title i { flex: 1; height: 1px; background: var(--border); }
+        .avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          font-weight: 700;
+          color: #0a0c17;
+          flex: 0 0 auto;
+        }
+        .customer-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+        .customer-ring { flex: 0 0 auto; align-self: center; }
+        .customer-next {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.8rem;
+          margin-top: 0.2rem;
+          color: var(--muted);
+          flex-wrap: wrap;
+        }
+        .customer-next.urgent { color: var(--accent-red, #E5484D); font-weight: 700; }
+        .customer-next.todo { color: var(--accent-amber, #F0C94E); font-weight: 600; }
+        .customer-card.urgent { box-shadow: inset 3px 0 0 #E5484D; }
+        .customer-card.todo { box-shadow: inset 3px 0 0 #F0C94E; }
+        .detail-head { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 0.6rem; }
+        .detail-head-text { flex: 1; min-width: 0; }
+        .detail-head-text h2 { margin: 0 0 0.1rem; }
+        .detail-ring { flex: 0 0 auto; }
+        .detail-close {
+          display: none;
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          border: 1px solid var(--border);
+          background: var(--bg);
+          color: var(--text);
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          flex: 0 0 auto;
+        }
         .customer-card {
           display: flex;
-          flex-direction: column;
-          gap: 0.2rem;
+          flex-direction: row;
+          align-items: flex-start;
+          gap: 0.8rem;
           text-align: left;
           background: var(--surface);
           border: 1px solid var(--border);
@@ -1205,8 +1344,8 @@ export default function CustomerPage() {
         .customer-card-top {
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          gap: 0.6rem;
+          gap: 0.5rem;
+          flex-wrap: wrap;
         }
         .customer-name {
           font-size: 0.92rem;
@@ -1471,6 +1610,26 @@ export default function CustomerPage() {
             position: static;
             max-height: none;
           }
+          .kpis { grid-template-columns: repeat(2, 1fr); }
+        }
+        /* Téléphone : la fiche client s'ouvre en volet par-dessus la liste
+           (maquette validée 17/10/2026) — plus de défilement jusqu'en bas
+           pour la trouver. */
+        @media (max-width: 900px) {
+          .detail { display: none; }
+          .detail.open {
+            display: block;
+            position: fixed;
+            left: 0; right: 0; bottom: 0;
+            top: 8vh;
+            z-index: 1200;
+            border-radius: 22px 22px 0 0;
+            max-height: 92vh;
+            overflow-y: auto;
+            box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+            padding-bottom: 5rem;
+          }
+          .detail-close { display: inline-flex; }
           .support-list {
             grid-template-columns: 1fr;
           }
