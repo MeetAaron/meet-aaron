@@ -12,6 +12,8 @@ import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAa
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
 import { listNewImapMessages, getImapMessage, archiveImapMessage } from '@/lib/imap';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
+import { isSendWindowOpen, nextSendWindowOpening, replyJitterMs } from '@/lib/send-window';
+import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { getBrochureForReply } from '@/lib/first-email-attachment';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
@@ -754,7 +756,26 @@ export async function GET(request: NextRequest) {
         // gardent le comportement historique (envoi immédiat, ci-dessous) ;
         // les emails longs sont mis en attente dans pending_aaron_replies et
         // envoyés plus tard par app/api/cron/send-pending-replies.
-        const delayMs = computeHumanReplyDelayMs(aaronOutput.email_draft.body);
+        let delayMs = computeHumanReplyDelayMs(aaronOutput.email_draft.body);
+
+        // Créneau de réponse (lib/send-window.ts, 18/10/2026) : Aaron écrit
+        // depuis la boîte du commercial, il répond donc aux heures d'un
+        // commercial — lundi→vendredi, 8 h–19 h, fuseau du commercial. Un
+        // message reçu le samedi soir obtient sa réponse lundi matin, avec
+        // quelques minutes de décalage aléatoire. Le fuseau est lu une fois
+        // par passage (users.timezone, repli pays de facturation / Paris).
+        let tz = 'Europe/Paris';
+        try {
+          let tzRes: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', connection.user_id).maybeSingle();
+          if (tzRes.error?.code === '42703') tzRes = { data: {} };
+          tz = resolveUserTimeZone(tzRes.data || {});
+        } catch {
+          // fuseau par défaut
+        }
+        if (!isSendWindowOpen('reply', tz)) {
+          const opening = nextSendWindowOpening('reply', tz).getTime() + replyJitterMs();
+          delayMs = Math.max(delayMs, opening - Date.now());
+        }
 
         if (delayMs > 0) {
           await supabaseAdmin.from('pending_aaron_replies').insert({
