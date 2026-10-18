@@ -18,8 +18,25 @@ import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder, baselineConfidence } from '@/lib/pipeline';
 import PipelineIcon from '@/components/PipelineIcon';
-import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles } from 'lucide-react';
+import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2 } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
+
+// Refonte visuelle 17/10/2026 (maquettes validées par Alex) : la liste se
+// lit en trois groupes — ce qui attend une décision, ce qui avance, les
+// clients — et chaque prochaine étape porte un symbole de son type.
+// Dictionnaire local (lib/i18n.js dépasse la taille acceptée par l'envoi
+// GitHub, même compromis que components/ContactCard.jsx).
+const LIST_TEXT = {
+  fr: { riskSince: 'silence depuis {n} j', todo: 'À traiter', inProgress: 'En cours', clients: 'Clients', lost: 'Perdus', apptToValidate: 'RDV à valider', byAaron: 'proposé par Aaron' },
+  en: { riskSince: 'silent for {n} d', todo: 'To handle', inProgress: 'In progress', clients: 'Clients', lost: 'Lost', apptToValidate: 'Meeting to confirm', byAaron: 'proposed by Aaron' },
+  de: { riskSince: 'seit {n} T. keine Antwort', todo: 'Zu erledigen', inProgress: 'Laufend', clients: 'Kunden', lost: 'Verloren', apptToValidate: 'Termin zu bestätigen', byAaron: 'von Aaron vorgeschlagen' },
+  it: { riskSince: 'silenzio da {n} g', todo: 'Da gestire', inProgress: 'In corso', clients: 'Clienti', lost: 'Persi', apptToValidate: 'Appuntamento da confermare', byAaron: 'proposto da Aaron' },
+  es: { riskSince: 'silencio desde hace {n} d', todo: 'Por tratar', inProgress: 'En curso', clients: 'Clientes', lost: 'Perdidos', apptToValidate: 'Cita por confirmar', byAaron: 'propuesta por Aaron' },
+  pt: { riskSince: 'silêncio há {n} d', todo: 'A tratar', inProgress: 'Em curso', clients: 'Clientes', lost: 'Perdidos', apptToValidate: 'Reunião a confirmar', byAaron: 'proposta pelo Aaron' },
+  nl: { riskSince: 'al {n} d stil', todo: 'Te behandelen', inProgress: 'Lopend', clients: 'Klanten', lost: 'Verloren', apptToValidate: 'Afspraak te bevestigen', byAaron: 'voorgesteld door Aaron' },
+};
+const lt = (key, locale) => (LIST_TEXT[locale] || LIST_TEXT.fr)[key] || LIST_TEXT.fr[key];
+const ALERT_ICON = { quote_to_send: FileText, email_to_validate: Mail, rescue_to_validate: LifeBuoy, first_order_to_confirm: CheckCircle2, bilan_to_do: ClipboardList };
 
 function useAuthedUser() {
   const router = useRouter();
@@ -404,26 +421,49 @@ export default function ProspectsPage() {
     contactsPerCompany[p.prospect_company_id] = (contactsPerCompany[p.prospect_company_id] || 0) + 1;
   }
 
+  // Chaque prochaine étape porte son symbole (Alex, 17/10/2026 : « mettre le
+  // symbole à côté du texte : rdv à valider, devis, etc. »).
   function nextStepFor({ p, position, alerts }) {
     if (alerts.length > 0) {
-      return { text: t(alerts[0].labelKey, locale), level: alerts[0].level };
+      return { text: t(alerts[0].labelKey, locale), level: alerts[0].level, Icon: ALERT_ICON[alerts[0].key] || AlertTriangle };
     }
     if (p.next_appointment) {
       const d = new Date(p.next_appointment.proposed_at);
-      return { text: `${t('pipeline.next.rdv', locale)} ${d.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`, level: 'info' };
+      const when = `${d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }).replace('.', '')} · ${d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`;
+      if (p.next_appointment.status === 'proposé') {
+        return { text: `${lt('apptToValidate', locale)} · ${when}`, level: 'todo', Icon: Calendar };
+      }
+      return { text: `${t('pipeline.next.rdv', locale)} ${when}`, level: 'info', Icon: Calendar };
     }
     if (position.lost) {
-      return { text: position.lostReason ? t(`pipeline.lostReason.${position.lostReason}`, locale) : t('pipeline.lostLabel', locale), level: 'muted' };
+      return { text: position.lostReason ? t(`pipeline.lostReason.${position.lostReason}`, locale) : t('pipeline.lostLabel', locale), level: 'muted', Icon: X };
     }
     if (position.stage === 'client') {
-      return { text: t('pipeline.next.client', locale), level: 'muted' };
+      return { text: t('pipeline.next.client', locale), level: 'muted', Icon: Star };
+    }
+    if (position.risk) {
+      const days = p.last_contact_at ? Math.max(0, Math.round((Date.now() - new Date(p.last_contact_at).getTime()) / 86400000)) : null;
+      return { text: `${t('pipeline.riskLabel', locale)}${days != null ? ` · ${lt('riskSince', locale).replace('{n}', days)}` : ''}`, level: 'urgent', Icon: AlertTriangle };
     }
     if (p.aaron_advice) {
       const short = p.aaron_advice.length > 70 ? `${p.aaron_advice.slice(0, 70).trimEnd()}…` : p.aaron_advice;
-      return { text: frenchTypography(short), level: 'muted' };
+      return { text: frenchTypography(short), level: 'muted', Icon: Bot };
     }
-    return { text: t(PIPELINE_STAGES[stageOrder(position.stage)].hintKey, locale), level: 'muted' };
+    return { text: t(PIPELINE_STAGES[stageOrder(position.stage)].hintKey, locale), level: 'muted', Icon: Bot };
   }
+
+  // Trois groupes (maquette validée) : « À traiter » = une décision attend
+  // (alerte, RDV à valider, risque de perdre) ; « Clients » ; « Perdus »
+  // (seulement quand le filtre les montre) ; tout le reste « En cours ».
+  function groupOf(row) {
+    const { p, position, alerts } = row;
+    if (position.lost) return 'lost';
+    if (alerts.length > 0 || p.next_appointment?.status === 'proposé' || position.risk) return 'todo';
+    if (position.stage === 'client') return 'clients';
+    return 'inProgress';
+  }
+  const GROUP_ORDER = ['todo', 'inProgress', 'clients', 'lost'];
+  const grouped = GROUP_ORDER.map((key) => ({ key, rows: filtered.filter((r) => groupOf(r) === key) })).filter((g) => g.rows.length > 0);
 
   // Icônes en traits (lucide), plus d'emojis — docx 05/09/2026 : « tous les
   // symboles de l'appli doivent être modernes ».
@@ -656,86 +696,79 @@ export default function ProspectsPage() {
               contact, sa progression, sa prochaine action. C'est aussi ce qui
               permet de mettre une vraie pastille d'initiales : dans un
               tableau, elle aurait été une colonne de plus. */}
-          <div className="cards">
-            {filtered.map((row) => {
-              const { p, position, alerts } = row;
-              const urgent = alerts.some((a) => a.level === 'urgent');
-              const next = nextStepFor(row);
-              const origin = originLabel(p);
-              const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
-              const aaronConviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
-              const conviction = aaronConviction ?? baselineConfidence(position);
-              const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
-              // <div role="button"> et non <button> : ProgressLine dessine ses
-              // six pastilles avec de vrais <button>, et un bouton dans un
-              // bouton est du HTML invalide — le navigateur casse alors
-              // l'imbrication et la ligne se disloque.
-              return (
-                <div
-                  key={p.id}
-                  role="button"
-                  tabIndex={0}
-                  className={`mcard${selectedId === p.id ? ' selected' : ''}`}
-                  onClick={() => setSelectedId(p.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.id); } }}
-                >
-                  {/* Pastille d'initiales colorée par famille du pipeline :
-                      on repère un contact dans une liste par sa pastille bien
-                      avant d'avoir lu son nom, et la couleur dit déjà où il
-                      en est. */}
-                  <span className="avatar" style={{ background: `linear-gradient(135deg, ${catColor}, ${catColor}88)` }} aria-hidden="true">
-                    {initialsOf(p.full_name)}
-                  </span>
-                  <div className="mcard-body">
-                    <div className="name-line">
-                      <span className="name">{p.full_name}</span>
-                      <DiscBadge type={p.personality_type} locale={locale} />
-                      {/* Alerte à côté du nom (demande Alex, 04/09/2026 :
-                          « genre en rouge envoyer devis ! ou au moins un
-                          point d'exclamation […] ça sert à rien de polluer
-                          pour rien »). Compromis retenu : seules les alertes
-                          URGENTES portent leur libellé en rouge — c'est là
-                          que la phrase fait gagner du temps. Les autres
-                          restent une simple pastille « ! ». */}
-                      {alerts.length > 0 && (urgent
-                        ? <span className="alert-pill" title={t(alerts[0].labelKey, locale)}>{t(alerts[0].labelKey, locale)}</span>
-                        : <span className="alert-dot" title={t(alerts[0].labelKey, locale)}>!</span>
-                      )}
-                      {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}><PauseCircle size={13} strokeWidth={2.2} aria-hidden="true" style={{ verticalAlign: '-2px' }} /></span>}
-                    </div>
-                    <div className="company-line muted">
-                      {p.prospect_companies?.name || p.email}
-                      {p.job_title ? ` · ${p.job_title}` : ''}
-                      {otherContacts > 0 && (
-                        <span
-                          className="company-badge"
-                          title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
-                          onClick={(e) => { e.stopPropagation(); setSearch(p.prospect_companies?.name || ''); }}
-                        >
-                          +{otherContacts}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mcard-progress">
-                      <ProgressLine position={position} locale={locale} compact />
-                      <span className="stage-name" style={{ color: catColor }}>
-                        {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
-                        {position.risk && <> {ic(AlertTriangle, 12)}</>}
+          {grouped.map((g) => (
+            <section key={g.key} className="group">
+              <p className="group-title">
+                <span>{lt(g.key, locale)} · {g.rows.length}</span>
+                <i aria-hidden="true" />
+              </p>
+              <div className="cards">
+                {g.rows.map((row) => {
+                  const { p, position, alerts } = row;
+                  const urgent = alerts.some((a) => a.level === 'urgent');
+                  const next = nextStepFor(row);
+                  const NextIcon = next.Icon;
+                  const origin = originLabel(p);
+                  const catColor = position.lost ? PIPELINE_COLORS.lost : PIPELINE_COLORS[position.category];
+                  const aaronConviction = p.conviction_score ?? p.negotiation_confidence_score ?? null;
+                  const conviction = aaronConviction ?? baselineConfidence(position);
+                  const otherContacts = p.prospect_company_id ? (contactsPerCompany[p.prospect_company_id] || 1) - 1 : 0;
+                  const tone = position.lost ? 'lost' : position.risk ? 'risk' : urgent ? 'urgent' : next.level === 'todo' ? 'todo' : '';
+                  return (
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      className={`mcard${selectedId === p.id ? ' selected' : ''}${tone ? ` ${tone}` : ''}`}
+                      onClick={() => setSelectedId(p.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(p.id); } }}
+                    >
+                      {/* Pastille d'initiales colorée par famille du pipeline. */}
+                      <span className="avatar" style={{ background: `linear-gradient(135deg, ${catColor}, ${catColor}88)` }} aria-hidden="true">
+                        {initialsOf(p.full_name)}
                       </span>
-                      {conviction != null && (
-                        <span className="mcard-score">
-                          <ConfidenceRing score={conviction} size={30} title={aaronConviction == null ? t('card.convictionEstimate', locale) : `${t('card.convictionTitle', locale)} — ${p.conviction_reason || p.negotiation_confidence_reason || ''}`} />
+                      <div className="mcard-body">
+                        <div className="name-line">
+                          <span className="name">{p.full_name}</span>
+                          <DiscBadge type={p.personality_type} locale={locale} />
+                          {p.ai_managed === false && <span className="paused" title={t('prospects.aiManagedOffTitle', locale)}><PauseCircle size={13} strokeWidth={2.2} aria-hidden="true" style={{ verticalAlign: '-2px' }} /></span>}
+                        </div>
+                        <div className="company-line muted">
+                          {p.prospect_companies?.name || p.email}
+                          {p.job_title ? ` · ${p.job_title}` : ''}
+                          {otherContacts > 0 && (
+                            <span
+                              className="company-badge"
+                              title={t('prospects.otherContactsTitle', locale).replace('{count}', otherContacts)}
+                              onClick={(e) => { e.stopPropagation(); setSearch(p.prospect_companies?.name || ''); }}
+                            >
+                              +{otherContacts}
+                            </span>
+                          )}
+                          <span className="origin" title={origin.text}>{origin.icon}</span>
+                        </div>
+                        {/* Prochaine étape : symbole du type + texte. */}
+                        <div className={`mcard-next ${next.level}`}>
+                          <span className="next-ic" aria-hidden="true"><NextIcon size={13} strokeWidth={2.2} /></span>
+                          <span className="next-txt">{next.text}</span>
+                        </div>
+                      </div>
+                      <div className="mcard-right">
+                        <span className="stage-pill" style={{ color: catColor, borderColor: `${catColor}66`, background: `${catColor}14` }}>
+                          {position.lost ? t('pipeline.lostLabel', locale) : t(PIPELINE_STAGES[stageOrder(position.stage)].labelKey, locale)}
+                          {position.risk && !position.lost && <AlertTriangle size={11} strokeWidth={2.4} aria-hidden="true" />}
                         </span>
-                      )}
+                        {conviction != null && (
+                          <ConfidenceRing score={conviction} size={34} title={aaronConviction == null ? t('card.convictionEstimate', locale) : `${t('card.convictionTitle', locale)} — ${p.conviction_reason || p.negotiation_confidence_reason || ''}`} />
+                        )}
+                      </div>
+                      <span className="chev">›</span>
                     </div>
-                    <div className={`mcard-next ${next.level}`}>{next.text}</div>
-                    <div className="mcard-origin muted" title={origin.text}>{origin.icon} {origin.text}</div>
-                  </div>
-                  <span className="chev">›</span>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </>
       )}
 
@@ -1139,18 +1172,57 @@ export default function ProspectsPage() {
           flex-shrink: 0;
         }
         .mcard-body { flex: 1; min-width: 0; }
-        .mcard-progress { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.45rem; flex-wrap: wrap; }
-        .mcard-progress .stage-name { margin-top: 0; }
-        /* Sans borne, ProgressLine (width: 100%) mange toute la ligne et
-           rejette le nom de l'étape en dessous. */
-        .mcard-progress > :global(.progress-line) { max-width: 132px; }
-        .mcard-score { margin-left: auto; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
-        .mcard-next { font-size: 0.8rem; margin-top: 0.35rem; }
+        .mcard.urgent { box-shadow: inset 3px 0 0 var(--accent-red); }
+        .mcard.todo { box-shadow: inset 3px 0 0 var(--accent-amber); }
+        .mcard.risk { box-shadow: inset 3px 0 0 ${PIPELINE_COLORS.risk}; }
+        .mcard.lost { opacity: 0.7; }
+        .company-line .origin { margin-left: 0.45rem; color: var(--muted-soft, var(--muted)); }
+        .mcard-next {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.82rem;
+          margin-top: 0.45rem;
+          min-width: 0;
+        }
+        .next-ic { display: inline-flex; flex: 0 0 auto; }
+        .next-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .mcard-next.urgent { color: var(--accent-red); font-weight: 700; }
         .mcard-next.todo { color: var(--accent-amber); font-weight: 600; }
         .mcard-next.info { color: var(--text); }
         .mcard-next.muted { color: var(--muted); }
-        .mcard-origin { font-size: 0.72rem; margin-top: 0.25rem; }
+        .mcard-right {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.4rem;
+          flex: 0 0 auto;
+          align-self: center;
+        }
+        .stage-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          border: 1px solid;
+          border-radius: 999px;
+          padding: 0.2rem 0.6rem;
+          font-size: 0.72rem;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .group { margin-bottom: 1.1rem; }
+        .group-title {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin: 0 0 0.5rem;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .group-title i { flex: 1; height: 1px; background: var(--border); }
         .chev { color: var(--muted); font-size: 1.4rem; align-self: center; }
         @media (max-width: 900px) {
           .header { flex-direction: column; gap: 0.8rem; }
@@ -1160,10 +1232,11 @@ export default function ProspectsPage() {
           .stage-icon { width: 26px; height: 26px; }
           .stage-link { top: calc(0.6rem + 13px); left: calc(-50% + 18px); width: calc(100% - 36px); }
           .stage-label { font-size: 0.62rem; }
-          .mcard { padding: 0.85rem 0.9rem; }
+          .mcard { padding: 0.85rem 0.9rem; flex-wrap: wrap; }
           .mcard:active { background: var(--surface-hover); }
           .avatar { width: 36px; height: 36px; }
-          .mcard-score { margin-left: 0; }
+          .mcard-right { flex-direction: row; align-items: center; justify-content: space-between; width: 100%; padding-left: calc(36px + 0.8rem); }
+          .chev { display: none; }
         }
       `}</style>
     </Shell>
