@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     // au client — elle alimente le bloc « Profil de l'entreprise » de la fiche
     // contact, pour que le commercial arrive en rendez-vous en sachant ce
     // qu'Aaron sait.
-    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at)')
+    // news_signal / news_signal_url (18/10/2026) : l'actualité repérée par
+    // Aaron (lib/news-triggers.ts), affichée avec la relance à valider.
+    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at, news_signal, news_signal_url, news_signal_at)')
     .eq('assigned_user_id', userId);
   if (scope !== 'all') {
     // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
@@ -49,7 +51,18 @@ export async function GET(request: NextRequest) {
     // migration_first_order_confirmed_2026-08-14.sql).
     query = query.is('first_order_confirmed_at', null);
   }
-  const { data: prospects, error } = await query.order('updated_at', { ascending: false });
+  let { data: prospects, error } = await query.order('updated_at', { ascending: false });
+
+  if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+    // Migration déclencheurs d'actualité pas encore jouée : même requête
+    // sans les colonnes d'actualité.
+    let legacy = supabaseAdmin
+      .from('prospects')
+      .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at)')
+      .eq('assigned_user_id', userId);
+    if (scope !== 'all') legacy = legacy.is('first_order_confirmed_at', null);
+    ({ data: prospects, error } = await legacy.order('updated_at', { ascending: false }));
+  }
 
   if (error) {
     return serverError(error, '/api/prospects');
