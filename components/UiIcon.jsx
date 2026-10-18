@@ -19,6 +19,7 @@
 
 import {
   Bot,
+  Newspaper,
   Paperclip,
   Ban,
   Download,
@@ -115,6 +116,7 @@ const ICONS = {
   landmark: Landmark,
   target: Target,
   megaphone: Megaphone,
+  newspaper: Newspaper,
   refresh: RefreshCw,
   chart: BarChart3,
   click: MousePointerClick,

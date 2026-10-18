@@ -66,6 +66,17 @@ const ICON_NAME = {
   commande_a_confirmer: 'trophy',
   a_risque: 'flame',
 };
+// Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
+// mais on dit pourquoi Aaron écrit maintenant.
+const NEWS_TEXT = {
+  fr: { lead: 'Du nouveau chez {name} — Aaron propose une relance :' },
+  en: { lead: 'Something new at {name} — Aaron suggests a follow-up:' },
+  de: { lead: 'Neuigkeiten bei {name} — Aaron schlägt eine Nachfassmail vor:' },
+  it: { lead: 'Novità da {name} — Aaron propone un follow-up:' },
+  es: { lead: 'Novedades en {name} — Aaron propone un seguimiento:' },
+  pt: { lead: 'Novidades na {name} — o Aaron propõe um seguimento:' },
+  nl: { lead: 'Nieuws bij {name} — Aaron stelt een opvolging voor:' },
+};
 function TypeIcon({ type, size = 16 }) {
   return <Ic name={ICON_NAME[type] || 'message'} size={size} strokeWidth={2.2} />;
 }
@@ -782,7 +793,14 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
     case 'sauvetage_a_valider':
       body = (
         <>
-          <p className="lead">{t('stories.sauvetageLead', locale).replace('{name}', item.prospect_name)}</p>
+          {item.meta?.source === 'actualite' ? (
+            <>
+              <p className="lead">{NEWS_TEXT[locale]?.lead?.replace('{name}', item.prospect_name) || NEWS_TEXT.fr.lead.replace('{name}', item.prospect_name)}</p>
+              {item.meta?.news_signal && <p className="lead"><Ic name="newspaper" size={14} /> {item.meta.news_signal}</p>}
+            </>
+          ) : (
+            <p className="lead">{t('stories.sauvetageLead', locale).replace('{name}', item.prospect_name)}</p>
+          )}
           <div className="mail"><p className="subject">{item.meta?.subject}</p><p className="mailbody">{item.meta?.body}</p></div>
         </>
       );
