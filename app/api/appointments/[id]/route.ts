@@ -39,8 +39,12 @@ const APPOINTMENT_DURATION_MINUTES: Record<string, number> = {
   physique: 120,
 };
 
-function durationMinutesForType(type: string): number {
-  return APPOINTMENT_DURATION_MINUTES[type] || 30;
+// 18/10/2026 (Alex : « de base ça se met sur 1 h ») : la durée saisie
+// (appointments.duration_minutes) prime ; sinon 60 min par défaut, et le
+// barème par type ci-dessus ne sert plus que si on le demande explicitement.
+function durationMinutesForType(type: string, stored?: number | null): number {
+  if (Number.isFinite(Number(stored)) && Number(stored) >= 15) return Number(stored);
+  return 60;
 }
 
 // Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
@@ -153,7 +157,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     const startISO = appointment.proposed_at;
     const endISO = new Date(
-      new Date(startISO).getTime() + durationMinutesForType(appointment.type) * 60 * 1000
+      new Date(startISO).getTime() + durationMinutesForType(appointment.type, (appointment as any).duration_minutes) * 60 * 1000
     ).toISOString();
 
     if (!force) {
