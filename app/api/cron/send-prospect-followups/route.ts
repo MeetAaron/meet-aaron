@@ -1,5 +1,11 @@
 // app/api/cron/send-prospect-followups/route.ts
-// Exécuté une fois par jour via Vercel Cron.
+// Exécuté toutes les heures via Vercel Cron (18/10/2026 — avant : une fois
+// par jour à 8 h 30 UTC, la même heure pour tout le monde). Chaque
+// commercial n'est traité que pendant SON créneau 8 h–12 h en semaine (heure
+// locale, lib/send-window.ts) ; les passages hors créneau ne font rien pour
+// lui. Rejouer le cron dans l'heure est sans risque : une relance envoyée
+// compte comme message sortant, le calendrier J+3/J+7/J+14 ne la
+// redéclenche pas.
 //
 // Jusqu'ici, AUCUN cron ne gérait réellement les relances espacées décrites
 // dans lib/aaron_system_prompt.md ("Relances (si silence) : espacées
@@ -30,6 +36,8 @@ import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, 
 import { sendPushNotification } from '@/lib/push';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { serverError } from '@/lib/http';
+import { isSendWindowOpen } from '@/lib/send-window';
+import { resolveUserTimeZone } from '@/lib/user-timezone';
 
 // Statuts sur lesquels une relance automatique a du sens : conversation en
 // cours sans signal fort dans un sens ou l'autre (jaune), ou signaux de
@@ -113,6 +121,7 @@ export async function GET(request: NextRequest) {
   // Voir même cache dans retry-uncontacted-prospects/route.ts : évite de revérifier
   // le plafond quotidien (lib/messaging.ts) à chaque prospect du même commercial.
   const cappedUsers = new Map<string, boolean>();
+  const windowOpenByUser = new Map<string, boolean>();
   const pendingIds = await pendingBatchProspectIds();
   const companyByUser = new Map<string, string | null>();
   const items: BatchItemInput[] = [];
@@ -163,6 +172,15 @@ export async function GET(request: NextRequest) {
     const firstOutbound = outbound[0];
     const daysSinceFirstContact = (now - new Date(firstOutbound.sent_at).getTime()) / 86_400_000;
     if (daysSinceFirstContact < dueDay) continue; // pas encore le moment
+
+    // Créneau d'envoi du commercial (voir en-tête) : hors 8 h–12 h en
+    // semaine chez lui, ses relances attendent le prochain passage.
+    if (!windowOpenByUser.has(prospect.assigned_user_id)) {
+      let tzRes: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', prospect.assigned_user_id).maybeSingle();
+      if (tzRes.error?.code === '42703') tzRes = { data: {} };
+      windowOpenByUser.set(prospect.assigned_user_id, isSendWindowOpen('prospecting', resolveUserTimeZone(tzRes.data || {})));
+    }
+    if (!windowOpenByUser.get(prospect.assigned_user_id)) continue;
 
     if (!cappedUsers.has(prospect.assigned_user_id)) {
       cappedUsers.set(prospect.assigned_user_id, await hasReachedProspectingCap(prospect.assigned_user_id));
