@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser } from '@/lib/messaging';
+import { getBrochureForReply } from '@/lib/first-email-attachment';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
       // que d'envoyer un email qu'on ne veut plus.
       const { data: prospect } = await supabaseAdmin
         .from('prospects')
-        .select('id, ai_managed, is_lost')
+        .select('id, ai_managed, is_lost, company_id')
         .eq('id', reply.prospect_id)
         .maybeSingle();
 
@@ -57,7 +58,13 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      await sendEmailForUser(reply.user_id, reply.to_email, reply.subject, reply.body);
+      // La plaquette voyage avec la PREMIÈRE réponse d'Aaron (voir
+      // getBrochureForReply) — elle manquait ici : une réponse longue (file
+      // d'attente « délai humain ») ou reportée au créneau de réponse
+      // (18/10/2026, lib/send-window.ts) partait sans. Même règle que
+      // l'envoi immédiat dans check-inbox.
+      const brochure = await getBrochureForReply(prospect.company_id, prospect.id);
+      await sendEmailForUser(reply.user_id, reply.to_email, reply.subject, reply.body, brochure ? { attachment: brochure } : undefined);
 
       // Google prioritaire si les deux sont connectés, même règle que
       // sendEmailForUser (lib/messaging.ts) — juste pour renseigner
