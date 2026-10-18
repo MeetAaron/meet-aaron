@@ -27,7 +27,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel, type AaronOutput } from './aaron';
 import { recordUsage, usageFromApi } from './anthropic-client';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
-import { isSendWindowOpen } from './send-window';
+import { isProspectingWindowOpenForUser } from './send-window';
 import { resolveUserTimeZone } from './user-timezone';
 import { sendPushNotification } from './push';
 
@@ -348,7 +348,7 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
     // est stocké comme brouillon et part au prochain créneau via
     // app/api/cron/retry-uncontacted-prospects (sendDeferredFirstEmails).
     // Pas de notification : rien n'est demandé au commercial.
-    if (owner?.require_first_email_approval !== true && !isSendWindowOpen('prospecting', resolveUserTimeZone(owner || {}))) {
+    if (owner?.require_first_email_approval !== true && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
       await supabaseAdmin
         .from('prospects')
         .update({

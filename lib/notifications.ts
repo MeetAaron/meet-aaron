@@ -102,7 +102,14 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
     // incompatibles entre les trois variantes (GenericStringError), alors que
     // la forme runtime est identique.
-    let res: any = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
+    // Déclencheurs d'actualité (18/10/2026) : d'où vient la proposition en
+    // attente et l'actualité repérée — colonnes de la migration
+    // declencheurs_actualite, d'où la variante supplémentaire.
+    const newsCols = baseCols.replace('prospect_companies(name)', 'prospect_companies(name, news_signal)') + optionalCols + ', rescue_proposal_source';
+    let res: any = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
+    if (res.error && res.error.code === '42703') {
+      res = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
+    }
     if (res.error && res.error.code === '42703') {
       res = await supabaseAdmin.from('prospects').select(baseCols + ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason').eq('assigned_user_id', userId);
     }
@@ -177,7 +184,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
       });
     }
     if (p.rescue_proposal_pending) {
-      push({ ...base, id: `sauvetage_a_valider:${p.id}`, type: 'sauvetage_a_valider', at: null, days_waiting: null, meta: { subject: p.rescue_proposal_subject, body: p.rescue_proposal_body } });
+      push({ ...base, id: `sauvetage_a_valider:${p.id}`, type: 'sauvetage_a_valider', at: null, days_waiting: null, meta: { subject: p.rescue_proposal_subject, body: p.rescue_proposal_body, source: p.rescue_proposal_source || null, news_signal: p.rescue_proposal_source === 'actualite' ? p.prospect_companies?.news_signal || null : null } });
     }
     if (p.pending_first_email_subject) {
       push({ ...base, id: `email_a_valider:${p.id}`, type: 'email_a_valider', at: null, days_waiting: null, meta: { subject: p.pending_first_email_subject, body: p.pending_first_email_body } });

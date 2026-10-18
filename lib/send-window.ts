@@ -46,6 +46,7 @@
 // dès qu'il y a assez de données.
 
 import { localParts } from './user-timezone';
+import { getLearnedWindow, type LearnedWindow } from './send-insights';
 
 export type SendKind = 'prospecting' | 'reply';
 
@@ -84,6 +85,30 @@ export function nextSendWindowOpening(kind: SendKind, timeZone: string, now: Dat
     t.setUTCHours(t.getUTCHours() + 1);
   }
   return t;
+}
+
+// Créneau APPRIS (lib/send-insights.ts) : pour la prospection, si le compte
+// a assez de données et qu'une tranche sort du lot, c'est elle qui compte à
+// la place de 8 h–12 h. Toujours bornée 7 h–19 h, lundi→vendredi par
+// construction (voir computeSendInsightsForUser). Les réponses gardent la
+// fenêtre « heures de bureau » : on répond quand le prospect écrit, pas
+// quand les statistiques le suggèrent.
+export function isSendWindowOpenLearned(learned: LearnedWindow | null, timeZone: string, now: Date = new Date()): boolean {
+  if (!learned) return isSendWindowOpen('prospecting', timeZone, now);
+  const { hour, weekday } = localParts(now, timeZone);
+  return learned.weekdays.includes(weekday) && learned.hours.some(([from, to]) => hour >= from && hour < to);
+}
+
+// Variante avec lecture du créneau appris du commercial. Repli sur la
+// fenêtre par défaut si la table send_insights n'existe pas encore.
+export async function isProspectingWindowOpenForUser(userId: string, timeZone: string, now: Date = new Date()): Promise<boolean> {
+  let learned: LearnedWindow | null = null;
+  try {
+    learned = await getLearnedWindow(userId);
+  } catch {
+    learned = null;
+  }
+  return isSendWindowOpenLearned(learned, timeZone, now);
 }
 
 // Décalage aléatoire (ms) ajouté à l'ouverture de fenêtre pour une réponse

@@ -21,7 +21,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
-import { isSendWindowOpen } from './send-window';
+import { isProspectingWindowOpenForUser } from './send-window';
 import { resolveUserTimeZone } from './user-timezone';
 
 const MAX_PER_USER_PER_RUN = 5;
@@ -58,6 +58,7 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
 
   const perUser: Record<string, number> = {};
   const blockedUsers = new Set<string>();
+  const windowOpen = new Map<string, boolean>();
 
   for (const draft of drafts) {
     const user = users.get(draft.assigned_user_id);
@@ -68,7 +69,8 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
     if (draft.ai_managed === false) continue;
     if (blockedUsers.has(user.id)) continue;
 
-    if (!isSendWindowOpen('prospecting', resolveUserTimeZone(user))) {
+    if (!windowOpen.has(user.id)) windowOpen.set(user.id, await isProspectingWindowOpenForUser(user.id, resolveUserTimeZone(user)));
+    if (!windowOpen.get(user.id)) {
       report.skipped_window += 1;
       continue;
     }
