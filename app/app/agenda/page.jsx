@@ -21,6 +21,10 @@ const AGENDA_TEXT = {
   duration: { fr: 'Durée', en: 'Duration', de: 'Dauer', it: 'Durata', es: 'Duración', pt: 'Duração', nl: 'Duur' },
   min: { fr: 'min', en: 'min', de: 'Min.', it: 'min', es: 'min', pt: 'min', nl: 'min' },
   h: { fr: 'h', en: 'h', de: 'Std.', it: 'h', es: 'h', pt: 'h', nl: 'u' },
+  aaronRead: { fr: "Lecture d'Aaron", en: "Aaron's read", de: 'Aarons Einschätzung', it: 'Lettura di Aaron', es: 'Lectura de Aaron', pt: 'Leitura do Aaron', nl: 'Inschatting van Aaron' },
+  cancelAsk: { fr: 'Annuler ce rendez-vous ? Le prospect recevra un email de ta part pour le prévenir, et il sera retiré de ton calendrier.', en: 'Cancel this meeting? The prospect gets an email from you, and it is removed from your calendar.', de: 'Diesen Termin absagen? Der Interessent erhält eine E-Mail von Ihnen, und der Termin wird aus Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Il prospect riceverà una tua email e sarà rimosso dal calendario.', es: '¿Cancelar esta cita? El prospecto recibirá un email tuyo y se eliminará de tu calendario.', pt: 'Cancelar esta reunião? O prospect recebe um email teu e ela é removida do teu calendário.', nl: 'Deze afspraak annuleren? De prospect krijgt een e-mail van jou en de afspraak verdwijnt uit je agenda.' },
+  cancelAskPerso: { fr: 'Annuler ce rendez-vous ? Il sera retiré de ton agenda et de ton calendrier.', en: 'Cancel this meeting? It is removed from your agenda and your calendar.', de: 'Diesen Termin absagen? Er wird aus Ihrer Agenda und Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Sarà rimosso dalla tua agenda e dal calendario.', es: '¿Cancelar esta cita? Se eliminará de tu agenda y de tu calendario.', pt: 'Cancelar esta reunião? Será removida da tua agenda e do teu calendário.', nl: 'Deze afspraak annuleren? Hij verdwijnt uit je agenda en je kalender.' },
+  persoNote: { fr: "Contact ajouté à la main : Aaron ne suit pas ses échanges, il n'y a donc ni brief ni historique.", en: 'Contact added by hand: Aaron does not follow its exchanges, so there is no brief or history.', de: 'Von Hand hinzugefügter Kontakt: Aaron verfolgt den Austausch nicht, daher gibt es weder Briefing noch Verlauf.', it: 'Contatto aggiunto a mano: Aaron non segue gli scambi, quindi non ci sono brief né storico.', es: 'Contacto añadido a mano: Aaron no sigue sus intercambios, así que no hay brief ni historial.', pt: 'Contacto adicionado à mão: o Aaron não acompanha as trocas, por isso não há brief nem histórico.', nl: 'Handmatig toegevoegd contact: Aaron volgt de uitwisselingen niet, dus geen briefing of geschiedenis.' },
 };
 
 function useAuthedUser() {
@@ -628,6 +632,11 @@ export default function AgendaPage() {
       {detailAppointment && (
         <AppointmentDetailModal
           appointment={detailAppointment}
+          userId={userId}
+          typeLabels={TYPE_LABELS}
+          statusMeta={STATUS_META}
+          acting={actingOn === detailAppointment.id}
+          onCancel={async () => { await handleAction(detailAppointment.id, 'annuler'); setDetailAppointment(null); }}
           onClose={() => setDetailAppointment(null)}
         />
       )}
@@ -749,7 +758,7 @@ export default function AgendaPage() {
               <h2>{t('agenda.statusProposed', locale)} ({pending.length})</h2>
               <div className="list">
                 {pending.map((a) => (
-                  <div className="row" key={a.id}>
+                  <div className="row row-open" key={a.id} onClick={() => setDetailAppointment(a)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setDetailAppointment(a); }}>
                     {(() => {
                       const chip = dayChipInfo(a.proposed_at, locale);
                       return (
@@ -761,8 +770,8 @@ export default function AgendaPage() {
                       );
                     })()}
                     <div
-                      className={a.prospect_id ? 'row-info clickable' : 'row-info'}
-                      onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
+                      className="row-info clickable"
+                      onClick={() => setDetailAppointment(a)}
                     >
                       <strong>{a.prospects?.full_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
@@ -797,7 +806,7 @@ export default function AgendaPage() {
                         <button
                           className="btn-danger"
                           disabled={actingOn === a.id}
-                          onClick={() => handleDelete(a.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(a.id); }}
                         >
                           {t('common.delete', locale)}
                         </button>
@@ -817,7 +826,7 @@ export default function AgendaPage() {
             const renderApptRow = (a) => {
                 const meta = STATUS_META[a.status] || STATUS_META['proposé'];
                 return (
-                  <div className="row" key={a.id}>
+                  <div className="row row-open" key={a.id} onClick={() => setDetailAppointment(a)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setDetailAppointment(a); }}>
                     {(() => {
                       const chip = dayChipInfo(a.proposed_at, locale);
                       return (
@@ -829,8 +838,8 @@ export default function AgendaPage() {
                       );
                     })()}
                     <div
-                      className={a.prospect_id ? 'row-info clickable' : 'row-info'}
-                      onClick={a.prospect_id ? () => setDetailAppointment(a) : undefined}
+                      className="row-info clickable"
+                      onClick={() => setDetailAppointment(a)}
                     >
                       <strong>{a.prospects?.full_name || a.contact_name}</strong>
                       {a.prospects ? (
@@ -844,7 +853,7 @@ export default function AgendaPage() {
                         {a.source === 'manuel' && ` · ${t('agenda.addedManually', locale)}`}
                       </div>
                       {a.meet_link && (
-                        <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link">
+                        <a href={a.meet_link} target="_blank" rel="noreferrer" className="meet-link" onClick={(e) => e.stopPropagation()}>
                           {t('agenda.meetLink', locale)}
                         </a>
                       )}
@@ -857,7 +866,7 @@ export default function AgendaPage() {
                         directement depuis l'agenda pour tout RDV passé, pas
                         seulement depuis la notification. */}
                     {new Date(a.proposed_at) < new Date() && a.prospect_id && a.status !== 'annulé' && (
-                      <a href={`/app/agenda/rdv/${a.id}/bilan`} className={a.outcome ? 'btn-bilan done' : 'btn-bilan'}>
+                      <a href={`/app/agenda/rdv/${a.id}/bilan`} className={a.outcome ? 'btn-bilan done' : 'btn-bilan'} onClick={(e) => e.stopPropagation()}>
                         {a.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}
                       </a>
                     )}
@@ -866,7 +875,7 @@ export default function AgendaPage() {
                         type="button"
                         className="btn-remove"
                         disabled={actingOn === a.id}
-                        onClick={() => handleDelete(a.id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(a.id); }}
                         aria-label={t('common.delete', locale)}
                         title={t('common.delete', locale)}
                       >
@@ -2068,13 +2077,23 @@ export default function AgendaPage() {
 // l'historique brut des échanges (GET /api/prospects/[id]), pour que le
 // commercial ait tout sous la main avant/après le RDV sans repasser par
 // Aaron Sales ou Prospects.
-function AppointmentDetailModal({ appointment, onClose }) {
+function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, acting, onCancel, onClose }) {
   const [locale] = useLocale();
   const [messages, setMessages] = useState([]);
-  const [messagesLoading, setMessagesLoading] = useState(true);
+  const [prospect, setProspect] = useState(null);
+  const [messagesLoading, setMessagesLoading] = useState(!!appointment.prospect_id);
   const [brief, setBrief] = useState(null);
-  const [briefLoading, setBriefLoading] = useState(true);
+  const [briefLoading, setBriefLoading] = useState(!!appointment.prospect_id);
   const [briefError, setBriefError] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const hasProspect = !!appointment.prospect_id;
+  const start = new Date(appointment.proposed_at);
+  const durationMin = Number(appointment.duration_minutes) >= 15 ? Number(appointment.duration_minutes) : 60;
+  const end = new Date(start.getTime() + durationMin * 60 * 1000);
+  const isPast = start.getTime() < Date.now();
+  const chip = dayChipInfo(appointment.proposed_at, locale);
+  const meta = (statusMeta && statusMeta[appointment.status]) || null;
+  const tx = (k) => (AGENDA_TEXT[k] && (AGENDA_TEXT[k][locale] || AGENDA_TEXT[k].fr)) || '';
 
   async function loadBrief(regenerate) {
     setBriefLoading(true);
@@ -2090,6 +2109,8 @@ function AppointmentDetailModal({ appointment, onClose }) {
   }
 
   useEffect(() => {
+    // RDV « mon propre prospect » : pas de fiche, donc ni échanges ni brief.
+    if (!hasProspect) return undefined;
     let cancelled = false;
 
     (async () => {
@@ -2097,6 +2118,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
       const body = await res.json();
       if (!cancelled) {
         setMessages(body.messages || []);
+        setProspect(body.prospect || null);
         setMessagesLoading(false);
       }
     })();
@@ -2107,19 +2129,86 @@ function AppointmentDetailModal({ appointment, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appointment.id, appointment.prospect_id]);
 
+  const conviction = prospect ? (prospect.conviction_score ?? prospect.negotiation_confidence_score ?? null) : null;
+  const lastMessages = messages.slice(-4);
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
+        {/* Fiche de rendez-vous (Alex, 18/10/2026 : « cliquer dessus, avoir
+            les derniers échanges, l'avis d'Aaron, annuler… ») : en-tête
+            date/heure/type, actions, puis le brief et les échanges. */}
         <div className="modal-header">
-          <div>
-            <h2>{appointment.prospects?.full_name}</h2>
-            {appointment.prospects?.prospect_companies?.name && (
-              <p className="hint">{appointment.prospects.prospect_companies.name}</p>
-            )}
+          <span className={`day-chip${chip.isToday ? ' today' : ''}${chip.isPast ? ' past' : ''}`} aria-hidden="true">
+            <span className="day-chip-num">{chip.day}</span>
+            <span className="day-chip-mon">{chip.month}</span>
+            <span className="day-chip-time">{chip.time}</span>
+          </span>
+          <div className="head-text">
+            <h2>{appointment.prospects?.full_name || appointment.contact_name}</h2>
+            <p className="hint">
+              {appointment.prospects ? (appointment.prospects.prospect_companies?.name || t('agenda.unknownCompany', locale)) : t('agenda.personalContact', locale)}
+            </p>
+            <p className="when-line">
+              <span className={`type-badge type-${appointment.type}`}><TypeIcon type={appointment.type} />{typeLabels[appointment.type]}</span>
+              <span className="muted">{start.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })} · {start.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })} – {end.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+              {meta && <span className="status-pill" style={{ color: meta.color, borderColor: meta.color }}>{meta.label}</span>}
+            </p>
           </div>
-          <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
+          <button type="button" className="btn-remove" onClick={onClose} aria-label={t('common.close', locale)}><X size={16} strokeWidth={2.2} aria-hidden="true" /></button>
         </div>
 
+        <div className="actions-row">
+          {appointment.meet_link && !isPast && (
+            <a className="btn-primary" href={appointment.meet_link} target="_blank" rel="noreferrer">{t('stories.joinVisio', locale)}</a>
+          )}
+          {hasProspect && (
+            <a className="btn-secondary" href={`/app/prospects?user_id=${userId}&contact=${appointment.prospect_id}`}>{t('stories.openBrief', locale)}</a>
+          )}
+          {isPast && hasProspect && appointment.status !== 'annulé' && (
+            <a className="btn-secondary" href={`/app/agenda/rdv/${appointment.id}/bilan`}>{appointment.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}</a>
+          )}
+          {!isPast && appointment.status !== 'annulé' && !confirmCancel && (
+            <button type="button" className="btn-danger-ghost" onClick={() => setConfirmCancel(true)}>{t('stories.cancelRdv', locale)}</button>
+          )}
+        </div>
+        {confirmCancel && (
+          <div className="confirm-box">
+            <p>{hasProspect ? tx('cancelAsk') : tx('cancelAskPerso')}</p>
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmCancel(false)} disabled={acting}>{t('common.back', locale)}</button>
+              <button type="button" className="btn-danger" onClick={onCancel} disabled={acting}>{acting ? '…' : t('stories.cancelRdv', locale)}</button>
+            </div>
+          </div>
+        )}
+
+        {hasProspect && prospect && (
+          <section className="detail-block">
+            <h3>{tx('aaronRead')}</h3>
+            <div className="read-grid">
+              {conviction != null && (
+                <div className="read-cell">
+                  <span className="read-label">{t('card.convictionTitle', locale)}</span>
+                  <span className="read-value">{Math.round(conviction)}<small>/100</small></span>
+                  {(prospect.conviction_reason || prospect.negotiation_confidence_reason) && <span className="read-sub">{frenchTypography(prospect.conviction_reason || prospect.negotiation_confidence_reason)}</span>}
+                </div>
+              )}
+              {prospect.personality_type && (
+                <div className="read-cell">
+                  <span className="read-label">{t('card.personalityTitle', locale)}</span>
+                  <span className="read-value small">{t(`personality.${prospect.personality_type}`, locale)}</span>
+                  {prospect.personality_notes && <span className="read-sub">{frenchTypography(prospect.personality_notes)}</span>}
+                </div>
+              )}
+            </div>
+            {prospect.aaron_advice && <p className="advice">{frenchTypography(prospect.aaron_advice)}</p>}
+          </section>
+        )}
+        {!hasProspect && (
+          <p className="muted small perso-note">{tx('persoNote')}</p>
+        )}
+
+        {hasProspect && (
         <section className="detail-block">
           <h3>{t('agenda.aaronAdviceTitle', locale)}</h3>
           {briefLoading ? (
@@ -2146,7 +2235,9 @@ function AppointmentDetailModal({ appointment, onClose }) {
             </div>
           ) : null}
         </section>
+        )}
 
+        {hasProspect && (
         <section className="detail-block">
           <h3>{t('agenda.historyTitle', locale)}</h3>
           {messagesLoading ? (
@@ -2155,7 +2246,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
             <p className="muted">{t('agenda.noMessages', locale)}</p>
           ) : (
             <div className="thread">
-              {messages.map((m, i) => (
+              {lastMessages.map((m, i) => (
                 <div className={`msg msg-${m.direction}`} key={i}>
                   <p className="msg-meta">
                     {m.direction === 'outbound' ? (
@@ -2172,6 +2263,7 @@ function AppointmentDetailModal({ appointment, onClose }) {
             </div>
           )}
         </section>
+        )}
       </div>
 
       <style jsx>{`
@@ -2189,18 +2281,51 @@ function AppointmentDetailModal({ appointment, onClose }) {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
-          padding: 1.8rem;
-          width: 600px;
+          padding: 1.4rem 1.6rem;
+          width: 640px;
           max-width: 100%;
           max-height: 88vh;
           overflow-y: auto;
         }
         .modal-header {
           display: flex;
-          justify-content: space-between;
           align-items: flex-start;
-          gap: 1rem;
-          margin-bottom: 0.5rem;
+          gap: 0.9rem;
+          margin-bottom: 0.9rem;
+        }
+        .head-text { flex: 1; min-width: 0; }
+        .when-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.35rem 0 0; font-size: 0.82rem; }
+        .day-chip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; width: 52px; flex-shrink: 0; padding: 0.4rem 0; border-radius: var(--radius-md); background: var(--bg); border: 1px solid var(--border); }
+        .day-chip-num { font-family: var(--font-mono); font-size: 1.05rem; line-height: 1; }
+        .day-chip-mon { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+        .day-chip-time { font-family: var(--font-mono); font-size: 0.66rem; color: var(--accent-light); }
+        .day-chip.today { border-color: rgba(75, 57, 239, 0.5); background: rgba(75, 57, 239, 0.14); }
+        .type-badge { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.55rem; font-weight: 600; font-size: 0.78rem; color: var(--text); }
+        .type-badge.type-visio { border-color: #4b9ef0; color: #4b9ef0; }
+        .type-badge.type-telephonique { border-color: var(--accent-amber); color: var(--accent-amber); }
+        .type-badge.type-physique { border-color: var(--accent-green); color: var(--accent-green); }
+        .status-pill { border: 1px solid; border-radius: 999px; padding: 0.1rem 0.55rem; font-size: 0.74rem; font-weight: 600; }
+        .actions-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem; }
+        .btn-primary, .btn-secondary, .btn-danger, .btn-danger-ghost { display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 0.9rem; border-radius: 12px; font-size: 0.84rem; font-weight: 600; text-decoration: none; cursor: pointer; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-light)); color: #fff; border: 0; }
+        .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-danger { background: var(--accent-red); color: #fff; border: 0; }
+        .btn-danger-ghost { background: transparent; color: var(--accent-red); border: 1px solid rgba(239, 68, 89, 0.5); margin-left: auto; }
+        .confirm-box { border: 1px solid rgba(239, 68, 89, 0.4); background: rgba(239, 68, 89, 0.08); border-radius: var(--radius-md); padding: 0.8rem 0.9rem; margin-bottom: 0.8rem; font-size: 0.86rem; }
+        .confirm-box p { margin: 0 0 0.6rem; }
+        .confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+        .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; }
+        .read-cell { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.15rem; }
+        .read-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+        .read-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .read-value.small { font-size: 1rem; }
+        .read-value small { font-size: 0.7rem; color: var(--muted); font-weight: 500; margin-left: 2px; }
+        .read-sub { font-size: 0.8rem; color: var(--muted); line-height: 1.35; }
+        .advice { margin: 0.7rem 0 0; padding: 0.6rem 0.8rem; border-left: 3px solid var(--accent-green); background: var(--state-good-bg, rgba(61, 214, 140, 0.08)); border-radius: 0 10px 10px 0; font-size: 0.86rem; line-height: 1.45; }
+        .perso-note { margin: 0.2rem 0 0.6rem; }
+        @media (max-width: 900px) {
+          .overlay { align-items: flex-end; padding: 0; }
+          .modal { width: 100%; max-height: 92dvh; border-radius: 22px 22px 0 0; padding-bottom: calc(1.4rem + env(safe-area-inset-bottom, 0px)); }
         }
         h2 {
           font-family: var(--font-display);
@@ -2895,6 +3020,14 @@ function AddEntryModal({ userId, onClose, onCreated, preset }) {
           max-width: 100%;
           max-height: 90vh;
           overflow-y: auto;
+        }
+        /* iPhone + clavier (capture Alex, 18/10/2026) : le formulaire
+           remontait sous la barre d'état. Il s'ancre en haut, sous la zone
+           sûre, et défile à l'intérieur ; 100dvh suit la hauteur réelle
+           quand le clavier s'ouvre. */
+        @media (max-width: 900px) {
+          .overlay { align-items: flex-start; padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 0.6rem 0.6rem; }
+          .modal { max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 1.2rem); padding: 1.2rem 1.1rem calc(1.2rem + env(safe-area-inset-bottom, 0px)); }
         }
         h2 {
           font-family: var(--font-display);
