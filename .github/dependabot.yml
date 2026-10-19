@@ -1,0 +1,17 @@
+# Dependabot (CASA 6.1.1, 19/10/2026) : vérification hebdomadaire des
+# dépendances npm et des actions GitHub ; une PR par mise à jour de sécurité,
+# relue et fusionnée par Alex. Les alertes Dependabot (onglet Security du
+# dépôt) complètent le scan du workflow dependency-audit.yml.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
