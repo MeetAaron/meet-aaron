@@ -19,7 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
 import { stripe } from '@/lib/stripe';
 import {
   USD_PER_CREDIT,
@@ -137,6 +137,11 @@ export async function GET(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return forbiddenResponse();
+  // Interface d'administration : double authentification obligatoire
+  // (CASA 3.3.1, 19/10/2026). Session aal1 = 403 « mfa_required », même
+  // pour le fondateur.
+  const mfa = requireMfa(authedUser);
+  if (mfa) return mfa;
 
   const yearMonth = currentYearMonth();
 
