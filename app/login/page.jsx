@@ -6,6 +6,17 @@ import { useRouter } from 'next/navigation';
 import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 
+const MFA_TEXT = {
+  fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
+  en: { tooShort: 'Password: at least 8 characters.', title: 'Two-factor code', hint: 'Enter the six-digit code shown by your authenticator app.', submit: 'Confirm', back: 'Back', bad: 'Wrong or expired code. Try again with the code shown now.' },
+  de: { tooShort: 'Passwort: mindestens 8 Zeichen.', title: 'Zwei-Faktor-Code', hint: 'Geben Sie den sechsstelligen Code Ihrer Authenticator-App ein.', submit: 'Bestätigen', back: 'Zurück', bad: 'Falscher oder abgelaufener Code. Versuchen Sie es mit dem aktuell angezeigten Code.' },
+  it: { tooShort: 'Password: almeno 8 caratteri.', title: 'Codice a due fattori', hint: 'Inserisci il codice a sei cifre mostrato dalla tua app di autenticazione.', submit: 'Conferma', back: 'Indietro', bad: 'Codice errato o scaduto. Riprova con il codice mostrato adesso.' },
+  es: { tooShort: 'Contraseña: 8 caracteres como mínimo.', title: 'Código de dos pasos', hint: 'Introduce el código de seis dígitos que muestra tu app de autenticación.', submit: 'Confirmar', back: 'Volver', bad: 'Código incorrecto o caducado. Vuelve a intentarlo con el código que se muestra ahora.' },
+  pt: { tooShort: 'Palavra-passe: pelo menos 8 caracteres.', title: 'Código de dois passos', hint: 'Introduz o código de seis dígitos mostrado pela tua app de autenticação.', submit: 'Confirmar', back: 'Voltar', bad: 'Código errado ou expirado. Tenta de novo com o código mostrado agora.' },
+  nl: { tooShort: 'Wachtwoord: minimaal 8 tekens.', title: 'Tweestapscode', hint: 'Voer de zescijferige code in die je authenticator-app toont.', submit: 'Bevestigen', back: 'Terug', bad: 'Verkeerde of verlopen code. Probeer het opnieuw met de code die nu wordt getoond.' },
+};
+const mt = (locale, key) => (MFA_TEXT[locale] || MFA_TEXT.fr)[key] || MFA_TEXT.fr[key];
+
 export default function LoginPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
@@ -31,6 +42,12 @@ export default function LoginPage() {
   // reste bloquée sans aucun moyen de s'en sortir seule. Ce nouvel état
   // détecte précisément cette erreur pour proposer un renvoi immédiat.
   const [unconfirmedEmail, setUnconfirmedEmail] = useState(null);
+  // Double authentification (CASA 3.3.1, 19/10/2026) : après le mot de
+  // passe, si le compte a un facteur TOTP vérifié, Supabase laisse la
+  // session en aal1 et on demande le code à six chiffres ici avant
+  // d'entrer dans l'app.
+  const [mfaPending, setMfaPending] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMessage, setResendMessage] = useState(null);
 
@@ -77,38 +94,9 @@ export default function LoginPage() {
     } catch (err) {}
   }, []);
 
-  async function handleEmailSubmit(e) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    setUnconfirmedEmail(null);
-    setResendMessage(null);
-
-    if (mode === 'signin') {
-      setRememberMe(remember);
-      try {
-        if (remember) {
-          window.localStorage.setItem('aaron-remembered-email', email);
-        } else {
-          window.localStorage.removeItem('aaron-remembered-email');
-        }
-      } catch (err) {}
-      const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
-      if (error) {
-        // "Email not confirmed" : message exact renvoyé par Supabase Auth
-        // (GoTrue) quand "Confirm email" est activé côté projet et que le
-        // lien de confirmation n'a jamais été cliqué (voir commentaire plus
-        // haut). On propose un renvoi immédiat plutôt que de laisser la
-        // personne bloquée avec une simple erreur.
-        if (/email not confirmed/i.test(error.message)) {
-          setUnconfirmedEmail(email);
-        } else {
-          setError(error.message);
-        }
-        setLoading(false);
-        return;
-      }
+  // Suite de la connexion une fois le mot de passe (et, le cas échéant, le
+  // code de double authentification) accepté.
+  async function finishLogin() {
       // Marque la date du jour comme "connexion explicite faite" (voir
       // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) —
       // nécessaire même si la session Supabase était déjà valide/persistée
@@ -116,7 +104,6 @@ export default function LoginPage() {
       // valide jusqu'à minuit (heure locale), donc les visites suivantes ce
       // même jour n'auront pas besoin de repasser par cet écran.
       markExplicitLoginToday();
-
       // DESTINATION RESOLUE ICI (23/09/2026, remarque d'Alex : « on voit le
       // logo en grand, puis un lag de 2 s, puis le dashboard — on dirait un
       // bug »).
@@ -158,7 +145,95 @@ export default function LoginPage() {
         // qui refera le test lui-meme.
         router.replace('/onboarding');
       }
+  }
+
+  async function handleMfaSubmit(e) {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(mfaCode)) { setError(mt(locale, 'bad')); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: factors } = await supabaseBrowser.auth.mfa.listFactors();
+      const totp = (factors?.totp || []).find((f) => f.status === 'verified');
+      if (!totp) throw new Error('no_factor');
+      const { error: vError } = await supabaseBrowser.auth.mfa.challengeAndVerify({ factorId: totp.id, code: mfaCode });
+      if (vError) {
+        setError(mt(locale, 'bad'));
+        setLoading(false);
+        return;
+      }
+      setMfaPending(false);
+      await finishLogin();
+    } catch (err) {
+      setError(mt(locale, 'bad'));
+      setLoading(false);
+    }
+  }
+
+  async function cancelMfa() {
+    try { await supabaseBrowser.auth.signOut(); } catch (err) {}
+    setMfaPending(false);
+    setMfaCode('');
+    setError(null);
+    setLoading(false);
+  }
+
+  async function handleEmailSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    setUnconfirmedEmail(null);
+    setResendMessage(null);
+
+    if (mode === 'signin') {
+      setRememberMe(remember);
+      try {
+        if (remember) {
+          window.localStorage.setItem('aaron-remembered-email', email);
+        } else {
+          window.localStorage.removeItem('aaron-remembered-email');
+        }
+      } catch (err) {}
+      const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
+      if (error) {
+        // "Email not confirmed" : message exact renvoyé par Supabase Auth
+        // (GoTrue) quand "Confirm email" est activé côté projet et que le
+        // lien de confirmation n'a jamais été cliqué (voir commentaire plus
+        // haut). On propose un renvoi immédiat plutôt que de laisser la
+        // personne bloquée avec une simple erreur.
+        if (/email not confirmed/i.test(error.message)) {
+          setUnconfirmedEmail(email);
+        } else {
+          setError(error.message);
+        }
+        setLoading(false);
+        return;
+      }
+      // Double authentification : facteur TOTP vérifié sur ce compte →
+      // la session est aal1 tant que le code n'est pas saisi. On s'arrête
+      // ici, l'écran du code prend le relais (handleMfaSubmit).
+      try {
+        const { data: aal } = await supabaseBrowser.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+          setMfaPending(true);
+          setMfaCode('');
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        // Lecture impossible : on continue comme avant (compte sans MFA).
+      }
+      await finishLogin();
     } else {
+      // Politique de mot de passe (CASA 1.1.1) : 8 caractères minimum à
+      // l'inscription comme à la réinitialisation (app/api/auth/reset-
+      // password), en plus du minimum imposé côté Supabase Auth.
+      if (password.length < 8) {
+        setError(mt(locale, 'tooShort'));
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
       setLoading(false);
       if (error) {
@@ -346,7 +421,30 @@ export default function LoginPage() {
           </form>
         )}
 
-        {(mode === 'signin' || mode === 'signup') && (
+        {mfaPending && (
+          <form onSubmit={handleMfaSubmit} className="form">
+            <p className="mfa-title">{mt(locale, 'title')}</p>
+            <p className="mfa-hint">{mt(locale, 'hint')}</p>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+              autoFocus
+              required
+            />
+            <button type="submit" className="btn-primary" disabled={loading || mfaCode.length !== 6}>
+              {loading ? t('common.loading', locale) : mt(locale, 'submit')}
+            </button>
+            <button type="button" className="link-toggle" onClick={cancelMfa}>{mt(locale, 'back')}</button>
+          </form>
+        )}
+
+        {!mfaPending && (mode === 'signin' || mode === 'signup') && (
         <form onSubmit={handleEmailSubmit} className="form">
           <input
             type="email"
@@ -361,9 +459,9 @@ export default function LoginPage() {
             placeholder={t('auth.passwordLabel', locale)}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
+            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
             required
-            minLength={6}
+            minLength={mode === 'signup' ? 8 : 6}
           />
           {mode === 'signin' && (
             <label className="remember-row">
@@ -381,7 +479,7 @@ export default function LoginPage() {
         </form>
         )}
 
-        {mode === 'signin' && (
+        {!mfaPending && mode === 'signin' && (
           <button className="link-toggle forgot-link" onClick={() => { setMode('forgot'); setError(null); setMessage(null); }}>
             {t('auth.forgotLink', locale)}
           </button>
@@ -542,6 +640,8 @@ export default function LoginPage() {
           accent-color: #4b39ef;
           cursor: pointer;
         }
+        .mfa-title { margin: 0; font-weight: 600; font-size: 0.95rem; }
+        .mfa-hint { margin: -0.4rem 0 0; font-size: 0.82rem; color: var(--muted); }
         .btn-primary {
           width: 100%;
           background: #4b39ef;
