@@ -53,6 +53,27 @@ export function getModulePriceId(module: ModuleCode): string | null {
   return process.env[envKey] || null;
 }
 
+// Devise de facturation selon le pays du client (expansion internationale,
+// demande Alex 19/10/2026). On ne fait que CHOISIR la devise à passer au
+// Checkout ; les MONTANTS par devise vivent dans Stripe (currency_options du
+// Price Aaron, à ajouter côté Dashboard/API Stripe). EUR par défaut. Le
+// checkout retombe automatiquement sur EUR si la devise n'est pas encore
+// configurée sur le Price (voir app/api/checkout/route.ts), donc rien ne
+// casse tant que les currency_options ne sont pas ajoutés.
+const COUNTRY_CURRENCY: Record<string, string> = {
+  GB: 'gbp', UK: 'gbp', 'UNITED KINGDOM': 'gbp', 'ROYAUME-UNI': 'gbp', ANGLETERRE: 'gbp',
+  US: 'usd', USA: 'usd', 'UNITED STATES': 'usd', 'ÉTATS-UNIS': 'usd', 'ETATS-UNIS': 'usd',
+  AU: 'aud', AUSTRALIA: 'aud', AUSTRALIE: 'aud',
+  CA: 'cad', CANADA: 'cad',
+  CH: 'chf', SWITZERLAND: 'chf', SUISSE: 'chf',
+  NZ: 'nzd', 'NEW ZEALAND': 'nzd', 'NOUVELLE-ZÉLANDE': 'nzd', 'NOUVELLE-ZELANDE': 'nzd',
+};
+
+export function currencyForCountry(country?: string | null): string {
+  if (!country) return 'eur';
+  return COUNTRY_CURRENCY[String(country).trim().toUpperCase()] || 'eur';
+}
+
 // Traduit une erreur Stripe brute (typiquement levée par
 // stripe.subscriptionItems.create quand le Price ID configuré n'existe plus
 // ou a été archivé) en un message clair et actionnable pour le fondateur —
