@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
-import { ModuleCode, getModulePriceId } from '@/lib/subscription';
+import { ModuleCode, getModulePriceId, currencyForCountry } from '@/lib/subscription';
 import { readJsonBody, serverError } from '@/lib/http';
 
 // Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
 
   const origin = request.nextUrl.origin;
 
-try {
-    const session = await stripe.checkout.sessions.create({
+  const currency = currencyForCountry(country);
+  const sessionParams: Record<string, any> = {
       mode: 'subscription',
       customer_email: email,
       line_items: lineItems,
@@ -138,8 +138,26 @@ try {
         // "fondateur", ex. voir "Mon équipe" dans le menu).
         role: role === 'commercial' ? 'commercial' : 'patron',
       },
-    });
+  };
 
+  try {
+    // Devise selon le pays de facturation : on tente avec la devise du
+    // client (currency_options du Price côté Stripe), et si le Price n'a pas
+    // encore cette option on réessaie en EUR — jamais de paiement cassé.
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create(
+        currency !== 'eur' ? { ...sessionParams, currency } : sessionParams
+      );
+    } catch (err: any) {
+      const msg = String(err?.message || '').toLowerCase();
+      if (currency !== 'eur' && /currenc/.test(msg)) {
+        console.error(`Devise ${currency} non configurée sur le Price Stripe, repli EUR:`, err?.message);
+        session = await stripe.checkout.sessions.create(sessionParams);
+      } else {
+        throw err;
+      }
+    }
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
     console.error('Erreur création session Stripe:', err);
