@@ -69,7 +69,13 @@ jobs:
             }
           '
 
-      - name: Construire (next build, avec vérification des types)
+      - name: Dette de types (tsc non bloquant, artefact)
+        run: |
+          npx tsc --noEmit > tsc-report.txt 2>&1 || true
+          echo "lignes de rapport tsc : $(wc -l < tsc-report.txt)"
+          head -40 tsc-report.txt || true
+
+      - name: Construire (next build)
         run: npm run build
 
       - name: npm audit (haute/critique)
@@ -79,6 +85,13 @@ jobs:
           echo "audit_exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
         id: audit
+
+      - name: Publier le rapport de types
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsc-report-${{ github.run_number }}
+          path: tsc-report.txt
 
       - name: Pousser sur la branche cible
         if: ${{ inputs.push }}
