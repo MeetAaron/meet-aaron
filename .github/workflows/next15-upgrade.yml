@@ -1,0 +1,97 @@
+# Passage à Next.js 15 (CASA 6.1.1, 19/10/2026) — voir scripts/casa/next15-codemod.mjs.
+#
+# Pourquoi un workflow : l'environnement de développement de Claude n'a pas
+# accès au registre npm, et personne ne doit pousser sur main une version
+# de l'application qui n'a pas été construite. Ce workflow, lancé à la
+# main, applique le codemod sur une machine GitHub, installe les
+# dépendances (et génère package-lock.json), CONSTRUIT l'application avec
+# des variables factices, lance npm audit, et seulement si tout passe,
+# pousse le résultat sur la branche demandée (next15 par défaut ; main
+# pour la mise en production, une fois la branche validée).
+name: Next 15 upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branche à mettre à jour (next15, ou main pour publier)"
+        required: true
+        default: "next15"
+      push:
+        description: "Pousser le résultat si la construction réussit"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    env:
+      # Variables factices : la construction évalue les modules au chargement
+      # (clients Supabase/Stripe, clé de chiffrement) sans rien appeler.
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+      TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      ANTHROPIC_API_KEY: placeholder
+      OPENAI_API_KEY: placeholder
+      CRON_SECRET: placeholder
+      APP_URL: https://meetaaron.app
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Codemod Next 15
+        run: node scripts/casa/next15-codemod.mjs
+
+      - name: Installer (génère package-lock.json)
+        run: npm install --no-audit --no-fund
+
+      - name: Versions résolues
+        run: |
+          node -e '
+            const l = require("./package-lock.json");
+            for (const name of ["next","react","react-dom","lucide-react","nodemailer","xlsx","@supabase/supabase-js","sharp"]) {
+              const v = (l.packages["node_modules/" + name] || {}).version;
+              console.log(name.padEnd(24), "->", v || "(absent)");
+            }
+          '
+
+      - name: Construire (next build, avec vérification des types)
+        run: npm run build
+
+      - name: npm audit (haute/critique)
+        run: |
+          set +e
+          npm audit --audit-level=high
+          echo "audit_exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+        id: audit
+
+      - name: Pousser sur la branche cible
+        if: ${{ inputs.push }}
+        run: |
+          rm -rf .next
+          git config user.name "Claude"
+          git config user.email "noreply@anthropic.com"
+          git checkout -B "${{ inputs.target_branch }}"
+          git add -A
+          git commit \
+            -m "Next.js 15.5 / React 19 (CASA 6.1.1) : params asynchrones dans les routes API, lockfile, dépendances à jour" \
+            -m "Appliqué par scripts/casa/next15-codemod.mjs via le workflow next15-upgrade, après construction réussie sur GitHub." \
+            -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>" \
+            -m "Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf" \
+            || echo "rien à committer"
+          git push --force-with-lease origin "${{ inputs.target_branch }}" || git push origin "${{ inputs.target_branch }}"

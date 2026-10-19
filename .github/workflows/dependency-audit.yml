@@ -55,9 +55,16 @@ jobs:
             const m = a.metadata && a.metadata.vulnerabilities || {};
             console.log("Vulnérabilités :", JSON.stringify(m));
             for (const [name, v] of Object.entries(a.vulnerabilities || {})) {
-              console.log("-", name, v.severity, v.range, (v.via || []).map(x => typeof x === "string" ? x : x.title).join(" | "));
+              console.log("-", name, v.severity, v.range, "fixAvailable=" + JSON.stringify(v.fixAvailable), "direct=" + v.isDirect, "effects=" + (v.effects || []).join(","));
+              for (const x of v.via || []) {
+                if (typeof x === "string") { console.log("    via", x); continue; }
+                console.log("    *", x.severity, x.title, "| range", x.range, "|", x.url);
+              }
             }
           '
+          echo "::group::npm audit (texte)"
+          npm audit --audit-level=high || true
+          echo "::endgroup::"
           echo "## npm audit — $(date -u +%Y-%m-%d)" >> "$GITHUB_STEP_SUMMARY"
           node -e '
             const a = require("./audit.json");
