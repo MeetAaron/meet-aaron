@@ -82,7 +82,7 @@ const fr = {
         'L\'authentification des utilisateurs repose sur Supabase Auth. Chaque appel à l\'interface de programmation porte un jeton signé, vérifié côté serveur à chaque requête.',
         'Un identifiant d\'utilisateur transmis en paramètre n\'est jamais accepté sur parole : il est systématiquement comparé à l\'identité portée par le jeton, et toute divergence est refusée.',
         'Les jetons à usage unique servant à connecter une boîte mail depuis un téléphone sont de courte durée et consommés de façon atomique en base, ce qui les rend non rejouables.',
-        'Les tâches planifiées (vingt-trois au total) exigent toutes un secret partagé transmis en en-tête et refusent toute requête qui ne le porte pas.',
+        'Les tâches planifiées (vingt-sept au total) exigent toutes un secret partagé transmis en en-tête et refusent toute requête qui ne le porte pas.',
       ],
     },
     {
@@ -91,6 +91,9 @@ const fr = {
       b: [
         'Tous les secrets — clés de base de données, clé de chiffrement des jetons, clés des fournisseurs d\'intelligence artificielle, clés de paiement, secret des tâches planifiées, identifiants OAuth — sont stockés comme variables d\'environnement de la plateforme d\'hébergement.',
         'Aucun secret ne figure dans le dépôt de code, y compris dans son historique. Ce point a fait l\'objet d\'une vérification dédiée.',
+        '**Qui y accède.** Les variables d\'environnement ne sont lisibles et modifiables que par le propriétaire du projet d\'hébergement, qui est l\'unique personne de l\'équipe ; ce compte est protégé par une double authentification. Aucun secret n\'est partagé par messagerie ni stocké sur un poste de travail. Les clés sont nommées par service (une clé par fournisseur) : la révocation d\'un fournisseur ne touche pas les autres.',
+        '**Lecture et journalisation.** Le code ne lit un secret qu\'au démarrage de la fonction qui en a besoin, et ne le renvoie jamais au navigateur ni dans les journaux. Chaque création, modification ou suppression d\'une variable d\'environnement est consignée dans le journal d\'activité de la plateforme d\'hébergement (auteur, variable, date), consulté à chaque rotation. Les clés des fournisseurs sont également révocables et auditables depuis la console de chaque fournisseur.',
+        '**Rotation.** La clé de chiffrement des jetons supporte une rotation sans interruption : la nouvelle clé chiffre, l\'ancienne reste acceptée en lecture le temps que les valeurs existantes soient réécrites, puis est retirée. Une clé est remplacée immédiatement en cas de soupçon d\'exposition.',
       ],
     },
     {
@@ -193,7 +196,7 @@ const en = {
         'User authentication relies on Supabase Auth. Every API call carries a signed token, verified server-side on each request.',
         'A user identifier passed as a parameter is never taken at face value: it is systematically compared against the identity carried by the token, and any mismatch is rejected.',
         'Single-use tokens used to connect a mailbox from a phone are short-lived and consumed atomically in the database, which makes them non-replayable.',
-        'Scheduled tasks (twenty-three in total) all require a shared secret passed as a header and reject any request that does not carry it.',
+        'Scheduled tasks (twenty-seven in total) all require a shared secret passed as a header and reject any request that does not carry it.',
       ],
     },
     {
@@ -202,6 +205,9 @@ const en = {
       b: [
         'All secrets — database keys, the token encryption key, AI provider keys, payment keys, the scheduled-task secret, OAuth credentials — are stored as environment variables on the hosting platform.',
         'No secret appears in the code repository, including its history. This was the subject of a dedicated review.',
+        '**Who can access them.** Environment variables can be read and changed only by the owner of the hosting project, who is the single member of the team; that account is protected by two-factor authentication. No secret is shared by messaging or stored on a workstation. Keys are named per service (one key per provider): revoking one provider does not affect the others.',
+        '**Reading and logging.** The code reads a secret only when the function that needs it starts, and never returns it to the browser or to logs. Every creation, change or deletion of an environment variable is recorded in the hosting platform\'s activity log (author, variable, date), which is reviewed at each rotation. Provider keys can also be revoked and audited from each provider\'s console.',
+        '**Rotation.** The token encryption key supports rotation without downtime: the new key encrypts, the old one remains accepted for reading until existing values are rewritten, then is removed. A key is replaced immediately on any suspicion of exposure.',
       ],
     },
     {
