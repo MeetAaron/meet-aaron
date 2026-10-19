@@ -6,17 +6,23 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifyTrackedUrl } from '@/lib/marketing-tracking';
 
 const FALLBACK_URL = (process.env.APP_URL || 'https://app.meetaaron.app').replace(/\/$/, '');
 
 export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
   const target = request.nextUrl.searchParams.get('u');
+  const sig = request.nextUrl.searchParams.get('s');
 
-  // On ne redirige que vers une URL http(s) explicite — jamais vers une
-  // valeur absente/mal formée, pour ne jamais servir de redirecteur ouvert
-  // générique.
+  // PAS UN REDIRECTEUR OUVERT (CASA 5.1.2, 19/10/2026). La destination n'est
+  // suivie que si (1) c'est une URL http(s) bien formée ET (2) la signature
+  // HMAC posée à l'envoi (lib/marketing-tracking.ts, signTrackedUrl) est
+  // valide pour CE jeton destinataire et CETTE URL. Toute URL forgée ou
+  // modifiée, et tout lien sans signature, renvoie vers meetaaron.app. La
+  // liste blanche, c'est donc exactement l'ensemble des liens que nous avons
+  // nous-mêmes écrits dans les emails envoyés.
   let destination = FALLBACK_URL;
-  if (target) {
+  if (target && /^[0-9a-f-]{20,}$/i.test(params.token) && verifyTrackedUrl(params.token, target, sig)) {
     try {
       const parsed = new URL(target);
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') destination = target;
