@@ -84,7 +84,9 @@ export default function MargePage() {
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
         if (cancelled) return;
-        if (r.status === 403) {
+        if (r.status === 403 && body.code === 'mfa_required') {
+          setError("Cette page exige la double authentification. Active-la dans Mon compte → Connexion, puis reconnecte-toi avec ton code.");
+        } else if (r.status === 403) {
           setError("Cette page est réservée au compte fondateur.");
         } else if (!r.ok) {
           setError(body.error || `Erreur ${r.status}`);
