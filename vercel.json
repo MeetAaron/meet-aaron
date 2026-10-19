@@ -2,7 +2,8 @@
   "git": {
     "deploymentEnabled": {
       "casa-zap-results": false,
-      "erreurs-api": false
+      "erreurs-api": false,
+      "next15": false
     }
   },
   "crons": [
