@@ -1912,7 +1912,19 @@ export default function DashboardPage() {
         .fcol b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
         .fbar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
         .fbar-track i { display: block; width: 100%; border-radius: 8px 8px 4px 4px; transition: height 0.4s var(--ease); }
-        .flabel { font-size: 0.7rem; color: var(--muted); text-align: center; line-height: 1.15; }
+        .flabel {
+          font-size: 0.7rem; color: var(--muted); text-align: center; line-height: 1.15;
+          /* Hauteur fixe = 2 lignes pour TOUTES les colonnes. Sans ça, un
+             libellé qui passe sur 2 lignes (« Contacts actifs ») prend plus
+             de hauteur que les libellés sur 1 ligne, ce qui remonte la base
+             de SA barre : la barre bleue paraissait « surélevée » par rapport
+             aux autres (signalé par Alex, 19/10/2026). En réservant la même
+             hauteur de libellé partout, toutes les barres repartent de la
+             même ligne de base. */
+          height: 1.7rem;
+          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
         .funnel-cols:hover .flabel { color: var(--text); }
         .funnel-read { margin: 0.8rem 0 0; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
         .funnel-empty { font-size: 0.88rem; }
