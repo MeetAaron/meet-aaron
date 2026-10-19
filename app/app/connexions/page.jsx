@@ -21,6 +21,7 @@ import BusinessProfileSheet from '@/components/BusinessProfileSheet';
 import { inline } from '@/components/LegalPage';
 import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
+import MfaSettings from '@/components/MfaSettings';
 import QRCode from 'qrcode';
 
 // Téléchargement d'un fichier généré côté serveur (export "Profil de
@@ -2297,6 +2298,11 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               {passwordChangeSaving ? t('connexions.passwordChangeSaving', locale) : t('connexions.passwordChangeButton', locale)}
             </button>
           </div>
+
+          {/* Double authentification (CASA 3.3.1) : obligatoire pour le
+              compte fondateur (écrans d'administration), recommandée pour
+              les autres. */}
+          <MfaSettings locale={locale} required={isFounder} />
         </div>
       ) : activeTab === 'company' ? (
         <div className="company-panel">
