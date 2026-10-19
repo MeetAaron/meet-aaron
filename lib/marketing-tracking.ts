@@ -18,7 +18,38 @@
 // direct dans cet environnement — scopé pour un prochain lot, communiqué
 // explicitement à Alex plutôt que fait à moitié en silence.
 
+import crypto from 'crypto';
+
 const URL_REGEX = /(https?:\/\/[^\s<>()]+)/g;
+
+// SIGNATURE DES LIENS DE SUIVI (CASA 5.1.2, 19/10/2026). Avant : la route
+// de redirection acceptait n'importe quelle URL http(s) dans ?u= — un
+// redirecteur ouvert, utilisable pour maquiller un lien de phishing en lien
+// meetaaron.app. Maintenant : chaque lien réécrit porte une signature
+// HMAC-SHA256 de (jeton destinataire | URL), calculée avec une clé serveur.
+// La route ne redirige que si la signature correspond ; sinon elle renvoie
+// vers meetaaron.app. Une URL ne peut donc être « blanchie » par ce
+// redirecteur que si c'est NOUS qui l'avons mise dans un email.
+function signingKey(): Buffer {
+  const hex = process.env.TOKEN_ENCRYPTION_KEY || '';
+  const raw = /^[0-9a-f]{64}$/i.test(hex) ? Buffer.from(hex, 'hex') : Buffer.from(hex || process.env.CRON_SECRET || 'meet-aaron', 'utf8');
+  // Clé dérivée, jamais la clé de chiffrement elle-même.
+  return crypto.createHmac('sha256', raw).update('marketing-tracking-redirect').digest();
+}
+
+export function signTrackedUrl(token: string, url: string): string {
+  return crypto.createHmac('sha256', signingKey()).update(`${token}|${url}`).digest('hex').slice(0, 32);
+}
+
+export function verifyTrackedUrl(token: string, url: string, sig: string | null | undefined): boolean {
+  if (!sig || !/^[0-9a-f]{32}$/i.test(sig)) return false;
+  const expected = signTrackedUrl(token, url);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig.toLowerCase(), 'hex'));
+  } catch {
+    return false;
+  }
+}
 
 function baseUrl(): string {
   return (process.env.APP_URL || 'https://app.meetaaron.app').replace(/\/$/, '');
@@ -33,7 +64,7 @@ export function rewriteLinksForTracking(text: string, token: string): string {
   const trackBase = `${baseUrl()}/api/marketing-campaigns/track/click/`;
   return text.replace(URL_REGEX, (match) => {
     if (match.startsWith(trackBase)) return match;
-    return `${trackBase}${token}?u=${encodeURIComponent(match)}`;
+    return `${trackBase}${token}?u=${encodeURIComponent(match)}&s=${signTrackedUrl(token, match)}`;
   });
 }
 

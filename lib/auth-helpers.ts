@@ -25,6 +25,36 @@ export interface AuthedUser {
   // migration_user_locale_2026-08-16.sql. Toujours renseignée (défaut 'fr'
   // en base), donc jamais null ici.
   locale: string;
+  // Niveau d'assurance de la session (CASA 3.3.1, 19/10/2026) : 'aal2' si
+  // la connexion a passé la double authentification (TOTP), 'aal1' sinon.
+  // Lu dans le JWT déjà vérifié par Supabase Auth (claim « aal »).
+  aal: 'aal1' | 'aal2';
+}
+
+// Le JWT a été VÉRIFIÉ par supabaseAdmin.auth.getUser(token) avant qu'on
+// lise ce claim : on ne fait ici que décoder la charge utile d'un jeton
+// dont la signature a déjà été contrôlée côté Supabase.
+function readAalClaim(token: string): 'aal1' | 'aal2' {
+  try {
+    const payload = token.split('.')[1];
+    const json = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    return json?.aal === 'aal2' ? 'aal2' : 'aal1';
+  } catch {
+    return 'aal1';
+  }
+}
+
+// Interfaces d'administration : exige une session de niveau aal2 (mot de
+// passe + code TOTP). Renvoie la réponse 403 à retourner telle quelle, ou
+// null si tout va bien. Le client (app/app/marge) reconnaît le code
+// « mfa_required » et renvoie vers Mon compte pour activer la double
+// authentification.
+export function requireMfa(user: AuthedUser): NextResponse | null {
+  if (user.aal === 'aal2') return null;
+  return NextResponse.json(
+    { error: 'Double authentification requise pour cet écran.', code: 'mfa_required' },
+    { status: 403 }
+  );
 }
 
 // Résout uniquement l'identité Supabase Auth (auth_user_id + email) à partir d'un
@@ -65,7 +95,13 @@ export async function getAuthedIdentity(
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return null;
 
-  return resolveIdentityFromToken(token);
+  // Même règle que getAuthedUser : une exception = accès refusé (null).
+  try {
+    return await resolveIdentityFromToken(token);
+  } catch (err: any) {
+    console.error('[auth-helpers] Exception pendant la vérification d\'identité (accès refusé) :', err?.message);
+    return null;
+  }
 }
 
 // Va chercher la ligne "users" liée à un auth_user_id, avec UNE tentative de
@@ -87,7 +123,7 @@ async function fetchUserRow(authUserId: string): Promise<AuthedUser | null> {
       .eq('auth_user_id', authUserId)
       .maybeSingle();
 
-    if (!error) return (user as AuthedUser) || null;
+    if (!error) return user ? ({ ...(user as any), aal: 'aal1' } as AuthedUser) : null;
 
     // Vraie erreur de requête (pas "pas de ligne") : on log pour garder une
     // trace côté serveur (au lieu de disparaître dans un 401 générique), et on
@@ -161,11 +197,23 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return null;
 
-  return getCachedAuthedUser(token, async () => {
-    const identity = await resolveIdentityFromToken(token);
-    if (!identity) return null;
-    return fetchUserRow(identity.auth_user_id);
-  });
+  // ÉCHEC SÛR (CASA 3.1.3, 19/10/2026) : si la vérification lève une
+  // exception (Supabase Auth injoignable, réponse mal formée, dépassement
+  // de délai…), le résultat est null — donc 401 « Non authentifié » dans
+  // chaque route, jamais un accès accordé par défaut. Le détail de l'erreur
+  // va dans les journaux serveur, pas au client.
+  try {
+    return await getCachedAuthedUser(token, async () => {
+      const identity = await resolveIdentityFromToken(token);
+      if (!identity) return null;
+      const row = await fetchUserRow(identity.auth_user_id);
+      return row ? { ...row, aal: readAalClaim(token) } : null;
+    });
+  } catch (err: any) {
+    console.error('[auth-helpers] Exception pendant la vérification de session (accès refusé) :', err?.message);
+    authedUserCache.delete(token);
+    return null;
+  }
 }
 
 // getAuthedUserFromToken (jeton de session en ?token=) a ete SUPPRIME le
@@ -215,7 +263,8 @@ export async function resolveAndConsumeQrToken(
     .maybeSingle();
 
   if (userError || !user) return null;
-  return user as AuthedUser;
+  // Jeton de passage (pas une session JWT) : niveau aal1 par construction.
+  return { ...(user as any), aal: 'aal1' } as AuthedUser;
 }
 
 export function unauthorizedResponse() {

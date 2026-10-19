@@ -87,10 +87,75 @@ export function isExplicitlyLoggedInToday(): boolean {
   }
 }
 
+// Appelé par TOUS les gestionnaires de déconnexion (handleLogout /
+// confirmLogout des pages de l'app, ConnectionBadge), juste après
+// supabaseBrowser.auth.signOut() — qui, lui, a déjà retiré la session
+// Supabase (clé sb-<ref>-auth-token) de localStorage ET sessionStorage via
+// dynamicStorage.removeItem ci-dessus.
+//
+// INVENTAIRE DU STOCKAGE NAVIGATEUR (CASA 6.6.1, 19/10/2026) :
+//   - localStorage / sessionStorage : session Supabase (retirée par signOut),
+//     puis des clés de confort propres à l'app — préfixes « meetaaron_ »
+//     (brouillon de chat, conversation active, document en attente),
+//     « aaron_ » / « aaron- » (rôle mémorisé, email mémorisé, pastilles
+//     « déjà vu », identifiant d'appareil pour les notifications push),
+//     drapeaux de connexion (EXPLICIT_LOGIN_DATE_FLAG, REMEMBER_ME_FLAG,
+//     POST_LOGIN_NEXT_KEY), thème (lib/theme.js) et langue (lib/i18n.js).
+//     Aucune de ces clés ne contient de jeton ni de donnée de prospect,
+//     sauf le brouillon de chat, effacé ici.
+//   - IndexedDB : non utilisé par l'application (aucune ouverture dans le
+//     code) ; supprimé ici par précaution si un navigateur en avait créé.
+//   - Cache Storage (service worker public/sw.js) : aucun cache créé — le
+//     service worker est un passe-plat pour l'installation PWA et le push.
+//   - Cookies : aucun cookie de session posé par l'application (le jeton
+//     voyage dans l'en-tête Authorization) ; Supabase Auth n'en pose pas
+//     non plus avec ce client.
+// Ce qui est volontairement CONSERVÉ : thème et langue (préférences
+// d'affichage, pas des données), et l'email mémorisé du formulaire de
+// connexion si l'utilisateur a coché « se souvenir de moi ».
 export function clearExplicitLogin() {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.removeItem(EXPLICIT_LOGIN_DATE_FLAG);
+  } catch (err) {}
+  clearAppStorageOnLogout();
+}
+
+const KEEP_ON_LOGOUT = new Set(['aaron-remembered-email', REMEMBER_ME_FLAG]);
+const KEEP_PREFIXES_ON_LOGOUT = ['meetaaron_theme', 'aaron_locale'];
+
+export function clearAppStorageOnLogout() {
+  if (typeof window === 'undefined') return;
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i += 1) {
+        const k = store.key(i);
+        if (k) keys.push(k);
+      }
+      for (const k of keys) {
+        if (KEEP_ON_LOGOUT.has(k)) continue;
+        if (KEEP_PREFIXES_ON_LOGOUT.some((p) => k === p || k.startsWith(p))) continue;
+        const ours = k.startsWith('meetaaron_') || k.startsWith('aaron_') || k.startsWith('aaron-') || k.startsWith('sb-') || k.startsWith('supabase');
+        if (ours) store.removeItem(k);
+      }
+    } catch (err) {}
+  }
+  // IndexedDB : rien n'y est écrit par l'app ; on supprime quand même toute
+  // base présente sur cette origine (best-effort, asynchrone).
+  try {
+    const idb: any = (window as any).indexedDB;
+    if (idb && typeof idb.databases === 'function') {
+      idb.databases().then((dbs: { name?: string }[]) => {
+        for (const db of dbs || []) if (db.name) idb.deleteDatabase(db.name);
+      }).catch(() => {});
+    }
+  } catch (err) {}
+  // Cache Storage : aucun cache créé par public/sw.js ; vidé par précaution.
+  try {
+    if (typeof caches !== 'undefined' && caches.keys) {
+      caches.keys().then((names) => names.forEach((n) => caches.delete(n))).catch(() => {});
+    }
   } catch (err) {}
 }
 
