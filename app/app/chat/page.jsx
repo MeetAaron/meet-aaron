@@ -3045,6 +3045,16 @@ export default function ChatPage() {
             background: var(--bg);
             padding: 0 0.75rem;
           }
+          /* La page chat est un bloc plein écran fixe (ci-dessus) qui a déjà
+             son propre en-tête « Aaron ». Le bandeau de notifications
+             (Stories) injecté par le Shell en haut du contenu se retrouvait
+             SOUS ce bloc fixe et dépassait par-dessus l'en-tête (signalé par
+             Alex, 19/10/2026 : « ça cache la partie Aaron en haut du chat »).
+             On le masque donc UNIQUEMENT sur la page chat en mobile : les
+             notifications restent visibles sur toutes les autres pages, et
+             dans la cloche du rail sur grand écran. */
+          .content > .stories,
+          .content > .all-clear { display: none; }
           .messenger {
             flex: 1;
             min-height: 0;
