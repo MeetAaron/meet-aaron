@@ -559,6 +559,18 @@ export default function AgendaPage() {
 
   const pending = appointments.filter((a) => a.status === 'proposé');
   const rest = appointments.filter((a) => a.status !== 'proposé');
+  // Le « prochain rendez-vous » mis en avant dans le bloc hero (le plus proche
+  // à venir, voir `upcoming[0]` plus bas) ne doit PAS réapparaître dans la
+  // liste « à venir » juste en dessous — doublon signalé par Alex le
+  // 19/10/2026 (le même RDV « Test 5 » s'affichait deux fois). On recalcule
+  // ici l'id de ce prochain RDV, à l'identique du hero, pour l'exclure de la
+  // liste. S'il s'agit d'un RDV encore « proposé », il n'est de toute façon
+  // pas dans `rest`, donc l'exclusion est sans effet (pas de doublon dans ce
+  // cas).
+  const heroNextNow = Date.now();
+  const heroNextId = appointments
+    .filter((a) => a.status !== 'annulé' && new Date(a.proposed_at).getTime() >= heroNextNow)
+    .sort((a, b) => new Date(a.proposed_at) - new Date(b.proposed_at))[0]?.id || null;
 
   const selectedDayAppointments = selectedDay
     ? appointments.filter((a) => new Date(a.proposed_at).toDateString() === selectedDay.toDateString() && a.status !== 'annulé')
@@ -886,7 +898,7 @@ export default function AgendaPage() {
                 );
             };
             const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-            const restUpcoming = rest.filter((a) => new Date(a.proposed_at).getTime() >= cutoff);
+            const restUpcoming = rest.filter((a) => new Date(a.proposed_at).getTime() >= cutoff && a.id !== heroNextId);
             const restPast = rest.filter((a) => new Date(a.proposed_at).getTime() < cutoff).slice().reverse();
             return (
               <>
