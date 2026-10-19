@@ -21,6 +21,11 @@
 // où un prospect peut devenir client (bouton « Gagné », étape « Client » du
 // pipeline, détection d'une commande dans un email, webhook externe).
 //
+// Parrainage (Alex, 19/10/2026) : le relais n'est plus total. Aaron garde
+// UNE chose après la passation : la demande de parrainage un mois après la
+// première commande (lib/referral.ts) — le message le dit, pour que le
+// commercial ne soit pas surpris de voir Aaron écrire à son client.
+//
 // Best-effort de bout en bout : ce relais est un confort d'affichage et une
 // notification. Une erreur ici ne doit jamais faire échouer la conversion en
 // client elle-même, qui, elle, est comptable.
@@ -35,25 +40,25 @@ import { sendPushNotification } from './push';
 // rien ne fête. C'est le seul moment de l'application où quelque chose a
 // vraiment été gagné.
 const HANDOVER_TEXTS: Record<string, { title: string; body: string }> = {
-  fr: { title: '🎉 Nouveau client — à toi de jouer', body: '{name} est officiellement client. Je lui ai envoyé le mot de félicitations et je passe la main : c\'est toi qui suis la relation à partir de maintenant.' },
-  en: { title: '🎉 New client — over to you', body: '{name} is officially a client. I sent the congratulations note and I\'m handing over: the relationship is yours from here.' },
-  de: { title: '🎉 Neuer Kunde — jetzt sind Sie dran', body: '{name} ist offiziell Kunde. Ich habe die Glückwünsche verschickt und übergebe: Die Beziehung liegt ab jetzt bei Ihnen.' },
-  it: { title: '🎉 Nuovo cliente — a te la palla', body: '{name} è ufficialmente cliente. Ho inviato le congratulazioni e passo la mano: da qui in poi la relazione è tua.' },
-  es: { title: '🎉 Nuevo cliente — te toca', body: '{name} ya es cliente oficialmente. He enviado la felicitación y te paso el relevo: a partir de ahora la relación es tuya.' },
-  pt: { title: '🎉 Novo cliente — agora é contigo', body: '{name} é oficialmente cliente. Enviei os parabéns e passo o testemunho: a relação é tua a partir de agora.' },
-  nl: { title: '🎉 Nieuwe klant — nu is het aan jou', body: '{name} is officieel klant. Ik heb de felicitaties gestuurd en draag over: de relatie is vanaf nu van jou.' },
+  fr: { title: '🎉 Nouveau client — à toi de jouer', body: '{name} est officiellement client. Je lui ai envoyé le mot de félicitations et je passe la main : c\'est toi qui suis la relation à partir de maintenant. Une seule chose reste chez moi : dans un mois, je lui demanderai s\'il connaît des confrères à qui parler de toi.' },
+  en: { title: '🎉 New client — over to you', body: '{name} is officially a client. I sent the congratulations note and I\'m handing over: the relationship is yours from here. One thing stays with me: in a month, I\'ll ask whether they know peers worth introducing you to.' },
+  de: { title: '🎉 Neuer Kunde — jetzt sind Sie dran', body: '{name} ist offiziell Kunde. Ich habe die Glückwünsche verschickt und übergebe: Die Beziehung liegt ab jetzt bei Ihnen. Eines bleibt bei mir: In einem Monat frage ich, ob er Kollegen kennt, denen Sie helfen könnten.' },
+  it: { title: '🎉 Nuovo cliente — a te la palla', body: '{name} è ufficialmente cliente. Ho inviato le congratulazioni e passo la mano: da qui in poi la relazione è tua. Una sola cosa resta a me: tra un mese gli chiederò se conosce colleghi a cui parlare di te.' },
+  es: { title: '🎉 Nuevo cliente — te toca', body: '{name} ya es cliente oficialmente. He enviado la felicitación y te paso el relevo: a partir de ahora la relación es tuya. Solo una cosa queda conmigo: dentro de un mes le preguntaré si conoce colegas a quienes hablarles de ti.' },
+  pt: { title: '🎉 Novo cliente — agora é contigo', body: '{name} é oficialmente cliente. Enviei os parabéns e passo o testemunho: a relação é tua a partir de agora. Só uma coisa fica comigo: daqui a um mês, pergunto-lhe se conhece colegas a quem falar de ti.' },
+  nl: { title: '🎉 Nieuwe klant — nu is het aan jou', body: '{name} is officieel klant. Ik heb de felicitaties gestuurd en draag over: de relatie is vanaf nu van jou. Eén ding blijf ik doen: over een maand vraag ik of hij vakgenoten kent aan wie hij jou kan aanbevelen.' },
 };
 
 // Variante pour les sociétés qui ont le module Aaron Clients : là, Aaron ne
 // passe pas la main, il enchaîne — le commercial doit le savoir aussi.
 const KEEP_TEXTS: Record<string, { title: string; body: string }> = {
-  fr: { title: '🎉 Nouveau client', body: '{name} est officiellement client. Je prends la suite : accueil, points de suivi et renouvellement.' },
-  en: { title: '🎉 New client', body: '{name} is officially a client. I\'m taking it from here: onboarding, check-ins and renewal.' },
-  de: { title: '🎉 Neuer Kunde', body: '{name} ist offiziell Kunde. Ich übernehme: Onboarding, Check-ins und Verlängerung.' },
-  it: { title: '🎉 Nuovo cliente', body: '{name} è ufficialmente cliente. Proseguo io: accoglienza, follow-up e rinnovo.' },
-  es: { title: '🎉 Nuevo cliente', body: '{name} ya es cliente oficialmente. Yo sigo: bienvenida, seguimiento y renovación.' },
-  pt: { title: '🎉 Novo cliente', body: '{name} é oficialmente cliente. Eu continuo: acolhimento, acompanhamento e renovação.' },
-  nl: { title: '🎉 Nieuwe klant', body: '{name} is officieel klant. Ik neem het over: onboarding, check-ins en verlenging.' },
+  fr: { title: '🎉 Nouveau client', body: '{name} est officiellement client. Je prends la suite : accueil, points de suivi, renouvellement — et dans un mois, une demande de parrainage.' },
+  en: { title: '🎉 New client', body: '{name} is officially a client. I\'m taking it from here: onboarding, check-ins, renewal — and in a month, a referral request.' },
+  de: { title: '🎉 Neuer Kunde', body: '{name} ist offiziell Kunde. Ich übernehme: Onboarding, Check-ins, Verlängerung — und in einem Monat eine Empfehlungsanfrage.' },
+  it: { title: '🎉 Nuovo cliente', body: '{name} è ufficialmente cliente. Proseguo io: accoglienza, follow-up, rinnovo — e tra un mese una richiesta di referenze.' },
+  es: { title: '🎉 Nuevo cliente', body: '{name} ya es cliente oficialmente. Yo sigo: bienvenida, seguimiento, renovación — y dentro de un mes, una petición de referencias.' },
+  pt: { title: '🎉 Novo cliente', body: '{name} é oficialmente cliente. Eu continuo: acolhimento, acompanhamento, renovação — e daqui a um mês, um pedido de recomendação.' },
+  nl: { title: '🎉 Nieuwe klant', body: '{name} is officieel klant. Ik neem het over: onboarding, check-ins, verlenging — en over een maand een vraag om een aanbeveling.' },
 };
 
 // `notify: false` pour les chemins qui envoient DÉJÀ leur propre push de

@@ -8,7 +8,8 @@
 // Clients) : c'est une source de nouveaux prospects, donc de la
 // prospection. Conditions pour un client :
 //   - première commande confirmée depuis au moins MIN_DAYS_AFTER_ORDER jours ;
-//   - pas perdu, toujours géré par Aaron (ai_managed ≠ false) ;
+//   - pas perdu (le réglage « je reprends la main » ne compte pas : il est
+//     mis automatiquement à la passation, voir lib/prospect-handover.ts) ;
 //   - au moins une réponse reçue de lui un jour (on ne demande rien à
 //     quelqu'un qui n'a jamais écrit) ;
 //   - jamais demandé (referral_asked_at NULL) ;
@@ -144,7 +145,10 @@ export async function runReferralRequests(now: Date = new Date()): Promise<Refer
   for (const c of candidates) {
     const user = users.get(c.assigned_user_id);
     if (!user || !c.email) { report.skipped_other += 1; continue; }
-    if (c.ai_managed === false) { report.skipped_other += 1; continue; }
+    // ai_managed n'est PAS un critère ici : handOverWonProspect le met à
+    // false pour TOUS les clients gagnés des comptes sans module Clients
+    // (lib/prospect-handover.ts). Le commercial est prévenu dès la passation
+    // que cette demande, et elle seule, reste chez Aaron (Alex, 19/10/2026).
     if (c.customer_health_label === 'a_risque' || c.churn_risk === true) { report.skipped_other += 1; continue; }
     if (blocked.has(user.id)) continue;
 
