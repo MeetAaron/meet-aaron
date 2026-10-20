@@ -128,7 +128,12 @@ export async function POST(request: NextRequest) {
     const data = await callClaude(
       {
         model: 'claude-sonnet-5',
-        max_tokens: 700,
+        // 700 coupait les reponses en plein milieu (signale par Alex le
+        // 20/10/2026 : « que je devrais no… ») : un recapitulatif complet
+        // avec son bloc campaign_json depasse largement 700 tokens. 1500 laisse
+        // de la marge sans exploser le cout (ces messages sont courts en
+        // entree, la sortie est ce qui compte).
+        max_tokens: 1500,
         system: [
           { type: 'text', text: buildSystemPrompt(pastCampaignsSummary, businessProfile, authedUser.locale), cache_control: { type: 'ephemeral' } },
         ],
