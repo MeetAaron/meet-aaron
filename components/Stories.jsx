@@ -1109,7 +1109,23 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           padding: 0;
           font-family: inherit;
         }
-        .link.skip { margin-left: auto; color: var(--muted); }
+        /* « Skip » : un petit bouton fantôme arrondi plutôt qu'un lien
+           souligné terne (demande Alex, 20/10/2026). Reste discret (action
+           secondaire) mais plus soigné, avec un survol net. */
+        .link.skip {
+          margin-left: auto;
+          color: var(--muted);
+          text-decoration: none;
+          padding: 0.3rem 0.8rem;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+        }
+        .link.skip:hover {
+          color: var(--text);
+          background: var(--surface-hover, var(--tint-6));
+          border-color: var(--muted-soft, var(--border));
+        }
         .nav {
           position: absolute;
           top: 50%;
