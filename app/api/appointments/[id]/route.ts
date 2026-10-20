@@ -172,27 +172,47 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
     let calendarEvent: any = null;
     let calendarProvider: 'google' | 'microsoft' | null = null;
+    // Avertissement renvoye au frontend quand le RDV est bien valide mais que
+    // l'invitation d'agenda n'a pas pu etre creee (jeton Google/Microsoft
+    // expire, par ex.). On ne fait PAS echouer la validation pour autant
+    // (meme principe qu'une boite sans agenda, voir plus bas) : le RDV reste
+    // valide, le commercial est juste prevenu, et le flux ICS fera quand meme
+    // apparaitre le RDV. DECLARATION AJOUTEE LE 20/10/2026 : cette variable
+    // etait referencee plus bas (calendar_warning) sans jamais exister, ce qui
+    // cassait le build TypeScript de TOUTE la production depuis plus d'un jour
+    // (aucun deploiement ne passait, le site tournait sur une vieille version).
+    let calendarWarning: string | null = null;
 
     if (hasGoogle) {
-      calendarEvent = await createGoogleCalendarEvent(userId, {
-        title: `RDV avec ${appointment.prospects.full_name}`,
-        description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
-        startISO,
-        endISO,
-        attendeeEmail: appointment.prospects.email,
-        wantsMeetLink: appointment.type === 'visio',
-      });
-      calendarProvider = 'google';
+      try {
+        calendarEvent = await createGoogleCalendarEvent(userId, {
+          title: `RDV avec ${appointment.prospects.full_name}`,
+          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
+          startISO,
+          endISO,
+          attendeeEmail: appointment.prospects.email,
+          wantsMeetLink: appointment.type === 'visio',
+        });
+        calendarProvider = 'google';
+      } catch (calErr: any) {
+        console.error('Erreur creation evenement Google Calendar:', calErr?.message);
+        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Google n'a pas pu etre creee. Verifiez la connexion Google dans Mon compte.";
+      }
     } else if (hasMicrosoft) {
-      calendarEvent = await createOutlookCalendarEvent(userId, {
-        title: `RDV avec ${appointment.prospects.full_name}`,
-        description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
-        startISO,
-        endISO,
-        attendeeEmail: appointment.prospects.email,
-        wantsMeetLink: appointment.type === 'visio',
-      });
-      calendarProvider = 'microsoft';
+      try {
+        calendarEvent = await createOutlookCalendarEvent(userId, {
+          title: `RDV avec ${appointment.prospects.full_name}`,
+          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
+          startISO,
+          endISO,
+          attendeeEmail: appointment.prospects.email,
+          wantsMeetLink: appointment.type === 'visio',
+        });
+        calendarProvider = 'microsoft';
+      } catch (calErr: any) {
+        console.error('Erreur creation evenement Outlook Calendar:', calErr?.message);
+        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Outlook n'a pas pu etre creee. Verifiez la connexion Microsoft dans Mon compte.";
+      }
     }
     // Aucun agenda connecté (boîte « Autre boîte mail » / IMAP, 10/09/2026) :
     // on ne refuse PLUS la validation. Avant, un commercial chez OVH ne
