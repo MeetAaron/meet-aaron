@@ -3809,7 +3809,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           font-size: 0.84rem;
           margin-bottom: 0.7rem;
           font-family: inherit;
+          /* Fond et encre explicites, liés au thème : sans ça le champ n'avait
+             aucune couleur définie et retombait sur le rendu natif du
+             navigateur, qui restait sombre en MODE CLAIR (champ noir sur page
+             claire, texte illisible — signalé par Alex le 20/10/2026). */
+          background: var(--bg-elevated);
+          color: var(--text);
         }
+        .profile-input::placeholder { color: var(--muted); }
         .profile-saved {
           color: var(--accent-green);
           font-size: 0.82rem;
