@@ -1384,8 +1384,25 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
     }
   }
 
+  // Garde-fou anti-perte de saisie (Alex, 20/10/2026 : « des qu'il ripe il doit
+  // tout recommencer, c'est horrible »). Un clic dans le fond sombre (overlay)
+  // fermait le formulaire et effacait TOUT ce qui etait deja saisi : un simple
+  // clic a cote, et on repartait de zero. Desormais, des que le formulaire a
+  // commence a etre rempli, un clic a cote ne ferme plus rien — il faut le
+  // bouton « Annuler » explicite. Un formulaire encore vide se ferme toujours
+  // au clic exterieur, comme avant (pas de friction inutile).
+  const hasInput = Boolean(
+    firstName || lastName || email || phone || jobTitle || companyName ||
+    linkedinUrl || address || country || siret || website || industry ||
+    companySize || estimatedRevenue
+  );
+  function handleOverlayClick() {
+    if (hasInput) return;
+    onClose();
+  }
+
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay" onClick={handleOverlayClick}>
       {/* autoComplete="off" + noms de champs prefixes « prospect- » (26/09/2026,
           bug remonte par Alex dans « tests emails.docx » : la saisie
           automatique du navigateur remplissait la fiche du PROSPECT avec les
