@@ -657,20 +657,23 @@ html[data-theme='light'] .shell > .sidebar {
    null : rien n'est collé, aucune hauteur perdue.
    ===================================================================== */
 .shell > main.content > .stories {
-  position: sticky;
-  top: 0;
+  /* 21/10/2026 (retour d'Alex, « l'interface du dashboard est étrange ») :
+     sur ordinateur le bandeau n'est PLUS collant. Collé en haut, pleine
+     largeur, opaque et haut de ~105 px même avec une seule pastille, il
+     laissait les cartes glisser dessous : on voyait des cartes coupées sous
+     une bande presque vide. Il reste dans le flux, comme n'importe quel
+     bloc. Sur téléphone (ci-dessous) il reste collé sous la barre du haut,
+     où il sert de repère. */
+  position: static;
   z-index: 65;
   background: var(--bg);
-  margin-left: -2.6rem !important;
-  margin-right: -2.6rem !important;
-  padding-left: 2.6rem !important;
-  padding-right: 2.6rem !important;
   padding-top: 0.6rem !important;
-  box-shadow: 0 10px 14px -12px rgba(0, 0, 0, 0.6);
 }
 @media (max-width: 900px) {
   .shell > main.content > .stories {
+    position: sticky;
     top: calc(52px + env(safe-area-inset-top, 0px));
+    box-shadow: 0 10px 14px -12px rgba(0, 0, 0, 0.6);
     margin-left: -1rem !important;
     margin-right: -1rem !important;
     padding-left: 1rem !important;
@@ -1285,7 +1288,12 @@ html[data-theme='light']:root {
    scopés par styled-jsx et ne s'appliquent pas à ce composant.
    ------------------------------------------------------------------ */
 .rail-more { display: none; }
-@media (min-width: 901px) {
+/* 21/10/2026 (retour d'Alex) : sur ordinateur, le menu « Plus » n'apparaît
+   QUE lorsque la fenêtre est trop basse pour afficher les neuf entrées du
+   rail. Au-dessus de 820 px de haut, tout est visible directement et le
+   bouton « … » est masqué. Le seuil : 9 entrées × ~54 px + logo + bas du
+   rail ≈ 780 px ; en dessous, les entrées rares repassent dans le menu. */
+@media (min-width: 901px) and (max-height: 820px) {
   .sidebar .nav-rare { display: none !important; }
   .sidebar .rail-more {
     display: flex;
