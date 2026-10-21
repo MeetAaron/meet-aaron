@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale } from '@/lib/i18n';
@@ -106,7 +106,8 @@ function orderedChoices(locale, mood) {
   return order.map((value) => all.find((c) => c.value === value)).filter(Boolean);
 }
 
-export default function BilanRdvPage({ params }) {
+export default function BilanRdvPage(props) {
+  const params = use(props.params);
   const [locale] = useLocale();
   const { ready, authError } = useAuthedUser();
   const [appointment, setAppointment] = useState(null);

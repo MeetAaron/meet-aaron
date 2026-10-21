@@ -15,7 +15,8 @@ async function loadCampaign(id: string) {
   return data;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const campaign = await loadCampaign(params.id);
   if (!campaign) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
 
@@ -36,7 +37,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 // décochée par défaut — voir migration_campaign_unsubscribe_optionnel_2026-09-10.sql.
 const EDITABLE_FIELDS = ['name', 'subject', 'body_text', 'audience_health_filter', 'audience_min_days_since_won', 'include_unsubscribe'];
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const campaign = await loadCampaign(params.id);
   if (!campaign) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
 
@@ -108,7 +110,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   return NextResponse.json({ campaign: res.data });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const campaign = await loadCampaign(params.id);
   if (!campaign) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
 

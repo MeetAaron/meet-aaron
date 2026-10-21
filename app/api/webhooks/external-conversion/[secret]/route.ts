@@ -55,7 +55,8 @@ function extractEmail(body: any): string | null {
   return null;
 }
 
-export async function POST(request: NextRequest, { params }: { params: { secret: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ secret: string }> }) {
+  const params = await ctx.params;
   const secret = params.secret;
   if (!secret) {
     return NextResponse.json({ error: 'Secret manquant' }, { status: 404 });

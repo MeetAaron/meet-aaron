@@ -22,7 +22,8 @@ import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
 
 const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu'];
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
   const forceRegenerate = request.nextUrl.searchParams.get('regenerate') === '1';
 
@@ -68,7 +69,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
   // Lot 3 « Devis » : objet/corps modifiés par le commercial avant envoi
   // (optionnels) — sinon la version préparée par Aaron.

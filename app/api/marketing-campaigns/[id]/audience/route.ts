@@ -9,7 +9,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { resolveAudience } from '@/lib/marketing-audience';
 import { serverError } from '@/lib/http';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { data: campaign } = await supabaseAdmin.from('marketing_campaigns').select('*').eq('id', params.id).single();
   if (!campaign) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
 

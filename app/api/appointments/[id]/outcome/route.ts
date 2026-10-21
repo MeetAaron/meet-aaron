@@ -13,7 +13,8 @@ const VALID_OUTCOMES: AppointmentOutcome[] = ['a_continuer', 'opportunite', 'dev
 
 const VALID_MOODS: AppointmentMood[] = ['bien', 'moyen', 'mal'];
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   // Docx 30/08 (items 3 et 7) : en plus de l'issue, ressenti (mood), contexte
   // libre/chips, et demande d'email de remerciement rédigé par Aaron.
   const { outcome, mood, context, send_thank_you } = await readJsonBody(request);

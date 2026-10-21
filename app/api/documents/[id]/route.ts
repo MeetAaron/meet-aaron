@@ -34,7 +34,8 @@ async function loadDocumentForCompany(documentId: string) {
   return document;
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const documentId = params.id;
   const body = await readJsonBody(request);
 
@@ -145,7 +146,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   return NextResponse.json({ document: updated });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const documentId = params.id;
 
   const document = await loadDocumentForCompany(documentId);

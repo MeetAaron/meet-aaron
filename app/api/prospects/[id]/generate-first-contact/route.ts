@@ -26,7 +26,8 @@ import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { researchProspectCompany } from '@/lib/prospect-research';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select('id, company_id, assigned_user_id, full_name, email, prospect_company_id, aaron_advice, origin')

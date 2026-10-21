@@ -7,7 +7,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { buildInvoicePdf } from '@/lib/invoice-pdf';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string; invoiceId: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string; invoiceId: string }> }) {
+  const params = await ctx.params;
   const { id: prospectId, invoiceId } = params;
 
   const { data: prospect, error } = await supabaseAdmin

@@ -15,7 +15,8 @@ import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePos
 import { sendPushNotification } from '@/lib/push';
 import { readJsonBody, serverError } from '@/lib/http';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue)')
@@ -67,7 +68,8 @@ async function updateProspectClearingRescue(prospectId: string, fields: Record<s
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const {
     action,
     deal_stage,
@@ -873,7 +875,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 // DELETE -> supprime définitivement un prospect ajouté par erreur (avec
 // confirmation côté frontend). Les conversations/messages/RDV liés partent
 // avec lui via ON DELETE CASCADE (voir migration_prospect_lifecycle_2026-08-12.sql).
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin

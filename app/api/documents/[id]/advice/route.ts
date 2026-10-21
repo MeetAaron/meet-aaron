@@ -24,7 +24,8 @@ import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { serverError } from '@/lib/http';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const documentId = params.id;
 
   const { data: document, error } = await supabaseAdmin

@@ -47,7 +47,8 @@ function pixelResponse() {
 // ce garde-fou, « ouvert 7 fois » voudrait dire « a fait défiler une fois ».
 const DEBOUNCE_MS = 2 * 60 * 1000;
 
-export async function GET(_request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;
   const token = params.token;
 
   // La réponse ne dépend jamais du traitement : on la prépare d'abord, et

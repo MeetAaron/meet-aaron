@@ -13,7 +13,8 @@ async function loadProductCompanyId(productId: string): Promise<string | null> {
   return product?.company_id || null;
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
@@ -51,7 +52,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   return NextResponse.json({ product });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 

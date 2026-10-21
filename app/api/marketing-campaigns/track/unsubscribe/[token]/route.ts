@@ -19,7 +19,8 @@ function confirmationPage(message: string): string {
 </head><body><div class="card"><h1>Meet Aaron</h1><p>${message}</p></div></body></html>`;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;
   const { data: recipient } = await supabaseAdmin
     .from('marketing_campaign_recipients')
     .select('id, prospect_id, unsubscribed_at')

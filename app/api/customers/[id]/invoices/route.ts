@@ -10,7 +10,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { getNextInvoiceNumber, computeInvoiceTotals, lineItemsFromDevisRecap, DEFAULT_PAYMENT_TERMS_FR, InvoiceLineItem } from '@/lib/client-invoices';
 import { readJsonBody, serverError } from '@/lib/http';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin
@@ -42,7 +43,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json({ invoices: invoices || [] });
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin

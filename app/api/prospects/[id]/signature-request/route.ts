@@ -22,7 +22,8 @@ import { createSignatureRequest } from '@/lib/youtrust';
 import { buildDevisPdf } from '@/lib/devis-pdf';
 import { DevisLineItem, summarizeDevisRecap } from '@/lib/aaron-sales';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin

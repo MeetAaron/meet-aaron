@@ -22,7 +22,8 @@ import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
 import { localeInstruction } from '@/lib/locale-instruction';
 import { serverError } from '@/lib/http';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const campaignId = params.id;
 
   const { data: campaign, error } = await supabaseAdmin
