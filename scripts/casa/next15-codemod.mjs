@@ -75,22 +75,20 @@ if (pkgChanged) {
   console.log('package.json : next 15 / react 19');
 }
 
-// next.config.js : sous React 19, @types/react@19 est plus strict et le
-// type-check de `next build` signale des écarts purement typographiques sur
-// un code qui tourne déjà en production sous strict:false. Ces gardes ne
-// sont pas des propriétés de sécurité : la COMPILATION webpack (qui attrape
-// les vrais imports cassés et l'usage incorrect des params asynchrones) reste
-// pleinement active. On neutralise donc UNIQUEMENT les deux portes
-// type-check et ESLint le temps du passage à Next 15 ; la dette de types est
-// capturée séparément (étape « tsc (non bloquant) » du workflow) pour être
-// soldée ensuite. Idempotent.
+// next.config.js. Le 19/10, ce bloc neutralisait aussi le type-check par
+// précaution. 21/10/2026 : le rapport tsc du 19/10 sous Next 15 ne contenait
+// que DEUX erreurs (calendarWarning non déclaré, itération de Map en ES5),
+// toutes deux corrigées sur main depuis (commits 0112009 et 3baa41b). Le
+// type-check reste donc ACTIF : c'est lui qui a attrapé les deux pannes de
+// production de la semaine. Seule la porte ESLint est neutralisée (Next 15
+// change la configuration ESLint attendue ; aucune propriété de sécurité).
 const ncPath = 'next.config.js';
 let nc = readFileSync(ncPath, 'utf8');
-if (!nc.includes('ignoreBuildErrors')) {
+if (!nc.includes('ignoreDuringBuilds')) {
   nc = nc.replace(
     /const nextConfig = \{/,
-    `const nextConfig = {\n  // Ajouté par scripts/casa/next15-codemod.mjs (CASA 6.1.1, passage Next 15).\n  // Voir le commentaire du codemod : seules les portes type-check/ESLint sont\n  // neutralisées, la compilation reste active.\n  typescript: { ignoreBuildErrors: true },\n  eslint: { ignoreDuringBuilds: true },`
+    `const nextConfig = {\n  // Ajouté par scripts/casa/next15-codemod.mjs (CASA 6.1.1, passage Next 15).\n  // Le type-check reste actif ; seule la porte ESLint est neutralisée.\n  eslint: { ignoreDuringBuilds: true },`
   );
   writeFileSync(ncPath, nc);
-  console.log('next.config.js : type-check/eslint non bloquants pour le build');
+  console.log('next.config.js : eslint non bloquant pour le build (type-check actif)');
 }
