@@ -175,15 +175,19 @@ export default function TourPage() {
   const slides = slidesFor(locale).filter((s) => !s.role || s.role === role);
   const current = slides[step];
 
+  // Lot 3 de la refonte de l'onboarding (22/10/2026) : la visite est marquée
+  // « vue » quand on atteint la DERNIÈRE diapositive, plus à l'ouverture de
+  // la page (une visite ouverte puis abandonnée comptait comme vue).
+  const reachedLast = slides.length > 0 && step === slides.length - 1;
   useEffect(() => {
-    if (!userId || markedSeen) return;
+    if (!userId || markedSeen || !reachedLast) return;
     fetch('/api/tour-seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId }),
     });
     setMarkedSeen(true);
-  }, [userId, markedSeen]);
+  }, [userId, markedSeen, reachedLast]);
 
   if (authLoading) return <div className="loading">Connexion…</div>;
   if (authError) return <div className="loading error">{authError}</div>;
@@ -242,7 +246,11 @@ export default function TourPage() {
             // prospect/la première campagne. "Passer" ci-dessous continue
             // d'aller directement au dashboard, pour respecter le choix
             // explicite de l'utilisateur de sauter la visite.
-            <a href={`/app/connexions${userId ? `?user_id=${userId}&tab=connection` : '?tab=connection'}`} className="btn-primary">
+            // 22/10/2026 (lot 3 de la refonte de l'onboarding) : fin de visite →
+            // tableau de bord, plus Connexions. La boîte mail est liée dans le
+            // parcours /app/bienvenue ; ce renvoi donnait l'impression d'être
+            // poussé à lier sa boîte en relançant une simple visite.
+            <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
               {t('tour.finish', locale)}
             </a>
           ) : (

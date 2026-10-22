@@ -3,6 +3,7 @@ import React from "react";
 import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
 import TimeZoneReporter from "@/components/TimeZoneReporter";
 import WinCelebration from "@/components/WinCelebration";
+import HelpLayer from "@/components/HelpLayer";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
 
@@ -78,6 +79,9 @@ export default function RootLayout({ children }) {
             // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
             // point 3) : écoute un événement, n'affiche rien sinon.
             React.createElement(WinCelebration, null),
+            // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
+            // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
+            React.createElement(HelpLayer, null),
             children
           )
         );
