@@ -37,3 +37,23 @@ if (!current || typeof current !== 'object' || current.postcss !== '^8.5.31') {
 } else {
   console.log('package.json : override next > postcss déjà en place');
 }
+
+// 22/10/2026, run #2 : construction OK mais l'audit voyait toujours
+// node_modules/next/node_modules/postcss@8.4.31. npm n'applique pas un
+// override à une entrée DÉJÀ figée dans package-lock.json. On retire
+// uniquement cette entrée ; `npm install` la résout de nouveau sous
+// l'override. Le reste du lockfile est conservé tel quel.
+const lockPath = 'package-lock.json';
+try {
+  const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
+  const key = 'node_modules/next/node_modules/postcss';
+  if (lock.packages && lock.packages[key]) {
+    console.log(`lockfile : retrait de ${key}@${lock.packages[key].version}`);
+    delete lock.packages[key];
+    writeFileSync(lockPath, JSON.stringify(lock, null, 4) + '\n');
+  } else {
+    console.log('lockfile : aucune copie imbriquée de postcss sous next');
+  }
+} catch (e) {
+  console.log('lockfile : ignoré (' + e.message + ')');
+}
