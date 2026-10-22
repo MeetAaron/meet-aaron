@@ -9,7 +9,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { generateLinkedInDraft } from '@/lib/linkedin-assist';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select('id, assigned_user_id, company_id')

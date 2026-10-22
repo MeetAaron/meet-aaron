@@ -24,7 +24,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveAndConsumeQrToken } from '@/lib/auth-helpers';
 import { buildVCard } from '@/lib/vcard';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   // Jeton de passage a usage unique (16/10/2026), plus jamais le jeton de
   // session en clair dans l'URL (CASA 2.1.1). lib/vcard.js le demande a
   // app/api/auth/qr-token juste avant d'ouvrir l'iframe.

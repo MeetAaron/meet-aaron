@@ -10,7 +10,8 @@ import { verifyTrackedUrl } from '@/lib/marketing-tracking';
 
 const FALLBACK_URL = (process.env.APP_URL || 'https://app.meetaaron.app').replace(/\/$/, '');
 
-export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;
   const target = request.nextUrl.searchParams.get('u');
   const sig = request.nextUrl.searchParams.get('s');
 

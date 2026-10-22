@@ -22,7 +22,8 @@ import { serverError } from '@/lib/http';
 const BUCKET = 'documents';
 const MAX_BYTES = 15 * 1024 * 1024;
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
   const formData = await request.formData();
   const file = formData.get('file') as File | null;

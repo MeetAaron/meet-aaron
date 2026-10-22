@@ -96,7 +96,8 @@ async function detectSchedulingConflicts(userId: string, startISO: string, endIS
 // GET -> détails minimaux d'un RDV, utilisé par la page de bilan post-RDV
 // (app/app/agenda/rdv/[id]/bilan) pour afficher le nom du prospect et savoir
 // si un bilan a déjà été enregistré.
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
     .select('id, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
@@ -125,7 +126,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   });
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const { action, force } = await readJsonBody(request);
   const appointmentId = params.id;
 
@@ -385,7 +387,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 // passé — voir le commentaire sur l'action "annuler" plus haut). Volontairement
 // limité aux RDV déjà passés : un RDV à venir doit être annulé (pour prévenir
 // le prospect), pas supprimé en silence.
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin

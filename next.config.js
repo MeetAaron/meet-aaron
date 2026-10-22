@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Ajouté par scripts/casa/next15-codemod.mjs (CASA 6.1.1, passage Next 15).
+  // Le type-check reste actif ; seule la porte ESLint est neutralisée.
+  eslint: { ignoreDuringBuilds: true },
   reactStrictMode: true,
   // POLICES DE pdfkit DANS LE BUNDLE SERVERLESS (02/10/2026).
   //

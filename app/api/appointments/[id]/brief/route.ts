@@ -11,7 +11,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { generateAppointmentBrief } from '@/lib/aaron-sales';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const appointmentId = params.id;
   const forceRegenerate = request.nextUrl.searchParams.get('regenerate') === '1';
 

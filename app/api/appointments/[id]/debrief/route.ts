@@ -11,7 +11,8 @@ import { generateAppointmentDebrief } from '@/lib/aaron-sales';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { readJsonBody } from '@/lib/http';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const appointmentId = params.id;
   const { notes } = await readJsonBody(request);
 

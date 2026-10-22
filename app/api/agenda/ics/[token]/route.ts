@@ -60,7 +60,8 @@ function foldLine(line: string): string {
   return chunks.join('\r\n');
 }
 
-export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;
   // Certains clients calendrier ajoutent ".ics" à l'URL collée — on l'accepte
   // en la retirant plutôt que de renvoyer 404 pour une URL par ailleurs valide.
   const token = params.token.replace(/\.ics$/i, '');

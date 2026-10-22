@@ -13,7 +13,8 @@ import { generateRenewalOutreach } from '@/lib/aaron-customer';
 import { sendEmailForUser } from '@/lib/messaging';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
   const forceRegenerate = request.nextUrl.searchParams.get('regenerate') === '1';
 
@@ -57,7 +58,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const prospectId = params.id;
 
   const { data: prospect, error } = await supabaseAdmin

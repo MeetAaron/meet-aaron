@@ -10,7 +10,8 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { sendEmailForUser } from '@/lib/messaging';
 import { readJsonBody } from '@/lib/http';
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const draftId = params.id;
   const { action } = await readJsonBody(request);
 
