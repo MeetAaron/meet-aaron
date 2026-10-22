@@ -1,0 +1,91 @@
+# Applique un lot de code préparé par Claude, SANS jamais pousser du code non
+# construit sur main (22/10/2026).
+#
+# Pourquoi : l'environnement de Claude n'a pas accès au registre npm, donc il
+# ne peut ni installer les dépendances ni lancer `next build`. Envoyer 20
+# fichiers un par un par l'interface web de GitHub déclenchait autant de
+# déploiements Vercel, dont certains sur un état intermédiaire cassé.
+#
+# Fonctionnement : Claude dépose UN fichier .patches/<nom>.patch (format
+# `git format-patch`) sur la branche `patches`. Ce workflow :
+#   1. part du main du moment ;
+#   2. applique le patch le plus récent avec `git am --3way` (échec = arrêt) ;
+#   3. installe les dépendances (lockfile commité) et CONSTRUIT l'application
+#      (next build, type-check actif) ;
+#   4. vérifie qu'aucune vulnérabilité high/critique n'arrive en production ;
+#   5. et seulement alors pousse sur main — donc un seul déploiement Vercel.
+# Un échec à n'importe quelle étape laisse main intact.
+name: Apply patch
+
+on:
+  push:
+    branches: [patches]
+    paths: [".patches/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+      TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      ANTHROPIC_API_KEY: placeholder
+      OPENAI_API_KEY: placeholder
+      CRON_SECRET: placeholder
+      APP_URL: https://meetaaron.app
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Récupérer le patch le plus récent (branche patches)
+        id: patch
+        run: |
+          git fetch origin patches
+          name=$(git ls-tree --name-only origin/patches .patches/ | grep '\.patch$' | sort | tail -n 1)
+          if [ -z "$name" ]; then echo "Aucun patch trouvé"; exit 1; fi
+          echo "Patch : $name"
+          git show "origin/patches:$name" > /tmp/lot.patch
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          wc -l /tmp/lot.patch
+
+      - name: Appliquer sur main
+        run: |
+          git config user.name "Claude"
+          git config user.email "noreply@anthropic.com"
+          git am --3way /tmp/lot.patch
+          git log --oneline -n 3
+          git show --stat HEAD | head -n 60
+
+      - name: Installer (lockfile commité)
+        run: npm ci --no-audit --no-fund
+
+      - name: Construire (next build, type-check actif)
+        run: npm run build
+
+      - name: Audit production (BLOQUANT si high/critique)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Pousser sur main
+        run: |
+          rm -rf .next
+          git status --short
+          git push origin HEAD:main
