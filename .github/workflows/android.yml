@@ -35,7 +35,7 @@ jobs:
       # variable d'environnement, vide tant que le secret n'existe pas.
       HAS_UPLOAD_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v4
         with:

@@ -44,7 +44,7 @@ jobs:
       APP_URL: https://meetaaron.app
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
