@@ -35,7 +35,7 @@
 // erreur les résultats d'une société existante homonyme à un prospect fictif).
 // isCompanyResearchable() ci-dessous filtre ce cas.
 
-import { callClaude } from './anthropic-client';
+import { callClaude, MonthlyCapExceededError } from './anthropic-client';
 import { isGenericEmailDomain } from './csv-import';
 import { supabaseAdmin } from './supabase-admin';
 import { guessCountry, lookupCompanyRegistry, type LegalRecord } from './company-directory';
@@ -69,7 +69,15 @@ export interface ProspectCompanyResearchResult {
   // par lib/social-urls.ts (forme exacte d'une page entreprise / d'un compte).
   linkedin_url: string | null;
   instagram_url: string | null;
+  // true quand cette recherche a réellement cherché les pages publiques
+  // (recherche du jour, ou cache écrit après leur ajout le 22/10/2026) :
+  // la fiche est alors marquée socials_checked_at même si RIEN n'a été
+  // trouvé, pour ne jamais repayer une seconde recherche (relecture 22/10).
+  socials_searched?: boolean;
 }
+
+// Mise en ligne de la recherche des pages publiques (lot 22/10/2026).
+const SOCIALS_SEARCH_SINCE = Date.parse('2026-10-22T07:00:00Z');
 
 const EMPTY_RESULT: ProspectCompanyResearchResult = {
   summary: null, website: null, siret: null, address: null, industry: null, linkedin_url: null, instagram_url: null,
@@ -142,6 +150,7 @@ export async function researchProspectCompany(
           // select('*') : tolère un cache créé avant l'ajout de ces colonnes.
           linkedin_url: normalizeLinkedInCompanyUrl(cached.linkedin_url),
           instagram_url: normalizeInstagramUrl(cached.instagram_url),
+          socials_searched: new Date(cached.checked_at).getTime() >= SOCIALS_SEARCH_SINCE,
         };
       }
     } catch {
@@ -231,10 +240,14 @@ export async function researchProspectCompany(
       industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : registry?.industry || null,
       linkedin_url: normalizeLinkedInCompanyUrl(parsed.linkedin_url),
       instagram_url: normalizeInstagramUrl(parsed.instagram_url),
+      socials_searched: true,
     };
     await writeResearchCache(cacheKey, result);
     return result;
   } catch (err: any) {
+    // Plafond / impayé : remonté pour que la fiche ne soit PAS marquée comme
+    // recherchée — elle le sera au prochain contact, une fois le budget revenu.
+    if (err?.name === 'MonthlyCapExceededError' || err?.name === 'SubscriptionUnpaidError') throw err;
     console.error('Erreur recherche web société prospect:', err.message);
     return null;
   }
@@ -287,7 +300,7 @@ export function buildResearchUpdate(
   for (const key of ['website', 'siret', 'address', 'industry', 'linkedin_url', 'instagram_url'] as const) {
     if (research[key] && !existing?.[key]) update[key] = research[key];
   }
-  if (research.linkedin_url || research.instagram_url) update.socials_checked_at = update.research_checked_at;
+  if (research.socials_searched || research.linkedin_url || research.instagram_url) update.socials_checked_at = update.research_checked_at;
   return update;
 }
 
@@ -341,6 +354,9 @@ export async function findCompanySocials(
       instagram_url: normalizeInstagramUrl(parsed.instagram_url),
     };
   } catch (err: any) {
+    // Plafond atteint ou abonnement impayé : on remonte l'erreur pour que
+    // l'appelant ne marque PAS la fiche comme vérifiée (relecture 22/10).
+    if (err?.name === 'MonthlyCapExceededError' || err?.name === 'SubscriptionUnpaidError' || err instanceof MonthlyCapExceededError) throw err;
     console.error('Erreur recherche pages publiques société:', err?.message);
     return empty;
   }

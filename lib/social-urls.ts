@@ -23,6 +23,16 @@ function asUrl(raw: unknown): URL | null {
   }
 }
 
+// decodeURIComponent lève une URIError sur un « % » mal formé
+// (ex. linkedin.com/in/100%-sales) : on garde alors le texte brut.
+function safeDecode(v: string): string {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 function isHost(u: URL, base: string): boolean {
   const h = u.hostname.toLowerCase();
   return h === base || h.endsWith(`.${base}`);
@@ -33,7 +43,7 @@ export function normalizeLinkedInCompanyUrl(raw: unknown): string | null {
   if (!u || !isHost(u, 'linkedin.com')) return null;
   const m = u.pathname.match(/^\/(company|school|showcase)\/([^/?#]+)\/?/i);
   if (!m) return null;
-  const slug = decodeURIComponent(m[2]).trim();
+  const slug = safeDecode(m[2]).trim();
   if (!slug || slug.length > 120) return null;
   return `https://www.linkedin.com/${m[1].toLowerCase()}/${encodeURIComponent(slug)}`;
 }
@@ -43,7 +53,7 @@ export function normalizeLinkedInProfileUrl(raw: unknown): string | null {
   if (!u || !isHost(u, 'linkedin.com')) return null;
   const m = u.pathname.match(/^\/in\/([^/?#]+)\/?/i);
   if (!m) return null;
-  const slug = decodeURIComponent(m[1]).trim();
+  const slug = safeDecode(m[1]).trim();
   if (!slug || slug.length > 120) return null;
   return `https://www.linkedin.com/in/${encodeURIComponent(slug)}`;
 }

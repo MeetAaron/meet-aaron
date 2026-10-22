@@ -6,6 +6,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { getProspectQuota } from './prospect-quota';
 import { callClaude } from './anthropic-client';
 import { ensureCompanyEnriched } from './prospect-research';
+import { normalizeLinkedInProfileUrl } from './social-urls';
 import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
 import { searchDirectory } from './directory-db';
@@ -377,7 +378,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       // Téléphone du contact, sinon celui de l'entreprise (Google Places).
       phone: contact.phone || company.phone || null,
       job_title: contact.job_title,
-      linkedin_url: contact.linkedin_url,
+      // Validé (22/10/2026) : seul un vrai profil linkedin.com/in/… est gardé.
+      linkedin_url: normalizeLinkedInProfileUrl(contact.linkedin_url),
       status: 'jaune',
       // Docx pipeline "Réactivation" (Alex, 2026-08-23) : ce prospect a été
       // trouvé et démarché de A à Z par Aaron (campagne de prospection),

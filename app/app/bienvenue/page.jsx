@@ -357,6 +357,11 @@ export default function BienvenuePage() {
       const saved = {};
       for (const a of body.answers || []) if (a?.key && a.answer) saved[a.key] = a.answer;
       setAnswers(saved);
+      // Un commercial dont l'entreprise n'avait pas de fiche passe par
+      // l'écran Entreprise, qui CRÉE la fiche : au rechargement il serait
+      // vu comme « invité » et renvoyé au début (relecture 22/10). Une étape
+      // enregistrée hors du parcours invité garde donc le parcours complet.
+      if (body.invited && body.step && !stepsFor(true).includes(body.step)) body.invited = false;
       const order = stepsFor(!!body.invited);
       const resumeStep = body.step && order.includes(body.step) ? body.step : 'intro';
       const q = Math.min(Math.max(0, body.question || 0), ONBOARDING_QUESTION_KEYS.length - 1);

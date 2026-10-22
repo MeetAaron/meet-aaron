@@ -75,7 +75,10 @@ export async function GET(request: NextRequest) {
     .join('\n');
   if (!summary && !answersText && !hint) return NextResponse.json({ prefill: null, chips: null });
 
-  const sourceKey = createHash('sha256').update(`${authedUser.locale}|${summary}|${answersText}`).digest('hex').slice(0, 32);
+  // Empreinte au niveau SOCIÉTÉ (relecture 22/10) : quand la fiche existe,
+  // elle seule compte — sinon un patron (avec réponses) et un commercial
+  // (sans) invalidaient le cache à tour de rôle et repayaient l'appel.
+  const sourceKey = createHash('sha256').update(`${authedUser.locale}|${summary || answersText}`).digest('hex').slice(0, 32);
   const cacheable = !hint && 'campaign_profile_suggestions' in company;
   if (cacheable && company.campaign_profile_suggestions_key === sourceKey && company.campaign_profile_suggestions) {
     return NextResponse.json(company.campaign_profile_suggestions);
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
   const prompt =
     `Tu prépares la campagne de prospection B2B d'une entreprise à partir de ce qu'on sait d'elle.\n\n` +
     (summary ? `PROFIL D'ENTREPRISE :\n${summary.slice(0, 8000)}\n\n` : '') +
-    (answersText ? `RÉPONSES DU QUESTIONNAIRE :\n${answersText.slice(0, 6000)}\n\n` : '') +
+    (!summary && answersText ? `RÉPONSES DU QUESTIONNAIRE :\n${answersText.slice(0, 6000)}\n\n` : '') +
     (hint ? `CE QUE L'UTILISATEUR VEND, ET À QUI (en une phrase) : ${hint}\n\n` : '') +
     `Déduis UNIQUEMENT de ces informations (n'invente pas de faits) :\n` +
     `1) "prefill" : la première campagne la plus évidente pour trouver des CLIENTS de cette entreprise :\n` +

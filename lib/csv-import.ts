@@ -31,26 +31,29 @@ export const IMPORT_FIELDS = [
 // en-têtes du fichier importé — aucune IA impliquée ici, juste une liste de
 // correspondances courantes en français/anglais.
 const HEADER_ALIASES = {
-  full_name: ['nom complet', 'nom et prenom', 'name', 'full name', 'fullname', 'contact', 'nom prenom', 'prenom nom'],
+  full_name: ['nom complet', 'nom et prenom', 'name', 'full name', 'fullname', 'contact', 'nom prenom', 'prenom nom', 'nombre', 'nome', 'naam', 'nombre completo', 'nome completo', 'volledige naam'],
   first_name: ['prenom', 'first name', 'firstname', 'given name'],
   last_name: ['nom', 'nom de famille', 'last name', 'lastname', 'surname', 'family name'],
   email: ['email', 'e-mail', 'mail', 'adresse email', 'courriel', 'adresse e-mail'],
-  phone: ['telephone', 'tel', 'phone', 'numero de telephone', 'mobile', 'portable', 'tel.'],
-  company_name: ['entreprise', 'societe', 'company', 'company name', 'organisation', 'organization'],
-  job_title: ['poste', 'fonction', 'job title', 'titre', 'position', 'metier'],
+  phone: ['telephone', 'tel', 'phone', 'numero de telephone', 'mobile', 'portable', 'tel.', 'telefono', 'telefoon', 'telefon', 'telemovel', 'handy', 'cellulare', 'movil'],
+  company_name: ['entreprise', 'societe', 'company', 'company name', 'organisation', 'organization', 'empresa', 'azienda', 'firma', 'unternehmen', 'bedrijf', 'societa'],
+  job_title: ['poste', 'fonction', 'job title', 'titre', 'position', 'metier', 'puesto', 'cargo', 'funzione', 'ruolo', 'functie', 'funktion', 'title', 'job', 'role'],
   // Colonne d'étape (demande Alex, 01/09/2026) : le fichier d'un commercial
   // contient rarement que des prospects froids — il mélange ses clients
   // actuels (à ne JAMAIS redémarcher), ses affaires en cours et ses contacts
   // perdus. Sans cette colonne, tout entrait en « en cours » et Aaron
   // risquait d'envoyer un email de prospection à un client existant.
-  pipeline_stage: ['progression', 'etape', 'statut', 'stage', 'status', 'categorie', 'category', 'type de contact', 'pipeline'],
+  pipeline_stage: ['progression', 'etape', 'statut', 'stage', 'status', 'categorie', 'category', 'type de contact', 'pipeline', 'etapa', 'fase', 'phase'],
   address: ['adresse', 'address', 'adresse postale', 'indirizzo', 'direccion', 'morada', 'adres', 'anschrift', 'street'],
   siret: ['siret', 'siren', 'numero siret', 'registration number', 'company number', 'abn', 'handelsregisternummer', 'numero di registrazione', 'numero de registro', 'numero de registo', 'registratienummer', 'kvk'],
   website: ['site web', 'site internet', 'website', 'webseite', 'sito web', 'sitio web', 'site'],
   industry: ["secteur d'activite", 'secteur', 'activite', 'industry', 'branche', 'settore', 'sector', 'setor'],
   company_size: ["taille de l'entreprise", 'taille', 'effectif', 'company size', 'size', 'employees', 'unternehmensgrosse', 'dimensione azienda', 'tamano de la empresa', 'dimensao da empresa', 'bedrijfsgrootte'],
   estimated_revenue: ['ca estime', "chiffre d'affaires", 'estimated revenue', 'revenue', 'turnover', 'umsatz', 'fatturato', 'facturacion', 'faturacao', 'omzet'],
-  company_linkedin_url: ["page linkedin de l'entreprise", 'page linkedin', 'linkedin entreprise', 'linkedin societe', 'company linkedin', 'linkedin company', 'linkedin page', 'linkedin seite', 'pagina linkedin'],
+  // Toutes les variantes du modèle téléchargeable (7 langues), puis des
+  // mots « société » : une colonne LinkedIn qui parle de l'entreprise est la
+  // page de l'entreprise, toute autre colonne LinkedIn est celle du contact.
+  company_linkedin_url: ["page linkedin de l'entreprise", 'company linkedin page', 'linkedin seite der firma', "pagina linkedin dell'azienda", 'pagina de linkedin de la empresa', 'pagina linkedin da empresa', 'linkedin pagina van het bedrijf', 'page linkedin', 'linkedin entreprise', 'linkedin societe', 'company linkedin', 'linkedin company', 'linkedin page', 'entreprise', 'societe', 'company', 'firma', 'azienda', 'empresa', 'bedrijf'],
   company_instagram_url: ["instagram de l'entreprise", 'instagram', 'compte instagram', 'instagram entreprise', 'company instagram'],
   linkedin_url: ['linkedin (contact)', 'linkedin', 'profil linkedin', 'linkedin contact', 'linkedin profile', 'linkedin url', 'linkedin profil', 'profilo linkedin', 'perfil de linkedin', 'perfil linkedin', 'linkedin profiel'],
 };
@@ -159,28 +162,37 @@ export function autoMapColumns(headers) {
   const usedCols = new Set();
   const mapping = {};
 
-  IMPORT_FIELDS.forEach((field) => {
-    const aliases = HEADER_ALIASES[field] || [];
-    let foundIdx = null;
-    for (let i = 0; i < normalized.length; i++) {
-      if (usedCols.has(i)) continue;
-      if (aliases.includes(normalized[i])) {
-        foundIdx = i;
-        break;
-      }
-    }
-    if (foundIdx === null) {
+  // 22/10/2026 (relecture) : les colonnes LinkedIn/Instagram sont réservées
+  // AVANT tout le reste. Sans ça, l'alias « contact » du nom complet prenait
+  // la colonne « LinkedIn (contact) » du modèle téléchargeable (le lien
+  // atterrissait dans le nom du contact). Les autres champs ne peuvent plus
+  // prendre une colonne qui parle de LinkedIn ou d'Instagram.
+  const SOCIAL_FIELDS = ['company_linkedin_url', 'company_instagram_url', 'linkedin_url'];
+  const isSocialHeader = (h) => h.includes('linkedin') || h.includes('instagram');
+  const order = [...SOCIAL_FIELDS, ...IMPORT_FIELDS.filter((f) => !SOCIAL_FIELDS.includes(f))];
+
+  // Deux passes GLOBALES (22/10/2026) : d'abord toutes les correspondances
+  // exactes, puis les partielles. Avant, le nom complet prenait « First
+  // name » par correspondance partielle (alias « name ») avant même que le
+  // prénom n'ait cherché sa correspondance exacte.
+  order.forEach((field) => { mapping[field] = null; });
+  for (const exact of [true, false]) {
+    order.forEach((field) => {
+      if (mapping[field] !== null) return;
+      const aliases = HEADER_ALIASES[field] || [];
+      const social = SOCIAL_FIELDS.includes(field);
       for (let i = 0; i < normalized.length; i++) {
         if (usedCols.has(i)) continue;
-        if (aliases.some((a) => normalized[i].includes(a))) {
-          foundIdx = i;
+        if (social ? !isSocialHeader(normalized[i]) : isSocialHeader(normalized[i])) continue;
+        const hit = exact ? aliases.includes(normalized[i]) : aliases.some((a) => normalized[i].includes(a));
+        if (hit) {
+          mapping[field] = i;
+          usedCols.add(i);
           break;
         }
       }
-    }
-    mapping[field] = foundIdx;
-    if (foundIdx !== null) usedCols.add(foundIdx);
-  });
+    });
+  }
 
   return mapping;
 }

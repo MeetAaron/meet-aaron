@@ -668,6 +668,15 @@ export default function DashboardPage() {
   // ligne mène à Mon compte > Connexion (QR code pour le téléphone).
   const checklistConnexionHref = `/app/connexions?user_id=${userId}&tab=connection`;
   const onboardingSteps = [
+    // Fiche entreprise sautée dans le parcours (ou génération ratée) : seul
+    // rappel restant, sinon Aaron écrit sans savoir ce que vend le client
+    // (relecture 22/10).
+    !businessSummaryDone && {
+      key: 'profile',
+      done: false,
+      label: t('dash.onboardingStepProfile', locale),
+      href: `/app/chat?user_id=${userId}&restart_questionnaire=1`,
+    },
     !emailConnected && {
       key: 'email',
       done: false,

@@ -68,7 +68,9 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
         email,
         phone,
         job_title: jobTitle,
-        linkedin_url: linkedinUrl,
+        // Envoyé seulement s'il a changé (relecture 22/10) : un ancien lien
+        // mal formé ne doit pas bloquer la modification du téléphone.
+        ...(linkedinUrl.trim() !== (current.linkedin_url || '') ? { linkedin_url: linkedinUrl } : {}),
       }),
     });
     setSaving(false);

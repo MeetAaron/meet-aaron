@@ -110,6 +110,18 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     return NextResponse.json({ error: 'Prospect introuvable' }, { status: 404 });
   }
 
+  // Contrôle d'accès COMMUN à toutes les actions (22/10/2026, relecture de
+  // code) : approuver_sauvetage et rejeter_sauvetage n'en avaient aucun —
+  // quiconque connaissait l'identifiant d'un prospect pouvait déclencher ou
+  // annuler l'email de sauvetage sans être connecté. Désormais : utilisateur
+  // connecté, et propriétaire du prospect ou membre de la même société. Les
+  // actions qui exigent le propriétaire gardent en plus leur propre contrôle.
+  const gateUser = await getAuthedUser(request);
+  if (!gateUser) return unauthorizedResponse();
+  if (gateUser.id !== prospect.assigned_user_id && gateUser.company_id !== prospect.company_id) {
+    return forbiddenResponse();
+  }
+
   if (action === 'approuver_sauvetage') {
     if (!prospect.rescue_proposal_subject || !prospect.rescue_proposal_body) {
       return NextResponse.json({ error: 'Aucune tentative de sauvetage en attente' }, { status: 400 });
