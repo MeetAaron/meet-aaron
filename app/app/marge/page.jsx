@@ -71,6 +71,35 @@ export default function MargePage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Solde Anthropic (22/10/2026) : voir lib/api-balance.ts et le cron
+  // /api/cron/api-balance-alert (push à 10 puis 3 jours d'autonomie).
+  const [balance, setBalance] = useState(null);
+  const [balanceInput, setBalanceInput] = useState('');
+  const [balanceSaving, setBalanceSaving] = useState(false);
+  const [balanceError, setBalanceError] = useState(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch('/api/admin/api-balance')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (b?.status) setBalance(b.status); })
+      .catch(() => {});
+  }, [userId]);
+
+  async function saveBalance() {
+    setBalanceSaving(true);
+    setBalanceError(null);
+    const r = await fetch('/api/admin/api-balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ balance_usd: balanceInput }),
+    }).catch(() => null);
+    const b = r ? await r.json().catch(() => ({})) : {};
+    setBalanceSaving(false);
+    if (!r || !r.ok) { setBalanceError(b.error || 'Enregistrement impossible'); return; }
+    setBalance(b.status);
+    setBalanceInput('');
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -159,6 +188,46 @@ export default function MargePage() {
               de l'encaissement. L'inscription devient aussi obligatoire si tu <em>prévois</em> de
               franchir le seuil dans les 12 mois. Je ne suis pas comptable — fais confirmer.
             </p>
+          </section>
+
+          {/* ---------------------------------------------------------------
+              SOLDE ANTHROPIC (22/10/2026) — à zéro, Aaron s'arrête pour TOUS
+              les clients. Tu saisis le solde lu dans la console Anthropic
+              (après chaque recharge) ; Aaron déduit ce qui a été consommé
+              depuis et te prévient à 10 puis 3 jours d'autonomie.
+          --------------------------------------------------------------- */}
+          <section className={`gst gst-${!balance?.configured ? 'unknown' : balance.daysLeft !== null && balance.daysLeft <= 3 ? 'due' : balance.daysLeft !== null && balance.daysLeft <= 10 ? 'warn' : 'ok'}`}>
+            <div className="gst-head">
+              <span className="gst-icon"><Ic name={balance?.configured && (balance.daysLeft === null || balance.daysLeft > 10) ? 'checkCircle' : 'alert'} size={18} /></span>
+              <div className="gst-title-wrap">
+                <h2>Solde Anthropic</h2>
+                <p className="gst-msg">
+                  {!balance?.configured
+                    ? 'Pas encore de solde saisi : saisis celui affiché sur console.anthropic.com (Billing) pour activer l\'alerte.'
+                    : balance.daysLeft === null
+                      ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
+                      : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
+                </p>
+              </div>
+            </div>
+            {balance?.configured && (
+              <p className="gst-foot">
+                Solde saisi : {money(balance.balanceUsd, '$')} le {new Date(balance.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(balance.spentSinceUsd, '$')} (estimation prudente, le jour de la saisie compte en entier).
+              </p>
+            )}
+            <div className="bal-row">
+              <input
+                className="bal-input"
+                inputMode="decimal"
+                placeholder="Nouveau solde en $ (ex. 85.40)"
+                value={balanceInput}
+                onChange={(e) => setBalanceInput(e.target.value)}
+              />
+              <button type="button" className="bal-btn" disabled={balanceSaving || !balanceInput.trim()} onClick={saveBalance}>
+                {balanceSaving ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+            {balanceError && <p className="err">{balanceError}</p>}
           </section>
 
           {/* Trois chiffres, pas plus : ce qui est rentré, ce qui est sorti,
@@ -265,6 +334,10 @@ export default function MargePage() {
           margin: 1rem 0;
         }
 
+        .bal-row { display: flex; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
+        .bal-input { flex: 1; min-width: 160px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.9rem; }
+        .bal-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 0.55rem 0.9rem; font-weight: 700; cursor: pointer; }
+        .bal-btn:disabled { opacity: 0.55; cursor: default; }
         .gst {
           margin-top: 1.4rem;
           padding: 1.05rem 1.1rem;

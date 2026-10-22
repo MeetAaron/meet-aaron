@@ -3295,6 +3295,23 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                       />
                       <span className="cap-unit">{t('preferences.dailyCapUnit', locale)}</span>
                     </div>
+                    {/* Chauffage de la boîte (22/10/2026) : Aaron monte le volume
+                        tout seul sur 3 semaines pour une boîte récemment liée. */}
+                    {prefs.warmup?.todayCap ? (
+                      <p className="field-hint">
+                        {(({
+                          fr: 'Chauffage de ta boîte en cours : {n} e-mails de prospection maximum aujourd’hui. Aaron augmente seul jusqu’à ton plafond, atteint le {date}.',
+                          en: 'Your mailbox is warming up: at most {n} prospecting emails today. Aaron raises it on his own up to your limit, reached on {date}.',
+                          de: 'Ihr Postfach wird aufgewärmt: heute höchstens {n} Akquise-E-Mails. Aaron erhöht selbst bis zu Ihrem Limit, erreicht am {date}.',
+                          it: 'Riscaldamento della casella in corso: al massimo {n} email di prospezione oggi. Aaron aumenta da solo fino al tuo limite, raggiunto il {date}.',
+                          es: 'Calentamiento del buzón en curso: como máximo {n} emails de prospección hoy. Aaron sube solo hasta tu límite, alcanzado el {date}.',
+                          pt: 'Aquecimento da caixa em curso: no máximo {n} emails de prospeção hoje. O Aaron aumenta sozinho até ao teu limite, atingido a {date}.',
+                          nl: 'Je mailbox wordt opgewarmd: vandaag maximaal {n} prospectie-e-mails. Aaron verhoogt zelf tot je limiet, bereikt op {date}.',
+                        })[locale] || 'Chauffage de ta boîte en cours : {n} e-mails de prospection maximum aujourd’hui. Aaron augmente seul jusqu’à ton plafond, atteint le {date}.')
+                          .replace('{n}', String(Math.min(prefs.warmup.todayCap, Number(prefs.daily_prospecting_email_cap) || prefs.warmup.todayCap)))
+                          .replace('{date}', prefs.warmup.fullFrom ? new Date(`${prefs.warmup.fullFrom}T12:00:00Z`).toLocaleDateString((locale || 'fr').replace('_', '-'), { day: 'numeric', month: 'long' }) : '')}
+                      </p>
+                    ) : null}
                     <SaveBar keys={['daily_prospecting_email_cap']} />
                   </div>
                 </div>

@@ -27,6 +27,7 @@
 // plausibles (event.data.id, event.data.signature_request.id, event.id).
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { handOverWonProspect } from '@/lib/prospect-handover';
@@ -43,15 +44,48 @@ function extractSignatureRequestId(event: any): string | null {
   );
 }
 
+// AUTHENTIFICATION (22/10/2026, dette CASA « secret dans l'URL ») :
+//   1. préférée : signature HMAC-SHA256 du corps brut, envoyée par Youtrust
+//      (ex-Yousign) dans l'en-tête X-Yousign-Signature-256 (ou
+//      X-Youtrust-Signature-256), au format « sha256=<hex> », calculée avec le
+//      secret du webhook = YOUTRUST_WEBHOOK_SECRET. Le secret ne voyage plus
+//      dans l'URL (donc plus dans les journaux d'accès).
+//   2. héritée, gardée pour ne rien casser tant que l'URL du webhook n'a pas
+//      été changée côté Youtrust : ?secret=… dans l'URL. Comparaison en temps
+//      constant. À retirer une fois la signature constatée dans les journaux
+//      (« youtrust webhook: signature » ).
+function constantTimeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
+
+function signatureValid(rawBody: string, header: string | null, secret: string): boolean {
+  if (!header) return false;
+  const received = header.trim().replace(/^sha256=/i, '');
+  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
+  return constantTimeEqual(received.toLowerCase(), expected);
+}
+
 export async function POST(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.YOUTRUST_WEBHOOK_SECRET || secret !== process.env.YOUTRUST_WEBHOOK_SECRET) {
+  const webhookSecret = process.env.YOUTRUST_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+  const rawBody = await request.text();
+  const sigHeader = request.headers.get('x-yousign-signature-256') || request.headers.get('x-youtrust-signature-256');
+  const urlSecret = request.nextUrl.searchParams.get('secret');
+  if (signatureValid(rawBody, sigHeader, webhookSecret)) {
+    console.info('youtrust webhook: signature');
+  } else if (urlSecret && constantTimeEqual(urlSecret, webhookSecret)) {
+    console.info('youtrust webhook: url-secret (hérité)');
+  } else {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
   let event: any;
   try {
-    event = await request.json();
+    event = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: 'Payload JSON invalide' }, { status: 400 });
   }

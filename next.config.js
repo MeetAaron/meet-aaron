@@ -49,6 +49,29 @@ const nextConfig = {
           // DENY et non SAMEORIGIN : rien chez nous ne s'encadre soi-même.
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+          // CSP EN MODE RAPPORT (22/10/2026) — l'étape annoncée plus haut :
+          // le navigateur n'en bloque RIEN, il signale seulement à
+          // /api/csp-report ce qu'une vraie CSP aurait bloqué. Après quelques
+          // jours de rapports, on saura quelles sources ajouter avant de
+          // l'appliquer pour de bon. 'unsafe-inline' sur les styles : styled-jsx.
+          {
+            key: 'Content-Security-Policy-Report-Only',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' data: https://fonts.gstatic.com",
+              "img-src 'self' data: blob: https:",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+              "frame-src 'self' https://js.stripe.com https://checkout.stripe.com",
+              "worker-src 'self' blob:",
+              "manifest-src 'self'",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self' https://checkout.stripe.com",
+              'report-uri /api/csp-report',
+            ].join('; '),
+          },
           // Les URL de l'application portent parfois des identifiants en
           // paramètre ; elles ne doivent pas fuiter vers les sites tiers que
           // le commercial ouvre depuis une fiche prospect.

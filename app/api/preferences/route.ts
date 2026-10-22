@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { readJsonBody, serverError } from '@/lib/http';
+import { warmupStatus } from '@/lib/messaging';
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -62,6 +63,15 @@ export async function GET(request: NextRequest) {
 
   const { ics_feed_token, ...userWithoutIcsToken } = user;
 
+  // Montée en charge de la boîte d'envoi (22/10/2026) : affichée dans
+  // Connexions à côté du plafond quotidien. Best-effort.
+  let warmup: { todayCap: number | null; day: number | null; fullFrom: string | null } | null = null;
+  try {
+    warmup = await warmupStatus(userId);
+  } catch {
+    warmup = null;
+  }
+
   return NextResponse.json({
     preferences: {
       ...userWithoutIcsToken,
@@ -76,6 +86,7 @@ export async function GET(request: NextRequest) {
       // n'existe pas encore (migration_aaron_archive_threads_2026-09-01.sql).
       aaron_archive_threads: (user as any).aaron_archive_threads !== false,
       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
+      warmup,
       // Lien de visio permanent (10/09/2026) : null tant que la migration
       // n'est pas passée, le champ s'affiche simplement vide.
       meeting_link: (user as any).meeting_link ?? null,

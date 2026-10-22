@@ -200,33 +200,66 @@ function todayISODate(): string {
 //
 // Le plafond effectif est le PLUS PETIT des deux (montee en charge et plafond
 // configure) : un commercial qui a baisse son plafond a 10 garde 10.
+//
+// 22/10/2026 (chauffage des nouvelles boites, demande d'Alex) : rampe allongee
+// a 3 semaines (8 → 12 → 20 → 30 → plafond), et l'age se compte aussi depuis
+// la LIAISON de la boite : une nouvelle boite (nouveau siege, ou boite
+// remplacee dans Connexions) repart du debut, meme si le commercial envoyait
+// deja depuis une autre boite. On retient le plus jeune des deux ages.
 const WARMUP_STEPS: { untilDay: number; cap: number }[] = [
   { untilDay: 2,  cap: 8 },   // J0 a J2
-  { untilDay: 6,  cap: 15 },  // J3 a J6
-  { untilDay: 13, cap: 25 },  // J7 a J13
+  { untilDay: 6,  cap: 12 },  // J3 a J6
+  { untilDay: 13, cap: 20 },  // J7 a J13
+  { untilDay: 20, cap: 30 },  // J14 a J20
 ];
+const WARMUP_LAST_DAY = WARMUP_STEPS[WARMUP_STEPS.length - 1].untilDay;
 
-export async function warmupCapFor(userId: string): Promise<number | null> {
-  const { data, error } = await supabaseAdmin
+// Age (en jours) de la boite d'envoi : le plus jeune entre le premier jour
+// d'envoi enregistre et la liaison la plus recente. null = inconnu.
+async function sendingMailboxAgeDays(userId: string): Promise<number | null> {
+  const today = new Date(`${todayISODate()}T00:00:00Z`).getTime();
+  const ages: number[] = [];
+  const { data: first, error } = await supabaseAdmin
     .from('email_send_counters')
     .select('day')
     .eq('user_id', userId)
     .order('day', { ascending: true })
     .limit(1)
     .maybeSingle();
+  if (error) return null;
+  ages.push(first?.day ? Math.max(0, Math.round((today - new Date(`${first.day}T00:00:00Z`).getTime()) / 86400000)) : 0);
+  const { data: conn } = await supabaseAdmin
+    .from('oauth_connections')
+    .select('created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (conn?.created_at) {
+    const linked = new Date(String(conn.created_at).slice(0, 10) + 'T00:00:00Z').getTime();
+    ages.push(Math.max(0, Math.round((today - linked) / 86400000)));
+  }
+  return Math.min(...ages);
+}
+
+// Etat de la montee en charge, pour l'afficher au commercial (Connexions).
+export async function warmupStatus(userId: string): Promise<{ todayCap: number | null; day: number | null; fullFrom: string | null }> {
+  const age = await sendingMailboxAgeDays(userId);
+  if (age === null || age > WARMUP_LAST_DAY) return { todayCap: null, day: age, fullFrom: null };
+  const step = WARMUP_STEPS.find((st) => age <= st.untilDay)!;
+  const fullFrom = new Date(Date.now() + (WARMUP_LAST_DAY + 1 - age) * 86400000).toISOString().slice(0, 10);
+  return { todayCap: step.cap, day: age, fullFrom };
+}
+
+export async function warmupCapFor(userId: string): Promise<number | null> {
   // Table absente ou illisible : on ne bride pas, le plafond configure
   // s'applique seul (on ne bloque jamais un envoi sur une incertitude).
-  if (error) return null;
-  if (!data?.day) return WARMUP_STEPS[0].cap; // aucun envoi encore : premier jour
-
-  const firstDay = new Date(`${data.day}T00:00:00Z`).getTime();
-  const today = new Date(`${todayISODate()}T00:00:00Z`).getTime();
-  const age = Math.max(0, Math.round((today - firstDay) / 86400000));
-
+  const age = await sendingMailboxAgeDays(userId);
+  if (age === null) return null;
   for (const step of WARMUP_STEPS) {
     if (age <= step.untilDay) return step.cap;
   }
-  return null; // au-dela de J13 : plus de bridage
+  return null; // au-dela de la rampe : plus de bridage
 }
 
 // Plafond reellement applique aujourd'hui pour ce commercial.
