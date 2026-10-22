@@ -1,12 +1,17 @@
-# Scan des dépendances (CASA 6.1.1, 19/10/2026) : « l'application n'utilise
-# que des composants sans vulnérabilité exploitable connue ».
+# Scan des dépendances (CASA 6.1.1) : « l'application n'utilise que des
+# composants sans vulnérabilité exploitable connue ».
 #
-# Le dépôt n'a pas de lockfile (Vercel résout les versions à chaque build) :
-# ce workflow en génère un sur une machine GitHub, lance `npm audit` dessus
-# et ÉCHOUE s'il reste une vulnérabilité de sévérité haute ou critique. Il
-# tourne chaque lundi, à chaque changement de package.json, et à la demande.
-# Le rapport JSON et le lockfile sont publiés en artefacts du run, pour le
-# dossier CASA.
+# Depuis le 22/10/2026, package-lock.json est COMMITÉ (passage à Next 15) :
+# le scan porte sur les versions exactes que Vercel installe. Deux audits :
+#   1. PRODUCTION (`npm audit --omit=dev`) : BLOQUANT. Le run échoue s'il
+#      reste une vulnérabilité high ou critique dans ce qui part en
+#      production.
+#   2. COMPLET (outils de construction compris) : informatif, publié dans
+#      le résumé du run et en artefact, pour que rien ne soit caché. Les
+#      paquets "dev": true (Tailwind, PostCSS de construction, etc.) ne
+#      s'exécutent qu'au build, sur notre propre code source.
+# Il tourne chaque lundi, à chaque changement de package.json ou du
+# lockfile, et à la demande. Dependabot ouvre en plus les PR de sécurité.
 name: Dependency audit
 
 on:
@@ -15,7 +20,7 @@ on:
     - cron: "17 5 * * 1"
   push:
     branches: [main]
-    paths: ["package.json", ".github/workflows/dependency-audit.yml"]
+    paths: ["package.json", "package-lock.json", ".github/workflows/dependency-audit.yml"]
 
 permissions:
   contents: read
@@ -28,12 +33,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
-      - name: Résoudre les dépendances (lockfile)
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-
-      - name: Versions résolues
+      - name: Versions résolues (lockfile commité)
         run: |
           node -e '
             const l = require("./package-lock.json");
@@ -44,42 +46,56 @@ jobs:
             }
           '
 
-      - name: npm audit (échec si haute/critique)
+      - name: Audit complet (informatif)
+        run: |
+          set +e
+          npm audit --json > audit-full.json
+          node -e '
+            const a = require("./audit-full.json");
+            const l = require("./package-lock.json");
+            const m = a.metadata && a.metadata.vulnerabilities || {};
+            console.log("Complet :", JSON.stringify(m));
+            for (const [name, v] of Object.entries(a.vulnerabilities || {})) {
+              const where = (v.nodes || []).map(n => n + (l.packages[n] && l.packages[n].dev ? " [dev]" : " [PROD]")).join(", ");
+              console.log("-", name, v.severity, v.range, "|", where);
+            }
+          '
+          exit 0
+
+      - name: Audit production (BLOQUANT si high/critique)
         id: audit
         run: |
           set +e
-          npm audit --audit-level=high --json > audit.json
+          npm audit --omit=dev --audit-level=high --json > audit.json
           code=$?
           node -e '
             const a = require("./audit.json");
             const m = a.metadata && a.metadata.vulnerabilities || {};
-            console.log("Vulnérabilités :", JSON.stringify(m));
+            console.log("Production :", JSON.stringify(m));
             for (const [name, v] of Object.entries(a.vulnerabilities || {})) {
-              console.log("-", name, v.severity, v.range, "fixAvailable=" + JSON.stringify(v.fixAvailable), "direct=" + v.isDirect, "effects=" + (v.effects || []).join(","));
+              console.log("-", name, v.severity, v.range, "fixAvailable=" + JSON.stringify(v.fixAvailable));
               for (const x of v.via || []) {
                 if (typeof x === "string") { console.log("    via", x); continue; }
                 console.log("    *", x.severity, x.title, "| range", x.range, "|", x.url);
               }
             }
           '
-          echo "::group::npm audit (texte)"
-          npm audit --audit-level=high || true
-          echo "::endgroup::"
           echo "## npm audit — $(date -u +%Y-%m-%d)" >> "$GITHUB_STEP_SUMMARY"
           node -e '
-            const a = require("./audit.json");
-            const m = a.metadata && a.metadata.vulnerabilities || {};
-            console.log("| critical | high | moderate | low | total |");
-            console.log("|---|---|---|---|---|");
-            console.log(`| ${m.critical||0} | ${m.high||0} | ${m.moderate||0} | ${m.low||0} | ${m.total||0} |`);
+            const row = (label, f) => { const m = (require(f).metadata || {}).vulnerabilities || {}; return `| ${label} | ${m.critical||0} | ${m.high||0} | ${m.moderate||0} | ${m.low||0} | ${m.total||0} |`; };
+            console.log("| scope | critical | high | moderate | low | total |");
+            console.log("|---|---|---|---|---|---|");
+            console.log(row("production (bloquant)", "./audit.json"));
+            console.log(row("complet, outils de build compris (informatif)", "./audit-full.json"));
           ' >> "$GITHUB_STEP_SUMMARY"
           exit $code
 
-      - name: Publier le rapport et le lockfile
+      - name: Publier les rapports et le lockfile
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dependency-audit-${{ github.run_number }}
           path: |
             audit.json
+            audit-full.json
             package-lock.json

@@ -1,0 +1,74 @@
+# Correctif de dépendance postcss (CASA 6.1.1, 22/10/2026) — voir
+# scripts/casa/deps-fix.mjs.
+#
+# Même principe que next15-upgrade.yml : l'environnement de Claude n'a pas
+# accès au registre npm, et rien ne doit arriver sur main sans avoir été
+# construit. Ce workflow, lancé à la main : applique l'override, régénère
+# package-lock.json, CONSTRUIT l'application (type-check actif), vérifie
+# qu'il ne reste AUCUNE vulnérabilité high/critique dans les dépendances de
+# production, et seulement alors pousse sur main.
+name: Deps fix (postcss)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+      TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      ANTHROPIC_API_KEY: placeholder
+      OPENAI_API_KEY: placeholder
+      CRON_SECRET: placeholder
+      APP_URL: https://meetaaron.app
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Override postcss
+        run: node scripts/casa/deps-fix.mjs
+
+      - name: Installer (régénère package-lock.json)
+        run: npm install --no-audit --no-fund
+
+      - name: Copies de postcss résolues
+        run: npm ls postcss --all || true
+
+      - name: Construire (next build, type-check actif)
+        run: npm run build
+
+      - name: Audit production (BLOQUANT si high/critique)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit complet (informatif)
+        run: npm audit || true
+
+      - name: Pousser sur main
+        run: |
+          rm -rf .next
+          git config user.name "Claude"
+          git config user.email "noreply@anthropic.com"
+          git add package.json package-lock.json
+          git commit \
+            -m "Dépendances : postcss forcé en ^8.5.31 dans Next.js (CASA 6.1.1)" \
+            -m "Next 15 embarquait postcss 8.4.31 (GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849). Appliqué par scripts/casa/deps-fix.mjs via le workflow deps-fix, après construction réussie et audit production à 0 high/critique." \
+            -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" \
+            -m "Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf" \
+            || echo "rien à committer"
+          git push origin main
