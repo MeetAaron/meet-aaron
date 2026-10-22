@@ -1,0 +1,718 @@
+From d0793cd139091f2f7454808b83af4cb9f652b216 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 08:15:46 +0000
+Subject: [PATCH] =?UTF-8?q?Chauffage=20des=20bo=C3=AEtes=20sur=203=20semai?=
+ =?UTF-8?q?nes,=20alerte=20solde=20Anthropic,=20signature=20Youtrust,=20CS?=
+ =?UTF-8?q?P=20en=20mode=20rapport?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Chauffage (lib/messaging.ts) : la montée en charge existait déjà (2
+  semaines, d'après le premier envoi). Elle passe à 3 semaines (8 → 12 → 20
+  → 30 → plafond) et compte aussi depuis la LIAISON de la boîte : une
+  nouvelle boîte repart du début. Affichée dans Connexions sous le plafond
+  quotidien (« chauffage en cours : N aujourd'hui, plafond atteint le … »).
+- Alerte solde Anthropic (option A) : Alex saisit le solde lu dans la console
+  dans /app/marge ; lib/api-balance.ts déduit la consommation depuis et
+  l'autonomie au rythme des 7 derniers jours ; cron quotidien
+  /api/cron/api-balance-alert : push + email à 10 puis 3 jours, une fois par
+  solde saisi. Table api_balance_snapshots (migration_solde_api_2026-10-22.sql).
+- Webhook Youtrust : signature HMAC-SHA256 de l'en-tête
+  X-Yousign-Signature-256 acceptée (secret hors de l'URL) ; l'ancien
+  ?secret= reste accepté (comparaison en temps constant) le temps de changer
+  l'URL côté Youtrust.
+- Content-Security-Policy-Report-Only + /api/csp-report (journal sans
+  paramètres d'URL) : rien n'est bloqué, on mesure avant d'appliquer.
+- vercel.json : pas de déploiement Vercel pour la branche « patches ».
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/admin/api-balance/route.ts      | 54 +++++++++++++++
+ app/api/cron/api-balance-alert/route.ts | 64 ++++++++++++++++++
+ app/api/csp-report/route.ts             | 45 +++++++++++++
+ app/api/preferences/route.ts            | 11 +++
+ app/api/webhooks/youtrust/route.ts      | 40 ++++++++++-
+ app/app/connexions/page.jsx             | 17 +++++
+ app/app/marge/page.jsx                  | 73 ++++++++++++++++++++
+ lib/api-balance.ts                      | 89 +++++++++++++++++++++++++
+ lib/messaging.ts                        | 55 ++++++++++++---
+ migration_solde_api_2026-10-22.sql      | 16 +++++
+ next.config.js                          | 23 +++++++
+ vercel.json                             |  7 +-
+ 12 files changed, 479 insertions(+), 15 deletions(-)
+ create mode 100644 app/api/admin/api-balance/route.ts
+ create mode 100644 app/api/cron/api-balance-alert/route.ts
+ create mode 100644 app/api/csp-report/route.ts
+ create mode 100644 lib/api-balance.ts
+ create mode 100644 migration_solde_api_2026-10-22.sql
+
+diff --git a/app/api/admin/api-balance/route.ts b/app/api/admin/api-balance/route.ts
+new file mode 100644
+index 0000000..d6746a3
+--- /dev/null
++++ b/app/api/admin/api-balance/route.ts
+@@ -0,0 +1,54 @@
++// app/api/admin/api-balance/route.ts
++// Solde du compte Anthropic d'Alex et autonomie estimée (22/10/2026) — voir
++// lib/api-balance.ts. RÉSERVÉ AU COMPTE FONDATEUR, double authentification
++// obligatoire, même garde-fou que /api/admin/margin.
++// GET  -> état (solde saisi, dépensé depuis, reste, jours d'autonomie)
++// POST -> { balance_usd } : nouveau solde lu dans la console Anthropic
++//         (après une recharge) ; remet les alertes à zéro.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
++import { getBalanceStatus } from '@/lib/api-balance';
++import { readJsonBody, serverError } from '@/lib/http';
++
++const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
++
++async function guard(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return { error: unauthorizedResponse() };
++  if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return { error: forbiddenResponse() };
++  const mfa = requireMfa(authedUser);
++  if (mfa) return { error: mfa };
++  return { user: authedUser };
++}
++
++export async function GET(request: NextRequest) {
++  const g = await guard(request);
++  if (g.error) return g.error;
++  try {
++    return NextResponse.json({ status: await getBalanceStatus() });
++  } catch (err) {
++    return serverError(err, '/api/admin/api-balance');
++  }
++}
++
++export async function POST(request: NextRequest) {
++  const g = await guard(request);
++  if (g.error) return g.error;
++  const body: any = await readJsonBody(request);
++  const balance = Number(String(body?.balance_usd ?? '').replace(',', '.'));
++  if (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000) {
++    return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
++  }
++  const { error } = await supabaseAdmin
++    .from('api_balance_snapshots')
++    .insert({ provider: 'anthropic', balance_usd: Math.round(balance * 100) / 100, as_of: new Date().toISOString() });
++  if (error) {
++    if ((error as any).code === '42P01') {
++      return NextResponse.json({ error: 'Table api_balance_snapshots absente : lance migration_solde_api_2026-10-22.sql' }, { status: 409 });
++    }
++    return serverError(error, '/api/admin/api-balance');
++  }
++  return NextResponse.json({ status: await getBalanceStatus() });
++}
+diff --git a/app/api/cron/api-balance-alert/route.ts b/app/api/cron/api-balance-alert/route.ts
+new file mode 100644
+index 0000000..0b2db8a
+--- /dev/null
++++ b/app/api/cron/api-balance-alert/route.ts
+@@ -0,0 +1,64 @@
++// app/api/cron/api-balance-alert/route.ts
++// Tous les jours : prévient Alex quand son solde Anthropic ne couvre plus que
++// 10 jours, puis 3 jours, de consommation moyenne (22/10/2026) — voir
++// lib/api-balance.ts. Une seule alerte par seuil et par solde saisi : une
++// nouvelle saisie dans /app/marge (après recharge) remet les compteurs à zéro.
++// Notification push sur les appareils du compte fondateur + email système à
++// l'adresse d'alerte opérateur.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getBalanceStatus } from '@/lib/api-balance';
++import { sendPushNotification } from '@/lib/push';
++import { sendSystemEmail } from '@/lib/google';
++import { serverError } from '@/lib/http';
++
++export const dynamic = 'force-dynamic';
++
++const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
++const OPERATOR_EMAIL = process.env.OPERATOR_ALERT_EMAIL || 'aaron@meetaaron.app';
++
++function isAuthorized(request: NextRequest) {
++  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
++}
++
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) {
++    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++  }
++  try {
++    const st = await getBalanceStatus();
++    if (!st.configured || st.daysLeft === null || !st.snapshotId) {
++      return NextResponse.json({ checked: true, configured: st.configured, daysLeft: st.daysLeft });
++    }
++
++    // Seuil le plus grave atteint et pas encore signalé pour ce solde.
++    let level: 3 | 10 | null = null;
++    if (st.daysLeft <= 3 && !st.alerted3At) level = 3;
++    else if (st.daysLeft <= 10 && !st.alerted10At && !st.alerted3At) level = 10;
++    if (!level) return NextResponse.json({ checked: true, daysLeft: st.daysLeft });
++
++    const days = Math.max(0, Math.floor(st.daysLeft));
++    const remaining = Math.max(0, st.remainingUsd || 0).toFixed(2);
++    const title = level === 3 ? 'Solde Anthropic presque vide' : 'Solde Anthropic à recharger';
++    const body =
++      `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
++      `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
++      `Recharge sur console.anthropic.com, puis saisis le nouveau solde dans /app/marge.`;
++
++    const { data: founder } = await supabaseAdmin.from('users').select('id').ilike('email', FOUNDER_EMAIL).maybeSingle();
++    if (founder?.id) {
++      await sendPushNotification(founder.id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
++    }
++    await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
++
++    await supabaseAdmin
++      .from('api_balance_snapshots')
++      .update(level === 3 ? { alerted_3_at: new Date().toISOString() } : { alerted_10_at: new Date().toISOString() })
++      .eq('id', st.snapshotId);
++
++    return NextResponse.json({ alerted: level, daysLeft: st.daysLeft });
++  } catch (err) {
++    return serverError(err, '/api/cron/api-balance-alert');
++  }
++}
+diff --git a/app/api/csp-report/route.ts b/app/api/csp-report/route.ts
+new file mode 100644
+index 0000000..10d1654
+--- /dev/null
++++ b/app/api/csp-report/route.ts
+@@ -0,0 +1,45 @@
++// app/api/csp-report/route.ts
++// Reçoit les rapports de la CSP en mode rapport (next.config.js, 22/10/2026).
++// Rien n'est bloqué côté navigateur : on se contente de journaliser ce
++// qu'une vraie CSP aurait bloqué, pour la régler avant de l'appliquer.
++// Journal minimal et sans données sensibles : directive violée, origine de la
++// ressource bloquée et CHEMIN de la page (jamais les paramètres d'URL, qui
++// peuvent porter des identifiants).
++
++import { NextRequest, NextResponse } from 'next/server';
++
++function originOnly(v: unknown): string {
++  if (typeof v !== 'string' || !v) return '';
++  try {
++    const u = new URL(v);
++    return u.origin;
++  } catch {
++    return v.slice(0, 40); // 'inline', 'eval', 'data'…
++  }
++}
++
++function pathOnly(v: unknown): string {
++  if (typeof v !== 'string' || !v) return '';
++  try {
++    return new URL(v).pathname.slice(0, 120);
++  } catch {
++    return '';
++  }
++}
++
++export async function POST(request: NextRequest) {
++  try {
++    const text = (await request.text()).slice(0, 10_000);
++    const body = JSON.parse(text);
++    const r = body?.['csp-report'] || body?.[0]?.body || body || {};
++    console.warn(
++      '[csp-report]',
++      r['violated-directive'] || r.effectiveDirective || r['effective-directive'] || '?',
++      originOnly(r['blocked-uri'] || r.blockedURL),
++      pathOnly(r['document-uri'] || r.documentURL)
++    );
++  } catch {
++    // rapport illisible : ignoré
++  }
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/app/api/preferences/route.ts b/app/api/preferences/route.ts
+index bb628fa..4a1cfe5 100644
+--- a/app/api/preferences/route.ts
++++ b/app/api/preferences/route.ts
+@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { warmupStatus } from '@/lib/messaging';
+ 
+ export async function GET(request: NextRequest) {
+   const userId = request.nextUrl.searchParams.get('user_id');
+@@ -62,6 +63,15 @@ export async function GET(request: NextRequest) {
+ 
+   const { ics_feed_token, ...userWithoutIcsToken } = user;
+ 
++  // Montée en charge de la boîte d'envoi (22/10/2026) : affichée dans
++  // Connexions à côté du plafond quotidien. Best-effort.
++  let warmup: { todayCap: number | null; day: number | null; fullFrom: string | null } | null = null;
++  try {
++    warmup = await warmupStatus(userId);
++  } catch {
++    warmup = null;
++  }
++
+   return NextResponse.json({
+     preferences: {
+       ...userWithoutIcsToken,
+@@ -76,6 +86,7 @@ export async function GET(request: NextRequest) {
+       // n'existe pas encore (migration_aaron_archive_threads_2026-09-01.sql).
+       aaron_archive_threads: (user as any).aaron_archive_threads !== false,
+       daily_prospecting_email_cap: user.daily_prospecting_email_cap ?? 40,
++      warmup,
+       // Lien de visio permanent (10/09/2026) : null tant que la migration
+       // n'est pas passée, le champ s'affiche simplement vide.
+       meeting_link: (user as any).meeting_link ?? null,
+diff --git a/app/api/webhooks/youtrust/route.ts b/app/api/webhooks/youtrust/route.ts
+index e517772..7e4a1f9 100644
+--- a/app/api/webhooks/youtrust/route.ts
++++ b/app/api/webhooks/youtrust/route.ts
+@@ -27,6 +27,7 @@
+ // plausibles (event.data.id, event.data.signature_request.id, event.id).
+ 
+ import { NextRequest, NextResponse } from 'next/server';
++import { createHmac, timingSafeEqual } from 'crypto';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { autoSyncWonProspect } from '@/lib/crm-sync';
+ import { handOverWonProspect } from '@/lib/prospect-handover';
+@@ -43,15 +44,48 @@ function extractSignatureRequestId(event: any): string | null {
+   );
+ }
+ 
++// AUTHENTIFICATION (22/10/2026, dette CASA « secret dans l'URL ») :
++//   1. préférée : signature HMAC-SHA256 du corps brut, envoyée par Youtrust
++//      (ex-Yousign) dans l'en-tête X-Yousign-Signature-256 (ou
++//      X-Youtrust-Signature-256), au format « sha256=<hex> », calculée avec le
++//      secret du webhook = YOUTRUST_WEBHOOK_SECRET. Le secret ne voyage plus
++//      dans l'URL (donc plus dans les journaux d'accès).
++//   2. héritée, gardée pour ne rien casser tant que l'URL du webhook n'a pas
++//      été changée côté Youtrust : ?secret=… dans l'URL. Comparaison en temps
++//      constant. À retirer une fois la signature constatée dans les journaux
++//      (« youtrust webhook: signature » ).
++function constantTimeEqual(a: string, b: string): boolean {
++  const ba = Buffer.from(a);
++  const bb = Buffer.from(b);
++  return ba.length === bb.length && timingSafeEqual(ba, bb);
++}
++
++function signatureValid(rawBody: string, header: string | null, secret: string): boolean {
++  if (!header) return false;
++  const received = header.trim().replace(/^sha256=/i, '');
++  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
++  return constantTimeEqual(received.toLowerCase(), expected);
++}
++
+ export async function POST(request: NextRequest) {
+-  const secret = request.nextUrl.searchParams.get('secret');
+-  if (!process.env.YOUTRUST_WEBHOOK_SECRET || secret !== process.env.YOUTRUST_WEBHOOK_SECRET) {
++  const webhookSecret = process.env.YOUTRUST_WEBHOOK_SECRET;
++  if (!webhookSecret) {
++    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++  }
++  const rawBody = await request.text();
++  const sigHeader = request.headers.get('x-yousign-signature-256') || request.headers.get('x-youtrust-signature-256');
++  const urlSecret = request.nextUrl.searchParams.get('secret');
++  if (signatureValid(rawBody, sigHeader, webhookSecret)) {
++    console.info('youtrust webhook: signature');
++  } else if (urlSecret && constantTimeEqual(urlSecret, webhookSecret)) {
++    console.info('youtrust webhook: url-secret (hérité)');
++  } else {
+     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+   }
+ 
+   let event: any;
+   try {
+-    event = await request.json();
++    event = JSON.parse(rawBody);
+   } catch {
+     return NextResponse.json({ error: 'Payload JSON invalide' }, { status: 400 });
+   }
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 6f7fe86..21bd7aa 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -3295,6 +3295,23 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+                       />
+                       <span className="cap-unit">{t('preferences.dailyCapUnit', locale)}</span>
+                     </div>
++                    {/* Chauffage de la boîte (22/10/2026) : Aaron monte le volume
++                        tout seul sur 3 semaines pour une boîte récemment liée. */}
++                    {prefs.warmup?.todayCap ? (
++                      <p className="field-hint">
++                        {(({
++                          fr: 'Chauffage de ta boîte en cours : {n} e-mails de prospection maximum aujourd’hui. Aaron augmente seul jusqu’à ton plafond, atteint le {date}.',
++                          en: 'Your mailbox is warming up: at most {n} prospecting emails today. Aaron raises it on his own up to your limit, reached on {date}.',
++                          de: 'Ihr Postfach wird aufgewärmt: heute höchstens {n} Akquise-E-Mails. Aaron erhöht selbst bis zu Ihrem Limit, erreicht am {date}.',
++                          it: 'Riscaldamento della casella in corso: al massimo {n} email di prospezione oggi. Aaron aumenta da solo fino al tuo limite, raggiunto il {date}.',
++                          es: 'Calentamiento del buzón en curso: como máximo {n} emails de prospección hoy. Aaron sube solo hasta tu límite, alcanzado el {date}.',
++                          pt: 'Aquecimento da caixa em curso: no máximo {n} emails de prospeção hoje. O Aaron aumenta sozinho até ao teu limite, atingido a {date}.',
++                          nl: 'Je mailbox wordt opgewarmd: vandaag maximaal {n} prospectie-e-mails. Aaron verhoogt zelf tot je limiet, bereikt op {date}.',
++                        })[locale] || 'Chauffage de ta boîte en cours : {n} e-mails de prospection maximum aujourd’hui. Aaron augmente seul jusqu’à ton plafond, atteint le {date}.')
++                          .replace('{n}', String(Math.min(prefs.warmup.todayCap, Number(prefs.daily_prospecting_email_cap) || prefs.warmup.todayCap)))
++                          .replace('{date}', prefs.warmup.fullFrom ? new Date(`${prefs.warmup.fullFrom}T12:00:00Z`).toLocaleDateString((locale || 'fr').replace('_', '-'), { day: 'numeric', month: 'long' }) : '')}
++                      </p>
++                    ) : null}
+                     <SaveBar keys={['daily_prospecting_email_cap']} />
+                   </div>
+                 </div>
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index c3140de..70ff92b 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -71,6 +71,35 @@ export default function MargePage() {
+   const [data, setData] = useState(null);
+   const [error, setError] = useState(null);
+   const [loading, setLoading] = useState(true);
++  // Solde Anthropic (22/10/2026) : voir lib/api-balance.ts et le cron
++  // /api/cron/api-balance-alert (push à 10 puis 3 jours d'autonomie).
++  const [balance, setBalance] = useState(null);
++  const [balanceInput, setBalanceInput] = useState('');
++  const [balanceSaving, setBalanceSaving] = useState(false);
++  const [balanceError, setBalanceError] = useState(null);
++
++  useEffect(() => {
++    if (!userId) return;
++    fetch('/api/admin/api-balance')
++      .then((r) => (r.ok ? r.json() : null))
++      .then((b) => { if (b?.status) setBalance(b.status); })
++      .catch(() => {});
++  }, [userId]);
++
++  async function saveBalance() {
++    setBalanceSaving(true);
++    setBalanceError(null);
++    const r = await fetch('/api/admin/api-balance', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ balance_usd: balanceInput }),
++    }).catch(() => null);
++    const b = r ? await r.json().catch(() => ({})) : {};
++    setBalanceSaving(false);
++    if (!r || !r.ok) { setBalanceError(b.error || 'Enregistrement impossible'); return; }
++    setBalance(b.status);
++    setBalanceInput('');
++  }
+ 
+   useEffect(() => {
+     if (!userId) return;
+@@ -161,6 +190,46 @@ export default function MargePage() {
+             </p>
+           </section>
+ 
++          {/* ---------------------------------------------------------------
++              SOLDE ANTHROPIC (22/10/2026) — à zéro, Aaron s'arrête pour TOUS
++              les clients. Tu saisis le solde lu dans la console Anthropic
++              (après chaque recharge) ; Aaron déduit ce qui a été consommé
++              depuis et te prévient à 10 puis 3 jours d'autonomie.
++          --------------------------------------------------------------- */}
++          <section className={`gst gst-${!balance?.configured ? 'unknown' : balance.daysLeft !== null && balance.daysLeft <= 3 ? 'due' : balance.daysLeft !== null && balance.daysLeft <= 10 ? 'warn' : 'ok'}`}>
++            <div className="gst-head">
++              <span className="gst-icon"><Ic name={balance?.configured && (balance.daysLeft === null || balance.daysLeft > 10) ? 'checkCircle' : 'alert'} size={18} /></span>
++              <div className="gst-title-wrap">
++                <h2>Solde Anthropic</h2>
++                <p className="gst-msg">
++                  {!balance?.configured
++                    ? 'Pas encore de solde saisi : saisis celui affiché sur console.anthropic.com (Billing) pour activer l\'alerte.'
++                    : balance.daysLeft === null
++                      ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
++                      : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
++                </p>
++              </div>
++            </div>
++            {balance?.configured && (
++              <p className="gst-foot">
++                Solde saisi : {money(balance.balanceUsd, '$')} le {new Date(balance.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(balance.spentSinceUsd, '$')} (estimation prudente, le jour de la saisie compte en entier).
++              </p>
++            )}
++            <div className="bal-row">
++              <input
++                className="bal-input"
++                inputMode="decimal"
++                placeholder="Nouveau solde en $ (ex. 85.40)"
++                value={balanceInput}
++                onChange={(e) => setBalanceInput(e.target.value)}
++              />
++              <button type="button" className="bal-btn" disabled={balanceSaving || !balanceInput.trim()} onClick={saveBalance}>
++                {balanceSaving ? 'Enregistrement…' : 'Enregistrer'}
++              </button>
++            </div>
++            {balanceError && <p className="err">{balanceError}</p>}
++          </section>
++
+           {/* Trois chiffres, pas plus : ce qui est rentré, ce qui est sorti,
+               et le nombre de clients qui paient réellement. */}
+           <section className="tiles">
+@@ -265,6 +334,10 @@ export default function MargePage() {
+           margin: 1rem 0;
+         }
+ 
++        .bal-row { display: flex; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
++        .bal-input { flex: 1; min-width: 160px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.9rem; }
++        .bal-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 0.55rem 0.9rem; font-weight: 700; cursor: pointer; }
++        .bal-btn:disabled { opacity: 0.55; cursor: default; }
+         .gst {
+           margin-top: 1.4rem;
+           padding: 1.05rem 1.1rem;
+diff --git a/lib/api-balance.ts b/lib/api-balance.ts
+new file mode 100644
+index 0000000..546792f
+--- /dev/null
++++ b/lib/api-balance.ts
+@@ -0,0 +1,89 @@
++// lib/api-balance.ts
++// ALERTE DE RECHARGE DU COMPTE ANTHROPIC (22/10/2026, option A validée par
++// Alex — voir claude/a-reprendre-plus-tard.md, chantier 2).
++//
++// Le risque : le solde Anthropic d'Alex sert TOUS les clients à la fois. S'il
++// tombe à zéro, Aaron s'arrête partout en même temps — la panne la plus
++// grave possible, et rien ne la surveillait.
++//
++// Il n'existe pas d'API publique du solde restant (vérifié le 09/10/2026).
++// Alex saisit donc, dans sa vue fondateur /app/marge, le solde affiché par la
++// console Anthropic (après chaque recharge). On en déduit :
++//   reste = solde saisi − dépense comptée depuis cette saisie
++//   autonomie = reste ÷ dépense moyenne des 7 derniers jours complets
++// La dépense vient de api_usage_daily (toutes sociétés). Elle inclut la petite
++// part OpenAI quand OPENAI_API_KEY est posée : l'estimation est donc
++// PRUDENTE (elle surestime légèrement la dépense Anthropic), ce qu'on veut
++// pour une alerte. Le jour de la saisie est compté en entier : même logique.
++
++import { supabaseAdmin } from './supabase-admin';
++
++export interface BalanceStatus {
++  configured: boolean;
++  snapshotId: string | null;
++  balanceUsd: number | null;
++  asOf: string | null;
++  spentSinceUsd: number;
++  remainingUsd: number | null;
++  avgDailyUsd: number;
++  daysLeft: number | null;
++  alerted10At: string | null;
++  alerted3At: string | null;
++}
++
++function isoDay(d: Date): string {
++  return d.toISOString().slice(0, 10);
++}
++
++async function sumUsageSince(fromDay: string, toDayExclusive?: string): Promise<number> {
++  let total = 0;
++  const pageSize = 1000;
++  for (let from = 0; from < 50000; from += pageSize) {
++    let q = supabaseAdmin.from('api_usage_daily').select('cost_usd').gte('date', fromDay);
++    if (toDayExclusive) q = q.lt('date', toDayExclusive);
++    const { data, error } = await q.range(from, from + pageSize - 1);
++    if (error || !data) break;
++    for (const row of data) total += Number((row as any).cost_usd) || 0;
++    if (data.length < pageSize) break;
++  }
++  return total;
++}
++
++export async function getBalanceStatus(): Promise<BalanceStatus> {
++  const now = new Date();
++  const today = isoDay(now);
++  const weekAgo = isoDay(new Date(now.getTime() - 7 * 86400000));
++  const avgDailyUsd = (await sumUsageSince(weekAgo, today)) / 7;
++
++  const { data: snap, error } = await supabaseAdmin
++    .from('api_balance_snapshots')
++    .select('id, balance_usd, as_of, alerted_10_at, alerted_3_at')
++    .eq('provider', 'anthropic')
++    .order('as_of', { ascending: false })
++    .limit(1)
++    .maybeSingle();
++
++  if (error || !snap) {
++    return {
++      configured: false, snapshotId: null, balanceUsd: null, asOf: null, spentSinceUsd: 0,
++      remainingUsd: null, avgDailyUsd, daysLeft: null, alerted10At: null, alerted3At: null,
++    };
++  }
++
++  const spentSinceUsd = await sumUsageSince(isoDay(new Date(snap.as_of)));
++  const balanceUsd = Number(snap.balance_usd) || 0;
++  const remainingUsd = balanceUsd - spentSinceUsd;
++  const daysLeft = avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
++  return {
++    configured: true,
++    snapshotId: snap.id,
++    balanceUsd,
++    asOf: snap.as_of,
++    spentSinceUsd,
++    remainingUsd,
++    avgDailyUsd,
++    daysLeft,
++    alerted10At: snap.alerted_10_at || null,
++    alerted3At: snap.alerted_3_at || null,
++  };
++}
+diff --git a/lib/messaging.ts b/lib/messaging.ts
+index b70e4a5..ef0f892 100644
+--- a/lib/messaging.ts
++++ b/lib/messaging.ts
+@@ -200,33 +200,66 @@ function todayISODate(): string {
+ //
+ // Le plafond effectif est le PLUS PETIT des deux (montee en charge et plafond
+ // configure) : un commercial qui a baisse son plafond a 10 garde 10.
++//
++// 22/10/2026 (chauffage des nouvelles boites, demande d'Alex) : rampe allongee
++// a 3 semaines (8 → 12 → 20 → 30 → plafond), et l'age se compte aussi depuis
++// la LIAISON de la boite : une nouvelle boite (nouveau siege, ou boite
++// remplacee dans Connexions) repart du debut, meme si le commercial envoyait
++// deja depuis une autre boite. On retient le plus jeune des deux ages.
+ const WARMUP_STEPS: { untilDay: number; cap: number }[] = [
+   { untilDay: 2,  cap: 8 },   // J0 a J2
+-  { untilDay: 6,  cap: 15 },  // J3 a J6
+-  { untilDay: 13, cap: 25 },  // J7 a J13
++  { untilDay: 6,  cap: 12 },  // J3 a J6
++  { untilDay: 13, cap: 20 },  // J7 a J13
++  { untilDay: 20, cap: 30 },  // J14 a J20
+ ];
++const WARMUP_LAST_DAY = WARMUP_STEPS[WARMUP_STEPS.length - 1].untilDay;
+ 
+-export async function warmupCapFor(userId: string): Promise<number | null> {
+-  const { data, error } = await supabaseAdmin
++// Age (en jours) de la boite d'envoi : le plus jeune entre le premier jour
++// d'envoi enregistre et la liaison la plus recente. null = inconnu.
++async function sendingMailboxAgeDays(userId: string): Promise<number | null> {
++  const today = new Date(`${todayISODate()}T00:00:00Z`).getTime();
++  const ages: number[] = [];
++  const { data: first, error } = await supabaseAdmin
+     .from('email_send_counters')
+     .select('day')
+     .eq('user_id', userId)
+     .order('day', { ascending: true })
+     .limit(1)
+     .maybeSingle();
+-  // Table absente ou illisible : on ne bride pas, le plafond configure
+-  // s'applique seul (on ne bloque jamais un envoi sur une incertitude).
+   if (error) return null;
+-  if (!data?.day) return WARMUP_STEPS[0].cap; // aucun envoi encore : premier jour
++  ages.push(first?.day ? Math.max(0, Math.round((today - new Date(`${first.day}T00:00:00Z`).getTime()) / 86400000)) : 0);
++  const { data: conn } = await supabaseAdmin
++    .from('oauth_connections')
++    .select('created_at')
++    .eq('user_id', userId)
++    .order('created_at', { ascending: false })
++    .limit(1)
++    .maybeSingle();
++  if (conn?.created_at) {
++    const linked = new Date(String(conn.created_at).slice(0, 10) + 'T00:00:00Z').getTime();
++    ages.push(Math.max(0, Math.round((today - linked) / 86400000)));
++  }
++  return Math.min(...ages);
++}
+ 
+-  const firstDay = new Date(`${data.day}T00:00:00Z`).getTime();
+-  const today = new Date(`${todayISODate()}T00:00:00Z`).getTime();
+-  const age = Math.max(0, Math.round((today - firstDay) / 86400000));
++// Etat de la montee en charge, pour l'afficher au commercial (Connexions).
++export async function warmupStatus(userId: string): Promise<{ todayCap: number | null; day: number | null; fullFrom: string | null }> {
++  const age = await sendingMailboxAgeDays(userId);
++  if (age === null || age > WARMUP_LAST_DAY) return { todayCap: null, day: age, fullFrom: null };
++  const step = WARMUP_STEPS.find((st) => age <= st.untilDay)!;
++  const fullFrom = new Date(Date.now() + (WARMUP_LAST_DAY + 1 - age) * 86400000).toISOString().slice(0, 10);
++  return { todayCap: step.cap, day: age, fullFrom };
++}
+ 
++export async function warmupCapFor(userId: string): Promise<number | null> {
++  // Table absente ou illisible : on ne bride pas, le plafond configure
++  // s'applique seul (on ne bloque jamais un envoi sur une incertitude).
++  const age = await sendingMailboxAgeDays(userId);
++  if (age === null) return null;
+   for (const step of WARMUP_STEPS) {
+     if (age <= step.untilDay) return step.cap;
+   }
+-  return null; // au-dela de J13 : plus de bridage
++  return null; // au-dela de la rampe : plus de bridage
+ }
+ 
+ // Plafond reellement applique aujourd'hui pour ce commercial.
+diff --git a/migration_solde_api_2026-10-22.sql b/migration_solde_api_2026-10-22.sql
+new file mode 100644
+index 0000000..35aead3
+--- /dev/null
++++ b/migration_solde_api_2026-10-22.sql
+@@ -0,0 +1,16 @@
++-- migration_solde_api_2026-10-22.sql
++-- Alerte de recharge du compte Anthropic (option A) : soldes saisis par Alex
++-- dans /app/marge, lus par lib/api-balance.ts et /api/cron/api-balance-alert.
++-- Accès serveur uniquement (RLS activé sans aucune politique). Idempotent.
++CREATE TABLE IF NOT EXISTS public.api_balance_snapshots (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  provider text NOT NULL DEFAULT 'anthropic',
++  balance_usd numeric NOT NULL CHECK (balance_usd >= 0),
++  as_of timestamptz NOT NULL DEFAULT now(),
++  alerted_10_at timestamptz,
++  alerted_3_at timestamptz,
++  created_at timestamptz NOT NULL DEFAULT now()
++);
++CREATE INDEX IF NOT EXISTS api_balance_snapshots_provider_as_of_idx
++  ON public.api_balance_snapshots (provider, as_of DESC);
++ALTER TABLE public.api_balance_snapshots ENABLE ROW LEVEL SECURITY;
+diff --git a/next.config.js b/next.config.js
+index 841c8ef..d2cb568 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -49,6 +49,29 @@ const nextConfig = {
+           // DENY et non SAMEORIGIN : rien chez nous ne s'encadre soi-même.
+           { key: 'X-Frame-Options', value: 'DENY' },
+           { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
++          // CSP EN MODE RAPPORT (22/10/2026) — l'étape annoncée plus haut :
++          // le navigateur n'en bloque RIEN, il signale seulement à
++          // /api/csp-report ce qu'une vraie CSP aurait bloqué. Après quelques
++          // jours de rapports, on saura quelles sources ajouter avant de
++          // l'appliquer pour de bon. 'unsafe-inline' sur les styles : styled-jsx.
++          {
++            key: 'Content-Security-Policy-Report-Only',
++            value: [
++              "default-src 'self'",
++              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
++              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
++              "font-src 'self' data: https://fonts.gstatic.com",
++              "img-src 'self' data: blob: https:",
++              "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
++              "frame-src 'self' https://js.stripe.com https://checkout.stripe.com",
++              "worker-src 'self' blob:",
++              "manifest-src 'self'",
++              "object-src 'none'",
++              "base-uri 'self'",
++              "form-action 'self' https://checkout.stripe.com",
++              'report-uri /api/csp-report',
++            ].join('; '),
++          },
+           // Les URL de l'application portent parfois des identifiants en
+           // paramètre ; elles ne doivent pas fuiter vers les sites tiers que
+           // le commercial ouvre depuis une fiche prospect.
+diff --git a/vercel.json b/vercel.json
+index cda59ca..e5de6c5 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -3,7 +3,8 @@
+     "deploymentEnabled": {
+       "casa-zap-results": false,
+       "erreurs-api": false,
+-      "next15": false
++      "next15": false,
++      "patches": false
+     }
+   },
+   "crons": [
+@@ -114,6 +115,10 @@
+     {
+       "path": "/api/cron/expire-sessions",
+       "schedule": "25 * * * *"
++    },
++    {
++      "path": "/api/cron/api-balance-alert",
++      "schedule": "15 23 * * *"
+     }
+   ]
+ }
+-- 
+2.43.0
+
