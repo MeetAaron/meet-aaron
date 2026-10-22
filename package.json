@@ -25,7 +25,7 @@
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
     },
     "devDependencies": {
-        "typescript": "^5.5.4",
+        "typescript": "^7.0.2",
         "@types/node": "^20.14.0",
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
