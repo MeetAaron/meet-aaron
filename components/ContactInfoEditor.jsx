@@ -21,6 +21,19 @@
 import { useState } from 'react';
 import { t } from '@/lib/i18n';
 
+// Profil LinkedIn du contact (22/10/2026). Textes locaux : lib/i18n.js est
+// trop lourd pour l'envoi web de GitHub.
+const LI_FIELD = {
+  fr: { label: 'Profil LinkedIn', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Lien LinkedIn invalide : il doit ressembler à https://www.linkedin.com/in/prenom-nom', open: 'Ouvrir' },
+  en: { label: 'LinkedIn profile', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Invalid LinkedIn link: it should look like https://www.linkedin.com/in/first-last', open: 'Open' },
+  de: { label: 'LinkedIn-Profil', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Ungültiger LinkedIn-Link: Er sollte so aussehen: https://www.linkedin.com/in/vorname-nachname', open: 'Öffnen' },
+  it: { label: 'Profilo LinkedIn', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Link LinkedIn non valido: deve essere come https://www.linkedin.com/in/nome-cognome', open: 'Apri' },
+  es: { label: 'Perfil de LinkedIn', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Enlace de LinkedIn no válido: debe ser como https://www.linkedin.com/in/nombre-apellido', open: 'Abrir' },
+  pt: { label: 'Perfil LinkedIn', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Link do LinkedIn inválido: deve ser como https://www.linkedin.com/in/nome-apelido', open: 'Abrir' },
+  nl: { label: 'LinkedIn-profiel', placeholder: 'https://www.linkedin.com/in/…', invalid: 'Ongeldige LinkedIn-link: hij moet lijken op https://www.linkedin.com/in/voornaam-achternaam', open: 'Openen' },
+};
+const lf = (key, locale) => (LI_FIELD[locale] || LI_FIELD.fr)[key] || LI_FIELD.fr[key];
+
 export default function ContactInfoEditor({ prospect, locale, onSaved }) {
   const [overrides, setOverrides] = useState(null);
   const current = overrides || prospect || {};
@@ -29,6 +42,7 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
   const [email, setEmail] = useState(current.email || '');
   const [phone, setPhone] = useState(current.phone || '');
   const [jobTitle, setJobTitle] = useState(current.job_title || '');
+  const [linkedinUrl, setLinkedinUrl] = useState(current.linkedin_url || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -37,6 +51,7 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
     setEmail(current.email || '');
     setPhone(current.phone || '');
     setJobTitle(current.job_title || '');
+    setLinkedinUrl(current.linkedin_url || '');
     setError(null);
     setEditing(true);
   }
@@ -53,16 +68,17 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
         email,
         phone,
         job_title: jobTitle,
+        linkedin_url: linkedinUrl,
       }),
     });
     setSaving(false);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error || t('common.error', locale));
+      setError(body.error === 'invalid_linkedin_profile_url' ? lf('invalid', locale) : body.error || t('common.error', locale));
       return;
     }
     setEditing(false);
-    setOverrides({ ...current, full_name: fullName, email, phone, job_title: jobTitle });
+    setOverrides({ ...current, full_name: fullName, email, phone, job_title: jobTitle, linkedin_url: linkedinUrl.trim() || null });
     onSaved?.();
   }
 
@@ -96,6 +112,10 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
               {t('prospects.colJobTitle', locale)}
               <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
             </label>
+            <label className="span-2">
+              {lf('label', locale)}
+              <input type="url" inputMode="url" value={linkedinUrl} placeholder={lf('placeholder', locale)} onChange={(e) => setLinkedinUrl(e.target.value)} />
+            </label>
           </div>
           {error && <p className="error">{error}</p>}
           <div className="actions">
@@ -125,12 +145,25 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
             <span className="read-label">{t('prospects.colJobTitle', locale)}</span>
             <span className="read-value">{current.job_title || '—'}</span>
           </div>
+          {current.linkedin_url && (
+            <div className="read-field span-2">
+              <span className="read-label">{lf('label', locale)}</span>
+              <a className="read-value read-link" href={current.linkedin_url} target="_blank" rel="noopener noreferrer">{current.linkedin_url.replace(/^https?:\/\/(www\.)?/, '')}</a>
+            </div>
+          )}
         </div>
       )}
 
       <style jsx>{`
         .contact-info {
           margin-top: 0.4rem;
+        }
+        .span-2 {
+          grid-column: 1 / -1;
+        }
+        .read-link {
+          color: var(--accent);
+          text-decoration: none;
         }
         .header-row {
           display: flex;

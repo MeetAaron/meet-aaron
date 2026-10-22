@@ -187,7 +187,9 @@ export default function OnboardingPage() {
       return;
     }
 
-    router.push('/app/chat?welcome=1');
+    // Parcours de première connexion (22/10/2026) : le commercial invité voit
+    // Bienvenue, Boîte mail et Fin (son entreprise a déjà sa fiche).
+    router.push('/app/bienvenue');
   }
 
   if (checking) {

@@ -24,7 +24,7 @@ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { researchProspectCompany } from '@/lib/prospect-research';
+import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from '@/lib/prospect-research';
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   const { data: prospectCompany } = await supabaseAdmin
     .from('prospect_companies')
-    .select('id, name, domain, website, industry, research_summary')
+    .select('id, name, domain, website, industry, siret, address, research_summary')
     .eq('id', prospect.prospect_company_id)
     .single();
 
@@ -76,20 +76,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         website: prospectCompany.website || null,
         industry: prospectCompany.industry || null,
       });
-      if (research) {
-        const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
-        if (research.summary) researchUpdate.research_summary = research.summary;
-        if (research.website && !prospectCompany.website) researchUpdate.website = research.website;
-        if (research.siret) researchUpdate.siret = research.siret;
-        if (research.address) researchUpdate.address = research.address;
-        if (research.industry && !prospectCompany.industry) researchUpdate.industry = research.industry;
-        await supabaseAdmin.from('prospect_companies').update(researchUpdate).eq('id', prospectCompany.id);
-      } else {
-        await supabaseAdmin
-          .from('prospect_companies')
-          .update({ research_checked_at: new Date().toISOString() })
-          .eq('id', prospectCompany.id);
-      }
+      await saveResearchUpdate(prospectCompany.id, buildResearchUpdate(prospectCompany, research));
     } catch (err: any) {
       console.error('Erreur recherche web société prospect (non bloquant):', err.message);
     }

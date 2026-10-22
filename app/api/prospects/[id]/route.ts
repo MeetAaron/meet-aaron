@@ -14,6 +14,7 @@ import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
 import { sendPushNotification } from '@/lib/push';
 import { readJsonBody, serverError } from '@/lib/http';
+import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
 
 export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
@@ -93,6 +94,9 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     stage,
     lost_reason,
     risk,
+    linkedin_url,
+    company_linkedin_url,
+    company_instagram_url,
   } = await readJsonBody(request);
   const prospectId = params.id;
 
@@ -798,10 +802,34 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       estimated_revenue: cleanStr(estimated_revenue),
     };
 
-    const { error: updateError } = await supabaseAdmin
+    // Pages publiques de l'entreprise (22/10/2026), modifiables à la main :
+    // seulement si envoyées, et seulement sous une forme valide (une page
+    // entreprise LinkedIn, un compte Instagram) — sinon refus explicite.
+    const socialUpdate: Record<string, string | null> = {};
+    if (company_linkedin_url !== undefined) {
+      const raw = cleanStr(company_linkedin_url);
+      const norm = raw ? normalizeLinkedInCompanyUrl(raw) : null;
+      if (raw && !norm) return NextResponse.json({ error: 'invalid_linkedin_company_url' }, { status: 400 });
+      socialUpdate.linkedin_url = norm;
+    }
+    if (company_instagram_url !== undefined) {
+      const raw = cleanStr(company_instagram_url);
+      const norm = raw ? normalizeInstagramUrl(raw) : null;
+      if (raw && !norm) return NextResponse.json({ error: 'invalid_instagram_url' }, { status: 400 });
+      socialUpdate.instagram_url = norm;
+    }
+
+    let { error: updateError } = await supabaseAdmin
       .from('prospect_companies')
-      .update(companyUpdate)
+      .update({ ...companyUpdate, ...socialUpdate })
       .eq('id', prospect.prospect_company_id);
+    if (updateError && (updateError.code === '42703' || updateError.code === 'PGRST204') && Object.keys(socialUpdate).length) {
+      // Migration du 22/10 pas encore jouée : on garde au moins le reste.
+      ({ error: updateError } = await supabaseAdmin
+        .from('prospect_companies')
+        .update(companyUpdate)
+        .eq('id', prospect.prospect_company_id));
+    }
 
     if (updateError) {
       return serverError(updateError, '/api/prospects/[id]');
@@ -837,14 +865,23 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       return NextResponse.json({ error: "L'email est obligatoire" }, { status: 400 });
     }
 
+    const contactUpdate: Record<string, any> = {
+      full_name: newFullName,
+      email: newEmail,
+      phone: cleanStr(phone),
+      job_title: cleanStr(job_title),
+    };
+    // Profil LinkedIn du contact (22/10/2026) : modifiable depuis la fiche.
+    if (linkedin_url !== undefined) {
+      const raw = cleanStr(linkedin_url);
+      const norm = raw ? normalizeLinkedInProfileUrl(raw) : null;
+      if (raw && !norm) return NextResponse.json({ error: 'invalid_linkedin_profile_url' }, { status: 400 });
+      contactUpdate.linkedin_url = norm;
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('prospects')
-      .update({
-        full_name: newFullName,
-        email: newEmail,
-        phone: cleanStr(phone),
-        job_title: cleanStr(job_title),
-      })
+      .update(contactUpdate)
       .eq('id', prospectId);
 
     if (updateError) {
@@ -852,6 +889,22 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     }
 
     return NextResponse.json({ success: true });
+  }
+
+  // Profil LinkedIn trouvé par Aaron et CONFIRMÉ par le commercial dans la
+  // fenêtre « Message LinkedIn » (22/10/2026) : on ne l'enregistre qu'à ce
+  // moment-là, jamais automatiquement (risque d'homonyme).
+  if (action === 'set_contact_linkedin') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id && authedUser.company_id !== prospect.company_id) {
+      return forbiddenResponse();
+    }
+    const norm = normalizeLinkedInProfileUrl(linkedin_url);
+    if (!norm) return NextResponse.json({ error: 'invalid_linkedin_profile_url' }, { status: 400 });
+    const { error: updateError } = await supabaseAdmin.from('prospects').update({ linkedin_url: norm }).eq('id', prospectId);
+    if (updateError) return serverError(updateError, '/api/prospects/[id]');
+    return NextResponse.json({ success: true, linkedin_url: norm });
   }
 
   // Aaron Customer v2 — écarte une suggestion d'upsell du tableau de bord

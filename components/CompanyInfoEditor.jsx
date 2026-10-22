@@ -22,6 +22,19 @@
 import { useState } from 'react';
 import { t } from '@/lib/i18n';
 
+// Pages publiques de l'entreprise (22/10/2026). Textes locaux : lib/i18n.js
+// est trop lourd pour l'envoi web de GitHub.
+const SOCIAL_TEXT = {
+  fr: { linkedin: 'Page LinkedIn', instagram: 'Instagram', invalidLinkedin: 'Lien LinkedIn invalide : il doit ressembler à https://www.linkedin.com/company/nom', invalidInstagram: 'Lien Instagram invalide : il doit ressembler à https://www.instagram.com/compte/' },
+  en: { linkedin: 'LinkedIn page', instagram: 'Instagram', invalidLinkedin: 'Invalid LinkedIn link: it should look like https://www.linkedin.com/company/name', invalidInstagram: 'Invalid Instagram link: it should look like https://www.instagram.com/account/' },
+  de: { linkedin: 'LinkedIn-Seite', instagram: 'Instagram', invalidLinkedin: 'Ungültiger LinkedIn-Link: Er sollte so aussehen: https://www.linkedin.com/company/name', invalidInstagram: 'Ungültiger Instagram-Link: Er sollte so aussehen: https://www.instagram.com/konto/' },
+  it: { linkedin: 'Pagina LinkedIn', instagram: 'Instagram', invalidLinkedin: 'Link LinkedIn non valido: deve essere come https://www.linkedin.com/company/nome', invalidInstagram: 'Link Instagram non valido: deve essere come https://www.instagram.com/account/' },
+  es: { linkedin: 'Página de LinkedIn', instagram: 'Instagram', invalidLinkedin: 'Enlace de LinkedIn no válido: debe ser como https://www.linkedin.com/company/nombre', invalidInstagram: 'Enlace de Instagram no válido: debe ser como https://www.instagram.com/cuenta/' },
+  pt: { linkedin: 'Página LinkedIn', instagram: 'Instagram', invalidLinkedin: 'Link do LinkedIn inválido: deve ser como https://www.linkedin.com/company/nome', invalidInstagram: 'Link do Instagram inválido: deve ser como https://www.instagram.com/conta/' },
+  nl: { linkedin: 'LinkedIn-pagina', instagram: 'Instagram', invalidLinkedin: 'Ongeldige LinkedIn-link: hij moet lijken op https://www.linkedin.com/company/naam', invalidInstagram: 'Ongeldige Instagram-link: hij moet lijken op https://www.instagram.com/account/' },
+};
+const st = (key, locale) => (SOCIAL_TEXT[locale] || SOCIAL_TEXT.fr)[key] || SOCIAL_TEXT.fr[key];
+
 const FIELDS = [
   { key: 'address', labelKey: 'prospects.colAddress' },
   { key: 'siret', labelKey: 'prospects.colSiret' },
@@ -29,7 +42,10 @@ const FIELDS = [
   { key: 'industry', labelKey: 'prospects.colIndustry' },
   { key: 'company_size', labelKey: 'prospects.colCompanySize' },
   { key: 'estimated_revenue', labelKey: 'prospects.colEstimatedRevenue' },
+  { key: 'linkedin_url', label: 'linkedin', link: true, bodyKey: 'company_linkedin_url', placeholder: 'https://www.linkedin.com/company/…' },
+  { key: 'instagram_url', label: 'instagram', link: true, bodyKey: 'company_instagram_url', placeholder: 'https://www.instagram.com/…' },
 ];
+const fieldLabel = (f, locale) => (f.labelKey ? t(f.labelKey, locale) : st(f.label, locale));
 
 export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
   const companyFromProp = prospect?.prospect_companies || {};
@@ -59,12 +75,21 @@ export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
     const res = await fetch(`/api/prospects/${prospect.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'update_company_info', ...values }),
+      body: JSON.stringify({
+        action: 'update_company_info',
+        // Liens LinkedIn/Instagram : envoyés seulement si la page parente les
+        // a chargés ou si le commercial en a saisi un — une page qui ne les
+        // charge pas ne doit jamais effacer ceux trouvés par Aaron.
+        ...Object.fromEntries(
+          FIELDS.filter((f) => !f.link || f.key in company || values[f.key]).map((f) => [f.bodyKey || f.key, values[f.key]])
+        ),
+      }),
     });
     setSaving(false);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error || t('prospects.createErrorFallback', locale));
+      const known = { invalid_linkedin_company_url: st('invalidLinkedin', locale), invalid_instagram_url: st('invalidInstagram', locale) };
+      setError(known[body.error] || body.error || t('prospects.createErrorFallback', locale));
       return;
     }
     setEditing(false);
@@ -90,8 +115,10 @@ export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
           <div className="fields-grid">
             {FIELDS.map((f) => (
               <label key={f.key}>
-                {t(f.labelKey, locale)}
+                {fieldLabel(f, locale)}
                 <input
+                  type={f.link ? 'url' : 'text'}
+                  placeholder={f.placeholder || undefined}
                   value={values[f.key]}
                   onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                 />
@@ -112,8 +139,12 @@ export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
         <div className="fields-grid read">
           {FIELDS.filter((f) => company[f.key]).map((f) => (
             <div key={f.key} className="read-field">
-              <span className="read-label">{t(f.labelKey, locale)}</span>
-              <span className="read-value">{company[f.key]}</span>
+              <span className="read-label">{fieldLabel(f, locale)}</span>
+              {f.link ? (
+                <a className="read-value read-link" href={company[f.key]} target="_blank" rel="noopener noreferrer">{String(company[f.key]).replace(/^https?:\/\/(www\.)?/, '')}</a>
+              ) : (
+                <span className="read-value">{company[f.key]}</span>
+              )}
             </div>
           ))}
         </div>
@@ -189,6 +220,10 @@ export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
           font-size: 0.85rem;
           color: var(--text);
           word-break: break-word;
+        }
+        .read-link {
+          color: var(--accent);
+          text-decoration: none;
         }
         .error {
           color: var(--accent-red);

@@ -39,6 +39,8 @@ import { callClaude } from './anthropic-client';
 import { isGenericEmailDomain } from './csv-import';
 import { supabaseAdmin } from './supabase-admin';
 import { guessCountry, lookupCompanyRegistry, type LegalRecord } from './company-directory';
+import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl } from './social-urls';
+import { localeInstruction, normalizeLocale } from './locale-instruction';
 
 export interface ProspectCompanyResearchInput {
   name: string | null;
@@ -62,7 +64,16 @@ export interface ProspectCompanyResearchResult {
   siret: string | null;
   address: string | null;
   industry: string | null;
+  // Pages PUBLIQUES de l'entreprise (22/10/2026) : liens que le commercial
+  // ouvre lui-même, jamais de connexion automatisée à ces réseaux. Validés
+  // par lib/social-urls.ts (forme exacte d'une page entreprise / d'un compte).
+  linkedin_url: string | null;
+  instagram_url: string | null;
 }
+
+const EMPTY_RESULT: ProspectCompanyResearchResult = {
+  summary: null, website: null, siret: null, address: null, industry: null, linkedin_url: null, instagram_url: null,
+};
 
 // Une fiche est jugée "réelle" (donc recherchable) si elle a un site web ou
 // un domaine email qui n'est pas un domaine grand public (gmail.com, etc. —
@@ -118,7 +129,7 @@ export async function researchProspectCompany(
     try {
       const { data: cached } = await supabaseAdmin
         .from('company_research_cache')
-        .select('summary, website, siret, address, industry, checked_at')
+        .select('*')
         .eq('domain', cacheKey)
         .maybeSingle();
       if (cached && cached.checked_at && Date.now() - new Date(cached.checked_at).getTime() < 90 * 86_400_000) {
@@ -128,6 +139,9 @@ export async function researchProspectCompany(
           siret: cached.siret || null,
           address: cached.address || null,
           industry: cached.industry || null,
+          // select('*') : tolère un cache créé avant l'ajout de ces colonnes.
+          linkedin_url: normalizeLinkedInCompanyUrl(cached.linkedin_url),
+          instagram_url: normalizeInstagramUrl(cached.instagram_url),
         };
       }
     } catch {
@@ -171,7 +185,11 @@ export async function researchProspectCompany(
     `  "siret": "numéro SIRET (14 chiffres) trouvé sur une source fiable (societe.com, pappers.fr, infogreffe.fr, ` +
     `mentions légales du site officiel...) ou null si non trouvé avec certitude",\n` +
     `  "address": "adresse postale du siège ou de l'établissement principal ou null",\n` +
-    `  "industry": "secteur d'activité précis (pas juste \\"BTP\\" ou \\"services\\") ou null"\n` +
+    `  "industry": "secteur d'activité précis (pas juste \\"BTP\\" ou \\"services\\") ou null",\n` +
+    `  "linkedin_url": "URL de la page entreprise LinkedIn OFFICIELLE de cette société (forme ` +
+    `https://www.linkedin.com/company/...), souvent en lien dans le pied de page de son site, ou null",\n` +
+    `  "instagram_url": "URL du compte Instagram OFFICIEL de cette société (forme https://www.instagram.com/compte/), ` +
+    `ou null"\n` +
     `}\n\n` +
     `N'INVENTE RIEN : chaque champ doit être null plutôt que deviné si tu n'as pas trouvé de source fiable.`;
 
@@ -183,7 +201,7 @@ export async function researchProspectCompany(
         // l'entreprise), pas une rédaction commerciale. Les champs d'état
         // civil viennent du registre officiel quand on l'a (voir plus haut).
         model: 'claude-haiku-4-5',
-        max_tokens: 700,
+        max_tokens: 900,
         tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
         messages: [{ role: 'user', content: prompt }],
       },
@@ -193,7 +211,7 @@ export async function researchProspectCompany(
 
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     const text = textBlock?.text?.trim();
-    if (!text) return { summary: null, website: null, siret: null, address: null, industry: null };
+    if (!text) return { ...EMPTY_RESULT };
 
     const cleaned = text.replace(/```json|```/g, '').trim();
     let parsed: any;
@@ -201,7 +219,7 @@ export async function researchProspectCompany(
       parsed = JSON.parse(cleaned);
     } catch {
       console.error('Réponse recherche société prospect non parsable:', text);
-      return { summary: null, website: null, siret: null, address: null, industry: null };
+      return { ...EMPTY_RESULT };
     }
 
     const result: ProspectCompanyResearchResult = {
@@ -211,6 +229,8 @@ export async function researchProspectCompany(
       siret: registry?.registryId || (isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null),
       address: registry?.address || (typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null),
       industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : registry?.industry || null,
+      linkedin_url: normalizeLinkedInCompanyUrl(parsed.linkedin_url),
+      instagram_url: normalizeInstagramUrl(parsed.instagram_url),
     };
     await writeResearchCache(cacheKey, result);
     return result;
@@ -241,11 +261,161 @@ async function writeResearchCache(domain: string | null, result: ProspectCompany
         siret: result.siret,
         address: result.address,
         industry: result.industry,
+        linkedin_url: result.linkedin_url,
+        instagram_url: result.instagram_url,
         checked_at: new Date().toISOString(),
       },
       { onConflict: 'domain' }
     );
   } catch {
     // table absente : tant pis, la fiche prospect_companies garde son résumé
+  }
+}
+
+// ── Mise à jour de la fiche à partir d'une recherche (22/10/2026) ──────────
+// Les trois appelants (ajout manuel, premier message, campagne) recopiaient la
+// même logique ; elle vit désormais ici. Règle inchangée : un champ n'est
+// complété que s'il est encore VIDE — jamais écraser ce que le commercial a
+// saisi. research_checked_at est toujours posé (fiche « vérifiée »).
+export function buildResearchUpdate(
+  existing: Record<string, any>,
+  research: ProspectCompanyResearchResult | null
+): Record<string, any> {
+  const update: Record<string, any> = { research_checked_at: new Date().toISOString() };
+  if (!research) return update;
+  if (research.summary) update.research_summary = research.summary;
+  for (const key of ['website', 'siret', 'address', 'industry', 'linkedin_url', 'instagram_url'] as const) {
+    if (research[key] && !existing?.[key]) update[key] = research[key];
+  }
+  if (research.linkedin_url || research.instagram_url) update.socials_checked_at = update.research_checked_at;
+  return update;
+}
+
+// Écrit la mise à jour ; si la migration du 22/10 (colonnes linkedin_url,
+// instagram_url, socials_checked_at) n'est pas encore jouée, réessaie sans
+// ces colonnes plutôt que de perdre tout le résultat de la recherche.
+export async function saveResearchUpdate(prospectCompanyId: string, update: Record<string, any>): Promise<void> {
+  const { error } = await supabaseAdmin.from('prospect_companies').update(update).eq('id', prospectCompanyId);
+  if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+    const { linkedin_url, instagram_url, socials_checked_at, ...rest } = update;
+    await supabaseAdmin.from('prospect_companies').update(rest).eq('id', prospectCompanyId);
+  }
+}
+
+// ── Pages publiques d'une société DÉJÀ recherchée (22/10/2026) ─────────────
+// Les fiches recherchées avant l'ajout de LinkedIn/Instagram n'ont pas ces
+// liens. Plutôt que de relancer toute la recherche, une petite recherche
+// dédiée, lancée À LA DEMANDE depuis la fiche (bouton du commercial), une
+// seule fois par société (socials_checked_at).
+export async function findCompanySocials(
+  clientCompanyId: string,
+  input: { name: string | null; website: string | null; domain: string | null }
+): Promise<{ linkedin_url: string | null; instagram_url: string | null }> {
+  const empty = { linkedin_url: null, instagram_url: null };
+  if (!input.name && !input.website && !input.domain) return empty;
+  const prompt =
+    `Trouve les pages PUBLIQUES officielles de cette entreprise sur LinkedIn et Instagram :\n` +
+    (input.name ? `Nom : ${input.name}\n` : '') +
+    (input.website ? `Site web : ${input.website}\n` : input.domain ? `Domaine : ${input.domain}\n` : '') +
+    `\nLe plus fiable est souvent le pied de page de son site officiel. Ne confonds pas avec une société homonyme.\n` +
+    `Réponds UNIQUEMENT avec un objet JSON, sans texte autour :\n` +
+    `{"linkedin_url": "https://www.linkedin.com/company/... ou null", "instagram_url": "https://www.instagram.com/compte/ ou null"}\n` +
+    `N'INVENTE RIEN : null plutôt qu'une URL devinée.`;
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-haiku-4-5',
+        max_tokens: 300,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+        messages: [{ role: 'user', content: prompt }],
+      },
+      clientCompanyId,
+      'ap'
+    );
+    const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
+    const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+    if (!match) return empty;
+    const parsed = JSON.parse(match[0]);
+    return {
+      linkedin_url: normalizeLinkedInCompanyUrl(parsed.linkedin_url),
+      instagram_url: normalizeInstagramUrl(parsed.instagram_url),
+    };
+  } catch (err: any) {
+    console.error('Erreur recherche pages publiques société:', err?.message);
+    return empty;
+  }
+}
+
+// ── Avis d'Aaron sur l'entreprise (22/10/2026) ─────────────────────────────
+// Validé par Alex : en plus du résumé factuel (ce que fait la société), Aaron
+// donne SON avis de commercial : est-ce une bonne cible pour CE que vend le
+// client, par quel angle l'aborder, à quoi faire attention. Un second appel
+// Haiku SANS recherche web (tout est déjà en base : résumé + fiche + offre du
+// client), donc ~1/10 de centime. Mis en cache sur la fiche société, dans la
+// langue du commercial qui l'a demandé ; régénéré seulement si la langue
+// change ou si le commercial clique « Actualiser ».
+export type OpinionFit = 'strong' | 'medium' | 'weak';
+export interface CompanyOpinion {
+  opinion: string;
+  fit: OpinionFit | null;
+}
+
+export async function generateCompanyOpinion(
+  clientCompanyId: string,
+  prospectCompany: Record<string, any>,
+  locale: string | null | undefined,
+  userId?: string | null
+): Promise<CompanyOpinion | null> {
+  const loc = normalizeLocale(locale);
+  const { data: seller } = await supabaseAdmin
+    .from('companies')
+    .select('name, business_summary, prospecting_goal, prospecting_goal_details')
+    .eq('id', clientCompanyId)
+    .maybeSingle();
+
+  const facts = [
+    prospectCompany.name ? `Nom : ${prospectCompany.name}` : null,
+    prospectCompany.industry ? `Secteur : ${prospectCompany.industry}` : null,
+    prospectCompany.company_size ? `Taille : ${prospectCompany.company_size}` : null,
+    prospectCompany.estimated_revenue ? `CA estimé : ${prospectCompany.estimated_revenue}` : null,
+    prospectCompany.address ? `Adresse : ${prospectCompany.address}` : null,
+    prospectCompany.website ? `Site : ${prospectCompany.website}` : null,
+    prospectCompany.research_summary ? `Ce que fait l'entreprise (recherche web) : ${prospectCompany.research_summary}` : null,
+    prospectCompany.news_signal ? `Actualité récente : ${prospectCompany.news_signal}` : null,
+  ].filter(Boolean).join('\n');
+  if (!prospectCompany.research_summary && !prospectCompany.industry) return null;
+
+  const prompt =
+    `Tu es Aaron, copilote commercial B2B. Donne ton AVIS de commercial expérimenté sur cette entreprise ` +
+    `comme cible pour la société qui démarche.\n\n` +
+    `SOCIÉTÉ QUI DÉMARCHE : ${seller?.name || 'non précisé'}\n` +
+    (seller?.business_summary ? `Ce qu'elle vend : ${seller.business_summary}\n` : '') +
+    (seller?.prospecting_goal ? `Objectif de prospection : ${seller.prospecting_goal}${seller.prospecting_goal_details ? ` (${seller.prospecting_goal_details})` : ''}\n` : '') +
+    `\nENTREPRISE CIBLE :\n${facts}\n\n` +
+    `Rédige ${localeInstruction(loc)}, 3 à 4 phrases courtes, tutoiement, sans flatterie ni jargon : ` +
+    `1) est-ce une bonne cible pour cette offre et pourquoi, 2) l'angle d'approche le plus prometteur, ` +
+    `3) un point de vigilance. Base-toi UNIQUEMENT sur les faits ci-dessus ; si l'information manque, dis-le ` +
+    `plutôt que d'inventer.\n\n` +
+    `Réponds UNIQUEMENT avec un objet JSON, sans texte autour :\n` +
+    `{"opinion": "...", "fit": "strong" | "medium" | "weak"}`;
+
+  try {
+    const data = await callClaude(
+      { model: 'claude-haiku-4-5', max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
+      clientCompanyId,
+      'ap',
+      userId || null
+    );
+    const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
+    const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    const opinion = typeof parsed.opinion === 'string' ? parsed.opinion.trim() : '';
+    if (!opinion) return null;
+    const fit: OpinionFit | null = ['strong', 'medium', 'weak'].includes(parsed.fit) ? parsed.fit : null;
+    return { opinion: opinion.slice(0, 1200), fit };
+  } catch (err: any) {
+    console.error("Erreur avis d'Aaron sur l'entreprise:", err?.message);
+    return null;
   }
 }

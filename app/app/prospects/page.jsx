@@ -1841,9 +1841,24 @@ function FirstEmailApprovalModal({ prospect, onClose, onSend, onDone }) {
   );
 }
 
+// Textes ajoutés le 22/10/2026 (profil trouvé par Aaron, envoi en un clic),
+// gardés ici plutôt que dans lib/i18n.js (trop lourd pour l'envoi web).
+const LI_TEXT = {
+  fr: { suggested: 'Profil trouvé par Aaron : vérifie que c’est bien la bonne personne.', confirm: 'C’est bien lui, enregistrer sur la fiche', saved: 'Profil enregistré sur la fiche', oneClick: 'Copier la note et ouvrir son profil', oneClickHint: 'La note est copiée : sur LinkedIn, clique « Se connecter », puis « Ajouter une note », et colle.', chars: 'caractères' },
+  en: { suggested: 'Profile found by Aaron: check it is the right person.', confirm: 'That’s them, save to the card', saved: 'Profile saved to the card', oneClick: 'Copy the note and open their profile', oneClickHint: 'The note is copied: on LinkedIn, click “Connect”, then “Add a note”, and paste.', chars: 'characters' },
+  de: { suggested: 'Von Aaron gefundenes Profil: Prüfen Sie, ob es die richtige Person ist.', confirm: 'Richtig, im Kontakt speichern', saved: 'Profil im Kontakt gespeichert', oneClick: 'Notiz kopieren und Profil öffnen', oneClickHint: 'Die Notiz ist kopiert: Auf LinkedIn „Vernetzen“, dann „Nachricht hinzufügen“ klicken und einfügen.', chars: 'Zeichen' },
+  it: { suggested: 'Profilo trovato da Aaron: verifica che sia la persona giusta.', confirm: 'È lui, salva nella scheda', saved: 'Profilo salvato nella scheda', oneClick: 'Copia la nota e apri il profilo', oneClickHint: 'La nota è copiata: su LinkedIn clicca «Collegati», poi «Aggiungi una nota» e incolla.', chars: 'caratteri' },
+  es: { suggested: 'Perfil encontrado por Aaron: comprueba que es la persona correcta.', confirm: 'Es él, guardar en la ficha', saved: 'Perfil guardado en la ficha', oneClick: 'Copiar la nota y abrir su perfil', oneClickHint: 'La nota está copiada: en LinkedIn pulsa «Conectar», luego «Añadir una nota» y pega.', chars: 'caracteres' },
+  pt: { suggested: 'Perfil encontrado pelo Aaron: confirma que é a pessoa certa.', confirm: 'É ele, guardar na ficha', saved: 'Perfil guardado na ficha', oneClick: 'Copiar a nota e abrir o perfil', oneClickHint: 'A nota foi copiada: no LinkedIn clica em «Ligar», depois «Adicionar nota» e cola.', chars: 'caracteres' },
+  nl: { suggested: 'Profiel gevonden door Aaron: controleer of het de juiste persoon is.', confirm: 'Klopt, opslaan in de kaart', saved: 'Profiel opgeslagen in de kaart', oneClick: 'Notitie kopiëren en profiel openen', oneClickHint: 'De notitie is gekopieerd: klik op LinkedIn op „Connectie maken”, dan „Notitie toevoegen” en plak.', chars: 'tekens' },
+};
+const lit = (key, locale) => (LI_TEXT[locale] || LI_TEXT.fr)[key] || LI_TEXT.fr[key];
+
 function LinkedInDraftModal({ prospect, onClose }) {
   const [locale] = useLocale();
   const [draft, setDraft] = useState(null);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [oneClickDone, setOneClickDone] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(null);
@@ -1876,6 +1891,25 @@ function LinkedInDraftModal({ prospect, onClose }) {
     setTimeout(() => setCopied(null), 2000);
   }
 
+  // Envoi « en un clic » : le commercial reste celui qui envoie, depuis SON
+  // compte. On copie la note puis on ouvre son profil dans un nouvel onglet
+  // (dans le même geste utilisateur, sinon le navigateur bloque la copie).
+  function copyAndOpen() {
+    if (!draft?.linkedin_url) return;
+    navigator.clipboard?.writeText(draft.connection_note).catch(() => {});
+    window.open(draft.linkedin_url, '_blank', 'noopener,noreferrer');
+    setOneClickDone(true);
+  }
+
+  async function confirmProfile() {
+    const res = await fetch(`/api/prospects/${prospect.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_contact_linkedin', linkedin_url: draft.linkedin_url }),
+    });
+    if (res.ok) setProfileSaved(true);
+  }
+
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1890,9 +1924,20 @@ function LinkedInDraftModal({ prospect, onClose }) {
         {draft && (
           <>
             {draft.linkedin_url ? (
-              <a href={draft.linkedin_url} target="_blank" rel="noreferrer" className="li-profile-link">
-                {t('prospects.openLinkedinProfile', locale)}
-              </a>
+              <>
+                {draft.linkedin_url_suggested && !profileSaved && (
+                  <div className="li-suggest">
+                    <p className="small">{lit('suggested', locale)}</p>
+                    <button type="button" className="btn-secondary" onClick={confirmProfile}>{lit('confirm', locale)}</button>
+                  </div>
+                )}
+                {profileSaved && <p className="small ok">{lit('saved', locale)}</p>}
+                <a href={draft.linkedin_url} target="_blank" rel="noreferrer" className="li-profile-link">
+                  {t('prospects.openLinkedinProfile', locale)}
+                </a>
+                <button type="button" className="btn-primary li-one-click" onClick={copyAndOpen}>{lit('oneClick', locale)}</button>
+                {oneClickDone && <p className="small muted">{lit('oneClickHint', locale)}</p>}
+              </>
             ) : (
               <p className="muted small">{t('prospects.linkedinProfileNotFound', locale).replace('{name}', prospect.full_name)}</p>
             )}
@@ -1900,6 +1945,7 @@ function LinkedInDraftModal({ prospect, onClose }) {
             <label>
               {t('prospects.connectionNoteLabel', locale)}
               <textarea readOnly value={draft.connection_note} rows={3} />
+              <span className="li-count">{draft.connection_note.length} / 300 {lit('chars', locale)}</span>
             </label>
             <button type="button" className="btn-secondary" onClick={() => copy(draft.connection_note, 'note')}>
               {copied === 'note' ? t('prospects.copiedLabel', locale) : t('prospects.copyNoteButton', locale)}
@@ -1959,6 +2005,28 @@ function LinkedInDraftModal({ prospect, onClose }) {
           color: var(--accent);
           font-size: 0.82rem;
           margin-bottom: 1rem;
+        }
+        .li-one-click {
+          display: block;
+          width: 100%;
+          margin: 0 0 0.6rem;
+        }
+        .li-suggest {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.6rem 0.8rem;
+          margin-bottom: 0.8rem;
+        }
+        .li-suggest p {
+          margin: 0 0 0.5rem;
+        }
+        .li-count {
+          align-self: flex-end;
+          font-size: 0.72rem;
+          color: var(--muted);
+        }
+        .ok {
+          color: var(--accent-green, #3DA35D);
         }
         label {
           display: flex;

@@ -11,8 +11,12 @@ import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
-import { researchProspectCompany } from '@/lib/prospect-research';
+import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from '@/lib/prospect-research';
 import { readJsonBody, serverError } from '@/lib/http';
+
+const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at';
+const COMPANY_FIELDS_NEWS = `${COMPANY_FIELDS_BASE}, news_signal, news_signal_url, news_signal_at`;
+const COMPANY_FIELDS_FULL = `${COMPANY_FIELDS_NEWS}, linkedin_url, instagram_url, socials_checked_at, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at`;
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -41,7 +45,9 @@ export async function GET(request: NextRequest) {
     // qu'Aaron sait.
     // news_signal / news_signal_url (18/10/2026) : l'actualité repérée par
     // Aaron (lib/news-triggers.ts), affichée avec la relance à valider.
-    .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at, news_signal, news_signal_url, news_signal_at)')
+    // linkedin_url / instagram_url / aaron_opinion* (22/10/2026) : pages
+    // publiques de l'entreprise et avis d'Aaron, affichés dans la fiche.
+    .select(`*, prospect_companies(${COMPANY_FIELDS_FULL})`)
     .eq('assigned_user_id', userId);
   if (scope !== 'all') {
     // Reste visible tant qu'aucune 1ère commande n'est confirmée — un
@@ -53,12 +59,14 @@ export async function GET(request: NextRequest) {
   }
   let { data: prospects, error } = await query.order('updated_at', { ascending: false });
 
-  if (error && (error.code === '42703' || error.code === 'PGRST204')) {
-    // Migration déclencheurs d'actualité pas encore jouée : même requête
-    // sans les colonnes d'actualité.
+  // Migrations pas encore jouées : on retombe sur des sélections plus
+  // anciennes, une à une, plutôt que de vider la liste (22/10 : pages
+  // publiques + avis d'Aaron ; 18/10 : actualité).
+  for (const fields of [COMPANY_FIELDS_NEWS, COMPANY_FIELDS_BASE]) {
+    if (!(error && (error.code === '42703' || error.code === 'PGRST204'))) break;
     let legacy = supabaseAdmin
       .from('prospects')
-      .select('*, prospect_companies(name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at)')
+      .select(`*, prospect_companies(${fields})`)
       .eq('assigned_user_id', userId);
     if (scope !== 'all') legacy = legacy.is('first_order_confirmed_at', null);
     ({ data: prospects, error } = await legacy.order('updated_at', { ascending: false }));
@@ -389,23 +397,9 @@ export async function POST(request: NextRequest) {
         website: website || prospectCompany.website || null,
         industry: industry || prospectCompany.industry || null,
       });
-      if (research) {
-        const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
-        if (research.summary) researchUpdate.research_summary = research.summary;
-        if (research.website && !prospectCompany.website) researchUpdate.website = research.website;
-        if (research.siret && !prospectCompany.siret) researchUpdate.siret = research.siret;
-        if (research.address && !prospectCompany.address) researchUpdate.address = research.address;
-        if (research.industry && !prospectCompany.industry) researchUpdate.industry = research.industry;
-        await supabaseAdmin.from('prospect_companies').update(researchUpdate).eq('id', prospectCompany.id);
-        prospectCompany = { ...prospectCompany, ...researchUpdate };
-      } else {
-        // Fiche non recherchable (société de test) : on marque quand même la
-        // fiche comme vérifiée pour ne pas retenter à chaque nouveau contact.
-        await supabaseAdmin
-          .from('prospect_companies')
-          .update({ research_checked_at: new Date().toISOString() })
-          .eq('id', prospectCompany.id);
-      }
+      const researchUpdate = buildResearchUpdate(prospectCompany, research);
+      await saveResearchUpdate(prospectCompany.id, researchUpdate);
+      prospectCompany = { ...prospectCompany, ...researchUpdate };
     } catch (err: any) {
       console.error('Erreur recherche web société prospect (non bloquant):', err.message);
     }

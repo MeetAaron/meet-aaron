@@ -30,7 +30,7 @@ import { contactAlerts } from '@/lib/contact-alerts';
 import { downloadVCard } from '@/lib/vcard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import ConfidenceRing from '@/components/ConfidenceRing';
-import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smartphone, Linkedin, Trash2, X, ArrowRight, Trophy, Ban, Building2, Sparkles, MessageCircle, User, Calendar, Mail, Lightbulb, ExternalLink } from 'lucide-react';
+import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smartphone, Linkedin, Trash2, X, ArrowRight, Trophy, Ban, Building2, Sparkles, MessageCircle, User, Calendar, Mail, Lightbulb, ExternalLink, Instagram, RefreshCw, Search } from 'lucide-react';
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
@@ -49,6 +49,19 @@ const CARD_TEXT = {
   nl: { overview: 'Overzicht', thread: 'Berichten', contact: 'Contact', company: 'Bedrijf', deal: 'Offerte', next: 'Volgende stap', read: 'Aarons lezing', conviction: 'Overtuiging', personality: 'Persoonlijkheid', advice: 'Aarons advies', prepare: 'Afspraak voorbereiden', join: 'Deelnemen', openTab: 'Openen', aaronHandles: 'Aaron regelt het', aaronHandlesBody: 'Opvolging en volgende stap gaan automatisch. Je hoort het zodra een beslissing bij jou ligt.', youHandle: 'Jij hebt het overgenomen', youHandleBody: 'Aaron benadert deze prospect niet meer. Je kunt hem via de acties teruggeven.', wonTitle: 'Klant gewonnen', wonBody: 'Aaron bereidt de onboarding voor en houdt contact.', lostTitle: 'Contact verloren', quoteTitle: 'Offerte te versturen', quoteBody: 'De prospect vroeg een offerte. Aaron maakte een voorstel klaar.', emailTitle: 'Eerste e-mail goed te keuren', emailBody: 'Aaron schreef de eerste e-mail. Lees hem na voor verzending.', bilanTitle: 'Nabespreking te doen', orderTitle: 'Eerste bestelling te bevestigen', byAaron: 'Door Aaron gemaakt', you: 'Jij', them: 'antwoordde', noMsg: 'Nog geen uitwisseling.', sentOn: 'op', checked: 'Gecontroleerd op', website: 'Website', facts: 'In het kort' },
 };
 const ct = (key, locale) => (CARD_TEXT[locale] || CARD_TEXT.fr)[key] || CARD_TEXT.fr[key];
+
+// Avis d'Aaron sur l'entreprise + pages publiques (22/10/2026).
+const INSIGHT_TEXT = {
+  fr: { opinion: "Avis d'Aaron sur l'entreprise", opinionLoading: 'Aaron analyse l’entreprise…', refresh: 'Actualiser', strong: 'Bonne cible', medium: 'Cible possible', weak: 'Cible peu probable', findSocials: 'Chercher LinkedIn et Instagram', searching: 'Recherche…', noSocials: 'Aucune page publique trouvée. Tu peux en ajouter une dans « Modifier ».', publicPages: 'Pages publiques' },
+  en: { opinion: "Aaron's take on the company", opinionLoading: 'Aaron is analysing the company…', refresh: 'Refresh', strong: 'Good fit', medium: 'Possible fit', weak: 'Unlikely fit', findSocials: 'Find LinkedIn and Instagram', searching: 'Searching…', noSocials: 'No public page found. You can add one under “Edit”.', publicPages: 'Public pages' },
+  de: { opinion: 'Aarons Einschätzung der Firma', opinionLoading: 'Aaron analysiert die Firma…', refresh: 'Aktualisieren', strong: 'Gute Zielfirma', medium: 'Mögliche Zielfirma', weak: 'Eher keine Zielfirma', findSocials: 'LinkedIn und Instagram suchen', searching: 'Suche…', noSocials: 'Keine öffentliche Seite gefunden. Sie können unter „Bearbeiten“ eine hinzufügen.', publicPages: 'Öffentliche Seiten' },
+  it: { opinion: "Parere di Aaron sull'azienda", opinionLoading: 'Aaron sta analizzando l’azienda…', refresh: 'Aggiorna', strong: 'Buon target', medium: 'Target possibile', weak: 'Target poco probabile', findSocials: 'Cerca LinkedIn e Instagram', searching: 'Ricerca…', noSocials: 'Nessuna pagina pubblica trovata. Puoi aggiungerne una in «Modifica».', publicPages: 'Pagine pubbliche' },
+  es: { opinion: 'Opinión de Aaron sobre la empresa', opinionLoading: 'Aaron está analizando la empresa…', refresh: 'Actualizar', strong: 'Buen objetivo', medium: 'Objetivo posible', weak: 'Objetivo poco probable', findSocials: 'Buscar LinkedIn e Instagram', searching: 'Buscando…', noSocials: 'No se encontró ninguna página pública. Puedes añadir una en «Editar».', publicPages: 'Páginas públicas' },
+  pt: { opinion: 'Opinião do Aaron sobre a empresa', opinionLoading: 'O Aaron está a analisar a empresa…', refresh: 'Atualizar', strong: 'Bom alvo', medium: 'Alvo possível', weak: 'Alvo pouco provável', findSocials: 'Procurar LinkedIn e Instagram', searching: 'A procurar…', noSocials: 'Nenhuma página pública encontrada. Podes adicionar uma em «Editar».', publicPages: 'Páginas públicas' },
+  nl: { opinion: 'Aarons mening over het bedrijf', opinionLoading: 'Aaron analyseert het bedrijf…', refresh: 'Vernieuwen', strong: 'Goede doelgroep', medium: 'Mogelijke doelgroep', weak: 'Weinig kansrijk', findSocials: 'LinkedIn en Instagram zoeken', searching: 'Zoeken…', noSocials: 'Geen openbare pagina gevonden. Je kunt er een toevoegen via „Bewerken”.', publicPages: 'Openbare pagina’s' },
+};
+const it_ = (key, locale) => (INSIGHT_TEXT[locale] || INSIGHT_TEXT.fr)[key] || INSIGHT_TEXT.fr[key];
+const FIT_COLORS = { strong: '#3DA35D', medium: '#E5B93A', weak: '#E5484D' };
 
 const PERSONALITY_COLORS = {
   dominant: '#E5484D',
@@ -204,6 +217,33 @@ function camel(stage) {
   return stage.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
+// Bloc « Avis d'Aaron sur l'entreprise » (22/10/2026) : pastille de
+// pertinence (couleur + libellé, jamais la couleur seule) puis l'avis.
+function OpinionBox({ opinion, loading, locale }) {
+  if (!opinion && !loading) return null;
+  const color = opinion?.fit ? FIT_COLORS[opinion.fit] : null;
+  return (
+    <div className="op-box">
+      {!opinion ? (
+        <p className="op-tx op-muted">{it_('opinionLoading', locale)}</p>
+      ) : (
+        <>
+          {opinion.fit && (
+            <span className="op-fit" style={{ color, borderColor: color, background: `${color}1A` }}>{it_(opinion.fit, locale)}</span>
+          )}
+          <p className="op-tx">{frenchTypography(opinion.opinion)}</p>
+        </>
+      )}
+      <style jsx>{`
+        .op-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; }
+        .op-fit { display: inline-block; font-size: 0.72rem; font-weight: 700; border: 1px solid; border-radius: 999px; padding: 0.1rem 0.55rem; margin-bottom: 0.45rem; }
+        .op-tx { font-size: 0.82rem; color: var(--text); line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+        .op-muted { color: var(--muted); }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ContactCard({ prospect, locale, userId, onClose, onChanged, onValidateEmail, onLinkedin, onDeleted }) {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -259,6 +299,68 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
     setFeedback(null);
     setTab('overview');
   }, [prospect.id]);
+
+  // ---- Avis d'Aaron sur l'entreprise + pages publiques (22/10/2026) ----
+  const pcData = prospect.prospect_companies || {};
+  const [opinion, setOpinion] = useState(null);
+  const [opinionLoading, setOpinionLoading] = useState(false);
+  const [socials, setSocials] = useState(null);
+  const [socialsLoading, setSocialsLoading] = useState(false);
+
+  async function loadOpinion(refresh = false) {
+    setOpinionLoading(true);
+    try {
+      const r = await fetch(`/api/prospects/${prospect.id}/company-insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'opinion', refresh }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.opinion) setOpinion({ opinion: body.opinion, fit: body.fit || null });
+    } catch {
+      // l'avis est un plus : la fiche reste utilisable sans lui
+    } finally {
+      setOpinionLoading(false);
+    }
+  }
+
+  async function findSocials() {
+    setSocialsLoading(true);
+    try {
+      const r = await fetch(`/api/prospects/${prospect.id}/company-insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'socials' }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.checked) setSocials({ linkedin_url: body.linkedin_url || null, instagram_url: body.instagram_url || null, checked: true });
+    } catch {
+      // rien : le bouton reste disponible
+    } finally {
+      setSocialsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSocials(null);
+    const pc = prospect.prospect_companies || {};
+    const sameLocale = (pc.aaron_opinion_locale || 'fr') === (locale || 'fr');
+    if (pc.aaron_opinion && sameLocale) {
+      setOpinion({ opinion: pc.aaron_opinion, fit: pc.aaron_opinion_fit || null });
+      return;
+    }
+    setOpinion(null);
+    // Généré automatiquement une seule fois par société (puis gardé en base),
+    // seulement si Aaron sait déjà quelque chose d'elle et si la migration
+    // du 22/10 est jouée (colonne présente dans la réponse).
+    if ('aaron_opinion' in pc && (pc.research_summary || pc.industry)) loadOpinion(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospect.id, locale]);
+
+  const companyLinkedin = socials?.linkedin_url ?? pcData.linkedin_url ?? null;
+  const companyInstagram = socials?.instagram_url ?? pcData.instagram_url ?? null;
+  const socialsChecked = !!(socials?.checked || pcData.socials_checked_at);
+  const canSearchSocials = 'socials_checked_at' in pcData && !socialsChecked && !companyLinkedin && !companyInstagram;
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -619,13 +721,25 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                 </div>
               </div>
 
-              {(company.research_summary || companyFacts.length > 0) && (
+              {(company.research_summary || companyFacts.length > 0 || companyLinkedin || companyInstagram) && (
                 <>
                   <h4 className="sec">{company.name || t('card.companyProfileTitle', locale)}{(company.website || company.domain) && <a className="sec-link" href={company.website || `https://${company.domain}`} target="_blank" rel="noopener noreferrer">{ct('website', locale)} <ExternalLink size={12} strokeWidth={2.2} aria-hidden="true" /></a>}</h4>
                   <div className="company">
                     {company.research_summary && <p className="tx">{frenchTypography(company.research_summary)}</p>}
                     {companyFacts.length > 0 && <div className="facts">{companyFacts.map((f, i) => <span key={i}>{f}</span>)}</div>}
+                    {(companyLinkedin || companyInstagram) && (
+                      <div className="socials">
+                        {companyLinkedin && <a href={companyLinkedin} target="_blank" rel="noopener noreferrer"><Linkedin size={14} strokeWidth={2} aria-hidden="true" /> LinkedIn</a>}
+                        {companyInstagram && <a href={companyInstagram} target="_blank" rel="noopener noreferrer"><Instagram size={14} strokeWidth={2} aria-hidden="true" /> Instagram</a>}
+                      </div>
+                    )}
                   </div>
+                </>
+              )}
+              {(opinion || opinionLoading) && (
+                <>
+                  <h4 className="sec">{it_('opinion', locale)}</h4>
+                  <OpinionBox opinion={opinion} loading={opinionLoading} locale={locale} />
                 </>
               )}
             </>
@@ -665,6 +779,38 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           {tab === 'company' && (
             <>
               <CompanyInfoEditor prospect={prospect} locale={locale} onSaved={onChanged} />
+              {(companyLinkedin || companyInstagram || canSearchSocials || socials?.checked) && (
+                <>
+                  <h4 className="sec">{it_('publicPages', locale)}</h4>
+                  <div className="company">
+                    {(companyLinkedin || companyInstagram) ? (
+                      <div className="socials first">
+                        {companyLinkedin && <a href={companyLinkedin} target="_blank" rel="noopener noreferrer"><Linkedin size={14} strokeWidth={2} aria-hidden="true" /> {companyLinkedin.replace(/^https?:\/\/(www\.)?/, '')}</a>}
+                        {companyInstagram && <a href={companyInstagram} target="_blank" rel="noopener noreferrer"><Instagram size={14} strokeWidth={2} aria-hidden="true" /> {companyInstagram.replace(/^https?:\/\/(www\.)?/, '')}</a>}
+                      </div>
+                    ) : socials?.checked ? (
+                      <p className="tx">{it_('noSocials', locale)}</p>
+                    ) : (
+                      <button type="button" className="ghost-btn" disabled={socialsLoading} onClick={findSocials}>
+                        <Search size={14} strokeWidth={2.2} aria-hidden="true" /> {socialsLoading ? it_('searching', locale) : it_('findSocials', locale)}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+              {(opinion || opinionLoading) && (
+                <>
+                  <h4 className="sec">
+                    {it_('opinion', locale)}
+                    {opinion && !opinionLoading && (
+                      <button type="button" className="sec-link sec-btn" onClick={() => loadOpinion(true)}>
+                        <RefreshCw size={12} strokeWidth={2.2} aria-hidden="true" /> {it_('refresh', locale)}
+                      </button>
+                    )}
+                  </h4>
+                  <OpinionBox opinion={opinion} loading={opinionLoading} locale={locale} />
+                </>
+              )}
               {company.research_summary && (
                 <>
                   <h4 className="sec">{t('card.companyProfileTitle', locale)}</h4>
@@ -883,6 +1029,12 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .tx { font-size: 0.82rem; color: var(--text); line-height: 1.5; margin: 0.4rem 0 0; overflow-wrap: anywhere; }
         .company { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; }
         .company .tx { margin: 0; }
+        .socials { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; margin-top: 0.6rem; }
+        .socials.first { margin-top: 0; }
+        .socials a { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--accent-light); font-size: 0.8rem; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+        .ghost-btn { display: inline-flex; align-items: center; gap: 0.4rem; background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); padding: 0.45rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+        .ghost-btn:disabled { opacity: 0.6; cursor: default; }
+        .sec-btn { background: none; border: none; cursor: pointer; padding: 0; }
         .facts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
         .facts span { font-size: 0.72rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.55rem; }
         .when { font-size: 0.72rem; color: var(--muted-soft); margin: 0.5rem 0 0; }

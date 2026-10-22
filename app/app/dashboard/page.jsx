@@ -235,6 +235,19 @@ function groupAppointmentsByDay(list, locale) {
   return groups;
 }
 
+// Checklist résiduelle (22/10/2026). Textes locaux : lib/i18n.js est trop
+// lourd pour l'envoi web de GitHub.
+const CHECK_TEXT = {
+  fr: { title: 'Derniers réglages', pushPc: 'Notifications sur ton ordinateur', pushPhone: 'Notifications sur ton téléphone', phoneCalendar: 'Agenda Aaron sur ton téléphone' },
+  en: { title: 'Last settings', pushPc: 'Notifications on your computer', pushPhone: 'Notifications on your phone', phoneCalendar: 'Aaron calendar on your phone' },
+  de: { title: 'Letzte Einstellungen', pushPc: 'Benachrichtigungen auf Ihrem Computer', pushPhone: 'Benachrichtigungen auf Ihrem Telefon', phoneCalendar: 'Aaron-Kalender auf Ihrem Telefon' },
+  it: { title: 'Ultime impostazioni', pushPc: 'Notifiche sul computer', pushPhone: 'Notifiche sul telefono', phoneCalendar: 'Calendario Aaron sul telefono' },
+  es: { title: 'Últimos ajustes', pushPc: 'Notificaciones en tu ordenador', pushPhone: 'Notificaciones en tu móvil', phoneCalendar: 'Calendario de Aaron en tu móvil' },
+  pt: { title: 'Últimas configurações', pushPc: 'Notificações no computador', pushPhone: 'Notificações no telemóvel', phoneCalendar: 'Calendário do Aaron no telemóvel' },
+  nl: { title: 'Laatste instellingen', pushPc: 'Meldingen op je computer', pushPhone: 'Meldingen op je telefoon', phoneCalendar: 'Aaron-agenda op je telefoon' },
+};
+const ckt = (key, locale) => (CHECK_TEXT[locale] || CHECK_TEXT.fr)[key] || CHECK_TEXT.fr[key];
+
 export default function DashboardPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
@@ -276,6 +289,15 @@ export default function DashboardPage() {
   // la checklist, pour ne jamais afficher l'étape comme "à faire" avant que
   // /api/preferences ait répondu (évite un flash trompeur au chargement).
   const [icsLinkGenerated, setIcsLinkGenerated] = useState(true);
+  // Checklist résiduelle (refonte de l'onboarding, 22/10/2026) : les
+  // notifications se règlent APPAREIL PAR APPAREIL — ordinateur et téléphone
+  // ont chacun leur ligne. On lit les appareils déjà abonnés (user_agent) ;
+  // isMobileDevice dit sur quel type d'appareil on est en ce moment.
+  const [pushDevices, setPushDevices] = useState({ desktop: false, mobile: false });
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  // Agenda sur le téléphone : seulement pour une boîte SANS agenda (IMAP).
+  // Avec Google ou Microsoft, les RDV vont déjà dans l'agenda du compte.
+  const [mailboxHasCalendar, setMailboxHasCalendar] = useState(true);
   const [onboardingChecklistOpen, setOnboardingChecklistOpen] = useState(true);
   // Étape "notifications push" de la checklist (demande Alex, 28/08/2026 :
   // "il faut ajouter une autre tache : activer les notifications push sur cet
@@ -344,6 +366,7 @@ export default function DashboardPage() {
     // (true) plutôt que d'inventer une étape à faire.
     if (bsRes._ok !== false) setBusinessSummaryDone(!!bsRes.summary);
     setEmailConnected((connRes.connections || []).length > 0);
+    setMailboxHasCalendar((connRes.connections || []).some((c) => c.provider === 'google' || c.provider === 'microsoft'));
     setIcsLinkGenerated(prefs.ics_link_generated === true);
     setLoading(false);
   }
@@ -352,6 +375,42 @@ export default function DashboardPage() {
     if (!userId) return;
     loadAll();
   }, [userId]);
+
+  // Parcours de première connexion (22/10/2026) : un compte qui ne l'a pas
+  // fini y retourne, à l'écran où il s'était arrêté — sauf s'il vient de
+  // cliquer « Reprendre plus tard » (le temps de cette session ; le parcours
+  // se rouvre à la prochaine connexion). Remplace l'ancienne redirection
+  // quotidienne vers la checklist.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      if (window.sessionStorage.getItem('aaron-welcome-later')) return;
+    } catch (err) {}
+    fetch('/api/welcome')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (b && b.done === false) window.location.replace(`/app/bienvenue?user_id=${userId}`);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    const mobileRe = /Android|iPhone|iPad|iPod|Mobile/i;
+    setIsMobileDevice(mobileRe.test(navigator.userAgent || ''));
+    if (!userId) return;
+    fetch('/api/push/subscribe')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        const devices = b?.devices || [];
+        setPushDevices({
+          desktop: devices.some((d) => d.user_agent && !mobileRe.test(d.user_agent)),
+          mobile: devices.some((d) => d.user_agent && mobileRe.test(d.user_agent)),
+        });
+      })
+      .catch(() => {});
+  }, [userId, pushSubscribed]);
 
   // Détecte l'état RÉEL de l'abonnement push de cet appareil (voir le
   // commentaire sur les states plus haut) — même logique que
@@ -596,69 +655,44 @@ export default function DashboardPage() {
   // haut. "Première campagne ou prospect" : un prospect ajouté à la main
   // compte autant qu'une campagne lancée, les deux prouvent que le
   // commercial a réellement mis un premier pied dans l'outil.
+  // Checklist RÉSIDUELLE (refonte de l'onboarding validée par Alex, 21/10) :
+  // la visite, la fiche entreprise et la première campagne sont faites dans
+  // le parcours /app/bienvenue. Il ne reste ici que les derniers réglages,
+  // et la liste disparaît une fois complète :
+  //   - la boîte mail, seulement si elle n'est pas encore liée ;
+  //   - les notifications sur l'ordinateur ET sur le téléphone (un appareil
+  //     = une autorisation : deux lignes distinctes) ;
+  //   - l'agenda sur le téléphone, seulement pour une boîte IMAP (sans
+  //     agenda) : abonnement au flux ICS d'Aaron.
+  // L'appareil sur lequel on est active sa propre ligne directement ; l'autre
+  // ligne mène à Mon compte > Connexion (QR code pour le téléphone).
+  const checklistConnexionHref = `/app/connexions?user_id=${userId}&tab=connection`;
   const onboardingSteps = [
-    {
-      key: 'tour',
-      done: onboardingTourSeen,
-      label: t('dash.onboardingStepTour', locale),
-      href: '/app/tour',
-    },
-    {
-      key: 'profile',
-      done: businessSummaryDone,
-      label: t('dash.onboardingStepProfile', locale),
-      href: `/app/chat?user_id=${userId}&restart_questionnaire=1`,
-    },
-    {
+    !emailConnected && {
       key: 'email',
-      done: emailConnected,
+      done: false,
       label: t('dash.onboardingStepEmail', locale),
-      // docx item 10 (2026-08-27) : "Boîte email connectée" ne redirigeait pas
-      // vers l'onglet Connexion — /app/connexions seul atterrit sur l'onglet
-      // "Mon profil" par défaut (voir activeTab dans connexions/page.jsx).
-      // ?tab=connection ouvre directement le bon onglet.
-      href: '/app/connexions?tab=connection',
+      href: checklistConnexionHref,
     },
     {
-      // Ordre demandé par Alex (28/08/2026) : les notifications push doivent
-      // être activées AVANT le premier prospect/campagne dans le parcours
-      // guidé par Aaron — inversé par rapport à l'ordre d'implémentation
-      // initial (push ajoutée en dernier dans la liste).
-      key: 'push',
-      done: pushSubscribed,
-      label: pushBusy ? t('dash.onboardingStepPushBusy', locale) : t('dash.onboardingStepPush', locale),
-      // Pas de href : action guidée directement depuis la checklist (voir
-      // enablePushFromChecklist plus haut), pas une redirection vers une
-      // autre page.
-      action: enablePushFromChecklist,
+      key: 'push_pc',
+      done: pushDevices.desktop || (!isMobileDevice && pushSubscribed),
+      label: pushBusy && !isMobileDevice ? t('dash.onboardingStepPushBusy', locale) : ckt('pushPc', locale),
+      ...(isMobileDevice ? { href: checklistConnexionHref } : { action: enablePushFromChecklist }),
     },
     {
-      key: 'first',
-      done: campaigns.length > 0 || prospects.length > 0,
-      label: t('dash.onboardingStepFirst', locale),
-      href: '/app/prospects',
+      key: 'push_phone',
+      done: pushDevices.mobile || (isMobileDevice && pushSubscribed),
+      label: pushBusy && isMobileDevice ? t('dash.onboardingStepPushBusy', locale) : ckt('pushPhone', locale),
+      ...(isMobileDevice ? { action: enablePushFromChecklist } : { href: checklistConnexionHref }),
     },
-    {
-      // Demande Alex (29/08/2026) : dernière étape de la checklist — connecter
-      // l'agenda du téléphone (iPhone/Android) à l'agenda Aaron. "Fait" dans
-      // deux cas : la boîte email est connectée (Google/Outlook, qui gère
-      // déjà la synchro calendrier bidirectionnelle, voir lib/calendar-
-      // sync.ts) OU le commercial a généré son lien d'abonnement ICS/webcal
-      // (voir app/app/agenda/page.jsx, section Synchronisation) — impossible
-      // de vérifier depuis le serveur qu'il l'a bien ajouté dans l'app
-      // Calendrier de son téléphone (aucune confirmation ne remonte jamais
-      // dans ce sens-là), donc on considère l'étape faite dès qu'il a généré
-      // ce lien, comme pour "Visite guidée" plus haut (fait = vu, pas fait =
-      // "prouvé qu'il a tout lu").
+    emailConnected && !mailboxHasCalendar && {
       key: 'calendar',
-      done: emailConnected || icsLinkGenerated,
-      label: t('dash.onboardingStepCalendar', locale),
-      // 31/08/2026 : le lien d'abonnement calendrier vit désormais dans la
-      // checklist « Mise en route » de Mon compte > Connexion (docx 30/08),
-      // plus dans Ton agenda.
-      href: '/app/connexions?tab=connection',
+      done: icsLinkGenerated,
+      label: ckt('phoneCalendar', locale),
+      href: checklistConnexionHref,
     },
-  ];
+  ].filter(Boolean);
   const onboardingDoneCount = onboardingSteps.filter((s) => s.done).length;
   const onboardingComplete = onboardingDoneCount === onboardingSteps.length;
   // Item 13 (docx Modifs Aaron 30/08/2026) : "Aaron oblige à suivre les
@@ -695,28 +729,10 @@ export default function DashboardPage() {
       }]
     : [];
 
-  // Item 13 (suite) : "si l'utilisateur se déconnecte, quand il se reconnecte
-  // il retombe sur la dernière étape qu'il devait faire". À la première
-  // visite du tableau de bord de la journée (même repère que la connexion
-  // explicite quotidienne, voir lib/supabase-browser.ts), on l'emmène
-  // directement sur la page de l'étape en attente — une fois par jour et par
-  // appareil, pour ne pas l'enfermer hors du tableau de bord si une étape
-  // reste bloquée (ex. notifications impossibles sur ce navigateur). L'étape
-  // "push" se fait ici même : dans ce cas on reste sur place, checklist
-  // ouverte.
-  useEffect(() => {
-    if (loading || !userId || onboardingComplete || !firstPendingStep?.href) return;
-    const d = new Date();
-    const key = `aaron-onboarding-redirect-${userId}-${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-    try {
-      if (window.localStorage.getItem(key)) return;
-      window.localStorage.setItem(key, '1');
-    } catch (err) {
-      return;
-    }
-    window.location.href = firstPendingStep.href;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userId, onboardingComplete, firstPendingStep?.key]);
+  // Ancienne redirection automatique une fois par jour vers l'étape en
+  // attente : SUPPRIMÉE le 22/10/2026 (refonte de l'onboarding validée par
+  // Alex). La checklist reste un widget calme ; c'est le parcours
+  // /app/bienvenue qui gère la reprise au bon endroit.
 
   // Item 13 (fin) : "une fois toutes les étapes faites, une fenêtre s'ouvre :
   // Félicitations ! tu es maintenant prêt à utiliser Aaron". Affichée une
@@ -812,7 +828,7 @@ export default function DashboardPage() {
             <section className="onboarding-panel">
               <button className="onboarding-toggle" onClick={() => setOnboardingChecklistOpen(!onboardingChecklistOpen)}>
                 <span>
-                  {t('dash.onboardingTitle', locale)}{' '}
+                  {ckt('title', locale)}{' '}
                   <span className="badge">{onboardingDoneCount}/{onboardingSteps.length}</span>
                 </span>
                 <span className="chevron"><Ic name={onboardingChecklistOpen ? 'chevronUp' : 'chevronDown'} size={14} /></span>
@@ -825,7 +841,7 @@ export default function DashboardPage() {
                         <span className="onboarding-check done-check"><Ic name="check" size={12} strokeWidth={3} /></span>
                         <span className="onboarding-label">{step.label}</span>
                       </div>
-                    ) : firstPendingStep && step.key !== firstPendingStep.key ? (
+                    ) : step.locked ? (
                       // Item 13 : étape verrouillée tant que la précédente
                       // n'est pas faite (ordre imposé, une chose à la fois).
                       <div key={step.key} className="onboarding-row locked" aria-disabled="true">

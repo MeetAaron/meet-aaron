@@ -5,7 +5,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { getProspectQuota } from './prospect-quota';
 import { callClaude } from './anthropic-client';
-import { researchProspectCompany } from './prospect-research';
+import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from './prospect-research';
 import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
 import { searchDirectory } from './directory-db';
@@ -350,20 +350,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
           address: company.address || prospectCompany.address || null,
           city: company.city || null,
         });
-        if (research) {
-          const researchUpdate: Record<string, any> = { research_checked_at: new Date().toISOString() };
-          if (research.summary) researchUpdate.research_summary = research.summary;
-          if (research.website && !prospectCompany.website) researchUpdate.website = research.website;
-          if (research.siret && !prospectCompany.siret) researchUpdate.siret = research.siret;
-          if (research.address && !prospectCompany.address) researchUpdate.address = research.address;
-          if (research.industry && !prospectCompany.industry) researchUpdate.industry = research.industry;
-          await supabaseAdmin.from('prospect_companies').update(researchUpdate).eq('id', prospectCompany.id);
-        } else {
-          await supabaseAdmin
-            .from('prospect_companies')
-            .update({ research_checked_at: new Date().toISOString() })
-            .eq('id', prospectCompany.id);
-        }
+        await saveResearchUpdate(prospectCompany.id, buildResearchUpdate(prospectCompany, research));
       } catch (err: any) {
         console.error('Erreur recherche web société prospect (campagne, non bloquant):', err.message);
       }

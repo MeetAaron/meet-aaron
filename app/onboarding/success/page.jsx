@@ -24,7 +24,8 @@ export default function OnboardingSuccessPage() {
       });
 
       if (res.ok) {
-        router.push('/app/chat?welcome=1');
+        // Parcours de première connexion (22/10/2026) : plus d'arrivée dans le chat.
+        router.push('/app/bienvenue');
         return;
       }
 

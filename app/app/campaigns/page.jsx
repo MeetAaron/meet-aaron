@@ -14,6 +14,7 @@ import Ic from '@/components/UiIcon';
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
+import { FileText } from 'lucide-react';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -1191,6 +1192,38 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
   // AJOUT GLOBAL (langue Aaron) : même champ que dans le formulaire
   // classique — voir NewCampaignModal plus haut pour le détail.
   const [chatTargetLocale, setChatTargetLocale] = useState('');
+  // Puces « d'après ta fiche » (22/10/2026, refonte de l'onboarding validée
+  // par Alex) : tirées du profil d'entreprise, affichées EN PREMIER à chaque
+  // question, avec un contour bleu et une petite icône fiche ; les puces
+  // métier habituelles suivent. Calculées une fois côté serveur et gardées
+  // tant que le profil ne change pas (voir /api/campaigns/profile-suggestions).
+  const [profileChips, setProfileChips] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/campaigns/profile-suggestions')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.chips) setProfileChips(b.chips); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const PROFILE_TIP = ({ fr: "D'après ta fiche entreprise", en: 'From your company profile', de: 'Laut Ihrem Unternehmensprofil', it: 'Dalla scheda della tua azienda', es: 'Según la ficha de tu empresa', pt: 'Segundo a ficha da tua empresa', nl: 'Volgens je bedrijfsprofiel' })[locale] || "D'après ta fiche entreprise";
+  function profileChipsFor(topic) {
+    const c = profileChips?.[topic] || [];
+    if (topic === 'taille') return c.map((k) => ({ key: k, label: COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label })).filter((x) => x.label).map((x) => ({ ...x, text: x.label }));
+    if (topic === 'role') return c.map((k) => ({ key: k, label: ROLE_SUGGESTIONS.find((r) => r.key === k)?.label })).filter((x) => x.label).map((x) => ({ ...x, text: x.label }));
+    return c.map((label) => ({ key: label, label, text: label }));
+  }
+  function isProfileChip(topic, label) {
+    const l = String(label).toLowerCase();
+    return profileChipsFor(topic).some((c) => c.label.toLowerCase() === l);
+  }
+  function renderProfileChips(topic) {
+    return profileChipsFor(topic).map((c) => (
+      <button type="button" key={`p-${c.key}`} className="chip from-profile" title={PROFILE_TIP} aria-label={`${c.label} (${PROFILE_TIP})`} onClick={() => addChip(c.text)}>
+        <FileText size={12} strokeWidth={2.2} aria-hidden="true" /> {c.label}
+      </button>
+    ));
+  }
 
   async function sendMessage(text) {
     if (!text.trim() || sending) return;
@@ -1337,7 +1370,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {currentTopic === 'secteur' && (
           <div className="chip-row">
-            {QUICK_SECTORS.map((s) => (
+            {renderProfileChips('secteur')}
+            {QUICK_SECTORS.filter((s) => !isProfileChip('secteur', s)).map((s) => (
               <button type="button" key={s} className="chip" onClick={() => addChip(s)}>+ {s}</button>
             ))}
           </div>
@@ -1345,7 +1379,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {currentTopic === 'zone' && (
           <div className="chip-row">
-            {ZONE_SUGGESTIONS.map((z) => (
+            {renderProfileChips('zone')}
+            {ZONE_SUGGESTIONS.filter((z) => !isProfileChip('zone', z.label)).map((z) => (
               <button type="button" key={z.label} className="chip" onClick={() => addChip(z.label)}>
                 <Ic name="map" size={12} /> {z.label}
               </button>
@@ -1355,7 +1390,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {currentTopic === 'taille' && (
           <div className="chip-row">
-            {COMPANY_SIZE_OPTIONS.map((o) => (
+            {renderProfileChips('taille')}
+            {COMPANY_SIZE_OPTIONS.filter((o) => !isProfileChip('taille', o.label)).map((o) => (
               <button type="button" key={o.key} className="chip" onClick={() => addChip(o.label)}>
                 {o.icon} {o.label}
               </button>
@@ -1365,7 +1401,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {currentTopic === 'role' && (
           <div className="chip-row">
-            {ROLE_SUGGESTIONS.map((r) => (
+            {renderProfileChips('role')}
+            {ROLE_SUGGESTIONS.filter((r) => !isProfileChip('role', r.label)).map((r) => (
               <button type="button" key={r.key} className="chip" onClick={() => addChip(r.label)}>{r.label}</button>
             ))}
           </div>
@@ -1373,7 +1410,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
 
         {currentTopic === 'communication' && (
           <div className="chip-row">
-            {COMMUNICATION_SUGGESTIONS.map((c) => (
+            {renderProfileChips('communication')}
+            {COMMUNICATION_SUGGESTIONS.filter((c) => !isProfileChip('communication', c)).map((c) => (
               <button type="button" key={c} className="chip" onClick={() => addChip(c)}>{c}</button>
             ))}
           </div>
@@ -1579,6 +1617,14 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           font-size: 0.78rem;
           color: var(--muted);
           cursor: pointer;
+        }
+        .chip.from-profile {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          border: 1.5px solid #3B82F6;
+          color: var(--text);
+          background: rgba(59, 130, 246, 0.1);
         }
         .chip:hover {
           border-color: var(--accent);

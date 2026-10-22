@@ -316,6 +316,11 @@ export default function ConnexionsPage() {
   // de la suite — "conseils pas à pas" demandés par Alex pour tout
   // l'enchaînement post-onboarding.
   const [oauthJustConnected, setOauthJustConnected] = useState(null);
+  // Parcours de première connexion (22/10/2026) : on arrive ici depuis
+  // /app/bienvenue (liaison de la boîte mail). Google/Microsoft réussi →
+  // retour automatique dans le parcours ; sinon (boîte IMAP, erreur) un
+  // bouton permet d'y revenir. Drapeau de session posé par /app/bienvenue.
+  const [welcomeReturn, setWelcomeReturn] = useState(false);
   // Statut 29/08/2026 : bug corrigé — jusqu'ici, un échec de connexion
   // Google/Microsoft (ex. "state_mismatch" quand la validation d'admin
   // Microsoft se termine dans une autre session/navigateur que celle qui a
@@ -1421,6 +1426,14 @@ export default function ConnexionsPage() {
     const crmOauthError = params.get('crm_oauth_error');
     if (crmOauthError) setCrmOauthBannerError(t('preferences.crm.oauthErrorTemplate', locale).replace('{error}', crmOauthError));
     const oauthSuccessProvider = params.get('oauth_success');
+    let fromWelcome = false;
+    try { fromWelcome = !!window.sessionStorage.getItem('aaron-welcome-return'); } catch (err) {}
+    if (fromWelcome && (oauthSuccessProvider === 'google' || oauthSuccessProvider === 'microsoft')) {
+      try { window.sessionStorage.removeItem('aaron-welcome-return'); } catch (err) {}
+      window.location.replace(`/app/bienvenue?user_id=${userId}`);
+      return;
+    }
+    setWelcomeReturn(fromWelcome);
     if (oauthSuccessProvider === 'google' || oauthSuccessProvider === 'microsoft') {
       setOauthJustConnected(oauthSuccessProvider);
     }
@@ -2856,6 +2869,17 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   ? t('connexions.adminConsentGranted', locale)
                   : t('connexions.adminConsentRefused', locale)}
               </p>
+            </div>
+          )}
+          {welcomeReturn && (
+            <div className="oauth-success-banner">
+              <a
+                href={`/app/bienvenue?user_id=${userId}`}
+                className="oauth-success-cta"
+                onClick={() => { try { window.sessionStorage.removeItem('aaron-welcome-return'); } catch (err) {} }}
+              >
+                ← {({ fr: 'Revenir à ma mise en route', en: 'Back to my setup', de: 'Zurück zur Einrichtung', it: 'Torna alla configurazione', es: 'Volver a mi configuración', pt: 'Voltar à configuração', nl: 'Terug naar mijn installatie' })[locale] || 'Revenir à ma mise en route'}
+              </a>
             </div>
           )}
           {oauthJustConnected && (
