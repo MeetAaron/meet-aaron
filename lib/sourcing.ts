@@ -5,7 +5,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { getProspectQuota } from './prospect-quota';
 import { callClaude } from './anthropic-client';
-import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from './prospect-research';
+import { ensureCompanyEnriched } from './prospect-research';
 import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
 import { searchDirectory } from './directory-db';
@@ -328,7 +328,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         },
         { onConflict: 'company_id,domain' }
       )
-      .select('id, research_summary, website, siret, address, industry')
+      .select('*')
       .single();
 
     if (companyError || !prospectCompany) continue;
@@ -340,21 +340,14 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
     // bloque jamais le traitement du lot en cas d'échec, et ne complète
     // chaque champ que s'il est encore vide (jamais écraser company.website
     // déjà trouvé par searchCompaniesInZone ci-dessus).
-    if (!prospectCompany.research_summary) {
-      try {
-        const research = await researchProspectCompany(campaign.company_id, {
-          name: company.name || null,
-          domain: company.domain || null,
-          website: company.website || prospectCompany.website || null,
-          industry: prospectCompany.industry || null,
-          address: company.address || prospectCompany.address || null,
-          city: company.city || null,
-        });
-        await saveResearchUpdate(prospectCompany.id, buildResearchUpdate(prospectCompany, research));
-      } catch (err: any) {
-        console.error('Erreur recherche web société prospect (campagne, non bloquant):', err.message);
-      }
-    }
+    await ensureCompanyEnriched(campaign.company_id, prospectCompany, {
+      name: company.name || null,
+      domain: company.domain || null,
+      website: company.website || prospectCompany.website || null,
+      industry: prospectCompany.industry || null,
+      address: company.address || prospectCompany.address || null,
+      city: company.city || null,
+    });
 
     const { data: existingProspect } = await supabaseAdmin
       .from('prospects')

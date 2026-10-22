@@ -11,7 +11,8 @@ import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
-import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from '@/lib/prospect-research';
+import { ensureCompanyEnriched } from '@/lib/prospect-research';
+import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
 import { readJsonBody, serverError } from '@/lib/http';
 
 const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at';
@@ -233,6 +234,12 @@ export async function POST(request: NextRequest) {
   const industry = cleanStr(body.industry);
   const companySize = cleanStr(body.company_size);
   const estimatedRevenue = cleanStr(body.estimated_revenue);
+  // Pages publiques (22/10/2026), par exemple depuis un fichier importé :
+  // retenues seulement sous une forme valide, sinon ignorées (jamais
+  // bloquant pour la création du contact).
+  const companyLinkedin = normalizeLinkedInCompanyUrl(body.company_linkedin_url);
+  const companyInstagram = normalizeInstagramUrl(body.company_instagram_url);
+  const contactLinkedin = normalizeLinkedInProfileUrl(linkedin_url);
 
   // Cherche ou crée la prospect_company associée à ce domaine.
   //
@@ -257,7 +264,7 @@ export async function POST(request: NextRequest) {
   if (domainForMatching) {
     const { data: existingCompany } = await supabaseAdmin
       .from('prospect_companies')
-      .select('id, name, address, siret, website, industry, company_size, estimated_revenue, research_summary')
+      .select('*')
       .eq('company_id', company_id)
       .eq('domain', domainForMatching)
       .single();
@@ -290,8 +297,10 @@ export async function POST(request: NextRequest) {
         industry,
         company_size: companySize,
         estimated_revenue: estimatedRevenue,
+        ...(companyLinkedin ? { linkedin_url: companyLinkedin } : {}),
+        ...(companyInstagram ? { instagram_url: companyInstagram } : {}),
       })
-      .select('id, name, address, siret, website, industry, company_size, estimated_revenue, research_summary')
+      .select('*')
       .single();
 
     if (companyError) {
@@ -310,6 +319,8 @@ export async function POST(request: NextRequest) {
     if (industry && !prospectCompany.industry) companyUpdate.industry = industry;
     if (companySize && !prospectCompany.company_size) companyUpdate.company_size = companySize;
     if (estimatedRevenue && !prospectCompany.estimated_revenue) companyUpdate.estimated_revenue = estimatedRevenue;
+    if (companyLinkedin && !prospectCompany.linkedin_url) companyUpdate.linkedin_url = companyLinkedin;
+    if (companyInstagram && !prospectCompany.instagram_url) companyUpdate.instagram_url = companyInstagram;
     if (Object.keys(companyUpdate).length > 0) {
       await supabaseAdmin.from('prospect_companies').update(companyUpdate).eq('id', prospectCompany.id);
     }
@@ -326,7 +337,7 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       job_title,
-      linkedin_url: linkedin_url?.trim() || null,
+      linkedin_url: contactLinkedin,
       status: 'jaune',
       origin,
       reactivation_batch_id: reactivationBatchId,
@@ -389,20 +400,18 @@ export async function POST(request: NextRequest) {
   // structuré QUE s'il est encore vide, exactement comme companyUpdate
   // ci-dessus : jamais écraser une valeur déjà renseignée par le commercial.
   // Ne bloque jamais la création du prospect en cas d'échec de la recherche.
-  if (!prospectCompany.research_summary) {
-    try {
-      const research = await researchProspectCompany(company_id, {
-        name: cleanCompanyName || prospectCompany.name || null,
-        domain: domainForMatching,
-        website: website || prospectCompany.website || null,
-        industry: industry || prospectCompany.industry || null,
-      });
-      const researchUpdate = buildResearchUpdate(prospectCompany, research);
-      await saveResearchUpdate(prospectCompany.id, researchUpdate);
-      prospectCompany = { ...prospectCompany, ...researchUpdate };
-    } catch (err: any) {
-      console.error('Erreur recherche web société prospect (non bloquant):', err.message);
-    }
+  // Enrichissement automatique (22/10/2026) : recherche complète la
+  // première fois, puis pages LinkedIn/Instagram si la fiche a été
+  // recherchée avant leur ajout. Ne remplit que les cases vides.
+  {
+    const enrichment = await ensureCompanyEnriched(company_id, prospectCompany, {
+      name: cleanCompanyName || prospectCompany.name || null,
+      domain: domainForMatching,
+      website: website || prospectCompany.website || null,
+      industry: industry || prospectCompany.industry || null,
+      address: address || prospectCompany.address || null,
+    });
+    prospectCompany = { ...prospectCompany, ...enrichment };
   }
 
   if (skipFirstContact) {

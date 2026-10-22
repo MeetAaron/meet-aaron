@@ -24,7 +24,7 @@ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { researchProspectCompany, buildResearchUpdate, saveResearchUpdate } from '@/lib/prospect-research';
+import { ensureCompanyEnriched } from '@/lib/prospect-research';
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   const { data: prospectCompany } = await supabaseAdmin
     .from('prospect_companies')
-    .select('id, name, domain, website, industry, siret, address, research_summary')
+    .select('*')
     .eq('id', prospect.prospect_company_id)
     .single();
 
@@ -68,18 +68,14 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   // app/api/prospects/route.ts — voir lib/prospect-research.ts. Ne relance
   // jamais si déjà vérifiée (research_summary ou research_checked_at déjà en
   // base).
-  if (prospectCompany && !prospectCompany.research_summary) {
-    try {
-      const research = await researchProspectCompany(prospect.company_id, {
-        name: prospectCompany.name || null,
-        domain: prospectCompany.domain || null,
-        website: prospectCompany.website || null,
-        industry: prospectCompany.industry || null,
-      });
-      await saveResearchUpdate(prospectCompany.id, buildResearchUpdate(prospectCompany, research));
-    } catch (err: any) {
-      console.error('Erreur recherche web société prospect (non bloquant):', err.message);
-    }
+  if (prospectCompany) {
+    await ensureCompanyEnriched(prospect.company_id, prospectCompany, {
+      name: prospectCompany.name || null,
+      domain: prospectCompany.domain || null,
+      website: prospectCompany.website || null,
+      industry: prospectCompany.industry || null,
+      address: prospectCompany.address || null,
+    });
   }
 
   let aaronOutput = null;

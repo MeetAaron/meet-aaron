@@ -354,13 +354,17 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
     // seulement si Aaron sait déjà quelque chose d'elle et si la migration
     // du 22/10 est jouée (colonne présente dans la réponse).
     if ('aaron_opinion' in pc && (pc.research_summary || pc.industry)) loadOpinion(false);
+    // Pages publiques : Aaron les cherche LUI-MÊME (demande d'Alex du
+    // 22/10 : pas de bouton à cliquer) pour une fiche recherchée avant leur
+    // ajout. Une seule tentative par société (socials_checked_at).
+    if ('socials_checked_at' in pc && !pc.socials_checked_at && !pc.linkedin_url && !pc.instagram_url && (pc.research_summary || pc.website || pc.domain)) findSocials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prospect.id, locale]);
 
   const companyLinkedin = socials?.linkedin_url ?? pcData.linkedin_url ?? null;
   const companyInstagram = socials?.instagram_url ?? pcData.instagram_url ?? null;
   const socialsChecked = !!(socials?.checked || pcData.socials_checked_at);
-  const canSearchSocials = 'socials_checked_at' in pcData && !socialsChecked && !companyLinkedin && !companyInstagram;
+  const canSearchSocials = 'socials_checked_at' in pcData && !socialsChecked && !companyLinkedin && !companyInstagram && socialsLoading;
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -791,9 +795,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                     ) : socials?.checked ? (
                       <p className="tx">{it_('noSocials', locale)}</p>
                     ) : (
-                      <button type="button" className="ghost-btn" disabled={socialsLoading} onClick={findSocials}>
-                        <Search size={14} strokeWidth={2.2} aria-hidden="true" /> {socialsLoading ? it_('searching', locale) : it_('findSocials', locale)}
-                      </button>
+                      <p className="tx"><Search size={14} strokeWidth={2.2} aria-hidden="true" /> {it_('searching', locale)}</p>
                     )}
                   </div>
                 </>

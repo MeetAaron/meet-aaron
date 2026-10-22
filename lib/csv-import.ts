@@ -14,7 +14,18 @@
 // SUGGESTION affichée dans un champ éditable, jamais appliqué en silence :
 // l'import final passe toujours par une relecture humaine avant écriture.
 
-export const IMPORT_FIELDS = ['full_name', 'first_name', 'last_name', 'email', 'phone', 'company_name', 'job_title', 'pipeline_stage'];
+export const IMPORT_FIELDS = [
+  'full_name', 'first_name', 'last_name', 'email', 'phone', 'company_name', 'job_title', 'pipeline_stage',
+  // 22/10/2026 : les colonnes société du modèle téléchargeable (adresse,
+  // SIRET, site, secteur, taille, CA) étaient proposées dans le fichier
+  // vierge mais JAMAIS importées. Elles le sont désormais, avec les liens
+  // LinkedIn/Instagram ; ce qui reste vide, Aaron le complète lui-même
+  // (recherche société, voir lib/prospect-research.ts). La page LinkedIn de
+  // l'ENTREPRISE est cherchée avant le LinkedIn du CONTACT, pour que la
+  // colonne « LinkedIn » seule aille bien au contact.
+  'address', 'siret', 'website', 'industry', 'company_size', 'estimated_revenue',
+  'company_linkedin_url', 'company_instagram_url', 'linkedin_url',
+];
 
 // Alias déterministes (minuscules, sans accents) pour l'auto-mapping des
 // en-têtes du fichier importé — aucune IA impliquée ici, juste une liste de
@@ -33,6 +44,15 @@ const HEADER_ALIASES = {
   // perdus. Sans cette colonne, tout entrait en « en cours » et Aaron
   // risquait d'envoyer un email de prospection à un client existant.
   pipeline_stage: ['progression', 'etape', 'statut', 'stage', 'status', 'categorie', 'category', 'type de contact', 'pipeline'],
+  address: ['adresse', 'address', 'adresse postale', 'indirizzo', 'direccion', 'morada', 'adres', 'anschrift', 'street'],
+  siret: ['siret', 'siren', 'numero siret', 'registration number', 'company number', 'abn', 'handelsregisternummer', 'numero di registrazione', 'numero de registro', 'numero de registo', 'registratienummer', 'kvk'],
+  website: ['site web', 'site internet', 'website', 'webseite', 'sito web', 'sitio web', 'site'],
+  industry: ["secteur d'activite", 'secteur', 'activite', 'industry', 'branche', 'settore', 'sector', 'setor'],
+  company_size: ["taille de l'entreprise", 'taille', 'effectif', 'company size', 'size', 'employees', 'unternehmensgrosse', 'dimensione azienda', 'tamano de la empresa', 'dimensao da empresa', 'bedrijfsgrootte'],
+  estimated_revenue: ['ca estime', "chiffre d'affaires", 'estimated revenue', 'revenue', 'turnover', 'umsatz', 'fatturato', 'facturacion', 'faturacao', 'omzet'],
+  company_linkedin_url: ["page linkedin de l'entreprise", 'page linkedin', 'linkedin entreprise', 'linkedin societe', 'company linkedin', 'linkedin company', 'linkedin page', 'linkedin seite', 'pagina linkedin'],
+  company_instagram_url: ["instagram de l'entreprise", 'instagram', 'compte instagram', 'instagram entreprise', 'company instagram'],
+  linkedin_url: ['linkedin (contact)', 'linkedin', 'profil linkedin', 'linkedin contact', 'linkedin profile', 'linkedin url', 'linkedin profil', 'profilo linkedin', 'perfil de linkedin', 'perfil linkedin', 'linkedin profiel'],
 };
 
 // Valeurs acceptées dans la colonne d'étape, en français et en anglais.
@@ -209,6 +229,15 @@ export function buildMappedRows(rawRows, mapping) {
       phone: get('phone'),
       company_name: get('company_name'),
       job_title: get('job_title'),
+      address: get('address'),
+      siret: get('siret'),
+      website: get('website'),
+      industry: get('industry'),
+      company_size: get('company_size'),
+      estimated_revenue: get('estimated_revenue'),
+      company_linkedin_url: get('company_linkedin_url'),
+      company_instagram_url: get('company_instagram_url'),
+      linkedin_url: get('linkedin_url'),
       // null si colonne absente/vide/non reconnue -> comportement historique.
       pipeline: parsePipelineStageValue(get('pipeline_stage')),
     };

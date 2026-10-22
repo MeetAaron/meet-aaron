@@ -48,7 +48,29 @@ const FIELD_LABEL_KEYS = {
   // colonnes s'affichait donc sans titre, et l'utilisateur ne pouvait pas
   // deviner quelle colonne de son fichier y associer.
   pipeline_stage: 'csvImport.stageColumn',
+  address: 'prospects.colAddress',
+  siret: 'prospects.colSiret',
+  website: 'prospects.colWebsite',
+  industry: 'prospects.colIndustry',
+  company_size: 'prospects.colCompanySize',
+  estimated_revenue: 'prospects.colEstimatedRevenue',
 };
+
+// Libellés des colonnes LinkedIn / Instagram (22/10/2026). Locaux :
+// lib/i18n.js est trop lourd pour l'envoi web de GitHub.
+const SOCIAL_FIELD_LABELS = {
+  fr: { linkedin_url: 'LinkedIn du contact', company_linkedin_url: "Page LinkedIn de l'entreprise", company_instagram_url: "Instagram de l'entreprise" },
+  en: { linkedin_url: "Contact's LinkedIn", company_linkedin_url: 'Company LinkedIn page', company_instagram_url: 'Company Instagram' },
+  de: { linkedin_url: 'LinkedIn des Kontakts', company_linkedin_url: 'LinkedIn-Seite der Firma', company_instagram_url: 'Instagram der Firma' },
+  it: { linkedin_url: 'LinkedIn del contatto', company_linkedin_url: "Pagina LinkedIn dell'azienda", company_instagram_url: "Instagram dell'azienda" },
+  es: { linkedin_url: 'LinkedIn del contacto', company_linkedin_url: 'Página de LinkedIn de la empresa', company_instagram_url: 'Instagram de la empresa' },
+  pt: { linkedin_url: 'LinkedIn do contacto', company_linkedin_url: 'Página LinkedIn da empresa', company_instagram_url: 'Instagram da empresa' },
+  nl: { linkedin_url: 'LinkedIn van het contact', company_linkedin_url: 'LinkedIn-pagina van het bedrijf', company_instagram_url: 'Instagram van het bedrijf' },
+};
+function importFieldLabel(field, locale) {
+  const social = (SOCIAL_FIELD_LABELS[locale] || SOCIAL_FIELD_LABELS.fr)[field];
+  return social || t(FIELD_LABEL_KEYS[field], locale);
+}
 
 export default function CsvImportModal({ userId, companyId, context, module, stageOrder, stageMeta, onClose, onImported }) {
   const [locale] = useLocale();
@@ -415,6 +437,17 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
             phone: row.phone || null,
             job_title: row.job_title || null,
             company_name: row.company_name || null,
+            // Colonnes société + liens publics du fichier (22/10/2026). Le
+            // reste, Aaron le complète lui-même à la création du contact.
+            address: row.address || null,
+            siret: row.siret || null,
+            website: row.website || null,
+            industry: row.industry || null,
+            company_size: row.company_size || null,
+            estimated_revenue: row.estimated_revenue || null,
+            linkedin_url: row.linkedin_url || null,
+            company_linkedin_url: row.company_linkedin_url || null,
+            company_instagram_url: row.company_instagram_url || null,
             skip_first_contact: skipFirstContact,
             origin: context === 'reactivation' ? 'reactive_par_aaron' : undefined,
             reactivation_batch_id: reactivationBatchId,
@@ -524,7 +557,7 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
             <div className="map-grid">
               {IMPORT_FIELDS.map((field) => (
                 <label key={field} className="map-row">
-                  {t(FIELD_LABEL_KEYS[field], locale)}
+                  {importFieldLabel(field, locale)}
                   <select
                     value={mapping[field] === null || mapping[field] === undefined ? '' : mapping[field]}
                     onChange={(e) =>

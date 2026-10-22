@@ -187,6 +187,17 @@ function downloadBlankCustomersTemplate(locale, format) {
     t('prospects.colCompanySize', locale),
     t('prospects.colEstimatedRevenue', locale),
     t('prospects.templateColManaged', locale),
+    // 22/10/2026 : mêmes colonnes de liens publics que le modèle Prospects
+    // (reconnues à l'import, voir lib/csv-import.ts).
+    ...(({
+      fr: ['LinkedIn (contact)', "Page LinkedIn de l'entreprise", "Instagram de l'entreprise"],
+      en: ['LinkedIn (contact)', 'Company LinkedIn page', 'Company Instagram'],
+      de: ['LinkedIn (Kontakt)', 'LinkedIn-Seite der Firma', 'Instagram der Firma'],
+      it: ['LinkedIn (contatto)', "Pagina LinkedIn dell'azienda", "Instagram dell'azienda"],
+      es: ['LinkedIn (contacto)', 'Página de LinkedIn de la empresa', 'Instagram de la empresa'],
+      pt: ['LinkedIn (contacto)', 'Página LinkedIn da empresa', 'Instagram da empresa'],
+      nl: ['LinkedIn (contact)', 'LinkedIn-pagina van het bedrijf', 'Instagram van het bedrijf'],
+    })[locale] || ['LinkedIn (contact)', "Page LinkedIn de l'entreprise", "Instagram de l'entreprise"]),
   ];
   downloadSpreadsheet(headers, [], 'modele-clients-vierge', format);
 }

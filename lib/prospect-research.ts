@@ -419,3 +419,47 @@ export async function generateCompanyOpinion(
     return null;
   }
 }
+
+// ── Enrichissement automatique d'une fiche société (22/10/2026) ────────────
+// Demande d'Alex : « je veux qu'Aaron le fasse lui-même quand on ajoute un
+// contact manuellement, en lançant une campagne ou quand on importe un
+// fichier : Aaron doit remplir les cases vides ». Un seul point d'entrée pour
+// les trois chemins (app/api/prospects, generate-first-contact, sourcing) :
+//   - fiche jamais recherchée → recherche complète (résumé, site, SIRET,
+//     adresse, secteur, LinkedIn, Instagram), une fois ;
+//   - fiche recherchée AVANT l'ajout de LinkedIn/Instagram (socials_checked_at
+//     vide, aucun lien) → petite recherche des seules pages publiques, une
+//     fois.
+// Ne remplit QUE les cases vides, ne bloque jamais la création du contact.
+// `existing` doit contenir les colonnes de la fiche (select('*')).
+export async function ensureCompanyEnriched(
+  clientCompanyId: string,
+  existing: Record<string, any>,
+  input: ProspectCompanyResearchInput
+): Promise<Record<string, any>> {
+  try {
+    if (!existing.research_summary && !existing.research_checked_at) {
+      const research = await researchProspectCompany(clientCompanyId, input);
+      const update = buildResearchUpdate(existing, research);
+      await saveResearchUpdate(existing.id, update);
+      return update;
+    }
+    const socialsKnown = 'socials_checked_at' in existing;
+    if (socialsKnown && !existing.socials_checked_at && !existing.linkedin_url && !existing.instagram_url
+        && isCompanyResearchable(input)) {
+      const found = await findCompanySocials(clientCompanyId, {
+        name: input.name,
+        website: input.website,
+        domain: input.domain,
+      });
+      const update: Record<string, any> = { socials_checked_at: new Date().toISOString() };
+      if (found.linkedin_url) update.linkedin_url = found.linkedin_url;
+      if (found.instagram_url) update.instagram_url = found.instagram_url;
+      await supabaseAdmin.from('prospect_companies').update(update).eq('id', existing.id);
+      return update;
+    }
+  } catch (err: any) {
+    console.error('Erreur enrichissement société (non bloquant):', err?.message);
+  }
+  return {};
+}

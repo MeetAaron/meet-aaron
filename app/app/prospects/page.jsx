@@ -168,6 +168,21 @@ const PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS = [
 // Choix CSV (recommandé) / Excel (demande Alex 2026-08-25, voir
 // components/ExportFormatMenu.jsx et lib/xlsx-io.js) : `format` vaut 'csv'
 // ou 'xlsx'.
+// Colonnes ajoutées au fichier téléchargeable le 22/10/2026 (modèle vierge
+// ET export) : liens publics et avis d'Aaron. Libellés locaux (lib/i18n.js
+// trop lourd pour l'envoi web) ; ce sont aussi des en-têtes que l'import
+// reconnaît (voir HEADER_ALIASES dans lib/csv-import.ts).
+const SHEET_EXTRA = {
+  fr: { linkedin: 'LinkedIn (contact)', companyLinkedin: "Page LinkedIn de l'entreprise", instagram: "Instagram de l'entreprise", opinion: "Avis d'Aaron sur l'entreprise" },
+  en: { linkedin: 'LinkedIn (contact)', companyLinkedin: 'Company LinkedIn page', instagram: 'Company Instagram', opinion: "Aaron's take on the company" },
+  de: { linkedin: 'LinkedIn (Kontakt)', companyLinkedin: 'LinkedIn-Seite der Firma', instagram: 'Instagram der Firma', opinion: 'Aarons Einschätzung der Firma' },
+  it: { linkedin: 'LinkedIn (contatto)', companyLinkedin: "Pagina LinkedIn dell'azienda", instagram: "Instagram dell'azienda", opinion: "Parere di Aaron sull'azienda" },
+  es: { linkedin: 'LinkedIn (contacto)', companyLinkedin: 'Página de LinkedIn de la empresa', instagram: 'Instagram de la empresa', opinion: 'Opinión de Aaron sobre la empresa' },
+  pt: { linkedin: 'LinkedIn (contacto)', companyLinkedin: 'Página LinkedIn da empresa', instagram: 'Instagram da empresa', opinion: 'Opinião do Aaron sobre a empresa' },
+  nl: { linkedin: 'LinkedIn (contact)', companyLinkedin: 'LinkedIn-pagina van het bedrijf', instagram: 'Instagram van het bedrijf', opinion: 'Aarons mening over het bedrijf' },
+};
+const sx = (key, locale) => (SHEET_EXTRA[locale] || SHEET_EXTRA.fr)[key] || SHEET_EXTRA.fr[key];
+
 function exportProspectsToCsv(prospects, locale, format) {
   const statusMeta = statusMetaFor(locale);
   const personalityLabels = personalityLabelsFor(locale);
@@ -188,6 +203,10 @@ function exportProspectsToCsv(prospects, locale, format) {
     t('prospects.colPersonality', locale),
     t('modal.aaronAdvice', locale),
     t('prospects.templateColManaged', locale),
+    sx('linkedin', locale),
+    sx('companyLinkedin', locale),
+    sx('instagram', locale),
+    sx('opinion', locale),
   ];
   const rows = prospects.map((p) => [
     (() => {
@@ -209,6 +228,10 @@ function exportProspectsToCsv(prospects, locale, format) {
     personalityLabels[p.personality_type] || '',
     p.aaron_advice || '',
     p.ai_managed === false ? t('common.no', locale) : t('common.yes', locale),
+    p.linkedin_url || '',
+    p.prospect_companies?.linkedin_url || '',
+    p.prospect_companies?.instagram_url || '',
+    p.prospect_companies?.aaron_opinion || '',
   ]);
   downloadSpreadsheet(headers, rows, `prospects-${new Date().toISOString().slice(0, 10)}`, format);
 }
@@ -217,7 +240,12 @@ function exportProspectsToCsv(prospects, locale, format) {
 // données" — même entêtes que l'export, sans données, pour préparer un
 // import ultérieur. Choix CSV/Excel identique à l'export (voir ci-dessus).
 function downloadBlankProspectsTemplate(locale, format) {
-  const headers = PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS.map((k) => t(k, locale));
+  const headers = [
+    ...PROSPECTS_CSV_TEMPLATE_HEADERS_KEYS.map((k) => t(k, locale)),
+    sx('linkedin', locale),
+    sx('companyLinkedin', locale),
+    sx('instagram', locale),
+  ];
   downloadSpreadsheet(headers, [], 'modele-prospects-vierge', format);
 }
 
