@@ -21,13 +21,19 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
+// 22/10/2026, run #1 : un override GLOBAL `postcss` est refusé par npm
+// (EOVERRIDE : postcss est aussi une devDependency directe, ^8.4.39). On
+// cible donc UNIQUEMENT la copie embarquée par Next.js : la devDependency
+// directe se résout déjà en 8.5.31 (hors plage vulnérable).
 const pkgPath = 'package.json';
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
 pkg.overrides = pkg.overrides || {};
-if (pkg.overrides.postcss !== '^8.5.31') {
-  pkg.overrides.postcss = '^8.5.31';
+delete pkg.overrides.postcss;
+const current = pkg.overrides.next;
+if (!current || typeof current !== 'object' || current.postcss !== '^8.5.31') {
+  pkg.overrides.next = { ...(typeof current === 'object' ? current : {}), postcss: '^8.5.31' };
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 4) + '\n');
-  console.log('package.json : overrides.postcss = ^8.5.31');
+  console.log('package.json : overrides.next.postcss = ^8.5.31');
 } else {
-  console.log('package.json : override postcss déjà en place');
+  console.log('package.json : override next > postcss déjà en place');
 }
