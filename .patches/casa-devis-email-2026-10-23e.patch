@@ -1,0 +1,127 @@
+From 2c5356095413cda14df3f4d0e127d5710204d13a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 08:13:55 +0000
+Subject: [PATCH] =?UTF-8?q?Tableau=20de=20bord=20:=20grille=20align=C3=A9e?=
+ =?UTF-8?q?=20entre=20les=20rang=C3=A9es,=20cartes=20de=20m=C3=AAme=20haut?=
+ =?UTF-8?q?eur,=20entonnoir=20en=20barres=20horizontales?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Retour d'Alex (23/10) : « on dirait que les cadres sont décalés ». Les deux rangées n'avaient pas la même grille (1.35fr/1fr puis 1fr/1fr) et les cartes d'une rangée pas la même hauteur ; l'entonnoir en colonnes faisait des marches d'escalier. Même grille partout, cartes étirées, état vide centré, entonnoir en lignes (libellé, barre proportionnelle, chiffre).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/dashboard/page.jsx | 61 +++++++++++++++++++++++++-------------
+ 1 file changed, 41 insertions(+), 20 deletions(-)
+
+diff --git a/app/app/dashboard/page.jsx b/app/app/dashboard/page.jsx
+index 47b104a..a9586d6 100644
+--- a/app/app/dashboard/page.jsx
++++ b/app/app/dashboard/page.jsx
+@@ -950,13 +950,15 @@ export default function DashboardPage() {
+                 <a className="panel-link" href={`/app/agenda${userId ? `?user_id=${userId}` : ''}`}>{dt('agenda', locale)} →</a>
+               </div>
+               {!nextAppt ? (
+-                <EmptyState
+-                  title={t('dash.emptyNothingPlanned', locale)}
+-                  body={t('dash.emptyNoConfirmedAppt', locale)}
+-                  compact
+-                  ctaHref="/app/agenda"
+-                  ctaLabel={t('dash.emptyApptCta', locale)}
+-                />
++                <div className="next-empty">
++                  <EmptyState
++                    title={t('dash.emptyNothingPlanned', locale)}
++                    body={t('dash.emptyNoConfirmedAppt', locale)}
++                    compact
++                    ctaHref="/app/agenda"
++                    ctaLabel={t('dash.emptyApptCta', locale)}
++                  />
++                </div>
+               ) : (() => {
+                 const d = new Date(nextAppt.proposed_at);
+                 const isToday = d.toDateString() === now.toDateString();
+@@ -1028,16 +1030,20 @@ export default function DashboardPage() {
+                 <p className="muted funnel-empty">{dt('funnelEmpty', locale)}</p>
+               ) : (
+                 <>
+-                  {/* Entonnoir en colonnes (maquette) : une colonne par étape,
+-                      hauteur = part des contacts, le chiffre au-dessus. */}
+-                  <a className="funnel-cols" href={`/app/prospects?user_id=${userId}`}>
++                  {/* Entonnoir en lignes (23/10/2026, retour d'Alex : les
++                      colonnes « font décalé ») : une ligne par étape, libellé à
++                      gauche, barre horizontale proportionnelle à la part des
++                      contacts, chiffre aligné à droite. Toutes les barres
++                      partent du même bord : la comparaison se lit d'un coup
++                      d'œil, sans effet de marche d'escalier. */}
++                  <a className="funnel-rows" href={`/app/prospects?user_id=${userId}`}>
+                     {funnelSteps.map((step) => {
+-                      const h = Math.max(6, Math.round((step.value / funnelContacts) * 100));
++                      const w = Math.max(3, Math.round((step.value / funnelContacts) * 100));
+                       return (
+-                        <div className="fcol" key={step.key}>
+-                          <b>{step.value}</b>
+-                          <span className="fbar-track"><i style={{ height: `${h}%`, background: step.color }} /></span>
+-                          <span className="flabel">{step.label}</span>
++                        <div className="frow" key={step.key}>
++                          <span className="frow-label">{step.label}</span>
++                          <span className="frow-track"><i style={{ width: `${w}%`, background: step.color }} /></span>
++                          <b className="frow-val">{step.value}</b>
+                         </div>
+                       );
+                     })}
+@@ -1829,21 +1835,36 @@ export default function DashboardPage() {
+           grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+           gap: 0.75rem;
+         }
++        /* Même grille pour les deux rangées (23/10/2026, « les cadres sont
++           décalés ») : avant, 1.35fr/1fr en haut et 1fr/1fr en bas, donc les
++           bords ne tombaient jamais l'un sous l'autre, et les cartes d'une
++           même rangée n'avaient pas la même hauteur. */
+         .grid-two {
+           display: grid;
+-          grid-template-columns: 1fr 1fr;
++          grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+           gap: 1.25rem;
++          align-items: stretch;
+         }
+         /* Refonte 17/10/2026 — rangée haute : fil « Pendant ton absence »
+            (components/ActivityFeed.jsx) + prochain rendez-vous. */
+         .top-row {
+           display: grid;
+-          grid-template-columns: 1.35fr 1fr;
++          grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+           gap: 1.25rem;
+-          align-items: start;
++          align-items: stretch;
+           margin-bottom: 1.25rem;
+         }
+-        .top-row :global(.feed) { margin-bottom: 0; }
++        .top-row :global(.feed) { margin-bottom: 0; height: 100%; padding: 1.4rem 1.4rem 0.8rem; box-sizing: border-box; }
++        .top-row > .panel, .grid-two > .panel { display: flex; flex-direction: column; box-shadow: var(--shadow-sm); }
++        /* Entonnoir en lignes. */
++        .funnel-rows { display: flex; flex-direction: column; gap: 0.8rem; text-decoration: none; color: inherit; margin-top: 0.2rem; }
++        .frow { display: grid; grid-template-columns: 9rem minmax(0, 1fr) 2.4rem; align-items: center; gap: 0.8rem; }
++        .frow-label { font-size: 0.82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
++        .frow-track { height: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
++        .frow-track i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s var(--ease); }
++        .frow-val { text-align: right; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
++        .funnel-rows:hover .frow-label { color: var(--text); }
++        .next-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+         .next-main {
+           display: flex;
+           gap: 0.9rem;
+@@ -2034,7 +2055,7 @@ export default function DashboardPage() {
+           .top-row {
+             grid-template-columns: 1fr;
+           }
+-          .funnel-cols { height: 130px; }
++          .frow { grid-template-columns: 6.8rem minmax(0, 1fr) 2rem; gap: 0.6rem; }
+           .suggest { flex-wrap: wrap; }
+           .suggest .btn-ghost.small { flex-basis: 100%; }
+         }
+-- 
+2.43.0
+
