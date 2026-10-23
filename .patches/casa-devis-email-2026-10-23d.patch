@@ -1,0 +1,593 @@
+From 7e97717b0f2376110108895d905004666af6638e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 07:51:35 +0000
+Subject: [PATCH] =?UTF-8?q?Devis=20retour=20:=20Aaron=20conseille,=20le=20?=
+ =?UTF-8?q?commercial=20corrige=20;=20suivi=20d'ouverture=20relanc=C3=A9?=
+ =?UTF-8?q?=20=C3=A0=20chaque=20envoi=20;=20limite=20de=20d=C3=A9bit=20par?=
+ =?UTF-8?q?tag=C3=A9e=20;=20tableau=20de=20bord=20plus=20juste?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/quote-return.ts : plus de devis révisé généré par Aaron (décision d'Alex) ; Claude renvoie un conseil au commercial (devis_return_advice), affiché dans l'encart « Retour du devis » ; notification « corrige le devis et renvoie-le, je te préviens dès qu'il l'ouvre »
+- lib/aaron-sales.ts : option revisionRequest retirée
+- POST /api/prospects/[id]/devis : nouveau jeton de suivi et compteurs d'ouverture remis à zéro à CHAQUE envoi, pour que le devis corrigé déclenche « devis ouvert, appelle-le » comme le premier
+- lib/rate-limit.ts : compteur partagé en base (public.rate_limit_hit, clés hachées) au lieu du compteur par instance ; repli en mémoire si la base ne répond pas ; utilisé par join-company, réinitialisation et vérification d'email
+- tableau de bord : « Aucun rendez-vous à venir » au lieu de « Aaron n'a pas encore décroché de rendez-vous » ; nom du contact sur les rendez-vous du fil ; phrase « Cette semaine : 2 rendez-vous » au lieu de « 2 nouvelles »
+- migrations : migration_limite_debit_2026-10-23.sql, colonne devis_return_advice
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/activity/route.ts                    | 18 +++++++--
+ app/api/auth/request-password-reset/route.ts |  4 +-
+ app/api/auth/resend-verification/route.ts    |  4 +-
+ app/api/auth/send-verification/route.ts      |  4 +-
+ app/api/join-company/route.ts                |  4 +-
+ app/api/prospects/[id]/devis/route.ts        | 23 ++++++++---
+ components/ActivityFeed.jsx                  | 24 +++++++----
+ components/ContactCard.jsx                   | 20 ++++++----
+ lib/aaron-sales.ts                           | 10 +----
+ lib/i18n.js                                  | 14 +++----
+ lib/quote-return.ts                          | 42 ++++++++++----------
+ lib/rate-limit.ts                            | 32 ++++++++++++++-
+ migration_devis_retour_email_2026-10-23.sql  |  5 +++
+ migration_limite_debit_2026-10-23.sql        | 41 +++++++++++++++++++
+ 14 files changed, 176 insertions(+), 69 deletions(-)
+ create mode 100644 migration_limite_debit_2026-10-23.sql
+
+diff --git a/app/api/activity/route.ts b/app/api/activity/route.ts
+index 2becc53..f582ca3 100644
+--- a/app/api/activity/route.ts
++++ b/app/api/activity/route.ts
+@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
+   // --- Rendez-vous : proposés et confirmés
+   let appts: any = await supabaseAdmin
+     .from('appointments')
+-    .select('id, prospect_id, proposed_at, status, created_at')
++    .select('id, prospect_id, proposed_at, status, created_at, contact_name')
+     .eq('user_id', userId)
+     .gte('created_at', since)
+     .order('created_at', { ascending: false })
+@@ -158,19 +158,29 @@ export async function GET(request: NextRequest) {
+   if (appts.error && appts.error.code === '42703') {
+     appts = await supabaseAdmin
+       .from('appointments')
+-      .select('id, prospect_id, proposed_at, status')
++      .select('id, prospect_id, proposed_at, status, contact_name')
+       .eq('user_id', userId)
+       .gte('proposed_at', since)
+       .limit(100);
+   }
++  // Nom du contact (23/10/2026, « Rendez-vous confirmé avec un prospect »
++  // sans nom, remonté par Alex) : un rendez-vous peut viser un contact qui
++  // n'est pas (ou plus) dans la liste du commercial, ou n'avoir qu'un nom
++  // saisi à la main (contact_name). On complète les fiches manquantes.
++  const missing = Array.from(new Set((appts.data || []).map((a: any) => a.prospect_id).filter((id: any) => id && !byId.has(id))));
++  if (missing.length) {
++    const { data: extra } = await supabaseAdmin.from('prospects').select('id, full_name, prospect_companies(name)').in('id', missing as string[]);
++    for (const p of extra || []) byId.set((p as any).id, p);
++  }
+   for (const a of appts.data || []) {
+     const p = byId.get(a.prospect_id);
++    const apptName = name(p) || (a as any).contact_name || null;
+     const at = a.created_at || a.proposed_at;
+     if (!at) continue;
+     if (a.status === 'validé') {
+-      events.push({ id: `ac:${a.id}`, kind: 'appointment_confirmed', at, prospect_id: a.prospect_id, prospect_name: name(p), company_name: company(p), count: 1 });
++      events.push({ id: `ac:${a.id}`, kind: 'appointment_confirmed', at, prospect_id: a.prospect_id, prospect_name: apptName, company_name: company(p), count: 1 });
+     } else if (a.status === 'proposé') {
+-      events.push({ id: `ap:${a.id}`, kind: 'appointment_proposed', at, prospect_id: a.prospect_id, prospect_name: name(p), company_name: company(p), count: 1 });
++      events.push({ id: `ap:${a.id}`, kind: 'appointment_proposed', at, prospect_id: a.prospect_id, prospect_name: apptName, company_name: company(p), count: 1 });
+     }
+   }
+ 
+diff --git a/app/api/auth/request-password-reset/route.ts b/app/api/auth/request-password-reset/route.ts
+index 5f9dc16..71dfcb3 100644
+--- a/app/api/auth/request-password-reset/route.ts
++++ b/app/api/auth/request-password-reset/route.ts
+@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
+   // La réponse reste un 429 au message générique, comme le 200 générique
+   // plus bas : dire « trop de demandes POUR CETTE ADRESSE » révélerait que
+   // l'adresse existe, ce que tout le reste de cette route s'applique à taire.
+-  const ipLimit = checkRateLimit(callerKey(request, 'pwreset'), 5, 15 * 60 * 1000);
++  const ipLimit = await checkRateLimit(callerKey(request, 'pwreset'), 5, 15 * 60 * 1000);
+   if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+   if (typeof email === 'string' && email.trim()) {
+-    const perEmail = checkRateLimit(emailKey('pwreset', email), 3, 60 * 60 * 1000);
++    const perEmail = await checkRateLimit(emailKey('pwreset', email), 3, 60 * 60 * 1000);
+     if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+   }
+   const normalized = typeof email === 'string' ? email.trim().toLowerCase() : '';
+diff --git a/app/api/auth/resend-verification/route.ts b/app/api/auth/resend-verification/route.ts
+index 8af03b6..5ea7ac9 100644
+--- a/app/api/auth/resend-verification/route.ts
++++ b/app/api/auth/resend-verification/route.ts
+@@ -24,10 +24,10 @@ export async function POST(request: NextRequest) {
+   // de bloqué qui n'a pas reçu son premier email et qui va cliquer
+   // plusieurs fois. La serrer trop, c'est enfermer dehors la personne
+   // qu'elle sert.
+-  const ipLimit = checkRateLimit(callerKey(request, 'resendverif'), 10, 15 * 60 * 1000);
++  const ipLimit = await checkRateLimit(callerKey(request, 'resendverif'), 10, 15 * 60 * 1000);
+   if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+   if (typeof email === 'string' && email.trim()) {
+-    const perEmail = checkRateLimit(emailKey('resendverif', email), 5, 60 * 60 * 1000);
++    const perEmail = await checkRateLimit(emailKey('resendverif', email), 5, 60 * 60 * 1000);
+     if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+   }
+ 
+diff --git a/app/api/auth/send-verification/route.ts b/app/api/auth/send-verification/route.ts
+index ac9cbce..a1ac37c 100644
+--- a/app/api/auth/send-verification/route.ts
++++ b/app/api/auth/send-verification/route.ts
+@@ -20,10 +20,10 @@ export async function POST(request: NextRequest) {
+   // du courrier depuis notre domaine vers l'adresse de son choix — donc de
+   // détruire notre réputation d'expéditeur, et avec elle la délivrabilité
+   // des emails de prospection de tous les clients.
+-  const ipLimit = checkRateLimit(callerKey(request, 'sendverif'), 10, 15 * 60 * 1000);
++  const ipLimit = await checkRateLimit(callerKey(request, 'sendverif'), 10, 15 * 60 * 1000);
+   if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
+   if (typeof email === 'string' && email.trim()) {
+-    const perEmail = checkRateLimit(emailKey('sendverif', email), 3, 60 * 60 * 1000);
++    const perEmail = await checkRateLimit(emailKey('sendverif', email), 3, 60 * 60 * 1000);
+     if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+   }
+ 
+diff --git a/app/api/join-company/route.ts b/app/api/join-company/route.ts
+index b5c51a1..debfa01 100644
+--- a/app/api/join-company/route.ts
++++ b/app/api/join-company/route.ts
+@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
+   // créé pouvait essayer des codes en boucle. 5 essais par compte et 20 par
+   // adresse IP toutes les 15 minutes, comptés AVANT toute lecture en base ;
+   // au-delà, 429 au message générique (voir lib/rate-limit.ts).
+-  const perAccount = checkRateLimit(`join-company:user:${auth_user_id}`, 5, 15 * 60 * 1000);
++  const perAccount = await checkRateLimit(`join-company:user:${auth_user_id}`, 5, 15 * 60 * 1000);
+   if (!perAccount.ok) return tooManyRequestsResponse(perAccount.retryAfterSeconds) as any;
+-  const perIp = checkRateLimit(callerKey(request, 'join-company'), 20, 15 * 60 * 1000);
++  const perIp = await checkRateLimit(callerKey(request, 'join-company'), 20, 15 * 60 * 1000);
+   if (!perIp.ok) return tooManyRequestsResponse(perIp.retryAfterSeconds) as any;
+ 
+   const { data: existing } = await supabaseAdmin
+diff --git a/app/api/prospects/[id]/devis/route.ts b/app/api/prospects/[id]/devis/route.ts
+index 998bb17..9055d3c 100644
+--- a/app/api/prospects/[id]/devis/route.ts
++++ b/app/api/prospects/[id]/devis/route.ts
+@@ -152,14 +152,25 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   // encore (migration_devis_ouverture_2026-10-15.sql pas passée), le devis
+   // doit partir quand même. Perdre le suivi est contrariant ; bloquer un
+   // devis que le commercial attend d'envoyer serait inacceptable.
+-  let trackToken: string | null = (prospect as any).devis_track_token || null;
+-  if (!trackToken) {
+-    trackToken = newDevisTrackToken();
+-    const { error: tokenError } = await supabaseAdmin
++  //
++  // CHAQUE ENVOI RELANCE LE SUIVI (23/10/2026, demande d'Alex) : un devis
++  // corrigé après un retour du client (modifications manuscrites lues par
++  // Aaron, lib/quote-return.ts) doit déclencher la même alerte « devis
++  // ouvert, appelle-le » que le premier envoi. Nouveau jeton à chaque envoi,
++  // compteurs d'ouverture remis à zéro et relance « appel fait » effacée.
++  let trackToken: string | null = newDevisTrackToken();
++  {
++    const { error: resetError } = await supabaseAdmin
+       .from('prospects')
+-      .update({ devis_track_token: trackToken })
++      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null })
+       .eq('id', prospectId);
+-    if (tokenError) trackToken = null;
++    if (resetError) {
++      const { error: tokenError } = await supabaseAdmin
++        .from('prospects')
++        .update({ devis_track_token: trackToken })
++        .eq('id', prospectId);
++      if (tokenError) trackToken = null;
++    }
+   }
+ 
+   try {
+diff --git a/components/ActivityFeed.jsx b/components/ActivityFeed.jsx
+index 08d2d2a..c44fcd1 100644
+--- a/components/ActivityFeed.jsx
++++ b/components/ActivityFeed.jsx
+@@ -68,13 +68,13 @@ function textFor(ev, locale) {
+ // textes vivent ici (lib/i18n.js dépasse la taille acceptée par l'envoi
+ // GitHub, voir ContactCard.jsx — même compromis).
+ const HERO_TEXT = {
+-  fr: { contacted: 'prospects contactés', replies: 'réponses', appts: 'rendez-vous', quotes: 'devis demandés', won: 'clients gagnés', more: 'Tout voir', less: 'Réduire', sentence: 'Aaron a contacté {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obtenu {n} {w}', r1: 'réponse', rN: 'réponses', a: ' et {n} {w}', a1: 'rendez-vous', aN: 'rendez-vous', w: ' · {n} {w}', w1: 'client gagné', wN: 'clients gagnés', quiet: 'Aaron travaille : {n} {w} depuis une semaine.', qw1: 'nouvelle', qwN: 'nouvelles' },
+-  en: { contacted: 'prospects contacted', replies: 'replies', appts: 'meetings', quotes: 'quotes requested', won: 'clients won', more: 'See all', less: 'Collapse', sentence: 'Aaron contacted {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', got {n} {w}', r1: 'reply', rN: 'replies', a: ' and {n} {w}', a1: 'meeting', aN: 'meetings', w: ' · {n} {w}', w1: 'client won', wN: 'clients won', quiet: 'Aaron is at work: {n} {w} this week.', qw1: 'update', qwN: 'updates' },
+-  de: { contacted: 'Interessenten kontaktiert', replies: 'Antworten', appts: 'Termine', quotes: 'Angebote angefragt', won: 'Kunden gewonnen', more: 'Alle anzeigen', less: 'Einklappen', sentence: 'Aaron hat {c} {cw} kontaktiert{r}{a}{w}.', cw1: 'Interessenten', cwN: 'Interessenten', r: ', {n} {w} erhalten', r1: 'Antwort', rN: 'Antworten', a: ' und {n} {w} vereinbart', a1: 'Termin', aN: 'Termine', w: ' · {n} {w}', w1: 'Kunde gewonnen', wN: 'Kunden gewonnen', quiet: 'Aaron arbeitet: {n} {w} diese Woche.', qw1: 'Neuigkeit', qwN: 'Neuigkeiten' },
+-  it: { contacted: 'prospect contattati', replies: 'risposte', appts: 'appuntamenti', quotes: 'preventivi richiesti', won: 'clienti acquisiti', more: 'Vedi tutto', less: 'Riduci', sentence: 'Aaron ha contattato {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospect', r: ', ottenuto {n} {w}', r1: 'risposta', rN: 'risposte', a: ' e {n} {w}', a1: 'appuntamento', aN: 'appuntamenti', w: ' · {n} {w}', w1: 'cliente acquisito', wN: 'clienti acquisiti', quiet: 'Aaron è al lavoro: {n} {w} questa settimana.', qw1: 'novità', qwN: 'novità' },
+-  es: { contacted: 'prospectos contactados', replies: 'respuestas', appts: 'citas', quotes: 'presupuestos pedidos', won: 'clientes ganados', more: 'Ver todo', less: 'Reducir', sentence: 'Aaron contactó a {c} {cw}{r}{a}{w}.', cw1: 'prospecto', cwN: 'prospectos', r: ', obtuvo {n} {w}', r1: 'respuesta', rN: 'respuestas', a: ' y {n} {w}', a1: 'cita', aN: 'citas', w: ' · {n} {w}', w1: 'cliente ganado', wN: 'clientes ganados', quiet: 'Aaron está trabajando: {n} {w} esta semana.', qw1: 'novedad', qwN: 'novedades' },
+-  pt: { contacted: 'prospects contactados', replies: 'respostas', appts: 'reuniões', quotes: 'orçamentos pedidos', won: 'clientes ganhos', more: 'Ver tudo', less: 'Reduzir', sentence: 'O Aaron contactou {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obteve {n} {w}', r1: 'resposta', rN: 'respostas', a: ' e {n} {w}', a1: 'reunião', aN: 'reuniões', w: ' · {n} {w}', w1: 'cliente ganho', wN: 'clientes ganhos', quiet: 'O Aaron está a trabalhar: {n} {w} esta semana.', qw1: 'novidade', qwN: 'novidades' },
+-  nl: { contacted: 'prospects benaderd', replies: 'reacties', appts: 'afspraken', quotes: 'offertes gevraagd', won: 'klanten gewonnen', more: 'Alles tonen', less: 'Inklappen', sentence: 'Aaron heeft {c} {cw} benaderd{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', {n} {w} gekregen', r1: 'reactie', rN: 'reacties', a: ' en {n} {w} geregeld', a1: 'afspraak', aN: 'afspraken', w: ' · {n} {w}', w1: 'klant gewonnen', wN: 'klanten gewonnen', quiet: 'Aaron is aan het werk: {n} {w} deze week.', qw1: 'update', qwN: 'updates' },
++  fr: { contacted: 'prospects contactés', replies: 'réponses', appts: 'rendez-vous', quotes: 'devis demandés', won: 'clients gagnés', more: 'Tout voir', less: 'Réduire', sentence: 'Aaron a contacté {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obtenu {n} {w}', r1: 'réponse', rN: 'réponses', a: ' et {n} {w}', a1: 'rendez-vous', aN: 'rendez-vous', w: ' · {n} {w}', w1: 'client gagné', wN: 'clients gagnés', quiet: 'Aaron travaille : {n} {w} cette semaine.', qw1: 'nouveauté', qwN: 'nouveautés', week: 'Cette semaine : {list}.', q1: 'devis demandé', qN: 'devis demandés' },
++  en: { contacted: 'prospects contacted', replies: 'replies', appts: 'meetings', quotes: 'quotes requested', won: 'clients won', more: 'See all', less: 'Collapse', sentence: 'Aaron contacted {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', got {n} {w}', r1: 'reply', rN: 'replies', a: ' and {n} {w}', a1: 'meeting', aN: 'meetings', w: ' · {n} {w}', w1: 'client won', wN: 'clients won', quiet: 'Aaron is at work: {n} {w} this week.', qw1: 'update', qwN: 'updates', week: 'This week: {list}.', q1: 'quote requested', qN: 'quotes requested' },
++  de: { contacted: 'Interessenten kontaktiert', replies: 'Antworten', appts: 'Termine', quotes: 'Angebote angefragt', won: 'Kunden gewonnen', more: 'Alle anzeigen', less: 'Einklappen', sentence: 'Aaron hat {c} {cw} kontaktiert{r}{a}{w}.', cw1: 'Interessenten', cwN: 'Interessenten', r: ', {n} {w} erhalten', r1: 'Antwort', rN: 'Antworten', a: ' und {n} {w} vereinbart', a1: 'Termin', aN: 'Termine', w: ' · {n} {w}', w1: 'Kunde gewonnen', wN: 'Kunden gewonnen', quiet: 'Aaron arbeitet: {n} {w} diese Woche.', qw1: 'Neuigkeit', qwN: 'Neuigkeiten', week: 'Diese Woche: {list}.', q1: 'Angebot angefragt', qN: 'Angebote angefragt' },
++  it: { contacted: 'prospect contattati', replies: 'risposte', appts: 'appuntamenti', quotes: 'preventivi richiesti', won: 'clienti acquisiti', more: 'Vedi tutto', less: 'Riduci', sentence: 'Aaron ha contattato {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospect', r: ', ottenuto {n} {w}', r1: 'risposta', rN: 'risposte', a: ' e {n} {w}', a1: 'appuntamento', aN: 'appuntamenti', w: ' · {n} {w}', w1: 'cliente acquisito', wN: 'clienti acquisiti', quiet: 'Aaron è al lavoro: {n} {w} questa settimana.', qw1: 'novità', qwN: 'novità', week: 'Questa settimana: {list}.', q1: 'preventivo richiesto', qN: 'preventivi richiesti' },
++  es: { contacted: 'prospectos contactados', replies: 'respuestas', appts: 'citas', quotes: 'presupuestos pedidos', won: 'clientes ganados', more: 'Ver todo', less: 'Reducir', sentence: 'Aaron contactó a {c} {cw}{r}{a}{w}.', cw1: 'prospecto', cwN: 'prospectos', r: ', obtuvo {n} {w}', r1: 'respuesta', rN: 'respuestas', a: ' y {n} {w}', a1: 'cita', aN: 'citas', w: ' · {n} {w}', w1: 'cliente ganado', wN: 'clientes ganados', quiet: 'Aaron está trabajando: {n} {w} esta semana.', qw1: 'novedad', qwN: 'novedades', week: 'Esta semana: {list}.', q1: 'presupuesto pedido', qN: 'presupuestos pedidos' },
++  pt: { contacted: 'prospects contactados', replies: 'respostas', appts: 'reuniões', quotes: 'orçamentos pedidos', won: 'clientes ganhos', more: 'Ver tudo', less: 'Reduzir', sentence: 'O Aaron contactou {c} {cw}{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', obteve {n} {w}', r1: 'resposta', rN: 'respostas', a: ' e {n} {w}', a1: 'reunião', aN: 'reuniões', w: ' · {n} {w}', w1: 'cliente ganho', wN: 'clientes ganhos', quiet: 'O Aaron está a trabalhar: {n} {w} esta semana.', qw1: 'novidade', qwN: 'novidades', week: 'Esta semana: {list}.', q1: 'orçamento pedido', qN: 'orçamentos pedidos' },
++  nl: { contacted: 'prospects benaderd', replies: 'reacties', appts: 'afspraken', quotes: 'offertes gevraagd', won: 'klanten gewonnen', more: 'Alles tonen', less: 'Inklappen', sentence: 'Aaron heeft {c} {cw} benaderd{r}{a}{w}.', cw1: 'prospect', cwN: 'prospects', r: ', {n} {w} gekregen', r1: 'reactie', rN: 'reacties', a: ' en {n} {w} geregeld', a1: 'afspraak', aN: 'afspraken', w: ' · {n} {w}', w1: 'klant gewonnen', wN: 'klanten gewonnen', quiet: 'Aaron is aan het werk: {n} {w} deze week.', qw1: 'update', qwN: 'updates', week: 'Deze week: {list}.', q1: 'offerte gevraagd', qN: 'offertes gevraagd' },
+ };
+ const ht = (key, locale) => (HERO_TEXT[locale] || HERO_TEXT.fr)[key] || HERO_TEXT.fr[key];
+ const COLLAPSED_ROWS = 5;
+@@ -94,6 +94,16 @@ function summarize(events) {
+ function heroSentence(s, total, locale) {
+   const pl = (n, one, many) => ht(n === 1 ? one : many, locale);
+   if (s.contacted === 0) {
++    // Rien d'envoyé cette semaine mais des réponses, rendez-vous, devis ou
++    // clients : on les nomme (« Cette semaine : 2 rendez-vous. ») plutôt
++    // qu'un vague « 2 nouvelles » (retour d'Alex, 23/10/2026).
++    const items = [
++      [s.replies, 'r1', 'rN'],
++      [s.appts, 'a1', 'aN'],
++      [s.quotes, 'q1', 'qN'],
++      [s.won, 'w1', 'wN'],
++    ].filter(([n]) => n > 0).map(([n, one, many]) => `${n} ${pl(n, one, many)}`);
++    if (items.length) return ht('week', locale).replace('{list}', items.join(' · '));
+     return ht('quiet', locale).replace('{n}', total).replace('{w}', pl(total, 'qw1', 'qwN'));
+   }
+   const part = (n, key, one, many) => (n > 0 ? ht(key, locale).replace('{n}', n).replace('{w}', pl(n, one, many)) : '');
+diff --git a/components/ContactCard.jsx b/components/ContactCard.jsx
+index 0fb05a9..ab2fa86 100644
+--- a/components/ContactCard.jsx
++++ b/components/ContactCard.jsx
+@@ -247,13 +247,13 @@ function OpinionBox({ opinion, loading, locale }) {
+ // ---- Devis renvoyé par email (23/10/2026, lib/quote-return.ts) ----
+ // Aaron a lu la pièce jointe du client : devis signé, ou annoté à la main.
+ const QR_TEXT = {
+-  fr: { signed: 'Devis signé reçu par email', signed_with_changes: 'Devis signé mais modifié par le client', changes_requested: 'Modifications demandées sur le devis', changes: 'Modifications lues', open: 'Voir le document renvoyé', draft: 'Aaron a préparé une version révisée (onglet Devis) — rien n\'est envoyé sans vous.', received: 'Reçu le' },
+-  en: { signed: 'Signed quote received by email', signed_with_changes: 'Quote signed but changed by the client', changes_requested: 'Changes requested on the quote', changes: 'Changes read', open: 'Open the returned document', draft: 'Aaron prepared a revised version (Quote tab) — nothing is sent without you.', received: 'Received on' },
+-  de: { signed: 'Unterschriebenes Angebot per E-Mail erhalten', signed_with_changes: 'Angebot unterschrieben, aber vom Kunden geändert', changes_requested: 'Änderungen am Angebot gewünscht', changes: 'Gelesene Änderungen', open: 'Zurückgesendetes Dokument öffnen', draft: 'Aaron hat eine überarbeitete Version vorbereitet (Reiter Angebot) — nichts wird ohne Sie gesendet.', received: 'Erhalten am' },
+-  it: { signed: 'Preventivo firmato ricevuto via email', signed_with_changes: 'Preventivo firmato ma modificato dal cliente', changes_requested: 'Modifiche richieste al preventivo', changes: 'Modifiche lette', open: 'Apri il documento rinviato', draft: 'Aaron ha preparato una versione rivista (scheda Preventivo) — nulla viene inviato senza di te.', received: 'Ricevuto il' },
+-  es: { signed: 'Presupuesto firmado recibido por email', signed_with_changes: 'Presupuesto firmado pero modificado por el cliente', changes_requested: 'Cambios solicitados en el presupuesto', changes: 'Cambios leídos', open: 'Ver el documento devuelto', draft: 'Aaron preparó una versión revisada (pestaña Presupuesto): nada se envía sin ti.', received: 'Recibido el' },
+-  pt: { signed: 'Orçamento assinado recebido por email', signed_with_changes: 'Orçamento assinado mas alterado pelo cliente', changes_requested: 'Alterações pedidas ao orçamento', changes: 'Alterações lidas', open: 'Ver o documento devolvido', draft: 'O Aaron preparou uma versão revista (separador Orçamento) — nada é enviado sem ti.', received: 'Recebido a' },
+-  nl: { signed: 'Ondertekende offerte per e-mail ontvangen', signed_with_changes: 'Offerte ondertekend maar door de klant gewijzigd', changes_requested: 'Wijzigingen gevraagd op de offerte', changes: 'Gelezen wijzigingen', open: 'Teruggestuurd document openen', draft: 'Aaron maakte een herziene versie klaar (tab Offerte) — er wordt niets verstuurd zonder jou.', received: 'Ontvangen op' },
++  fr: { signed: 'Devis signé reçu par email', signed_with_changes: 'Devis signé mais modifié par le client', changes_requested: 'Modifications demandées sur le devis', changes: 'Modifications lues', open: 'Voir le document renvoyé', draft: 'Corrige le devis puis renvoie-le depuis l\'onglet Devis : Aaron te prévient dès que le client l\'ouvre.', advice: 'Conseil d\'Aaron', received: 'Reçu le' },
++  en: { signed: 'Signed quote received by email', signed_with_changes: 'Quote signed but changed by the client', changes_requested: 'Changes requested on the quote', changes: 'Changes read', open: 'Open the returned document', draft: 'Correct the quote, then resend it from the Quote tab: Aaron tells you as soon as the client opens it.', advice: 'Aaron\'s advice', received: 'Received on' },
++  de: { signed: 'Unterschriebenes Angebot per E-Mail erhalten', signed_with_changes: 'Angebot unterschrieben, aber vom Kunden geändert', changes_requested: 'Änderungen am Angebot gewünscht', changes: 'Gelesene Änderungen', open: 'Zurückgesendetes Dokument öffnen', draft: 'Korrigieren Sie das Angebot und senden Sie es über den Reiter Angebot erneut: Aaron meldet sich, sobald der Kunde es öffnet.', advice: 'Aarons Rat', received: 'Erhalten am' },
++  it: { signed: 'Preventivo firmato ricevuto via email', signed_with_changes: 'Preventivo firmato ma modificato dal cliente', changes_requested: 'Modifiche richieste al preventivo', changes: 'Modifiche lette', open: 'Apri il documento rinviato', draft: 'Correggi il preventivo e rinvialo dalla scheda Preventivo: Aaron ti avvisa appena il cliente lo apre.', advice: 'Il consiglio di Aaron', received: 'Ricevuto il' },
++  es: { signed: 'Presupuesto firmado recibido por email', signed_with_changes: 'Presupuesto firmado pero modificado por el cliente', changes_requested: 'Cambios solicitados en el presupuesto', changes: 'Cambios leídos', open: 'Ver el documento devuelto', draft: 'Corrige el presupuesto y reenvíalo desde la pestaña Presupuesto: Aaron te avisa en cuanto el cliente lo abra.', advice: 'El consejo de Aaron', received: 'Recibido el' },
++  pt: { signed: 'Orçamento assinado recebido por email', signed_with_changes: 'Orçamento assinado mas alterado pelo cliente', changes_requested: 'Alterações pedidas ao orçamento', changes: 'Alterações lidas', open: 'Ver o documento devolvido', draft: 'Corrige o orçamento e reenvia-o a partir do separador Orçamento: o Aaron avisa-te assim que o cliente o abrir.', advice: 'O conselho do Aaron', received: 'Recebido a' },
++  nl: { signed: 'Ondertekende offerte per e-mail ontvangen', signed_with_changes: 'Offerte ondertekend maar door de klant gewijzigd', changes_requested: 'Wijzigingen gevraagd op de offerte', changes: 'Gelezen wijzigingen', open: 'Teruggestuurd document openen', draft: 'Corrigeer de offerte en verstuur ze opnieuw via de tab Offerte: Aaron laat het weten zodra de klant ze opent.', advice: 'Advies van Aaron', received: 'Ontvangen op' },
+ };
+ const qrt = (key, locale) => (QR_TEXT[locale] || QR_TEXT.fr)[key] || QR_TEXT.fr[key];
+ 
+@@ -292,6 +292,12 @@ function QuoteReturnBox({ prospect, locale }) {
+           </ul>
+         </>
+       )}
++      {isChange && prospect.devis_return_advice && (
++        <>
++          <p className="qr-sub">{qrt('advice', locale)}</p>
++          <p className="qr-tx">{frenchTypography(prospect.devis_return_advice)}</p>
++        </>
++      )}
+       {isChange && <p className="qr-tx qr-muted">{qrt('draft', locale)}</p>}
+       {prospect.devis_return_file_path && (
+         <button type="button" className="btn-secondary link-btn" onClick={openDoc}>
+diff --git a/lib/aaron-sales.ts b/lib/aaron-sales.ts
+index fce82a4..234eaa5 100644
+--- a/lib/aaron-sales.ts
++++ b/lib/aaron-sales.ts
+@@ -339,11 +339,7 @@ async function loadRecentQuotesForProspect(prospectId: string) {
+ // qui correspond réellement à un produit_id existant du catalogue). Les
+ // postes non reconnus (ou si le catalogue est vide) restent sans prix,
+ // exactement comme avant — c'est toujours au commercial de les compléter.
+-// options.revisionRequest (23/10/2026) : le client a renvoyé le devis avec
+-// des modifications (souvent manuscrites, lues par Aaron dans la pièce
+-// jointe — voir lib/quote-return.ts). La nouvelle proposition les intègre ;
+-// elle reste un BROUILLON que le commercial relit avant tout envoi.
+-export async function generateDevis(prospectId: string, options: { revisionRequest?: string | null } = {}): Promise<Devis> {
++export async function generateDevis(prospectId: string): Promise<Devis> {
+   const { data: prospect, error } = await supabaseAdmin
+     .from('prospects')
+     .select('id, full_name, job_title, company_id, prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)')
+@@ -379,10 +375,6 @@ export async function generateDevis(prospectId: string, options: { revisionReque
+             `"${prospect.full_name}"${societe ? ` (${societe})` : ''} suite aux échanges ci-dessous.\n` +
+             (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
+             `Historique des échanges avec ce prospect :\n${JSON.stringify(messages, null, 2)}\n\n` +
+-            (options.revisionRequest
+-              ? `IMPORTANT — le client a renvoyé le devis précédent en demandant ces modifications (lues sur le document renvoyé et dans son email) :\n${options.revisionRequest.slice(0, 2000)}\n` +
+-                `Prépare une version RÉVISÉE qui les intègre fidèlement (quantités, postes ajoutés ou retirés, conditions), et dont l'email d'accompagnement confirme brièvement les changements pris en compte. Ne promets aucune remise ni aucun prix qui ne viendrait pas du catalogue.\n\n`
+-              : '') +
+             (previousQuotes.length
+               ? `Devis déjà proposés précédemment à ce même prospect (reste cohérent, notamment sur les prix déjà annoncés pour un même poste) :\n${JSON.stringify(previousQuotes, null, 2)}\n\n`
+               : '') +
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 3d8162a..0f94c44 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -525,7 +525,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate} % des {prev}',
+     'dash.funnelRateHint': 'Part des contacts de l\'étape précédente arrivés à cette étape',
+     'dash.emptyNothingPlanned': 'Rien de prévu',
+-    'dash.emptyNoConfirmedAppt': "Aaron n'a pas encore décroché de rendez-vous confirmé.",
++    'dash.emptyNoConfirmedAppt': "Aucun rendez-vous à venir pour l'instant.",
+     'dash.emptyNoActiveCampaign': 'Aucune campagne active',
+     'dash.emptyLaunchCampaign': 'Lance une campagne pour qu\'Aaron commence à prospecter.',
+     "dash.emptyCampaignCta": "Lancer ma première campagne",
+@@ -2913,7 +2913,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate}% of {prev}',
+     'dash.funnelRateHint': 'Share of contacts from the previous step that reached this one',
+     'dash.emptyNothingPlanned': 'Nothing planned',
+-    'dash.emptyNoConfirmedAppt': "Aaron hasn't booked a confirmed meeting yet.",
++    'dash.emptyNoConfirmedAppt': "No upcoming meeting for now.",
+     'dash.emptyNoActiveCampaign': 'No active campaign',
+     'dash.emptyLaunchCampaign': 'Launch a campaign so Aaron can start prospecting.',
+     "dash.emptyCampaignCta": "Launch my first campaign",
+@@ -4996,7 +4996,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate} % der {prev}',
+     'dash.funnelRateHint': 'Anteil der Kontakte der vorherigen Stufe, die diese Stufe erreicht haben',
+     'dash.emptyNothingPlanned': 'Nichts geplant',
+-    'dash.emptyNoConfirmedAppt': 'Aaron hat noch keinen bestätigten Termin vereinbart.',
++    'dash.emptyNoConfirmedAppt': 'Im Moment steht kein Termin an.',
+     'dash.emptyNoActiveCampaign': 'Keine aktive Kampagne',
+     'dash.emptyLaunchCampaign': 'Starten Sie eine Kampagne, damit Aaron mit der Akquise beginnen kann.',
+     "dash.emptyCampaignCta": "Erste Kampagne starten",
+@@ -7079,7 +7079,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate}% dei {prev}',
+     'dash.funnelRateHint': 'Quota dei contatti della fase precedente arrivati a questa fase',
+     'dash.emptyNothingPlanned': 'Niente in programma',
+-    'dash.emptyNoConfirmedAppt': 'Aaron non ha ancora fissato un appuntamento confermato.',
++    'dash.emptyNoConfirmedAppt': 'Nessun appuntamento in programma per ora.',
+     'dash.emptyNoActiveCampaign': 'Nessuna campagna attiva',
+     'dash.emptyLaunchCampaign': 'Avvia una campagna affinché Aaron inizi a prospettare.',
+     "dash.emptyCampaignCta": "Lancia la mia prima campagna",
+@@ -9162,7 +9162,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate} % de {prev}',
+     'dash.funnelRateHint': 'Parte de los contactos de la etapa anterior que llegaron a esta',
+     'dash.emptyNothingPlanned': 'Nada previsto',
+-    'dash.emptyNoConfirmedAppt': 'Aaron aún no ha conseguido ninguna cita confirmada.',
++    'dash.emptyNoConfirmedAppt': 'Ninguna cita prevista por ahora.',
+     'dash.emptyNoActiveCampaign': 'Ninguna campaña activa',
+     'dash.emptyLaunchCampaign': 'Lanza una campaña para que Aaron empiece a prospectar.',
+     "dash.emptyCampaignCta": "Lanzar mi primera campaña",
+@@ -11245,7 +11245,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate} % de {prev}',
+     'dash.funnelRateHint': 'Parte dos contactos da etapa anterior que chegaram a esta',
+     'dash.emptyNothingPlanned': 'Nada previsto',
+-    'dash.emptyNoConfirmedAppt': 'O Aaron ainda não marcou nenhuma reunião confirmada.',
++    'dash.emptyNoConfirmedAppt': 'Nenhuma reunião marcada por agora.',
+     'dash.emptyNoActiveCampaign': 'Nenhuma campanha ativa',
+     'dash.emptyLaunchCampaign': 'Lance uma campanha para o Aaron começar a prospetar.',
+     "dash.emptyCampaignCta": "Lançar a minha primeira campanha",
+@@ -13328,7 +13328,7 @@ export const DICT = {
+     'dash.funnelRateLabel': '{rate}% van {prev}',
+     'dash.funnelRateHint': 'Aandeel contacten uit de vorige stap dat deze stap bereikte',
+     'dash.emptyNothingPlanned': 'Niets gepland',
+-    'dash.emptyNoConfirmedAppt': 'Aaron heeft nog geen bevestigde afspraak vastgelegd.',
++    'dash.emptyNoConfirmedAppt': 'Voorlopig geen afspraak gepland.',
+     'dash.emptyNoActiveCampaign': 'Geen actieve campagne',
+     'dash.emptyLaunchCampaign': 'Start een campagne zodat Aaron kan beginnen met prospecteren.',
+     "dash.emptyCampaignCta": "Mijn eerste campagne starten",
+diff --git a/lib/quote-return.ts b/lib/quote-return.ts
+index 602ca76..6a6c61b 100644
+--- a/lib/quote-return.ts
++++ b/lib/quote-return.ts
+@@ -15,9 +15,12 @@
+ //     commercial prévenu, onboarding (lib/quote-signature.ts).
+ //   - « modifications demandées » (y compris signé MAIS annoté : ce n'est pas
+ //     un accord sur le devis tel qu'envoyé) → le commercial est prévenu avec
+-//     le résumé des changements, l'affaire passe en négociation, et Aaron
+-//     prépare un devis révisé en BROUILLON (lib/aaron-sales.ts,
+-//     generateDevis). Rien n'est jamais envoyé au client automatiquement.
++//     le résumé des changements et un CONSEIL d'Aaron, l'affaire passe en
++//     négociation. Aaron ne fait PAS le devis lui-même (décision d'Alex du
++//     23/10/2026) : c'est le commercial qui le corrige et le renvoie depuis
++//     la fiche ; ce renvoi relance le suivi d'ouverture (« devis ouvert,
++//     appelle-le »), exactement comme pour le premier envoi. Rien n'est
++//     jamais envoyé au client automatiquement.
+ //   - confiance < 75/100 ou document sans rapport → rien de spécial : le
+ //     message suit le circuit normal d'Aaron.
+ //
+@@ -32,7 +35,7 @@ import { localeInstruction } from './locale-instruction';
+ import { getGmailAttachment } from './google';
+ import { sendPushNotification } from './push';
+ import { markQuoteSigned } from './quote-signature';
+-import { generateDevis, summarizeDevisRecap, type DevisLineItem } from './aaron-sales';
++import { summarizeDevisRecap, type DevisLineItem } from './aaron-sales';
+ import { sanitizeFilenameForStorageKey } from './storage-key';
+ 
+ export const QUOTE_RETURN_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+@@ -64,6 +67,8 @@ export interface QuoteReturnAnalysis {
+   signature_present: boolean;
+   handwritten_changes: { line: string; change: string }[];
+   summary: string;
++  // Conseil au commercial pour corriger le devis (modifications seulement).
++  advice: string;
+ }
+ 
+ // Type MIME fiable : certains clients mail envoient un PDF en
+@@ -203,14 +208,15 @@ export async function analyzeReturnedQuote(params: {
+     `- "unrelated" : la pièce jointe n'est pas ce devis (autre document, logo, facture, etc.) ou rien ne permet de conclure.\n` +
+     `Lis attentivement l'écriture manuscrite. Ne déduis jamais une signature d'un simple nom imprimé. Combine le document ET le texte de l'email.\n` +
+     `"confidence" : ta certitude de 0 à 100. "summary" : 1 à 2 phrases pour le commercial, ${localeInstruction(params.locale)}. ` +
+-    `"handwritten_changes" : chaque modification lue (ligne/poste concerné et changement demandé), ${localeInstruction(params.locale)} ; [] s'il n'y en a pas.\n\n` +
++    `"handwritten_changes" : chaque modification lue (ligne/poste concerné et changement demandé), ${localeInstruction(params.locale)} ; [] s'il n'y en a pas.\n` +
++    `"advice" : seulement si des modifications sont demandées, 1 à 3 phrases de conseil AU COMMERCIAL pour corriger lui-même son devis (ce qu'il doit changer, ce à quoi faire attention — prix déjà annoncés, remise demandée à négocier plutôt qu'accepter d'office, point à clarifier au téléphone), ${localeInstruction(params.locale)} ; "" sinon. Tu ne rédiges jamais le devis toi-même.\n\n` +
+     `Réponds UNIQUEMENT avec un JSON valide, sans texte autour :\n` +
+-    `{"kind": "signed"|"signed_with_changes"|"changes_requested"|"unrelated", "confidence": 0, "signature_present": true|false, "handwritten_changes": [{"line": "…", "change": "…"}], "summary": "…"}`;
++    `{"kind": "signed"|"signed_with_changes"|"changes_requested"|"unrelated", "confidence": 0, "signature_present": true|false, "handwritten_changes": [{"line": "…", "change": "…"}], "summary": "…", "advice": "…"}`;
+ 
+   const data = await callClaude(
+     {
+       model: 'claude-sonnet-5',
+-      max_tokens: 900,
++      max_tokens: 1200,
+       messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
+     },
+     params.companyId,
+@@ -239,6 +245,7 @@ export async function analyzeReturnedQuote(params: {
+     signature_present: raw?.signature_present === true,
+     handwritten_changes: changes,
+     summary: String(raw?.summary || '').slice(0, 600),
++    advice: kind === 'signed' ? '' : String(raw?.advice || '').slice(0, 600),
+   };
+ }
+ 
+@@ -301,9 +308,13 @@ export async function handleQuoteReturn(params: {
+     devis_return_file_path: stored?.path || null,
+     devis_return_file_name: stored?.name || null,
+   };
++  const missingColumn = (e: any) => e && (e.code === '42703' || e.code === 'PGRST204');
+   const saveReturn = async (extra: Record<string, any>) => {
+-    const { error } = await supabaseAdmin.from('prospects').update({ ...returnColumns, ...extra }).eq('id', prospect.id);
+-    if (error && (error.code === '42703' || error.code === 'PGRST204')) {
++    const withAdvice = { ...returnColumns, devis_return_advice: analysis!.advice || null, ...extra };
++    let { error } = await supabaseAdmin.from('prospects').update(withAdvice).eq('id', prospect.id);
++    // Colonne devis_return_advice pas encore créée : on réessaie sans elle.
++    if (missingColumn(error)) ({ error } = await supabaseAdmin.from('prospects').update({ ...returnColumns, ...extra }).eq('id', prospect.id));
++    if (missingColumn(error)) {
+       // Migration pas encore jouée : on garde l'essentiel (étape, story).
+       if (Object.keys(extra).length) await supabaseAdmin.from('prospects').update(extra).eq('id', prospect.id).then(() => {}, () => {});
+     }
+@@ -321,7 +332,7 @@ export async function handleQuoteReturn(params: {
+   }
+ 
+   // signed_with_changes ou changes_requested : ce n'est PAS un accord sur le
+-  // devis tel qu'envoyé. Le commercial décide ; Aaron prépare la révision.
++  // devis tel qu'envoyé. Le commercial corrige son devis ; Aaron le conseille.
+   const stage = params.quote.dealStage || prospect.deal_stage || null;
+   const extra: Record<string, any> = { devis_call_done_at: now };
+   if (!stage || stage === 'rdv_fait' || stage === 'devis_envoye') {
+@@ -330,22 +341,13 @@ export async function handleQuoteReturn(params: {
+   }
+   await saveReturn(extra);
+ 
+-  const changesText = analysis.handwritten_changes.map((c) => `- ${c.line ? `${c.line} : ` : ''}${c.change}`).join('\n');
+-  let draftReady = false;
+-  try {
+-    await generateDevis(prospect.id, { revisionRequest: [analysis.summary, changesText].filter(Boolean).join('\n') });
+-    draftReady = true;
+-  } catch (err: any) {
+-    console.error(`Révision du devis non préparée pour le prospect ${prospect.id}:`, err?.message);
+-  }
+-
+   const handwritten = analysis.handwritten_changes.length > 0;
+   await sendPushNotification(userId, {
+     title: analysis.kind === 'signed_with_changes' ? 'Devis signé mais modifié' : 'Devis à modifier',
+     body:
+       `${prospect.full_name} a renvoyé le devis avec des modifications${handwritten ? ' manuscrites' : ''}` +
+       (analysis.summary ? ` : ${analysis.summary}` : '.') +
+-      (draftReady ? ' Aaron a préparé une version révisée à relire — rien n\'est envoyé sans toi.' : ' À reprendre sur sa fiche.'),
++      ' Corrige le devis et renvoie-le depuis sa fiche : je te préviens dès qu\'il l\'ouvre.',
+     url: `/app/prospects?user_id=${userId}&contact=${prospect.id}`,
+     tag: `devis_retour:${prospect.id}`,
+   } as any).catch(() => {});
+diff --git a/lib/rate-limit.ts b/lib/rate-limit.ts
+index bab24bb..6cc9d50 100644
+--- a/lib/rate-limit.ts
++++ b/lib/rate-limit.ts
+@@ -28,6 +28,9 @@
+ // reste celle de Supabase Auth, côté plateforme : l'application ne voit
+ // jamais passer le mot de passe et ne peut donc pas compter les échecs.
+ 
++import { createHash } from 'crypto';
++import { supabaseAdmin } from './supabase-admin';
++
+ type Bucket = { count: number; resetAt: number };
+ 
+ const buckets = new Map<string, Bucket>();
+@@ -54,7 +57,7 @@ export interface RateLimitResult {
+  * @param limit   Nombre d'appels autorisés dans la fenêtre.
+  * @param windowMs Durée de la fenêtre, en millisecondes.
+  */
+-export function checkRateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
++export function checkRateLimitLocal(key: string, limit: number, windowMs: number): RateLimitResult {
+   const now = Date.now();
+   sweep(now);
+ 
+@@ -100,3 +103,30 @@ export function tooManyRequestsResponse(retryAfterSeconds: number): Response {
+     }
+   );
+ }
++
++// COMPTEUR PARTAGÉ (CASA 1.1.1, 23/10/2026). Le compteur en mémoire ci-dessus
++// vit dans UNE instance serverless : un test en production l'a montré, des
++// requêtes rapprochées réparties sur plusieurs instances passaient la limite
++// avant qu'elle ne se déclenche. La limite est donc désormais tenue en base
++// (fonction public.rate_limit_hit, migration_limite_debit_2026-10-23.sql),
++// atomique et commune à toutes les instances. La clé est hachée (SHA-256) :
++// aucune adresse IP ni adresse email n'est stockée en clair.
++// Si la base ne répond pas ou que la migration n'est pas jouée, on retombe
++// sur le compteur en mémoire plutôt que de bloquer le service.
++export async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
++  const hashed = createHash('sha256').update(key).digest('hex');
++  try {
++    const { data, error } = await supabaseAdmin.rpc('rate_limit_hit', {
++      p_key: hashed,
++      p_limit: limit,
++      p_window_seconds: Math.max(1, Math.round(windowMs / 1000)),
++    });
++    const row: any = Array.isArray(data) ? data[0] : data;
++    if (!error && row && typeof row.allowed === 'boolean') {
++      return { ok: row.allowed, retryAfterSeconds: row.allowed ? 0 : Math.max(1, Number(row.retry_after) || 1) };
++    }
++  } catch (err) {
++    // repli ci-dessous
++  }
++  return checkRateLimitLocal(key, limit, windowMs);
++}
+diff --git a/migration_devis_retour_email_2026-10-23.sql b/migration_devis_retour_email_2026-10-23.sql
+index c3a5e6b..8bb9186 100644
+--- a/migration_devis_retour_email_2026-10-23.sql
++++ b/migration_devis_retour_email_2026-10-23.sql
+@@ -20,3 +20,8 @@ COMMENT ON COLUMN public.prospects.devis_return_changes IS
+   'Modifications lues sur le devis renvoyé : [{ line, change }].';
+ COMMENT ON COLUMN public.prospects.devis_return_file_path IS
+   'Copie du document renvoyé dans le bucket Storage « documents ».';
++
++-- 23/10/2026 (bis) : Aaron ne rédige plus de devis révisé ; il conseille le
++-- commercial, qui corrige et renvoie lui-même son devis.
++ALTER TABLE public.prospects
++  ADD COLUMN IF NOT EXISTS devis_return_advice text;
+diff --git a/migration_limite_debit_2026-10-23.sql b/migration_limite_debit_2026-10-23.sql
+new file mode 100644
+index 0000000..8ab9ded
+--- /dev/null
++++ b/migration_limite_debit_2026-10-23.sql
+@@ -0,0 +1,41 @@
++-- migration_limite_debit_2026-10-23.sql
++-- Limitation de débit PARTAGÉE entre toutes les instances serverless
++-- (CASA 1.1.1). Utilisée par lib/rate-limit.ts (checkRateLimit). Les clés
++-- sont des empreintes SHA-256 : aucune IP ni adresse email en clair.
++-- Accès serveur uniquement (RLS sans politique + fonction service_role).
++CREATE TABLE IF NOT EXISTS public.rate_limit_hits (
++  key text PRIMARY KEY,
++  count integer NOT NULL,
++  reset_at timestamptz NOT NULL
++);
++ALTER TABLE public.rate_limit_hits ENABLE ROW LEVEL SECURITY;
++
++CREATE OR REPLACE FUNCTION public.rate_limit_hit(p_key text, p_limit integer, p_window_seconds integer)
++RETURNS TABLE(allowed boolean, retry_after integer)
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = ''
++AS $$
++DECLARE
++  v_count integer;
++  v_reset timestamptz;
++BEGIN
++  INSERT INTO public.rate_limit_hits AS r (key, count, reset_at)
++  VALUES (p_key, 1, now() + make_interval(secs => p_window_seconds))
++  ON CONFLICT (key) DO UPDATE SET
++    count = CASE WHEN r.reset_at <= now() THEN 1 ELSE r.count + 1 END,
++    reset_at = CASE WHEN r.reset_at <= now() THEN now() + make_interval(secs => p_window_seconds) ELSE r.reset_at END
++  RETURNING r.count, r.reset_at INTO v_count, v_reset;
++
++  -- Ménage occasionnel (environ 1 appel sur 50) des fenêtres expirées.
++  IF random() < 0.02 THEN
++    DELETE FROM public.rate_limit_hits WHERE reset_at < now() - interval '1 hour';
++  END IF;
++
++  RETURN QUERY SELECT v_count <= p_limit, GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_reset - now())))::integer);
++END;
++$$;
++
++REVOKE ALL ON FUNCTION public.rate_limit_hit(text, integer, integer) FROM PUBLIC;
++REVOKE ALL ON FUNCTION public.rate_limit_hit(text, integer, integer) FROM anon, authenticated;
++GRANT EXECUTE ON FUNCTION public.rate_limit_hit(text, integer, integer) TO service_role;
+-- 
+2.43.0
+
