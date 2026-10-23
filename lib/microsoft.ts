@@ -584,6 +584,53 @@ export async function getOutlookMessage(userId: string, messageId: string) {
   return response.json(); // { from: { emailAddress: { address, name } }, body: { contentType, content }, ... }
 }
 
+// Pièces jointes « fichier » d'un message Outlook (23/10/2026, devis renvoyé
+// par email — voir lib/quote-return.ts). Scope Mail.Read, déjà demandé.
+// On liste d'abord nom/type/taille (sans le contenu) pour ne télécharger que
+// les fichiers utiles (types autorisés, taille plafonnée, pas d'image
+// intégrée au corps comme un logo de signature), puis chaque fichier retenu
+// individuellement (contentBytes, en base64). [] en cas d'échec.
+export async function listOutlookFileAttachments(
+  userId: string,
+  messageId: string,
+  options: { allowedTypes: string[]; maxBytes: number; maxCount: number }
+): Promise<{ filename: string; contentType: string; content: Buffer }[]> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const listRes = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType,size,isInline`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!listRes.ok) return [];
+    const list: any = await listRes.json();
+    const wanted = ((list?.value || []) as any[])
+      .filter((a) => !a['@odata.type'] || a['@odata.type'] === '#microsoft.graph.fileAttachment')
+      .filter((a) => !a.isInline)
+      .filter((a) => options.allowedTypes.includes(String(a.contentType || '').toLowerCase().split(';')[0].trim()))
+      .filter((a) => Number(a.size) > 0 && Number(a.size) <= options.maxBytes)
+      .slice(0, options.maxCount);
+    const out: { filename: string; contentType: string; content: Buffer }[] = [];
+    for (const a of wanted) {
+      const res = await fetch(
+        `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(a.id)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) continue;
+      const full: any = await res.json();
+      if (!full?.contentBytes) continue;
+      out.push({
+        filename: String(full.name || a.name || 'piece-jointe'),
+        contentType: String(full.contentType || a.contentType || '').toLowerCase().split(';')[0].trim(),
+        content: Buffer.from(full.contentBytes, 'base64'),
+      });
+    }
+    return out;
+  } catch (err: any) {
+    console.error('Erreur lecture pièces jointes Outlook:', err?.message);
+    return [];
+  }
+}
+
 // Crée un événement dans le calendrier Outlook du commercial
 export async function createOutlookCalendarEvent(
   userId: string,

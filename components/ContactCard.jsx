@@ -244,6 +244,74 @@ function OpinionBox({ opinion, loading, locale }) {
   );
 }
 
+// ---- Devis renvoyé par email (23/10/2026, lib/quote-return.ts) ----
+// Aaron a lu la pièce jointe du client : devis signé, ou annoté à la main.
+const QR_TEXT = {
+  fr: { signed: 'Devis signé reçu par email', signed_with_changes: 'Devis signé mais modifié par le client', changes_requested: 'Modifications demandées sur le devis', changes: 'Modifications lues', open: 'Voir le document renvoyé', draft: 'Aaron a préparé une version révisée (onglet Devis) — rien n\'est envoyé sans vous.', received: 'Reçu le' },
+  en: { signed: 'Signed quote received by email', signed_with_changes: 'Quote signed but changed by the client', changes_requested: 'Changes requested on the quote', changes: 'Changes read', open: 'Open the returned document', draft: 'Aaron prepared a revised version (Quote tab) — nothing is sent without you.', received: 'Received on' },
+  de: { signed: 'Unterschriebenes Angebot per E-Mail erhalten', signed_with_changes: 'Angebot unterschrieben, aber vom Kunden geändert', changes_requested: 'Änderungen am Angebot gewünscht', changes: 'Gelesene Änderungen', open: 'Zurückgesendetes Dokument öffnen', draft: 'Aaron hat eine überarbeitete Version vorbereitet (Reiter Angebot) — nichts wird ohne Sie gesendet.', received: 'Erhalten am' },
+  it: { signed: 'Preventivo firmato ricevuto via email', signed_with_changes: 'Preventivo firmato ma modificato dal cliente', changes_requested: 'Modifiche richieste al preventivo', changes: 'Modifiche lette', open: 'Apri il documento rinviato', draft: 'Aaron ha preparato una versione rivista (scheda Preventivo) — nulla viene inviato senza di te.', received: 'Ricevuto il' },
+  es: { signed: 'Presupuesto firmado recibido por email', signed_with_changes: 'Presupuesto firmado pero modificado por el cliente', changes_requested: 'Cambios solicitados en el presupuesto', changes: 'Cambios leídos', open: 'Ver el documento devuelto', draft: 'Aaron preparó una versión revisada (pestaña Presupuesto): nada se envía sin ti.', received: 'Recibido el' },
+  pt: { signed: 'Orçamento assinado recebido por email', signed_with_changes: 'Orçamento assinado mas alterado pelo cliente', changes_requested: 'Alterações pedidas ao orçamento', changes: 'Alterações lidas', open: 'Ver o documento devolvido', draft: 'O Aaron preparou uma versão revista (separador Orçamento) — nada é enviado sem ti.', received: 'Recebido a' },
+  nl: { signed: 'Ondertekende offerte per e-mail ontvangen', signed_with_changes: 'Offerte ondertekend maar door de klant gewijzigd', changes_requested: 'Wijzigingen gevraagd op de offerte', changes: 'Gelezen wijzigingen', open: 'Teruggestuurd document openen', draft: 'Aaron maakte een herziene versie klaar (tab Offerte) — er wordt niets verstuurd zonder jou.', received: 'Ontvangen op' },
+};
+const qrt = (key, locale) => (QR_TEXT[locale] || QR_TEXT.fr)[key] || QR_TEXT.fr[key];
+
+function QuoteReturnBox({ prospect, locale }) {
+  const kind = prospect.devis_return_kind;
+  if (!kind || !prospect.devis_return_at) return null;
+  const changes = Array.isArray(prospect.devis_return_changes) ? prospect.devis_return_changes : [];
+  const isChange = kind !== 'signed';
+  async function openDoc() {
+    // Fenêtre ouverte AVANT l'appel réseau : sinon le navigateur la bloque.
+    const w = window.open('', '_blank');
+    try {
+      const r = await fetch(`/api/prospects/${prospect.id}/devis/retour`);
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.url && w) w.location.href = body.url;
+      else if (w) w.close();
+    } catch {
+      if (w) w.close();
+    }
+  }
+  return (
+    <div className={`qr-box${isChange ? ' qr-change' : ''}`}>
+      <p className="qr-title">
+        {isChange ? <Pencil size={15} strokeWidth={2.2} aria-hidden="true" /> : <FileText size={15} strokeWidth={2.2} aria-hidden="true" />}
+        {qrt(kind, locale)}
+      </p>
+      <p className="qr-date">{qrt('received', locale)} {new Date(prospect.devis_return_at).toLocaleDateString((locale || 'fr').replace('_', '-'), { day: 'numeric', month: 'long' })}</p>
+      {prospect.devis_return_summary && <p className="qr-tx">{frenchTypography(prospect.devis_return_summary)}</p>}
+      {changes.length > 0 && (
+        <>
+          <p className="qr-sub">{qrt('changes', locale)}</p>
+          <ul className="qr-list">
+            {changes.map((c, i) => (
+              <li key={i}>{c.line ? <strong>{c.line} : </strong> : null}{c.change}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {isChange && <p className="qr-tx qr-muted">{qrt('draft', locale)}</p>}
+      {prospect.devis_return_file_path && (
+        <button type="button" className="btn-secondary link-btn" onClick={openDoc}>
+          {qrt('open', locale)} <ExternalLink size={14} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      )}
+      <style jsx>{`
+        .qr-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; margin-bottom: 0.8rem; display: flex; flex-direction: column; gap: 0.35rem; }
+        .qr-change { border-color: #F59E0B; }
+        .qr-title { display: flex; align-items: center; gap: 0.4rem; font-weight: 700; font-size: 0.86rem; margin: 0; color: var(--text); }
+        .qr-date { font-size: 0.74rem; color: var(--muted); margin: 0; }
+        .qr-sub { font-size: 0.76rem; font-weight: 700; margin: 0.2rem 0 0; color: var(--text); }
+        .qr-tx { font-size: 0.82rem; line-height: 1.5; margin: 0; color: var(--text); overflow-wrap: anywhere; }
+        .qr-muted { color: var(--muted); }
+        .qr-list { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ContactCard({ prospect, locale, userId, onClose, onChanged, onValidateEmail, onLinkedin, onDeleted }) {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -571,8 +639,15 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
   const orderAlert = alerts.find((a) => a.key === 'first_order_to_confirm');
   const bilanAlert = alerts.find((a) => a.key === 'bilan_to_do');
   const quoteAlert = alerts.find((a) => a.key === 'quote_to_send');
+  // Devis renvoyé annoté par le client (lib/quote-return.ts) et pas encore
+  // de nouvelle version envoyée depuis : c'est la prochaine étape.
+  const quoteReturnPending = !isClient && !position.lost && !!prospect.devis_return_at
+    && (prospect.devis_return_kind === 'changes_requested' || prospect.devis_return_kind === 'signed_with_changes')
+    && (!prospect.devis_sent_at || new Date(prospect.devis_sent_at).getTime() < new Date(prospect.devis_return_at).getTime());
   if (position.lost) {
     next = { icon: Ban, title: ct('lostTitle', locale), body: position.lostReason ? t(`pipeline.lostReason.${position.lostReason}`, locale) : null, tone: 'lost' };
+  } else if (quoteReturnPending) {
+    next = { icon: Pencil, title: qrt(prospect.devis_return_kind, locale), body: prospect.devis_return_summary || qrt('draft', locale), tone: 'todo', primary: { label: ct('openTab', locale), onClick: () => setTab('deal') } };
   } else if (emailAlert) {
     next = { icon: Mail, title: ct('emailTitle', locale), body: ct('emailBody', locale), tone: 'todo', primary: onValidateEmail ? { label: t('prospects.validateFirstEmailButton', locale), onClick: () => onValidateEmail(prospect) } : null };
   } else if (orderAlert) {
@@ -827,6 +902,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
 
           {tab === 'deal' && (
             <>
+              <QuoteReturnBox prospect={prospect} locale={locale} />
               {showDealTools ? (
                 <DealTools prospect={prospect} locale={locale} userId={userId} onChanged={onChanged} />
               ) : (

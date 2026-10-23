@@ -507,6 +507,27 @@ export interface ImapParsedMessage {
   // sinon le message lui-même — l'équivalent du threadId Gmail.
   threadRootId: string | null;
   headers: Record<string, string>;
+  // Pièces jointes PDF/JPEG/PNG (23/10/2026, devis renvoyé par email — voir
+  // lib/quote-return.ts). Renseigné par getImapMessage seulement : le
+  // message entier est de toute façon déjà téléchargé pour lire le corps,
+  // aucun aller-retour de plus. Plafonnées (taille, nombre).
+  attachments?: { filename: string; contentType: string; content: Buffer }[];
+}
+
+const IMAP_ATTACHMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const IMAP_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const IMAP_ATTACHMENT_MAX_COUNT = 3;
+
+function pickAttachments(parsed: any): { filename: string; contentType: string; content: Buffer }[] {
+  const list: any[] = Array.isArray(parsed?.attachments) ? parsed.attachments : [];
+  return list
+    .filter((a) => a && Buffer.isBuffer(a.content))
+    .filter((a) => IMAP_ATTACHMENT_TYPES.includes(String(a.contentType || '').toLowerCase()))
+    // Image intégrée au corps (logo de signature…) : pas une pièce jointe.
+    .filter((a) => a.contentDisposition !== 'inline' || String(a.contentType).toLowerCase() === 'application/pdf')
+    .filter((a) => a.content.length > 0 && a.content.length <= IMAP_ATTACHMENT_MAX_BYTES)
+    .slice(0, IMAP_ATTACHMENT_MAX_COUNT)
+    .map((a) => ({ filename: String(a.filename || 'piece-jointe'), contentType: String(a.contentType).toLowerCase(), content: a.content as Buffer }));
 }
 
 function parsedToMessage(id: string, parsed: any): ImapParsedMessage {
@@ -546,7 +567,7 @@ export async function getImapMessage(userId: string, id: string): Promise<ImapPa
       const msg = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
       if (!msg?.source) throw new Error(`Message IMAP ${id} introuvable`);
       const parsed = await simpleParser(msg.source);
-      return parsedToMessage(id, parsed);
+      return { ...parsedToMessage(id, parsed), attachments: pickAttachments(parsed) };
     } finally {
       lock.release();
     }

@@ -9,7 +9,8 @@ import { autoSyncWonProspect } from '@/lib/crm-sync';
 import { handOverWonProspect } from '@/lib/prospect-handover';
 import { ingestManualReplies } from '@/lib/manual-replies';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
-import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage } from '@/lib/microsoft';
+import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage, listOutlookFileAttachments } from '@/lib/microsoft';
+import { getOutstandingQuote, collectGmailAttachments, filterAttachments, handleQuoteReturn, QUOTE_RETURN_TYPES, QUOTE_RETURN_MAX_BYTES, QUOTE_RETURN_MAX_COUNT, type InboundAttachment, type OutstandingQuote } from '@/lib/quote-return';
 import { listNewImapMessages, getImapMessage, archiveImapMessage } from '@/lib/imap';
 import { sendEmailForUser, computeHumanReplyDelayMs } from '@/lib/messaging';
 import { isSendWindowOpen, nextSendWindowOpening, replyJitterMs } from '@/lib/send-window';
@@ -42,15 +43,33 @@ async function getCompanyModuleFlags(companyId: string | null) {
   return { offer_as_active: !!data?.offer_as_active, offer_ac_active: !!data?.offer_ac_active };
 }
 
+// Corps texte d'un message Gmail. RÉCURSIF depuis le 23/10/2026 : un email
+// avec pièce jointe est un multipart/mixed dont le texte est rangé UN niveau
+// plus bas (multipart/alternative > text/plain). L'ancienne version ne
+// regardait que le premier niveau et renvoyait un corps VIDE pour tout email
+// accompagné d'une pièce jointe — précisément le cas du devis renvoyé signé.
+// Repli sur la partie HTML (balises retirées) s'il n'y a pas de text/plain.
 function extractGmailBody(payload: any): string {
-  if (payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+  if (!payload) return '';
+  const decode = (data: string) => Buffer.from(String(data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+  if (payload.body?.data && (!payload.mimeType || payload.mimeType === 'text/plain' || !payload.parts)) {
+    return decode(payload.body.data);
   }
-  const textPart = payload.parts?.find((p: any) => p.mimeType === 'text/plain');
-  if (textPart?.body?.data) {
-    return Buffer.from(textPart.body.data, 'base64').toString('utf-8');
-  }
-  return '';
+  let html = '';
+  const find = (part: any): string => {
+    if (!part) return '';
+    if (part.filename) return ''; // une pièce jointe n'est pas le corps
+    if (part.mimeType === 'text/plain' && part.body?.data) return decode(part.body.data);
+    if (part.mimeType === 'text/html' && part.body?.data && !html) html = decode(part.body.data);
+    for (const child of part.parts || []) {
+      const found = find(child);
+      if (found) return found;
+    }
+    return '';
+  };
+  const text = find(payload);
+  if (text) return text;
+  return html ? html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '') : '';
 }
 
 // bodyText est rempli PARESSEUSEMENT (01/09/2026, question coût d'Alex) :
@@ -505,15 +524,34 @@ export async function GET(request: NextRequest) {
       // en-tête. Aucun changement de coût côté Anthropic (le nombre de
       // messages soumis à Claude est identique, il dépend du filtre
       // ci-dessus) ; c'est le trafic vers Gmail/Graph qui baisse.
+      // DEVIS RENVOYÉ PAR EMAIL (23/10/2026, voir lib/quote-return.ts) : si
+      // ce contact a un devis en cours (envoyé, pas encore signé), on lit
+      // aussi ses pièces jointes PDF/JPEG/PNG — ici, AVANT le rangement plus
+      // bas, qui change l'identifiant du message chez Outlook et en IMAP.
+      // Aucune pièce jointe n'est téléchargée pour les autres contacts.
+      let outstandingQuote: OutstandingQuote | null = null;
+      let quoteAttachments: InboundAttachment[] = [];
+      if (!prospect.is_won) {
+        try {
+          outstandingQuote = await getOutstandingQuote(prospect.id);
+        } catch {
+          outstandingQuote = null;
+        }
+      }
+
       if (bodyText === null) {
         try {
           if (connection.provider === 'google') {
             const full = await getGmailMessage(connection.user_id, msg.id);
             bodyText = extractGmailBody(full.payload);
             threadId = full.threadId;
+            if (outstandingQuote) {
+              quoteAttachments = await collectGmailAttachments(connection.user_id, msg.id, full.payload).catch(() => []);
+            }
           } else if (connection.provider === 'imap') {
             const full = await getImapMessage(connection.user_id, msg.id);
             bodyText = full.text || '';
+            if (outstandingQuote) quoteAttachments = filterAttachments(full.attachments);
             // Pas de fil IMAP : la racine des References tient lieu de
             // threadId (relecture des réponses manuelles, lib/manual-replies.ts
             // cherche de toute façon par destinataire pour l'IMAP).
@@ -531,6 +569,15 @@ export async function GET(request: NextRequest) {
           } else {
             const full = await getOutlookMessage(connection.user_id, msg.id);
             bodyText = full.body?.content || '';
+            if (outstandingQuote) {
+              quoteAttachments = filterAttachments(
+                await listOutlookFileAttachments(connection.user_id, msg.id, {
+                  allowedTypes: [...QUOTE_RETURN_TYPES, 'application/octet-stream'],
+                  maxBytes: QUOTE_RETURN_MAX_BYTES,
+                  maxCount: QUOTE_RETURN_MAX_COUNT,
+                })
+              );
+            }
             // Outlook n'a pas de fil au sens Gmail : conversationId joue ce
             // rôle (relecture des réponses manuelles, lib/manual-replies.ts).
             threadId = full.conversationId || threadId;
@@ -648,6 +695,30 @@ export async function GET(request: NextRequest) {
       if (insertErr?.code === '42703') {
         const { subject: _ignored, ...withoutSubject } = inboundRow;
         await supabaseAdmin.from('messages').insert(withoutSubject);
+      }
+
+      // Devis renvoyé en pièce jointe (signé, ou annoté à la main) : traité
+      // ici, avant le circuit normal. Signé → client gagné (même effet que
+      // Youtrust). Modifications → le commercial est prévenu et Aaron prépare
+      // un devis révisé en brouillon. Dans ces deux cas Aaron ne répond PAS
+      // automatiquement au client : la suite revient au commercial. Analyse
+      // non concluante → circuit normal ci-dessous, comme avant.
+      if (outstandingQuote && quoteAttachments.length > 0) {
+        try {
+          const outcome = await handleQuoteReturn({
+            prospect: { id: prospect.id, full_name: prospect.full_name, company_id: prospect.company_id || null, deal_stage: (prospect as any).deal_stage || null },
+            userId: connection.user_id,
+            emailText: bodyText || '',
+            quote: outstandingQuote,
+            attachments: quoteAttachments,
+          });
+          if (outcome) {
+            results.push({ prospect_id: prospect.id, quote_return: outcome });
+            continue;
+          }
+        } catch (err: any) {
+          console.error(`Erreur lecture du devis renvoyé (prospect ${prospect.id}):`, err?.message);
+        }
       }
 
       // Pré-filtre (05/09/2026, voir lib/inbound-triage.ts) : en-têtes, puis

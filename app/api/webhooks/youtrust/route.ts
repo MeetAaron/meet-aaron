@@ -29,10 +29,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { autoSyncWonProspect } from '@/lib/crm-sync';
-import { handOverWonProspect } from '@/lib/prospect-handover';
 import { sendPushNotification } from '@/lib/push';
-import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+import { markQuoteSigned } from '@/lib/quote-signature';
 
 function extractSignatureRequestId(event: any): string | null {
   return (
@@ -115,45 +113,9 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
 
   if (eventType === 'signature_request.done') {
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        signature_status: 'signe',
-        signature_completed_at: now,
-        deal_stage: 'signe',
-        deal_stage_updated_at: now,
-        is_won: true,
-        won_at: now,
-        is_lost: false,
-        first_order_confirmed_at: now,
-        won_reason: 'Devis signé électroniquement via Youtrust.',
-      })
-      .eq('id', prospect.id);
-    // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
-    autoSyncWonProspect(prospect.id).catch(() => {});
-    // Passage de relais (« géré par moi »). notify:false : le push « Contrat
-    // signé » ci-dessous fait déjà l'annonce. Voir lib/prospect-handover.ts.
-    await handOverWonProspect(prospect.id, { notify: false });
-
-    // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
-    // que le commercial a déjà l'abonnement Aaron Clients.
-    const { data: company } = await supabaseAdmin
-      .from('companies')
-      .select('offer_ac_active')
-      .eq('id', prospect.company_id)
-      .maybeSingle();
-
-    await sendPushNotification(prospect.assigned_user_id, {
-      title: 'Contrat signé 🎉',
-      body: company?.offer_ac_active
-        ? `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Tu peux désormais le suivre dans Aaron Clients, je m'occupe de son accueil.`
-        : `${prospect.full_name} a signé le devis. Félicitations, nouveau client ! Je te passe la main : c'est toi qui suis la relation. Abonne-toi à Aaron Clients pour l'accueillir, le fidéliser, et vendre encore et encore.`,
-      url: `/app/prospects?user_id=${prospect.assigned_user_id}`,
-    });
-
-    // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature — voir
-    // lib/aaron-customer.ts. Fire-and-forget, best-effort.
-    triggerAutomaticOnboarding(prospect.id).catch(() => {});
+    // Effet de la signature factorisé dans lib/quote-signature.ts (23/10/2026)
+    // pour être partagé avec le devis signé renvoyé par email (check-inbox).
+    await markQuoteSigned(prospect as any, 'youtrust');
   } else {
     await supabaseAdmin
       .from('prospects')

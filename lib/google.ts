@@ -585,6 +585,29 @@ export async function getGmailMessage(userId: string, messageId: string) {
   return response.json();
 }
 
+// Pièce jointe d'un message Gmail (23/10/2026, devis renvoyé par email —
+// voir lib/quote-return.ts). Les pièces jointes ne sont PAS incluses dans
+// format=full : seul leur attachmentId l'est, le contenu se lit à part.
+// Couvert par le scope de lecture déjà demandé (gmail.modify / readonly).
+// Renvoie le contenu binaire, ou null en cas d'échec.
+export async function getGmailAttachment(userId: string, messageId: string, attachmentId: string): Promise<Buffer | null> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) return null;
+    const json: any = await response.json();
+    if (!json?.data) return null;
+    // Base64 « URL-safe » côté Gmail.
+    return Buffer.from(String(json.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  } catch (err: any) {
+    console.error('Erreur lecture pièce jointe Gmail:', err?.message);
+    return null;
+  }
+}
+
 // Récupère le texte brut du dernier email ENVOYÉ par le commercial (dossier
 // "Envoyés"), pour tenter d'en extraire sa signature (voir lib/signature.ts).
 // Renvoie null s'il n'y a aucun email envoyé ou si le contenu est illisible.
