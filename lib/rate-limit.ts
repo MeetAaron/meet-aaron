@@ -28,6 +28,9 @@
 // reste celle de Supabase Auth, côté plateforme : l'application ne voit
 // jamais passer le mot de passe et ne peut donc pas compter les échecs.
 
+import { createHash } from 'crypto';
+import { supabaseAdmin } from './supabase-admin';
+
 type Bucket = { count: number; resetAt: number };
 
 const buckets = new Map<string, Bucket>();
@@ -54,7 +57,7 @@ export interface RateLimitResult {
  * @param limit   Nombre d'appels autorisés dans la fenêtre.
  * @param windowMs Durée de la fenêtre, en millisecondes.
  */
-export function checkRateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
+export function checkRateLimitLocal(key: string, limit: number, windowMs: number): RateLimitResult {
   const now = Date.now();
   sweep(now);
 
@@ -99,4 +102,31 @@ export function tooManyRequestsResponse(retryAfterSeconds: number): Response {
       },
     }
   );
+}
+
+// COMPTEUR PARTAGÉ (CASA 1.1.1, 23/10/2026). Le compteur en mémoire ci-dessus
+// vit dans UNE instance serverless : un test en production l'a montré, des
+// requêtes rapprochées réparties sur plusieurs instances passaient la limite
+// avant qu'elle ne se déclenche. La limite est donc désormais tenue en base
+// (fonction public.rate_limit_hit, migration_limite_debit_2026-10-23.sql),
+// atomique et commune à toutes les instances. La clé est hachée (SHA-256) :
+// aucune adresse IP ni adresse email n'est stockée en clair.
+// Si la base ne répond pas ou que la migration n'est pas jouée, on retombe
+// sur le compteur en mémoire plutôt que de bloquer le service.
+export async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  const hashed = createHash('sha256').update(key).digest('hex');
+  try {
+    const { data, error } = await supabaseAdmin.rpc('rate_limit_hit', {
+      p_key: hashed,
+      p_limit: limit,
+      p_window_seconds: Math.max(1, Math.round(windowMs / 1000)),
+    });
+    const row: any = Array.isArray(data) ? data[0] : data;
+    if (!error && row && typeof row.allowed === 'boolean') {
+      return { ok: row.allowed, retryAfterSeconds: row.allowed ? 0 : Math.max(1, Number(row.retry_after) || 1) };
+    }
+  } catch (err) {
+    // repli ci-dessous
+  }
+  return checkRateLimitLocal(key, limit, windowMs);
 }

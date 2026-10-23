@@ -15,9 +15,12 @@
 //     commercial prévenu, onboarding (lib/quote-signature.ts).
 //   - « modifications demandées » (y compris signé MAIS annoté : ce n'est pas
 //     un accord sur le devis tel qu'envoyé) → le commercial est prévenu avec
-//     le résumé des changements, l'affaire passe en négociation, et Aaron
-//     prépare un devis révisé en BROUILLON (lib/aaron-sales.ts,
-//     generateDevis). Rien n'est jamais envoyé au client automatiquement.
+//     le résumé des changements et un CONSEIL d'Aaron, l'affaire passe en
+//     négociation. Aaron ne fait PAS le devis lui-même (décision d'Alex du
+//     23/10/2026) : c'est le commercial qui le corrige et le renvoie depuis
+//     la fiche ; ce renvoi relance le suivi d'ouverture (« devis ouvert,
+//     appelle-le »), exactement comme pour le premier envoi. Rien n'est
+//     jamais envoyé au client automatiquement.
 //   - confiance < 75/100 ou document sans rapport → rien de spécial : le
 //     message suit le circuit normal d'Aaron.
 //
@@ -32,7 +35,7 @@ import { localeInstruction } from './locale-instruction';
 import { getGmailAttachment } from './google';
 import { sendPushNotification } from './push';
 import { markQuoteSigned } from './quote-signature';
-import { generateDevis, summarizeDevisRecap, type DevisLineItem } from './aaron-sales';
+import { summarizeDevisRecap, type DevisLineItem } from './aaron-sales';
 import { sanitizeFilenameForStorageKey } from './storage-key';
 
 export const QUOTE_RETURN_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -64,6 +67,8 @@ export interface QuoteReturnAnalysis {
   signature_present: boolean;
   handwritten_changes: { line: string; change: string }[];
   summary: string;
+  // Conseil au commercial pour corriger le devis (modifications seulement).
+  advice: string;
 }
 
 // Type MIME fiable : certains clients mail envoient un PDF en
@@ -203,14 +208,15 @@ export async function analyzeReturnedQuote(params: {
     `- "unrelated" : la pièce jointe n'est pas ce devis (autre document, logo, facture, etc.) ou rien ne permet de conclure.\n` +
     `Lis attentivement l'écriture manuscrite. Ne déduis jamais une signature d'un simple nom imprimé. Combine le document ET le texte de l'email.\n` +
     `"confidence" : ta certitude de 0 à 100. "summary" : 1 à 2 phrases pour le commercial, ${localeInstruction(params.locale)}. ` +
-    `"handwritten_changes" : chaque modification lue (ligne/poste concerné et changement demandé), ${localeInstruction(params.locale)} ; [] s'il n'y en a pas.\n\n` +
+    `"handwritten_changes" : chaque modification lue (ligne/poste concerné et changement demandé), ${localeInstruction(params.locale)} ; [] s'il n'y en a pas.\n` +
+    `"advice" : seulement si des modifications sont demandées, 1 à 3 phrases de conseil AU COMMERCIAL pour corriger lui-même son devis (ce qu'il doit changer, ce à quoi faire attention — prix déjà annoncés, remise demandée à négocier plutôt qu'accepter d'office, point à clarifier au téléphone), ${localeInstruction(params.locale)} ; "" sinon. Tu ne rédiges jamais le devis toi-même.\n\n` +
     `Réponds UNIQUEMENT avec un JSON valide, sans texte autour :\n` +
-    `{"kind": "signed"|"signed_with_changes"|"changes_requested"|"unrelated", "confidence": 0, "signature_present": true|false, "handwritten_changes": [{"line": "…", "change": "…"}], "summary": "…"}`;
+    `{"kind": "signed"|"signed_with_changes"|"changes_requested"|"unrelated", "confidence": 0, "signature_present": true|false, "handwritten_changes": [{"line": "…", "change": "…"}], "summary": "…", "advice": "…"}`;
 
   const data = await callClaude(
     {
       model: 'claude-sonnet-5',
-      max_tokens: 900,
+      max_tokens: 1200,
       messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
     },
     params.companyId,
@@ -239,6 +245,7 @@ export async function analyzeReturnedQuote(params: {
     signature_present: raw?.signature_present === true,
     handwritten_changes: changes,
     summary: String(raw?.summary || '').slice(0, 600),
+    advice: kind === 'signed' ? '' : String(raw?.advice || '').slice(0, 600),
   };
 }
 
@@ -301,9 +308,13 @@ export async function handleQuoteReturn(params: {
     devis_return_file_path: stored?.path || null,
     devis_return_file_name: stored?.name || null,
   };
+  const missingColumn = (e: any) => e && (e.code === '42703' || e.code === 'PGRST204');
   const saveReturn = async (extra: Record<string, any>) => {
-    const { error } = await supabaseAdmin.from('prospects').update({ ...returnColumns, ...extra }).eq('id', prospect.id);
-    if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+    const withAdvice = { ...returnColumns, devis_return_advice: analysis!.advice || null, ...extra };
+    let { error } = await supabaseAdmin.from('prospects').update(withAdvice).eq('id', prospect.id);
+    // Colonne devis_return_advice pas encore créée : on réessaie sans elle.
+    if (missingColumn(error)) ({ error } = await supabaseAdmin.from('prospects').update({ ...returnColumns, ...extra }).eq('id', prospect.id));
+    if (missingColumn(error)) {
       // Migration pas encore jouée : on garde l'essentiel (étape, story).
       if (Object.keys(extra).length) await supabaseAdmin.from('prospects').update(extra).eq('id', prospect.id).then(() => {}, () => {});
     }
@@ -321,7 +332,7 @@ export async function handleQuoteReturn(params: {
   }
 
   // signed_with_changes ou changes_requested : ce n'est PAS un accord sur le
-  // devis tel qu'envoyé. Le commercial décide ; Aaron prépare la révision.
+  // devis tel qu'envoyé. Le commercial corrige son devis ; Aaron le conseille.
   const stage = params.quote.dealStage || prospect.deal_stage || null;
   const extra: Record<string, any> = { devis_call_done_at: now };
   if (!stage || stage === 'rdv_fait' || stage === 'devis_envoye') {
@@ -330,22 +341,13 @@ export async function handleQuoteReturn(params: {
   }
   await saveReturn(extra);
 
-  const changesText = analysis.handwritten_changes.map((c) => `- ${c.line ? `${c.line} : ` : ''}${c.change}`).join('\n');
-  let draftReady = false;
-  try {
-    await generateDevis(prospect.id, { revisionRequest: [analysis.summary, changesText].filter(Boolean).join('\n') });
-    draftReady = true;
-  } catch (err: any) {
-    console.error(`Révision du devis non préparée pour le prospect ${prospect.id}:`, err?.message);
-  }
-
   const handwritten = analysis.handwritten_changes.length > 0;
   await sendPushNotification(userId, {
     title: analysis.kind === 'signed_with_changes' ? 'Devis signé mais modifié' : 'Devis à modifier',
     body:
       `${prospect.full_name} a renvoyé le devis avec des modifications${handwritten ? ' manuscrites' : ''}` +
       (analysis.summary ? ` : ${analysis.summary}` : '.') +
-      (draftReady ? ' Aaron a préparé une version révisée à relire — rien n\'est envoyé sans toi.' : ' À reprendre sur sa fiche.'),
+      ' Corrige le devis et renvoie-le depuis sa fiche : je te préviens dès qu\'il l\'ouvre.',
     url: `/app/prospects?user_id=${userId}&contact=${prospect.id}`,
     tag: `devis_retour:${prospect.id}`,
   } as any).catch(() => {});

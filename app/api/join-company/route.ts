@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
   // créé pouvait essayer des codes en boucle. 5 essais par compte et 20 par
   // adresse IP toutes les 15 minutes, comptés AVANT toute lecture en base ;
   // au-delà, 429 au message générique (voir lib/rate-limit.ts).
-  const perAccount = checkRateLimit(`join-company:user:${auth_user_id}`, 5, 15 * 60 * 1000);
+  const perAccount = await checkRateLimit(`join-company:user:${auth_user_id}`, 5, 15 * 60 * 1000);
   if (!perAccount.ok) return tooManyRequestsResponse(perAccount.retryAfterSeconds) as any;
-  const perIp = checkRateLimit(callerKey(request, 'join-company'), 20, 15 * 60 * 1000);
+  const perIp = await checkRateLimit(callerKey(request, 'join-company'), 20, 15 * 60 * 1000);
   if (!perIp.ok) return tooManyRequestsResponse(perIp.retryAfterSeconds) as any;
 
   const { data: existing } = await supabaseAdmin

@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
   // La réponse reste un 429 au message générique, comme le 200 générique
   // plus bas : dire « trop de demandes POUR CETTE ADRESSE » révélerait que
   // l'adresse existe, ce que tout le reste de cette route s'applique à taire.
-  const ipLimit = checkRateLimit(callerKey(request, 'pwreset'), 5, 15 * 60 * 1000);
+  const ipLimit = await checkRateLimit(callerKey(request, 'pwreset'), 5, 15 * 60 * 1000);
   if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
   if (typeof email === 'string' && email.trim()) {
-    const perEmail = checkRateLimit(emailKey('pwreset', email), 3, 60 * 60 * 1000);
+    const perEmail = await checkRateLimit(emailKey('pwreset', email), 3, 60 * 60 * 1000);
     if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
   }
   const normalized = typeof email === 'string' ? email.trim().toLowerCase() : '';

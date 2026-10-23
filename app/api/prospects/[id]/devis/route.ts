@@ -152,14 +152,25 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   // encore (migration_devis_ouverture_2026-10-15.sql pas passée), le devis
   // doit partir quand même. Perdre le suivi est contrariant ; bloquer un
   // devis que le commercial attend d'envoyer serait inacceptable.
-  let trackToken: string | null = (prospect as any).devis_track_token || null;
-  if (!trackToken) {
-    trackToken = newDevisTrackToken();
-    const { error: tokenError } = await supabaseAdmin
+  //
+  // CHAQUE ENVOI RELANCE LE SUIVI (23/10/2026, demande d'Alex) : un devis
+  // corrigé après un retour du client (modifications manuscrites lues par
+  // Aaron, lib/quote-return.ts) doit déclencher la même alerte « devis
+  // ouvert, appelle-le » que le premier envoi. Nouveau jeton à chaque envoi,
+  // compteurs d'ouverture remis à zéro et relance « appel fait » effacée.
+  let trackToken: string | null = newDevisTrackToken();
+  {
+    const { error: resetError } = await supabaseAdmin
       .from('prospects')
-      .update({ devis_track_token: trackToken })
+      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null })
       .eq('id', prospectId);
-    if (tokenError) trackToken = null;
+    if (resetError) {
+      const { error: tokenError } = await supabaseAdmin
+        .from('prospects')
+        .update({ devis_track_token: trackToken })
+        .eq('id', prospectId);
+      if (tokenError) trackToken = null;
+    }
   }
 
   try {

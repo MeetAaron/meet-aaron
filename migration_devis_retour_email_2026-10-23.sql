@@ -20,3 +20,8 @@ COMMENT ON COLUMN public.prospects.devis_return_changes IS
   'Modifications lues sur le devis renvoyé : [{ line, change }].';
 COMMENT ON COLUMN public.prospects.devis_return_file_path IS
   'Copie du document renvoyé dans le bucket Storage « documents ».';
+
+-- 23/10/2026 (bis) : Aaron ne rédige plus de devis révisé ; il conseille le
+-- commercial, qui corrige et renvoie lui-même son devis.
+ALTER TABLE public.prospects
+  ADD COLUMN IF NOT EXISTS devis_return_advice text;

@@ -339,11 +339,7 @@ async function loadRecentQuotesForProspect(prospectId: string) {
 // qui correspond réellement à un produit_id existant du catalogue). Les
 // postes non reconnus (ou si le catalogue est vide) restent sans prix,
 // exactement comme avant — c'est toujours au commercial de les compléter.
-// options.revisionRequest (23/10/2026) : le client a renvoyé le devis avec
-// des modifications (souvent manuscrites, lues par Aaron dans la pièce
-// jointe — voir lib/quote-return.ts). La nouvelle proposition les intègre ;
-// elle reste un BROUILLON que le commercial relit avant tout envoi.
-export async function generateDevis(prospectId: string, options: { revisionRequest?: string | null } = {}): Promise<Devis> {
+export async function generateDevis(prospectId: string): Promise<Devis> {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select('id, full_name, job_title, company_id, prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)')
@@ -379,10 +375,6 @@ export async function generateDevis(prospectId: string, options: { revisionReque
             `"${prospect.full_name}"${societe ? ` (${societe})` : ''} suite aux échanges ci-dessous.\n` +
             (company?.business_summary ? `Activité de la société qui vend : ${company.business_summary}\n\n` : '') +
             `Historique des échanges avec ce prospect :\n${JSON.stringify(messages, null, 2)}\n\n` +
-            (options.revisionRequest
-              ? `IMPORTANT — le client a renvoyé le devis précédent en demandant ces modifications (lues sur le document renvoyé et dans son email) :\n${options.revisionRequest.slice(0, 2000)}\n` +
-                `Prépare une version RÉVISÉE qui les intègre fidèlement (quantités, postes ajoutés ou retirés, conditions), et dont l'email d'accompagnement confirme brièvement les changements pris en compte. Ne promets aucune remise ni aucun prix qui ne viendrait pas du catalogue.\n\n`
-              : '') +
             (previousQuotes.length
               ? `Devis déjà proposés précédemment à ce même prospect (reste cohérent, notamment sur les prix déjà annoncés pour un même poste) :\n${JSON.stringify(previousQuotes, null, 2)}\n\n`
               : '') +

@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
   // --- Rendez-vous : proposés et confirmés
   let appts: any = await supabaseAdmin
     .from('appointments')
-    .select('id, prospect_id, proposed_at, status, created_at')
+    .select('id, prospect_id, proposed_at, status, created_at, contact_name')
     .eq('user_id', userId)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
@@ -158,19 +158,29 @@ export async function GET(request: NextRequest) {
   if (appts.error && appts.error.code === '42703') {
     appts = await supabaseAdmin
       .from('appointments')
-      .select('id, prospect_id, proposed_at, status')
+      .select('id, prospect_id, proposed_at, status, contact_name')
       .eq('user_id', userId)
       .gte('proposed_at', since)
       .limit(100);
   }
+  // Nom du contact (23/10/2026, « Rendez-vous confirmé avec un prospect »
+  // sans nom, remonté par Alex) : un rendez-vous peut viser un contact qui
+  // n'est pas (ou plus) dans la liste du commercial, ou n'avoir qu'un nom
+  // saisi à la main (contact_name). On complète les fiches manquantes.
+  const missing = Array.from(new Set((appts.data || []).map((a: any) => a.prospect_id).filter((id: any) => id && !byId.has(id))));
+  if (missing.length) {
+    const { data: extra } = await supabaseAdmin.from('prospects').select('id, full_name, prospect_companies(name)').in('id', missing as string[]);
+    for (const p of extra || []) byId.set((p as any).id, p);
+  }
   for (const a of appts.data || []) {
     const p = byId.get(a.prospect_id);
+    const apptName = name(p) || (a as any).contact_name || null;
     const at = a.created_at || a.proposed_at;
     if (!at) continue;
     if (a.status === 'validé') {
-      events.push({ id: `ac:${a.id}`, kind: 'appointment_confirmed', at, prospect_id: a.prospect_id, prospect_name: name(p), company_name: company(p), count: 1 });
+      events.push({ id: `ac:${a.id}`, kind: 'appointment_confirmed', at, prospect_id: a.prospect_id, prospect_name: apptName, company_name: company(p), count: 1 });
     } else if (a.status === 'proposé') {
-      events.push({ id: `ap:${a.id}`, kind: 'appointment_proposed', at, prospect_id: a.prospect_id, prospect_name: name(p), company_name: company(p), count: 1 });
+      events.push({ id: `ap:${a.id}`, kind: 'appointment_proposed', at, prospect_id: a.prospect_id, prospect_name: apptName, company_name: company(p), count: 1 });
     }
   }
 

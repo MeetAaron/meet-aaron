@@ -20,10 +20,10 @@ export async function POST(request: NextRequest) {
   // du courrier depuis notre domaine vers l'adresse de son choix — donc de
   // détruire notre réputation d'expéditeur, et avec elle la délivrabilité
   // des emails de prospection de tous les clients.
-  const ipLimit = checkRateLimit(callerKey(request, 'sendverif'), 10, 15 * 60 * 1000);
+  const ipLimit = await checkRateLimit(callerKey(request, 'sendverif'), 10, 15 * 60 * 1000);
   if (!ipLimit.ok) return tooManyRequestsResponse(ipLimit.retryAfterSeconds);
   if (typeof email === 'string' && email.trim()) {
-    const perEmail = checkRateLimit(emailKey('sendverif', email), 3, 60 * 60 * 1000);
+    const perEmail = await checkRateLimit(emailKey('sendverif', email), 3, 60 * 60 * 1000);
     if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
   }
 

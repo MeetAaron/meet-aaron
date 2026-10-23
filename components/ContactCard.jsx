@@ -247,13 +247,13 @@ function OpinionBox({ opinion, loading, locale }) {
 // ---- Devis renvoyé par email (23/10/2026, lib/quote-return.ts) ----
 // Aaron a lu la pièce jointe du client : devis signé, ou annoté à la main.
 const QR_TEXT = {
-  fr: { signed: 'Devis signé reçu par email', signed_with_changes: 'Devis signé mais modifié par le client', changes_requested: 'Modifications demandées sur le devis', changes: 'Modifications lues', open: 'Voir le document renvoyé', draft: 'Aaron a préparé une version révisée (onglet Devis) — rien n\'est envoyé sans vous.', received: 'Reçu le' },
-  en: { signed: 'Signed quote received by email', signed_with_changes: 'Quote signed but changed by the client', changes_requested: 'Changes requested on the quote', changes: 'Changes read', open: 'Open the returned document', draft: 'Aaron prepared a revised version (Quote tab) — nothing is sent without you.', received: 'Received on' },
-  de: { signed: 'Unterschriebenes Angebot per E-Mail erhalten', signed_with_changes: 'Angebot unterschrieben, aber vom Kunden geändert', changes_requested: 'Änderungen am Angebot gewünscht', changes: 'Gelesene Änderungen', open: 'Zurückgesendetes Dokument öffnen', draft: 'Aaron hat eine überarbeitete Version vorbereitet (Reiter Angebot) — nichts wird ohne Sie gesendet.', received: 'Erhalten am' },
-  it: { signed: 'Preventivo firmato ricevuto via email', signed_with_changes: 'Preventivo firmato ma modificato dal cliente', changes_requested: 'Modifiche richieste al preventivo', changes: 'Modifiche lette', open: 'Apri il documento rinviato', draft: 'Aaron ha preparato una versione rivista (scheda Preventivo) — nulla viene inviato senza di te.', received: 'Ricevuto il' },
-  es: { signed: 'Presupuesto firmado recibido por email', signed_with_changes: 'Presupuesto firmado pero modificado por el cliente', changes_requested: 'Cambios solicitados en el presupuesto', changes: 'Cambios leídos', open: 'Ver el documento devuelto', draft: 'Aaron preparó una versión revisada (pestaña Presupuesto): nada se envía sin ti.', received: 'Recibido el' },
-  pt: { signed: 'Orçamento assinado recebido por email', signed_with_changes: 'Orçamento assinado mas alterado pelo cliente', changes_requested: 'Alterações pedidas ao orçamento', changes: 'Alterações lidas', open: 'Ver o documento devolvido', draft: 'O Aaron preparou uma versão revista (separador Orçamento) — nada é enviado sem ti.', received: 'Recebido a' },
-  nl: { signed: 'Ondertekende offerte per e-mail ontvangen', signed_with_changes: 'Offerte ondertekend maar door de klant gewijzigd', changes_requested: 'Wijzigingen gevraagd op de offerte', changes: 'Gelezen wijzigingen', open: 'Teruggestuurd document openen', draft: 'Aaron maakte een herziene versie klaar (tab Offerte) — er wordt niets verstuurd zonder jou.', received: 'Ontvangen op' },
+  fr: { signed: 'Devis signé reçu par email', signed_with_changes: 'Devis signé mais modifié par le client', changes_requested: 'Modifications demandées sur le devis', changes: 'Modifications lues', open: 'Voir le document renvoyé', draft: 'Corrige le devis puis renvoie-le depuis l\'onglet Devis : Aaron te prévient dès que le client l\'ouvre.', advice: 'Conseil d\'Aaron', received: 'Reçu le' },
+  en: { signed: 'Signed quote received by email', signed_with_changes: 'Quote signed but changed by the client', changes_requested: 'Changes requested on the quote', changes: 'Changes read', open: 'Open the returned document', draft: 'Correct the quote, then resend it from the Quote tab: Aaron tells you as soon as the client opens it.', advice: 'Aaron\'s advice', received: 'Received on' },
+  de: { signed: 'Unterschriebenes Angebot per E-Mail erhalten', signed_with_changes: 'Angebot unterschrieben, aber vom Kunden geändert', changes_requested: 'Änderungen am Angebot gewünscht', changes: 'Gelesene Änderungen', open: 'Zurückgesendetes Dokument öffnen', draft: 'Korrigieren Sie das Angebot und senden Sie es über den Reiter Angebot erneut: Aaron meldet sich, sobald der Kunde es öffnet.', advice: 'Aarons Rat', received: 'Erhalten am' },
+  it: { signed: 'Preventivo firmato ricevuto via email', signed_with_changes: 'Preventivo firmato ma modificato dal cliente', changes_requested: 'Modifiche richieste al preventivo', changes: 'Modifiche lette', open: 'Apri il documento rinviato', draft: 'Correggi il preventivo e rinvialo dalla scheda Preventivo: Aaron ti avvisa appena il cliente lo apre.', advice: 'Il consiglio di Aaron', received: 'Ricevuto il' },
+  es: { signed: 'Presupuesto firmado recibido por email', signed_with_changes: 'Presupuesto firmado pero modificado por el cliente', changes_requested: 'Cambios solicitados en el presupuesto', changes: 'Cambios leídos', open: 'Ver el documento devuelto', draft: 'Corrige el presupuesto y reenvíalo desde la pestaña Presupuesto: Aaron te avisa en cuanto el cliente lo abra.', advice: 'El consejo de Aaron', received: 'Recibido el' },
+  pt: { signed: 'Orçamento assinado recebido por email', signed_with_changes: 'Orçamento assinado mas alterado pelo cliente', changes_requested: 'Alterações pedidas ao orçamento', changes: 'Alterações lidas', open: 'Ver o documento devolvido', draft: 'Corrige o orçamento e reenvia-o a partir do separador Orçamento: o Aaron avisa-te assim que o cliente o abrir.', advice: 'O conselho do Aaron', received: 'Recebido a' },
+  nl: { signed: 'Ondertekende offerte per e-mail ontvangen', signed_with_changes: 'Offerte ondertekend maar door de klant gewijzigd', changes_requested: 'Wijzigingen gevraagd op de offerte', changes: 'Gelezen wijzigingen', open: 'Teruggestuurd document openen', draft: 'Corrigeer de offerte en verstuur ze opnieuw via de tab Offerte: Aaron laat het weten zodra de klant ze opent.', advice: 'Advies van Aaron', received: 'Ontvangen op' },
 };
 const qrt = (key, locale) => (QR_TEXT[locale] || QR_TEXT.fr)[key] || QR_TEXT.fr[key];
 
@@ -290,6 +290,12 @@ function QuoteReturnBox({ prospect, locale }) {
               <li key={i}>{c.line ? <strong>{c.line} : </strong> : null}{c.change}</li>
             ))}
           </ul>
+        </>
+      )}
+      {isChange && prospect.devis_return_advice && (
+        <>
+          <p className="qr-sub">{qrt('advice', locale)}</p>
+          <p className="qr-tx">{frenchTypography(prospect.devis_return_advice)}</p>
         </>
       )}
       {isChange && <p className="qr-tx qr-muted">{qrt('draft', locale)}</p>}
