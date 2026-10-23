@@ -105,6 +105,11 @@ function imapClient(creds: ImapCredentials): any {
     host: creds.settings.imap_host,
     port: creds.settings.imap_port,
     secure: creds.settings.imap_secure,
+    // Sans TLS implicite (port 143), STARTTLS est EXIGÉ (CASA 4.1.1,
+    // 23/10/2026) : sans cette option, imapflow passait en clair si le
+    // serveur n'annonçait pas STARTTLS — identifiants compris. Même règle que
+    // requireTLS côté SMTP ci-dessous. TLS 1.2 minimum (défaut de Node).
+    doSTARTTLS: creds.settings.imap_secure ? undefined : true,
     auth: { user: creds.username, pass: creds.password },
     logger: false,
     emitLogs: false,
