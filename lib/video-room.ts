@@ -25,15 +25,20 @@
 // vers le téléphone ou le présentiel, voir le prompt système). Jamais
 // bloquant : un souci de visio ne doit pas empêcher de poser un rendez-vous.
 
+import { randomInt } from 'crypto';
+
 const DAILY_API = 'https://api.daily.co/v1/rooms';
 
 // Une salle par rendez-vous, nom non devinable (les salles Daily sont
 // accessibles par leur URL : un nom court ou prévisible serait une porte
 // ouverte). 32 caractères aléatoires.
+// Tirage par crypto.randomInt (générateur cryptographique de Node, sans
+// biais de modulo) — et non Math.random, prévisible (CASA 4.1.3, 23/10/2026).
+// 32 caractères sur 36 symboles ≈ 165 bits d'entropie.
 function randomRoomName(): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let out = 'aaron-';
-  for (let i = 0; i < 32; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < 32; i++) out += alphabet[randomInt(alphabet.length)];
   return out;
 }
 

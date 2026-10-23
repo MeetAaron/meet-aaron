@@ -1,10 +1,11 @@
 // app/login/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext } from '@/lib/supabase-browser';
+import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext, revokeStaleSessionOnLoginPage } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
 
 const MFA_TEXT = {
   fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
@@ -48,6 +49,9 @@ export default function LoginPage() {
   // d'entrer dans l'app.
   const [mfaPending, setMfaPending] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
+  // Révocation de la session résiduelle en cours (voir plus bas) : attendue
+  // avant toute nouvelle connexion pour ne jamais révoquer la NOUVELLE session.
+  const staleRevocation = useRef(null);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMessage, setResendMessage] = useState(null);
 
@@ -70,6 +74,9 @@ export default function LoginPage() {
     // ?next=/app/… (posé par AuthFetchInterceptor) : page à rouvrir après
     // connexion — consommée par /onboarding, voir lib/supabase-browser.ts.
     rememberPostLoginNext(params.get('next'));
+    // Session de la veille encore stockée : révoquée côté serveur et
+    // stockage vidé (CASA 2.2.1 / 6.6.1, voir lib/supabase-browser.ts).
+    staleRevocation.current = revokeStaleSessionOnLoginPage().catch(() => {});
     const reset = params.get('reset');
     if (reset && /^[a-f0-9]{64}$/.test(reset)) {
       setResetToken(reset);
@@ -187,6 +194,7 @@ export default function LoginPage() {
     setResendMessage(null);
 
     if (mode === 'signin') {
+      if (staleRevocation.current) { await staleRevocation.current; staleRevocation.current = null; }
       setRememberMe(remember);
       try {
         if (remember) {
@@ -226,11 +234,11 @@ export default function LoginPage() {
       }
       await finishLogin();
     } else {
-      // Politique de mot de passe (CASA 1.1.1) : 8 caractères minimum à
-      // l'inscription comme à la réinitialisation (app/api/auth/reset-
-      // password), en plus du minimum imposé côté Supabase Auth.
-      if (password.length < 8) {
-        setError(mt(locale, 'tooShort'));
+      // Politique de mot de passe (CASA 1.1.1, lib/password-policy.js) :
+      // même règle à l'inscription, à la réinitialisation et au changement,
+      // et la même est imposée côté Supabase Auth.
+      if (passwordPolicyError(password)) {
+        setError(passwordPolicyMessage(locale));
         setLoading(false);
         return;
       }
@@ -305,6 +313,10 @@ export default function LoginPage() {
 
   async function handleResetSubmit(e) {
     e.preventDefault();
+    if (passwordPolicyError(password)) {
+      setError(passwordPolicyMessage(locale));
+      return;
+    }
     if (password !== passwordConfirm) {
       setError(t('auth.resetMismatch', locale));
       return;
@@ -404,7 +416,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
             />
             <input
               type="password"
@@ -413,7 +425,7 @@ export default function LoginPage() {
               onChange={(e) => setPasswordConfirm(e.target.value)}
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
             />
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? t('common.loading', locale) : t('auth.resetSubmit', locale)}
@@ -461,7 +473,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
             required
-            minLength={mode === 'signup' ? 8 : 6}
+            minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : 6}
           />
           {mode === 'signin' && (
             <label className="remember-row">

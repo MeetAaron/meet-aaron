@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { readJsonBody, serverError } from '@/lib/http';
+import { checkRateLimit, callerKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   const { first_name, full_name, invite_code } = await readJsonBody(request);
@@ -31,6 +32,16 @@ export async function POST(request: NextRequest) {
   const identity = await getAuthedIdentity(request);
   if (!identity) return unauthorizedResponse();
   const { auth_user_id, email } = identity;
+
+  // ANTI-FORCE BRUTE SUR LES CODES (CASA 1.1.1, 23/10/2026). Un code donne
+  // accès aux données d'une société : sans limite, un compte fraîchement
+  // créé pouvait essayer des codes en boucle. 5 essais par compte et 20 par
+  // adresse IP toutes les 15 minutes, comptés AVANT toute lecture en base ;
+  // au-delà, 429 au message générique (voir lib/rate-limit.ts).
+  const perAccount = checkRateLimit(`join-company:user:${auth_user_id}`, 5, 15 * 60 * 1000);
+  if (!perAccount.ok) return tooManyRequestsResponse(perAccount.retryAfterSeconds) as any;
+  const perIp = checkRateLimit(callerKey(request, 'join-company'), 20, 15 * 60 * 1000);
+  if (!perIp.ok) return tooManyRequestsResponse(perIp.retryAfterSeconds) as any;
 
   const { data: existing } = await supabaseAdmin
     .from('users')

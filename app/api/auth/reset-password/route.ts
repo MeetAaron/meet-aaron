@@ -6,14 +6,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { readJsonBody } from '@/lib/http';
+import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
 
 export async function POST(request: NextRequest) {
   const { token, password } = await readJsonBody(request);
   if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
     return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
   }
-  if (typeof password !== 'string' || password.length < 8) {
-    return NextResponse.json({ error: 'Le mot de passe doit faire au moins 8 caractères' }, { status: 400 });
+  // Politique de mot de passe (CASA 1.1.1) — lib/password-policy.js.
+  if (passwordPolicyError(password)) {
+    return NextResponse.json({ error: passwordPolicyMessage('fr') }, { status: 400 });
   }
 
   const { data: row } = await supabaseAdmin

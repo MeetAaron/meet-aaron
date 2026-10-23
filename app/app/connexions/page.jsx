@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
 // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
 // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
 import { BOOST_TIERS, boostPrice, formatBoostPrice, formatSubscriptionPrice, USD_PER_CREDIT, prospectsForTier } from '@/lib/boost-tiers';
@@ -1293,8 +1294,9 @@ export default function ConnexionsPage() {
       setPasswordChangeError(t('connexions.passwordAllFieldsRequired', locale));
       return;
     }
-    if (newPassword.length < 8) {
-      setPasswordChangeError(t('connexions.passwordTooShort', locale));
+    // Politique de mot de passe commune (CASA 1.1.1, lib/password-policy.js).
+    if (passwordPolicyError(newPassword)) {
+      setPasswordChangeError(passwordPolicyMessage(locale));
       return;
     }
     if (newPassword !== confirmNewPassword) {

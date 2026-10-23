@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
-    console.error('Erreur création session Stripe:', err);
+    console.error('Erreur création session Stripe:', { type: (err as any)?.type || null, code: (err as any)?.code || null, requestId: (err as any)?.requestId || null }); // jamais l'objet d'erreur complet (CASA 6.5.1)
     return serverError(err, '/api/checkout');
   }
 }

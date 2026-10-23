@@ -136,7 +136,10 @@ export function clearAppStorageOnLogout() {
       for (const k of keys) {
         if (KEEP_ON_LOGOUT.has(k)) continue;
         if (KEEP_PREFIXES_ON_LOGOUT.some((p) => k === p || k.startsWith(p))) continue;
-        const ours = k.startsWith('meetaaron_') || k.startsWith('aaron_') || k.startsWith('aaron-') || k.startsWith('sb-') || k.startsWith('supabase');
+        // « meetaaron » sans séparateur : couvre aussi les clés « meetaaron: »
+        // laissées par l'ancien prototype (23/10/2026, trouvées à
+        // l'inventaire d'un navigateur réel).
+        const ours = k.startsWith('meetaaron') || k.startsWith('aaron_') || k.startsWith('aaron-') || k.startsWith('sb-') || k.startsWith('supabase');
         if (ours) store.removeItem(k);
       }
     } catch (err) {}
@@ -208,9 +211,15 @@ export function getDeviceId(): string | null {
   try {
     let id = window.localStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
-      id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+      // Générateur cryptographique du navigateur uniquement (CASA 4.1.3,
+      // 23/10/2026) : plus de repli sur Math.random.
+      if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        id = crypto.randomUUID();
+      } else {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      }
       window.localStorage.setItem(DEVICE_ID_KEY, id);
     }
     return id;
@@ -241,3 +250,30 @@ export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
     storage: dynamicStorage,
   },
 });
+
+// SESSION RÉSIDUELLE À L'ARRIVÉE SUR /login (CASA 2.2.1 / 6.6.1, 23/10/2026).
+// La porte d'entrée de /app exige une connexion explicite chaque jour : le
+// lendemain, l'utilisateur est renvoyé vers /login alors que la session de la
+// veille (jeton de rafraîchissement compris) dort encore dans le stockage du
+// navigateur. On la révoque ici CÔTÉ SERVEUR (signOut scope 'local' : seule
+// cette session, les autres appareils ne sont pas touchés), puis on vide le
+// stockage de l'app — y compris IndexedDB et Cache Storage, dont la
+// suppression asynchrone a ici le temps d'aboutir (pas de navigation
+// immédiate comme au clic sur « Déconnexion »). La page à rouvrir après
+// connexion (?next=) est préservée.
+export async function revokeStaleSessionOnLoginPage(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (isExplicitlyLoggedInToday()) return;
+  let next: string | null = null;
+  try { next = window.localStorage.getItem(POST_LOGIN_NEXT_KEY); } catch (err) {}
+  try {
+    const { data } = await supabaseBrowser.auth.getSession();
+    if (data?.session) {
+      try { await supabaseBrowser.auth.signOut({ scope: 'local' }); } catch (err) {}
+    }
+  } catch (err) {}
+  clearAppStorageOnLogout();
+  if (next) {
+    try { window.localStorage.setItem(POST_LOGIN_NEXT_KEY, next); } catch (err) {}
+  }
+}

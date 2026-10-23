@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ invoices: simplified });
   } catch (err: any) {
-    console.error('Erreur récupération factures Stripe:', err);
+    console.error('Erreur récupération factures Stripe:', { type: (err as any)?.type || null, code: (err as any)?.code || null, requestId: (err as any)?.requestId || null }); // jamais l'objet d'erreur complet (CASA 6.5.1)
     return serverError(err, '/api/billing/invoices');
   }
 }

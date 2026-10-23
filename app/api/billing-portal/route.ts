@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: portalSession.url });
   } catch (err: any) {
-    console.error('Erreur création session Billing Portal Stripe:', err);
+    console.error('Erreur création session Billing Portal Stripe:', { type: (err as any)?.type || null, code: (err as any)?.code || null, requestId: (err as any)?.requestId || null }); // jamais l'objet d'erreur complet (CASA 6.5.1)
     return serverError(err, '/api/billing-portal');
   }
 }

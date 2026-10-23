@@ -31,7 +31,14 @@ export async function POST(request: NextRequest) {
   const body = await request.text();
   const signature = request.headers.get('stripe-signature');
 
+  // JOURNAUX DU PAIEMENT (CASA 6.5.1, 23/10/2026) : uniquement l'identifiant
+  // et le type de l'événement Stripe, le mode (live/test) et nos propres
+  // identifiants internes. JAMAIS de numéro de carte (Stripe ne nous en
+  // transmet d'ailleurs aucun : le paiement se fait sur la page hébergée
+  // Stripe Checkout), ni d'email, de nom, d'adresse, de corps d'événement,
+  // ni la signature ou le secret du webhook.
   if (!signature) {
+    console.warn('[stripe-webhook] refusé : signature absente');
     return NextResponse.json({ error: 'Signature manquante' }, { status: 400 });
   }
 
@@ -39,8 +46,10 @@ export async function POST(request: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (err: any) {
-    return NextResponse.json({ error: `Signature invalide: ${err.message}` }, { status: 400 });
+    console.warn('[stripe-webhook] refusé : signature invalide');
+    return NextResponse.json({ error: 'Signature invalide' }, { status: 400 });
   }
+  console.info('[stripe-webhook] reçu', { id: event.id, type: event.type, livemode: event.livemode });
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as any;
@@ -84,7 +93,7 @@ export async function POST(request: NextRequest) {
         : session.payment_intent?.id || session.id;
 
       if (!company_id || !tier) {
-        console.error('Boost payé mais metadata incomplètes:', session.metadata);
+        console.error('[stripe-webhook] boost payé mais metadata incomplètes', { event: event.id, company_id: company_id || null, tier: tier || null });
         return NextResponse.json({ error: 'Metadata de boost incomplètes' }, { status: 500 });
       }
 
@@ -113,7 +122,7 @@ export async function POST(request: NextRequest) {
         if (boostError) {
           // On renvoie 500 pour que Stripe retente : un paiement encaissé sans
           // crédits livrés doit être rattrapé, pas ignoré en silence.
-          console.error('Boost payé mais non enregistré:', boostError.message, session.metadata);
+          console.error('[stripe-webhook] boost payé mais non enregistré', { event: event.id, company_id, tier, code: (boostError as any).code || null });
           return NextResponse.json({ error: 'Enregistrement du boost impossible' }, { status: 500 });
         }
       }
@@ -225,11 +234,10 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (companyError || !company) {
-        console.error('Erreur création société (webhook Stripe):', companyError?.message, {
+        console.error('[stripe-webhook] création société impossible', {
+          event: event.id,
           auth_user_id,
-          email,
-          company_name,
-          stripe_customer: session.customer,
+          code: (companyError as any)?.code || null,
         });
         return NextResponse.json({ error: 'Erreur création société' }, { status: 500 });
       }
@@ -255,10 +263,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (userError) {
-      console.error('Erreur création utilisateur (webhook Stripe):', userError.message, {
+      console.error('[stripe-webhook] création utilisateur impossible', {
+        event: event.id,
         auth_user_id,
-        email,
         company_id: companyId,
+        code: (userError as any).code || null,
       });
       return NextResponse.json({ error: 'Erreur création utilisateur' }, { status: 500 });
     }
