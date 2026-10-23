@@ -213,11 +213,13 @@ export function getDeviceId(): string | null {
     if (!id) {
       // Générateur cryptographique du navigateur uniquement (CASA 4.1.3,
       // 23/10/2026) : plus de repli sur Math.random.
-      if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-        id = crypto.randomUUID();
+      const webCrypto: Crypto | undefined = window.crypto;
+      if (!webCrypto) return null;
+      if (typeof webCrypto.randomUUID === 'function') {
+        id = webCrypto.randomUUID();
       } else {
         const bytes = new Uint8Array(16);
-        crypto.getRandomValues(bytes);
+        webCrypto.getRandomValues(bytes);
         id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
       }
       window.localStorage.setItem(DEVICE_ID_KEY, id);
