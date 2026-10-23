@@ -27,6 +27,7 @@ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/cal
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { resolveMeetingLink } from '@/lib/meeting-link';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { canAccessAppointment } from '@/lib/appointment-access';
 import { readJsonBody, serverError } from '@/lib/http';
 
 // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   const params = await ctx.params;
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
+    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
     .eq('id', params.id)
     .single();
 
@@ -112,7 +113,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
+  if (!canAccessAppointment(authedUser, appointment as any)) {
     return forbiddenResponse();
   }
 
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     type: appointment.type,
     outcome: appointment.outcome,
     outcome_note: appointment.outcome_note,
-    prospect_full_name: prospect?.full_name || null,
+    prospect_full_name: prospect?.full_name || (appointment as any).contact_name || null,
   });
 }
 
@@ -393,7 +394,7 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: 
 
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('proposed_at, prospects(assigned_user_id)')
+    .select('proposed_at, user_id, prospects(assigned_user_id)')
     .eq('id', appointmentId)
     .single();
 
@@ -401,7 +402,9 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: 
     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
   }
 
-  const userId = (appointment as any).prospects?.assigned_user_id;
+  // Le commercial du rendez-vous, ou celui du prospect (contact saisi à la
+  // main : pas de prospect, voir lib/appointment-access.ts).
+  const userId = (appointment as any).prospects?.assigned_user_id || (appointment as any).user_id;
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();

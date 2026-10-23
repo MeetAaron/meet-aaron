@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { canAccessAppointment } from '@/lib/appointment-access';
 import { generateAppointmentBrief } from '@/lib/aaron-sales';
 import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
 
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, pre_brief, pre_brief_generated_at, prospects(assigned_user_id, company_id)')
+    .select('id, user_id, pre_brief, pre_brief_generated_at, prospects(assigned_user_id, company_id)')
     .eq('id', appointmentId)
     .single();
 
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
+  if (!canAccessAppointment(authedUser, appointment as any)) {
     return forbiddenResponse();
   }
 

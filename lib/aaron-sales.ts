@@ -73,7 +73,7 @@ async function loadAppointmentWithProspect(appointmentId: string) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
     .select(
-      `id, type, proposed_at, outcome, prospect_id,
+      `id, type, proposed_at, outcome, prospect_id, user_id, contact_name,
        prospects (
          id, full_name, job_title, company_id, personality_type, personality_notes,
          prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)
@@ -84,8 +84,29 @@ async function loadAppointmentWithProspect(appointmentId: string) {
 
   if (error || !appointment) throw new Error('RDV introuvable');
 
-  const prospect = (appointment as any).prospects;
-  if (!prospect) throw new Error("Ce RDV n'est pas rattaché à un prospect suivi par Aaron");
+  let prospect = (appointment as any).prospects;
+  if (!prospect) {
+    // RDV saisi à la main avec un simple nom de contact (prospect_id NULL,
+    // contact_name renseigné — voir app/api/appointments) : on construit une
+    // fiche minimale à partir du RDV et de son propriétaire, pour que le brief
+    // et le compte-rendu fonctionnent aussi (23/10/2026, « Accès refusé » sur
+    // « Faire le bilan »). Pas d'historique d'échanges dans ce cas.
+    const ownerId = (appointment as any).user_id;
+    const { data: owner } = ownerId
+      ? await supabaseAdmin.from('users').select('company_id, locale').eq('id', ownerId).maybeSingle()
+      : { data: null as any };
+    prospect = {
+      id: null,
+      full_name: (appointment as any).contact_name || 'Contact',
+      job_title: null,
+      company_id: owner?.company_id || null,
+      personality_type: null,
+      personality_notes: null,
+      prospect_companies: null,
+      assigned_user_id: ownerId || null,
+      users: { locale: owner?.locale || null },
+    };
+  }
 
   return { appointment, prospect };
 }
@@ -101,7 +122,8 @@ function prospectLocale(prospect: any): string {
   return normalizeLocale(prospect?.users?.locale);
 }
 
-async function loadConversationMessages(prospectId: string) {
+async function loadConversationMessages(prospectId: string | null) {
+  if (!prospectId) return [];
   const { data: conversation } = await supabaseAdmin
     .from('conversations')
     .select('id')

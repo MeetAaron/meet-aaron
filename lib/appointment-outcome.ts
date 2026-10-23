@@ -162,7 +162,7 @@ export async function recordAppointmentOutcome(
 ) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage, users(locale))')
+    .select('id, prospect_id, user_id, contact_name, prospects(id, full_name, company_id, deal_stage, users(locale))')
     .eq('id', appointmentId)
     .single();
 
@@ -171,8 +171,16 @@ export async function recordAppointmentOutcome(
   }
 
   const prospect = (appointment as any).prospects;
-  const companyId = prospect?.company_id || null;
-  const locale = normalizeLocale(prospect?.users?.locale);
+  // RDV saisi avec un simple nom de contact (pas de fiche prospect) : la
+  // société et la langue viennent du commercial propriétaire du RDV.
+  let owner: { company_id: string | null; locale: string | null } | null = null;
+  if (!prospect && (appointment as any).user_id) {
+    const { data } = await supabaseAdmin.from('users').select('company_id, locale').eq('id', (appointment as any).user_id).maybeSingle();
+    owner = (data as any) || null;
+  }
+  const companyId = prospect?.company_id || owner?.company_id || null;
+  const locale = normalizeLocale(prospect?.users?.locale || owner?.locale);
+  const contactName = prospect?.full_name || (appointment as any).contact_name || null;
 
   let note = FALLBACK_NOTES[locale][outcome];
 
@@ -195,7 +203,7 @@ export async function recordAppointmentOutcome(
               role: 'user',
               content:
                 `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
-                `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
+                `"${contactName || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
                 (details.mood ? `Son ressenti sur le RDV : ${MOOD_LABELS[details.mood]}.\n` : '') +
                 (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 600)}".\n` : '') +
                 `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
