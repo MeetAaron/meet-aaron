@@ -1,0 +1,306 @@
+From 978e63d441aab1358d6649e5a8079d5474a915bc Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Fri, 23 Oct 2026 12:42:44 +0000
+Subject: [PATCH] =?UTF-8?q?Bilan=20RDV=20:=20acc=C3=A8s=20autoris=C3=A9=20?=
+ =?UTF-8?q?pour=20les=20RDV=20saisis=20avec=20un=20simple=20contact?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Les RDV créés avec un nom de contact (sans fiche prospect) étaient refusés
+(403 « Accès refusé ») par /api/appointments/[id] et ses routes bilan,
+brief et compte-rendu, car la règle d'accès ne regardait que le prospect.
+Nouvelle règle commune lib/appointment-access.ts : propriétaire du RDV,
+commercial assigné au prospect, ou même société. Brief, compte-rendu et
+bilan fonctionnent aussi sans fiche prospect.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/brief/route.ts   |  5 ++--
+ app/api/appointments/[id]/debrief/route.ts |  5 ++--
+ app/api/appointments/[id]/outcome/route.ts |  5 ++--
+ app/api/appointments/[id]/route.ts         | 13 ++++++----
+ lib/aaron-sales.ts                         | 30 +++++++++++++++++++---
+ lib/appointment-access.ts                  | 23 +++++++++++++++++
+ lib/appointment-outcome.ts                 | 16 +++++++++---
+ 7 files changed, 78 insertions(+), 19 deletions(-)
+ create mode 100644 lib/appointment-access.ts
+
+diff --git a/app/api/appointments/[id]/brief/route.ts b/app/api/appointments/[id]/brief/route.ts
+index 87ca2a6..a65769f 100644
+--- a/app/api/appointments/[id]/brief/route.ts
++++ b/app/api/appointments/[id]/brief/route.ts
+@@ -8,6 +8,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canAccessAppointment } from '@/lib/appointment-access';
+ import { generateAppointmentBrief } from '@/lib/aaron-sales';
+ import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+ 
+@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, pre_brief, pre_brief_generated_at, prospects(assigned_user_id, company_id)')
++    .select('id, user_id, pre_brief, pre_brief_generated_at, prospects(assigned_user_id, company_id)')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -30,7 +31,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
++  if (!canAccessAppointment(authedUser, appointment as any)) {
+     return forbiddenResponse();
+   }
+ 
+diff --git a/app/api/appointments/[id]/debrief/route.ts b/app/api/appointments/[id]/debrief/route.ts
+index 8204302..d0a1375 100644
+--- a/app/api/appointments/[id]/debrief/route.ts
++++ b/app/api/appointments/[id]/debrief/route.ts
+@@ -7,6 +7,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canAccessAppointment } from '@/lib/appointment-access';
+ import { generateAppointmentDebrief } from '@/lib/aaron-sales';
+ import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+ import { readJsonBody } from '@/lib/http';
+@@ -22,7 +23,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, prospects(assigned_user_id, company_id)')
++    .select('id, user_id, prospects(assigned_user_id, company_id)')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -34,7 +35,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
++  if (!canAccessAppointment(authedUser, appointment as any)) {
+     return forbiddenResponse();
+   }
+ 
+diff --git a/app/api/appointments/[id]/outcome/route.ts b/app/api/appointments/[id]/outcome/route.ts
+index cd388a9..5920b44 100644
+--- a/app/api/appointments/[id]/outcome/route.ts
++++ b/app/api/appointments/[id]/outcome/route.ts
+@@ -6,6 +6,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canAccessAppointment } from '@/lib/appointment-access';
+ import { recordAppointmentOutcome, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
+ import { readJsonBody } from '@/lib/http';
+ 
+@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, prospects(assigned_user_id, company_id)')
++    .select('id, user_id, prospects(assigned_user_id, company_id)')
+     .eq('id', params.id)
+     .single();
+ 
+@@ -41,7 +42,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
++  if (!canAccessAppointment(authedUser, appointment as any)) {
+     return forbiddenResponse();
+   }
+ 
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index 2c81120..0904fd8 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -27,6 +27,7 @@ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/cal
+ import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+ import { resolveMeetingLink } from '@/lib/meeting-link';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canAccessAppointment } from '@/lib/appointment-access';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+ // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
+@@ -100,7 +101,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+   const params = await ctx.params;
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
++    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
+     .eq('id', params.id)
+     .single();
+ 
+@@ -112,7 +113,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== prospect?.assigned_user_id && authedUser.company_id !== prospect?.company_id) {
++  if (!canAccessAppointment(authedUser, appointment as any)) {
+     return forbiddenResponse();
+   }
+ 
+@@ -122,7 +123,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+     type: appointment.type,
+     outcome: appointment.outcome,
+     outcome_note: appointment.outcome_note,
+-    prospect_full_name: prospect?.full_name || null,
++    prospect_full_name: prospect?.full_name || (appointment as any).contact_name || null,
+   });
+ }
+ 
+@@ -393,7 +394,7 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id:
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('proposed_at, prospects(assigned_user_id)')
++    .select('proposed_at, user_id, prospects(assigned_user_id)')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -401,7 +402,9 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id:
+     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+   }
+ 
+-  const userId = (appointment as any).prospects?.assigned_user_id;
++  // Le commercial du rendez-vous, ou celui du prospect (contact saisi à la
++  // main : pas de prospect, voir lib/appointment-access.ts).
++  const userId = (appointment as any).prospects?.assigned_user_id || (appointment as any).user_id;
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+diff --git a/lib/aaron-sales.ts b/lib/aaron-sales.ts
+index 234eaa5..a9356c4 100644
+--- a/lib/aaron-sales.ts
++++ b/lib/aaron-sales.ts
+@@ -73,7 +73,7 @@ async function loadAppointmentWithProspect(appointmentId: string) {
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+     .select(
+-      `id, type, proposed_at, outcome, prospect_id,
++      `id, type, proposed_at, outcome, prospect_id, user_id, contact_name,
+        prospects (
+          id, full_name, job_title, company_id, personality_type, personality_notes,
+          prospect_company_id, prospect_companies (name, domain), assigned_user_id, users (locale)
+@@ -84,8 +84,29 @@ async function loadAppointmentWithProspect(appointmentId: string) {
+ 
+   if (error || !appointment) throw new Error('RDV introuvable');
+ 
+-  const prospect = (appointment as any).prospects;
+-  if (!prospect) throw new Error("Ce RDV n'est pas rattaché à un prospect suivi par Aaron");
++  let prospect = (appointment as any).prospects;
++  if (!prospect) {
++    // RDV saisi à la main avec un simple nom de contact (prospect_id NULL,
++    // contact_name renseigné — voir app/api/appointments) : on construit une
++    // fiche minimale à partir du RDV et de son propriétaire, pour que le brief
++    // et le compte-rendu fonctionnent aussi (23/10/2026, « Accès refusé » sur
++    // « Faire le bilan »). Pas d'historique d'échanges dans ce cas.
++    const ownerId = (appointment as any).user_id;
++    const { data: owner } = ownerId
++      ? await supabaseAdmin.from('users').select('company_id, locale').eq('id', ownerId).maybeSingle()
++      : { data: null as any };
++    prospect = {
++      id: null,
++      full_name: (appointment as any).contact_name || 'Contact',
++      job_title: null,
++      company_id: owner?.company_id || null,
++      personality_type: null,
++      personality_notes: null,
++      prospect_companies: null,
++      assigned_user_id: ownerId || null,
++      users: { locale: owner?.locale || null },
++    };
++  }
+ 
+   return { appointment, prospect };
+ }
+@@ -101,7 +122,8 @@ function prospectLocale(prospect: any): string {
+   return normalizeLocale(prospect?.users?.locale);
+ }
+ 
+-async function loadConversationMessages(prospectId: string) {
++async function loadConversationMessages(prospectId: string | null) {
++  if (!prospectId) return [];
+   const { data: conversation } = await supabaseAdmin
+     .from('conversations')
+     .select('id')
+diff --git a/lib/appointment-access.ts b/lib/appointment-access.ts
+new file mode 100644
+index 0000000..ed13575
+--- /dev/null
++++ b/lib/appointment-access.ts
+@@ -0,0 +1,23 @@
++// lib/appointment-access.ts
++// QUI PEUT OUVRIR UN RENDEZ-VOUS (23/10/2026, bug remonté par Alex : « Faire
++// le bilan » affichait « Accès refusé »).
++//
++// Avant, les routes /api/appointments/[id]/* ne regardaient que le PROSPECT
++// lié (commercial assigné ou même société). Or un rendez-vous peut être pris
++// avec un contact saisi à la main (appointments.contact_name, sans
++// prospect_id) : pas de prospect, donc refus systématique, y compris pour le
++// commercial à qui appartient le rendez-vous. La règle est désormais :
++//   - le commercial du rendez-vous (appointments.user_id) ;
++//   - OU le commercial assigné au prospect ;
++//   - OU un membre de la même société que le prospect (company_id renseigné :
++//     deux valeurs vides ne valent jamais « même société »).
++export function canAccessAppointment(
++  authedUser: { id: string; company_id: string | null },
++  appointment: { user_id?: string | null; prospects?: { assigned_user_id?: string | null; company_id?: string | null } | null }
++): boolean {
++  if (appointment.user_id && appointment.user_id === authedUser.id) return true;
++  const p = appointment.prospects || null;
++  if (p?.assigned_user_id && p.assigned_user_id === authedUser.id) return true;
++  if (p?.company_id && authedUser.company_id && p.company_id === authedUser.company_id) return true;
++  return false;
++}
+diff --git a/lib/appointment-outcome.ts b/lib/appointment-outcome.ts
+index a7a4db7..fe2e1ac 100644
+--- a/lib/appointment-outcome.ts
++++ b/lib/appointment-outcome.ts
+@@ -162,7 +162,7 @@ export async function recordAppointmentOutcome(
+ ) {
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, prospect_id, prospects(id, full_name, company_id, deal_stage, users(locale))')
++    .select('id, prospect_id, user_id, contact_name, prospects(id, full_name, company_id, deal_stage, users(locale))')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -171,8 +171,16 @@ export async function recordAppointmentOutcome(
+   }
+ 
+   const prospect = (appointment as any).prospects;
+-  const companyId = prospect?.company_id || null;
+-  const locale = normalizeLocale(prospect?.users?.locale);
++  // RDV saisi avec un simple nom de contact (pas de fiche prospect) : la
++  // société et la langue viennent du commercial propriétaire du RDV.
++  let owner: { company_id: string | null; locale: string | null } | null = null;
++  if (!prospect && (appointment as any).user_id) {
++    const { data } = await supabaseAdmin.from('users').select('company_id, locale').eq('id', (appointment as any).user_id).maybeSingle();
++    owner = (data as any) || null;
++  }
++  const companyId = prospect?.company_id || owner?.company_id || null;
++  const locale = normalizeLocale(prospect?.users?.locale || owner?.locale);
++  const contactName = prospect?.full_name || (appointment as any).contact_name || null;
+ 
+   let note = FALLBACK_NOTES[locale][outcome];
+ 
+@@ -195,7 +203,7 @@ export async function recordAppointmentOutcome(
+               role: 'user',
+               content:
+                 `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
+-                `"${prospect?.full_name || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
++                `"${contactName || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
+                 (details.mood ? `Son ressenti sur le RDV : ${MOOD_LABELS[details.mood]}.\n` : '') +
+                 (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 600)}".\n` : '') +
+                 `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
+-- 
+2.43.0
+
