@@ -1,0 +1,1480 @@
+From 1913eff03cc22262c9490bcbe10ad1c4c16071ce Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Sat, 24 Oct 2026 06:18:33 +0000
+Subject: [PATCH] =?UTF-8?q?Revue=20des=20acc=C3=A8s=20:=20plus=20de=20?=
+ =?UTF-8?q?=C2=AB=20Acc=C3=A8s=20refus=C3=A9=20=C2=BB=20ni=20de=20panne=20?=
+ =?UTF-8?q?sur=20les=20boutons=20l=C3=A9gitimes?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Mon équipe -> fiche d'un commercial : le patron recevait 403 sur prospects,
+  RDV et campagnes (fiche vide). Lecture autorisée au patron de la même
+  société (lib/user-access.ts) ; la page signale désormais un échec.
+- RDV : actions (valider, reporter, annuler, relancer, supprimer, relance
+  post-RDV) ouvertes au commercial du RDV OU du prospect ; « Relancer » d'un
+  contact sans fiche ne plante plus (500) et n'est plus proposé ; la case
+  email de remerciement est masquée quand il n'y a pas d'email.
+- Abonnement : le bouton « Mettre à jour ma carte » n'est montré qu'au patron.
+- Fondateur : une seule liste d'adresses (lib/founder.ts) pour la page Marge,
+  le solde Anthropic et l'alerte.
+- Marge : codes promo Stripe déduits de l'attendu ; retour vers Mon compte.
+- Fond sombre par défaut sur toutes les pages /app (app/app/layout.jsx).
+- Fiche client : enregistrer les infos de contact n'efface plus le téléphone.
+- Listes longues : filtres .in() découpés en paquets (lib/chunked-in.ts),
+  suppression de compte paginée.
+- Divers : société de repli pour l'ajout/import, document attendu avant le
+  profil (Bienvenue), noms des contacts sans fiche, lien de notification
+  crédits, erreur du chat réinitialisée, campagnes marketing de l'auteur.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/activity/route.ts                     | 11 ++--
+ app/api/admin/api-balance/route.ts            |  4 +-
+ app/api/admin/margin/route.ts                 | 54 +++++++++++++++-
+ .../appointments/[id]/debrief/send/route.ts   | 13 +++-
+ app/api/appointments/[id]/route.ts            | 41 ++++++++----
+ app/api/appointments/route.ts                 |  4 +-
+ app/api/campaigns/[id]/advice/route.ts        |  5 +-
+ app/api/campaigns/route.ts                    | 13 ++--
+ app/api/cron/api-balance-alert/route.ts       | 11 ++--
+ app/api/cron/credit-alerts/route.ts           |  2 +-
+ app/api/cron/customer-health/route.ts         | 19 +++---
+ app/api/csv-import/analyze/route.ts           | 10 ++-
+ app/api/customers/pipeline/route.ts           |  9 +--
+ app/api/marketing-campaigns/route.ts          |  4 ++
+ app/api/prospects/[id]/route.ts               |  4 +-
+ app/api/prospects/route.ts                    | 26 +++++---
+ app/api/sales/pipeline/route.ts               |  9 ++-
+ app/api/support-drafts/route.ts               | 18 +++---
+ app/app/agenda/page.jsx                       |  2 +-
+ app/app/agenda/rdv/[id]/bilan/page.jsx        |  6 +-
+ app/app/bienvenue/page.jsx                    | 11 +++-
+ app/app/chat/page.jsx                         |  3 +
+ app/app/connexions/page.jsx                   | 28 +++++++--
+ app/app/dashboard/page.jsx                    |  4 +-
+ app/app/layout.jsx                            | 18 ++++++
+ app/app/marge/page.jsx                        | 23 ++++++-
+ app/app/team/[id]/page.jsx                    | 31 ++++++++--
+ components/ContactInfoEditor.jsx              |  4 +-
+ components/Stories.jsx                        |  8 ++-
+ lib/account-deletion.ts                       | 61 ++++++++++--------
+ lib/campaign-insights.ts                      |  9 +--
+ lib/chunked-in.ts                             | 62 +++++++++++++++++++
+ lib/founder.ts                                | 19 ++++++
+ lib/send-insights.ts                          |  9 +--
+ lib/user-access.ts                            | 30 +++++++++
+ 35 files changed, 454 insertions(+), 131 deletions(-)
+ create mode 100644 app/app/layout.jsx
+ create mode 100644 lib/chunked-in.ts
+ create mode 100644 lib/founder.ts
+ create mode 100644 lib/user-access.ts
+
+diff --git a/app/api/activity/route.ts b/app/api/activity/route.ts
+index f582ca3..62d2e29 100644
+--- a/app/api/activity/route.ts
++++ b/app/api/activity/route.ts
+@@ -17,6 +17,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { serverError } from '@/lib/http';
+ 
+@@ -109,22 +110,22 @@ export async function GET(request: NextRequest) {
+ 
+   // --- Messages : sortants agrégés par jour, entrants un par un
+   if (ids.length > 0) {
+-    const { data: conversations } = await supabaseAdmin
++    const { data: conversations } = await selectInChunks(ids, (part) => supabaseAdmin
+       .from('conversations')
+       .select('id, prospect_id')
+-      .in('prospect_id', ids);
++      .in('prospect_id', part));
+     const convToProspect = new Map<string, string>();
+     for (const c of conversations || []) convToProspect.set(c.id, c.prospect_id);
+     const convIds = Array.from(convToProspect.keys());
+ 
+     if (convIds.length > 0) {
+-      const { data: messages } = await supabaseAdmin
++      const { data: messages } = await selectInChunks(convIds, (part) => supabaseAdmin
+         .from('messages')
+         .select('id, conversation_id, direction, sent_at')
+-        .in('conversation_id', convIds)
++        .in('conversation_id', part)
+         .gte('sent_at', since)
+         .order('sent_at', { ascending: false })
+-        .limit(500);
++        .limit(500), { sortBy: 'sent_at', ascending: false, limit: 500 });
+ 
+       const contactedByDay = new Map<string, { count: number; at: string }>();
+       for (const m of messages || []) {
+diff --git a/app/api/admin/api-balance/route.ts b/app/api/admin/api-balance/route.ts
+index d6746a3..c2f3e52 100644
+--- a/app/api/admin/api-balance/route.ts
++++ b/app/api/admin/api-balance/route.ts
+@@ -9,15 +9,15 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
++import { isFounderEmail } from '@/lib/founder';
+ import { getBalanceStatus } from '@/lib/api-balance';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
+ 
+ async function guard(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return { error: unauthorizedResponse() };
+-  if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return { error: forbiddenResponse() };
++  if (!isFounderEmail(authedUser.email)) return { error: forbiddenResponse() };
+   const mfa = requireMfa(authedUser);
+   if (mfa) return { error: mfa };
+   return { user: authedUser };
+diff --git a/app/api/admin/margin/route.ts b/app/api/admin/margin/route.ts
+index 241dd80..0af6962 100644
+--- a/app/api/admin/margin/route.ts
++++ b/app/api/admin/margin/route.ts
+@@ -20,6 +20,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
++import { isFounderEmail } from '@/lib/founder';
+ import { stripe } from '@/lib/stripe';
+ import {
+   USD_PER_CREDIT,
+@@ -30,7 +31,6 @@ import {
+ } from '@/lib/boost-tiers';
+ import { serverError } from '@/lib/http';
+ 
+-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
+ 
+ // SEUIL D'INSCRIPTION A LA GST AUSTRALIENNE.
+ //
+@@ -123,6 +123,42 @@ async function readStripeRevenue(customerToCompany: Record<string, string>) {
+   return { rollingAud, monthAud, settlementCurrency, realByCompany, realCurrency, error };
+ }
+ 
++// CODES PROMO (24/10/2026, « le Petit Gourmet Traiteur a utilisé un coupon
++// à 100 % ») : « Attendu » affichait le plein tarif alors que Stripe
++// n'encaissera rien. On lit les réductions ACTIVES de chaque abonnement
++// (Stripe ne garde dans `discounts` que celles qui s'appliquent encore) et
++// on les déduit de l'attendu. En cas d'erreur de lecture : pas de réduction
++// appliquée, et l'écart avec « Encaissé » reste visible.
++type SubDiscount = { percentOff: number; amountOff: number; label: string | null };
++
++async function readSubscriptionDiscount(subscriptionId: string): Promise<SubDiscount> {
++  const none: SubDiscount = { percentOff: 0, amountOff: 0, label: null };
++  try {
++    const sub: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['discounts'] } as any);
++    const list: any[] = Array.isArray(sub?.discounts) && sub.discounts.length ? sub.discounts : sub?.discount ? [sub.discount] : [];
++    let percentOff = 0;
++    let amountOff = 0;
++    const labels: string[] = [];
++    for (const d of list) {
++      if (!d || typeof d === 'string') continue;
++      let coupon: any = d.coupon || d.source?.coupon || null;
++      if (typeof coupon === 'string') coupon = await stripe.coupons.retrieve(coupon).catch(() => null);
++      if (!coupon) continue;
++      if (coupon.percent_off) {
++        percentOff += Number(coupon.percent_off);
++        labels.push(`code promo −${Number(coupon.percent_off)} %`);
++      } else if (coupon.amount_off) {
++        amountOff += Number(coupon.amount_off) / 100;
++        labels.push(`code promo −${(Number(coupon.amount_off) / 100).toFixed(2)}`);
++      }
++    }
++    return { percentOff: Math.min(100, percentOff), amountOff, label: labels.length ? labels.join(' + ') : null };
++  } catch (err: any) {
++    console.error('[Marge] lecture des réductions Stripe échouée :', err?.message);
++    return none;
++  }
++}
++
+ function currentYearMonth(): string {
+   const d = new Date();
+   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+@@ -136,7 +172,7 @@ function monthStartIso(): string {
+ export async function GET(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return forbiddenResponse();
++  if (!isFounderEmail(authedUser.email)) return forbiddenResponse();
+   // Interface d'administration : double authentification obligatoire
+   // (CASA 3.3.1, 19/10/2026). Session aal1 = 403 « mfa_required », même
+   // pour le fondateur.
+@@ -191,12 +227,23 @@ export async function GET(request: NextRequest) {
+   });
+   const stripeRevenue = await readStripeRevenue(customerToCompany);
+ 
++  const discountByCompany: Record<string, SubDiscount> = {};
++  await Promise.all(
++    (companiesRes.data || [])
++      .filter((c: any) => c.stripe_subscription_id)
++      .map(async (c: any) => { discountByCompany[c.id] = await readSubscriptionDiscount(c.stripe_subscription_id); })
++  );
++
+   const rows = (companiesRes.data || []).map((c: any) => {
+     const currency: BoostCurrency = currencyForCountry(c.billing_country);
+     const seats = Math.max(1, seatsByCompany[c.id] || 0);
+     // Un abonnement par SIEGE : une societe a trois commerciaux paie trois
+     // fois. Compter un seul abonnement sous-estimerait la marge des equipes.
+-    const subscription = c.stripe_subscription_id ? subscriptionPrice(currency) * seats : 0;
++    const fullSubscription = c.stripe_subscription_id ? subscriptionPrice(currency) * seats : 0;
++    const discount = discountByCompany[c.id];
++    const subscription = discount
++      ? Math.max(0, fullSubscription * (1 - discount.percentOff / 100) - discount.amountOff)
++      : fullSubscription;
+     const boosts = boostsByCompany[c.id] || 0;
+     const revenue = subscription + boosts;
+ 
+@@ -226,6 +273,7 @@ export async function GET(request: NextRequest) {
+           ? null
+           : Math.round(stripeRevenue.realByCompany[c.id] * 100) / 100,
+       boosts_month: Math.round(boosts * 100) / 100,
++      discount_label: discount?.label || null,
+       cost_usd_month: Math.round(costUsd * 100) / 100,
+       credits_month: credits,
+     };
+diff --git a/app/api/appointments/[id]/debrief/send/route.ts b/app/api/appointments/[id]/debrief/send/route.ts
+index 344078a..fb09c89 100644
+--- a/app/api/appointments/[id]/debrief/send/route.ts
++++ b/app/api/appointments/[id]/debrief/send/route.ts
+@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, debrief_email_subject, debrief_email_body, debrief_email_sent_at, prospect_id, prospects(assigned_user_id, company_id, full_name, email)')
++    .select('id, user_id, debrief_email_subject, debrief_email_body, debrief_email_sent_at, prospect_id, prospects(assigned_user_id, company_id, full_name, email)')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -28,7 +28,14 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== prospect?.assigned_user_id) return forbiddenResponse();
++  // Même règle que PATCH /api/appointments/[id] : le commercial du RDV ou
++  // celui du prospect (24/10/2026).
++  if (authedUser.id !== (appointment as any).user_id && authedUser.id !== prospect?.assigned_user_id) {
++    return forbiddenResponse();
++  }
++  if (!prospect?.email) {
++    return NextResponse.json({ error: "Pas d'adresse email pour ce contact : la relance ne peut pas être envoyée d'ici." }, { status: 400 });
++  }
+ 
+   if (!appointment.debrief_email_subject || !appointment.debrief_email_body) {
+     return NextResponse.json({ error: "Aucun email de relance généré pour ce RDV — génère d'abord le compte-rendu." }, { status: 400 });
+@@ -40,7 +47,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   try {
+     await sendEmailForUser(
+-      prospect.assigned_user_id,
++      authedUser.id,
+       prospect.email,
+       appointment.debrief_email_subject,
+       appointment.debrief_email_body
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index 0904fd8..2ab9077 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -101,7 +101,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+   const params = await ctx.params;
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
++    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, email, assigned_user_id, company_id)')
+     .eq('id', params.id)
+     .single();
+ 
+@@ -124,6 +124,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+     outcome: appointment.outcome,
+     outcome_note: appointment.outcome_note,
+     prospect_full_name: prospect?.full_name || (appointment as any).contact_name || null,
++    // Faux pour un contact saisi à la main : la page bilan masque alors la
++    // case « email de remerciement », qui ne pouvait qu'échouer.
++    can_send_thank_you: !!prospect?.email,
+   });
+ }
+ 
+@@ -142,15 +145,20 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+   }
+ 
+-  // RDV « mon propre prospect » (18/10/2026) : prospect_id null, donc
+-  // appointment.prospects est null — on plantait en 500 sur TOUTE action,
+-  // annulation comprise. Le propriétaire est alors appointments.user_id.
+-  const userId = appointment.prospects?.assigned_user_id || appointment.user_id;
+-
+   // Empêche d'agir sur le RDV d'un autre commercial en devinant/connaissant son id.
++  // Autorisés (24/10/2026, revue des accès après le « Accès refusé » du
++  // bilan) : le commercial à qui appartient le RDV (appointments.user_id, ce
++  // que l'agenda et les Stories affichent) OU celui du prospect. Avant, seul
++  // le commercial du prospect passait dès qu'il y avait un prospect : si les
++  // deux différaient, le propriétaire du RDV était bloqué sur tous les
++  // boutons. Pas d'accès « même société » ici : ces actions envoient des
++  // emails depuis la boîte de celui qui agit.
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== userId) return forbiddenResponse();
++  if (authedUser.id !== appointment.user_id && authedUser.id !== appointment.prospects?.assigned_user_id) {
++    return forbiddenResponse();
++  }
++  const userId = authedUser.id;
+ 
+   if (action === 'valider') {
+     const { data: connections } = await supabaseAdmin
+@@ -343,6 +351,12 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   }
+ 
+   if (action === 'relancer') {
++    // RDV saisi avec un simple nom de contact : pas d'adresse email à qui
++    // écrire. On le classe comme traité au lieu de planter (500).
++    if (!appointment.prospects?.email) {
++      await supabaseAdmin.from('appointments').update({ client_cancel_acknowledged: true }).eq('id', appointmentId);
++      return NextResponse.json({ error: "Pas d'adresse email pour ce contact : relance-le directement." }, { status: 400 });
++    }
+     await sendEmailForUser(
+       userId,
+       appointment.prospects.email,
+@@ -355,7 +369,9 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+       .update({ client_cancel_acknowledged: true })
+       .eq('id', appointmentId);
+ 
+-    await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
++    if (appointment.prospect_id) {
++      await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
++    }
+ 
+     return NextResponse.json({ success: true, status: 'relance_envoyee' });
+   }
+@@ -402,13 +418,12 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id:
+     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+   }
+ 
+-  // Le commercial du rendez-vous, ou celui du prospect (contact saisi à la
+-  // main : pas de prospect, voir lib/appointment-access.ts).
+-  const userId = (appointment as any).prospects?.assigned_user_id || (appointment as any).user_id;
+-
++  // Le commercial du rendez-vous, ou celui du prospect (même règle que PATCH).
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== userId) return forbiddenResponse();
++  if (authedUser.id !== (appointment as any).user_id && authedUser.id !== (appointment as any).prospects?.assigned_user_id) {
++    return forbiddenResponse();
++  }
+ 
+   if (new Date(appointment.proposed_at) >= new Date()) {
+     return NextResponse.json(
+diff --git a/app/api/appointments/route.ts b/app/api/appointments/route.ts
+index 633fb2c..83a7ece 100644
+--- a/app/api/appointments/route.ts
++++ b/app/api/appointments/route.ts
+@@ -6,6 +6,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canViewUserData } from '@/lib/user-access';
+ import { createGoogleCalendarEvent } from '@/lib/google';
+ import { createOutlookCalendarEvent } from '@/lib/microsoft';
+ import { getConnectedProviders } from '@/lib/messaging';
+@@ -35,7 +36,8 @@ export async function GET(request: NextRequest) {
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== userId) return forbiddenResponse();
++  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
++  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
+ 
+   const { data: appointments, error } = await supabaseAdmin
+     .from('appointments')
+diff --git a/app/api/campaigns/[id]/advice/route.ts b/app/api/campaigns/[id]/advice/route.ts
+index 1146d30..c1a51da 100644
+--- a/app/api/campaigns/[id]/advice/route.ts
++++ b/app/api/campaigns/[id]/advice/route.ts
+@@ -16,6 +16,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
+ import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
+@@ -49,10 +50,10 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+ 
+   let won = 0, lost = 0, active = 0, totalProspects = 0;
+   if (companyIds.length > 0) {
+-    const { data: prospects } = await supabaseAdmin
++    const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
+       .from('prospects')
+       .select('is_won, is_lost')
+-      .in('prospect_company_id', companyIds);
++      .in('prospect_company_id', part));
+     totalProspects = (prospects || []).length;
+     (prospects || []).forEach((p) => {
+       if (p.is_won) won++;
+diff --git a/app/api/campaigns/route.ts b/app/api/campaigns/route.ts
+index 17970ef..fc3aa4e 100644
+--- a/app/api/campaigns/route.ts
++++ b/app/api/campaigns/route.ts
+@@ -4,8 +4,10 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canViewUserData } from '@/lib/user-access';
+ import { LOCALE_NAMES } from '@/lib/locale-instruction';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+@@ -17,7 +19,8 @@ export async function GET(request: NextRequest) {
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== userId) return forbiddenResponse();
++  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
++  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
+ 
+   const { data: campaigns, error } = await supabaseAdmin
+     .from('prospecting_campaigns')
+@@ -36,10 +39,10 @@ export async function GET(request: NextRequest) {
+   const statsByCampaign: Record<string, { won: number; lost: number; active: number }> = {};
+ 
+   if (campaignIds.length > 0) {
+-    const { data: companies } = await supabaseAdmin
++    const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
+       .from('prospect_companies')
+       .select('id, found_by_campaign_id')
+-      .in('found_by_campaign_id', campaignIds);
++      .in('found_by_campaign_id', part));
+ 
+     const campaignIdByCompanyId: Record<string, string> = {};
+     (companies || []).forEach((c) => {
+@@ -48,10 +51,10 @@ export async function GET(request: NextRequest) {
+     const companyIds = Object.keys(campaignIdByCompanyId);
+ 
+     if (companyIds.length > 0) {
+-      const { data: prospects } = await supabaseAdmin
++      const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
+         .from('prospects')
+         .select('prospect_company_id, is_won, is_lost')
+-        .in('prospect_company_id', companyIds);
++        .in('prospect_company_id', part));
+ 
+       (prospects || []).forEach((p) => {
+         const campaignId = campaignIdByCompanyId[p.prospect_company_id];
+diff --git a/app/api/cron/api-balance-alert/route.ts b/app/api/cron/api-balance-alert/route.ts
+index 0b2db8a..2211515 100644
+--- a/app/api/cron/api-balance-alert/route.ts
++++ b/app/api/cron/api-balance-alert/route.ts
+@@ -8,6 +8,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { FOUNDER_EMAILS } from '@/lib/founder';
+ import { getBalanceStatus } from '@/lib/api-balance';
+ import { sendPushNotification } from '@/lib/push';
+ import { sendSystemEmail } from '@/lib/google';
+@@ -15,7 +16,6 @@ import { serverError } from '@/lib/http';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
+ const OPERATOR_EMAIL = process.env.OPERATOR_ALERT_EMAIL || 'aaron@meetaaron.app';
+ 
+ function isAuthorized(request: NextRequest) {
+@@ -44,11 +44,12 @@ export async function GET(request: NextRequest) {
+     const body =
+       `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
+       `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
+-      `Recharge sur console.anthropic.com, puis saisis le nouveau solde dans /app/marge.`;
++      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.`;
+ 
+-    const { data: founder } = await supabaseAdmin.from('users').select('id').ilike('email', FOUNDER_EMAIL).maybeSingle();
+-    if (founder?.id) {
+-      await sendPushNotification(founder.id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
++    // Tous les comptes fondateur (lib/founder.ts), pas un seul.
++    const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
++    for (const founder of founders || []) {
++      await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
+     }
+     await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
+ 
+diff --git a/app/api/cron/credit-alerts/route.ts b/app/api/cron/credit-alerts/route.ts
+index 08b0480..d587816 100644
+--- a/app/api/cron/credit-alerts/route.ts
++++ b/app/api/cron/credit-alerts/route.ts
+@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
+         const texts = TEXTS[(u as any).locale] || TEXTS.fr;
+         const title = texts.title.replace('{pct}', String(pct));
+         const body = (reached >= 0.9 ? texts.body90 : texts.body70).replace('{left}', snap.availableUsd.toFixed(0));
+-        await sendPushNotification(u.id, { title, body, url: `/app/connexions?user_id=${u.id}&tab=account`, tag: `credits:${u.id}` });
++        await sendPushNotification(u.id, { title, body, url: `/app/connexions?user_id=${u.id}&tab=subscription`, tag: `credits:${u.id}` });
+         sent++;
+       }
+ 
+diff --git a/app/api/cron/customer-health/route.ts b/app/api/cron/customer-health/route.ts
+index 615d523..faa99b1 100644
+--- a/app/api/cron/customer-health/route.ts
++++ b/app/api/cron/customer-health/route.ts
+@@ -12,6 +12,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
+ import { sendEmailForUser } from '@/lib/messaging';
+ import { sendPushNotification } from '@/lib/push';
+@@ -54,11 +55,11 @@ export async function GET(request: NextRequest) {
+ 
+   let latestCheckinByProspect: Record<string, any> = {};
+   if (customerIds.length > 0) {
+-    const { data: checkins } = await supabaseAdmin
++    const { data: checkins } = await selectInChunks(customerIds, (part) => supabaseAdmin
+       .from('customer_checkins')
+       .select('prospect_id, sent_at, responded_at, response_score')
+-      .in('prospect_id', customerIds)
+-      .order('sent_at', { ascending: false });
++      .in('prospect_id', part)
++      .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
+ 
+     for (const checkin of checkins || []) {
+       if (!latestCheckinByProspect[checkin.prospect_id]) {
+@@ -72,11 +73,11 @@ export async function GET(request: NextRequest) {
+   let lastMessageByProspect: Record<string, { direction: 'inbound' | 'outbound'; sentAt: string }> = {};
+   let inboundCountByProspect: Record<string, number> = {};
+   if (customerIds.length > 0) {
+-    const { data: conversations } = await supabaseAdmin
++    const { data: conversations } = await selectInChunks(customerIds, (part) => supabaseAdmin
+       .from('conversations')
+       .select('id, prospect_id')
+-      .in('prospect_id', customerIds)
+-      .eq('channel', 'email');
++      .in('prospect_id', part)
++      .eq('channel', 'email'));
+ 
+     const conversationIdToProspectId: Record<string, string> = {};
+     for (const conv of conversations || []) {
+@@ -85,11 +86,11 @@ export async function GET(request: NextRequest) {
+     const conversationIds = Object.keys(conversationIdToProspectId);
+ 
+     if (conversationIds.length > 0) {
+-      const { data: messages } = await supabaseAdmin
++      const { data: messages } = await selectInChunks(conversationIds, (part) => supabaseAdmin
+         .from('messages')
+         .select('conversation_id, direction, sent_at')
+-        .in('conversation_id', conversationIds)
+-        .order('sent_at', { ascending: false });
++        .in('conversation_id', part)
++        .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
+ 
+       const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+       for (const msg of messages || []) {
+diff --git a/app/api/csv-import/analyze/route.ts b/app/api/csv-import/analyze/route.ts
+index dd180fe..0a84a0e 100644
+--- a/app/api/csv-import/analyze/route.ts
++++ b/app/api/csv-import/analyze/route.ts
+@@ -27,7 +27,13 @@ const ALLOWED_MODULES = ['ap', 'as', 'ac'];
+ 
+ export async function POST(request: NextRequest) {
+   const body = await readJsonBody(request);
+-  const { user_id, company_id, module, rows } = body;
++  const { user_id, module, rows } = body;
++  let company_id = body.company_id;
++
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  // Même repli que POST /api/prospects (24/10/2026).
++  if (!company_id) company_id = authedUser.company_id;
+ 
+   if (!user_id || !company_id || !ALLOWED_MODULES.includes(module) || !Array.isArray(rows) || rows.length === 0) {
+     return NextResponse.json({ error: 'Requête invalide' }, { status: 400 });
+@@ -36,8 +42,6 @@ export async function POST(request: NextRequest) {
+     return NextResponse.json({ error: `Maximum ${MAX_ROWS_PER_CALL} lignes par appel` }, { status: 400 });
+   }
+ 
+-  const authedUser = await getAuthedUser(request);
+-  if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== user_id || authedUser.company_id !== company_id) return forbiddenResponse();
+ 
+   // On ne transmet à Claude QUE ce qui est utile à cette analyse précise —
+diff --git a/app/api/customers/pipeline/route.ts b/app/api/customers/pipeline/route.ts
+index 256f454..bc7a0b2 100644
+--- a/app/api/customers/pipeline/route.ts
++++ b/app/api/customers/pipeline/route.ts
+@@ -7,6 +7,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { serverError } from '@/lib/http';
+ 
+@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
+   const { data: customers, error } = await supabaseAdmin
+     .from('prospects')
+     .select(
+-      `id, full_name, job_title, email, created_at, won_at, won_reason, is_lost, lost_at, ai_managed,
++      `id, full_name, job_title, email, phone, linkedin_url, created_at, won_at, won_reason, is_lost, lost_at, ai_managed,
+        onboarding_status, onboarding_plan, onboarding_generated_at,
+        welcome_email_subject, welcome_email_body, welcome_email_sent_at,
+        customer_health_score, customer_health_label, customer_health_updated_at, churn_risk,
+@@ -49,11 +50,11 @@ export async function GET(request: NextRequest) {
+ 
+   let latestCheckinByProspect: Record<string, any> = {};
+   if (customerIds.length > 0) {
+-    const { data: checkins } = await supabaseAdmin
++    const { data: checkins } = await selectInChunks(customerIds, (part) => supabaseAdmin
+       .from('customer_checkins')
+       .select('id, prospect_id, type, sent_at, responded_at, response_score, response_comment')
+-      .in('prospect_id', customerIds)
+-      .order('sent_at', { ascending: false });
++      .in('prospect_id', part)
++      .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
+ 
+     for (const checkin of checkins || []) {
+       if (!latestCheckinByProspect[checkin.prospect_id]) {
+diff --git a/app/api/marketing-campaigns/route.ts b/app/api/marketing-campaigns/route.ts
+index 28d0e4b..bbecdbf 100644
+--- a/app/api/marketing-campaigns/route.ts
++++ b/app/api/marketing-campaigns/route.ts
+@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
+     .from('marketing_campaigns')
+     .select('*')
+     .eq('company_id', authedUser.company_id)
++    // Seulement les campagnes de l'utilisateur (24/10/2026) : chaque fiche de
++    // campagne est réservée à son auteur, donc celles d'un collègue
++    // apparaissaient dans la liste mais renvoyaient « Accès refusé ».
++    .eq('created_by_user_id', authedUser.id)
+     .order('created_at', { ascending: false });
+ 
+   if (error) {
+diff --git a/app/api/prospects/[id]/route.ts b/app/api/prospects/[id]/route.ts
+index 61f97dc..a4e1274 100644
+--- a/app/api/prospects/[id]/route.ts
++++ b/app/api/prospects/[id]/route.ts
+@@ -880,9 +880,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     const contactUpdate: Record<string, any> = {
+       full_name: newFullName,
+       email: newEmail,
+-      phone: cleanStr(phone),
+       job_title: cleanStr(job_title),
+     };
++    // Téléphone : seulement s'il est envoyé (24/10/2026) — un écran qui ne
++    // l'avait pas chargé l'effaçait en enregistrant le reste.
++    if (phone !== undefined) contactUpdate.phone = cleanStr(phone);
+     // Profil LinkedIn du contact (22/10/2026) : modifiable depuis la fiche.
+     if (linkedin_url !== undefined) {
+       const raw = cleanStr(linkedin_url);
+diff --git a/app/api/prospects/route.ts b/app/api/prospects/route.ts
+index 4527178..33a539d 100644
+--- a/app/api/prospects/route.ts
++++ b/app/api/prospects/route.ts
+@@ -5,10 +5,12 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
+ import { sendPushNotification } from '@/lib/push';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { canViewUserData } from '@/lib/user-access';
+ import { isGenericEmailDomain } from '@/lib/csv-import';
+ import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
+ import { ensureCompanyEnriched } from '@/lib/prospect-research';
+@@ -27,7 +29,8 @@ export async function GET(request: NextRequest) {
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (authedUser.id !== userId) return forbiddenResponse();
++  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
++  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
+ 
+   // Fusion Prospects + Opportunités + Clients (docx « mon avis », 31/08/2026,
+   // voir lib/pipeline.ts) : ?scope=all renvoie TOUS les contacts du
+@@ -88,12 +91,14 @@ export async function GET(request: NextRequest) {
+   const latestByProspect: Record<string, any> = {};
+   const nextByProspect: Record<string, any> = {};
+   if (ids.length > 0) {
+-    const { data: appointments } = await supabaseAdmin
++    // Découpé en paquets (lib/chunked-in.ts) : après un gros import CSV, la
++    // liste d'ids dépassait la longueur d'URL et les RDV disparaissaient.
++    const { data: appointments } = await selectInChunks(ids, (part) => supabaseAdmin
+       .from('appointments')
+       .select('id, prospect_id, proposed_at, type, status, outcome, debrief_summary, debrief_email_subject, debrief_email_body, debrief_email_sent_at')
+-      .in('prospect_id', ids)
++      .in('prospect_id', part)
+       .eq('purpose', 'commercial')
+-      .order('proposed_at', { ascending: false });
++      .order('proposed_at', { ascending: false }), { sortBy: 'proposed_at', ascending: false });
+     const nowMs = Date.now();
+     for (const appt of appointments || []) {
+       if (!latestByProspect[appt.prospect_id]) latestByProspect[appt.prospect_id] = appt;
+@@ -116,7 +121,8 @@ export async function GET(request: NextRequest) {
+ 
+ export async function POST(request: NextRequest) {
+   const body = await readJsonBody(request);
+-  const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
++  const { assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
++  let company_id = body.company_id;
+ 
+   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : d'où vient ce prospect —
+   // sourcé par Aaron (campagne de prospection), ajouté à la main par le
+@@ -159,12 +165,16 @@ export async function POST(request: NextRequest) {
+   // inchangé quand ce flag est absent (import CSV, Aaron Sales/Customer).
+   const asyncFirstContact = body.async_first_contact === true;
+ 
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  // Société absente (24/10/2026) : la page l'obtient par un appel séparé ;
++  // si cet appel avait échoué, l'ajout et l'import CSV renvoyaient « Champs
++  // requis manquants ». La société de l'utilisateur connecté fait foi.
++  if (!company_id) company_id = authedUser.company_id;
++
+   if (!company_id || !assigned_user_id || !full_name || !email) {
+     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
+   }
+-
+-  const authedUser = await getAuthedUser(request);
+-  if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
+ 
+   // GARDE-FOU « JE ME SUIS DÉMARCHÉ MOI-MÊME » (26/09/2026).
+diff --git a/app/api/sales/pipeline/route.ts b/app/api/sales/pipeline/route.ts
+index a6f23b7..45a36a1 100644
+--- a/app/api/sales/pipeline/route.ts
++++ b/app/api/sales/pipeline/route.ts
+@@ -6,6 +6,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { serverError } from '@/lib/http';
+ 
+@@ -38,16 +39,18 @@ export async function GET(request: NextRequest) {
+ 
+   let appointmentsByProspect: Record<string, any> = {};
+   if (dealIds.length > 0) {
+-    const { data: appointments } = await supabaseAdmin
++    // Découpé en paquets (lib/chunked-in.ts) : une longue liste d'ids dans
++    // l'URL fait échouer la requête.
++    const { data: appointments } = await selectInChunks(dealIds, (part) => supabaseAdmin
+       .from('appointments')
+       .select('id, prospect_id, proposed_at, type, outcome, debrief_summary, debrief_email_subject, debrief_email_body, debrief_email_sent_at')
+-      .in('prospect_id', dealIds)
++      .in('prospect_id', part)
+       // purpose = 'commercial' uniquement : une affaire tout juste signée
+       // (deal_stage = 'signe') peut déjà avoir un RDV de lancement plus
+       // récent (tâche #141) — on ne veut pas qu'il remplace le vrai dernier
+       // RDV commercial affiché ici. Voir migration_kickoff_rdv_2026-08-20.sql.
+       .eq('purpose', 'commercial')
+-      .order('proposed_at', { ascending: false });
++      .order('proposed_at', { ascending: false }), { sortBy: 'proposed_at', ascending: false });
+ 
+     // Le RDV le plus récent par prospect — appointments est déjà trié par
+     // date décroissante, donc la première occurrence rencontrée par prospect
+diff --git a/app/api/support-drafts/route.ts b/app/api/support-drafts/route.ts
+index aeeb37e..a679359 100644
+--- a/app/api/support-drafts/route.ts
++++ b/app/api/support-drafts/route.ts
+@@ -7,6 +7,7 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
++import { selectInChunks } from '@/lib/chunked-in';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { serverError } from '@/lib/http';
+ 
+@@ -33,17 +34,18 @@ export async function GET(request: NextRequest) {
+   const namesByProspect: Record<string, string> = {};
+   for (const p of myProspects || []) namesByProspect[p.id] = p.full_name;
+ 
+-  const { data: drafts, error } = await supabaseAdmin
++  const { data: draftRows, error } = await selectInChunks(prospectIds, (part) => supabaseAdmin
+     .from('customer_support_drafts')
+     .select('id, prospect_id, inbound_excerpt, suggested_subject, suggested_body, is_simple, created_at')
+-    .in('prospect_id', prospectIds)
++    .in('prospect_id', part)
+     .is('sent_at', null)
+-    .is('dismissed_at', null)
+-    // Les questions simples (FAQ, prêtes à envoyer en un clic) remontent en
+-    // premier — le commercial les traite en priorité, les cas complexes
+-    // restent visibles juste en dessous plutôt que noyés dans la liste.
+-    .order('is_simple', { ascending: false })
+-    .order('created_at', { ascending: false });
++    .is('dismissed_at', null));
++  // Les questions simples (FAQ, prêtes à envoyer en un clic) remontent en
++  // premier — le commercial les traite en priorité, les cas complexes
++  // restent visibles juste en dessous plutôt que noyés dans la liste.
++  // Tri refait après fusion des paquets (lib/chunked-in.ts).
++  const drafts = (draftRows as any[]).sort((a, b) =>
++    (Number(!!b.is_simple) - Number(!!a.is_simple)) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+ 
+   if (error) {
+     return serverError(error, '/api/support-drafts');
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index 7090694..188ffa5 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -785,7 +785,7 @@ export default function AgendaPage() {
+                       className="row-info clickable"
+                       onClick={() => setDetailAppointment(a)}
+                     >
+-                      <strong>{a.prospects?.full_name}</strong>
++                      <strong>{a.prospects?.full_name || a.contact_name}</strong>
+                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
+                       <div className="meta">
+                         <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>
+diff --git a/app/app/agenda/rdv/[id]/bilan/page.jsx b/app/app/agenda/rdv/[id]/bilan/page.jsx
+index 6f69db2..544e857 100644
+--- a/app/app/agenda/rdv/[id]/bilan/page.jsx
++++ b/app/app/agenda/rdv/[id]/bilan/page.jsx
+@@ -163,7 +163,7 @@ export default function BilanRdvPage(props) {
+       const res = await fetch(`/api/appointments/${params.id}/outcome`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ outcome, mood, context: context.trim() || null, send_thank_you: sendThankYou }),
++        body: JSON.stringify({ outcome, mood, context: context.trim() || null, send_thank_you: sendThankYou && appointment?.can_send_thank_you !== false }),
+       });
+       const body = await res.json();
+ 
+@@ -171,7 +171,7 @@ export default function BilanRdvPage(props) {
+         setError(body.error || t('bilanRdv.genericError', locale));
+       } else {
+         setNote(body.note);
+-        if (sendThankYou) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
++        if (sendThankYou && appointment?.can_send_thank_you !== false) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
+         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
+       }
+     } catch (err) {
+@@ -256,6 +256,7 @@ export default function BilanRdvPage(props) {
+               style={styles.textarea}
+             />
+ 
++            {appointment?.can_send_thank_you !== false && (
+             <label style={styles.checkRow}>
+               <input type="checkbox" checked={sendThankYou} onChange={(e) => setSendThankYou(e.target.checked)} style={{ accentColor: '#4b39ef', width: 18, height: 18 }} />
+               <span>
+@@ -263,6 +264,7 @@ export default function BilanRdvPage(props) {
+                 <span style={{ display: 'block', color: '#8b90a8', fontSize: 13, marginTop: 2 }}>{t('bilanRdv.thankYouHint', locale)}</span>
+               </span>
+             </label>
++            )}
+ 
+             <button type="button" onClick={handleSubmit} disabled={submitting || !outcome} style={{ ...styles.submit, opacity: submitting || !outcome ? 0.55 : 1 }}>
+               {submitting ? t('bilanRdv.submitting', locale) : t('bilanRdv.submit', locale)}
+diff --git a/app/app/bienvenue/page.jsx b/app/app/bienvenue/page.jsx
+index d791110..a2d92fd 100644
+--- a/app/app/bienvenue/page.jsx
++++ b/app/app/bienvenue/page.jsx
+@@ -311,6 +311,10 @@ export default function BienvenuePage() {
+   const [qIndex, setQIndex] = useState(0);
+   const [answers, setAnswers] = useState({}); // { key: texte validé }
+   const [drafts, setDrafts] = useState({}); // { key: texte proposé par le document }
++  // Envoi du document vers les documents de l'entreprise, attendu avant de
++  // construire le profil (24/10/2026) : sinon /api/business-summary pouvait
++  // le lire avant qu'il soit enregistré et ne rien produire.
++  const docSaveRef = useRef(null);
+   const [current, setCurrent] = useState('');
+   const [savingAnswer, setSavingAnswer] = useState(false);
+   const [docStatus, setDocStatus] = useState(null); // null | 'reading' | { filled, total } | 'none' | 'error'
+@@ -433,11 +437,14 @@ export default function BienvenuePage() {
+   }
+ 
+   async function finishCompany(finalAnswers) {
+-    const qa = questions.filter((q) => finalAnswers[q.key]).map((q) => ({ question: q.text, answer: finalAnswers[q.key] }));
++    let qa = questions.filter((q) => finalAnswers[q.key]).map((q) => ({ question: q.text, answer: finalAnswers[q.key] }));
++    // Questions toutes passées mais réponses tirées du document : on s'en sert.
++    if (qa.length === 0) qa = questions.filter((q) => drafts[q.key]).map((q) => ({ question: q.text, answer: drafts[q.key] }));
+     const docUploaded = !!docStatus && docStatus !== 'error' && docStatus !== 'reading';
+     if (qa.length === 0 && !docUploaded) { goTo('campaign'); return; }
+     setSummarizing(true);
+     try {
++      if (docSaveRef.current) await docSaveRef.current;
+       const res = await fetch('/api/business-summary', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+@@ -464,7 +471,7 @@ export default function BienvenuePage() {
+     const keep = new FormData();
+     keep.append('file', file);
+     keep.append('user_id', me.id);
+-    fetch('/api/documents', { method: 'POST', body: keep }).catch(() => {});
++    docSaveRef.current = fetch('/api/documents', { method: 'POST', body: keep }).catch(() => {});
+     const fd = new FormData();
+     fd.append('file', file);
+     fd.append('questions', JSON.stringify(questions.map((q) => ({ key: q.key, question: q.text }))));
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 1319cb6..b52cb8b 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -349,6 +349,9 @@ export default function ChatPage() {
+     if (!userId) return;
+     let cancelled = false;
+     const activeKey = `meetaaron_chat_active_conversation_${userId}`;
++    // Une erreur d'un premier chargement (identifiant pas encore confirmé)
++    // ne doit pas rester affichée après un rechargement réussi.
++    setConversationsError(false);
+ 
+     fetch(`/api/chat-conversations?user_id=${userId}`)
+       .then((r) => r.json())
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 1e1538a..cf3df8f 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -41,6 +41,17 @@ function downloadBlob(blob, filename) {
+   URL.revokeObjectURL(url);
+ }
+ 
++// Textes propres à cette page (convention : dictionnaire local par fichier).
++const BILLING_OWNER_ONLY = {
++  fr: "Seul le responsable du compte peut mettre à jour la carte de paiement : préviens-le.",
++  en: 'Only the account owner can update the payment card: let them know.',
++  de: 'Nur der Kontoinhaber kann die Zahlungskarte aktualisieren: Gib ihm Bescheid.',
++  it: "Solo il titolare dell'account può aggiornare la carta di pagamento: avvisalo.",
++  es: 'Solo el responsable de la cuenta puede actualizar la tarjeta de pago: avísale.',
++  pt: 'Só o responsável pela conta pode atualizar o cartão de pagamento: avise-o.',
++  nl: 'Alleen de accounteigenaar kan de betaalkaart bijwerken: laat het hem weten.',
++};
++
+ function useAuthedUser() {
+   const router = useRouter();
+   const [userId, setUserId] = useState(null);
+@@ -3549,10 +3560,19 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+                   {usage.subscription_failure_reason && (
+                     <p className="billing-reason">{usage.subscription_failure_reason}</p>
+                   )}
+-                  <button type="button" className="btn-primary" onClick={handleOpenBillingPortal} disabled={openingBillingPortal}>
+-                    {openingBillingPortal ? '…' : t('billing.updateCard', locale)}
+-                  </button>
+-                  {billingPortalError && <p className="error">{billingPortalError}</p>}
++                  {/* Seul le patron gère la carte (/api/billing-portal est
++                      réservé au patron) : un commercial voyait le bouton et
++                      recevait « Accès refusé. » (24/10/2026). */}
++                  {prefs?.role === 'patron' ? (
++                    <>
++                      <button type="button" className="btn-primary" onClick={handleOpenBillingPortal} disabled={openingBillingPortal}>
++                        {openingBillingPortal ? '…' : t('billing.updateCard', locale)}
++                      </button>
++                      {billingPortalError && <p className="error">{billingPortalError}</p>}
++                    </>
++                  ) : (
++                    <p className="billing-reason">{BILLING_OWNER_ONLY[locale] || BILLING_OWNER_ONLY.fr}</p>
++                  )}
+                 </div>
+               )}
+ 
+diff --git a/app/app/dashboard/page.jsx b/app/app/dashboard/page.jsx
+index a9586d6..fe9cebd 100644
+--- a/app/app/dashboard/page.jsx
++++ b/app/app/dashboard/page.jsx
+@@ -972,7 +972,7 @@ export default function DashboardPage() {
+                         <em>{d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</em>
+                       </span>
+                       <div className="next-body">
+-                        <strong>{nextAppt.prospects?.full_name || t('dash.unknownCompany', locale)}</strong>
++                        <strong>{nextAppt.prospects?.full_name || nextAppt.contact_name || t('dash.unknownCompany', locale)}</strong>
+                         <span className="muted next-sub">
+                           {company || t('dash.unknownCompany', locale)}
+                           {nextAppt.type ? ` · ${t(`apptType.${nextAppt.type}`, locale)}` : ''}
+@@ -1001,7 +1001,7 @@ export default function DashboardPage() {
+                                   <span className="mini-chip-mon">{dd.toLocaleDateString(locale, { month: 'short' }).replace('.', '')}</span>
+                                 </span>
+                                 <span className="mini-body">
+-                                  <strong>{a.prospects?.full_name}</strong>
++                                  <strong>{a.prospects?.full_name || a.contact_name}</strong>
+                                   <span className="muted mini-sub">
+                                     {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}
+                                     {a.type ? ` · ${t(`apptType.${a.type}`, locale)}` : ''}
+diff --git a/app/app/layout.jsx b/app/app/layout.jsx
+new file mode 100644
+index 0000000..795b774
+--- /dev/null
++++ b/app/app/layout.jsx
+@@ -0,0 +1,18 @@
++// app/app/layout.jsx
++// FOND DE PAGE DE L'APPLICATION (24/10/2026, « c'est chiant que ça s'affiche
++// en mode clair alors que je veux le mode sombre par défaut »).
++//
++// app/globals.css donne à html/body un fond crème (#F6F4EF), celui du site
++// public. Les pages de l'app qui ont leur propre Shell le recouvrent, mais
++// les écrans sans Shell (Marge par client, diagnostic Outlook, bilan de
++// RDV…) laissaient voir ce fond clair autour des cartes sombres. Ici, pour
++// tout ce qui est sous /app, le fond suit le thème : sombre par défaut
++// (--bg), clair seulement si l'utilisateur a choisi le mode clair.
++export default function AppSegmentLayout({ children }) {
++  return (
++    <>
++      <style>{`html, body { background: var(--bg, #080a14); }`}</style>
++      {children}
++    </>
++  );
++}
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index 70ff92b..de1d415 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -114,7 +114,7 @@ export default function MargePage() {
+         const body = await r.json().catch(() => ({}));
+         if (cancelled) return;
+         if (r.status === 403 && body.code === 'mfa_required') {
+-          setError("Cette page exige la double authentification. Active-la dans Mon compte → Connexion, puis reconnecte-toi avec ton code.");
++          setError("Cette page exige la double authentification. Active-la dans Mon compte → Mon profil, puis reconnecte-toi avec ton code.");
+         } else if (r.status === 403) {
+           setError("Cette page est réservée au compte fondateur.");
+         } else if (!r.ok) {
+@@ -144,6 +144,12 @@ export default function MargePage() {
+ 
+   return (
+     <div className="page">
++      {/* Retour (24/10/2026, « pourquoi je ne peux pas revenir en arrière ? ») :
++          cet écran n'a pas la barre de navigation de l'app. */}
++      <nav className="topnav">
++        <a href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>← Mon compte</a>
++        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>Tableau de bord</a>
++      </nav>
+       <header className="head">
+         <h1>Marge par client</h1>
+         <p className="sub">
+@@ -203,7 +209,7 @@ export default function MargePage() {
+                 <h2>Solde Anthropic</h2>
+                 <p className="gst-msg">
+                   {!balance?.configured
+-                    ? 'Pas encore de solde saisi : saisis celui affiché sur console.anthropic.com (Billing) pour activer l\'alerte.'
++                    ? 'Pas encore de solde saisi : saisis celui affiché sur platform.claude.com (Facturation) pour activer l\'alerte.'
+                     : balance.daysLeft === null
+                       ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
+                       : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
+@@ -281,6 +287,7 @@ export default function MargePage() {
+                     <td>
+                       <span className="cname">{r.name}</span>
+                       {!r.subscribed && <span className="chip">pas d'abonnement</span>}
++                      {r.discount_label && <span className="chip">{r.discount_label}</span>}
+                     </td>
+                     <td className="num">{r.seats}</td>
+                     <td className="num">{money(r.revenue_month, r.currency_symbol)}</td>
+@@ -307,6 +314,18 @@ export default function MargePage() {
+       )}
+ 
+       <style jsx>{`
++        .topnav {
++          display: flex;
++          justify-content: space-between;
++          gap: 1rem;
++          margin-bottom: 1.2rem;
++          font-size: 0.85rem;
++        }
++        .topnav a {
++          color: var(--muted);
++          text-decoration: none;
++        }
++        .topnav a:hover { color: var(--text); }
+         .page {
+           max-width: 980px;
+           margin: 0 auto;
+diff --git a/app/app/team/[id]/page.jsx b/app/app/team/[id]/page.jsx
+index f40be75..11078dc 100644
+--- a/app/app/team/[id]/page.jsx
++++ b/app/app/team/[id]/page.jsx
+@@ -84,6 +84,17 @@ function statusMetaFor(locale) {
+   };
+ }
+ 
++// Textes propres à cette page (convention : dictionnaire local par fichier).
++const LOAD_FAILED = {
++  fr: "Une partie des données de ce commercial n'a pas pu être chargée. Recharge la page ; si ça continue, préviens le support.",
++  en: "Some of this salesperson's data could not be loaded. Reload the page; if it keeps happening, contact support.",
++  de: 'Ein Teil der Daten dieses Verkäufers konnte nicht geladen werden. Lade die Seite neu; wenn es weiter passiert, kontaktiere den Support.',
++  it: 'Una parte dei dati di questo commerciale non è stata caricata. Ricarica la pagina; se continua, contatta il supporto.',
++  es: 'No se pudo cargar una parte de los datos de este comercial. Recarga la página; si sigue pasando, avisa al soporte.',
++  pt: 'Parte dos dados deste comercial não pôde ser carregada. Recarregue a página; se continuar, contacte o suporte.',
++  nl: 'Een deel van de gegevens van deze verkoper kon niet worden geladen. Herlaad de pagina; blijft het gebeuren, neem dan contact op met support.',
++};
++
+ export default function TeamMemberDetailPage() {
+   const [locale] = useLocale();
+   const { userId, authLoading, authError } = useAuthedUser();
+@@ -95,21 +106,27 @@ export default function TeamMemberDetailPage() {
+   const [appointments, setAppointments] = useState([]);
+   const [campaigns, setCampaigns] = useState([]);
+   const [loading, setLoading] = useState(true);
++  const [loadFailed, setLoadFailed] = useState(false);
+ 
+   useEffect(() => {
+     if (!userId || !memberId) return;
++    // Une réponse en erreur (403, 500…) n'est plus lue comme « 0 prospect » :
++    // avant le 24/10/2026, le patron voyait une fiche vide sans explication.
++    const read = (r) => r.json().catch(() => ({})).then((b) => ({ ok: r.ok, ...b }));
++    setLoadFailed(false);
+     Promise.all([
+-      fetch(`/api/users/${memberId}`).then((r) => r.json()),
+-      fetch(`/api/prospects?user_id=${memberId}`).then((r) => r.json()),
+-      fetch(`/api/appointments?user_id=${memberId}`).then((r) => r.json()),
+-      fetch(`/api/campaigns?user_id=${memberId}`).then((r) => r.json()),
++      fetch(`/api/users/${memberId}`).then(read),
++      fetch(`/api/prospects?user_id=${memberId}`).then(read),
++      fetch(`/api/appointments?user_id=${memberId}`).then(read),
++      fetch(`/api/campaigns?user_id=${memberId}`).then(read),
+     ]).then(([uRes, pRes, aRes, cRes]) => {
+       setMemberInfo(uRes.user || null);
+       setProspects(pRes.prospects || []);
+       setAppointments(aRes.appointments || []);
+       setCampaigns(cRes.campaigns || []);
++      setLoadFailed(!uRes.ok || !pRes.ok || !aRes.ok || !cRes.ok);
+       setLoading(false);
+-    });
++    }).catch(() => { setLoadFailed(true); setLoading(false); });
+   }, [userId, memberId]);
+ 
+   if (authLoading) {
+@@ -154,6 +171,10 @@ export default function TeamMemberDetailPage() {
+         {memberInfo && <p className="sub">{memberInfo.email}</p>}
+       </header>
+ 
++      {!loading && loadFailed && (
++        <p className="muted">{LOAD_FAILED[locale] || LOAD_FAILED.fr}</p>
++      )}
++
+       {loading ? (
+         <p className="muted">{t('common.loading', locale)}</p>
+       ) : (
+diff --git a/components/ContactInfoEditor.jsx b/components/ContactInfoEditor.jsx
+index f2ebbd3..ff5fe4b 100644
+--- a/components/ContactInfoEditor.jsx
++++ b/components/ContactInfoEditor.jsx
+@@ -66,7 +66,9 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
+         action: 'update_contact_info',
+         full_name: fullName,
+         email,
+-        phone,
++        // Même règle que LinkedIn (24/10/2026) : si l'écran appelant n'a pas
++        // chargé le téléphone, ne pas l'écraser avec un champ vide.
++        ...(('phone' in current) || phone.trim() !== '' ? { phone } : {}),
+         job_title: jobTitle,
+         // Envoyé seulement s'il a changé (relecture 22/10) : un ancien lien
+         // mal formé ne doit pas bloquer la modification du téléphone.
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index ae00f1e..e8c17f1 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -785,8 +785,12 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+       );
+       actions = (
+         <>
+-          <button type="button" className="btn-primary" disabled={acting} onClick={() => act(apptUrl, { action: 'relancer' })}>{t('stories.relancer', locale)}</button>
+-          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(apptUrl, { action: 'traiter' })}>{t('stories.treated', locale)}</button>
++          {/* Contact saisi à la main (pas de fiche, donc pas d'email) : pas
++              de bouton Relancer, il échouait (24/10/2026). */}
++          {item.prospect_id && (
++            <button type="button" className="btn-primary" disabled={acting} onClick={() => act(apptUrl, { action: 'relancer' })}>{t('stories.relancer', locale)}</button>
++          )}
++          <button type="button" className={item.prospect_id ? 'btn-secondary' : 'btn-primary'} disabled={acting} onClick={() => act(apptUrl, { action: 'traiter' })}>{t('stories.treated', locale)}</button>
+         </>
+       );
+       break;
+diff --git a/lib/account-deletion.ts b/lib/account-deletion.ts
+index 414eaaf..3ca8ff7 100644
+--- a/lib/account-deletion.ts
++++ b/lib/account-deletion.ts
+@@ -14,6 +14,23 @@
+ 
+ import { supabaseAdmin } from './supabase-admin';
+ import { stripe } from './stripe';
++import { chunk, forEachChunk } from './chunked-in';
++
++// Tous les ids d'une table pour une valeur (ou une liste courte) de colonne,
++// par pages de 1 000 (limite par défaut d'une lecture Supabase).
++async function allIds(table: string, column: string, value: string | string[]): Promise<string[]> {
++  const out: string[] = [];
++  const PAGE = 1000;
++  for (let from = 0; ; from += PAGE) {
++    let q: any = supabaseAdmin.from(table).select('id');
++    q = Array.isArray(value) ? q.in(column, value) : q.eq(column, value);
++    const { data, error } = await q.order('id', { ascending: true }).range(from, from + PAGE - 1);
++    if (error || !data || data.length === 0) break;
++    out.push(...data.map((r: any) => r.id));
++    if (data.length < PAGE) break;
++  }
++  return out;
++}
+ 
+ export interface DeletionTarget {
+   id: string; // users.id
+@@ -61,27 +78,23 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
+     }
+   }
+ 
+-  const { data: prospects } = await supabaseAdmin.from('prospects').select('id').eq('company_id', companyId);
+-  const prospectIds = (prospects || []).map((p) => p.id);
+-
+-  const { data: quotes } = await supabaseAdmin.from('quotes').select('id').eq('company_id', companyId);
+-  const quoteIds = (quotes || []).map((q) => q.id);
+-
+-  const { data: conversations } = prospectIds.length
+-    ? await supabaseAdmin.from('conversations').select('id').in('prospect_id', prospectIds)
+-    : { data: [] as { id: string }[] };
+-  const conversationIds = (conversations || []).map((c) => c.id);
+-
+-  if (conversationIds.length) {
+-    await supabaseAdmin.from('messages').delete().in('conversation_id', conversationIds);
++  // Listes complètes (24/10/2026) : une lecture Supabase s'arrête à 1 000
++  // lignes par défaut, et un filtre .in() sur des centaines d'ids dépasse la
++  // longueur d'URL. Avec un gros fichier de contacts, la suppression
++  // laissait donc des lignes liées derrière elle. On pagine les lectures et
++  // on découpe les suppressions en paquets (lib/chunked-in.ts).
++  const prospectIds = await allIds('prospects', 'company_id', companyId);
++  const quoteIds = await allIds('quotes', 'company_id', companyId);
++
++  const conversationIds: string[] = [];
++  for (const part of chunk(prospectIds)) {
++    conversationIds.push(...(await allIds('conversations', 'prospect_id', part)));
+   }
+ 
+-  if (prospectIds.length) {
+-    await supabaseAdmin.from('customer_checkins').delete().in('prospect_id', prospectIds);
+-    await supabaseAdmin.from('customer_health_alerts').delete().in('prospect_id', prospectIds);
+-    await supabaseAdmin.from('customer_support_drafts').delete().in('prospect_id', prospectIds);
+-    await supabaseAdmin.from('deal_stage_alerts').delete().in('prospect_id', prospectIds);
+-    await supabaseAdmin.from('appointments').delete().in('prospect_id', prospectIds);
++  await forEachChunk(conversationIds, (part) => supabaseAdmin.from('messages').delete().in('conversation_id', part));
++
++  for (const table of ['customer_checkins', 'customer_health_alerts', 'customer_support_drafts', 'deal_stage_alerts', 'appointments']) {
++    await forEachChunk(prospectIds, (part) => supabaseAdmin.from(table).delete().in('prospect_id', part));
+   }
+ 
+   const { data: companyUsers } = await supabaseAdmin.from('users').select('id, auth_user_id').eq('company_id', companyId);
+@@ -91,13 +104,9 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
+   if (userIds.length) {
+     await supabaseAdmin.from('notifications_log').delete().in('user_id', userIds);
+   }
+-  if (conversationIds.length || prospectIds.length) {
+-    await supabaseAdmin.from('conversations').delete().in('prospect_id', prospectIds.length ? prospectIds : ['00000000-0000-0000-0000-000000000000']);
+-  }
++  await forEachChunk(prospectIds, (part) => supabaseAdmin.from('conversations').delete().in('prospect_id', part));
+ 
+-  if (quoteIds.length) {
+-    await supabaseAdmin.from('quote_line_items').delete().in('quote_id', quoteIds);
+-  }
++  await forEachChunk(quoteIds, (part) => supabaseAdmin.from('quote_line_items').delete().in('quote_id', part));
+   await supabaseAdmin.from('quotes').delete().eq('company_id', companyId);
+ 
+   await supabaseAdmin.from('prospects').delete().eq('company_id', companyId);
+@@ -114,7 +123,7 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
+   const { data: campaigns } = await supabaseAdmin.from('marketing_campaigns').select('id').eq('company_id', companyId);
+   const campaignIds = (campaigns || []).map((c) => c.id);
+   if (campaignIds.length) {
+-    await supabaseAdmin.from('marketing_campaign_recipients').delete().in('campaign_id', campaignIds);
++    await forEachChunk(campaignIds, (part) => supabaseAdmin.from('marketing_campaign_recipients').delete().in('campaign_id', part));
+   }
+   await supabaseAdmin.from('marketing_campaigns').delete().eq('company_id', companyId);
+   await supabaseAdmin.from('client_invoices').delete().eq('company_id', companyId);
+diff --git a/lib/campaign-insights.ts b/lib/campaign-insights.ts
+index 10efe5e..bb12c05 100644
+--- a/lib/campaign-insights.ts
++++ b/lib/campaign-insights.ts
+@@ -13,6 +13,7 @@
+ // juger dans le vide à chaque fois.
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { selectInChunks } from './chunked-in';
+ 
+ export interface PastCampaignStat {
+   zone_label: string;
+@@ -38,10 +39,10 @@ export async function getPastCampaignStats(companyId: string, excludeCampaignId?
+ 
+   const campaignIds = campaigns.map((c) => c.id);
+ 
+-  const { data: companies } = await supabaseAdmin
++  const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
+     .from('prospect_companies')
+     .select('id, found_by_campaign_id')
+-    .in('found_by_campaign_id', campaignIds);
++    .in('found_by_campaign_id', part));
+ 
+   const companyIdsByCampaign: Record<string, string[]> = {};
+   (companies || []).forEach((c) => {
+@@ -52,10 +53,10 @@ export async function getPastCampaignStats(companyId: string, excludeCampaignId?
+   const allCompanyIds = (companies || []).map((c) => c.id);
+   let prospectsByCompany: Record<string, { is_won: boolean; is_lost: boolean }[]> = {};
+   if (allCompanyIds.length > 0) {
+-    const { data: prospects } = await supabaseAdmin
++    const { data: prospects } = await selectInChunks(allCompanyIds, (part) => supabaseAdmin
+       .from('prospects')
+       .select('prospect_company_id, is_won, is_lost')
+-      .in('prospect_company_id', allCompanyIds);
++      .in('prospect_company_id', part));
+     (prospects || []).forEach((p) => {
+       (prospectsByCompany[p.prospect_company_id] ||= []).push(p);
+     });
+diff --git a/lib/chunked-in.ts b/lib/chunked-in.ts
+new file mode 100644
+index 0000000..4db66a2
+--- /dev/null
++++ b/lib/chunked-in.ts
+@@ -0,0 +1,62 @@
++// lib/chunked-in.ts
++// FILTRES .in() SUR DE LONGUES LISTES D'IDENTIFIANTS (24/10/2026).
++//
++// Supabase (PostgREST) passe les filtres dans l'URL : `.in('prospect_id', ids)`
++// avec quelques centaines d'UUID (36 caractères chacun) dépasse la longueur
++// d'URL acceptée par la passerelle et la requête échoue (« URI too long »),
++// souvent en silence parce que l'erreur n'est pas lue. Typiquement après un
++// import CSV de plusieurs centaines de contacts : liste de prospects sans
++// ses RDV, boîte support vide, suppression de compte incomplète.
++//
++// On découpe donc en paquets de IN_CHUNK identifiants, on fusionne, et on
++// retrie si l'appelant dépendait d'un ORDER BY (chaque paquet est trié, pas
++// l'ensemble).
++
++export const IN_CHUNK = 150;
++
++export function chunk<T>(items: T[], size = IN_CHUNK): T[][] {
++  const out: T[][] = [];
++  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
++  return out;
++}
++
++type Res = { data: any[] | null; error: any };
++
++// SELECT découpé. `run(part)` construit la requête pour un paquet.
++// `sortBy` : colonne à retrier après fusion (ISO date ou nombre).
++export async function selectInChunks<T = any>(
++  ids: string[],
++  run: (part: string[]) => PromiseLike<Res>,
++  opts: { sortBy?: string; ascending?: boolean; limit?: number } = {}
++): Promise<{ data: T[]; error: any }> {
++  const unique = Array.from(new Set(ids.filter(Boolean)));
++  if (unique.length === 0) return { data: [], error: null };
++  const results = await Promise.all(chunk(unique).map((part) => run(part)));
++  const error = results.find((r) => r.error)?.error || null;
++  let data: any[] = results.flatMap((r) => r.data || []);
++  if (opts.sortBy) {
++    const key = opts.sortBy;
++    const dir = opts.ascending ? 1 : -1;
++    data.sort((a, b) => {
++      const x = a?.[key], y = b?.[key];
++      if (x === y) return 0;
++      if (x === null || x === undefined) return 1;
++      if (y === null || y === undefined) return -1;
++      return (x < y ? -1 : 1) * dir;
++    });
++  }
++  if (opts.limit !== undefined) data = data.slice(0, opts.limit);
++  return { data: data as T[], error };
++}
++
++// DELETE/UPDATE découpé, paquet par paquet (séquentiel : on ne veut pas
++// noyer la base pendant une suppression de compte).
++export async function forEachChunk(ids: string[], run: (part: string[]) => PromiseLike<{ error: any }>): Promise<any> {
++  const unique = Array.from(new Set(ids.filter(Boolean)));
++  let firstError: any = null;
++  for (const part of chunk(unique)) {
++    const { error } = await run(part);
++    if (error && !firstError) firstError = error;
++  }
++  return firstError;
++}
+diff --git a/lib/founder.ts b/lib/founder.ts
+new file mode 100644
+index 0000000..aff291b
+--- /dev/null
++++ b/lib/founder.ts
+@@ -0,0 +1,19 @@
++// lib/founder.ts
++// COMPTES FONDATEUR (24/10/2026). Une seule liste pour le serveur, au lieu
++// d'une adresse codée en dur dans chaque route : la page Mon compte
++// affichait « Marge par client » pour deux adresses, mais le serveur n'en
++// acceptait qu'une — l'autre tombait sur « Accès refusé ».
++//
++// MEETAARON_FOUNDER_EMAIL peut contenir plusieurs adresses séparées par des
++// virgules ; les deux adresses d'Alex restent acceptées par défaut.
++
++const DEFAULT_FOUNDER_EMAILS = ['aaron@meetaaron.app', 'alexandre.fevre01@gmail.com'];
++
++export const FOUNDER_EMAILS: string[] = Array.from(new Set([
++  ...String(process.env.MEETAARON_FOUNDER_EMAIL || '').split(','),
++  ...DEFAULT_FOUNDER_EMAILS,
++].map((e) => e.trim().toLowerCase()).filter(Boolean)));
++
++export function isFounderEmail(email: string | null | undefined): boolean {
++  return FOUNDER_EMAILS.includes(String(email || '').trim().toLowerCase());
++}
+diff --git a/lib/send-insights.ts b/lib/send-insights.ts
+index 99c9072..eb0a54b 100644
+--- a/lib/send-insights.ts
++++ b/lib/send-insights.ts
+@@ -19,6 +19,7 @@
+ // Résultat écrit dans send_insights (migration_apprentissage_envois_2026-10-18.sql).
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { selectInChunks } from './chunked-in';
+ import { resolveUserTimeZone, localParts } from './user-timezone';
+ 
+ export const WINDOW_DAYS = 90;
+@@ -102,19 +103,19 @@ export async function computeSendInsightsForUser(userId: string, now: Date = new
+   };
+   if (prospectIds.length === 0) return empty;
+ 
+-  const { data: conversations } = await supabaseAdmin.from('conversations').select('id').in('prospect_id', prospectIds);
++  const { data: conversations } = await selectInChunks(prospectIds, (part) => supabaseAdmin.from('conversations').select('id').in('prospect_id', part));
+   const convIds = (conversations || []).map((c) => c.id);
+   if (convIds.length === 0) return empty;
+ 
+   // Les réponses peuvent arriver jusqu'à 7 jours après la fin de fenêtre
+   // d'envoi — on lit les messages jusqu'à maintenant, sans borne haute.
+-  const { data: messages } = await supabaseAdmin
++  const { data: messages } = await selectInChunks(convIds, (part) => supabaseAdmin
+     .from('messages')
+     .select('conversation_id, direction, sent_at')
+-    .in('conversation_id', convIds)
++    .in('conversation_id', part)
+     .gte('sent_at', since.toISOString())
+     .order('sent_at', { ascending: true })
+-    .limit(10000);
++    .limit(10000), { sortBy: 'sent_at', ascending: true, limit: 10000 });
+ 
+   const inboundByConv = new Map<string, number[]>();
+   const outbound: { conv: string; at: number }[] = [];
+diff --git a/lib/user-access.ts b/lib/user-access.ts
+new file mode 100644
+index 0000000..c7cd213
+--- /dev/null
++++ b/lib/user-access.ts
+@@ -0,0 +1,30 @@
++// lib/user-access.ts
++// LECTURE DES DONNÉES D'UN AUTRE MEMBRE DE L'ÉQUIPE (24/10/2026).
++//
++// Les listes « par commercial » (GET /api/prospects, /api/appointments,
++// /api/campaigns ?user_id=…) n'acceptaient que user_id === l'utilisateur
++// connecté. Or la page Mon équipe -> fiche d'un commercial
++// (app/app/team/[id]/page.jsx) les appelle avec l'id du COMMERCIAL : le
++// patron recevait 403 sur les trois et voyait « 0 prospect, 0 RDV,
++// 0 campagne », sans message d'erreur.
++//
++// Règle : soi-même, ou le patron d'une même société (vérifiée en base, pas
++// sur un paramètre envoyé par le navigateur). LECTURE SEULEMENT : toutes les
++// actions (envoyer, modifier, supprimer) restent réservées au commercial
++// lui-même.
++
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import type { AuthedUser } from '@/lib/auth-helpers';
++
++export async function canViewUserData(authedUser: AuthedUser, targetUserId: string | null | undefined): Promise<boolean> {
++  if (!targetUserId) return false;
++  if (authedUser.id === targetUserId) return true;
++  if (authedUser.role !== 'patron' || !authedUser.company_id) return false;
++  try {
++    const { data } = await supabaseAdmin.from('users').select('company_id').eq('id', targetUserId).maybeSingle();
++    return !!data && (data as any).company_id === authedUser.company_id;
++  } catch {
++    // Échec sûr : en cas d'erreur de lecture, refus.
++    return false;
++  }
++}
+-- 
+2.43.0
+
