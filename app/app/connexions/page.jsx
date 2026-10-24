@@ -41,6 +41,17 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Textes propres à cette page (convention : dictionnaire local par fichier).
+const BILLING_OWNER_ONLY = {
+  fr: "Seul le responsable du compte peut mettre à jour la carte de paiement : préviens-le.",
+  en: 'Only the account owner can update the payment card: let them know.',
+  de: 'Nur der Kontoinhaber kann die Zahlungskarte aktualisieren: Gib ihm Bescheid.',
+  it: "Solo il titolare dell'account può aggiornare la carta di pagamento: avvisalo.",
+  es: 'Solo el responsable de la cuenta puede actualizar la tarjeta de pago: avísale.',
+  pt: 'Só o responsável pela conta pode atualizar o cartão de pagamento: avise-o.',
+  nl: 'Alleen de accounteigenaar kan de betaalkaart bijwerken: laat het hem weten.',
+};
+
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
@@ -3549,10 +3560,19 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   {usage.subscription_failure_reason && (
                     <p className="billing-reason">{usage.subscription_failure_reason}</p>
                   )}
-                  <button type="button" className="btn-primary" onClick={handleOpenBillingPortal} disabled={openingBillingPortal}>
-                    {openingBillingPortal ? '…' : t('billing.updateCard', locale)}
-                  </button>
-                  {billingPortalError && <p className="error">{billingPortalError}</p>}
+                  {/* Seul le patron gère la carte (/api/billing-portal est
+                      réservé au patron) : un commercial voyait le bouton et
+                      recevait « Accès refusé. » (24/10/2026). */}
+                  {prefs?.role === 'patron' ? (
+                    <>
+                      <button type="button" className="btn-primary" onClick={handleOpenBillingPortal} disabled={openingBillingPortal}>
+                        {openingBillingPortal ? '…' : t('billing.updateCard', locale)}
+                      </button>
+                      {billingPortalError && <p className="error">{billingPortalError}</p>}
+                    </>
+                  ) : (
+                    <p className="billing-reason">{BILLING_OWNER_ONLY[locale] || BILLING_OWNER_ONLY.fr}</p>
+                  )}
                 </div>
               )}
 

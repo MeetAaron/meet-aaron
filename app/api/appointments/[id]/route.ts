@@ -101,7 +101,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   const params = await ctx.params;
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, assigned_user_id, company_id)')
+    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, email, assigned_user_id, company_id)')
     .eq('id', params.id)
     .single();
 
@@ -124,6 +124,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     outcome: appointment.outcome,
     outcome_note: appointment.outcome_note,
     prospect_full_name: prospect?.full_name || (appointment as any).contact_name || null,
+    // Faux pour un contact saisi à la main : la page bilan masque alors la
+    // case « email de remerciement », qui ne pouvait qu'échouer.
+    can_send_thank_you: !!prospect?.email,
   });
 }
 
@@ -142,15 +145,20 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
   }
 
-  // RDV « mon propre prospect » (18/10/2026) : prospect_id null, donc
-  // appointment.prospects est null — on plantait en 500 sur TOUTE action,
-  // annulation comprise. Le propriétaire est alors appointments.user_id.
-  const userId = appointment.prospects?.assigned_user_id || appointment.user_id;
-
   // Empêche d'agir sur le RDV d'un autre commercial en devinant/connaissant son id.
+  // Autorisés (24/10/2026, revue des accès après le « Accès refusé » du
+  // bilan) : le commercial à qui appartient le RDV (appointments.user_id, ce
+  // que l'agenda et les Stories affichent) OU celui du prospect. Avant, seul
+  // le commercial du prospect passait dès qu'il y avait un prospect : si les
+  // deux différaient, le propriétaire du RDV était bloqué sur tous les
+  // boutons. Pas d'accès « même société » ici : ces actions envoient des
+  // emails depuis la boîte de celui qui agit.
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== userId) return forbiddenResponse();
+  if (authedUser.id !== appointment.user_id && authedUser.id !== appointment.prospects?.assigned_user_id) {
+    return forbiddenResponse();
+  }
+  const userId = authedUser.id;
 
   if (action === 'valider') {
     const { data: connections } = await supabaseAdmin
@@ -343,6 +351,12 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   }
 
   if (action === 'relancer') {
+    // RDV saisi avec un simple nom de contact : pas d'adresse email à qui
+    // écrire. On le classe comme traité au lieu de planter (500).
+    if (!appointment.prospects?.email) {
+      await supabaseAdmin.from('appointments').update({ client_cancel_acknowledged: true }).eq('id', appointmentId);
+      return NextResponse.json({ error: "Pas d'adresse email pour ce contact : relance-le directement." }, { status: 400 });
+    }
     await sendEmailForUser(
       userId,
       appointment.prospects.email,
@@ -355,7 +369,9 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       .update({ client_cancel_acknowledged: true })
       .eq('id', appointmentId);
 
-    await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+    if (appointment.prospect_id) {
+      await supabaseAdmin.from('prospects').update({ status: 'jaune', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+    }
 
     return NextResponse.json({ success: true, status: 'relance_envoyee' });
   }
@@ -402,13 +418,12 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: 
     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
   }
 
-  // Le commercial du rendez-vous, ou celui du prospect (contact saisi à la
-  // main : pas de prospect, voir lib/appointment-access.ts).
-  const userId = (appointment as any).prospects?.assigned_user_id || (appointment as any).user_id;
-
+  // Le commercial du rendez-vous, ou celui du prospect (même règle que PATCH).
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== userId) return forbiddenResponse();
+  if (authedUser.id !== (appointment as any).user_id && authedUser.id !== (appointment as any).prospects?.assigned_user_id) {
+    return forbiddenResponse();
+  }
 
   if (new Date(appointment.proposed_at) >= new Date()) {
     return NextResponse.json(

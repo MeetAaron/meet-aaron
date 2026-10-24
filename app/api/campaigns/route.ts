@@ -4,8 +4,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { canViewUserData } from '@/lib/user-access';
 import { LOCALE_NAMES } from '@/lib/locale-instruction';
 import { readJsonBody, serverError } from '@/lib/http';
 
@@ -17,7 +19,8 @@ export async function GET(request: NextRequest) {
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== userId) return forbiddenResponse();
+  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
+  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
 
   const { data: campaigns, error } = await supabaseAdmin
     .from('prospecting_campaigns')
@@ -36,10 +39,10 @@ export async function GET(request: NextRequest) {
   const statsByCampaign: Record<string, { won: number; lost: number; active: number }> = {};
 
   if (campaignIds.length > 0) {
-    const { data: companies } = await supabaseAdmin
+    const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
       .from('prospect_companies')
       .select('id, found_by_campaign_id')
-      .in('found_by_campaign_id', campaignIds);
+      .in('found_by_campaign_id', part));
 
     const campaignIdByCompanyId: Record<string, string> = {};
     (companies || []).forEach((c) => {
@@ -48,10 +51,10 @@ export async function GET(request: NextRequest) {
     const companyIds = Object.keys(campaignIdByCompanyId);
 
     if (companyIds.length > 0) {
-      const { data: prospects } = await supabaseAdmin
+      const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
         .from('prospects')
         .select('prospect_company_id, is_won, is_lost')
-        .in('prospect_company_id', companyIds);
+        .in('prospect_company_id', part));
 
       (prospects || []).forEach((p) => {
         const campaignId = campaignIdByCompanyId[p.prospect_company_id];

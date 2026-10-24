@@ -19,6 +19,7 @@
 // Résultat écrit dans send_insights (migration_apprentissage_envois_2026-10-18.sql).
 
 import { supabaseAdmin } from './supabase-admin';
+import { selectInChunks } from './chunked-in';
 import { resolveUserTimeZone, localParts } from './user-timezone';
 
 export const WINDOW_DAYS = 90;
@@ -102,19 +103,19 @@ export async function computeSendInsightsForUser(userId: string, now: Date = new
   };
   if (prospectIds.length === 0) return empty;
 
-  const { data: conversations } = await supabaseAdmin.from('conversations').select('id').in('prospect_id', prospectIds);
+  const { data: conversations } = await selectInChunks(prospectIds, (part) => supabaseAdmin.from('conversations').select('id').in('prospect_id', part));
   const convIds = (conversations || []).map((c) => c.id);
   if (convIds.length === 0) return empty;
 
   // Les réponses peuvent arriver jusqu'à 7 jours après la fin de fenêtre
   // d'envoi — on lit les messages jusqu'à maintenant, sans borne haute.
-  const { data: messages } = await supabaseAdmin
+  const { data: messages } = await selectInChunks(convIds, (part) => supabaseAdmin
     .from('messages')
     .select('conversation_id, direction, sent_at')
-    .in('conversation_id', convIds)
+    .in('conversation_id', part)
     .gte('sent_at', since.toISOString())
     .order('sent_at', { ascending: true })
-    .limit(10000);
+    .limit(10000), { sortBy: 'sent_at', ascending: true, limit: 10000 });
 
   const inboundByConv = new Map<string, number[]>();
   const outbound: { conv: string; at: number }[] = [];

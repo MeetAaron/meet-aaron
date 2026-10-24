@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { serverError } from '@/lib/http';
 
@@ -33,17 +34,18 @@ export async function GET(request: NextRequest) {
   const namesByProspect: Record<string, string> = {};
   for (const p of myProspects || []) namesByProspect[p.id] = p.full_name;
 
-  const { data: drafts, error } = await supabaseAdmin
+  const { data: draftRows, error } = await selectInChunks(prospectIds, (part) => supabaseAdmin
     .from('customer_support_drafts')
     .select('id, prospect_id, inbound_excerpt, suggested_subject, suggested_body, is_simple, created_at')
-    .in('prospect_id', prospectIds)
+    .in('prospect_id', part)
     .is('sent_at', null)
-    .is('dismissed_at', null)
-    // Les questions simples (FAQ, prêtes à envoyer en un clic) remontent en
-    // premier — le commercial les traite en priorité, les cas complexes
-    // restent visibles juste en dessous plutôt que noyés dans la liste.
-    .order('is_simple', { ascending: false })
-    .order('created_at', { ascending: false });
+    .is('dismissed_at', null));
+  // Les questions simples (FAQ, prêtes à envoyer en un clic) remontent en
+  // premier — le commercial les traite en priorité, les cas complexes
+  // restent visibles juste en dessous plutôt que noyés dans la liste.
+  // Tri refait après fusion des paquets (lib/chunked-in.ts).
+  const drafts = (draftRows as any[]).sort((a, b) =>
+    (Number(!!b.is_simple) - Number(!!a.is_simple)) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
 
   if (error) {
     return serverError(error, '/api/support-drafts');

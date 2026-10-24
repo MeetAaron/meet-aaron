@@ -66,7 +66,9 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
         action: 'update_contact_info',
         full_name: fullName,
         email,
-        phone,
+        // Même règle que LinkedIn (24/10/2026) : si l'écran appelant n'a pas
+        // chargé le téléphone, ne pas l'écraser avec un champ vide.
+        ...(('phone' in current) || phone.trim() !== '' ? { phone } : {}),
         job_title: jobTitle,
         // Envoyé seulement s'il a changé (relecture 22/10) : un ancien lien
         // mal formé ne doit pas bloquer la modification du téléphone.

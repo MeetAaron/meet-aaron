@@ -972,7 +972,7 @@ export default function DashboardPage() {
                         <em>{d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</em>
                       </span>
                       <div className="next-body">
-                        <strong>{nextAppt.prospects?.full_name || t('dash.unknownCompany', locale)}</strong>
+                        <strong>{nextAppt.prospects?.full_name || nextAppt.contact_name || t('dash.unknownCompany', locale)}</strong>
                         <span className="muted next-sub">
                           {company || t('dash.unknownCompany', locale)}
                           {nextAppt.type ? ` · ${t(`apptType.${nextAppt.type}`, locale)}` : ''}
@@ -1001,7 +1001,7 @@ export default function DashboardPage() {
                                   <span className="mini-chip-mon">{dd.toLocaleDateString(locale, { month: 'short' }).replace('.', '')}</span>
                                 </span>
                                 <span className="mini-body">
-                                  <strong>{a.prospects?.full_name}</strong>
+                                  <strong>{a.prospects?.full_name || a.contact_name}</strong>
                                   <span className="muted mini-sub">
                                     {a.prospects?.prospect_companies?.name || t('dash.unknownCompany', locale)}
                                     {a.type ? ` · ${t(`apptType.${a.type}`, locale)}` : ''}

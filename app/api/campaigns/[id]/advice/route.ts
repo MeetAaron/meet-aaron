@@ -16,6 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { buildPastCampaignsSummary } from '@/lib/campaign-insights';
@@ -49,10 +50,10 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   let won = 0, lost = 0, active = 0, totalProspects = 0;
   if (companyIds.length > 0) {
-    const { data: prospects } = await supabaseAdmin
+    const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
       .from('prospects')
       .select('is_won, is_lost')
-      .in('prospect_company_id', companyIds);
+      .in('prospect_company_id', part));
     totalProspects = (prospects || []).length;
     (prospects || []).forEach((p) => {
       if (p.is_won) won++;

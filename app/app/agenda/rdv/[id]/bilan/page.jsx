@@ -163,7 +163,7 @@ export default function BilanRdvPage(props) {
       const res = await fetch(`/api/appointments/${params.id}/outcome`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outcome, mood, context: context.trim() || null, send_thank_you: sendThankYou }),
+        body: JSON.stringify({ outcome, mood, context: context.trim() || null, send_thank_you: sendThankYou && appointment?.can_send_thank_you !== false }),
       });
       const body = await res.json();
 
@@ -171,7 +171,7 @@ export default function BilanRdvPage(props) {
         setError(body.error || t('bilanRdv.genericError', locale));
       } else {
         setNote(body.note);
-        if (sendThankYou) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
+        if (sendThankYou && appointment?.can_send_thank_you !== false) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
       }
     } catch (err) {
@@ -256,6 +256,7 @@ export default function BilanRdvPage(props) {
               style={styles.textarea}
             />
 
+            {appointment?.can_send_thank_you !== false && (
             <label style={styles.checkRow}>
               <input type="checkbox" checked={sendThankYou} onChange={(e) => setSendThankYou(e.target.checked)} style={{ accentColor: '#4b39ef', width: 18, height: 18 }} />
               <span>
@@ -263,6 +264,7 @@ export default function BilanRdvPage(props) {
                 <span style={{ display: 'block', color: '#8b90a8', fontSize: 13, marginTop: 2 }}>{t('bilanRdv.thankYouHint', locale)}</span>
               </span>
             </label>
+            )}
 
             <button type="button" onClick={handleSubmit} disabled={submitting || !outcome} style={{ ...styles.submit, opacity: submitting || !outcome ? 0.55 : 1 }}>
               {submitting ? t('bilanRdv.submitting', locale) : t('bilanRdv.submit', locale)}

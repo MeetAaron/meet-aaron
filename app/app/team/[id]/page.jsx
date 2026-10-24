@@ -84,6 +84,17 @@ function statusMetaFor(locale) {
   };
 }
 
+// Textes propres à cette page (convention : dictionnaire local par fichier).
+const LOAD_FAILED = {
+  fr: "Une partie des données de ce commercial n'a pas pu être chargée. Recharge la page ; si ça continue, préviens le support.",
+  en: "Some of this salesperson's data could not be loaded. Reload the page; if it keeps happening, contact support.",
+  de: 'Ein Teil der Daten dieses Verkäufers konnte nicht geladen werden. Lade die Seite neu; wenn es weiter passiert, kontaktiere den Support.',
+  it: 'Una parte dei dati di questo commerciale non è stata caricata. Ricarica la pagina; se continua, contatta il supporto.',
+  es: 'No se pudo cargar una parte de los datos de este comercial. Recarga la página; si sigue pasando, avisa al soporte.',
+  pt: 'Parte dos dados deste comercial não pôde ser carregada. Recarregue a página; se continuar, contacte o suporte.',
+  nl: 'Een deel van de gegevens van deze verkoper kon niet worden geladen. Herlaad de pagina; blijft het gebeuren, neem dan contact op met support.',
+};
+
 export default function TeamMemberDetailPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
@@ -95,21 +106,27 @@ export default function TeamMemberDetailPage() {
   const [appointments, setAppointments] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     if (!userId || !memberId) return;
+    // Une réponse en erreur (403, 500…) n'est plus lue comme « 0 prospect » :
+    // avant le 24/10/2026, le patron voyait une fiche vide sans explication.
+    const read = (r) => r.json().catch(() => ({})).then((b) => ({ ok: r.ok, ...b }));
+    setLoadFailed(false);
     Promise.all([
-      fetch(`/api/users/${memberId}`).then((r) => r.json()),
-      fetch(`/api/prospects?user_id=${memberId}`).then((r) => r.json()),
-      fetch(`/api/appointments?user_id=${memberId}`).then((r) => r.json()),
-      fetch(`/api/campaigns?user_id=${memberId}`).then((r) => r.json()),
+      fetch(`/api/users/${memberId}`).then(read),
+      fetch(`/api/prospects?user_id=${memberId}`).then(read),
+      fetch(`/api/appointments?user_id=${memberId}`).then(read),
+      fetch(`/api/campaigns?user_id=${memberId}`).then(read),
     ]).then(([uRes, pRes, aRes, cRes]) => {
       setMemberInfo(uRes.user || null);
       setProspects(pRes.prospects || []);
       setAppointments(aRes.appointments || []);
       setCampaigns(cRes.campaigns || []);
+      setLoadFailed(!uRes.ok || !pRes.ok || !aRes.ok || !cRes.ok);
       setLoading(false);
-    });
+    }).catch(() => { setLoadFailed(true); setLoading(false); });
   }, [userId, memberId]);
 
   if (authLoading) {
@@ -153,6 +170,10 @@ export default function TeamMemberDetailPage() {
         <h1>{memberInfo?.full_name || t('common.loading', locale)}</h1>
         {memberInfo && <p className="sub">{memberInfo.email}</p>}
       </header>
+
+      {!loading && loadFailed && (
+        <p className="muted">{LOAD_FAILED[locale] || LOAD_FAILED.fr}</p>
+      )}
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>

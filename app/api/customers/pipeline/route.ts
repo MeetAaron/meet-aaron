@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { serverError } from '@/lib/http';
 
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
   const { data: customers, error } = await supabaseAdmin
     .from('prospects')
     .select(
-      `id, full_name, job_title, email, created_at, won_at, won_reason, is_lost, lost_at, ai_managed,
+      `id, full_name, job_title, email, phone, linkedin_url, created_at, won_at, won_reason, is_lost, lost_at, ai_managed,
        onboarding_status, onboarding_plan, onboarding_generated_at,
        welcome_email_subject, welcome_email_body, welcome_email_sent_at,
        customer_health_score, customer_health_label, customer_health_updated_at, churn_risk,
@@ -49,11 +50,11 @@ export async function GET(request: NextRequest) {
 
   let latestCheckinByProspect: Record<string, any> = {};
   if (customerIds.length > 0) {
-    const { data: checkins } = await supabaseAdmin
+    const { data: checkins } = await selectInChunks(customerIds, (part) => supabaseAdmin
       .from('customer_checkins')
       .select('id, prospect_id, type, sent_at, responded_at, response_score, response_comment')
-      .in('prospect_id', customerIds)
-      .order('sent_at', { ascending: false });
+      .in('prospect_id', part)
+      .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
 
     for (const checkin of checkins || []) {
       if (!latestCheckinByProspect[checkin.prospect_id]) {

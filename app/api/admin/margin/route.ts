@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
+import { isFounderEmail } from '@/lib/founder';
 import { stripe } from '@/lib/stripe';
 import {
   USD_PER_CREDIT,
@@ -30,7 +31,6 @@ import {
 } from '@/lib/boost-tiers';
 import { serverError } from '@/lib/http';
 
-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
 
 // SEUIL D'INSCRIPTION A LA GST AUSTRALIENNE.
 //
@@ -123,6 +123,42 @@ async function readStripeRevenue(customerToCompany: Record<string, string>) {
   return { rollingAud, monthAud, settlementCurrency, realByCompany, realCurrency, error };
 }
 
+// CODES PROMO (24/10/2026, « le Petit Gourmet Traiteur a utilisé un coupon
+// à 100 % ») : « Attendu » affichait le plein tarif alors que Stripe
+// n'encaissera rien. On lit les réductions ACTIVES de chaque abonnement
+// (Stripe ne garde dans `discounts` que celles qui s'appliquent encore) et
+// on les déduit de l'attendu. En cas d'erreur de lecture : pas de réduction
+// appliquée, et l'écart avec « Encaissé » reste visible.
+type SubDiscount = { percentOff: number; amountOff: number; label: string | null };
+
+async function readSubscriptionDiscount(subscriptionId: string): Promise<SubDiscount> {
+  const none: SubDiscount = { percentOff: 0, amountOff: 0, label: null };
+  try {
+    const sub: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['discounts'] } as any);
+    const list: any[] = Array.isArray(sub?.discounts) && sub.discounts.length ? sub.discounts : sub?.discount ? [sub.discount] : [];
+    let percentOff = 0;
+    let amountOff = 0;
+    const labels: string[] = [];
+    for (const d of list) {
+      if (!d || typeof d === 'string') continue;
+      let coupon: any = d.coupon || d.source?.coupon || null;
+      if (typeof coupon === 'string') coupon = await stripe.coupons.retrieve(coupon).catch(() => null);
+      if (!coupon) continue;
+      if (coupon.percent_off) {
+        percentOff += Number(coupon.percent_off);
+        labels.push(`code promo −${Number(coupon.percent_off)} %`);
+      } else if (coupon.amount_off) {
+        amountOff += Number(coupon.amount_off) / 100;
+        labels.push(`code promo −${(Number(coupon.amount_off) / 100).toFixed(2)}`);
+      }
+    }
+    return { percentOff: Math.min(100, percentOff), amountOff, label: labels.length ? labels.join(' + ') : null };
+  } catch (err: any) {
+    console.error('[Marge] lecture des réductions Stripe échouée :', err?.message);
+    return none;
+  }
+}
+
 function currentYearMonth(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -136,7 +172,7 @@ function monthStartIso(): string {
 export async function GET(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return forbiddenResponse();
+  if (!isFounderEmail(authedUser.email)) return forbiddenResponse();
   // Interface d'administration : double authentification obligatoire
   // (CASA 3.3.1, 19/10/2026). Session aal1 = 403 « mfa_required », même
   // pour le fondateur.
@@ -191,12 +227,23 @@ export async function GET(request: NextRequest) {
   });
   const stripeRevenue = await readStripeRevenue(customerToCompany);
 
+  const discountByCompany: Record<string, SubDiscount> = {};
+  await Promise.all(
+    (companiesRes.data || [])
+      .filter((c: any) => c.stripe_subscription_id)
+      .map(async (c: any) => { discountByCompany[c.id] = await readSubscriptionDiscount(c.stripe_subscription_id); })
+  );
+
   const rows = (companiesRes.data || []).map((c: any) => {
     const currency: BoostCurrency = currencyForCountry(c.billing_country);
     const seats = Math.max(1, seatsByCompany[c.id] || 0);
     // Un abonnement par SIEGE : une societe a trois commerciaux paie trois
     // fois. Compter un seul abonnement sous-estimerait la marge des equipes.
-    const subscription = c.stripe_subscription_id ? subscriptionPrice(currency) * seats : 0;
+    const fullSubscription = c.stripe_subscription_id ? subscriptionPrice(currency) * seats : 0;
+    const discount = discountByCompany[c.id];
+    const subscription = discount
+      ? Math.max(0, fullSubscription * (1 - discount.percentOff / 100) - discount.amountOff)
+      : fullSubscription;
     const boosts = boostsByCompany[c.id] || 0;
     const revenue = subscription + boosts;
 
@@ -226,6 +273,7 @@ export async function GET(request: NextRequest) {
           ? null
           : Math.round(stripeRevenue.realByCompany[c.id] * 100) / 100,
       boosts_month: Math.round(boosts * 100) / 100,
+      discount_label: discount?.label || null,
       cost_usd_month: Math.round(costUsd * 100) / 100,
       credits_month: credits,
     };

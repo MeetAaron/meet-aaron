@@ -5,10 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { canViewUserData } from '@/lib/user-access';
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { ensureCompanyEnriched } from '@/lib/prospect-research';
@@ -27,7 +29,8 @@ export async function GET(request: NextRequest) {
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== userId) return forbiddenResponse();
+  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
+  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
 
   // Fusion Prospects + Opportunités + Clients (docx « mon avis », 31/08/2026,
   // voir lib/pipeline.ts) : ?scope=all renvoie TOUS les contacts du
@@ -88,12 +91,14 @@ export async function GET(request: NextRequest) {
   const latestByProspect: Record<string, any> = {};
   const nextByProspect: Record<string, any> = {};
   if (ids.length > 0) {
-    const { data: appointments } = await supabaseAdmin
+    // Découpé en paquets (lib/chunked-in.ts) : après un gros import CSV, la
+    // liste d'ids dépassait la longueur d'URL et les RDV disparaissaient.
+    const { data: appointments } = await selectInChunks(ids, (part) => supabaseAdmin
       .from('appointments')
       .select('id, prospect_id, proposed_at, type, status, outcome, debrief_summary, debrief_email_subject, debrief_email_body, debrief_email_sent_at')
-      .in('prospect_id', ids)
+      .in('prospect_id', part)
       .eq('purpose', 'commercial')
-      .order('proposed_at', { ascending: false });
+      .order('proposed_at', { ascending: false }), { sortBy: 'proposed_at', ascending: false });
     const nowMs = Date.now();
     for (const appt of appointments || []) {
       if (!latestByProspect[appt.prospect_id]) latestByProspect[appt.prospect_id] = appt;
@@ -116,7 +121,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await readJsonBody(request);
-  const { company_id, assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
+  const { assigned_user_id, full_name, email, phone, job_title, company_name, linkedin_url } = body;
+  let company_id = body.company_id;
 
   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : d'où vient ce prospect —
   // sourcé par Aaron (campagne de prospection), ajouté à la main par le
@@ -159,12 +165,16 @@ export async function POST(request: NextRequest) {
   // inchangé quand ce flag est absent (import CSV, Aaron Sales/Customer).
   const asyncFirstContact = body.async_first_contact === true;
 
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  // Société absente (24/10/2026) : la page l'obtient par un appel séparé ;
+  // si cet appel avait échoué, l'ajout et l'import CSV renvoyaient « Champs
+  // requis manquants ». La société de l'utilisateur connecté fait foi.
+  if (!company_id) company_id = authedUser.company_id;
+
   if (!company_id || !assigned_user_id || !full_name || !email) {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
   }
-
-  const authedUser = await getAuthedUser(request);
-  if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
 
   // GARDE-FOU « JE ME SUIS DÉMARCHÉ MOI-MÊME » (26/09/2026).

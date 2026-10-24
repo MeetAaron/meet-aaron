@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, debrief_email_subject, debrief_email_body, debrief_email_sent_at, prospect_id, prospects(assigned_user_id, company_id, full_name, email)')
+    .select('id, user_id, debrief_email_subject, debrief_email_body, debrief_email_sent_at, prospect_id, prospects(assigned_user_id, company_id, full_name, email)')
     .eq('id', appointmentId)
     .single();
 
@@ -28,7 +28,14 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== prospect?.assigned_user_id) return forbiddenResponse();
+  // Même règle que PATCH /api/appointments/[id] : le commercial du RDV ou
+  // celui du prospect (24/10/2026).
+  if (authedUser.id !== (appointment as any).user_id && authedUser.id !== prospect?.assigned_user_id) {
+    return forbiddenResponse();
+  }
+  if (!prospect?.email) {
+    return NextResponse.json({ error: "Pas d'adresse email pour ce contact : la relance ne peut pas être envoyée d'ici." }, { status: 400 });
+  }
 
   if (!appointment.debrief_email_subject || !appointment.debrief_email_body) {
     return NextResponse.json({ error: "Aucun email de relance généré pour ce RDV — génère d'abord le compte-rendu." }, { status: 400 });
@@ -40,7 +47,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   try {
     await sendEmailForUser(
-      prospect.assigned_user_id,
+      authedUser.id,
       prospect.email,
       appointment.debrief_email_subject,
       appointment.debrief_email_body

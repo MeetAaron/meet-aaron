@@ -311,6 +311,10 @@ export default function BienvenuePage() {
   const [qIndex, setQIndex] = useState(0);
   const [answers, setAnswers] = useState({}); // { key: texte validé }
   const [drafts, setDrafts] = useState({}); // { key: texte proposé par le document }
+  // Envoi du document vers les documents de l'entreprise, attendu avant de
+  // construire le profil (24/10/2026) : sinon /api/business-summary pouvait
+  // le lire avant qu'il soit enregistré et ne rien produire.
+  const docSaveRef = useRef(null);
   const [current, setCurrent] = useState('');
   const [savingAnswer, setSavingAnswer] = useState(false);
   const [docStatus, setDocStatus] = useState(null); // null | 'reading' | { filled, total } | 'none' | 'error'
@@ -433,11 +437,14 @@ export default function BienvenuePage() {
   }
 
   async function finishCompany(finalAnswers) {
-    const qa = questions.filter((q) => finalAnswers[q.key]).map((q) => ({ question: q.text, answer: finalAnswers[q.key] }));
+    let qa = questions.filter((q) => finalAnswers[q.key]).map((q) => ({ question: q.text, answer: finalAnswers[q.key] }));
+    // Questions toutes passées mais réponses tirées du document : on s'en sert.
+    if (qa.length === 0) qa = questions.filter((q) => drafts[q.key]).map((q) => ({ question: q.text, answer: drafts[q.key] }));
     const docUploaded = !!docStatus && docStatus !== 'error' && docStatus !== 'reading';
     if (qa.length === 0 && !docUploaded) { goTo('campaign'); return; }
     setSummarizing(true);
     try {
+      if (docSaveRef.current) await docSaveRef.current;
       const res = await fetch('/api/business-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -464,7 +471,7 @@ export default function BienvenuePage() {
     const keep = new FormData();
     keep.append('file', file);
     keep.append('user_id', me.id);
-    fetch('/api/documents', { method: 'POST', body: keep }).catch(() => {});
+    docSaveRef.current = fetch('/api/documents', { method: 'POST', body: keep }).catch(() => {});
     const fd = new FormData();
     fd.append('file', file);
     fd.append('questions', JSON.stringify(questions.map((q) => ({ key: q.key, question: q.text }))));

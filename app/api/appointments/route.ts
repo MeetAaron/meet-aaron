@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { canViewUserData } from '@/lib/user-access';
 import { createGoogleCalendarEvent } from '@/lib/google';
 import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { getConnectedProviders } from '@/lib/messaging';
@@ -35,7 +36,8 @@ export async function GET(request: NextRequest) {
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (authedUser.id !== userId) return forbiddenResponse();
+  // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
+  if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
 
   const { data: appointments, error } = await supabaseAdmin
     .from('appointments')

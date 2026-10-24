@@ -880,9 +880,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     const contactUpdate: Record<string, any> = {
       full_name: newFullName,
       email: newEmail,
-      phone: cleanStr(phone),
       job_title: cleanStr(job_title),
     };
+    // Téléphone : seulement s'il est envoyé (24/10/2026) — un écran qui ne
+    // l'avait pas chargé l'effaçait en enregistrant le reste.
+    if (phone !== undefined) contactUpdate.phone = cleanStr(phone);
     // Profil LinkedIn du contact (22/10/2026) : modifiable depuis la fiche.
     if (linkedin_url !== undefined) {
       const raw = cleanStr(linkedin_url);

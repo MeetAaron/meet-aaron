@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         const texts = TEXTS[(u as any).locale] || TEXTS.fr;
         const title = texts.title.replace('{pct}', String(pct));
         const body = (reached >= 0.9 ? texts.body90 : texts.body70).replace('{left}', snap.availableUsd.toFixed(0));
-        await sendPushNotification(u.id, { title, body, url: `/app/connexions?user_id=${u.id}&tab=account`, tag: `credits:${u.id}` });
+        await sendPushNotification(u.id, { title, body, url: `/app/connexions?user_id=${u.id}&tab=subscription`, tag: `credits:${u.id}` });
         sent++;
       }
 

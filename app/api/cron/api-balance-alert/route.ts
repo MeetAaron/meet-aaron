@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { FOUNDER_EMAILS } from '@/lib/founder';
 import { getBalanceStatus } from '@/lib/api-balance';
 import { sendPushNotification } from '@/lib/push';
 import { sendSystemEmail } from '@/lib/google';
@@ -15,7 +16,6 @@ import { serverError } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
 const OPERATOR_EMAIL = process.env.OPERATOR_ALERT_EMAIL || 'aaron@meetaaron.app';
 
 function isAuthorized(request: NextRequest) {
@@ -44,11 +44,12 @@ export async function GET(request: NextRequest) {
     const body =
       `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
       `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
-      `Recharge sur console.anthropic.com, puis saisis le nouveau solde dans /app/marge.`;
+      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.`;
 
-    const { data: founder } = await supabaseAdmin.from('users').select('id').ilike('email', FOUNDER_EMAIL).maybeSingle();
-    if (founder?.id) {
-      await sendPushNotification(founder.id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
+    // Tous les comptes fondateur (lib/founder.ts), pas un seul.
+    const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
+    for (const founder of founders || []) {
+      await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
     }
     await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
 

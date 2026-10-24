@@ -14,6 +14,23 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { stripe } from './stripe';
+import { chunk, forEachChunk } from './chunked-in';
+
+// Tous les ids d'une table pour une valeur (ou une liste courte) de colonne,
+// par pages de 1 000 (limite par défaut d'une lecture Supabase).
+async function allIds(table: string, column: string, value: string | string[]): Promise<string[]> {
+  const out: string[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    let q: any = supabaseAdmin.from(table).select('id');
+    q = Array.isArray(value) ? q.in(column, value) : q.eq(column, value);
+    const { data, error } = await q.order('id', { ascending: true }).range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    out.push(...data.map((r: any) => r.id));
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
 
 export interface DeletionTarget {
   id: string; // users.id
@@ -61,27 +78,23 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
     }
   }
 
-  const { data: prospects } = await supabaseAdmin.from('prospects').select('id').eq('company_id', companyId);
-  const prospectIds = (prospects || []).map((p) => p.id);
+  // Listes complètes (24/10/2026) : une lecture Supabase s'arrête à 1 000
+  // lignes par défaut, et un filtre .in() sur des centaines d'ids dépasse la
+  // longueur d'URL. Avec un gros fichier de contacts, la suppression
+  // laissait donc des lignes liées derrière elle. On pagine les lectures et
+  // on découpe les suppressions en paquets (lib/chunked-in.ts).
+  const prospectIds = await allIds('prospects', 'company_id', companyId);
+  const quoteIds = await allIds('quotes', 'company_id', companyId);
 
-  const { data: quotes } = await supabaseAdmin.from('quotes').select('id').eq('company_id', companyId);
-  const quoteIds = (quotes || []).map((q) => q.id);
-
-  const { data: conversations } = prospectIds.length
-    ? await supabaseAdmin.from('conversations').select('id').in('prospect_id', prospectIds)
-    : { data: [] as { id: string }[] };
-  const conversationIds = (conversations || []).map((c) => c.id);
-
-  if (conversationIds.length) {
-    await supabaseAdmin.from('messages').delete().in('conversation_id', conversationIds);
+  const conversationIds: string[] = [];
+  for (const part of chunk(prospectIds)) {
+    conversationIds.push(...(await allIds('conversations', 'prospect_id', part)));
   }
 
-  if (prospectIds.length) {
-    await supabaseAdmin.from('customer_checkins').delete().in('prospect_id', prospectIds);
-    await supabaseAdmin.from('customer_health_alerts').delete().in('prospect_id', prospectIds);
-    await supabaseAdmin.from('customer_support_drafts').delete().in('prospect_id', prospectIds);
-    await supabaseAdmin.from('deal_stage_alerts').delete().in('prospect_id', prospectIds);
-    await supabaseAdmin.from('appointments').delete().in('prospect_id', prospectIds);
+  await forEachChunk(conversationIds, (part) => supabaseAdmin.from('messages').delete().in('conversation_id', part));
+
+  for (const table of ['customer_checkins', 'customer_health_alerts', 'customer_support_drafts', 'deal_stage_alerts', 'appointments']) {
+    await forEachChunk(prospectIds, (part) => supabaseAdmin.from(table).delete().in('prospect_id', part));
   }
 
   const { data: companyUsers } = await supabaseAdmin.from('users').select('id, auth_user_id').eq('company_id', companyId);
@@ -91,13 +104,9 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
   if (userIds.length) {
     await supabaseAdmin.from('notifications_log').delete().in('user_id', userIds);
   }
-  if (conversationIds.length || prospectIds.length) {
-    await supabaseAdmin.from('conversations').delete().in('prospect_id', prospectIds.length ? prospectIds : ['00000000-0000-0000-0000-000000000000']);
-  }
+  await forEachChunk(prospectIds, (part) => supabaseAdmin.from('conversations').delete().in('prospect_id', part));
 
-  if (quoteIds.length) {
-    await supabaseAdmin.from('quote_line_items').delete().in('quote_id', quoteIds);
-  }
+  await forEachChunk(quoteIds, (part) => supabaseAdmin.from('quote_line_items').delete().in('quote_id', part));
   await supabaseAdmin.from('quotes').delete().eq('company_id', companyId);
 
   await supabaseAdmin.from('prospects').delete().eq('company_id', companyId);
@@ -114,7 +123,7 @@ async function deleteWholeCompany(companyId: string): Promise<void> {
   const { data: campaigns } = await supabaseAdmin.from('marketing_campaigns').select('id').eq('company_id', companyId);
   const campaignIds = (campaigns || []).map((c) => c.id);
   if (campaignIds.length) {
-    await supabaseAdmin.from('marketing_campaign_recipients').delete().in('campaign_id', campaignIds);
+    await forEachChunk(campaignIds, (part) => supabaseAdmin.from('marketing_campaign_recipients').delete().in('campaign_id', part));
   }
   await supabaseAdmin.from('marketing_campaigns').delete().eq('company_id', companyId);
   await supabaseAdmin.from('client_invoices').delete().eq('company_id', companyId);

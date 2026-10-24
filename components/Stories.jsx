@@ -785,8 +785,12 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       );
       actions = (
         <>
-          <button type="button" className="btn-primary" disabled={acting} onClick={() => act(apptUrl, { action: 'relancer' })}>{t('stories.relancer', locale)}</button>
-          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(apptUrl, { action: 'traiter' })}>{t('stories.treated', locale)}</button>
+          {/* Contact saisi à la main (pas de fiche, donc pas d'email) : pas
+              de bouton Relancer, il échouait (24/10/2026). */}
+          {item.prospect_id && (
+            <button type="button" className="btn-primary" disabled={acting} onClick={() => act(apptUrl, { action: 'relancer' })}>{t('stories.relancer', locale)}</button>
+          )}
+          <button type="button" className={item.prospect_id ? 'btn-secondary' : 'btn-primary'} disabled={acting} onClick={() => act(apptUrl, { action: 'traiter' })}>{t('stories.treated', locale)}</button>
         </>
       );
       break;

@@ -27,7 +27,13 @@ const ALLOWED_MODULES = ['ap', 'as', 'ac'];
 
 export async function POST(request: NextRequest) {
   const body = await readJsonBody(request);
-  const { user_id, company_id, module, rows } = body;
+  const { user_id, module, rows } = body;
+  let company_id = body.company_id;
+
+  const authedUser = await getAuthedUser(request);
+  if (!authedUser) return unauthorizedResponse();
+  // Même repli que POST /api/prospects (24/10/2026).
+  if (!company_id) company_id = authedUser.company_id;
 
   if (!user_id || !company_id || !ALLOWED_MODULES.includes(module) || !Array.isArray(rows) || rows.length === 0) {
     return NextResponse.json({ error: 'Requête invalide' }, { status: 400 });
@@ -36,8 +42,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Maximum ${MAX_ROWS_PER_CALL} lignes par appel` }, { status: 400 });
   }
 
-  const authedUser = await getAuthedUser(request);
-  if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== user_id || authedUser.company_id !== company_id) return forbiddenResponse();
 
   // On ne transmet à Claude QUE ce qui est utile à cette analyse précise —

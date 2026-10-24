@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
     .from('marketing_campaigns')
     .select('*')
     .eq('company_id', authedUser.company_id)
+    // Seulement les campagnes de l'utilisateur (24/10/2026) : chaque fiche de
+    // campagne est réservée à son auteur, donc celles d'un collègue
+    // apparaissaient dans la liste mais renvoyaient « Accès refusé ».
+    .eq('created_by_user_id', authedUser.id)
     .order('created_at', { ascending: false });
 
   if (error) {

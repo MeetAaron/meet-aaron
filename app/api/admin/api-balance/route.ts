@@ -9,15 +9,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
+import { isFounderEmail } from '@/lib/founder';
 import { getBalanceStatus } from '@/lib/api-balance';
 import { readJsonBody, serverError } from '@/lib/http';
 
-const FOUNDER_EMAIL = (process.env.MEETAARON_FOUNDER_EMAIL || 'aaron@meetaaron.app').toLowerCase();
 
 async function guard(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return { error: unauthorizedResponse() };
-  if (String(authedUser.email || '').toLowerCase() !== FOUNDER_EMAIL) return { error: forbiddenResponse() };
+  if (!isFounderEmail(authedUser.email)) return { error: forbiddenResponse() };
   const mfa = requireMfa(authedUser);
   if (mfa) return { error: mfa };
   return { user: authedUser };

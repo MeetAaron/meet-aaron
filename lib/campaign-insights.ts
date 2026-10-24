@@ -13,6 +13,7 @@
 // juger dans le vide à chaque fois.
 
 import { supabaseAdmin } from './supabase-admin';
+import { selectInChunks } from './chunked-in';
 
 export interface PastCampaignStat {
   zone_label: string;
@@ -38,10 +39,10 @@ export async function getPastCampaignStats(companyId: string, excludeCampaignId?
 
   const campaignIds = campaigns.map((c) => c.id);
 
-  const { data: companies } = await supabaseAdmin
+  const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
     .from('prospect_companies')
     .select('id, found_by_campaign_id')
-    .in('found_by_campaign_id', campaignIds);
+    .in('found_by_campaign_id', part));
 
   const companyIdsByCampaign: Record<string, string[]> = {};
   (companies || []).forEach((c) => {
@@ -52,10 +53,10 @@ export async function getPastCampaignStats(companyId: string, excludeCampaignId?
   const allCompanyIds = (companies || []).map((c) => c.id);
   let prospectsByCompany: Record<string, { is_won: boolean; is_lost: boolean }[]> = {};
   if (allCompanyIds.length > 0) {
-    const { data: prospects } = await supabaseAdmin
+    const { data: prospects } = await selectInChunks(allCompanyIds, (part) => supabaseAdmin
       .from('prospects')
       .select('prospect_company_id, is_won, is_lost')
-      .in('prospect_company_id', allCompanyIds);
+      .in('prospect_company_id', part));
     (prospects || []).forEach((p) => {
       (prospectsByCompany[p.prospect_company_id] ||= []).push(p);
     });

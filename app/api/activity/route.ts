@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { serverError } from '@/lib/http';
 
@@ -109,22 +110,22 @@ export async function GET(request: NextRequest) {
 
   // --- Messages : sortants agrégés par jour, entrants un par un
   if (ids.length > 0) {
-    const { data: conversations } = await supabaseAdmin
+    const { data: conversations } = await selectInChunks(ids, (part) => supabaseAdmin
       .from('conversations')
       .select('id, prospect_id')
-      .in('prospect_id', ids);
+      .in('prospect_id', part));
     const convToProspect = new Map<string, string>();
     for (const c of conversations || []) convToProspect.set(c.id, c.prospect_id);
     const convIds = Array.from(convToProspect.keys());
 
     if (convIds.length > 0) {
-      const { data: messages } = await supabaseAdmin
+      const { data: messages } = await selectInChunks(convIds, (part) => supabaseAdmin
         .from('messages')
         .select('id, conversation_id, direction, sent_at')
-        .in('conversation_id', convIds)
+        .in('conversation_id', part)
         .gte('sent_at', since)
         .order('sent_at', { ascending: false })
-        .limit(500);
+        .limit(500), { sortBy: 'sent_at', ascending: false, limit: 500 });
 
       const contactedByDay = new Map<string, { count: number; at: string }>();
       for (const m of messages || []) {

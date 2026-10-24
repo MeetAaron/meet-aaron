@@ -785,7 +785,7 @@ export default function AgendaPage() {
                       className="row-info clickable"
                       onClick={() => setDetailAppointment(a)}
                     >
-                      <strong>{a.prospects?.full_name}</strong>
+                      <strong>{a.prospects?.full_name || a.contact_name}</strong>
                       <span className="muted"> — {a.prospects?.prospect_companies?.name || t('agenda.unknownCompany', locale)}</span>
                       <div className="meta">
                         <span className={`type-badge type-${a.type}`}><TypeIcon type={a.type} />{TYPE_LABELS[a.type]}</span>

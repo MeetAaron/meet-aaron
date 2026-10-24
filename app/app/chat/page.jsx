@@ -349,6 +349,9 @@ export default function ChatPage() {
     if (!userId) return;
     let cancelled = false;
     const activeKey = `meetaaron_chat_active_conversation_${userId}`;
+    // Une erreur d'un premier chargement (identifiant pas encore confirmé)
+    // ne doit pas rester affichée après un rechargement réussi.
+    setConversationsError(false);
 
     fetch(`/api/chat-conversations?user_id=${userId}`)
       .then((r) => r.json())

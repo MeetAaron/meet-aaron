@@ -114,7 +114,7 @@ export default function MargePage() {
         const body = await r.json().catch(() => ({}));
         if (cancelled) return;
         if (r.status === 403 && body.code === 'mfa_required') {
-          setError("Cette page exige la double authentification. Active-la dans Mon compte → Connexion, puis reconnecte-toi avec ton code.");
+          setError("Cette page exige la double authentification. Active-la dans Mon compte → Mon profil, puis reconnecte-toi avec ton code.");
         } else if (r.status === 403) {
           setError("Cette page est réservée au compte fondateur.");
         } else if (!r.ok) {
@@ -144,6 +144,12 @@ export default function MargePage() {
 
   return (
     <div className="page">
+      {/* Retour (24/10/2026, « pourquoi je ne peux pas revenir en arrière ? ») :
+          cet écran n'a pas la barre de navigation de l'app. */}
+      <nav className="topnav">
+        <a href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>← Mon compte</a>
+        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>Tableau de bord</a>
+      </nav>
       <header className="head">
         <h1>Marge par client</h1>
         <p className="sub">
@@ -203,7 +209,7 @@ export default function MargePage() {
                 <h2>Solde Anthropic</h2>
                 <p className="gst-msg">
                   {!balance?.configured
-                    ? 'Pas encore de solde saisi : saisis celui affiché sur console.anthropic.com (Billing) pour activer l\'alerte.'
+                    ? 'Pas encore de solde saisi : saisis celui affiché sur platform.claude.com (Facturation) pour activer l\'alerte.'
                     : balance.daysLeft === null
                       ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
                       : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
@@ -281,6 +287,7 @@ export default function MargePage() {
                     <td>
                       <span className="cname">{r.name}</span>
                       {!r.subscribed && <span className="chip">pas d'abonnement</span>}
+                      {r.discount_label && <span className="chip">{r.discount_label}</span>}
                     </td>
                     <td className="num">{r.seats}</td>
                     <td className="num">{money(r.revenue_month, r.currency_symbol)}</td>
@@ -307,6 +314,18 @@ export default function MargePage() {
       )}
 
       <style jsx>{`
+        .topnav {
+          display: flex;
+          justify-content: space-between;
+          gap: 1rem;
+          margin-bottom: 1.2rem;
+          font-size: 0.85rem;
+        }
+        .topnav a {
+          color: var(--muted);
+          text-decoration: none;
+        }
+        .topnav a:hover { color: var(--text); }
         .page {
           max-width: 980px;
           margin: 0 auto;

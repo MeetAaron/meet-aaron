@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectInChunks } from '@/lib/chunked-in';
 import { getCustomerAutomationCompanyIds } from '@/lib/subscription';
 import { sendEmailForUser } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
@@ -54,11 +55,11 @@ export async function GET(request: NextRequest) {
 
   let latestCheckinByProspect: Record<string, any> = {};
   if (customerIds.length > 0) {
-    const { data: checkins } = await supabaseAdmin
+    const { data: checkins } = await selectInChunks(customerIds, (part) => supabaseAdmin
       .from('customer_checkins')
       .select('prospect_id, sent_at, responded_at, response_score')
-      .in('prospect_id', customerIds)
-      .order('sent_at', { ascending: false });
+      .in('prospect_id', part)
+      .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
 
     for (const checkin of checkins || []) {
       if (!latestCheckinByProspect[checkin.prospect_id]) {
@@ -72,11 +73,11 @@ export async function GET(request: NextRequest) {
   let lastMessageByProspect: Record<string, { direction: 'inbound' | 'outbound'; sentAt: string }> = {};
   let inboundCountByProspect: Record<string, number> = {};
   if (customerIds.length > 0) {
-    const { data: conversations } = await supabaseAdmin
+    const { data: conversations } = await selectInChunks(customerIds, (part) => supabaseAdmin
       .from('conversations')
       .select('id, prospect_id')
-      .in('prospect_id', customerIds)
-      .eq('channel', 'email');
+      .in('prospect_id', part)
+      .eq('channel', 'email'));
 
     const conversationIdToProspectId: Record<string, string> = {};
     for (const conv of conversations || []) {
@@ -85,11 +86,11 @@ export async function GET(request: NextRequest) {
     const conversationIds = Object.keys(conversationIdToProspectId);
 
     if (conversationIds.length > 0) {
-      const { data: messages } = await supabaseAdmin
+      const { data: messages } = await selectInChunks(conversationIds, (part) => supabaseAdmin
         .from('messages')
         .select('conversation_id, direction, sent_at')
-        .in('conversation_id', conversationIds)
-        .order('sent_at', { ascending: false });
+        .in('conversation_id', part)
+        .order('sent_at', { ascending: false }), { sortBy: 'sent_at', ascending: false });
 
       const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
       for (const msg of messages || []) {
