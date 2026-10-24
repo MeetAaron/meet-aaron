@@ -1,0 +1,103 @@
+From 655d16cbf3ea489baadaa375e901e6745533b992 Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Sat, 24 Oct 2026 06:27:36 +0000
+Subject: [PATCH] =?UTF-8?q?Marge=20:=20l'attendu=20part=20des=20factures?=
+ =?UTF-8?q?=20Stripe=20du=20mois=20(codes=20promo=20appliqu=C3=A9s)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Le code promo à 100 % du Petit Gourmet Traiteur n'était pas vu : il ne
+figurait plus dans les réductions actives de l'abonnement. « Attendu »
+reprend désormais le total facturé par Stripe ce mois-ci (réductions
+déduites, boosts compris), sinon le plan moins les réductions actives, et
+signale le montant du code promo.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/admin/margin/route.ts | 41 ++++++++++++++++++++++++++++++-----
+ 1 file changed, 35 insertions(+), 6 deletions(-)
+
+diff --git a/app/api/admin/margin/route.ts b/app/api/admin/margin/route.ts
+index 0af6962..658402d 100644
+--- a/app/api/admin/margin/route.ts
++++ b/app/api/admin/margin/route.ts
+@@ -80,6 +80,10 @@ async function readStripeRevenue(customerToCompany: Record<string, string>) {
+   let monthAud: number | null = null;
+   let settlementCurrency: string | null = null;
+   const realByCompany: Record<string, number> = {};
++  // Ce que Stripe a FACTURÉ ce mois-ci (payé ou non), réductions déduites,
++  // et le montant des réductions — voir « Attendu » plus bas.
++  const invoicedByCompany: Record<string, number> = {};
++  const discountedByCompany: Record<string, number> = {};
+   let realCurrency: string | null = null;
+   let error: string | null = null;
+ 
+@@ -115,12 +119,25 @@ async function readStripeRevenue(customerToCompany: Record<string, string>) {
+       realCurrency = realCurrency || String(inv.currency || '').toUpperCase();
+       realByCompany[companyId] = (realByCompany[companyId] || 0) + Number(inv.amount_paid || 0) / 100;
+     }
++
++    const allInvoices = await stripe.invoices
++      .list({ created: { gte: sinceMonth }, limit: 100 })
++      .autoPagingToArray({ limit: 1000 });
++    for (const inv of allInvoices as any[]) {
++      if (inv.status === 'void' || inv.status === 'draft') continue;
++      const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id;
++      const companyId = customerId ? customerToCompany[customerId] : null;
++      if (!companyId) continue;
++      invoicedByCompany[companyId] = (invoicedByCompany[companyId] || 0) + Number(inv.total || 0) / 100;
++      const disc = (inv.total_discount_amounts || []).reduce((s: number, d: any) => s + Number(d.amount || 0), 0) / 100;
++      if (disc > 0) discountedByCompany[companyId] = (discountedByCompany[companyId] || 0) + disc;
++    }
+   } catch (err: any) {
+     error = err?.message || 'lecture Stripe impossible';
+     console.error('[Marge] lecture Stripe echouee :', error);
+   }
+ 
+-  return { rollingAud, monthAud, settlementCurrency, realByCompany, realCurrency, error };
++  return { rollingAud, monthAud, settlementCurrency, realByCompany, invoicedByCompany, discountedByCompany, realCurrency, error };
+ }
+ 
+ // CODES PROMO (24/10/2026, « le Petit Gourmet Traiteur a utilisé un coupon
+@@ -241,11 +258,23 @@ export async function GET(request: NextRequest) {
+     // fois. Compter un seul abonnement sous-estimerait la marge des equipes.
+     const fullSubscription = c.stripe_subscription_id ? subscriptionPrice(currency) * seats : 0;
+     const discount = discountByCompany[c.id];
+-    const subscription = discount
+-      ? Math.max(0, fullSubscription * (1 - discount.percentOff / 100) - discount.amountOff)
+-      : fullSubscription;
++    // Priorité à ce que Stripe a réellement facturé ce mois-ci (code promo
++    // déjà appliqué, même s'il ne valait que pour la première facture) ;
++    // sinon le plan moins les réductions encore actives sur l'abonnement.
++    const invoiced = stripeRevenue.invoicedByCompany[c.id];
++    const subscription = invoiced !== undefined
++      ? invoiced
++      : discount
++        ? Math.max(0, fullSubscription * (1 - discount.percentOff / 100) - discount.amountOff)
++        : fullSubscription;
++    const invoiceDiscount = stripeRevenue.discountedByCompany[c.id] || 0;
++    const discountLabel = discount?.label
++      || (invoiceDiscount > 0 ? `code promo −${invoiceDiscount.toFixed(2)} ce mois-ci` : null);
+     const boosts = boostsByCompany[c.id] || 0;
+-    const revenue = subscription + boosts;
++    // Les boosts sont facturés eux aussi (invoice_creation, voir
++    // app/api/credits/boost) : quand on part des factures du mois, ils y
++    // sont déjà — ne pas les compter deux fois.
++    const revenue = invoiced !== undefined ? Math.max(invoiced, 0) : subscription + boosts;
+ 
+     const costUsd = costByCompany[c.id] || 0;
+     const credits = Math.round(costUsd / USD_PER_CREDIT);
+@@ -273,7 +302,7 @@ export async function GET(request: NextRequest) {
+           ? null
+           : Math.round(stripeRevenue.realByCompany[c.id] * 100) / 100,
+       boosts_month: Math.round(boosts * 100) / 100,
+-      discount_label: discount?.label || null,
++      discount_label: discountLabel,
+       cost_usd_month: Math.round(costUsd * 100) / 100,
+       credits_month: credits,
+     };
+-- 
+2.43.0
+
