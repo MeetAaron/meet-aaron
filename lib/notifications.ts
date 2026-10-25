@@ -97,7 +97,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
   const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
-  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at';
+  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, devis_file_name';
   async function loadProspects() {
     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
     // incompatibles entre les trois variantes (GenericStringError), alors que
@@ -180,7 +180,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
         type: 'devis_a_faire',
         at: p.quote_requested_at,
         days_waiting: days,
-        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_generated_at, paused: !!p.quote_paused_at },
+        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_file_name, paused: !!p.quote_paused_at },
       });
     }
     if (p.rescue_proposal_pending) {

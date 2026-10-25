@@ -18,7 +18,6 @@ import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { getBrochureForReply } from '@/lib/first-email-attachment';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
-import { generateDevis } from '@/lib/aaron-sales';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
@@ -899,12 +898,12 @@ export async function GET(request: NextRequest) {
       // best-effort : colonne optionnelle tant que la migration n'est pas passée.
       await supabaseAdmin.from('prospects').update({ quote_paused_at: null }).eq('id', prospect.id).then(() => {}, () => {});
 
-      // Demande de devis détectée par Aaron dans le message reçu : on prépare
-      // automatiquement une proposition chiffrée (catalogue produits +
-      // historique des devis déjà envoyés à ce prospect, voir
-      // lib/aaron-sales.ts) mais on ne l'envoie JAMAIS automatiquement — le
-      // commercial la relit et valide dans Aaron Opportunité. Best-effort : un
-      // échec ici ne doit pas empêcher le reste du traitement du message.
+      // Demande de devis détectée par Aaron dans le message reçu : on fait
+      // avancer le contact et on PRÉVIENT le commercial. Aaron ne rédige
+      // AUCUN devis (décision d'Alex, 23-25/10/2026 : « Aaron ne fait pas de
+      // devis lui-même ») : c'est le commercial qui le prépare et le dépose
+      // sur la fiche. Best-effort : un échec ici ne doit pas empêcher le
+      // reste du traitement du message.
       if (aaronOutput.quote_requested) {
         // Fusion pipeline (docx « mon avis », 31/08/2026) : la demande de
         // devis fait passer le contact en « proposition demandée » sur la
@@ -924,14 +923,13 @@ export async function GET(request: NextRequest) {
           if (Object.keys(rest).length > 0) await supabaseAdmin.from('prospects').update(rest).eq('id', prospect.id);
         }
         try {
-          await generateDevis(prospect.id);
           await sendPushNotification(connection.user_id, {
             title: 'Devis à faire',
-            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une base de proposition sur sa fiche — dépose ton devis quand il est prêt.`,
+            body: `${prospect.full_name} a demandé un devis. Prépare-le et dépose-le sur sa fiche : je te préviens dès qu'il l'ouvre.`,
             url: `/app/prospects?user_id=${connection.user_id}&contact=${prospect.id}`,
           });
         } catch (err: any) {
-          console.error(`Erreur génération devis automatique pour prospect ${prospect.id}:`, err.message);
+          console.error(`Erreur notification « devis à faire » pour prospect ${prospect.id}:`, err.message);
         }
       }
 

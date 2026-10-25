@@ -361,6 +361,10 @@ async function loadRecentQuotesForProspect(prospectId: string) {
 // qui correspond réellement à un produit_id existant du catalogue). Les
 // postes non reconnus (ou si le catalogue est vide) restent sans prix,
 // exactement comme avant — c'est toujours au commercial de les compléter.
+// NE PLUS APPELER (25/10/2026) : Aaron ne rédige pas de devis (décision
+// d'Alex). Plus aucun appelant — le cron check-inbox et GET
+// /api/prospects/[id]/devis ont été coupés. Conservée seulement le temps de
+// confirmer qu'aucun écran ne s'en sert ; à supprimer ensuite.
 export async function generateDevis(prospectId: string): Promise<Devis> {
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')

@@ -1,5 +1,9 @@
 // app/api/prospects/[id]/signature-request/route.ts
-// POST -> envoie le devis déjà généré (prospects.devis_*) en signature
+// 25/10/2026 : le document signé est désormais LE DEVIS DÉPOSÉ PAR LE
+// COMMERCIAL (PDF), plus un PDF fabriqué à partir du chiffrage d'Aaron —
+// Aaron ne rédige pas de devis.
+//
+// POST -> envoie le devis (prospects.devis_*) en signature
 // électronique via Youtrust (docx "OPPORTUNITES A4" : "tu me mets en place
 // yousign ? fais le merci" — Yousign a changé de nom pour Youtrust en 2026,
 // voir lib/youtrust.ts). Construit un PDF du devis (lib/devis-pdf.ts),
@@ -19,8 +23,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { createSignatureRequest } from '@/lib/youtrust';
-import { buildDevisPdf } from '@/lib/devis-pdf';
-import { DevisLineItem, summarizeDevisRecap } from '@/lib/aaron-sales';
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
@@ -29,7 +31,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select(
-      `id, assigned_user_id, company_id, full_name, email, devis_subject, devis_body, devis_recap,
+      `id, assigned_user_id, company_id, full_name, email, devis_subject, devis_file_path, devis_file_name, devis_file_type,
        signature_external_link, prospect_companies (name), users (locale)`
     )
     .eq('id', prospectId)
@@ -43,8 +45,13 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
 
-  if (!prospect.devis_subject || !prospect.devis_recap) {
-    return NextResponse.json({ error: "Aucun devis généré — génère d'abord le devis avant de l'envoyer en signature." }, { status: 400 });
+  const p: any = prospect;
+  if (!p.devis_file_path) {
+    return NextResponse.json({ error: "Dépose d'abord ton devis sur la fiche du contact." }, { status: 400 });
+  }
+  const isPdf = String(p.devis_file_type || '').toLowerCase().includes('pdf') || /\.pdf$/i.test(String(p.devis_file_name || ''));
+  if (!isPdf) {
+    return NextResponse.json({ error: 'Pour la signature électronique, dépose ton devis au format PDF.' }, { status: 400 });
   }
 
   if (prospect.signature_external_link) {
@@ -55,23 +62,11 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     return NextResponse.json({ error: "Ce prospect n'a pas d'adresse email renseignée." }, { status: 400 });
   }
 
-  const { data: company } = await supabaseAdmin
-    .from('companies')
-    .select('name')
-    .eq('id', prospect.company_id)
-    .maybeSingle();
-
-  const recapitulatif = (prospect.devis_recap || []) as DevisLineItem[];
-  const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
-
-  const pdfBuffer = await buildDevisPdf(
-    { objet: prospect.devis_subject, corps_email: prospect.devis_body || '', recapitulatif, total_eur, a_des_postes_sans_prix },
-    {
-      prospectName: prospect.full_name,
-      prospectCompany: (prospect as any).prospect_companies?.name || null,
-      sellerCompanyName: company?.name || null,
-    }
-  );
+  const { data: blob, error: dlError } = await supabaseAdmin.storage.from('documents').download(p.devis_file_path);
+  if (dlError || !blob) {
+    return NextResponse.json({ error: 'Impossible de récupérer le fichier du devis — redépose-le.' }, { status: 500 });
+  }
+  const pdfBuffer = Buffer.from(await blob.arrayBuffer());
 
   const [firstName, ...rest] = (prospect.full_name || '').split(' ');
   const lastName = rest.join(' ') || firstName || prospect.email;
@@ -79,7 +74,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   let result;
   try {
     result = await createSignatureRequest({
-      requestName: prospect.devis_subject.slice(0, 120),
+      requestName: String(prospect.devis_subject || p.devis_file_name || 'Devis').slice(0, 120),
       pdfBuffer,
       pdfFilename: `devis-${prospect.full_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`,
       signerFirstName: firstName || prospect.full_name,

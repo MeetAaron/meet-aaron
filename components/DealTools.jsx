@@ -25,8 +25,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
   const [debriefError, setDebriefError] = useState(null);
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  const [devis, setDevis] = useState(null);
-  const [devisLoading, setDevisLoading] = useState(false);
   const [devisError, setDevisError] = useState(null);
   const [sendingDevis, setSendingDevis] = useState(false);
 
@@ -47,7 +45,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
     setBriefError(null);
     setDebriefNotes('');
     setDebriefError(null);
-    setDevis(null);
     setDevisError(null);
     setSignatureInput('');
     setUploadResult(null);
@@ -104,19 +101,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
     onChanged && onChanged();
   }
 
-  async function handleLoadDevis(regenerate) {
-    setDevisLoading(true);
-    setDevisError(null);
-    const res = await fetch(`/api/prospects/${prospect.id}/devis${regenerate ? '?regenerate=1' : ''}`);
-    const body = await res.json();
-    setDevisLoading(false);
-    if (!res.ok) {
-      setDevisError(body.error || t('sales.quoteGenError', locale));
-      return;
-    }
-    setDevis(body);
-  }
-
   async function handleUploadQuote(e) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -141,13 +125,13 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
     }
   }
 
-  async function handleSendDevis(useAaronDraft) {
+  async function handleSendDevis() {
     setSendingDevis(true);
     setDevisError(null);
     const res = await fetch(`/api/prospects/${prospect.id}/devis`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(useAaronDraft === true ? {} : { subject: quoteSubject, body: quoteBody }),
+      body: JSON.stringify({ subject: quoteSubject, body: quoteBody }),
     });
     const body = await res.json();
     setSendingDevis(false);
@@ -324,7 +308,7 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
                 <textarea rows={7} value={quoteBody} onChange={(e) => setQuoteBody(e.target.value)} />
                 {devisError && <p className="error">{devisError}</p>}
                 <div className="row">
-                  <button type="button" className="btn-primary" onClick={handleSendDevis} disabled={sendingDevis || !quoteSubject.trim() || !quoteBody.trim()}>
+                  <button type="button" className="btn-primary" onClick={() => handleSendDevis()} disabled={sendingDevis || !quoteSubject.trim() || !quoteBody.trim()}>
                     {sendingDevis ? t('sales.sending', locale) : t('quote.sendNow', locale)}
                   </button>
                 </div>
@@ -341,56 +325,9 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
               </>
             )}
 
-            {!(uploadResult || prospect.devis_file_name) && (
-              <details className="fallback">
-                <summary>{t('quote.aaronDraftSummary', locale)}</summary>
-                {devis ? (
-                  <div className="email-preview">
-                    <p className="email-subject">{devis.objet}</p>
-                    <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
-                    {devis.recapitulatif?.length > 0 && (
-                      <>
-                        {devis.a_des_postes_sans_prix && (
-                          <p className="recap-note">{t('sales.missingPricesPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.missingPricesLinkText', locale)}</a> {t('sales.missingPricesSuffix', locale)}</p>
-                        )}
-                        <ul className="recap-list">
-                          {devis.recapitulatif.map((r, i) => (
-                            <li key={i}>
-                              <div className="recap-label">
-                                <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
-                              </div>
-                              <div className="recap-price">
-                                {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">{t('sales.priceToDefine', locale)}</span>}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                        {devis.total_eur != null && (
-                          <p className="recap-total">{t('sales.totalLabel', locale)}{devis.a_des_postes_sans_prix ? ` ${t('sales.totalPartialNote', locale)}` : ''} : {devis.total_eur.toFixed(2)} €</p>
-                        )}
-                      </>
-                    )}
-                    {devisError && <p className="error">{devisError}</p>}
-                    <div className="row">
-                      <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(true)} disabled={devisLoading}>
-                        {devisLoading ? t('sales.regenerating', locale) : t('sales.regenerate', locale)}
-                      </button>
-                      <button type="button" className="btn-primary" onClick={() => handleSendDevis(true)} disabled={sendingDevis}>
-                        {sendingDevis ? t('sales.sending', locale) : t('sales.sendQuoteToProspect', locale)}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <p className="muted">{t('sales.quotePrepPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.quotePrepLinkText', locale)}</a> {t('sales.quotePrepSuffix', locale)}</p>
-                    <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(false)} disabled={devisLoading}>
-                      {devisLoading ? t('sales.generating', locale) : prospect.devis_generated_at ? t('sales.viewQuote', locale) : t('sales.generateQuote', locale)}
-                    </button>
-                    {devisError && <p className="error">{devisError}</p>}
-                  </>
-                )}
-              </details>
-            )}
+            {/* L'ancienne option « Laisse Aaron préparer une base chiffrée » a
+                été retirée le 25/10/2026 : Aaron ne rédige pas de devis, il
+                vérifie celui du commercial et prépare l'email qui l'accompagne. */}
           </>
         )}
       </section>
@@ -418,7 +355,7 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
         ) : (
           <>
             <div className="row">
-              <button type="button" className="btn-primary" onClick={handleSendSignatureRequest} disabled={signatureSending || !prospect.devis_generated_at}>
+              <button type="button" className="btn-primary" onClick={handleSendSignatureRequest} disabled={signatureSending || !prospect.devis_file_name}>
                 {signatureSending ? t('sales.signatureSending', locale) : t('sales.signatureSendViaYoutrust', locale)}
               </button>
             </div>

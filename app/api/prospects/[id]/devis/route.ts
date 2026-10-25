@@ -1,7 +1,7 @@
 // app/api/prospects/[id]/devis/route.ts
-// GET  -> renvoie le devis déjà généré (mis en cache sur prospects.devis_*),
-//         ou le génère à la volée. ?regenerate=1 force une nouvelle
-//         génération. [id] = id du PROSPECT.
+// GET  -> renvoie l'email d'accompagnement déjà préparé pour le devis
+//         DÉPOSÉ par le commercial (prospects.devis_*). Ne génère plus rien :
+//         Aaron ne rédige pas de devis (25/10/2026). [id] = id du PROSPECT.
 // POST -> envoie l'email d'accompagnement du devis au prospect, au nom du
 //         commercial, et fait avancer l'étape du pipeline à "devis_envoye"
 //         si l'affaire n'est pas déjà plus avancée (signé/perdu/négociation).
@@ -15,9 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { generateDevis, summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
+import { summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
 import { sendEmailForUser } from '@/lib/messaging';
-import { MonthlyCapExceededError } from '@/lib/anthropic-client';
 import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
 
 const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu'];
@@ -25,8 +24,6 @@ const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu
 export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   const prospectId = params.id;
-  const forceRegenerate = request.nextUrl.searchParams.get('regenerate') === '1';
-
   const { data: prospect, error } = await supabaseAdmin
     .from('prospects')
     .select('id, assigned_user_id, company_id, devis_subject, devis_body, devis_recap, devis_generated_at')
@@ -43,7 +40,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     return forbiddenResponse();
   }
 
-  if (!forceRegenerate && prospect.devis_subject) {
+  if (prospect.devis_subject) {
     const recapitulatif = (prospect.devis_recap || []) as DevisLineItem[];
     const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
     return NextResponse.json({
@@ -57,16 +54,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     });
   }
 
-  try {
-    const devis = await generateDevis(prospectId);
-    return NextResponse.json({ ...devis, generated_at: new Date().toISOString(), cached: false });
-  } catch (err: any) {
-    if (err instanceof MonthlyCapExceededError) {
-      return NextResponse.json({ error: 'Plafond de dépense API atteint pour ce mois — réessayez plus tard.' }, { status: 429 });
-    }
-    console.error('Erreur génération devis:', err.message);
-    return NextResponse.json({ error: 'Impossible de générer le devis pour le moment.' }, { status: 500 });
-  }
+  return NextResponse.json({ error: "Aucun devis déposé pour ce contact : dépose ton devis sur sa fiche." }, { status: 404 });
 }
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -106,28 +94,26 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
 
-  if (!prospect.devis_subject || !prospect.devis_body) {
-    return NextResponse.json({ error: "Aucun devis généré — génère d'abord le devis." }, { status: 400 });
+  // Seul un devis DÉPOSÉ par le commercial part (25/10/2026) : Aaron ne
+  // rédige pas de devis, il prépare seulement l'email qui l'accompagne.
+  if (!(prospect as any).devis_file_path) {
+    return NextResponse.json({ error: "Dépose d'abord ton devis sur la fiche du contact." }, { status: 400 });
   }
+
 
   if (prospect.devis_sent_at) {
     return NextResponse.json({ error: 'Ce devis a déjà été envoyé.' }, { status: 400 });
   }
 
-  const recap = (prospect.devis_recap || []) as DevisLineItem[];
-  const formatRecapLine = (r: DevisLineItem) => {
-    const quantitySuffix = r.quantite && r.quantite !== 1 ? ` × ${r.quantite}` : '';
-    const priceSuffix = r.total_ligne_eur != null ? ` — ${r.total_ligne_eur.toFixed(2)} €` : '';
-    return `- ${r.poste}${quantitySuffix} : ${r.description}${priceSuffix}`;
-  };
-  const { total_eur: recapTotalEur } = summarizeDevisRecap(recap);
-  const totalLine = recapTotalEur != null ? `\nTotal : ${recapTotalEur.toFixed(2)} €` : '';
-  const recapText = recap.length
-    ? '\n\n---\nRécapitulatif :\n' + recap.map(formatRecapLine).join('\n') + totalLine
-    : '';
+  // Plus de « Récapitulatif » chiffré ajouté sous l'email : c'était le
+  // chiffrage d'Aaron. Le devis du commercial est en pièce jointe.
+  const recapText = '';
 
   const finalSubject = (typeof override.subject === 'string' && override.subject.trim()) || prospect.devis_subject;
   const finalBody = (typeof override.body === 'string' && override.body.trim()) || prospect.devis_body;
+  if (!finalSubject || !finalBody) {
+    return NextResponse.json({ error: "L'email d'accompagnement du devis est vide : écris un objet et un message." }, { status: 400 });
+  }
 
   // Pièce jointe : le devis déposé par le commercial, lu depuis le Storage.
   let attachment: { filename: string; contentBase64: string; mimeType: string } | undefined;
