@@ -1,0 +1,536 @@
+From c2f22842b6f48af0ab5bf1b12692b59a278feff8 Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Sun, 25 Oct 2026 05:58:00 +0000
+Subject: [PATCH] =?UTF-8?q?Devis=20:=20Aaron=20ne=20r=C3=A9dige=20plus=20a?=
+ =?UTF-8?q?ucun=20devis?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- check-inbox : une demande de devis ne déclenche plus generateDevis ; le
+  commercial est seulement prévenu (« prépare-le et dépose-le sur sa fiche »).
+- GET /api/prospects/[id]/devis ne génère plus rien.
+- Envoi du devis : uniquement un devis DÉPOSÉ par le commercial, sans
+  récapitulatif chiffré d'Aaron ajouté sous l'email.
+- Signature électronique : signe le PDF déposé par le commercial au lieu
+  d'un PDF fabriqué depuis le chiffrage d'Aaron.
+- Fiche : option « Laisse Aaron préparer une base chiffrée » retirée.
+- Story « Devis à faire » et prompt d'Aaron alignés.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/check-inbox/route.ts             | 18 ++---
+ app/api/prospects/[id]/devis/route.ts         | 48 ++++--------
+ .../prospects/[id]/signature-request/route.ts | 43 +++++------
+ components/DealTools.jsx                      | 77 ++-----------------
+ lib/aaron-sales.ts                            |  4 +
+ lib/aaron_system_prompt.md                    |  6 +-
+ lib/i18n.js                                   | 14 ++--
+ lib/notifications.ts                          |  4 +-
+ 8 files changed, 67 insertions(+), 147 deletions(-)
+
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index f1dc663..c63e5c4 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -18,7 +18,6 @@ import { resolveUserTimeZone } from '@/lib/user-timezone';
+ import { getBrochureForReply } from '@/lib/first-email-attachment';
+ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+ import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
+-import { generateDevis } from '@/lib/aaron-sales';
+ import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
+ import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
+ import { sendPushNotification } from '@/lib/push';
+@@ -899,12 +898,12 @@ export async function GET(request: NextRequest) {
+       // best-effort : colonne optionnelle tant que la migration n'est pas passée.
+       await supabaseAdmin.from('prospects').update({ quote_paused_at: null }).eq('id', prospect.id).then(() => {}, () => {});
+ 
+-      // Demande de devis détectée par Aaron dans le message reçu : on prépare
+-      // automatiquement une proposition chiffrée (catalogue produits +
+-      // historique des devis déjà envoyés à ce prospect, voir
+-      // lib/aaron-sales.ts) mais on ne l'envoie JAMAIS automatiquement — le
+-      // commercial la relit et valide dans Aaron Opportunité. Best-effort : un
+-      // échec ici ne doit pas empêcher le reste du traitement du message.
++      // Demande de devis détectée par Aaron dans le message reçu : on fait
++      // avancer le contact et on PRÉVIENT le commercial. Aaron ne rédige
++      // AUCUN devis (décision d'Alex, 23-25/10/2026 : « Aaron ne fait pas de
++      // devis lui-même ») : c'est le commercial qui le prépare et le dépose
++      // sur la fiche. Best-effort : un échec ici ne doit pas empêcher le
++      // reste du traitement du message.
+       if (aaronOutput.quote_requested) {
+         // Fusion pipeline (docx « mon avis », 31/08/2026) : la demande de
+         // devis fait passer le contact en « proposition demandée » sur la
+@@ -924,14 +923,13 @@ export async function GET(request: NextRequest) {
+           if (Object.keys(rest).length > 0) await supabaseAdmin.from('prospects').update(rest).eq('id', prospect.id);
+         }
+         try {
+-          await generateDevis(prospect.id);
+           await sendPushNotification(connection.user_id, {
+             title: 'Devis à faire',
+-            body: `${prospect.full_name} a demandé un devis. Aaron a préparé une base de proposition sur sa fiche — dépose ton devis quand il est prêt.`,
++            body: `${prospect.full_name} a demandé un devis. Prépare-le et dépose-le sur sa fiche : je te préviens dès qu'il l'ouvre.`,
+             url: `/app/prospects?user_id=${connection.user_id}&contact=${prospect.id}`,
+           });
+         } catch (err: any) {
+-          console.error(`Erreur génération devis automatique pour prospect ${prospect.id}:`, err.message);
++          console.error(`Erreur notification « devis à faire » pour prospect ${prospect.id}:`, err.message);
+         }
+       }
+ 
+diff --git a/app/api/prospects/[id]/devis/route.ts b/app/api/prospects/[id]/devis/route.ts
+index 9055d3c..135b90d 100644
+--- a/app/api/prospects/[id]/devis/route.ts
++++ b/app/api/prospects/[id]/devis/route.ts
+@@ -1,7 +1,7 @@
+ // app/api/prospects/[id]/devis/route.ts
+-// GET  -> renvoie le devis déjà généré (mis en cache sur prospects.devis_*),
+-//         ou le génère à la volée. ?regenerate=1 force une nouvelle
+-//         génération. [id] = id du PROSPECT.
++// GET  -> renvoie l'email d'accompagnement déjà préparé pour le devis
++//         DÉPOSÉ par le commercial (prospects.devis_*). Ne génère plus rien :
++//         Aaron ne rédige pas de devis (25/10/2026). [id] = id du PROSPECT.
+ // POST -> envoie l'email d'accompagnement du devis au prospect, au nom du
+ //         commercial, et fait avancer l'étape du pipeline à "devis_envoye"
+ //         si l'affaire n'est pas déjà plus avancée (signé/perdu/négociation).
+@@ -15,9 +15,8 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+-import { generateDevis, summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
++import { summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
+ import { sendEmailForUser } from '@/lib/messaging';
+-import { MonthlyCapExceededError } from '@/lib/anthropic-client';
+ import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
+ 
+ const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu'];
+@@ -25,8 +24,6 @@ const STAGES_AT_LEAST_DEVIS = ['devis_envoye', 'en_negociation', 'signe', 'perdu
+ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+   const prospectId = params.id;
+-  const forceRegenerate = request.nextUrl.searchParams.get('regenerate') === '1';
+-
+   const { data: prospect, error } = await supabaseAdmin
+     .from('prospects')
+     .select('id, assigned_user_id, company_id, devis_subject, devis_body, devis_recap, devis_generated_at')
+@@ -43,7 +40,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+     return forbiddenResponse();
+   }
+ 
+-  if (!forceRegenerate && prospect.devis_subject) {
++  if (prospect.devis_subject) {
+     const recapitulatif = (prospect.devis_recap || []) as DevisLineItem[];
+     const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
+     return NextResponse.json({
+@@ -57,16 +54,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+     });
+   }
+ 
+-  try {
+-    const devis = await generateDevis(prospectId);
+-    return NextResponse.json({ ...devis, generated_at: new Date().toISOString(), cached: false });
+-  } catch (err: any) {
+-    if (err instanceof MonthlyCapExceededError) {
+-      return NextResponse.json({ error: 'Plafond de dépense API atteint pour ce mois — réessayez plus tard.' }, { status: 429 });
+-    }
+-    console.error('Erreur génération devis:', err.message);
+-    return NextResponse.json({ error: 'Impossible de générer le devis pour le moment.' }, { status: 500 });
+-  }
++  return NextResponse.json({ error: "Aucun devis déposé pour ce contact : dépose ton devis sur sa fiche." }, { status: 404 });
+ }
+ 
+ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+@@ -106,28 +94,26 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+ 
+-  if (!prospect.devis_subject || !prospect.devis_body) {
+-    return NextResponse.json({ error: "Aucun devis généré — génère d'abord le devis." }, { status: 400 });
++  // Seul un devis DÉPOSÉ par le commercial part (25/10/2026) : Aaron ne
++  // rédige pas de devis, il prépare seulement l'email qui l'accompagne.
++  if (!(prospect as any).devis_file_path) {
++    return NextResponse.json({ error: "Dépose d'abord ton devis sur la fiche du contact." }, { status: 400 });
+   }
+ 
++
+   if (prospect.devis_sent_at) {
+     return NextResponse.json({ error: 'Ce devis a déjà été envoyé.' }, { status: 400 });
+   }
+ 
+-  const recap = (prospect.devis_recap || []) as DevisLineItem[];
+-  const formatRecapLine = (r: DevisLineItem) => {
+-    const quantitySuffix = r.quantite && r.quantite !== 1 ? ` × ${r.quantite}` : '';
+-    const priceSuffix = r.total_ligne_eur != null ? ` — ${r.total_ligne_eur.toFixed(2)} €` : '';
+-    return `- ${r.poste}${quantitySuffix} : ${r.description}${priceSuffix}`;
+-  };
+-  const { total_eur: recapTotalEur } = summarizeDevisRecap(recap);
+-  const totalLine = recapTotalEur != null ? `\nTotal : ${recapTotalEur.toFixed(2)} €` : '';
+-  const recapText = recap.length
+-    ? '\n\n---\nRécapitulatif :\n' + recap.map(formatRecapLine).join('\n') + totalLine
+-    : '';
++  // Plus de « Récapitulatif » chiffré ajouté sous l'email : c'était le
++  // chiffrage d'Aaron. Le devis du commercial est en pièce jointe.
++  const recapText = '';
+ 
+   const finalSubject = (typeof override.subject === 'string' && override.subject.trim()) || prospect.devis_subject;
+   const finalBody = (typeof override.body === 'string' && override.body.trim()) || prospect.devis_body;
++  if (!finalSubject || !finalBody) {
++    return NextResponse.json({ error: "L'email d'accompagnement du devis est vide : écris un objet et un message." }, { status: 400 });
++  }
+ 
+   // Pièce jointe : le devis déposé par le commercial, lu depuis le Storage.
+   let attachment: { filename: string; contentBase64: string; mimeType: string } | undefined;
+diff --git a/app/api/prospects/[id]/signature-request/route.ts b/app/api/prospects/[id]/signature-request/route.ts
+index 8677699..976b138 100644
+--- a/app/api/prospects/[id]/signature-request/route.ts
++++ b/app/api/prospects/[id]/signature-request/route.ts
+@@ -1,5 +1,9 @@
+ // app/api/prospects/[id]/signature-request/route.ts
+-// POST -> envoie le devis déjà généré (prospects.devis_*) en signature
++// 25/10/2026 : le document signé est désormais LE DEVIS DÉPOSÉ PAR LE
++// COMMERCIAL (PDF), plus un PDF fabriqué à partir du chiffrage d'Aaron —
++// Aaron ne rédige pas de devis.
++//
++// POST -> envoie le devis (prospects.devis_*) en signature
+ // électronique via Youtrust (docx "OPPORTUNITES A4" : "tu me mets en place
+ // yousign ? fais le merci" — Yousign a changé de nom pour Youtrust en 2026,
+ // voir lib/youtrust.ts). Construit un PDF du devis (lib/devis-pdf.ts),
+@@ -19,8 +23,6 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { createSignatureRequest } from '@/lib/youtrust';
+-import { buildDevisPdf } from '@/lib/devis-pdf';
+-import { DevisLineItem, summarizeDevisRecap } from '@/lib/aaron-sales';
+ 
+ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+@@ -29,7 +31,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   const { data: prospect, error } = await supabaseAdmin
+     .from('prospects')
+     .select(
+-      `id, assigned_user_id, company_id, full_name, email, devis_subject, devis_body, devis_recap,
++      `id, assigned_user_id, company_id, full_name, email, devis_subject, devis_file_path, devis_file_name, devis_file_type,
+        signature_external_link, prospect_companies (name), users (locale)`
+     )
+     .eq('id', prospectId)
+@@ -43,8 +45,13 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+ 
+-  if (!prospect.devis_subject || !prospect.devis_recap) {
+-    return NextResponse.json({ error: "Aucun devis généré — génère d'abord le devis avant de l'envoyer en signature." }, { status: 400 });
++  const p: any = prospect;
++  if (!p.devis_file_path) {
++    return NextResponse.json({ error: "Dépose d'abord ton devis sur la fiche du contact." }, { status: 400 });
++  }
++  const isPdf = String(p.devis_file_type || '').toLowerCase().includes('pdf') || /\.pdf$/i.test(String(p.devis_file_name || ''));
++  if (!isPdf) {
++    return NextResponse.json({ error: 'Pour la signature électronique, dépose ton devis au format PDF.' }, { status: 400 });
+   }
+ 
+   if (prospect.signature_external_link) {
+@@ -55,23 +62,11 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+     return NextResponse.json({ error: "Ce prospect n'a pas d'adresse email renseignée." }, { status: 400 });
+   }
+ 
+-  const { data: company } = await supabaseAdmin
+-    .from('companies')
+-    .select('name')
+-    .eq('id', prospect.company_id)
+-    .maybeSingle();
+-
+-  const recapitulatif = (prospect.devis_recap || []) as DevisLineItem[];
+-  const { total_eur, a_des_postes_sans_prix } = summarizeDevisRecap(recapitulatif);
+-
+-  const pdfBuffer = await buildDevisPdf(
+-    { objet: prospect.devis_subject, corps_email: prospect.devis_body || '', recapitulatif, total_eur, a_des_postes_sans_prix },
+-    {
+-      prospectName: prospect.full_name,
+-      prospectCompany: (prospect as any).prospect_companies?.name || null,
+-      sellerCompanyName: company?.name || null,
+-    }
+-  );
++  const { data: blob, error: dlError } = await supabaseAdmin.storage.from('documents').download(p.devis_file_path);
++  if (dlError || !blob) {
++    return NextResponse.json({ error: 'Impossible de récupérer le fichier du devis — redépose-le.' }, { status: 500 });
++  }
++  const pdfBuffer = Buffer.from(await blob.arrayBuffer());
+ 
+   const [firstName, ...rest] = (prospect.full_name || '').split(' ');
+   const lastName = rest.join(' ') || firstName || prospect.email;
+@@ -79,7 +74,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   let result;
+   try {
+     result = await createSignatureRequest({
+-      requestName: prospect.devis_subject.slice(0, 120),
++      requestName: String(prospect.devis_subject || p.devis_file_name || 'Devis').slice(0, 120),
+       pdfBuffer,
+       pdfFilename: `devis-${prospect.full_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`,
+       signerFirstName: firstName || prospect.full_name,
+diff --git a/components/DealTools.jsx b/components/DealTools.jsx
+index bf4991e..18c0358 100644
+--- a/components/DealTools.jsx
++++ b/components/DealTools.jsx
+@@ -25,8 +25,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+   const [debriefError, setDebriefError] = useState(null);
+   const [sendingEmail, setSendingEmail] = useState(false);
+ 
+-  const [devis, setDevis] = useState(null);
+-  const [devisLoading, setDevisLoading] = useState(false);
+   const [devisError, setDevisError] = useState(null);
+   const [sendingDevis, setSendingDevis] = useState(false);
+ 
+@@ -47,7 +45,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+     setBriefError(null);
+     setDebriefNotes('');
+     setDebriefError(null);
+-    setDevis(null);
+     setDevisError(null);
+     setSignatureInput('');
+     setUploadResult(null);
+@@ -104,19 +101,6 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+     onChanged && onChanged();
+   }
+ 
+-  async function handleLoadDevis(regenerate) {
+-    setDevisLoading(true);
+-    setDevisError(null);
+-    const res = await fetch(`/api/prospects/${prospect.id}/devis${regenerate ? '?regenerate=1' : ''}`);
+-    const body = await res.json();
+-    setDevisLoading(false);
+-    if (!res.ok) {
+-      setDevisError(body.error || t('sales.quoteGenError', locale));
+-      return;
+-    }
+-    setDevis(body);
+-  }
+-
+   async function handleUploadQuote(e) {
+     const file = e.target.files && e.target.files[0];
+     e.target.value = '';
+@@ -141,13 +125,13 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+     }
+   }
+ 
+-  async function handleSendDevis(useAaronDraft) {
++  async function handleSendDevis() {
+     setSendingDevis(true);
+     setDevisError(null);
+     const res = await fetch(`/api/prospects/${prospect.id}/devis`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify(useAaronDraft === true ? {} : { subject: quoteSubject, body: quoteBody }),
++      body: JSON.stringify({ subject: quoteSubject, body: quoteBody }),
+     });
+     const body = await res.json();
+     setSendingDevis(false);
+@@ -324,7 +308,7 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+                 <textarea rows={7} value={quoteBody} onChange={(e) => setQuoteBody(e.target.value)} />
+                 {devisError && <p className="error">{devisError}</p>}
+                 <div className="row">
+-                  <button type="button" className="btn-primary" onClick={handleSendDevis} disabled={sendingDevis || !quoteSubject.trim() || !quoteBody.trim()}>
++                  <button type="button" className="btn-primary" onClick={() => handleSendDevis()} disabled={sendingDevis || !quoteSubject.trim() || !quoteBody.trim()}>
+                     {sendingDevis ? t('sales.sending', locale) : t('quote.sendNow', locale)}
+                   </button>
+                 </div>
+@@ -341,56 +325,9 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+               </>
+             )}
+ 
+-            {!(uploadResult || prospect.devis_file_name) && (
+-              <details className="fallback">
+-                <summary>{t('quote.aaronDraftSummary', locale)}</summary>
+-                {devis ? (
+-                  <div className="email-preview">
+-                    <p className="email-subject">{devis.objet}</p>
+-                    <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{devis.corps_email}</p>
+-                    {devis.recapitulatif?.length > 0 && (
+-                      <>
+-                        {devis.a_des_postes_sans_prix && (
+-                          <p className="recap-note">{t('sales.missingPricesPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.missingPricesLinkText', locale)}</a> {t('sales.missingPricesSuffix', locale)}</p>
+-                        )}
+-                        <ul className="recap-list">
+-                          {devis.recapitulatif.map((r, i) => (
+-                            <li key={i}>
+-                              <div className="recap-label">
+-                                <strong>{r.poste}</strong>{r.quantite > 1 && <span className="muted"> × {r.quantite}</span>} — {r.description}
+-                              </div>
+-                              <div className="recap-price">
+-                                {r.total_ligne_eur != null ? `${r.total_ligne_eur.toFixed(2)} €` : <span className="muted">{t('sales.priceToDefine', locale)}</span>}
+-                              </div>
+-                            </li>
+-                          ))}
+-                        </ul>
+-                        {devis.total_eur != null && (
+-                          <p className="recap-total">{t('sales.totalLabel', locale)}{devis.a_des_postes_sans_prix ? ` ${t('sales.totalPartialNote', locale)}` : ''} : {devis.total_eur.toFixed(2)} €</p>
+-                        )}
+-                      </>
+-                    )}
+-                    {devisError && <p className="error">{devisError}</p>}
+-                    <div className="row">
+-                      <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(true)} disabled={devisLoading}>
+-                        {devisLoading ? t('sales.regenerating', locale) : t('sales.regenerate', locale)}
+-                      </button>
+-                      <button type="button" className="btn-primary" onClick={() => handleSendDevis(true)} disabled={sendingDevis}>
+-                        {sendingDevis ? t('sales.sending', locale) : t('sales.sendQuoteToProspect', locale)}
+-                      </button>
+-                    </div>
+-                  </div>
+-                ) : (
+-                  <>
+-                    <p className="muted">{t('sales.quotePrepPrefix', locale)} <a href={`/app/products?user_id=${userId}`}>{t('sales.quotePrepLinkText', locale)}</a> {t('sales.quotePrepSuffix', locale)}</p>
+-                    <button type="button" className="btn-secondary" onClick={() => handleLoadDevis(false)} disabled={devisLoading}>
+-                      {devisLoading ? t('sales.generating', locale) : prospect.devis_generated_at ? t('sales.viewQuote', locale) : t('sales.generateQuote', locale)}
+-                    </button>
+-                    {devisError && <p className="error">{devisError}</p>}
+-                  </>
+-                )}
+-              </details>
+-            )}
++            {/* L'ancienne option « Laisse Aaron préparer une base chiffrée » a
++                été retirée le 25/10/2026 : Aaron ne rédige pas de devis, il
++                vérifie celui du commercial et prépare l'email qui l'accompagne. */}
+           </>
+         )}
+       </section>
+@@ -418,7 +355,7 @@ export default function DealTools({ prospect, locale, userId, onChanged }) {
+         ) : (
+           <>
+             <div className="row">
+-              <button type="button" className="btn-primary" onClick={handleSendSignatureRequest} disabled={signatureSending || !prospect.devis_generated_at}>
++              <button type="button" className="btn-primary" onClick={handleSendSignatureRequest} disabled={signatureSending || !prospect.devis_file_name}>
+                 {signatureSending ? t('sales.signatureSending', locale) : t('sales.signatureSendViaYoutrust', locale)}
+               </button>
+             </div>
+diff --git a/lib/aaron-sales.ts b/lib/aaron-sales.ts
+index a9356c4..0c1b8b1 100644
+--- a/lib/aaron-sales.ts
++++ b/lib/aaron-sales.ts
+@@ -361,6 +361,10 @@ async function loadRecentQuotesForProspect(prospectId: string) {
+ // qui correspond réellement à un produit_id existant du catalogue). Les
+ // postes non reconnus (ou si le catalogue est vide) restent sans prix,
+ // exactement comme avant — c'est toujours au commercial de les compléter.
++// NE PLUS APPELER (25/10/2026) : Aaron ne rédige pas de devis (décision
++// d'Alex). Plus aucun appelant — le cron check-inbox et GET
++// /api/prospects/[id]/devis ont été coupés. Conservée seulement le temps de
++// confirmer qu'aucun écran ne s'en sert ; à supprimer ensuite.
+ export async function generateDevis(prospectId: string): Promise<Devis> {
+   const { data: prospect, error } = await supabaseAdmin
+     .from('prospects')
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index 9d84b8e..8e5460d 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -35,7 +35,7 @@ Pourquoi cette règle prime sur tout le reste (ajoutée le 02/09/2026) : nier ê
+ Réglage choisi par le commercial dans Préférences (question posée aussi à l'onboarding) — jusqu'au 26/08/2026 ta mission était codée en dur sur l'obtention d'un rendez-vous, quelle que soit la réponse donnée à cette question ; ce n'est plus le cas, `commercial.objectif_demarchage.objectif` définit maintenant CE VERS QUOI tu fais avancer le prospect, dans TOUS tes messages (premier contact et relances) :
+ 
+ - **Un rendez-vous qualifié** (comportement historique, valeur par défaut) : cherche à obtenir un créneau (téléphonique, physique ou visio) — voir DÉROULÉ D'UNE CONVERSATION TYPE et APRÈS LE RDV ci-dessous, inchangés.
+-- **Une demande de devis/chiffrage directe, sans passer par un rendez-vous** : ne propose PAS de créneau d'appel comme objectif final — ton call-to-action doit viser à obtenir assez d'informations concrètes (besoin, quantité, périmètre...) pour préparer un devis, ou directement inviter le prospect à demander un devis chiffré ("Dites-moi ce dont vous avez besoin et je vous prépare un devis sous 48h", par exemple). Si le prospect répond avec une vraie demande de devis, le signal `quote_requested` (voir plus bas) se déclenche normalement — c'est le chemin normal de conversion pour cet objectif, pas une exception.
++- **Une demande de devis/chiffrage directe, sans passer par un rendez-vous** : ne propose PAS de créneau d'appel comme objectif final — ton call-to-action doit viser à obtenir assez d'informations concrètes (besoin, quantité, périmètre...) pour préparer un devis, ou directement inviter le prospect à demander un devis chiffré ("Dites-moi ce dont vous avez besoin et je vous prépare un devis", par exemple — c'est le commercial qui parle et qui le préparera, sans délai promis à sa place). Si le prospect répond avec une vraie demande de devis, le signal `quote_requested` (voir plus bas) se déclenche normalement — c'est le chemin normal de conversion pour cet objectif, pas une exception.
+ - **Une inscription ou un abonnement direct, sans passer par un rendez-vous** : couvre aussi bien un essai gratuit qu'un abonnement payant en auto-service (ex: souscription directe via une page de paiement) — ton call-to-action doit inviter à l'action directe (s'inscrire, s'abonner, souscrire, télécharger...) plutôt qu'à un échange préalable — un rendez-vous ne doit être proposé QUE si le prospect exprime lui-même une hésitation ou une question qui le justifie vraiment, jamais comme premier réflexe.
+ - **Autre** : `commercial.objectif_demarchage.precision` décrit ce que le commercial vise réellement — adapte ton call-to-action à cette description précise plutôt qu'à un des trois cas ci-dessus.
+ 
+@@ -182,9 +182,9 @@ Si `appointment_cancelled` est `true` et que le prospect n'a pas lui-même propo
+ 
+ ## DÉTECTION D'UNE DEMANDE DE DEVIS
+ 
+-Si le message du prospect exprime une vraie demande de devis/proposition chiffrée/tarif (ex: "pouvez-vous m'envoyer un devis", "combien ça coûterait pour X", "je voudrais une proposition commerciale pour..."), indique `"quote_requested": true` dans le JSON de sortie. Le backend déclenche alors automatiquement la préparation d'un devis chiffré (à l'aide du catalogue de tarifs de la société, s'il est renseigné, et de l'historique des devis déjà envoyés à ce même prospect) — ce devis n'est JAMAIS envoyé automatiquement, il attend toujours la relecture et la validation du commercial dans Aaron Opportunité, séparément de ta réponse email habituelle à ce tour-ci.
++Si le message du prospect exprime une vraie demande de devis/proposition chiffrée/tarif (ex: "pouvez-vous m'envoyer un devis", "combien ça coûterait pour X", "je voudrais une proposition commerciale pour..."), indique `"quote_requested": true` dans le JSON de sortie. Le backend prévient alors le commercial qu'un devis est à faire : c'est LUI qui le prépare et le dépose sur la fiche. Tu ne rédiges JAMAIS de devis, ni de prix, ni de proposition chiffrée — et tu ne promets pas de délai d'envoi au nom du commercial. Ta réponse email habituelle à ce tour-ci reste séparée.
+ 
+-Ne mets `quote_requested` à `true` que pour une VRAIE demande de chiffrage explicite — pas pour une simple question générale sur l'offre, le fonctionnement, ou les délais. Dans le doute, reste à `false` : c'est au commercial de lancer la génération manuellement depuis Aaron Opportunité si besoin. Sinon, `"quote_requested": false`.
++Ne mets `quote_requested` à `true` que pour une VRAIE demande de chiffrage explicite — pas pour une simple question générale sur l'offre, le fonctionnement, ou les délais. Dans le doute, reste à `false` : le commercial voit de toute façon la conversation. Sinon, `"quote_requested": false`.
+ 
+ ## DÉTECTION D'UN ACCORD FERME (PASSAGE EN CLIENT)
+ 
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 0f94c44..cd7fc0e 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -253,7 +253,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Deux jours déjà. Un prospect chaud refroidit vite : envoie au moins un mot pour dire que ça arrive, et une date.",
+     "stories.devisAdvice2": "Ça fait plusieurs jours. À ce stade, le silence lui fait douter — envoie le devis aujourd'hui, même s'il n'est pas parfait, tu ajusteras après.",
+     "stories.devisAdvice3": "Plus d'une semaine sans proposition. Il a très probablement demandé ailleurs. Envoie le devis maintenant et appelle-le pour le présenter de vive voix.",
+-    "stories.devisDraftHint": "Aaron a préparé une base de proposition sur sa fiche.",
++    "stories.devisDraftHint": "Ton devis est déposé sur sa fiche : il ne reste qu'à l'envoyer.",
+     "stories.openCardQuote": "Ouvrir la fiche et faire le devis",
+     "stories.devisOpenLeadNow": "{name} est en train de lire ton devis. Appelle-le.",
+     "stories.devisOpenLead": "{name} a ouvert ton devis. Appelle-le.",
+@@ -2641,7 +2641,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Two days already. A hot prospect cools down fast: at least send a note saying it's coming, with a date.",
+     "stories.devisAdvice2": "It's been several days. By now the silence makes them doubt — send the quote today, even if it's not perfect, you'll adjust later.",
+     "stories.devisAdvice3": "Over a week with no proposal. They've most likely asked elsewhere. Send the quote now and call to present it in person.",
+-    "stories.devisDraftHint": "Aaron prepared a draft proposal on their card.",
++    "stories.devisDraftHint": "Your quote is on their card: it just needs sending.",
+     "stories.openCardQuote": "Open card and do the quote",
+     "stories.devisOpenLeadNow": "{name} is reading your quote right now. Call them.",
+     "stories.devisOpenLead": "{name} opened your quote. Call them.",
+@@ -4724,7 +4724,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Schon zwei Tage. Ein heißer Kontakt kühlt schnell ab: schick zumindest eine kurze Nachricht mit einem Datum.",
+     "stories.devisAdvice2": "Es sind schon mehrere Tage. Die Stille lässt ihn zweifeln — schick das Angebot heute, auch wenn es nicht perfekt ist.",
+     "stories.devisAdvice3": "Über eine Woche ohne Angebot. Er hat sehr wahrscheinlich woanders angefragt. Schick das Angebot jetzt und ruf an, um es persönlich vorzustellen.",
+-    "stories.devisDraftHint": "Aaron hat auf der Karte einen Angebotsentwurf vorbereitet.",
++    "stories.devisDraftHint": "Dein Angebot liegt auf der Karte: Es muss nur noch verschickt werden.",
+     "stories.openCardQuote": "Karte öffnen und Angebot machen",
+     "stories.devisOpenLeadNow": "{name} liest gerade Ihr Angebot. Rufen Sie an.",
+     "stories.devisOpenLead": "{name} hat Ihr Angebot geöffnet. Rufen Sie an.",
+@@ -6807,7 +6807,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Già due giorni. Un prospect caldo si raffredda in fretta: manda almeno due righe per dire che arriva, con una data.",
+     "stories.devisAdvice2": "Sono passati diversi giorni. Il silenzio lo fa dubitare — invia il preventivo oggi, anche se non è perfetto, aggiusterai dopo.",
+     "stories.devisAdvice3": "Più di una settimana senza proposta. Molto probabilmente ha chiesto altrove. Invia il preventivo ora e chiamalo per presentarlo a voce.",
+-    "stories.devisDraftHint": "Aaron ha preparato una bozza di proposta sulla scheda.",
++    "stories.devisDraftHint": "Il tuo preventivo è sulla scheda: manca solo l'invio.",
+     "stories.openCardQuote": "Apri la scheda e fai il preventivo",
+     "stories.devisOpenLeadNow": "{name} sta leggendo il tuo preventivo. Chiamalo.",
+     "stories.devisOpenLead": "{name} ha aperto il tuo preventivo. Chiamalo.",
+@@ -8890,7 +8890,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Ya dos días. Un prospecto caliente se enfría rápido: envía al menos una nota diciendo que llega, con una fecha.",
+     "stories.devisAdvice2": "Han pasado varios días. El silencio le hace dudar — envía el presupuesto hoy, aunque no sea perfecto, lo ajustarás después.",
+     "stories.devisAdvice3": "Más de una semana sin propuesta. Muy probablemente ha preguntado en otro sitio. Envía el presupuesto ahora y llámale para presentarlo.",
+-    "stories.devisDraftHint": "Aaron preparó una base de propuesta en su ficha.",
++    "stories.devisDraftHint": "Tu presupuesto está en su ficha: solo falta enviarlo.",
+     "stories.openCardQuote": "Abrir la ficha y hacer el presupuesto",
+     "stories.devisOpenLeadNow": "{name} está leyendo tu presupuesto. Llámale.",
+     "stories.devisOpenLead": "{name} ha abierto tu presupuesto. Llámale.",
+@@ -10973,7 +10973,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Já dois dias. Um prospeto quente arrefece depressa: envia pelo menos uma nota a dizer que vem, com uma data.",
+     "stories.devisAdvice2": "Já passaram vários dias. O silêncio faz-lhe duvidar — envia o orçamento hoje, mesmo imperfeito, ajustas depois.",
+     "stories.devisAdvice3": "Mais de uma semana sem proposta. Muito provavelmente pediu noutro lado. Envia o orçamento agora e liga-lhe para o apresentar.",
+-    "stories.devisDraftHint": "O Aaron preparou uma base de proposta na ficha.",
++    "stories.devisDraftHint": "O teu orçamento está na ficha: só falta enviá-lo.",
+     "stories.openCardQuote": "Abrir a ficha e fazer o orçamento",
+     "stories.devisOpenLeadNow": "{name} está a ler o seu orçamento. Ligue-lhe.",
+     "stories.devisOpenLead": "{name} abriu o seu orçamento. Ligue-lhe.",
+@@ -13056,7 +13056,7 @@ export const DICT = {
+     "stories.devisAdvice1": "Al twee dagen. Een warme prospect koelt snel af: stuur minstens een berichtje dat het eraan komt, met een datum.",
+     "stories.devisAdvice2": "Het is al meerdere dagen. De stilte doet twijfelen — stuur de offerte vandaag, ook al is hij niet perfect.",
+     "stories.devisAdvice3": "Meer dan een week zonder voorstel. Waarschijnlijk heeft hij elders gevraagd. Stuur de offerte nu en bel om hem toe te lichten.",
+-    "stories.devisDraftHint": "Aaron heeft een conceptvoorstel op de kaart klaargezet.",
++    "stories.devisDraftHint": "Je offerte staat op de kaart: hij moet alleen nog verstuurd worden.",
+     "stories.openCardQuote": "Kaart openen en offerte maken",
+     "stories.devisOpenLeadNow": "{name} leest nu je offerte. Bel hem.",
+     "stories.devisOpenLead": "{name} heeft je offerte geopend. Bel hem.",
+diff --git a/lib/notifications.ts b/lib/notifications.ts
+index 7d6b944..db5c5cb 100644
+--- a/lib/notifications.ts
++++ b/lib/notifications.ts
+@@ -97,7 +97,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
+   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
+   const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
+-  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at';
++  const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, devis_file_name';
+   async function loadProspects() {
+     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
+     // incompatibles entre les trois variantes (GenericStringError), alors que
+@@ -180,7 +180,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+         type: 'devis_a_faire',
+         at: p.quote_requested_at,
+         days_waiting: days,
+-        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_generated_at, paused: !!p.quote_paused_at },
++        meta: { advice_level: quoteAdviceLevel(days), has_draft: !!p.devis_file_name, paused: !!p.quote_paused_at },
+       });
+     }
+     if (p.rescue_proposal_pending) {
+-- 
+2.43.0
+
