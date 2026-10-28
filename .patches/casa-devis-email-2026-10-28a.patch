@@ -1,0 +1,1040 @@
+From 40aced7f43ee9d5150de043b93264d3fbd4070fa Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Wed, 28 Oct 2026 08:06:42 +0000
+Subject: [PATCH] =?UTF-8?q?Rapidit=C3=A9=20:=20fonctions=20Vercel=20=C3=A0?=
+ =?UTF-8?q?=20S=C3=A9oul,=20travail=20lent=20en=20arri=C3=A8re-plan?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- vercel.json : regions icn1. La base Supabase est à Séoul alors que les
+  fonctions tournaient à Washington : 150 à 200 ms par requête SQL, soit
+  1 à 4 s par écran. Les deux sont maintenant au même endroit.
+- lib/background.ts : after() de Next 15, pour répondre tout de suite et
+  finir le travail après.
+- Bilan de RDV : enregistré immédiatement ; note d'Aaron et email de
+  remerciement en arrière-plan, la page les relit quelques secondes après.
+  Bouton « Terminé » : réaction immédiate et retour à la page d'origine.
+- RDV : emails de confirmation, d'annulation et de relance, suppression
+  de l'événement d'agenda en arrière-plan.
+- Import CSV : chaque ligne est créée tout de suite ; recherche de la
+  société et premier email d'Aaron après coup (lib/first-contact.ts).
+- Documents : la lecture par Aaron se fait après le dépôt ; la liste
+  affiche « Aaron lit le document… » puis la synthèse.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/outcome/route.ts    |  28 ++-
+ app/api/appointments/[id]/route.ts            |  59 +++---
+ app/api/business-summary/route.ts             |   9 +-
+ app/api/documents/route.ts                    |  30 ++-
+ .../[id]/generate-first-contact/route.ts      | 148 +--------------
+ app/api/prospects/route.ts                    |  24 +++
+ app/app/agenda/rdv/[id]/bilan/page.jsx        |  75 +++++++-
+ app/app/documents/page.jsx                    |  20 ++
+ components/CsvImportModal.jsx                 |   5 +
+ lib/appointment-outcome.ts                    |  65 ++++++-
+ lib/background.ts                             |  32 ++++
+ lib/first-contact.ts                          | 175 ++++++++++++++++++
+ migration_bilan_arriere_plan_2026-10-28.sql   |   6 +
+ vercel.json                                   |   1 +
+ 14 files changed, 488 insertions(+), 189 deletions(-)
+ create mode 100644 lib/background.ts
+ create mode 100644 lib/first-contact.ts
+ create mode 100644 migration_bilan_arriere_plan_2026-10-28.sql
+
+diff --git a/app/api/appointments/[id]/outcome/route.ts b/app/api/appointments/[id]/outcome/route.ts
+index 5920b44..8fa370f 100644
+--- a/app/api/appointments/[id]/outcome/route.ts
++++ b/app/api/appointments/[id]/outcome/route.ts
+@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { canAccessAppointment } from '@/lib/appointment-access';
+-import { recordAppointmentOutcome, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
++import { recordAppointmentOutcome, personalizeOutcomeNote, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
++import { runInBackground } from '@/lib/background';
+ import { readJsonBody } from '@/lib/http';
+ 
+ const VALID_OUTCOMES: AppointmentOutcome[] = ['a_continuer', 'opportunite', 'devis', 'perdu'];
+@@ -47,12 +48,25 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   }
+ 
+   try {
+-    const { note } = await recordAppointmentOutcome(params.id, outcome, details);
+-    let thankYou: { sent: boolean; error?: string } = { sent: false };
+-    if (send_thank_you === true) {
+-      thankYou = await sendThankYouEmail(params.id, outcome, details);
+-    }
+-    return NextResponse.json({ note, thank_you_sent: thankYou.sent, thank_you_error: thankYou.error || null });
++    // 28/10/2026 : le bilan est enregistré tout de suite (base seulement),
++    // puis la note d'Aaron et l'email de remerciement se font en arrière-plan.
++    // La page relit GET /api/appointments/[id] quelques secondes plus tard
++    // pour afficher la note personnalisée et l'état de l'email.
++    const { note } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
++    const wantsThankYou = send_thank_you === true;
++    const notePending = outcome !== 'opportunite' && outcome !== 'devis';
++    runInBackground(`bilan RDV ${params.id}`, async () => {
++      await personalizeOutcomeNote(params.id, outcome, details);
++      if (wantsThankYou) {
++        const result = await sendThankYouEmail(params.id, outcome, details);
++        if (!result.sent) {
++          // Colonne optionnelle (migration_bilan_arriere_plan_2026-10-28.sql) :
++          // sans elle, l'échec reste seulement dans les journaux.
++          await supabaseAdmin.from('appointments').update({ thank_you_error: result.error || 'envoi impossible' }).eq('id', params.id).then(() => {}, () => {});
++        }
++      }
++    });
++    return NextResponse.json({ note, note_pending: notePending, thank_you_pending: wantsThankYou });
+   } catch (err: any) {
+     console.error('Erreur enregistrement bilan RDV:', err.message);
+     return NextResponse.json({ error: "Impossible d'enregistrer le bilan" }, { status: 500 });
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index 2ab9077..b11a5d8 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -28,6 +28,7 @@ import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+ import { resolveMeetingLink } from '@/lib/meeting-link';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { canAccessAppointment } from '@/lib/appointment-access';
++import { runInBackground } from '@/lib/background';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+ // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
+@@ -99,11 +100,21 @@ async function detectSchedulingConflicts(userId: string, startISO: string, endIS
+ // si un bilan a déjà été enregistré.
+ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+-  const { data: appointment, error } = await supabaseAdmin
++  let res: any = await supabaseAdmin
+     .from('appointments')
+-    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, email, assigned_user_id, company_id)')
++    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, thank_you_sent_at, thank_you_error, prospects(full_name, email, assigned_user_id, company_id)')
+     .eq('id', params.id)
+     .single();
++  if (res.error && res.error.code === '42703') {
++    // migration_bilan_arriere_plan_2026-10-28.sql pas encore passée.
++    res = await supabaseAdmin
++      .from('appointments')
++      .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, thank_you_sent_at, prospects(full_name, email, assigned_user_id, company_id)')
++      .eq('id', params.id)
++      .single();
++  }
++  const appointment: any = res.data;
++  const error = res.error;
+ 
+   if (error || !appointment) {
+     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+@@ -127,6 +138,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+     // Faux pour un contact saisi à la main : la page bilan masque alors la
+     // case « email de remerciement », qui ne pouvait qu'échouer.
+     can_send_thank_you: !!prospect?.email,
++    // État de l'email de remerciement envoyé en arrière-plan après le bilan.
++    thank_you_sent_at: appointment.thank_you_sent_at || null,
++    thank_you_error: appointment.thank_you_error || null,
+   });
+ }
+ 
+@@ -289,12 +303,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+         lines.push('', "Vous recevrez également une invitation pour votre agenda.");
+       }
+       lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
+-      try {
+-        await sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'));
+-      } catch (mailErr: any) {
+-        // Le RDV est validé : un échec d'envoi ne doit pas le remettre en cause.
+-        console.error('Erreur envoi de la confirmation de RDV au prospect:', mailErr.message);
+-      }
++      // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
++      // n'attend pas la boîte mail. Un échec reste dans les journaux.
++      runInBackground(`confirmation RDV ${appointmentId}`, () =>
++        sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'))
++      );
+     }
+ 
+     await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+@@ -317,15 +330,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     // le calendrier externe du commercial. Best-effort : l'annulation côté
+     // Aaron est déjà actée, un souci ici ne doit pas la faire échouer.
+     if (appointment.calendar_event_id && appointment.calendar_provider) {
+-      try {
++      runInBackground(`suppression agenda RDV ${appointmentId}`, async () => {
+         if (appointment.calendar_provider === 'google') {
+           await deleteGoogleCalendarEvent(userId, appointment.calendar_event_id);
+         } else if (appointment.calendar_provider === 'microsoft') {
+           await deleteOutlookCalendarEvent(userId, appointment.calendar_event_id);
+         }
+-      } catch (calendarErr: any) {
+-        console.error('Erreur suppression événement calendrier sur annulation:', calendarErr.message);
+-      }
++      });
+     }
+ 
+     // Bug remonté par Alex (2026-08-20) : annuler un RDV dont la date est déjà
+@@ -335,11 +346,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     // même de relancer (action "relancer", voir plus bas) via la notif moins
+     // urgente qui apparaît désormais au tableau de bord pour ce cas.
+     if (!alreadyPast && appointment.prospects?.email) {
+-      await sendEmailForUser(
+-        userId,
+-        appointment.prospects.email,
+-        'Concernant notre rendez-vous',
+-        `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
++      runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
++        sendEmailForUser(
++          userId,
++          appointment.prospects.email,
++          'Concernant notre rendez-vous',
++          `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
++        )
+       );
+     }
+ 
+@@ -357,11 +370,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+       await supabaseAdmin.from('appointments').update({ client_cancel_acknowledged: true }).eq('id', appointmentId);
+       return NextResponse.json({ error: "Pas d'adresse email pour ce contact : relance-le directement." }, { status: 400 });
+     }
+-    await sendEmailForUser(
+-      userId,
+-      appointment.prospects.email,
+-      'Reprogrammons notre rendez-vous',
+-      `Bonjour ${appointment.prospects.full_name},\n\nJ'ai bien noté que notre rendez-vous ne pouvait finalement pas avoir lieu. Quand seriez-vous disponible pour le reprogrammer ?\n\nCordialement.`
++    runInBackground(`relance RDV ${appointmentId}`, () =>
++      sendEmailForUser(
++        userId,
++        appointment.prospects.email,
++        'Reprogrammons notre rendez-vous',
++        `Bonjour ${appointment.prospects.full_name},\n\nJ'ai bien noté que notre rendez-vous ne pouvait finalement pas avoir lieu. Quand seriez-vous disponible pour le reprogrammer ?\n\nCordialement.`
++      )
+     );
+ 
+     await supabaseAdmin
+diff --git a/app/api/business-summary/route.ts b/app/api/business-summary/route.ts
+index 6bed9e2..12aaf5f 100644
+--- a/app/api/business-summary/route.ts
++++ b/app/api/business-summary/route.ts
+@@ -148,15 +148,18 @@ export async function POST(request: NextRequest) {
+   // s'appuie sur les documents de la société.
+   const { data: documents } = await supabaseAdmin
+     .from('company_documents')
+-    .select('file_name, summary')
++    .select('file_name, summary, extracted_text')
+     .eq('company_id', user.company_id)
+     .eq('included_in_aaron_context', true)
+     .order('created_at', { ascending: false })
+     .limit(8);
+ 
++  // Depuis le 28/10/2026 la synthèse d'un document arrive en arrière-plan :
++  // un document tout juste déposé (Bienvenue) n'en a pas encore. On se
++  // rabat alors sur un extrait du texte lui-même.
+   const documentSummaries = (documents || [])
+-    .filter((d) => d.summary)
+-    .map((d) => `- ${d.file_name} : ${d.summary}`)
++    .filter((d: any) => d.summary || d.extracted_text)
++    .map((d: any) => `- ${d.file_name} : ${d.summary || String(d.extracted_text).slice(0, 2500)}`)
+     .join('\n');
+ 
+   // Réponses structurées au questionnaire de découverte guidé (voir app/app/chat/page.jsx) —
+diff --git a/app/api/documents/route.ts b/app/api/documents/route.ts
+index a4c1a92..9137f74 100644
+--- a/app/api/documents/route.ts
++++ b/app/api/documents/route.ts
+@@ -17,6 +17,7 @@ import { extractDocumentText } from '@/lib/document-extraction';
+ import { analyzeDocument } from '@/lib/document-summary';
+ import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
+ import { serverError } from '@/lib/http';
++import { runInBackground } from '@/lib/background';
+ 
+ const BUCKET = 'documents';
+ 
+@@ -144,10 +145,12 @@ export async function POST(request: NextRequest) {
+   // Il ne classe QUE si le commercial n'a rien choisi lui-même — un choix
+   // manuel n'est jamais écrasé (voir aussi le PATCH, qui repasse
+   // category_auto à false dès que le commercial corrige).
+-  const analysis = extractedText
+-    ? await analyzeDocument(file.name, extractedText, user.company_id, authedUser.locale, userId)
+-    : { summary: null, category: null };
+-  const autoCategory = !linkedCategory && analysis.category && analysis.category !== 'general' ? analysis.category : null;
++  // 28/10/2026 : la lecture par Aaron (appel Claude, 10 à 30 s) se fait
++  // APRÈS la réponse (lib/background.ts). Le document apparaît tout de suite
++  // dans la liste, la synthèse et le classement arrivent quelques secondes
++  // plus tard (la page relit la liste).
++  const analysis: { summary: string | null; category: string | null } = { summary: null, category: null };
++  const autoCategory: string | null = null;
+ 
+   const insertRow: Record<string, any> = {
+     company_id: user.company_id,
+@@ -196,5 +199,22 @@ export async function POST(request: NextRequest) {
+     return serverError(dbError, '/api/documents');
+   }
+ 
+-  return NextResponse.json({ document: doc });
++  if (extractedText && doc) {
++    const docId = (doc as any).id;
++    const companyId = user.company_id;
++    const locale = authedUser.locale;
++    const fileName = file.name;
++    runInBackground(`lecture du document ${docId}`, async () => {
++      const result = await analyzeDocument(fileName, extractedText, companyId, locale, userId);
++      const auto = !linkedCategory && result.category && result.category !== 'general' ? result.category : null;
++      const update: Record<string, any> = { summary: result.summary };
++      if (auto) { update.linked_category = auto; update.category_auto = true; }
++      const { error } = await supabaseAdmin.from('company_documents').update(update).eq('id', docId);
++      if (error && (error as any).code === '42703') {
++        await supabaseAdmin.from('company_documents').update({ summary: result.summary, ...(auto ? { linked_category: auto } : {}) }).eq('id', docId);
++      }
++    });
++  }
++
++  return NextResponse.json({ document: doc, analysis_pending: !!extractedText });
+ }
+diff --git a/app/api/prospects/[id]/generate-first-contact/route.ts b/app/api/prospects/[id]/generate-first-contact/route.ts
+index 88fd2db..f0fb64b 100644
+--- a/app/api/prospects/[id]/generate-first-contact/route.ts
++++ b/app/api/prospects/[id]/generate-first-contact/route.ts
+@@ -20,11 +20,8 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+-import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+-import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from '@/lib/messaging';
+-import { sendPushNotification } from '@/lib/push';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+-import { ensureCompanyEnriched } from '@/lib/prospect-research';
++import { runFirstContact } from '@/lib/first-contact';
+ 
+ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+@@ -48,144 +45,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   // renseigné, le premier contact a déjà été généré (appel précédent déjà
+   // passé, ou double-appel accidentel côté frontend) — on ne relance jamais
+   // une deuxième génération/un deuxième envoi pour le même prospect.
+-  if (prospect.aaron_advice) {
+-    return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null, skipped: true });
+-  }
+-
+-  const { data: conversation } = await supabaseAdmin
+-    .from('conversations')
+-    .select('id')
+-    .eq('prospect_id', prospect.id)
+-    .single();
+-
+-  const { data: prospectCompany } = await supabaseAdmin
+-    .from('prospect_companies')
+-    .select('*')
+-    .eq('id', prospect.prospect_company_id)
+-    .single();
+-
+-  // Même recherche web unique par société qu'auparavant dans
+-  // app/api/prospects/route.ts — voir lib/prospect-research.ts. Ne relance
+-  // jamais si déjà vérifiée (research_summary ou research_checked_at déjà en
+-  // base).
+-  if (prospectCompany) {
+-    await ensureCompanyEnriched(prospect.company_id, prospectCompany, {
+-      name: prospectCompany.name || null,
+-      domain: prospectCompany.domain || null,
+-      website: prospectCompany.website || null,
+-      industry: prospectCompany.industry || null,
+-      address: prospectCompany.address || null,
+-    });
+-  }
+-
+-  let aaronOutput = null;
+-  // Voir app/api/prospects/route.ts : on renvoie un CODE traduisible en plus
+-  // du texte français, pour que l'alerte suive la langue de l'interface.
+-  let emailWarning = null;
+-  let emailWarningCode: string | null = null;
+-  let emailWarningParams: Record<string, string> | null = null;
+-
+-  try {
+-    const { data: sender } = await supabaseAdmin
+-      .from('users')
+-      .select('email, require_first_email_approval')
+-      .eq('id', prospect.assigned_user_id)
+-      .single();
+-
+-    aaronOutput = await generateAaronResponse(prospect.id);
+-
+-    const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+-
+-    if (hasEmailToSend && sender?.require_first_email_approval) {
+-      await supabaseAdmin
+-        .from('prospects')
+-        .update({
+-          pending_first_email_subject: aaronOutput.email_draft.subject,
+-          pending_first_email_body: aaronOutput.email_draft.body,
+-          pending_first_email_generated_at: new Date().toISOString(),
+-        })
+-        .eq('id', prospect.id);
+-
+-      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+-      emailWarningCode = 'pendingApproval';
+-
+-      try {
+-        await sendPushNotification(prospect.assigned_user_id, {
+-          title: 'Premier email prêt à valider',
+-          // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
+-          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+-          tag: `premier_email:${prospect.id}`,
+-          // Lien profond : fiche + modale de validation ouvertes d'emblée.
+-          url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
+-        });
+-      } catch (pushErr) {
+-        console.error('Erreur envoi notification push (premier email à valider):', pushErr);
+-      }
+-    } else if (hasEmailToSend) {
+-      // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+-      // de spam classique). La plaquette part avec la premiere reponse
+-      // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
+-      await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
+-        emailType: 'prospecting',
+-      });
+-
+-      if (conversation) {
+-        await supabaseAdmin.from('messages').insert({
+-          conversation_id: conversation.id,
+-          direction: 'outbound',
+-          sender_email: sender?.email || null,
+-          recipient_email: prospect.email,
+-          body: aaronOutput.email_draft.body,
+-        });
+-      }
+-    }
+-
+-    await supabaseAdmin
+-      .from('prospects')
+-      .update({
+-        status: aaronOutput.prospect_status,
+-        status_updated_at: new Date().toISOString(),
+-        personality_type: aaronOutput.personality_type,
+-        personality_notes: aaronOutput.personality_notes,
+-        aaron_advice: aaronOutput.aaron_advice,
+-            ...convictionColumns(aaronOutput),
+-      })
+-      .eq('id', prospect.id);
+-  } catch (err: any) {
+-    console.error('Erreur génération/envoi du premier message prospect:', err.message);
+-    if (err instanceof DailySendCapExceededError) {
+-      emailWarningCode = 'dailyCap';
+-      emailWarningParams = { cap: String(err.cap) };
+-      emailWarning = `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`;
+-    } else if (err instanceof DomainNotDeliverableError) {
+-      emailWarningCode = 'domainNotDeliverable';
+-      emailWarningParams = { domain: String(err.domain) };
+-      emailWarning = `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF valide, tes emails de prospection partiraient en spam. Corrige-le dans « Connexions » — le message partira automatiquement une fois réglé.`;
+-    } else if (err.message?.includes('Aucune boîte mail connectée')) {
+-      emailWarningCode = 'noMailbox';
+-      emailWarning = "Prospect ajouté, mais aucun email n'a été envoyé : connecte ta boîte mail dans « Connexions ».";
+-    } else {
+-      emailWarningCode = 'sendFailed';
+-      emailWarning = "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+-    }
+-
+-    // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
+-    // 30/08/2026, test Outlook — voir
+-    // migration_prospect_first_message_error_2026-08-30.sql) pour pouvoir
+-    // diagnostiquer sans accès aux logs serveur, même schéma que
+-    // send-verification/resend-verification pour l'email de confirmation.
+-    try {
+-      await supabaseAdmin
+-        .from('prospects')
+-        .update({
+-          first_message_send_error: String(err?.message || err),
+-          first_message_send_error_at: new Date().toISOString(),
+-        })
+-        .eq('id', prospect.id);
+-    } catch (logErr: any) {
+-      console.error('Erreur stockage first_message_send_error (non bloquant):', logErr.message);
+-    }
+-  }
+-
+-  return NextResponse.json({ prospect, aaronOutput, emailWarning, emailWarningCode, emailWarningParams });
++  // Logique dans lib/first-contact.ts (28/10/2026), partagée avec l'import CSV.
++  const result = await runFirstContact(prospect as any);
++  return NextResponse.json(result);
+ }
+diff --git a/app/api/prospects/route.ts b/app/api/prospects/route.ts
+index 33a539d..7a13157 100644
+--- a/app/api/prospects/route.ts
++++ b/app/api/prospects/route.ts
+@@ -14,6 +14,8 @@ import { canViewUserData } from '@/lib/user-access';
+ import { isGenericEmailDomain } from '@/lib/csv-import';
+ import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
+ import { ensureCompanyEnriched } from '@/lib/prospect-research';
++import { runInBackground } from '@/lib/background';
++import { runFirstContact, loadFirstContactProspect } from '@/lib/first-contact';
+ import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+@@ -388,6 +390,28 @@ export async function POST(request: NextRequest) {
+   // AVANT même la recherche web de la société (elle aussi lente) — tout le
+   // travail lent est délégué à /api/prospects/[id]/generate-first-contact.
+   if (asyncFirstContact) {
++    // `background_first_contact` (28/10/2026, import CSV) : le serveur fait
++    // lui-même la suite APRÈS avoir répondu (lib/background.ts) — recherche
++    // de la société, puis premier email d'Aaron sauf si skip_first_contact.
++    // L'import n'attend plus 20 à 40 s par ligne. Un échec est retenté par
++    // le cron retry-uncontacted-prospects.
++    if (body.background_first_contact === true) {
++      const companyForEnrichment = prospectCompany;
++      runInBackground(`premier contact ${prospect.id}`, async () => {
++        if (skipFirstContact) {
++          await ensureCompanyEnriched(company_id, companyForEnrichment, {
++            name: cleanCompanyName || companyForEnrichment.name || null,
++            domain: domainForMatching,
++            website: website || companyForEnrichment.website || null,
++            industry: industry || companyForEnrichment.industry || null,
++            address: address || companyForEnrichment.address || null,
++          });
++          return;
++        }
++        const row = await loadFirstContactProspect(prospect.id);
++        if (row) await runFirstContact(row);
++      });
++    }
+     return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null });
+   }
+ 
+diff --git a/app/app/agenda/rdv/[id]/bilan/page.jsx b/app/app/agenda/rdv/[id]/bilan/page.jsx
+index 544e857..11f3500 100644
+--- a/app/app/agenda/rdv/[id]/bilan/page.jsx
++++ b/app/app/agenda/rdv/[id]/bilan/page.jsx
+@@ -20,6 +20,9 @@ function useAuthedUser() {
+   const router = useRouter();
+   const [ready, setReady] = useState(false);
+   const [authError, setAuthError] = useState(null);
++  const [userId, setUserId] = useState(() => {
++    try { return new URLSearchParams(window.location.search).get('user_id') || null; } catch { return null; }
++  });
+ 
+   useEffect(() => {
+     let cancelled = false;
+@@ -60,6 +63,10 @@ function useAuthedUser() {
+         router.push('/login');
+         return;
+       }
++      try {
++        const body = await res.json();
++        if (body?.user?.id) setUserId(body.user.id);
++      } catch {}
+       setReady(true);
+     }
+ 
+@@ -67,7 +74,7 @@ function useAuthedUser() {
+     return () => { cancelled = true; };
+   }, [router]);
+ 
+-  return { ready, authError };
++  return { ready, authError, userId };
+ }
+ 
+ // CHANGEMENTS A FAIRE #6 (2026-08-15) : "opportunité" et "demande de devis"
+@@ -106,10 +113,21 @@ function orderedChoices(locale, mood) {
+   return order.map((value) => all.find((c) => c.value === value)).filter(Boolean);
+ }
+ 
++// Textes propres à cette page (dictionnaire local).
++const THANK_YOU_PENDING = {
++  fr: "Aaron rédige et envoie l'email de remerciement…",
++  en: 'Aaron is writing and sending the thank-you email…',
++  de: 'Aaron schreibt und sendet die Dankes-E-Mail…',
++  it: "Aaron sta scrivendo e inviando l'email di ringraziamento…",
++  es: 'Aaron está redactando y enviando el email de agradecimiento…',
++  pt: 'O Aaron está a escrever e enviar o email de agradecimento…',
++  nl: 'Aaron schrijft en verstuurt de bedank-e-mail…',
++};
++
+ export default function BilanRdvPage(props) {
+   const params = use(props.params);
+   const [locale] = useLocale();
+-  const { ready, authError } = useAuthedUser();
++  const { ready, authError, userId } = useAuthedUser();
+   const [appointment, setAppointment] = useState(null);
+   const [loading, setLoading] = useState(true);
+   const [submitting, setSubmitting] = useState(false);
+@@ -154,6 +172,26 @@ export default function BilanRdvPage(props) {
+       .finally(() => setLoading(false));
+   }, [ready, authError, params.id]);
+ 
++  // SORTIE (28/10/2026, Alex : « quand je clique sur Terminé rien ne se
++  // passe »). router.push() chargeait la page Agenda en silence, parfois
++  // plusieurs secondes sans aucun signe. Désormais : le bouton change tout
++  // de suite, et on fait une vraie navigation (barre de chargement du
++  // navigateur) vers la page d'où l'on vient — tableau de bord ou agenda —
++  // avec l'identifiant déjà dans l'adresse pour qu'elle s'ouvre plus vite.
++  const [leaving, setLeaving] = useState(false);
++  function leave() {
++    if (leaving) return;
++    setLeaving(true);
++    let target = `/app/agenda${userId ? `?user_id=${userId}` : ''}`;
++    try {
++      const ref = document.referrer ? new URL(document.referrer) : null;
++      if (ref && ref.origin === window.location.origin && /^\/app\/(dashboard|agenda|prospects)/.test(ref.pathname)) {
++        target = ref.pathname + ref.search;
++      }
++    } catch {}
++    window.location.assign(target);
++  }
++
+   async function handleSubmit() {
+     if (submitting || !outcome) return;
+     setSubmitting(true);
+@@ -170,9 +208,33 @@ export default function BilanRdvPage(props) {
+       if (!res.ok) {
+         setError(body.error || t('bilanRdv.genericError', locale));
+       } else {
++        // 28/10/2026 : le serveur répond tout de suite avec la note générique ;
++        // la note personnalisée d'Aaron et l'email de remerciement arrivent en
++        // arrière-plan. On relit le RDV à 4 s, 10 s et 20 s pour les afficher.
+         setNote(body.note);
+-        if (sendThankYou && appointment?.can_send_thank_you !== false) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
++        const wantsThankYou = sendThankYou && appointment?.can_send_thank_you !== false;
++        if (wantsThankYou) setThankYouStatus('pending');
+         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
++        const initialNote = body.note;
++        let settled = false;
++        for (const delay of [4000, 10000, 20000]) {
++          setTimeout(async () => {
++            if (settled) return;
++            try {
++              const r = await fetch(`/api/appointments/${params.id}`);
++              const a = await r.json();
++              if (!r.ok) return;
++              if (a.outcome_note && a.outcome_note !== initialNote) setNote(a.outcome_note);
++              if (wantsThankYou) {
++                if (a.thank_you_sent_at) { setThankYouStatus('sent'); settled = true; }
++                else if (a.thank_you_error) { setThankYouStatus('failed'); settled = true; }
++                else if (delay === 20000) setThankYouStatus(null);
++              } else if (a.outcome_note && a.outcome_note !== initialNote) {
++                settled = true;
++              }
++            } catch {}
++          }, delay);
++        }
+       }
+     } catch (err) {
+       setError(t('bilanRdv.networkError', locale));
+@@ -194,7 +256,7 @@ export default function BilanRdvPage(props) {
+       <div style={styles.card}>
+         <button
+           type="button"
+-          onClick={() => router.push('/app/agenda')}
++          onClick={leave}
+           aria-label={t('bilanRdv.close', locale)}
+           title={t('bilanRdv.close', locale)}
+           style={styles.closeBtn}
+@@ -281,6 +343,7 @@ export default function BilanRdvPage(props) {
+             <p style={styles.noteText}>{note}</p>
+           </div>
+         )}
++        {thankYouStatus === 'pending' && <p style={styles.muted}>{THANK_YOU_PENDING[locale] || THANK_YOU_PENDING.fr}</p>}
+         {thankYouStatus === 'sent' && <p style={styles.okText}>{t('bilanRdv.thankYouSent', locale)}</p>}
+         {thankYouStatus === 'failed' && <p style={styles.errorText}>{t('bilanRdv.thankYouFailed', locale)}</p>}
+ 
+@@ -295,8 +358,8 @@ export default function BilanRdvPage(props) {
+             sans rien casser), et ce bouton « Termine » une fois le bilan
+             enregistre. Les deux ramenent a l'agenda. */}
+         {note && (
+-          <button type="button" onClick={() => router.push('/app/agenda')} style={styles.doneBtn}>
+-            <Ic name="check" size={16} /> {t('bilanRdv.done', locale)}
++          <button type="button" onClick={leave} disabled={leaving} style={{ ...styles.doneBtn, opacity: leaving ? 0.7 : 1 }}>
++            <Ic name="check" size={16} /> {leaving ? t('common.loading', locale) : t('bilanRdv.done', locale)}
+           </button>
+         )}
+       </div>
+diff --git a/app/app/documents/page.jsx b/app/app/documents/page.jsx
+index 01ced2f..7d8ff13 100644
+--- a/app/app/documents/page.jsx
++++ b/app/app/documents/page.jsx
+@@ -21,6 +21,17 @@ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+ import Stories from '@/components/Stories';
+ import Ic from '@/components/UiIcon';
++
++// Textes propres à cette page (dictionnaire local).
++const SUMMARY_PENDING = {
++  fr: 'Aaron lit le document…',
++  en: 'Aaron is reading the document…',
++  de: 'Aaron liest das Dokument…',
++  it: 'Aaron sta leggendo il documento…',
++  es: 'Aaron está leyendo el documento…',
++  pt: 'O Aaron está a ler o documento…',
++  nl: 'Aaron leest het document…',
++};
+ import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
+ import { frenchTypography } from '@/lib/text-typography';
+ 
+@@ -267,6 +278,9 @@ export default function DocumentsPage() {
+     setDescription('');
+     setUploadCategory('general');
+     load();
++    // La synthèse d'Aaron arrive en arrière-plan (28/10/2026) : on relit la
++    // liste à 8 s, 20 s et 45 s pour l'afficher sans rechargement manuel.
++    for (const delay of [8000, 20000, 45000]) setTimeout(() => load(), delay);
+   }
+ 
+   async function handleToggleAaronContext(doc) {
+@@ -567,6 +581,12 @@ export default function DocumentsPage() {
+                     {truncatedWithModal(d.summary, SUMMARY_TRUNCATE_LENGTH, () => setSummaryModalDoc(d), locale)}
+                   </p>
+                 )}
++                {!d.summary && d.created_at && Date.now() - new Date(d.created_at).getTime() < 3 * 60 * 1000 && (
++                  <p className="doc-sum doc-sum-ai">
++                    <span className="doc-sum-tag"><Ic name="bot" /></span>{' '}
++                    {SUMMARY_PENDING[locale] || SUMMARY_PENDING.fr}
++                  </p>
++                )}
+ 
+                 {/* Les étiquettes disent l'ESSENTIEL en un coup d'œil : à quoi
+                     sert le document, s'il part en pièce jointe, et si Aaron a
+diff --git a/components/CsvImportModal.jsx b/components/CsvImportModal.jsx
+index 7b33f1d..766877a 100644
+--- a/components/CsvImportModal.jsx
++++ b/components/CsvImportModal.jsx
+@@ -449,6 +449,11 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
+             company_linkedin_url: row.company_linkedin_url || null,
+             company_instagram_url: row.company_instagram_url || null,
+             skip_first_contact: skipFirstContact,
++            // 28/10/2026 : la ligne est créée tout de suite ; la recherche de
++            // la société et le premier email se font en arrière-plan côté
++            // serveur (voir POST /api/prospects).
++            async_first_contact: true,
++            background_first_contact: true,
+             origin: context === 'reactivation' ? 'reactive_par_aaron' : undefined,
+             reactivation_batch_id: reactivationBatchId,
+           }),
+diff --git a/lib/appointment-outcome.ts b/lib/appointment-outcome.ts
+index fe2e1ac..091e589 100644
+--- a/lib/appointment-outcome.ts
++++ b/lib/appointment-outcome.ts
+@@ -158,7 +158,11 @@ export interface OutcomeDetails {
+ export async function recordAppointmentOutcome(
+   appointmentId: string,
+   outcome: AppointmentOutcome,
+-  details: OutcomeDetails = {}
++  details: OutcomeDetails = {},
++  // 28/10/2026 : `fast` = enregistre le bilan avec la note générique et
++  // renvoie tout de suite ; la note personnalisée d'Aaron est produite
++  // ensuite par personalizeOutcomeNote() en arrière-plan (lib/background.ts).
++  options: { fast?: boolean } = {}
+ ) {
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+@@ -192,7 +196,7 @@ export async function recordAppointmentOutcome(
+   // si le plafond API est atteint ou que l'appel échoue, on retombe
+   // silencieusement sur la note générique plutôt que de bloquer l'enregistrement
+   // du bilan (l'essentiel : le statut du prospect est à jour).
+-  if (outcome !== 'opportunite' && outcome !== 'devis') {
++  if (!options.fast && outcome !== 'opportunite' && outcome !== 'devis') {
+     try {
+       const data = await callClaude(
+         {
+@@ -283,6 +287,63 @@ export async function recordAppointmentOutcome(
+   return { note };
+ }
+ 
++// Note personnalisée d'Aaron, calculée APRÈS la réponse au navigateur (voir
++// options.fast ci-dessus). Même prompt qu'avant ; si Claude échoue, la note
++// générique déjà enregistrée reste en place.
++export async function personalizeOutcomeNote(
++  appointmentId: string,
++  outcome: AppointmentOutcome,
++  details: OutcomeDetails = {}
++): Promise<string | null> {
++  if (outcome === 'opportunite' || outcome === 'devis') return null;
++  const { data: appointment } = await supabaseAdmin
++    .from('appointments')
++    .select('id, user_id, contact_name, prospects(full_name, company_id, users(locale))')
++    .eq('id', appointmentId)
++    .single();
++  if (!appointment) return null;
++  const prospect = (appointment as any).prospects;
++  let owner: { company_id: string | null; locale: string | null } | null = null;
++  if (!prospect && (appointment as any).user_id) {
++    const { data } = await supabaseAdmin.from('users').select('company_id, locale').eq('id', (appointment as any).user_id).maybeSingle();
++    owner = (data as any) || null;
++  }
++  const companyId = prospect?.company_id || owner?.company_id || null;
++  const locale = normalizeLocale(prospect?.users?.locale || owner?.locale);
++  const contactName = prospect?.full_name || (appointment as any).contact_name || null;
++  try {
++    const data = await callClaude(
++      {
++        model: 'claude-haiku-4-5',
++        max_tokens: 150,
++        messages: [
++          {
++            role: 'user',
++            content:
++              `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
++              `"${contactName || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
++              (details.mood ? `Son ressenti sur le RDV : ${MOOD_LABELS[details.mood]}.\n` : '') +
++              (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 600)}".\n` : '') +
++              `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
++              `Réponds uniquement avec ce message, ${localeInstruction(locale)}, sans préambule ni titre.`,
++          },
++        ],
++      },
++      companyId, 'as'
++    );
++    const textBlock = data.content.find((b: any) => b.type === 'text');
++    const note = textBlock?.text?.trim();
++    if (!note) return null;
++    await supabaseAdmin.from('appointments').update({ outcome_note: note }).eq('id', appointmentId);
++    return note;
++  } catch (err: any) {
++    if (!(err instanceof MonthlyCapExceededError)) {
++      console.error('Erreur génération note de bilan RDV:', err?.message || err);
++    }
++    return null;
++  }
++}
++
+ 
+ // Item 7 (docx 30/08) : "Comment s'est passé le RDV ? Je renverrai un email
+ // de remerciement." Aaron rédige un court email de remerciement au prospect,
+diff --git a/lib/background.ts b/lib/background.ts
+new file mode 100644
+index 0000000..168f42b
+--- /dev/null
++++ b/lib/background.ts
+@@ -0,0 +1,32 @@
++// lib/background.ts
++// TRAVAIL EN ARRIÈRE-PLAN APRÈS LA RÉPONSE (28/10/2026, demande d'Alex :
++// « que chaque fois que j'appuie sur n'importe quel bouton ça s'accepte
++// vite, et qu'ensuite ça travaille en backend »).
++//
++// `after()` de Next 15 garde la fonction serverless en vie jusqu'à la fin du
++// travail, APRÈS avoir renvoyé la réponse au navigateur. Le clic est donc
++// confirmé tout de suite ; la note d'Aaron, l'email de remerciement, la
++// synchro CRM… se font ensuite. Une erreur est journalisée, jamais remontée
++// au navigateur (la réponse est déjà partie).
++//
++// À appeler PENDANT le traitement de la requête (avant le return), jamais
++// depuis un cron ou un script hors requête.
++
++import { after } from 'next/server';
++
++export function runInBackground(label: string, work: () => Promise<unknown>): void {
++  try {
++    after(async () => {
++      try {
++        await work();
++      } catch (err: any) {
++        console.error(`[arrière-plan] ${label} :`, err?.message || err);
++      }
++    });
++  } catch (err: any) {
++    // Hors contexte de requête (ne devrait pas arriver) : on exécute quand
++    // même, sans bloquer l'appelant.
++    console.error(`[arrière-plan] after() indisponible pour ${label} :`, err?.message || err);
++    work().catch((e: any) => console.error(`[arrière-plan] ${label} :`, e?.message || e));
++  }
++}
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+new file mode 100644
+index 0000000..9853bdc
+--- /dev/null
++++ b/lib/first-contact.ts
+@@ -0,0 +1,175 @@
++// lib/first-contact.ts
++// PREMIER CONTACT D'UN PROSPECT (recherche de la société + premier email
++// d'Aaron). Extrait le 28/10/2026 de app/api/prospects/[id]/generate-first-
++// contact/route.ts pour pouvoir le lancer AUSSI en arrière-plan juste après
++// la création (import CSV, voir POST /api/prospects + lib/background.ts),
++// sans que l'import attende 20 à 40 s par ligne.
++
++import { supabaseAdmin } from './supabase-admin';
++import { generateAaronResponse, convictionColumns } from './aaron';
++import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from './messaging';
++import { sendPushNotification } from './push';
++import { ensureCompanyEnriched } from './prospect-research';
++
++export type FirstContactProspect = {
++  id: string;
++  company_id: string;
++  assigned_user_id: string;
++  full_name: string;
++  email: string;
++  prospect_company_id: string | null;
++  aaron_advice: string | null;
++  origin?: string | null;
++};
++
++export async function loadFirstContactProspect(prospectId: string): Promise<FirstContactProspect | null> {
++  const { data } = await supabaseAdmin
++    .from('prospects')
++    .select('id, company_id, assigned_user_id, full_name, email, prospect_company_id, aaron_advice, origin')
++    .eq('id', prospectId)
++    .single();
++  return (data as any) || null;
++}
++
++export async function runFirstContact(prospect: FirstContactProspect) {
++  if (prospect.aaron_advice) {
++    return { prospect, aaronOutput: null as any, emailWarning: null as string | null, emailWarningCode: null as string | null, emailWarningParams: null as Record<string, string> | null, skipped: true };
++  }
++
++  const { data: conversation } = await supabaseAdmin
++    .from('conversations')
++    .select('id')
++    .eq('prospect_id', prospect.id)
++    .single();
++
++  const { data: prospectCompany } = await supabaseAdmin
++    .from('prospect_companies')
++    .select('*')
++    .eq('id', prospect.prospect_company_id)
++    .single();
++
++  // Même recherche web unique par société qu'auparavant dans
++  // app/api/prospects/route.ts — voir lib/prospect-research.ts. Ne relance
++  // jamais si déjà vérifiée (research_summary ou research_checked_at déjà en
++  // base).
++  if (prospectCompany) {
++    await ensureCompanyEnriched(prospect.company_id, prospectCompany, {
++      name: prospectCompany.name || null,
++      domain: prospectCompany.domain || null,
++      website: prospectCompany.website || null,
++      industry: prospectCompany.industry || null,
++      address: prospectCompany.address || null,
++    });
++  }
++
++  let aaronOutput = null;
++  // Voir app/api/prospects/route.ts : on renvoie un CODE traduisible en plus
++  // du texte français, pour que l'alerte suive la langue de l'interface.
++  let emailWarning = null;
++  let emailWarningCode: string | null = null;
++  let emailWarningParams: Record<string, string> | null = null;
++
++  try {
++    const { data: sender } = await supabaseAdmin
++      .from('users')
++      .select('email, require_first_email_approval')
++      .eq('id', prospect.assigned_user_id)
++      .single();
++
++    aaronOutput = await generateAaronResponse(prospect.id);
++
++    const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
++
++    if (hasEmailToSend && sender?.require_first_email_approval) {
++      await supabaseAdmin
++        .from('prospects')
++        .update({
++          pending_first_email_subject: aaronOutput.email_draft.subject,
++          pending_first_email_body: aaronOutput.email_draft.body,
++          pending_first_email_generated_at: new Date().toISOString(),
++        })
++        .eq('id', prospect.id);
++
++      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
++      emailWarningCode = 'pendingApproval';
++
++      try {
++        await sendPushNotification(prospect.assigned_user_id, {
++          title: 'Premier email prêt à valider',
++          // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
++          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
++          tag: `premier_email:${prospect.id}`,
++          // Lien profond : fiche + modale de validation ouvertes d'emblée.
++          url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
++        });
++      } catch (pushErr) {
++        console.error('Erreur envoi notification push (premier email à valider):', pushErr);
++      }
++    } else if (hasEmailToSend) {
++      // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
++      // de spam classique). La plaquette part avec la premiere reponse
++      // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
++      await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
++        emailType: 'prospecting',
++      });
++
++      if (conversation) {
++        await supabaseAdmin.from('messages').insert({
++          conversation_id: conversation.id,
++          direction: 'outbound',
++          sender_email: sender?.email || null,
++          recipient_email: prospect.email,
++          body: aaronOutput.email_draft.body,
++        });
++      }
++    }
++
++    await supabaseAdmin
++      .from('prospects')
++      .update({
++        status: aaronOutput.prospect_status,
++        status_updated_at: new Date().toISOString(),
++        personality_type: aaronOutput.personality_type,
++        personality_notes: aaronOutput.personality_notes,
++        aaron_advice: aaronOutput.aaron_advice,
++            ...convictionColumns(aaronOutput),
++      })
++      .eq('id', prospect.id);
++  } catch (err: any) {
++    console.error('Erreur génération/envoi du premier message prospect:', err.message);
++    if (err instanceof DailySendCapExceededError) {
++      emailWarningCode = 'dailyCap';
++      emailWarningParams = { cap: String(err.cap) };
++      emailWarning = `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`;
++    } else if (err instanceof DomainNotDeliverableError) {
++      emailWarningCode = 'domainNotDeliverable';
++      emailWarningParams = { domain: String(err.domain) };
++      emailWarning = `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF valide, tes emails de prospection partiraient en spam. Corrige-le dans « Connexions » — le message partira automatiquement une fois réglé.`;
++    } else if (err.message?.includes('Aucune boîte mail connectée')) {
++      emailWarningCode = 'noMailbox';
++      emailWarning = "Prospect ajouté, mais aucun email n'a été envoyé : connecte ta boîte mail dans « Connexions ».";
++    } else {
++      emailWarningCode = 'sendFailed';
++      emailWarning = "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
++    }
++
++    // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
++    // 30/08/2026, test Outlook — voir
++    // migration_prospect_first_message_error_2026-08-30.sql) pour pouvoir
++    // diagnostiquer sans accès aux logs serveur, même schéma que
++    // send-verification/resend-verification pour l'email de confirmation.
++    try {
++      await supabaseAdmin
++        .from('prospects')
++        .update({
++          first_message_send_error: String(err?.message || err),
++          first_message_send_error_at: new Date().toISOString(),
++        })
++        .eq('id', prospect.id);
++    } catch (logErr: any) {
++      console.error('Erreur stockage first_message_send_error (non bloquant):', logErr.message);
++    }
++  }
++
++  return { prospect, aaronOutput, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
++}
+diff --git a/migration_bilan_arriere_plan_2026-10-28.sql b/migration_bilan_arriere_plan_2026-10-28.sql
+new file mode 100644
+index 0000000..23a399d
+--- /dev/null
++++ b/migration_bilan_arriere_plan_2026-10-28.sql
+@@ -0,0 +1,6 @@
++-- 28/10/2026 — Bilan de RDV en arrière-plan.
++-- Le bilan est enregistré immédiatement ; la note d'Aaron et l'email de
++-- remerciement sont faits après la réponse. Cette colonne garde la raison
++-- d'un échec d'envoi pour l'afficher sur la page de bilan (sinon : journaux
++-- Vercel seulement). Tout le code a un repli si elle n'existe pas.
++alter table appointments add column if not exists thank_you_error text;
+diff --git a/vercel.json b/vercel.json
+index e5de6c5..4cf0c7f 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -1,4 +1,5 @@
+ {
++  "regions": ["icn1"],
+   "git": {
+     "deploymentEnabled": {
+       "casa-zap-results": false,
+-- 
+2.43.0
+
