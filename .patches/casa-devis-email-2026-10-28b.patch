@@ -1,0 +1,839 @@
+From 5f4a087fe8630d5e145eec569892a300a017f7ca Mon Sep 17 00:00:00 2001
+From: Alex <alexandre.fevre01@gmail.com>
+Date: Wed, 28 Oct 2026 08:38:29 +0000
+Subject: [PATCH] Client : une seule fonction pour le devenir, et confirmation
+ avant bascule automatique
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/become-client.ts : markProspectAsClient() appelé par les 8 chemins
+  (Gagné, 1re commande, progression, Opportunités, Youtrust, devis signé
+  par email, paiement/inscription, confirmation). Colonnes, accueil
+  automatique, passage de relais et synchro CRM : toujours les mêmes.
+- Accord écrit détecté dans un email : plus de bascule automatique.
+  Story « Clients à confirmer » (Oui / Non), push « Accord détecté ».
+- Nouveaux chemins : notifications de signature (DocuSign, Yousign,
+  PandaDoc…) et de paiement (Stripe, PayPal, GoCardless, Shopify…)
+  reçues dans la boîte du commercial → même story de confirmation
+  (lib/client-signals.ts). Aucun webhook à brancher.
+- Migration : prospects.client_signal_* (repli si absente).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/check-inbox/route.ts      |  93 +++++++++-------
+ app/api/prospects/[id]/route.ts        |  66 ++++++------
+ components/Stories.jsx                 |  17 +++
+ lib/become-client.ts                   | 143 +++++++++++++++++++++++++
+ lib/client-signals.ts                  |  92 ++++++++++++++++
+ lib/i18n.js                            |  28 +++++
+ lib/notifications.ts                   |  14 ++-
+ lib/prospect-conversion.ts             |  37 ++-----
+ lib/quote-signature.ts                 |  32 ++----
+ migration_signal_client_2026-10-28.sql |  11 ++
+ 10 files changed, 406 insertions(+), 127 deletions(-)
+ create mode 100644 lib/become-client.ts
+ create mode 100644 lib/client-signals.ts
+ create mode 100644 migration_signal_client_2026-10-28.sql
+
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index c63e5c4..2264c07 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -5,8 +5,8 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+-import { autoSyncWonProspect } from '@/lib/crm-sync';
+-import { handOverWonProspect } from '@/lib/prospect-handover';
++import { flagClientSignal } from '@/lib/become-client';
++import { detectPlatformClientSignal } from '@/lib/client-signals';
+ import { ingestManualReplies } from '@/lib/manual-replies';
+ import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
+ import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage, listOutlookFileAttachments } from '@/lib/microsoft';
+@@ -19,7 +19,7 @@ import { getBrochureForReply } from '@/lib/first-email-attachment';
+ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+ import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
+ import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
+-import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
++import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
+ import { sendPushNotification } from '@/lib/push';
+ 
+ function isAuthorized(request: NextRequest) {
+@@ -501,7 +501,37 @@ export async function GET(request: NextRequest) {
+       // is_lost : marqué manuellement comme perdu par le commercial (via
+       // "Marquer comme perdu" dans Prospects) — Aaron doit arrêter de le
+       // recontacter, même s'il répond après coup.
+-      if (!prospect || prospect.is_lost) continue;
++      if (!prospect) {
++        // Email d'une plateforme de signature ou de paiement (28/10/2026,
++        // lib/client-signals.ts) : signal « Client à confirmer » si un
++        // contact du commercial y est cité. Aucun autre expéditeur inconnu
++        // n'est lu.
++        try {
++          await detectPlatformClientSignal({
++            userId: connection.user_id,
++            fromEmail,
++            subject: msg.subject || null,
++            messageId: msg.internetMessageId || msg.id,
++            loadBody: async () => {
++              if (bodyText !== null) return bodyText;
++              if (connection.provider === 'google') {
++                const full = await getGmailMessage(connection.user_id, msg.id);
++                return extractGmailBody(full.payload);
++              }
++              if (connection.provider === 'imap') {
++                const full = await getImapMessage(connection.user_id, msg.id);
++                return full.text || '';
++              }
++              const full = await getOutlookMessage(connection.user_id, msg.id);
++              return (full as any).bodyText || (full as any).body?.content || '';
++            },
++          });
++        } catch (err: any) {
++          console.error(`Erreur détection plateforme (${fromEmail}) :`, err?.message || err);
++        }
++        continue;
++      }
++      if (prospect.is_lost) continue;
+ 
+       // Contrôle MANUEL par-dessus la garantie structurelle ci-dessus : le
+       // bouton "Aaron s'en charge / n'en charge plus" (Prospects, Aaron
+@@ -1023,45 +1053,30 @@ export async function GET(request: NextRequest) {
+       // first_order_confirmed_at) — et prévient le commercial avec la raison
+       // détectée. Best-effort : un échec ici ne doit pas empêcher le reste du
+       // traitement du message (l'email de réponse a déjà été envoyé au-dessus).
++      // Accord ferme détecté dans l'email reçu (docx "OPPORTUNITES A1").
++      // DEPUIS LE 28/10/2026 (décision d'Alex) : plus de bascule automatique
++      // en client. Une mauvaise lecture d'un « ok pour moi » faisait passer
++      // le contact en client ET lui envoyait l'email de bienvenue. Aaron pose
++      // désormais la question dans une story « Client à confirmer » (voir
++      // lib/become-client.ts, flagClientSignal) et prévient par push.
+       if (aaronOutput.deal_approved?.detected) {
+         try {
+-          const now = new Date().toISOString();
+-          await supabaseAdmin
+-            .from('prospects')
+-            .update({
+-              deal_stage: 'signe',
+-              deal_stage_updated_at: now,
+-              is_won: true,
+-              won_at: now,
+-              is_lost: false,
+-              first_order_confirmed_at: now,
+-              won_reason: aaronOutput.deal_approved.reason || null,
+-            })
+-            .eq('id', prospect.id);
+-          // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+-          autoSyncWonProspect(prospect.id).catch(() => {});
+-          // Passage de relais (« géré par moi »). notify:false : le push de
+-          // félicitations est envoyé juste en dessous avec la raison détectée,
+-          // inutile d'en envoyer un second. Voir lib/prospect-handover.ts.
+-          await handOverWonProspect(prospect.id, { notify: false });
+-
+-          // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent
+-          // selon que le commercial a déjà l'abonnement Aaron Clients.
+-          const { offer_ac_active } = await getCompanyModuleFlags(prospect.company_id);
+-          const raison = aaronOutput.deal_approved.reason ? ` — ${aaronOutput.deal_approved.reason}` : '';
+-          await sendPushNotification(connection.user_id, {
+-            title: 'Devis signé 🎉',
+-            body: offer_ac_active
+-              ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, je m'occupe de son accueil.`
+-              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, et je te passe la main : c'est toi qui suis la relation à partir de maintenant.`,
+-            url: `/app/prospects?user_id=${connection.user_id}`,
++          const created = await flagClientSignal(prospect.id, {
++            source: 'accord_email',
++            reason: aaronOutput.deal_approved.reason || null,
++            messageId: msg.internetMessageId || msg.id,
+           });
+-
+-          // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature —
+-          // voir lib/aaron-customer.ts. Fire-and-forget, best-effort.
+-          triggerAutomaticOnboarding(prospect.id).catch(() => {});
++          if (created) {
++            const raison = aaronOutput.deal_approved.reason ? ` — ${aaronOutput.deal_approved.reason}` : '';
++            await sendPushNotification(connection.user_id, {
++              title: 'Accord détecté',
++              body: `${prospect.full_name} semble avoir donné son accord${raison}. Je le passe en client ? Confirme depuis ton tableau de bord.`,
++              url: `/app/dashboard?user_id=${connection.user_id}`,
++              tag: `client_signal:${prospect.id}`,
++            });
++          }
+         } catch (err: any) {
+-          console.error(`Erreur bascule automatique en client pour prospect ${prospect.id}:`, err.message);
++          console.error(`Erreur signal client pour prospect ${prospect.id}:`, err.message);
+         }
+       }
+ 
+diff --git a/app/api/prospects/[id]/route.ts b/app/api/prospects/[id]/route.ts
+index a4e1274..72d52d0 100644
+--- a/app/api/prospects/[id]/route.ts
++++ b/app/api/prospects/[id]/route.ts
+@@ -8,9 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
+ import { isDomainHealthyForSending } from '@/lib/email-deliverability';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+-import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
+-import { handOverWonProspect } from '@/lib/prospect-handover';
+-import { autoSyncWonProspect } from '@/lib/crm-sync';
++import { markProspectAsClient } from '@/lib/become-client';
+ import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
+ import { sendPushNotification } from '@/lib/push';
+ import { readJsonBody, serverError } from '@/lib/http';
+@@ -410,8 +408,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     }
+ 
+     if (stage === 'client' && !wasClient) {
+-      triggerAutomaticOnboarding(prospectId).catch(() => {});
+-      autoSyncWonProspect(prospectId).catch(() => {});
++      await markProspectAsClient(prospectId, { source: 'progression', firstOrderConfirmed: true });
+     }
+ 
+     return NextResponse.json({ success: true, stage });
+@@ -573,25 +570,9 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+       update.first_order_confirmed_at = now;
+     }
+ 
+-    await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
+-
+-    // Passage de relais : le contact repasse en « géré par moi » et le
+-    // commercial est prévenu que la relation est désormais la sienne (sauf
+-    // module Aaron Clients). Voir lib/prospect-handover.ts.
+-    handOverWonProspect(prospectId).catch(() => {});
+-
+-    // Docx "CLIENTS A1(a)" : onboarding automatique dès que ce prospect
+-    // devient réellement client (pas juste "gagné en attente de 1ère
+-    // commande") — voir lib/aaron-customer.ts. Fire-and-forget : ne bloque
+-    // jamais la réponse de cette action interactive (le commercial ne doit
+-    // pas attendre un appel Claude + l'envoi d'un email avant de voir son
+-    // clic "Gagné" confirmé).
+-    if (first_order_confirmed) {
+-      triggerAutomaticOnboarding(prospectId).catch(() => {});
+-    }
+-    // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08, onglet
+-    // CRM) — fire-and-forget, voir lib/crm-sync.ts.
+-    autoSyncWonProspect(prospectId).catch(() => {});
++    // Une seule fonction pour devenir client (28/10/2026, lib/become-client.ts) :
++    // colonnes, accueil automatique si 1re commande, passage de relais, CRM.
++    await markProspectAsClient(prospectId, { source: 'bouton_gagne', firstOrderConfirmed: !!first_order_confirmed });
+ 
+     return NextResponse.json({ success: true, status: 'gagne' });
+   }
+@@ -608,13 +589,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+       return NextResponse.json({ error: "Ce prospect n'est pas encore marqué comme gagné" }, { status: 400 });
+     }
+ 
+-    await supabaseAdmin
+-      .from('prospects')
+-      .update({ first_order_confirmed_at: new Date().toISOString() })
+-      .eq('id', prospectId);
+-
+-    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
+-    triggerAutomaticOnboarding(prospectId).catch(() => {});
++    await markProspectAsClient(prospectId, { source: 'premiere_commande', firstOrderConfirmed: true });
+ 
+     return NextResponse.json({ success: true, status: 'premiere_commande_confirmee' });
+   }
+@@ -654,11 +629,8 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+ 
+     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
+ 
+-    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
+     if (deal_stage === 'signe') {
+-      triggerAutomaticOnboarding(prospectId).catch(() => {});
+-      // Passage de relais — voir lib/prospect-handover.ts.
+-      handOverWonProspect(prospectId).catch(() => {});
++      await markProspectAsClient(prospectId, { source: 'opportunites', firstOrderConfirmed: true });
+     }
+ 
+     return NextResponse.json({ success: true, deal_stage });
+@@ -668,6 +640,30 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   // app/app/customer/page.jsx (ex: le commercial coche "onboarding terminé"
+   // une fois le client bien démarré — pas de déclenchement automatique pour
+   // cette étape, contrairement au pipeline Aaron Sales).
++  // « Client à confirmer » (28/10/2026) : réponse à la story créée par un
++  // accord écrit, une notification de paiement ou de signature reçue dans
++  // la boîte du commercial (lib/become-client.ts, flagClientSignal).
++  if (action === 'confirmer_client') {
++    const authedUser = await getAuthedUser(request);
++    if (!authedUser) return unauthorizedResponse();
++    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
++    const { data: sig } = await supabaseAdmin.from('prospects').select('client_signal_reason').eq('id', prospectId).maybeSingle();
++    await markProspectAsClient(prospectId, {
++      source: 'confirmation_signal',
++      firstOrderConfirmed: true,
++      reason: (sig as any)?.client_signal_reason || null,
++    });
++    return NextResponse.json({ success: true, status: 'client_confirme' });
++  }
++
++  if (action === 'rejeter_signal_client') {
++    const authedUser = await getAuthedUser(request);
++    if (!authedUser) return unauthorizedResponse();
++    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
++    await supabaseAdmin.from('prospects').update({ client_signal_dismissed_at: new Date().toISOString() }).eq('id', prospectId);
++    return NextResponse.json({ success: true, status: 'signal_rejete' });
++  }
++
+   if (action === 'set_onboarding_status') {
+     if (!VALID_ONBOARDING_STATUSES.includes(onboarding_status)) {
+       return NextResponse.json({ error: "Statut d'onboarding invalide" }, { status: 400 });
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index e8c17f1..af87e7b 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -42,6 +42,7 @@ const RING = {
+   email_a_valider: 'linear-gradient(135deg, #4b9ef0, #7c6ef5)',
+   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
+   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
++  client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
+   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
+ };
+ 
+@@ -64,6 +65,7 @@ const ICON_NAME = {
+   email_a_valider: 'mail',
+   bilan_a_faire: 'notes',
+   commande_a_confirmer: 'trophy',
++  client_a_confirmer: 'trophy',
+   a_risque: 'flame',
+ };
+ // Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
+@@ -850,6 +852,21 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         </>
+       );
+       break;
++    case 'client_a_confirmer':
++      body = (
++        <>
++          <p className="lead">{t('stories.clientSignalLead', locale).replace('{name}', item.prospect_name)}</p>
++          {item.meta?.reason && <p className="hint">{item.meta.reason}</p>}
++        </>
++      );
++      actions = (
++        <>
++          <button type="button" className="btn-primary" disabled={acting} onClick={() => act(prospectUrl, { action: 'confirmer_client' })}>{t('stories.clientSignalYes', locale)}</button>
++          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'rejeter_signal_client' })}>{t('stories.clientSignalNo', locale)}</button>
++          <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
++        </>
++      );
++      break;
+     case 'a_risque':
+       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
+       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)
+diff --git a/lib/become-client.ts b/lib/become-client.ts
+new file mode 100644
+index 0000000..b704048
+--- /dev/null
++++ b/lib/become-client.ts
+@@ -0,0 +1,143 @@
++// lib/become-client.ts
++// UNE SEULE FAÇON DE DEVENIR CLIENT (28/10/2026, validé par Alex).
++//
++// Avant, huit chemins faisaient passer un contact en client (bouton Gagné,
++// 1re commande, ligne de progression, Opportunités « Signé », Youtrust,
++// devis signé par email, accord écrit détecté, paiement) et chacun oubliait
++// quelque chose : l'un ne repassait pas le contact en « géré par moi »,
++// l'autre ne synchronisait pas le CRM. Désormais tous appellent cette
++// fonction, qui fait TOUJOURS la même chose :
++//
++//   1. colonnes de la fiche (deal_stage = signe, is_won, won_at,
++//      first_order_confirmed_at si la commande est confirmée, raison) ;
++//   2. accueil automatique du client (Aaron Clients) si la commande est
++//      confirmée pour la première fois ;
++//   3. passage de relais « géré par moi » ;
++//   4. synchro vers le CRM (un seul sens, Aaron → CRM).
++//
++// Les effets 2 à 4 sont lancés sans attendre (fire-and-forget), comme
++// avant : le clic répond tout de suite.
++
++import { supabaseAdmin } from './supabase-admin';
++import { triggerAutomaticOnboarding } from './aaron-customer';
++import { autoSyncWonProspect } from './crm-sync';
++import { handOverWonProspect } from './prospect-handover';
++
++export type ClientSource =
++  | 'bouton_gagne'
++  | 'premiere_commande'
++  | 'progression'
++  | 'opportunites'
++  | 'youtrust'
++  | 'devis_email'
++  | 'accord_email'
++  | 'paiement'
++  | 'signature_plateforme'
++  | 'confirmation_signal';
++
++export async function markProspectAsClient(
++  prospectId: string,
++  options: {
++    source: ClientSource;
++    reason?: string | null;
++    // true = une commande/un paiement/une signature est acquis : le contact
++    // devient client à part entière (Aaron Clients, Résultats). false = gagné
++    // en attente de 1re commande (bouton « Gagné » sans la case cochée).
++    firstOrderConfirmed: boolean;
++    // false quand l'appelant envoie lui-même un push de félicitations.
++    notify?: boolean;
++  }
++): Promise<{ ok: boolean; wasClient: boolean; wasWon: boolean }> {
++  const { data: before } = await supabaseAdmin
++    .from('prospects')
++    .select('id, is_won, won_at, first_order_confirmed_at')
++    .eq('id', prospectId)
++    .maybeSingle();
++  if (!before) return { ok: false, wasClient: false, wasWon: false };
++
++  const now = new Date().toISOString();
++  const wasWon = !!before.is_won;
++  const wasClient = !!before.first_order_confirmed_at;
++
++  const update: Record<string, any> = {
++    deal_stage: 'signe',
++    deal_stage_updated_at: now,
++    is_won: true,
++    won_at: before.won_at || now,
++    is_lost: false,
++    lost_at: null,
++    pipeline_lost_reason: null,
++    pipeline_lost_at_stage: null,
++    // Signal « à confirmer » éventuel : réglé.
++    client_signal_detected_at: null,
++    client_signal_source: null,
++    client_signal_reason: null,
++    client_signal_dismissed_at: null,
++  };
++  if (options.reason) update.won_reason = options.reason;
++  if (options.firstOrderConfirmed && !wasClient) update.first_order_confirmed_at = now;
++
++  let { error } = await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
++  if (error && error.code === '42703') {
++    // Une colonne optionnelle manque (migration pas encore passée) : on
++    // réessaie sans les colonnes récentes plutôt que d'échouer.
++    const { pipeline_lost_reason, pipeline_lost_at_stage, client_signal_detected_at, client_signal_source, client_signal_reason, client_signal_dismissed_at, ...core } = update;
++    ({ error } = await supabaseAdmin.from('prospects').update(core).eq('id', prospectId));
++  }
++  if (error) {
++    console.error(`[devenir client] mise à jour impossible pour ${prospectId} (${options.source}) :`, error.message);
++    return { ok: false, wasClient, wasWon };
++  }
++
++  if (options.firstOrderConfirmed && !wasClient) {
++    triggerAutomaticOnboarding(prospectId).catch((err: any) =>
++      console.error(`[devenir client] accueil automatique ${prospectId} :`, err?.message || err)
++    );
++  }
++  handOverWonProspect(prospectId, { notify: options.notify !== false }).catch((err: any) =>
++    console.error(`[devenir client] passage de relais ${prospectId} :`, err?.message || err)
++  );
++  autoSyncWonProspect(prospectId).catch(() => {});
++
++  return { ok: true, wasClient, wasWon };
++}
++
++// Signal « ce contact est peut-être devenu client » (accord écrit lu dans
++// un email, notification de paiement ou de signature reçue dans la boîte du
++// commercial). Rien ne bascule tout seul : une story « Client à confirmer »
++// demande au commercial, qui confirme ou rejette (PATCH confirmer_client /
++// rejeter_signal_client). Décision d'Alex du 28/10/2026 : un faux positif
++// enverrait l'email de bienvenue à quelqu'un qui n'a rien signé.
++export async function flagClientSignal(
++  prospectId: string,
++  signal: { source: string; reason: string | null; messageId?: string | null }
++): Promise<boolean> {
++  const { data: p } = await supabaseAdmin
++    .from('prospects')
++    .select('id, first_order_confirmed_at, client_signal_message_id, client_signal_detected_at, client_signal_dismissed_at')
++    .eq('id', prospectId)
++    .maybeSingle();
++  if (!p) return false;
++  const row: any = p;
++  if (row.first_order_confirmed_at) return false;
++  // Même message déjà vu (confirmé ou rejeté) : on ne recrée pas le signal.
++  if (signal.messageId && row.client_signal_message_id === signal.messageId) return false;
++  // Un signal encore en attente : on garde le premier, on ne l'écrase pas.
++  if (row.client_signal_detected_at && !row.client_signal_dismissed_at) return false;
++
++  const { error } = await supabaseAdmin
++    .from('prospects')
++    .update({
++      client_signal_detected_at: new Date().toISOString(),
++      client_signal_source: signal.source,
++      client_signal_reason: signal.reason ? signal.reason.slice(0, 500) : null,
++      client_signal_message_id: signal.messageId || null,
++      client_signal_dismissed_at: null,
++    })
++    .eq('id', prospectId);
++  if (error) {
++    console.error(`[signal client] ${prospectId} :`, error.message);
++    return false;
++  }
++  return true;
++}
+diff --git a/lib/client-signals.ts b/lib/client-signals.ts
+new file mode 100644
+index 0000000..5924077
+--- /dev/null
++++ b/lib/client-signals.ts
+@@ -0,0 +1,92 @@
++// lib/client-signals.ts
++// NOTIFICATIONS DE PLATEFORMES DANS LA BOÎTE DU COMMERCIAL (28/10/2026).
++//
++// Deux chemins vers « client » manquaient (revue du 25/10, validée par Alex) :
++//   - une signature faite sur DocuSign, Yousign, PandaDoc… dont l'email de
++//     confirmation vient de la plateforme, pas du client ;
++//   - un paiement reçu sur le Stripe, PayPal, GoCardless… du commercial, sans
++//     qu'il ait branché de webhook (presque personne ne le fera).
++// Ces emails arrivent pourtant dans la boîte que lit déjà Aaron. On les
++// reconnaît à l'expéditeur et aux mots-clés, on retrouve le contact concerné
++// (son email ou son nom dans le message), et on crée un signal « Client à
++// confirmer » (lib/become-client.ts). RIEN ne bascule tout seul.
++
++import { supabaseAdmin } from './supabase-admin';
++import { flagClientSignal } from './become-client';
++import { sendPushNotification } from './push';
++
++const SIGNATURE_SENDERS = /@([a-z0-9.-]+\.)?(docusign\.(net|com)|yousign\.(com|app|fr)|youtrust\.(com|app|fr)|pandadoc\.com|hellosign\.com|dropboxsign\.com|signnow\.com|adobesign\.com|echosign\.com|signrequest\.com|universign\.com|oodrive[a-z-]*\.com)$/i;
++const PAYMENT_SENDERS = /@([a-z0-9.-]+\.)?(stripe\.com|paypal\.(com|fr|co\.uk|com\.au)|gocardless\.com|shopify\.com|squareup\.com|sumup\.(com|fr|co\.uk)|mollie\.com|qonto\.(com|eu)|pennylane\.com|zoho\.com|quickbooks\.com|intuit\.com|xero\.com|wix\.com)$/i;
++
++const SIGNATURE_WORDS = /(completed|has been signed|has signed|all parties|signed by|document.{0,20}sign|signé|signée|a signé|terminé|complété|unterzeichnet|firmado|firmato|assinado|ondertekend)/i;
++const PAYMENT_WORDS = /(payment (received|succeeded|successful)|you.ve received|received a payment|paid you|a payé|paiement (reçu|réussi|accepté)|vous avez reçu|new order|nouvelle commande|order #|invoice .{0,20}paid|facture .{0,20}(payée|réglée)|zahlung erhalten|pago recibido|pagamento ricevuto)/i;
++
++export type PlatformKind = 'signature_plateforme' | 'paiement';
++
++export function classifyPlatformSender(fromEmail: string): PlatformKind | null {
++  const e = String(fromEmail || '').toLowerCase();
++  if (SIGNATURE_SENDERS.test(e)) return 'signature_plateforme';
++  if (PAYMENT_SENDERS.test(e)) return 'paiement';
++  return null;
++}
++
++// Appelé par le cron check-inbox pour un email dont l'expéditeur n'est pas
++// un prospect. `loadBody` n'est appelé que si l'expéditeur est une plateforme
++// connue : aucun téléchargement pour le reste du courrier.
++export async function detectPlatformClientSignal(params: {
++  userId: string;
++  fromEmail: string;
++  subject: string | null;
++  messageId: string;
++  loadBody: () => Promise<string | null>;
++}): Promise<boolean> {
++  const kind = classifyPlatformSender(params.fromEmail);
++  if (!kind) return false;
++
++  const subject = params.subject || '';
++  let body = '';
++  try {
++    body = (await params.loadBody()) || '';
++  } catch {
++    body = '';
++  }
++  const text = `${subject}\n${body}`.slice(0, 20000);
++  const words = kind === 'signature_plateforme' ? SIGNATURE_WORDS : PAYMENT_WORDS;
++  if (!words.test(text)) return false;
++
++  // Contacts du commercial pas encore clients : on cherche leur email, puis
++  // leur nom complet, dans le message.
++  const { data: candidates } = await supabaseAdmin
++    .from('prospects')
++    .select('id, full_name, email, is_lost')
++    .eq('assigned_user_id', params.userId)
++    .is('first_order_confirmed_at', null)
++    .limit(2000);
++  const lower = text.toLowerCase();
++  let match: any = null;
++  for (const p of (candidates || []) as any[]) {
++    if (p.email && lower.includes(String(p.email).toLowerCase())) { match = p; break; }
++  }
++  if (!match) {
++    for (const p of (candidates || []) as any[]) {
++      const name = String(p.full_name || '').trim().toLowerCase();
++      if (name.length >= 6 && lower.includes(name)) { match = p; break; }
++    }
++  }
++  if (!match) return false;
++
++  const platform = params.fromEmail.split('@')[1] || 'plateforme';
++  const reason = kind === 'signature_plateforme'
++    ? `Notification de signature reçue de ${platform} : « ${subject.slice(0, 120)} »`
++    : `Notification de paiement reçue de ${platform} : « ${subject.slice(0, 120)} »`;
++  const created = await flagClientSignal(match.id, { source: kind, reason, messageId: params.messageId });
++  if (!created) return false;
++
++  await sendPushNotification(params.userId, {
++    title: kind === 'signature_plateforme' ? 'Signature détectée' : 'Paiement détecté',
++    body: `${match.full_name} : ${reason}. Je le passe en client ? Confirme depuis ton tableau de bord.`,
++    url: `/app/dashboard?user_id=${params.userId}`,
++    tag: `client_signal:${match.id}`,
++  }).catch(() => {});
++  return true;
++}
+diff --git a/lib/i18n.js b/lib/i18n.js
+index cd7fc0e..0be174a 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -247,6 +247,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails à valider",
+     "stories.type.bilan_a_faire": "Bilans RDV",
+     "stories.type.commande_a_confirmer": "Commandes à confirmer",
++    "stories.type.client_a_confirmer": "Clients à confirmer",
++    "stories.clientSignalLead": "{name} semble être devenu client. Je le passe en client ?",
++    "stories.clientSignalYes": "Oui, c'est un client",
++    "stories.clientSignalNo": "Non, pas encore",
+     "stories.type.a_risque": "À risque",
+     "stories.devisLead": "{name} attend ta proposition depuis {days} jour(s).",
+     "stories.devisAdvice0": "Il attend ta proposition — une réponse rapide montre que tu es fiable. Dépose ton devis sur sa fiche dès qu'il est prêt.",
+@@ -2635,6 +2639,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails to approve",
+     "stories.type.bilan_a_faire": "Meeting debriefs",
+     "stories.type.commande_a_confirmer": "Orders to confirm",
++    "stories.type.client_a_confirmer": "Clients to confirm",
++    "stories.clientSignalLead": "{name} seems to have become a client. Should I mark them as a client?",
++    "stories.clientSignalYes": "Yes, it's a client",
++    "stories.clientSignalNo": "Not yet",
+     "stories.type.a_risque": "At risk",
+     "stories.devisLead": "{name} has been waiting for your proposal for {days} day(s).",
+     "stories.devisAdvice0": "They're waiting for your proposal — a quick reply shows you're reliable. Add your quote to their card as soon as it's ready.",
+@@ -4718,6 +4726,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "E-Mails freigeben",
+     "stories.type.bilan_a_faire": "Termin-Bilanzen",
+     "stories.type.commande_a_confirmer": "Bestellungen bestätigen",
++    "stories.type.client_a_confirmer": "Kunden bestätigen",
++    "stories.clientSignalLead": "{name} scheint Kunde geworden zu sein. Soll ich ihn als Kunden eintragen?",
++    "stories.clientSignalYes": "Ja, Kunde",
++    "stories.clientSignalNo": "Noch nicht",
+     "stories.type.a_risque": "Risiko",
+     "stories.devisLead": "{name} wartet seit {days} Tag(en) auf dein Angebot.",
+     "stories.devisAdvice0": "Er wartet auf dein Angebot — eine schnelle Antwort zeigt Verlässlichkeit. Lade dein Angebot auf seine Karte, sobald es fertig ist.",
+@@ -6801,6 +6813,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "Email da approvare",
+     "stories.type.bilan_a_faire": "Bilanci RDV",
+     "stories.type.commande_a_confirmer": "Ordini da confermare",
++    "stories.type.client_a_confirmer": "Clienti da confermare",
++    "stories.clientSignalLead": "{name} sembra essere diventato cliente. Lo registro come cliente?",
++    "stories.clientSignalYes": "Sì, è un cliente",
++    "stories.clientSignalNo": "Non ancora",
+     "stories.type.a_risque": "A rischio",
+     "stories.devisLead": "{name} aspetta la tua proposta da {days} giorno/i.",
+     "stories.devisAdvice0": "Aspetta la tua proposta — una risposta rapida mostra che sei affidabile. Carica il preventivo sulla sua scheda appena è pronto.",
+@@ -8884,6 +8900,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails por validar",
+     "stories.type.bilan_a_faire": "Balances de citas",
+     "stories.type.commande_a_confirmer": "Pedidos por confirmar",
++    "stories.type.client_a_confirmer": "Clientes por confirmar",
++    "stories.clientSignalLead": "{name} parece haberse convertido en cliente. ¿Lo paso a cliente?",
++    "stories.clientSignalYes": "Sí, es cliente",
++    "stories.clientSignalNo": "Todavía no",
+     "stories.type.a_risque": "En riesgo",
+     "stories.devisLead": "{name} espera tu propuesta desde hace {days} día(s).",
+     "stories.devisAdvice0": "Espera tu propuesta — una respuesta rápida demuestra fiabilidad. Sube tu presupuesto a su ficha en cuanto esté listo.",
+@@ -10967,6 +10987,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails a validar",
+     "stories.type.bilan_a_faire": "Balanços",
+     "stories.type.commande_a_confirmer": "Encomendas a confirmar",
++    "stories.type.client_a_confirmer": "Clientes a confirmar",
++    "stories.clientSignalLead": "{name} parece ter-se tornado cliente. Passo-o a cliente?",
++    "stories.clientSignalYes": "Sim, é cliente",
++    "stories.clientSignalNo": "Ainda não",
+     "stories.type.a_risque": "Em risco",
+     "stories.devisLead": "{name} espera a tua proposta há {days} dia(s).",
+     "stories.devisAdvice0": "Espera a tua proposta — uma resposta rápida mostra que és fiável. Coloca o orçamento na ficha assim que estiver pronto.",
+@@ -13050,6 +13074,10 @@ export const DICT = {
+     "stories.type.email_a_valider": "E-mails goedkeuren",
+     "stories.type.bilan_a_faire": "Evaluaties",
+     "stories.type.commande_a_confirmer": "Bestellingen bevestigen",
++    "stories.type.client_a_confirmer": "Klanten bevestigen",
++    "stories.clientSignalLead": "{name} lijkt klant te zijn geworden. Zet ik hem op klant?",
++    "stories.clientSignalYes": "Ja, klant",
++    "stories.clientSignalNo": "Nog niet",
+     "stories.type.a_risque": "Risico",
+     "stories.devisLead": "{name} wacht al {days} dag(en) op je voorstel.",
+     "stories.devisAdvice0": "Ze wachten op je voorstel — snel antwoorden toont betrouwbaarheid. Zet je offerte op de kaart zodra die klaar is.",
+diff --git a/lib/notifications.ts b/lib/notifications.ts
+index db5c5cb..3315e20 100644
+--- a/lib/notifications.ts
++++ b/lib/notifications.ts
+@@ -25,6 +25,7 @@ export type NotificationType =
+   | 'email_a_valider'
+   | 'bilan_a_faire'
+   | 'commande_a_confirmer'
++  | 'client_a_confirmer'
+   | 'a_risque';
+ 
+ // Ordre d'urgence des groupes (ordre d'affichage des stories).
+@@ -44,6 +45,9 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
+   'email_a_valider',
+   'bilan_a_faire',
+   'commande_a_confirmer',
++  // Accord écrit, paiement ou signature détecté dans la boîte : « je le
++  // passe en client ? » (28/10/2026, lib/become-client.ts).
++  'client_a_confirmer',
+   'a_risque',
+ ];
+ 
+@@ -106,7 +110,12 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     // attente et l'actualité repérée — colonnes de la migration
+     // declencheurs_actualite, d'où la variante supplémentaire.
+     const newsCols = baseCols.replace('prospect_companies(name)', 'prospect_companies(name, news_signal)') + optionalCols + ', rescue_proposal_source';
+-    let res: any = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
++    // Signal « client à confirmer » (migration_signal_client_2026-10-28.sql).
++    const signalCols = newsCols + ', client_signal_detected_at, client_signal_source, client_signal_reason, client_signal_dismissed_at';
++    let res: any = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
++    if (res.error && res.error.code === '42703') {
++      res = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
++    }
+     if (res.error && res.error.code === '42703') {
+       res = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
+     }
+@@ -192,6 +201,9 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     if (p.is_won && !p.first_order_confirmed_at && !pos.lost) {
+       push({ ...base, id: `commande_a_confirmer:${p.id}`, type: 'commande_a_confirmer', at: null, days_waiting: null, meta: {} });
+     }
++    if (p.client_signal_detected_at && !p.client_signal_dismissed_at && !p.first_order_confirmed_at) {
++      push({ ...base, id: `client_a_confirmer:${p.id}`, type: 'client_a_confirmer', at: p.client_signal_detected_at, days_waiting: null, meta: { source: p.client_signal_source || null, reason: p.client_signal_reason || null } });
++    }
+     if (pos.risk && !pos.lost) {
+       push({ ...base, id: `a_risque:${p.id}`, type: 'a_risque', at: null, days_waiting: null, meta: { stage: pos.stage, advice: p.aaron_advice || null } });
+     }
+diff --git a/lib/prospect-conversion.ts b/lib/prospect-conversion.ts
+index 68f0615..d984fbd 100644
+--- a/lib/prospect-conversion.ts
++++ b/lib/prospect-conversion.ts
+@@ -39,9 +39,7 @@
+ // réponse HTTP du webhook externe).
+ 
+ import { supabaseAdmin } from './supabase-admin';
+-import { triggerAutomaticOnboarding } from './aaron-customer';
+-import { autoSyncWonProspect } from './crm-sync';
+-import { handOverWonProspect } from './prospect-handover';
++import { markProspectAsClient } from './become-client';
+ 
+ // Renvoie le NOMBRE de prospects effectivement bascules en client
+ // (30/09/2026). L'appelant en a besoin : le webhook Stripe cree une fiche
+@@ -71,25 +69,15 @@ export async function convertMatchingProspectsToClients(
+     }
+     if (!matches || matches.length === 0) return 0;
+ 
+-    const now = new Date().toISOString();
+     let converted = 0;
+ 
+     for (const prospect of matches) {
+-      const { error: updateError } = await supabaseAdmin
+-        .from('prospects')
+-        .update({
+-          is_won: true,
+-          won_at: now,
+-          is_lost: false,
+-          // Le paiement Stripe confirmé EST la 1ère commande — pas besoin
+-          // d'attendre une confirmation manuelle du commercial, voir
+-          // migration_first_order_confirmed_2026-08-14.sql.
+-          first_order_confirmed_at: now,
+-        })
+-        .eq('id', prospect.id);
+-
+-      if (updateError) {
+-        console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto):`, updateError.message);
++      // Le paiement confirmé EST la 1ère commande. Une seule fonction pour
++      // devenir client (28/10/2026, lib/become-client.ts) : colonnes,
++      // accueil automatique, passage de relais, CRM.
++      const result = await markProspectAsClient(prospect.id, { source: 'paiement', firstOrderConfirmed: true });
++      if (!result.ok) {
++        console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto)`);
+         continue;
+       }
+ 
+@@ -98,17 +86,6 @@ export async function convertMatchingProspectsToClients(
+         `inscription/paiement détecté${companyId ? ' (webhook externe société ' + companyId + ')' : ' (inscription meetaaron.app)'}.`
+       );
+ 
+-      // Fire-and-forget, comme partout ailleurs où cette fonction est
+-      // appelée : envoie l'email de bienvenue + proposition de RDV de
+-      // lancement + notification push au commercial assigné.
+-      triggerAutomaticOnboarding(prospect.id).catch((err) => {
+-        console.error(`Erreur onboarding automatique (conversion auto) pour prospect ${prospect.id}:`, err.message);
+-      });
+-      // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+-      autoSyncWonProspect(prospect.id).catch(() => {});
+-      // Passage de relais (« géré par moi ») + notification au commercial —
+-      // voir lib/prospect-handover.ts.
+-      handOverWonProspect(prospect.id).catch(() => {});
+       converted += 1;
+     }
+     return converted;
+diff --git a/lib/quote-signature.ts b/lib/quote-signature.ts
+index d9054f5..90705f6 100644
+--- a/lib/quote-signature.ts
++++ b/lib/quote-signature.ts
+@@ -15,10 +15,8 @@
+ // la raison enregistrée et le texte de la notification changent.
+ 
+ import { supabaseAdmin } from './supabase-admin';
+-import { autoSyncWonProspect } from './crm-sync';
+-import { handOverWonProspect } from './prospect-handover';
++import { markProspectAsClient } from './become-client';
+ import { sendPushNotification } from './push';
+-import { triggerAutomaticOnboarding } from './aaron-customer';
+ 
+ export type QuoteSignatureSource = 'youtrust' | 'email';
+ 
+@@ -43,23 +41,16 @@ export async function markQuoteSigned(
+ 
+   await supabaseAdmin
+     .from('prospects')
+-    .update({
+-      signature_status: 'signe',
+-      signature_completed_at: now,
+-      deal_stage: 'signe',
+-      deal_stage_updated_at: now,
+-      is_won: true,
+-      won_at: now,
+-      is_lost: false,
+-      first_order_confirmed_at: now,
+-      won_reason: wonReason,
+-    })
++    .update({ signature_status: 'signe', signature_completed_at: now })
+     .eq('id', prospect.id);
+-  // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
+-  autoSyncWonProspect(prospect.id).catch(() => {});
+-  // Passage de relais (« géré par moi »). notify:false : le push « Contrat
+-  // signé » ci-dessous fait déjà l'annonce. Voir lib/prospect-handover.ts.
+-  await handOverWonProspect(prospect.id, { notify: false });
++  // Une seule fonction pour devenir client (28/10/2026, lib/become-client.ts).
++  // notify:false : le push « Contrat signé » ci-dessous fait déjà l'annonce.
++  await markProspectAsClient(prospect.id, {
++    source: source === 'youtrust' ? 'youtrust' : 'devis_email',
++    firstOrderConfirmed: true,
++    reason: wonReason,
++    notify: false,
++  });
+ 
+   // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
+   // que le commercial a déjà l'abonnement Aaron Clients.
+@@ -78,7 +69,4 @@ export async function markQuoteSigned(
+     url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}`,
+   });
+ 
+-  // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature — voir
+-  // lib/aaron-customer.ts. Fire-and-forget, best-effort.
+-  triggerAutomaticOnboarding(prospect.id).catch(() => {});
+ }
+diff --git a/migration_signal_client_2026-10-28.sql b/migration_signal_client_2026-10-28.sql
+new file mode 100644
+index 0000000..ea98a87
+--- /dev/null
++++ b/migration_signal_client_2026-10-28.sql
+@@ -0,0 +1,11 @@
++-- 28/10/2026 — « Client à confirmer » (validé par Alex).
++-- Un accord écrit lu dans un email, une notification de paiement ou de
++-- signature reçue dans la boîte du commercial ne fait PLUS basculer le
++-- contact en client tout seul : Aaron pose la question dans une story, le
++-- commercial confirme ou rejette. Ces colonnes portent le signal en attente.
++-- Tout le code a un repli si elles n'existent pas encore.
++alter table prospects add column if not exists client_signal_detected_at timestamptz;
++alter table prospects add column if not exists client_signal_source text;      -- 'accord_email' | 'paiement' | 'signature_plateforme'
++alter table prospects add column if not exists client_signal_reason text;      -- phrase courte d'Aaron (ex. « a écrit "bon pour accord" le 28/10 »)
++alter table prospects add column if not exists client_signal_message_id text;  -- identifiant du message déclencheur (évite les doublons)
++alter table prospects add column if not exists client_signal_dismissed_at timestamptz;
+-- 
+2.43.0
+
