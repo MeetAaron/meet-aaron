@@ -39,9 +39,7 @@
 // réponse HTTP du webhook externe).
 
 import { supabaseAdmin } from './supabase-admin';
-import { triggerAutomaticOnboarding } from './aaron-customer';
-import { autoSyncWonProspect } from './crm-sync';
-import { handOverWonProspect } from './prospect-handover';
+import { markProspectAsClient } from './become-client';
 
 // Renvoie le NOMBRE de prospects effectivement bascules en client
 // (30/09/2026). L'appelant en a besoin : le webhook Stripe cree une fiche
@@ -71,25 +69,15 @@ export async function convertMatchingProspectsToClients(
     }
     if (!matches || matches.length === 0) return 0;
 
-    const now = new Date().toISOString();
     let converted = 0;
 
     for (const prospect of matches) {
-      const { error: updateError } = await supabaseAdmin
-        .from('prospects')
-        .update({
-          is_won: true,
-          won_at: now,
-          is_lost: false,
-          // Le paiement Stripe confirmé EST la 1ère commande — pas besoin
-          // d'attendre une confirmation manuelle du commercial, voir
-          // migration_first_order_confirmed_2026-08-14.sql.
-          first_order_confirmed_at: now,
-        })
-        .eq('id', prospect.id);
-
-      if (updateError) {
-        console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto):`, updateError.message);
+      // Le paiement confirmé EST la 1ère commande. Une seule fonction pour
+      // devenir client (28/10/2026, lib/become-client.ts) : colonnes,
+      // accueil automatique, passage de relais, CRM.
+      const result = await markProspectAsClient(prospect.id, { source: 'paiement', firstOrderConfirmed: true });
+      if (!result.ok) {
+        console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto)`);
         continue;
       }
 
@@ -98,17 +86,6 @@ export async function convertMatchingProspectsToClients(
         `inscription/paiement détecté${companyId ? ' (webhook externe société ' + companyId + ')' : ' (inscription meetaaron.app)'}.`
       );
 
-      // Fire-and-forget, comme partout ailleurs où cette fonction est
-      // appelée : envoie l'email de bienvenue + proposition de RDV de
-      // lancement + notification push au commercial assigné.
-      triggerAutomaticOnboarding(prospect.id).catch((err) => {
-        console.error(`Erreur onboarding automatique (conversion auto) pour prospect ${prospect.id}:`, err.message);
-      });
-      // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
-      autoSyncWonProspect(prospect.id).catch(() => {});
-      // Passage de relais (« géré par moi ») + notification au commercial —
-      // voir lib/prospect-handover.ts.
-      handOverWonProspect(prospect.id).catch(() => {});
       converted += 1;
     }
     return converted;

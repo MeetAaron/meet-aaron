@@ -5,8 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { autoSyncWonProspect } from '@/lib/crm-sync';
-import { handOverWonProspect } from '@/lib/prospect-handover';
+import { flagClientSignal } from '@/lib/become-client';
+import { detectPlatformClientSignal } from '@/lib/client-signals';
 import { ingestManualReplies } from '@/lib/manual-replies';
 import { listNewGmailMessages, getGmailMessage, getGmailMessageMetadata, applyAaronLabel, archiveGmailThread } from '@/lib/google';
 import { listNewOutlookMessages, getOutlookMessage, applyAaronCategory, archiveOutlookMessage, listOutlookFileAttachments } from '@/lib/microsoft';
@@ -19,7 +19,7 @@ import { getBrochureForReply } from '@/lib/first-email-attachment';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
-import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, triggerAutomaticOnboarding, parseKickoffResponse } from '@/lib/aaron-customer';
+import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
 
 function isAuthorized(request: NextRequest) {
@@ -501,7 +501,37 @@ export async function GET(request: NextRequest) {
       // is_lost : marqué manuellement comme perdu par le commercial (via
       // "Marquer comme perdu" dans Prospects) — Aaron doit arrêter de le
       // recontacter, même s'il répond après coup.
-      if (!prospect || prospect.is_lost) continue;
+      if (!prospect) {
+        // Email d'une plateforme de signature ou de paiement (28/10/2026,
+        // lib/client-signals.ts) : signal « Client à confirmer » si un
+        // contact du commercial y est cité. Aucun autre expéditeur inconnu
+        // n'est lu.
+        try {
+          await detectPlatformClientSignal({
+            userId: connection.user_id,
+            fromEmail,
+            subject: msg.subject || null,
+            messageId: msg.internetMessageId || msg.id,
+            loadBody: async () => {
+              if (bodyText !== null) return bodyText;
+              if (connection.provider === 'google') {
+                const full = await getGmailMessage(connection.user_id, msg.id);
+                return extractGmailBody(full.payload);
+              }
+              if (connection.provider === 'imap') {
+                const full = await getImapMessage(connection.user_id, msg.id);
+                return full.text || '';
+              }
+              const full = await getOutlookMessage(connection.user_id, msg.id);
+              return (full as any).bodyText || (full as any).body?.content || '';
+            },
+          });
+        } catch (err: any) {
+          console.error(`Erreur détection plateforme (${fromEmail}) :`, err?.message || err);
+        }
+        continue;
+      }
+      if (prospect.is_lost) continue;
 
       // Contrôle MANUEL par-dessus la garantie structurelle ci-dessus : le
       // bouton "Aaron s'en charge / n'en charge plus" (Prospects, Aaron
@@ -1023,45 +1053,30 @@ export async function GET(request: NextRequest) {
       // first_order_confirmed_at) — et prévient le commercial avec la raison
       // détectée. Best-effort : un échec ici ne doit pas empêcher le reste du
       // traitement du message (l'email de réponse a déjà été envoyé au-dessus).
+      // Accord ferme détecté dans l'email reçu (docx "OPPORTUNITES A1").
+      // DEPUIS LE 28/10/2026 (décision d'Alex) : plus de bascule automatique
+      // en client. Une mauvaise lecture d'un « ok pour moi » faisait passer
+      // le contact en client ET lui envoyait l'email de bienvenue. Aaron pose
+      // désormais la question dans une story « Client à confirmer » (voir
+      // lib/become-client.ts, flagClientSignal) et prévient par push.
       if (aaronOutput.deal_approved?.detected) {
         try {
-          const now = new Date().toISOString();
-          await supabaseAdmin
-            .from('prospects')
-            .update({
-              deal_stage: 'signe',
-              deal_stage_updated_at: now,
-              is_won: true,
-              won_at: now,
-              is_lost: false,
-              first_order_confirmed_at: now,
-              won_reason: aaronOutput.deal_approved.reason || null,
-            })
-            .eq('id', prospect.id);
-          // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
-          autoSyncWonProspect(prospect.id).catch(() => {});
-          // Passage de relais (« géré par moi »). notify:false : le push de
-          // félicitations est envoyé juste en dessous avec la raison détectée,
-          // inutile d'en envoyer un second. Voir lib/prospect-handover.ts.
-          await handOverWonProspect(prospect.id, { notify: false });
-
-          // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent
-          // selon que le commercial a déjà l'abonnement Aaron Clients.
-          const { offer_ac_active } = await getCompanyModuleFlags(prospect.company_id);
-          const raison = aaronOutput.deal_approved.reason ? ` — ${aaronOutput.deal_approved.reason}` : '';
-          await sendPushNotification(connection.user_id, {
-            title: 'Devis signé 🎉',
-            body: offer_ac_active
-              ? `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, je m'occupe de son accueil.`
-              : `${prospect.full_name} a donné son accord${raison}. Félicitations, nouveau client ! Il passe en client dans ton tableau, et je te passe la main : c'est toi qui suis la relation à partir de maintenant.`,
-            url: `/app/prospects?user_id=${connection.user_id}`,
+          const created = await flagClientSignal(prospect.id, {
+            source: 'accord_email',
+            reason: aaronOutput.deal_approved.reason || null,
+            messageId: msg.internetMessageId || msg.id,
           });
-
-          // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature —
-          // voir lib/aaron-customer.ts. Fire-and-forget, best-effort.
-          triggerAutomaticOnboarding(prospect.id).catch(() => {});
+          if (created) {
+            const raison = aaronOutput.deal_approved.reason ? ` — ${aaronOutput.deal_approved.reason}` : '';
+            await sendPushNotification(connection.user_id, {
+              title: 'Accord détecté',
+              body: `${prospect.full_name} semble avoir donné son accord${raison}. Je le passe en client ? Confirme depuis ton tableau de bord.`,
+              url: `/app/dashboard?user_id=${connection.user_id}`,
+              tag: `client_signal:${prospect.id}`,
+            });
+          }
         } catch (err: any) {
-          console.error(`Erreur bascule automatique en client pour prospect ${prospect.id}:`, err.message);
+          console.error(`Erreur signal client pour prospect ${prospect.id}:`, err.message);
         }
       }
 

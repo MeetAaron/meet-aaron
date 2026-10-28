@@ -15,10 +15,8 @@
 // la raison enregistrée et le texte de la notification changent.
 
 import { supabaseAdmin } from './supabase-admin';
-import { autoSyncWonProspect } from './crm-sync';
-import { handOverWonProspect } from './prospect-handover';
+import { markProspectAsClient } from './become-client';
 import { sendPushNotification } from './push';
-import { triggerAutomaticOnboarding } from './aaron-customer';
 
 export type QuoteSignatureSource = 'youtrust' | 'email';
 
@@ -43,23 +41,16 @@ export async function markQuoteSigned(
 
   await supabaseAdmin
     .from('prospects')
-    .update({
-      signature_status: 'signe',
-      signature_completed_at: now,
-      deal_stage: 'signe',
-      deal_stage_updated_at: now,
-      is_won: true,
-      won_at: now,
-      is_lost: false,
-      first_order_confirmed_at: now,
-      won_reason: wonReason,
-    })
+    .update({ signature_status: 'signe', signature_completed_at: now })
     .eq('id', prospect.id);
-  // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08).
-  autoSyncWonProspect(prospect.id).catch(() => {});
-  // Passage de relais (« géré par moi »). notify:false : le push « Contrat
-  // signé » ci-dessous fait déjà l'annonce. Voir lib/prospect-handover.ts.
-  await handOverWonProspect(prospect.id, { notify: false });
+  // Une seule fonction pour devenir client (28/10/2026, lib/become-client.ts).
+  // notify:false : le push « Contrat signé » ci-dessous fait déjà l'annonce.
+  await markProspectAsClient(prospect.id, {
+    source: source === 'youtrust' ? 'youtrust' : 'devis_email',
+    firstOrderConfirmed: true,
+    reason: wonReason,
+    notify: false,
+  });
 
   // Docx pipeline (Alex, 2026-08-23), section I.7 : texte différent selon
   // que le commercial a déjà l'abonnement Aaron Clients.
@@ -78,7 +69,4 @@ export async function markQuoteSigned(
     url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}`,
   });
 
-  // Docx "CLIENTS A1(a)" : onboarding automatique dès la signature — voir
-  // lib/aaron-customer.ts. Fire-and-forget, best-effort.
-  triggerAutomaticOnboarding(prospect.id).catch(() => {});
 }

@@ -42,6 +42,7 @@ const RING = {
   email_a_valider: 'linear-gradient(135deg, #4b9ef0, #7c6ef5)',
   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
+  client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
 };
 
@@ -64,6 +65,7 @@ const ICON_NAME = {
   email_a_valider: 'mail',
   bilan_a_faire: 'notes',
   commande_a_confirmer: 'trophy',
+  client_a_confirmer: 'trophy',
   a_risque: 'flame',
 };
 // Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
@@ -846,6 +848,21 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       actions = (
         <>
           <button type="button" className="btn-primary" disabled={acting} onClick={() => act(prospectUrl, { action: 'confirmer_premiere_commande' })}>{t('prospects.confirmOrderButton', locale)}</button>
+          <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
+        </>
+      );
+      break;
+    case 'client_a_confirmer':
+      body = (
+        <>
+          <p className="lead">{t('stories.clientSignalLead', locale).replace('{name}', item.prospect_name)}</p>
+          {item.meta?.reason && <p className="hint">{item.meta.reason}</p>}
+        </>
+      );
+      actions = (
+        <>
+          <button type="button" className="btn-primary" disabled={acting} onClick={() => act(prospectUrl, { action: 'confirmer_client' })}>{t('stories.clientSignalYes', locale)}</button>
+          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'rejeter_signal_client' })}>{t('stories.clientSignalNo', locale)}</button>
           <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
         </>
       );

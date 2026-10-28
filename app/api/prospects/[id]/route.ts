@@ -8,9 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, hasReachedProspectingCap, DEFAULT_DAILY_PROSPECTING_CAP } from '@/lib/messaging';
 import { isDomainHealthyForSending } from '@/lib/email-deliverability';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
-import { triggerAutomaticOnboarding } from '@/lib/aaron-customer';
-import { handOverWonProspect } from '@/lib/prospect-handover';
-import { autoSyncWonProspect } from '@/lib/crm-sync';
+import { markProspectAsClient } from '@/lib/become-client';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
 import { sendPushNotification } from '@/lib/push';
 import { readJsonBody, serverError } from '@/lib/http';
@@ -410,8 +408,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     }
 
     if (stage === 'client' && !wasClient) {
-      triggerAutomaticOnboarding(prospectId).catch(() => {});
-      autoSyncWonProspect(prospectId).catch(() => {});
+      await markProspectAsClient(prospectId, { source: 'progression', firstOrderConfirmed: true });
     }
 
     return NextResponse.json({ success: true, stage });
@@ -573,25 +570,9 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       update.first_order_confirmed_at = now;
     }
 
-    await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
-
-    // Passage de relais : le contact repasse en « géré par moi » et le
-    // commercial est prévenu que la relation est désormais la sienne (sauf
-    // module Aaron Clients). Voir lib/prospect-handover.ts.
-    handOverWonProspect(prospectId).catch(() => {});
-
-    // Docx "CLIENTS A1(a)" : onboarding automatique dès que ce prospect
-    // devient réellement client (pas juste "gagné en attente de 1ère
-    // commande") — voir lib/aaron-customer.ts. Fire-and-forget : ne bloque
-    // jamais la réponse de cette action interactive (le commercial ne doit
-    // pas attendre un appel Claude + l'envoi d'un email avant de voir son
-    // clic "Gagné" confirmé).
-    if (first_order_confirmed) {
-      triggerAutomaticOnboarding(prospectId).catch(() => {});
-    }
-    // Synchro CRM automatique, un seul sens Aaron → CRM (docx 30/08, onglet
-    // CRM) — fire-and-forget, voir lib/crm-sync.ts.
-    autoSyncWonProspect(prospectId).catch(() => {});
+    // Une seule fonction pour devenir client (28/10/2026, lib/become-client.ts) :
+    // colonnes, accueil automatique si 1re commande, passage de relais, CRM.
+    await markProspectAsClient(prospectId, { source: 'bouton_gagne', firstOrderConfirmed: !!first_order_confirmed });
 
     return NextResponse.json({ success: true, status: 'gagne' });
   }
@@ -608,13 +589,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       return NextResponse.json({ error: "Ce prospect n'est pas encore marqué comme gagné" }, { status: 400 });
     }
 
-    await supabaseAdmin
-      .from('prospects')
-      .update({ first_order_confirmed_at: new Date().toISOString() })
-      .eq('id', prospectId);
-
-    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
-    triggerAutomaticOnboarding(prospectId).catch(() => {});
+    await markProspectAsClient(prospectId, { source: 'premiere_commande', firstOrderConfirmed: true });
 
     return NextResponse.json({ success: true, status: 'premiere_commande_confirmee' });
   }
@@ -654,11 +629,8 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
 
     await supabaseAdmin.from('prospects').update(update).eq('id', prospectId);
 
-    // Docx "CLIENTS A1(a)" : onboarding automatique — voir lib/aaron-customer.ts.
     if (deal_stage === 'signe') {
-      triggerAutomaticOnboarding(prospectId).catch(() => {});
-      // Passage de relais — voir lib/prospect-handover.ts.
-      handOverWonProspect(prospectId).catch(() => {});
+      await markProspectAsClient(prospectId, { source: 'opportunites', firstOrderConfirmed: true });
     }
 
     return NextResponse.json({ success: true, deal_stage });
@@ -668,6 +640,30 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   // app/app/customer/page.jsx (ex: le commercial coche "onboarding terminé"
   // une fois le client bien démarré — pas de déclenchement automatique pour
   // cette étape, contrairement au pipeline Aaron Sales).
+  // « Client à confirmer » (28/10/2026) : réponse à la story créée par un
+  // accord écrit, une notification de paiement ou de signature reçue dans
+  // la boîte du commercial (lib/become-client.ts, flagClientSignal).
+  if (action === 'confirmer_client') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+    const { data: sig } = await supabaseAdmin.from('prospects').select('client_signal_reason').eq('id', prospectId).maybeSingle();
+    await markProspectAsClient(prospectId, {
+      source: 'confirmation_signal',
+      firstOrderConfirmed: true,
+      reason: (sig as any)?.client_signal_reason || null,
+    });
+    return NextResponse.json({ success: true, status: 'client_confirme' });
+  }
+
+  if (action === 'rejeter_signal_client') {
+    const authedUser = await getAuthedUser(request);
+    if (!authedUser) return unauthorizedResponse();
+    if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+    await supabaseAdmin.from('prospects').update({ client_signal_dismissed_at: new Date().toISOString() }).eq('id', prospectId);
+    return NextResponse.json({ success: true, status: 'signal_rejete' });
+  }
+
   if (action === 'set_onboarding_status') {
     if (!VALID_ONBOARDING_STATUSES.includes(onboarding_status)) {
       return NextResponse.json({ error: "Statut d'onboarding invalide" }, { status: 400 });

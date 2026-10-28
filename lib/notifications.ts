@@ -25,6 +25,7 @@ export type NotificationType =
   | 'email_a_valider'
   | 'bilan_a_faire'
   | 'commande_a_confirmer'
+  | 'client_a_confirmer'
   | 'a_risque';
 
 // Ordre d'urgence des groupes (ordre d'affichage des stories).
@@ -44,6 +45,9 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
   'email_a_valider',
   'bilan_a_faire',
   'commande_a_confirmer',
+  // Accord écrit, paiement ou signature détecté dans la boîte : « je le
+  // passe en client ? » (28/10/2026, lib/become-client.ts).
+  'client_a_confirmer',
   'a_risque',
 ];
 
@@ -106,7 +110,12 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     // attente et l'actualité repérée — colonnes de la migration
     // declencheurs_actualite, d'où la variante supplémentaire.
     const newsCols = baseCols.replace('prospect_companies(name)', 'prospect_companies(name, news_signal)') + optionalCols + ', rescue_proposal_source';
-    let res: any = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
+    // Signal « client à confirmer » (migration_signal_client_2026-10-28.sql).
+    const signalCols = newsCols + ', client_signal_detected_at, client_signal_source, client_signal_reason, client_signal_dismissed_at';
+    let res: any = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
+    if (res.error && res.error.code === '42703') {
+      res = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
+    }
     if (res.error && res.error.code === '42703') {
       res = await supabaseAdmin.from('prospects').select(baseCols + optionalCols).eq('assigned_user_id', userId);
     }
@@ -191,6 +200,9 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     }
     if (p.is_won && !p.first_order_confirmed_at && !pos.lost) {
       push({ ...base, id: `commande_a_confirmer:${p.id}`, type: 'commande_a_confirmer', at: null, days_waiting: null, meta: {} });
+    }
+    if (p.client_signal_detected_at && !p.client_signal_dismissed_at && !p.first_order_confirmed_at) {
+      push({ ...base, id: `client_a_confirmer:${p.id}`, type: 'client_a_confirmer', at: p.client_signal_detected_at, days_waiting: null, meta: { source: p.client_signal_source || null, reason: p.client_signal_reason || null } });
     }
     if (pos.risk && !pos.lost) {
       push({ ...base, id: `a_risque:${p.id}`, type: 'a_risque', at: null, days_waiting: null, meta: { stage: pos.stage, advice: p.aaron_advice || null } });
