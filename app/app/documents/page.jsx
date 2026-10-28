@@ -21,6 +21,17 @@ import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
+
+// Textes propres à cette page (dictionnaire local).
+const SUMMARY_PENDING = {
+  fr: 'Aaron lit le document…',
+  en: 'Aaron is reading the document…',
+  de: 'Aaron liest das Dokument…',
+  it: 'Aaron sta leggendo il documento…',
+  es: 'Aaron está leyendo el documento…',
+  pt: 'O Aaron está a ler o documento…',
+  nl: 'Aaron leest het document…',
+};
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 
@@ -267,6 +278,9 @@ export default function DocumentsPage() {
     setDescription('');
     setUploadCategory('general');
     load();
+    // La synthèse d'Aaron arrive en arrière-plan (28/10/2026) : on relit la
+    // liste à 8 s, 20 s et 45 s pour l'afficher sans rechargement manuel.
+    for (const delay of [8000, 20000, 45000]) setTimeout(() => load(), delay);
   }
 
   async function handleToggleAaronContext(doc) {
@@ -565,6 +579,12 @@ export default function DocumentsPage() {
                   <p className="doc-sum doc-sum-ai">
                     <span className="doc-sum-tag"><Ic name="bot" /></span>{' '}
                     {truncatedWithModal(d.summary, SUMMARY_TRUNCATE_LENGTH, () => setSummaryModalDoc(d), locale)}
+                  </p>
+                )}
+                {!d.summary && d.created_at && Date.now() - new Date(d.created_at).getTime() < 3 * 60 * 1000 && (
+                  <p className="doc-sum doc-sum-ai">
+                    <span className="doc-sum-tag"><Ic name="bot" /></span>{' '}
+                    {SUMMARY_PENDING[locale] || SUMMARY_PENDING.fr}
                   </p>
                 )}
 

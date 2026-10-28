@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { canAccessAppointment } from '@/lib/appointment-access';
-import { recordAppointmentOutcome, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
+import { recordAppointmentOutcome, personalizeOutcomeNote, sendThankYouEmail, AppointmentOutcome, AppointmentMood } from '@/lib/appointment-outcome';
+import { runInBackground } from '@/lib/background';
 import { readJsonBody } from '@/lib/http';
 
 const VALID_OUTCOMES: AppointmentOutcome[] = ['a_continuer', 'opportunite', 'devis', 'perdu'];
@@ -47,12 +48,25 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   }
 
   try {
-    const { note } = await recordAppointmentOutcome(params.id, outcome, details);
-    let thankYou: { sent: boolean; error?: string } = { sent: false };
-    if (send_thank_you === true) {
-      thankYou = await sendThankYouEmail(params.id, outcome, details);
-    }
-    return NextResponse.json({ note, thank_you_sent: thankYou.sent, thank_you_error: thankYou.error || null });
+    // 28/10/2026 : le bilan est enregistré tout de suite (base seulement),
+    // puis la note d'Aaron et l'email de remerciement se font en arrière-plan.
+    // La page relit GET /api/appointments/[id] quelques secondes plus tard
+    // pour afficher la note personnalisée et l'état de l'email.
+    const { note } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
+    const wantsThankYou = send_thank_you === true;
+    const notePending = outcome !== 'opportunite' && outcome !== 'devis';
+    runInBackground(`bilan RDV ${params.id}`, async () => {
+      await personalizeOutcomeNote(params.id, outcome, details);
+      if (wantsThankYou) {
+        const result = await sendThankYouEmail(params.id, outcome, details);
+        if (!result.sent) {
+          // Colonne optionnelle (migration_bilan_arriere_plan_2026-10-28.sql) :
+          // sans elle, l'échec reste seulement dans les journaux.
+          await supabaseAdmin.from('appointments').update({ thank_you_error: result.error || 'envoi impossible' }).eq('id', params.id).then(() => {}, () => {});
+        }
+      }
+    });
+    return NextResponse.json({ note, note_pending: notePending, thank_you_pending: wantsThankYou });
   } catch (err: any) {
     console.error('Erreur enregistrement bilan RDV:', err.message);
     return NextResponse.json({ error: "Impossible d'enregistrer le bilan" }, { status: 500 });

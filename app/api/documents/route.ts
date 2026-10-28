@@ -17,6 +17,7 @@ import { extractDocumentText } from '@/lib/document-extraction';
 import { analyzeDocument } from '@/lib/document-summary';
 import { sanitizeFilenameForStorageKey } from '@/lib/storage-key';
 import { serverError } from '@/lib/http';
+import { runInBackground } from '@/lib/background';
 
 const BUCKET = 'documents';
 
@@ -144,10 +145,12 @@ export async function POST(request: NextRequest) {
   // Il ne classe QUE si le commercial n'a rien choisi lui-même — un choix
   // manuel n'est jamais écrasé (voir aussi le PATCH, qui repasse
   // category_auto à false dès que le commercial corrige).
-  const analysis = extractedText
-    ? await analyzeDocument(file.name, extractedText, user.company_id, authedUser.locale, userId)
-    : { summary: null, category: null };
-  const autoCategory = !linkedCategory && analysis.category && analysis.category !== 'general' ? analysis.category : null;
+  // 28/10/2026 : la lecture par Aaron (appel Claude, 10 à 30 s) se fait
+  // APRÈS la réponse (lib/background.ts). Le document apparaît tout de suite
+  // dans la liste, la synthèse et le classement arrivent quelques secondes
+  // plus tard (la page relit la liste).
+  const analysis: { summary: string | null; category: string | null } = { summary: null, category: null };
+  const autoCategory: string | null = null;
 
   const insertRow: Record<string, any> = {
     company_id: user.company_id,
@@ -196,5 +199,22 @@ export async function POST(request: NextRequest) {
     return serverError(dbError, '/api/documents');
   }
 
-  return NextResponse.json({ document: doc });
+  if (extractedText && doc) {
+    const docId = (doc as any).id;
+    const companyId = user.company_id;
+    const locale = authedUser.locale;
+    const fileName = file.name;
+    runInBackground(`lecture du document ${docId}`, async () => {
+      const result = await analyzeDocument(fileName, extractedText, companyId, locale, userId);
+      const auto = !linkedCategory && result.category && result.category !== 'general' ? result.category : null;
+      const update: Record<string, any> = { summary: result.summary };
+      if (auto) { update.linked_category = auto; update.category_auto = true; }
+      const { error } = await supabaseAdmin.from('company_documents').update(update).eq('id', docId);
+      if (error && (error as any).code === '42703') {
+        await supabaseAdmin.from('company_documents').update({ summary: result.summary, ...(auto ? { linked_category: auto } : {}) }).eq('id', docId);
+      }
+    });
+  }
+
+  return NextResponse.json({ document: doc, analysis_pending: !!extractedText });
 }

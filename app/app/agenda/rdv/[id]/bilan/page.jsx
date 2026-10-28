@@ -20,6 +20,9 @@ function useAuthedUser() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [userId, setUserId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('user_id') || null; } catch { return null; }
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +63,10 @@ function useAuthedUser() {
         router.push('/login');
         return;
       }
+      try {
+        const body = await res.json();
+        if (body?.user?.id) setUserId(body.user.id);
+      } catch {}
       setReady(true);
     }
 
@@ -67,7 +74,7 @@ function useAuthedUser() {
     return () => { cancelled = true; };
   }, [router]);
 
-  return { ready, authError };
+  return { ready, authError, userId };
 }
 
 // CHANGEMENTS A FAIRE #6 (2026-08-15) : "opportunité" et "demande de devis"
@@ -106,10 +113,21 @@ function orderedChoices(locale, mood) {
   return order.map((value) => all.find((c) => c.value === value)).filter(Boolean);
 }
 
+// Textes propres à cette page (dictionnaire local).
+const THANK_YOU_PENDING = {
+  fr: "Aaron rédige et envoie l'email de remerciement…",
+  en: 'Aaron is writing and sending the thank-you email…',
+  de: 'Aaron schreibt und sendet die Dankes-E-Mail…',
+  it: "Aaron sta scrivendo e inviando l'email di ringraziamento…",
+  es: 'Aaron está redactando y enviando el email de agradecimiento…',
+  pt: 'O Aaron está a escrever e enviar o email de agradecimento…',
+  nl: 'Aaron schrijft en verstuurt de bedank-e-mail…',
+};
+
 export default function BilanRdvPage(props) {
   const params = use(props.params);
   const [locale] = useLocale();
-  const { ready, authError } = useAuthedUser();
+  const { ready, authError, userId } = useAuthedUser();
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -154,6 +172,26 @@ export default function BilanRdvPage(props) {
       .finally(() => setLoading(false));
   }, [ready, authError, params.id]);
 
+  // SORTIE (28/10/2026, Alex : « quand je clique sur Terminé rien ne se
+  // passe »). router.push() chargeait la page Agenda en silence, parfois
+  // plusieurs secondes sans aucun signe. Désormais : le bouton change tout
+  // de suite, et on fait une vraie navigation (barre de chargement du
+  // navigateur) vers la page d'où l'on vient — tableau de bord ou agenda —
+  // avec l'identifiant déjà dans l'adresse pour qu'elle s'ouvre plus vite.
+  const [leaving, setLeaving] = useState(false);
+  function leave() {
+    if (leaving) return;
+    setLeaving(true);
+    let target = `/app/agenda${userId ? `?user_id=${userId}` : ''}`;
+    try {
+      const ref = document.referrer ? new URL(document.referrer) : null;
+      if (ref && ref.origin === window.location.origin && /^\/app\/(dashboard|agenda|prospects)/.test(ref.pathname)) {
+        target = ref.pathname + ref.search;
+      }
+    } catch {}
+    window.location.assign(target);
+  }
+
   async function handleSubmit() {
     if (submitting || !outcome) return;
     setSubmitting(true);
@@ -170,9 +208,33 @@ export default function BilanRdvPage(props) {
       if (!res.ok) {
         setError(body.error || t('bilanRdv.genericError', locale));
       } else {
+        // 28/10/2026 : le serveur répond tout de suite avec la note générique ;
+        // la note personnalisée d'Aaron et l'email de remerciement arrivent en
+        // arrière-plan. On relit le RDV à 4 s, 10 s et 20 s pour les afficher.
         setNote(body.note);
-        if (sendThankYou && appointment?.can_send_thank_you !== false) setThankYouStatus(body.thank_you_sent ? 'sent' : 'failed');
+        const wantsThankYou = sendThankYou && appointment?.can_send_thank_you !== false;
+        if (wantsThankYou) setThankYouStatus('pending');
         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
+        const initialNote = body.note;
+        let settled = false;
+        for (const delay of [4000, 10000, 20000]) {
+          setTimeout(async () => {
+            if (settled) return;
+            try {
+              const r = await fetch(`/api/appointments/${params.id}`);
+              const a = await r.json();
+              if (!r.ok) return;
+              if (a.outcome_note && a.outcome_note !== initialNote) setNote(a.outcome_note);
+              if (wantsThankYou) {
+                if (a.thank_you_sent_at) { setThankYouStatus('sent'); settled = true; }
+                else if (a.thank_you_error) { setThankYouStatus('failed'); settled = true; }
+                else if (delay === 20000) setThankYouStatus(null);
+              } else if (a.outcome_note && a.outcome_note !== initialNote) {
+                settled = true;
+              }
+            } catch {}
+          }, delay);
+        }
       }
     } catch (err) {
       setError(t('bilanRdv.networkError', locale));
@@ -194,7 +256,7 @@ export default function BilanRdvPage(props) {
       <div style={styles.card}>
         <button
           type="button"
-          onClick={() => router.push('/app/agenda')}
+          onClick={leave}
           aria-label={t('bilanRdv.close', locale)}
           title={t('bilanRdv.close', locale)}
           style={styles.closeBtn}
@@ -281,6 +343,7 @@ export default function BilanRdvPage(props) {
             <p style={styles.noteText}>{note}</p>
           </div>
         )}
+        {thankYouStatus === 'pending' && <p style={styles.muted}>{THANK_YOU_PENDING[locale] || THANK_YOU_PENDING.fr}</p>}
         {thankYouStatus === 'sent' && <p style={styles.okText}>{t('bilanRdv.thankYouSent', locale)}</p>}
         {thankYouStatus === 'failed' && <p style={styles.errorText}>{t('bilanRdv.thankYouFailed', locale)}</p>}
 
@@ -295,8 +358,8 @@ export default function BilanRdvPage(props) {
             sans rien casser), et ce bouton « Termine » une fois le bilan
             enregistre. Les deux ramenent a l'agenda. */}
         {note && (
-          <button type="button" onClick={() => router.push('/app/agenda')} style={styles.doneBtn}>
-            <Ic name="check" size={16} /> {t('bilanRdv.done', locale)}
+          <button type="button" onClick={leave} disabled={leaving} style={{ ...styles.doneBtn, opacity: leaving ? 0.7 : 1 }}>
+            <Ic name="check" size={16} /> {leaving ? t('common.loading', locale) : t('bilanRdv.done', locale)}
           </button>
         )}
       </div>

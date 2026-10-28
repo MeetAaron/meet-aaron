@@ -14,6 +14,8 @@ import { canViewUserData } from '@/lib/user-access';
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { ensureCompanyEnriched } from '@/lib/prospect-research';
+import { runInBackground } from '@/lib/background';
+import { runFirstContact, loadFirstContactProspect } from '@/lib/first-contact';
 import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
 import { readJsonBody, serverError } from '@/lib/http';
 
@@ -388,6 +390,28 @@ export async function POST(request: NextRequest) {
   // AVANT même la recherche web de la société (elle aussi lente) — tout le
   // travail lent est délégué à /api/prospects/[id]/generate-first-contact.
   if (asyncFirstContact) {
+    // `background_first_contact` (28/10/2026, import CSV) : le serveur fait
+    // lui-même la suite APRÈS avoir répondu (lib/background.ts) — recherche
+    // de la société, puis premier email d'Aaron sauf si skip_first_contact.
+    // L'import n'attend plus 20 à 40 s par ligne. Un échec est retenté par
+    // le cron retry-uncontacted-prospects.
+    if (body.background_first_contact === true) {
+      const companyForEnrichment = prospectCompany;
+      runInBackground(`premier contact ${prospect.id}`, async () => {
+        if (skipFirstContact) {
+          await ensureCompanyEnriched(company_id, companyForEnrichment, {
+            name: cleanCompanyName || companyForEnrichment.name || null,
+            domain: domainForMatching,
+            website: website || companyForEnrichment.website || null,
+            industry: industry || companyForEnrichment.industry || null,
+            address: address || companyForEnrichment.address || null,
+          });
+          return;
+        }
+        const row = await loadFirstContactProspect(prospect.id);
+        if (row) await runFirstContact(row);
+      });
+    }
     return NextResponse.json({ prospect, aaronOutput: null, emailWarning: null, emailWarningCode: null, emailWarningParams: null });
   }
 

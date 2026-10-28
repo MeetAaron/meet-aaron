@@ -158,7 +158,11 @@ export interface OutcomeDetails {
 export async function recordAppointmentOutcome(
   appointmentId: string,
   outcome: AppointmentOutcome,
-  details: OutcomeDetails = {}
+  details: OutcomeDetails = {},
+  // 28/10/2026 : `fast` = enregistre le bilan avec la note générique et
+  // renvoie tout de suite ; la note personnalisée d'Aaron est produite
+  // ensuite par personalizeOutcomeNote() en arrière-plan (lib/background.ts).
+  options: { fast?: boolean } = {}
 ) {
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
@@ -192,7 +196,7 @@ export async function recordAppointmentOutcome(
   // si le plafond API est atteint ou que l'appel échoue, on retombe
   // silencieusement sur la note générique plutôt que de bloquer l'enregistrement
   // du bilan (l'essentiel : le statut du prospect est à jour).
-  if (outcome !== 'opportunite' && outcome !== 'devis') {
+  if (!options.fast && outcome !== 'opportunite' && outcome !== 'devis') {
     try {
       const data = await callClaude(
         {
@@ -281,6 +285,63 @@ export async function recordAppointmentOutcome(
   }
 
   return { note };
+}
+
+// Note personnalisée d'Aaron, calculée APRÈS la réponse au navigateur (voir
+// options.fast ci-dessus). Même prompt qu'avant ; si Claude échoue, la note
+// générique déjà enregistrée reste en place.
+export async function personalizeOutcomeNote(
+  appointmentId: string,
+  outcome: AppointmentOutcome,
+  details: OutcomeDetails = {}
+): Promise<string | null> {
+  if (outcome === 'opportunite' || outcome === 'devis') return null;
+  const { data: appointment } = await supabaseAdmin
+    .from('appointments')
+    .select('id, user_id, contact_name, prospects(full_name, company_id, users(locale))')
+    .eq('id', appointmentId)
+    .single();
+  if (!appointment) return null;
+  const prospect = (appointment as any).prospects;
+  let owner: { company_id: string | null; locale: string | null } | null = null;
+  if (!prospect && (appointment as any).user_id) {
+    const { data } = await supabaseAdmin.from('users').select('company_id, locale').eq('id', (appointment as any).user_id).maybeSingle();
+    owner = (data as any) || null;
+  }
+  const companyId = prospect?.company_id || owner?.company_id || null;
+  const locale = normalizeLocale(prospect?.users?.locale || owner?.locale);
+  const contactName = prospect?.full_name || (appointment as any).contact_name || null;
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-haiku-4-5',
+        max_tokens: 150,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Tu es Aaron, copilote commercial IA. Le commercial vient de te dire qu'un RDV avec le prospect ` +
+              `"${contactName || 'un prospect'}" s'est soldé par : "${OUTCOME_LABELS[outcome]}".\n` +
+              (details.mood ? `Son ressenti sur le RDV : ${MOOD_LABELS[details.mood]}.\n` : '') +
+              (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 600)}".\n` : '') +
+              `Réagis en 1 à 2 phrases maximum, ton chaleureux et direct, avec un conseil concret pour la suite. ` +
+              `Réponds uniquement avec ce message, ${localeInstruction(locale)}, sans préambule ni titre.`,
+          },
+        ],
+      },
+      companyId, 'as'
+    );
+    const textBlock = data.content.find((b: any) => b.type === 'text');
+    const note = textBlock?.text?.trim();
+    if (!note) return null;
+    await supabaseAdmin.from('appointments').update({ outcome_note: note }).eq('id', appointmentId);
+    return note;
+  } catch (err: any) {
+    if (!(err instanceof MonthlyCapExceededError)) {
+      console.error('Erreur génération note de bilan RDV:', err?.message || err);
+    }
+    return null;
+  }
 }
 
 

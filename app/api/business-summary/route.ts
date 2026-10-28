@@ -148,15 +148,18 @@ export async function POST(request: NextRequest) {
   // s'appuie sur les documents de la société.
   const { data: documents } = await supabaseAdmin
     .from('company_documents')
-    .select('file_name, summary')
+    .select('file_name, summary, extracted_text')
     .eq('company_id', user.company_id)
     .eq('included_in_aaron_context', true)
     .order('created_at', { ascending: false })
     .limit(8);
 
+  // Depuis le 28/10/2026 la synthèse d'un document arrive en arrière-plan :
+  // un document tout juste déposé (Bienvenue) n'en a pas encore. On se
+  // rabat alors sur un extrait du texte lui-même.
   const documentSummaries = (documents || [])
-    .filter((d) => d.summary)
-    .map((d) => `- ${d.file_name} : ${d.summary}`)
+    .filter((d: any) => d.summary || d.extracted_text)
+    .map((d: any) => `- ${d.file_name} : ${d.summary || String(d.extracted_text).slice(0, 2500)}`)
     .join('\n');
 
   // Réponses structurées au questionnaire de découverte guidé (voir app/app/chat/page.jsx) —

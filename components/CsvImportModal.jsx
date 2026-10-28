@@ -449,6 +449,11 @@ export default function CsvImportModal({ userId, companyId, context, module, sta
             company_linkedin_url: row.company_linkedin_url || null,
             company_instagram_url: row.company_instagram_url || null,
             skip_first_contact: skipFirstContact,
+            // 28/10/2026 : la ligne est créée tout de suite ; la recherche de
+            // la société et le premier email se font en arrière-plan côté
+            // serveur (voir POST /api/prospects).
+            async_first_contact: true,
+            background_first_contact: true,
             origin: context === 'reactivation' ? 'reactive_par_aaron' : undefined,
             reactivation_batch_id: reactivationBatchId,
           }),

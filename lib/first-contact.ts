@@ -1,0 +1,175 @@
+// lib/first-contact.ts
+// PREMIER CONTACT D'UN PROSPECT (recherche de la société + premier email
+// d'Aaron). Extrait le 28/10/2026 de app/api/prospects/[id]/generate-first-
+// contact/route.ts pour pouvoir le lancer AUSSI en arrière-plan juste après
+// la création (import CSV, voir POST /api/prospects + lib/background.ts),
+// sans que l'import attende 20 à 40 s par ligne.
+
+import { supabaseAdmin } from './supabase-admin';
+import { generateAaronResponse, convictionColumns } from './aaron';
+import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from './messaging';
+import { sendPushNotification } from './push';
+import { ensureCompanyEnriched } from './prospect-research';
+
+export type FirstContactProspect = {
+  id: string;
+  company_id: string;
+  assigned_user_id: string;
+  full_name: string;
+  email: string;
+  prospect_company_id: string | null;
+  aaron_advice: string | null;
+  origin?: string | null;
+};
+
+export async function loadFirstContactProspect(prospectId: string): Promise<FirstContactProspect | null> {
+  const { data } = await supabaseAdmin
+    .from('prospects')
+    .select('id, company_id, assigned_user_id, full_name, email, prospect_company_id, aaron_advice, origin')
+    .eq('id', prospectId)
+    .single();
+  return (data as any) || null;
+}
+
+export async function runFirstContact(prospect: FirstContactProspect) {
+  if (prospect.aaron_advice) {
+    return { prospect, aaronOutput: null as any, emailWarning: null as string | null, emailWarningCode: null as string | null, emailWarningParams: null as Record<string, string> | null, skipped: true };
+  }
+
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('prospect_id', prospect.id)
+    .single();
+
+  const { data: prospectCompany } = await supabaseAdmin
+    .from('prospect_companies')
+    .select('*')
+    .eq('id', prospect.prospect_company_id)
+    .single();
+
+  // Même recherche web unique par société qu'auparavant dans
+  // app/api/prospects/route.ts — voir lib/prospect-research.ts. Ne relance
+  // jamais si déjà vérifiée (research_summary ou research_checked_at déjà en
+  // base).
+  if (prospectCompany) {
+    await ensureCompanyEnriched(prospect.company_id, prospectCompany, {
+      name: prospectCompany.name || null,
+      domain: prospectCompany.domain || null,
+      website: prospectCompany.website || null,
+      industry: prospectCompany.industry || null,
+      address: prospectCompany.address || null,
+    });
+  }
+
+  let aaronOutput = null;
+  // Voir app/api/prospects/route.ts : on renvoie un CODE traduisible en plus
+  // du texte français, pour que l'alerte suive la langue de l'interface.
+  let emailWarning = null;
+  let emailWarningCode: string | null = null;
+  let emailWarningParams: Record<string, string> | null = null;
+
+  try {
+    const { data: sender } = await supabaseAdmin
+      .from('users')
+      .select('email, require_first_email_approval')
+      .eq('id', prospect.assigned_user_id)
+      .single();
+
+    aaronOutput = await generateAaronResponse(prospect.id);
+
+    const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+
+    if (hasEmailToSend && sender?.require_first_email_approval) {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          pending_first_email_subject: aaronOutput.email_draft.subject,
+          pending_first_email_body: aaronOutput.email_draft.body,
+          pending_first_email_generated_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+
+      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+      emailWarningCode = 'pendingApproval';
+
+      try {
+        await sendPushNotification(prospect.assigned_user_id, {
+          title: 'Premier email prêt à valider',
+          // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
+          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+          tag: `premier_email:${prospect.id}`,
+          // Lien profond : fiche + modale de validation ouvertes d'emblée.
+          url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
+        });
+      } catch (pushErr) {
+        console.error('Erreur envoi notification push (premier email à valider):', pushErr);
+      }
+    } else if (hasEmailToSend) {
+      // 25/09/2026 : plus de piece jointe sur le premier contact FROID (signal
+      // de spam classique). La plaquette part avec la premiere reponse
+      // d'Aaron — voir getBrochureForReply dans lib/first-email-attachment.ts.
+      await sendEmailForUser(prospect.assigned_user_id, prospect.email, aaronOutput.email_draft.subject, aaronOutput.email_draft.body, {
+        emailType: 'prospecting',
+      });
+
+      if (conversation) {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversation.id,
+          direction: 'outbound',
+          sender_email: sender?.email || null,
+          recipient_email: prospect.email,
+          body: aaronOutput.email_draft.body,
+        });
+      }
+    }
+
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        status: aaronOutput.prospect_status,
+        status_updated_at: new Date().toISOString(),
+        personality_type: aaronOutput.personality_type,
+        personality_notes: aaronOutput.personality_notes,
+        aaron_advice: aaronOutput.aaron_advice,
+            ...convictionColumns(aaronOutput),
+      })
+      .eq('id', prospect.id);
+  } catch (err: any) {
+    console.error('Erreur génération/envoi du premier message prospect:', err.message);
+    if (err instanceof DailySendCapExceededError) {
+      emailWarningCode = 'dailyCap';
+      emailWarningParams = { cap: String(err.cap) };
+      emailWarning = `Prospect ajouté — plafond quotidien d'emails de prospection atteint (${err.cap}/jour), le premier message sera renvoyé automatiquement dès que le plafond se libère.`;
+    } else if (err instanceof DomainNotDeliverableError) {
+      emailWarningCode = 'domainNotDeliverable';
+      emailWarningParams = { domain: String(err.domain) };
+      emailWarning = `Prospect ajouté, mais le premier message n'a pas été envoyé : le domaine ${err.domain} n'a pas de SPF valide, tes emails de prospection partiraient en spam. Corrige-le dans « Connexions » — le message partira automatiquement une fois réglé.`;
+    } else if (err.message?.includes('Aucune boîte mail connectée')) {
+      emailWarningCode = 'noMailbox';
+      emailWarning = "Prospect ajouté, mais aucun email n'a été envoyé : connecte ta boîte mail dans « Connexions ».";
+    } else {
+      emailWarningCode = 'sendFailed';
+      emailWarning = "Prospect ajouté, mais le premier message n'a pas pu être envoyé automatiquement.";
+    }
+
+    // Stocke le message d'erreur RÉEL (diagnostic panne, remonté par Alex,
+    // 30/08/2026, test Outlook — voir
+    // migration_prospect_first_message_error_2026-08-30.sql) pour pouvoir
+    // diagnostiquer sans accès aux logs serveur, même schéma que
+    // send-verification/resend-verification pour l'email de confirmation.
+    try {
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          first_message_send_error: String(err?.message || err),
+          first_message_send_error_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+    } catch (logErr: any) {
+      console.error('Erreur stockage first_message_send_error (non bloquant):', logErr.message);
+    }
+  }
+
+  return { prospect, aaronOutput, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
+}

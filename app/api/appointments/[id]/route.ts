@@ -28,6 +28,7 @@ import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { resolveMeetingLink } from '@/lib/meeting-link';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { canAccessAppointment } from '@/lib/appointment-access';
+import { runInBackground } from '@/lib/background';
 import { readJsonBody, serverError } from '@/lib/http';
 
 // Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
@@ -99,11 +100,21 @@ async function detectSchedulingConflicts(userId: string, startISO: string, endIS
 // si un bilan a déjà été enregistré.
 export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
-  const { data: appointment, error } = await supabaseAdmin
+  let res: any = await supabaseAdmin
     .from('appointments')
-    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, prospects(full_name, email, assigned_user_id, company_id)')
+    .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, thank_you_sent_at, thank_you_error, prospects(full_name, email, assigned_user_id, company_id)')
     .eq('id', params.id)
     .single();
+  if (res.error && res.error.code === '42703') {
+    // migration_bilan_arriere_plan_2026-10-28.sql pas encore passée.
+    res = await supabaseAdmin
+      .from('appointments')
+      .select('id, user_id, contact_name, proposed_at, type, outcome, outcome_note, thank_you_sent_at, prospects(full_name, email, assigned_user_id, company_id)')
+      .eq('id', params.id)
+      .single();
+  }
+  const appointment: any = res.data;
+  const error = res.error;
 
   if (error || !appointment) {
     return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
@@ -127,6 +138,9 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
     // Faux pour un contact saisi à la main : la page bilan masque alors la
     // case « email de remerciement », qui ne pouvait qu'échouer.
     can_send_thank_you: !!prospect?.email,
+    // État de l'email de remerciement envoyé en arrière-plan après le bilan.
+    thank_you_sent_at: appointment.thank_you_sent_at || null,
+    thank_you_error: appointment.thank_you_error || null,
   });
 }
 
@@ -289,12 +303,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
         lines.push('', "Vous recevrez également une invitation pour votre agenda.");
       }
       lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
-      try {
-        await sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'));
-      } catch (mailErr: any) {
-        // Le RDV est validé : un échec d'envoi ne doit pas le remettre en cause.
-        console.error('Erreur envoi de la confirmation de RDV au prospect:', mailErr.message);
-      }
+      // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
+      // n'attend pas la boîte mail. Un échec reste dans les journaux.
+      runInBackground(`confirmation RDV ${appointmentId}`, () =>
+        sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'))
+      );
     }
 
     await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
@@ -317,15 +330,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     // le calendrier externe du commercial. Best-effort : l'annulation côté
     // Aaron est déjà actée, un souci ici ne doit pas la faire échouer.
     if (appointment.calendar_event_id && appointment.calendar_provider) {
-      try {
+      runInBackground(`suppression agenda RDV ${appointmentId}`, async () => {
         if (appointment.calendar_provider === 'google') {
           await deleteGoogleCalendarEvent(userId, appointment.calendar_event_id);
         } else if (appointment.calendar_provider === 'microsoft') {
           await deleteOutlookCalendarEvent(userId, appointment.calendar_event_id);
         }
-      } catch (calendarErr: any) {
-        console.error('Erreur suppression événement calendrier sur annulation:', calendarErr.message);
-      }
+      });
     }
 
     // Bug remonté par Alex (2026-08-20) : annuler un RDV dont la date est déjà
@@ -335,11 +346,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     // même de relancer (action "relancer", voir plus bas) via la notif moins
     // urgente qui apparaît désormais au tableau de bord pour ce cas.
     if (!alreadyPast && appointment.prospects?.email) {
-      await sendEmailForUser(
-        userId,
-        appointment.prospects.email,
-        'Concernant notre rendez-vous',
-        `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
+      runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
+        sendEmailForUser(
+          userId,
+          appointment.prospects.email,
+          'Concernant notre rendez-vous',
+          `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
+        )
       );
     }
 
@@ -357,11 +370,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       await supabaseAdmin.from('appointments').update({ client_cancel_acknowledged: true }).eq('id', appointmentId);
       return NextResponse.json({ error: "Pas d'adresse email pour ce contact : relance-le directement." }, { status: 400 });
     }
-    await sendEmailForUser(
-      userId,
-      appointment.prospects.email,
-      'Reprogrammons notre rendez-vous',
-      `Bonjour ${appointment.prospects.full_name},\n\nJ'ai bien noté que notre rendez-vous ne pouvait finalement pas avoir lieu. Quand seriez-vous disponible pour le reprogrammer ?\n\nCordialement.`
+    runInBackground(`relance RDV ${appointmentId}`, () =>
+      sendEmailForUser(
+        userId,
+        appointment.prospects.email,
+        'Reprogrammons notre rendez-vous',
+        `Bonjour ${appointment.prospects.full_name},\n\nJ'ai bien noté que notre rendez-vous ne pouvait finalement pas avoir lieu. Quand seriez-vous disponible pour le reprogrammer ?\n\nCordialement.`
+      )
     );
 
     await supabaseAdmin
