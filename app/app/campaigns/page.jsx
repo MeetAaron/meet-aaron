@@ -1,7 +1,7 @@
 // app/app/campaigns/page.jsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -1160,6 +1160,51 @@ function extractCampaignJson(text) {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// BROUILLON DE CAMPAGNE EN COURS (retour utilisateur, 30/10/2026).
+//
+// « j'ai mis clic et ca m'a ferme la fenetre, je suis oblige de tout
+// recommencer ». Deux causes : le fond de la modale fermait tout au moindre
+// clic qui finissait dessus (un clic commence DANS la modale mais relache a
+// cote vise l'overlay, donc une simple selection de texte suffisait), et rien
+// n'etait conserve. Le fond ne ferme plus rien — seule la croix ferme — et ce
+// qui a ete saisi est garde ici, par commercial, jusqu'au lancement.
+//
+// localStorage et pas la base : c'est un brouillon local, il n'a pas a voyager
+// ni a survivre a un changement de machine. Toute lecture/ecriture est
+// enveloppee, un navigateur en navigation privee ne doit jamais casser la page.
+function campaignDraftKey(kind, userId) {
+  return `aaron_campaign_${kind}_draft:${userId || 'anon'}`;
+}
+
+function readCampaignDraft(kind, userId) {
+  try {
+    const raw = window.localStorage.getItem(campaignDraftKey(kind, userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    // Un brouillon oublie depuis plus de 7 jours ne sert plus a personne.
+    if (parsed.savedAt && Date.now() - parsed.savedAt > 7 * 86400000) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCampaignDraft(kind, userId, value) {
+  try {
+    window.localStorage.setItem(campaignDraftKey(kind, userId), JSON.stringify({ ...value, savedAt: Date.now() }));
+  } catch {
+    // quota plein ou stockage refuse : le brouillon est un confort, pas un du.
+  }
+}
+
+function clearCampaignDraft(kind, userId) {
+  try {
+    window.localStorage.removeItem(campaignDraftKey(kind, userId));
+  } catch {}
+}
+
 function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreated }) {
   const [locale] = useLocale();
   const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
@@ -1206,6 +1251,52 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  // Restauration du brouillon : une seule fois, et seulement s'il contient
+  // vraiment quelque chose (au moins un message du commercial), pour ne pas
+  // remplacer le message d'accueil par un fil vide.
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    if (draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    const draft = readCampaignDraft('chat', userId);
+    if (!draft || !Array.isArray(draft.messages) || !draft.messages.some((m) => m?.role === 'user')) return;
+    setMessages(draft.messages);
+    if (typeof draft.input === 'string') setInput(draft.input);
+    if (draft.recap) setRecap(draft.recap);
+    if (typeof draft.chatTargetLocale === 'string') setChatTargetLocale(draft.chatTargetLocale);
+  }, [userId]);
+
+  // Sauvegarde a chaque changement, une fois la restauration passee.
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    if (!messages.some((m) => m?.role === 'user') && !input.trim()) return;
+    writeCampaignDraft('chat', userId, { messages, input, recap, chatTargetLocale });
+  }, [userId, messages, input, recap, chatTargetLocale]);
+
+  // Defilement automatique du fil (« c'est un must have mais si le chat
+  // pouvait glisser vers le bas automatiquement »). Meme approche que
+  // app/app/chat : on manipule scrollTop du conteneur et PAS scrollIntoView,
+  // qui ferait aussi defiler la page derriere la modale. Quand Aaron repond on
+  // cale le haut de la boite sur le DEBUT de sa reponse, pour qu'elle se lise
+  // de haut en bas ; sinon on reste tout en bas.
+  const messagesRef = useRef(null);
+  const previousMessageCountRef = useRef(0);
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const previousCount = previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+    const appended = messages.length - previousCount;
+    if (!sending && appended > 0 && previousCount > 0 && messages[messages.length - 1]?.role === 'assistant') {
+      const target = el.querySelectorAll('.bubble')[messages.length - appended];
+      if (target) {
+        el.scrollTop = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 6;
+        return;
+      }
+    }
+    el.scrollTop = el.scrollHeight;
+  }, [messages, sending, recap]);
+
   const PROFILE_TIP = ({ fr: "D'après ta fiche entreprise", en: 'From your company profile', de: 'Laut Ihrem Unternehmensprofil', it: 'Dalla scheda della tua azienda', es: 'Según la ficha de tu empresa', pt: 'Segundo a ficha da tua empresa', nl: 'Volgens je bedrijfsprofiel' })[locale] || "D'après ta fiche entreprise";
   function profileChipsFor(topic) {
     const c = profileChips?.[topic] || [];
@@ -1319,11 +1410,15 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
       setError(body.code === 'prospect_quota_exceeded' ? t('quota.exceededToast', locale) : (body.error || t('campaigns.createError', locale)));
       return;
     }
+    clearCampaignDraft('chat', userId);
     onCreated();
   }
 
+  // Le fond ne ferme plus : un clic commence DANS la modale mais relache sur
+  // l'overlay vise l'overlay, donc une simple selection de texte effacait tout
+  // le questionnaire deja rempli. Seule la croix ferme.
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay">
       <div className="chat-modal" onClick={(e) => e.stopPropagation()}>
         <div className="chat-header">
           <h2>{t('campaigns.chatModalTitle', locale)}</h2>
@@ -1359,7 +1454,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           </span>
         </div>
 
-        <div className="chat-messages">
+        <div className="chat-messages" ref={messagesRef}>
           {messages.map((m, i) => (
             <div key={i} className={`bubble ${m.role}`}>
               {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
@@ -1786,6 +1881,29 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Meme brouillon que le mode conversation — voir campaignDraftKey.
+  const formDraftRestoredRef = useRef(false);
+  useEffect(() => {
+    if (formDraftRestoredRef.current) return;
+    formDraftRestoredRef.current = true;
+    const d = readCampaignDraft('form', userId);
+    if (!d) return;
+    if (typeof d.zoneLabel === 'string') setZoneLabel(d.zoneLabel);
+    if (typeof d.targetLocale === 'string') setTargetLocale(d.targetLocale);
+    if (Array.isArray(d.companySizes)) setCompanySizes(d.companySizes);
+    if (typeof d.sectors === 'string') setSectors(d.sectors);
+    if (typeof d.targetRole === 'string') setTargetRole(d.targetRole);
+    if (typeof d.contextNotes === 'string') setContextNotes(d.contextNotes);
+    if (Number(d.targetCount) > 0) setTargetCount(d.targetCount);
+    if (Number.isInteger(d.step)) setStep(Math.min(Math.max(0, d.step), WIZARD_STEPS.length - 1));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!formDraftRestoredRef.current) return;
+    if (!zoneLabel.trim() && !sectors.trim() && !targetRole.trim() && !contextNotes.trim() && !companySizes.length) return;
+    writeCampaignDraft('form', userId, { step, zoneLabel, targetLocale, companySizes, sectors, targetRole, contextNotes, targetCount });
+  }, [userId, step, zoneLabel, targetLocale, companySizes, sectors, targetRole, contextNotes, targetCount]);
+
   const isLastStep = step === WIZARD_STEPS.length - 1;
   const canGoNext =
     (step === 0 && zoneLabel.trim()) ||
@@ -1861,11 +1979,15 @@ function NewCampaignModal({ userId, companyId, onClose, onCreated }) {
       setError(body.error || t('campaigns.createError', locale));
       return;
     }
+    clearCampaignDraft('form', userId);
     onCreated();
   }
 
+  // Le fond ne ferme plus : un clic commence DANS la modale mais relache sur
+  // l'overlay vise l'overlay, donc une simple selection de texte effacait tout
+  // le questionnaire deja rempli. Seule la croix ferme.
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay">
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <h2>{t('campaigns.wizardModalTitle', locale)}</h2>
 
