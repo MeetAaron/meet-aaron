@@ -1,0 +1,106 @@
+From b875cc2db3544c59df83aac8e057be7bf4701385 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 06:58:47 +0000
+Subject: [PATCH] =?UTF-8?q?Campagne=20:=20la=20ligne=20de=20saisie=20ne=20?=
+ =?UTF-8?q?sort=20plus=20de=20l'=C3=A9cran?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+« je ne vois pas le bas pour pouvoir écrire ». La modale était bien bornée à
+90vh, mais aucun de ses enfants ne pouvait rétrécir : .chat-messages portait
+min-height: 200px et .chip-row n'avait aucune limite. Avec douze puces de
+secteur sur quatre rangées, la ligne de saisie était poussée sous le bas de
+la modale, hors de l'écran — et comme rien ne défilait, elle devenait
+inatteignable. La campagne ne pouvait plus avancer.
+
+La cause réelle est le min-height implicite de flexbox : un enfant flex
+refuse de descendre sous la hauteur de son contenu tant qu'on ne lui pose pas
+min-height: 0. Les 200 px passent donc en flex-basis souple, les puces sont
+plafonnées à trois rangées et défilent au-delà, la ligne de saisie est
+marquée non compressible, et la modale est bornée en min(90vh, 100dvh - 2rem)
+— dvh et pas vh parce que sur mobile vh ignore la barre d'adresse et recrée
+exactement le même problème.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/campaigns/page.jsx | 32 +++++++++++++++++++++++++++++---
+ 1 file changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 54a72db..b6e1418 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -1591,6 +1591,18 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+           z-index: 100;
+           padding: 1rem;
+         }
++        /* Hauteur de la modale (correctif 30/10/2026 — « je ne vois pas le
++           bas pour pouvoir ecrire »). La modale etait bien bornee a 90vh,
++           mais aucun de ses enfants ne pouvait retrecir : .chat-messages
++           avait min-height: 200px et .chip-row n'avait aucune limite, donc
++           douze puces de secteur poussaient la ligne de saisie SOUS le bas
++           de la modale, hors de l'ecran. En flexbox, un enfant ne retrecit
++           pas en dessous de son contenu tant qu'on ne lui met pas
++           min-height: 0 — c'est la cause reelle, pas la hauteur de la
++           modale. On borne donc la modale, on autorise la zone de messages
++           a retrecir, on plafonne les puces, et la ligne de saisie reste
++           toujours visible en bas. 100dvh et pas 100vh : sur mobile, vh
++           ignore la barre d'adresse et redecoupe le meme probleme. */
+         .chat-modal {
+           background: var(--surface);
+           border: 1px solid var(--border);
+@@ -1598,9 +1610,11 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+           padding: 1.4rem;
+           width: 560px;
+           max-width: 100%;
+-          max-height: 90vh;
++          max-height: min(90vh, 100dvh - 2rem);
+           display: flex;
+           flex-direction: column;
++          min-height: 0;
++          overflow: hidden;
+         }
+         .chat-header {
+           display: flex;
+@@ -1663,8 +1677,12 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+         }
+         .chat-messages {
+           overflow-y: auto;
+-          flex: 1;
+-          min-height: 200px;
++          /* min-height: 0 est la cle : sans lui, un enfant flex refuse de
++             descendre sous la hauteur de son contenu et pousse tout ce qui
++             suit hors de la modale. 200px en plancher souple (flex-basis),
++             pas en min-height dur. */
++          flex: 1 1 200px;
++          min-height: 0;
+           max-height: 40vh;
+           display: flex;
+           flex-direction: column;
+@@ -1703,6 +1721,11 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+           flex-wrap: wrap;
+           gap: 0.4rem;
+           margin-bottom: 0.8rem;
++          /* Jusqu'a douze puces de secteur : au-dela de trois rangees, elles
++             defilent au lieu de repousser la ligne de saisie. */
++          flex: 0 1 auto;
++          max-height: 7.5rem;
++          overflow-y: auto;
+         }
+         .chip {
+           background: var(--bg);
+@@ -1788,6 +1811,9 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+         .chat-input-row {
+           display: flex;
+           gap: 0.5rem;
++          /* Toujours visible, jamais comprimee ni repoussee hors de l'ecran. */
++          flex: 0 0 auto;
++          margin-top: auto;
+         }
+         .chat-input-row input {
+           flex: 1;
+-- 
+2.43.0
+
