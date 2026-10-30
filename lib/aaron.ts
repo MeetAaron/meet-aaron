@@ -485,11 +485,21 @@ export async function buildAaronRequest(prospectId: string, options?: { model?: 
 
   const body = {
     model: options?.model || 'claude-sonnet-5',
-    // 3000 et non 2000 (08/09/2026) : un premier email long + le conseil +
-    // la proposition de RDV dépassaient parfois 2000 tokens, et la réponse
-    // coupée n'était plus un JSON valide. Seuls les tokens réellement
-    // produits sont facturés : relever le plafond ne coûte rien.
-    max_tokens: 3000,
+    // 8000 et non 3000 (30/10/2026). Le passage de 2000 à 3000 le 08/09 avait
+    // le bon raisonnement mais pas assez de marge : des prospects réels ont
+    // reçu des emails coupés en pleine phrase — « Bon », puis « Bonjour
+    // Claire, je suis Axel » —, la réponse ayant été tronquée pile dans
+    // email_draft.body. Les longueurs de coupure varient d'un cas à l'autre,
+    // ce qui confirme une limite de jetons atteinte et non un découpage fixe
+    // quelque part dans le code.
+    //
+    // Le raisonnement d'origine reste le bon et justifie d'aller franchement
+    // au-dessus du besoin : SEULS LES JETONS RÉELLEMENT PRODUITS SONT
+    // FACTURÉS. Une réponse normale en consomme environ 800 ; relever le
+    // plafond à 8000 ne coûte donc rien sur le cas courant et supprime la
+    // coupure sur le cas long. Un plafond trop bas, lui, coûte un prospect
+    // brûlé — infiniment plus cher que quelques jetons.
+    max_tokens: 8000,
     // Prompt caching : ce system prompt est identique à chaque appel (un par
     // prospect, à chaque cycle de prospection) — le mettre en cache réduit
     // fortement le coût et la latence sur le plus gros poste d'appels API.
@@ -530,9 +540,14 @@ export function parseAaronOutput(data: any): AaronOutput {
       // avec la longueur du corps : si ça se répète, c'est que max_tokens est
       // trop bas pour le gabarit de réponse demandé, et c'est la vraie
       // correction de fond.
+      // On journalise aussi le DÉBUT de la réponse brute : si la coupure
+      // persiste malgré max_tokens à 8000, c'est que le modèle écrit du texte
+      // avant le JSON et consomme son budget pour rien. Ces 200 caractères le
+      // diront immédiatement, au lieu de relancer une enquête à l'aveugle.
       console.error(
         `[aaron] réponse COUPÉE puis reconstruite — corps de ${String(parsed?.email_draft?.body || '').length} caractères. ` +
-        `Rien ne sera envoyé automatiquement.`
+        `Rien ne sera envoyé automatiquement. Début de la réponse brute : ` +
+        `${String(textBlock.text || '').slice(0, 200).replace(/\s+/g, ' ')}`
       );
       parsed.truncated = true;
     }
