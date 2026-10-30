@@ -42,6 +42,51 @@ function downloadBlob(blob, filename) {
 }
 
 // Textes propres à cette page (convention : dictionnaire local par fichier).
+// Encart « branche la conversion automatique » (Alex, 30/10/2026). Affiche
+// sous l'objectif de prospection UNIQUEMENT quand celui-ci est « inscription
+// ou abonnement direct » : dans ce mode personne ne prend de rendez-vous,
+// donc rien ne previent le commercial qu'un prospect s'est inscrit — Aaron
+// continuerait a le relancer comme s'il n'avait jamais repondu. Le webhook
+// de conversion existait deja, mais il vivait dans « Avance », sans aucun
+// lien avec le reglage qui le rend indispensable.
+const AUTO_CONVERSION_HINT = {
+  fr: {
+    title: 'Branche la conversion automatique',
+    body: "Avec cet objectif, personne ne prend de rendez-vous : rien ne previent Aaron qu'un prospect s'est inscrit, et il continuera a le relancer. Branche l'adresse de conversion automatique sur ton Stripe ou ton outil d'inscription — le prospect bascule alors en client gagne tout seul.",
+    cta: "Voir l'adresse a brancher",
+  },
+  en: {
+    title: 'Connect automatic conversion',
+    body: "With this objective nobody books a meeting, so nothing tells Aaron a prospect has signed up — he will keep following up. Connect the automatic conversion address to your Stripe or sign-up tool and the prospect becomes a won client on its own.",
+    cta: 'See the address to connect',
+  },
+  de: {
+    title: 'Automatische Umwandlung verbinden',
+    body: 'Bei diesem Ziel bucht niemand einen Termin, also erfahrt Aaron nie, dass sich jemand angemeldet hat — er hakt weiter nach. Verbinde die Adresse fur die automatische Umwandlung mit Stripe oder deinem Anmeldetool, dann wird der Interessent von selbst zum gewonnenen Kunden.',
+    cta: 'Adresse anzeigen',
+  },
+  it: {
+    title: "Collega la conversione automatica",
+    body: "Con questo obiettivo nessuno fissa un appuntamento: nulla avvisa Aaron che un potenziale cliente si e iscritto, e lui continuera a sollecitarlo. Collega l'indirizzo di conversione automatica al tuo Stripe o al tuo strumento di iscrizione — il contatto diventa cliente acquisito da solo.",
+    cta: "Vedi l'indirizzo da collegare",
+  },
+  es: {
+    title: 'Conecta la conversion automatica',
+    body: 'Con este objetivo nadie agenda una cita: nada avisa a Aaron de que alguien se ha inscrito, y seguira insistiendo. Conecta la direccion de conversion automatica a tu Stripe o a tu herramienta de registro y el contacto pasa a cliente ganado por si solo.',
+    cta: 'Ver la direccion a conectar',
+  },
+  pt: {
+    title: 'Liga a conversao automatica',
+    body: 'Com este objetivo ninguem marca reuniao: nada avisa o Aaron de que alguem se inscreveu, e ele vai continuar a insistir. Liga o endereco de conversao automatica ao teu Stripe ou a tua ferramenta de inscricao — o contacto passa a cliente ganho sozinho.',
+    cta: 'Ver o endereco a ligar',
+  },
+  nl: {
+    title: 'Koppel de automatische omzetting',
+    body: 'Bij dit doel boekt niemand een afspraak, dus weet Aaron nooit dat iemand zich heeft aangemeld en blijft hij opvolgen. Koppel het adres voor automatische omzetting aan je Stripe of aanmeldtool — de prospect wordt vanzelf een gewonnen klant.',
+    cta: 'Bekijk het adres',
+  },
+};
+
 const BILLING_OWNER_ONLY = {
   fr: "Seul le responsable du compte peut mettre à jour la carte de paiement : préviens-le.",
   en: 'Only the account owner can update the payment card: let them know.',
@@ -3356,6 +3401,30 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         onChange={(e) => setPrefs({ ...prefs, prospecting_goal_details: e.target.value })}
                       />
                     )}
+                    {prefs.prospecting_goal === 'essai_gratuit' && (
+                      <div className="goal-callout">
+                        <span className="goal-callout-ic"><Ic name="refresh" size={16} /></span>
+                        <div>
+                          <p className="goal-callout-title">{(AUTO_CONVERSION_HINT[locale] || AUTO_CONVERSION_HINT.fr).title}</p>
+                          <p className="goal-callout-body">{(AUTO_CONVERSION_HINT[locale] || AUTO_CONVERSION_HINT.fr).body}</p>
+                          <button
+                            type="button"
+                            className="btn-link goal-callout-cta"
+                            onClick={() => {
+                              const el = document.getElementById('conversion-auto');
+                              if (!el) return;
+                              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              // Surbrillance breve : sans elle, on atterrit sur une page
+                              // de reglages dense sans savoir ce qu'on est venu voir.
+                              el.classList.add('pref-card-flash');
+                              setTimeout(() => el.classList.remove('pref-card-flash'), 1800);
+                            }}
+                          >
+                            {(AUTO_CONVERSION_HINT[locale] || AUTO_CONVERSION_HINT.fr).cta} →
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <SaveBar keys={['prospecting_goal', 'prospecting_goal_details']} />
                   </div>
                 </div>
@@ -3430,7 +3499,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
 
             <section className="pref-group">
               <h2 className="pref-group-label">{t('preferences.groupAdvanced', locale)}</h2>
-              <div className="pref-card">
+              <div className="pref-card" id="conversion-auto">
                 <div className="field">
                   <span className="field-ic"><Ic name="refresh" size={18} /></span>
                   <div className="field-body">
@@ -4673,6 +4742,32 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           letter-spacing: 0.09em;
           text-transform: uppercase;
           color: var(--muted);
+        }
+        /* Encart de guidage sous l'objectif de prospection, et surbrillance
+           de la carte vers laquelle il renvoie — voir AUTO_CONVERSION_HINT. */
+        .goal-callout {
+          display: flex;
+          gap: 0.7rem;
+          align-items: flex-start;
+          margin: 0.75rem 0 0.2rem;
+          padding: 0.8rem 0.9rem;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(124, 110, 245, 0.32);
+          background: rgba(75, 57, 239, 0.1);
+        }
+        .goal-callout-ic { color: var(--accent-light); margin-top: 0.15rem; flex: 0 0 auto; }
+        .goal-callout-title { margin: 0 0 0.25rem; font-size: 0.88rem; font-weight: 600; }
+        .goal-callout-body { margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.45; }
+        .goal-callout-cta { margin-top: 0.5rem; padding: 0; font-size: 0.82rem; }
+        .pref-card-flash {
+          animation: pref-card-flash 1.8s ease-out 1;
+        }
+        @keyframes pref-card-flash {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(124, 110, 245, 0); }
+          15%, 60% { box-shadow: 0 0 0 2px rgba(124, 110, 245, 0.75); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .pref-card-flash { animation: none; box-shadow: 0 0 0 2px rgba(124, 110, 245, 0.75); }
         }
         .pref-card {
           background: var(--surface);
