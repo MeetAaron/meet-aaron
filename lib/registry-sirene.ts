@@ -25,108 +25,118 @@
 // est gratuite — et le tri se fait après, par un seul appel Haiku groupé qui
 // lit les noms et les libellés d'activité (voir classifyCandidates).
 //
-// AUTHENTIFICATION : nouveau portail INSEE (portail-api.insee.fr), une clé
-// d'API envoyée dans l'en-tête `X-INSEE-Api-Key-Integration`, pas d'OAuth.
-// La clé se crée en s'abonnant à l'API Sirene au plan « Public » ; elle
-// n'expire pas. Variable d'environnement : INSEE_API_KEY.
-// L'URL de base est dans INSEE_API_BASE pour pouvoir la corriger sans
-// redéployer si l'INSEE la fait bouger.
+// AUCUNE CLÉ, AUCUN COMPTE. On passe par recherche-entreprises.api.gouv.fr,
+// déjà utilisée ailleurs dans ce code — et non par le portail INSEE, qui
+// demande un compte pour exactement la même donnée. REGISTRY_FR_BASE permet
+// de corriger l'adresse sans redéployer si elle bouge.
 
 import { callClaude } from './anthropic-client';
 
-const INSEE_BASE = process.env.INSEE_API_BASE || 'https://api.insee.fr/api-sirene/3.11';
+// recherche-entreprises.api.gouv.fr : la même API que lib/company-directory.ts
+// utilise déjà pour VÉRIFIER une société française par son nom. Gratuite,
+// publique, SANS CLÉ — contrairement au portail INSEE, qui demande un compte
+// pour la même donnée. Ce fichier s'en sert pour l'usage inverse : DÉCOUVRIR
+// les sociétés d'un secteur et d'une zone, ce qu'aucune fonction existante ne
+// savait faire.
+const REGISTRY_FR_BASE = process.env.REGISTRY_FR_BASE || 'https://recherche-entreprises.api.gouv.fr';
 
-export interface SireneCandidate {
-  siret: string;
-  name: string;              // dénomination, ou enseigne si plus parlante
+// Pays dont le registre est ouvert ET interrogeable par secteur + zone.
+// C'est ce qui décide si une campagne peut constituer toute sa liste le
+// premier jour (gratuit) ou doit l'étaler (recherche web payante).
+export const REGISTRY_COUNTRIES = ['FR'] as const;
+
+export function registryCoversCountry(country: string | null | undefined): boolean {
+  if (!country) return false;
+  return (REGISTRY_COUNTRIES as readonly string[]).includes(country.toUpperCase());
+}
+
+export interface RegistryCandidate {
+  registryId: string;        // SIREN
+  name: string;
   activityCode: string | null;
   activityLabel: string | null;
   postalCode: string | null;
   city: string | null;
-  employeeBracket: string | null;  // code tranche d'effectifs INSEE
+  employeeBracket: string | null;
   createdAt: string | null;
+  sourceUrl: string | null;
 }
 
-export function sireneConfigured(): boolean {
-  return !!process.env.INSEE_API_KEY;
-}
-
-// Un champ peut manquer ou changer de place d'une version à l'autre de l'API :
-// on lit défensivement plutôt que de supposer une forme exacte.
-function pick(obj: any, ...paths: string[]): string | null {
-  for (const path of paths) {
-    let cur = obj;
-    for (const part of path.split('.')) {
-      if (cur == null) break;
-      cur = Array.isArray(cur) ? cur[0]?.[part] : cur[part];
-    }
-    if (typeof cur === 'string' && cur.trim()) return cur.trim();
-  }
-  return null;
-}
-
-function toCandidate(etab: any): SireneCandidate | null {
-  const siret = pick(etab, 'siret');
-  if (!siret) return null;
-  const denomination = pick(
-    etab,
-    'uniteLegale.denominationUniteLegale',
-    'uniteLegale.denominationUsuelle1UniteLegale'
-  );
-  const enseigne = pick(etab, 'periodesEtablissement.enseigne1Etablissement');
-  const nom = pick(etab, 'uniteLegale.nomUniteLegale');
-  const prenom = pick(etab, 'uniteLegale.prenom1UniteLegale');
-  // Entreprise individuelle : pas de dénomination, seulement un nom de personne.
-  const personne = nom ? [prenom, nom].filter(Boolean).join(' ') : null;
-
+function toCandidate(hit: any): RegistryCandidate | null {
+  const siren = hit?.siren;
+  if (!siren) return null;
+  const siege = hit.siege || {};
   return {
-    siret,
-    name: enseigne || denomination || personne || siret,
-    activityCode: pick(etab, 'periodesEtablissement.activitePrincipaleEtablissement', 'uniteLegale.activitePrincipaleUniteLegale'),
-    activityLabel: pick(etab, 'periodesEtablissement.activitePrincipaleEtablissementLibelle'),
-    postalCode: pick(etab, 'adresseEtablissement.codePostalEtablissement'),
-    city: pick(etab, 'adresseEtablissement.libelleCommuneEtablissement'),
-    employeeBracket: pick(etab, 'trancheEffectifsEtablissement', 'uniteLegale.trancheEffectifsUniteLegale'),
-    createdAt: pick(etab, 'dateCreationEtablissement'),
+    registryId: String(siren),
+    name: hit.nom_complet || hit.nom_raison_sociale || String(siren),
+    activityCode: hit.activite_principale || siege.activite_principale || null,
+    activityLabel: hit.libelle_activite_principale || null,
+    postalCode: siege.code_postal || null,
+    city: siege.libelle_commune || null,
+    employeeBracket: hit.tranche_effectif_salarie || null,
+    createdAt: hit.date_creation || null,
+    sourceUrl: `https://annuaire-entreprises.data.gouv.fr/entreprise/${siren}`,
   };
 }
 
-// Interroge Sirene. `nafCodes` est volontairement large, `departments` est une
-// liste de préfixes de code postal (« 75 », « 92 »…). On ne garde que les
-// établissements ACTIFS (etatAdministratifEtablissement:A) : un établissement
-// fermé n'a aucun intérêt en prospection et coûterait une recherche de contact
-// pour rien.
-export async function searchSireneCandidates(opts: {
+// DÉCOUVERTE : toutes les sociétés d'un ou plusieurs codes d'activité dans un
+// ou plusieurs départements. `nafCodes` est volontairement TROP LARGE (voir le
+// commentaire en tête de fichier) ; le tri vient après, par classifyCandidates.
+//
+// L'API pagine à 25 résultats par page au maximum. On enchaîne les pages
+// jusqu'à `limit`, en s'arrêtant dès qu'une page revient vide — inutile de
+// marteler l'API publique.
+export async function discoverFrenchCompanies(opts: {
   nafCodes: string[];
   departments: string[];
   limit?: number;
-}): Promise<{ candidates: SireneCandidate[]; error?: string }> {
-  const key = process.env.INSEE_API_KEY;
-  if (!key) return { candidates: [], error: 'INSEE_API_KEY absente' };
+}): Promise<{ candidates: RegistryCandidate[]; totalAvailable: number | null; error?: string; debugUrl?: string }> {
   if (!opts.nafCodes.length || !opts.departments.length) {
-    return { candidates: [], error: 'codes NAF ou départements manquants' };
+    return { candidates: [], totalAvailable: null, error: 'codes NAF ou départements manquants' };
   }
+  const limit = Math.min(opts.limit || 300, 1000);
+  const params = new URLSearchParams({
+    activite_principale: opts.nafCodes.join(','),
+    departement: opts.departments.join(','),
+    etat_administratif: 'A',
+    per_page: '25',
+    page: '1',
+  });
+  const debugUrl = `${REGISTRY_FR_BASE}/search?${params.toString()}`;
 
-  const naf = opts.nafCodes.map((c) => `activitePrincipaleEtablissement:${c}`).join(' OR ');
-  const cp = opts.departments.map((d) => `codePostalEtablissement:${d}*`).join(' OR ');
-  const q = `(${naf}) AND (${cp}) AND etatAdministratifEtablissement:A`;
-
-  const url = `${INSEE_BASE}/siret?q=${encodeURIComponent(q)}&nombre=${Math.min(opts.limit || 300, 1000)}`;
+  const candidates: RegistryCandidate[] = [];
+  let totalAvailable: number | null = null;
 
   try {
-    const res = await fetch(url, {
-      headers: { 'X-INSEE-Api-Key-Integration': key, Accept: 'application/json' },
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      return { candidates: [], error: `INSEE ${res.status} ${body.slice(0, 200)}` };
+    for (let page = 1; candidates.length < limit && page <= 40; page++) {
+      params.set('page', String(page));
+      const res = await fetch(`${REGISTRY_FR_BASE}/search?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return {
+          candidates,
+          totalAvailable,
+          error: `registre FR ${res.status} ${body.slice(0, 200)}`,
+          debugUrl,
+        };
+      }
+      const data: any = await res.json();
+      if (totalAvailable === null && typeof data?.total_results === 'number') {
+        totalAvailable = data.total_results;
+      }
+      const results: any[] = data?.results || [];
+      if (results.length === 0) break;
+      for (const hit of results) {
+        const c = toCandidate(hit);
+        if (c) candidates.push(c);
+        if (candidates.length >= limit) break;
+      }
     }
-    const data: any = await res.json();
-    const etablissements: any[] = data?.etablissements || [];
-    const candidates = etablissements.map(toCandidate).filter(Boolean) as SireneCandidate[];
-    return { candidates };
+    return { candidates, totalAvailable, debugUrl };
   } catch (err: any) {
-    return { candidates: [], error: err?.message || String(err) };
+    return { candidates, totalAvailable, error: err?.message || String(err), debugUrl };
   }
 }
 
@@ -186,7 +196,7 @@ export type CandidatePile = 'sur' | 'douteux' | 'non';
 
 export async function classifyCandidates(
   companyId: string,
-  candidates: SireneCandidate[],
+  candidates: RegistryCandidate[],
   sectorKeywords: string[]
 ): Promise<{ piles: Record<string, CandidatePile>; error?: string }> {
   if (candidates.length === 0) return { piles: {} };
@@ -223,11 +233,11 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
     for (const [index, pile] of Object.entries(parsed || {})) {
       const candidate = candidates[Number(index)];
       if (!candidate) continue;
-      if (pile === 'sur' || pile === 'douteux' || pile === 'non') piles[candidate.siret] = pile;
+      if (pile === 'sur' || pile === 'douteux' || pile === 'non') piles[candidate.registryId] = pile;
     }
     // Un candidat que le modèle a oublié de classer n'est pas perdu : il part
     // dans les douteux, jamais écarté en silence.
-    for (const c of candidates) if (!piles[c.siret]) piles[c.siret] = 'douteux';
+    for (const c of candidates) if (!piles[c.registryId]) piles[c.registryId] = 'douteux';
     return { piles };
   } catch (err: any) {
     return { piles: {}, error: err?.message || String(err) };
