@@ -1,0 +1,124 @@
+From 213278d937846ca011b2004e82b405f1810aa961 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 06:51:36 +0000
+Subject: [PATCH] =?UTF-8?q?Campagnes=20:=20ne=20plus=20chercher=20de=20soc?=
+ =?UTF-8?q?i=C3=A9t=C3=A9s=20qu'on=20ne=20pourra=20pas=20contacter?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Cause réelle des 6,73 $ des 29 et 30 octobre, identifiée sur les compteurs de
+la base : la première campagne d'un client a fait rechercher 66 sociétés pour
+28 prospects exploitables en deux jours, alors que la montée en charge de sa
+boîte d'envoi n'autorisait que 8 à 12 envois par jour.
+
+Ce ne sont ni les emails ni une boucle d'erreur. C'est le sourcing.
+run-campaigns passe toutes les 10 minutes, soit 144 fois par jour, et il
+relançait searchCompaniesInZone à chaque passage — Sonnet 5 avec jusqu'à cinq
+recherches web par appel, le chemin le plus cher de l'application. Le seul
+frein était getPacing, qui est précisément fait pour consommer l'abonnement en
+entier : il ne freinait donc rien tant qu'il restait de l'argent. Le budget
+autorisé était dépensé, exactement comme demandé, mais pour empiler des
+prospects que personne ne pouvait contacter avant plusieurs jours.
+
+Le bon frein n'est pas le budget, c'est le STOCK. Tant qu'il reste plus de
+prospects trouvés et pas encore contactés que ce que le commercial peut
+envoyer aujourd'hui, chercher davantage ne sert à rien — et les informations
+collectées auront vieilli quand leur tour viendra. Le sourcing ne se déclenche
+donc plus que lorsque le stock passe sous le plafond d'envoi du jour.
+
+Comptent comme stock : les prospects sans aucun message, et ceux dont le
+premier email est déjà rédigé et attend sa relecture ou son créneau d'envoi
+(c'est du travail déjà payé qui partira). Ne comptent pas ceux que le
+commercial a repris en main.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/run-campaigns/route.ts | 61 +++++++++++++++++++++++++++--
+ 1 file changed, 58 insertions(+), 3 deletions(-)
+
+diff --git a/app/api/cron/run-campaigns/route.ts b/app/api/cron/run-campaigns/route.ts
+index c299ab7..1015cb9 100644
+--- a/app/api/cron/run-campaigns/route.ts
++++ b/app/api/cron/run-campaigns/route.ts
+@@ -22,7 +22,7 @@ import { processCampaignBatch } from '@/lib/sourcing';
+ import { getProspectQuota } from '@/lib/prospect-quota';
+ import { generateAaronResponse } from '@/lib/aaron';
+ import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
+-import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
++import { hasReachedProspectingCap, effectiveProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
+ import { getPacing } from '@/lib/anthropic-client';
+ 
+ function isAuthorized(request: NextRequest) {
+@@ -57,10 +57,65 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
+   // avant) ; à 0, on ne cherche pas de nouvelles sociétés mais on contacte
+   // quand même celles déjà trouvées (leur premier email est déjà budgété).
+   const pacing = campaignOwner?.company_id ? await getPacing(campaignOwner.company_id) : null;
+-  const sourcingBatch = pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5;
++
++  // ───────────────────────────────────────────────────────────────────────
++  // NE CHERCHER QUE CE QU'ON POURRA CONTACTER (Alex, 30/10/2026).
++  //
++  // Diagnostic du 30/10 : ce cron passe toutes les 10 minutes, soit 144 fois
++  // par jour, et il relancait searchCompaniesInZone (lib/sourcing.ts — Sonnet
++  // avec jusqu'a 5 recherches web par appel) a CHAQUE passage, tant que
++  // getPacing laissait du budget. Or getPacing est fait pour consommer
++  // l'abonnement en entier : il ne freinait donc rien tant qu'il restait de
++  // l'argent. Resultat mesure sur la premiere campagne d'un client : 66
++  // societes recherchees pour 28 prospects exploitables en deux jours, et
++  // environ 9 $ de budget API — pendant que la montee en charge de la boite
++  // d'envoi n'autorisait que 8 a 12 envois par jour.
++  //
++  // Le bon frein n'est pas le budget, c'est le STOCK. Tant qu'il reste plus
++  // de prospects trouves-et-pas-encore-contactes que ce que le commercial
++  // peut envoyer aujourd'hui, chercher davantage ne sert a rien : ces
++  // prospects attendront des jours, et leurs informations auront vieilli
++  // quand leur tour viendra. On ne cherche donc que lorsque le stock passe
++  // sous le plafond d'envoi du jour.
++  const { data: stockCompanies } = await supabaseAdmin
++    .from('prospect_companies')
++    .select('id')
++    .eq('found_by_campaign_id', campaignId);
++  const stockCompanyIds = (stockCompanies || []).map((c: any) => c.id);
++
++  let uncontactedStock = 0;
++  if (stockCompanyIds.length > 0) {
++    const { data: stockProspects } = await supabaseAdmin
++      .from('prospects')
++      .select('id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
++      .in('prospect_company_id', stockCompanyIds);
++    uncontactedStock = (stockProspects || []).filter((p: any) => {
++      // Repris en main par le commercial : ne compte pas, Aaron ne lui ecrira pas.
++      if (p.ai_managed === false) return false;
++      // Brouillon deja redige (relecture ou creneau d'envoi) : c'est du stock
++      // deja paye qui partira, il compte.
++      if (p.pending_first_email_subject) return true;
++      const total = (p.conversations || []).reduce((sum: number, c: any) => sum + (c.messages?.length || 0), 0);
++      return total === 0;
++    }).length;
++  }
++
++  const dailyCap = await effectiveProspectingCap(assignedUserId);
++  const needsMoreCompanies = uncontactedStock < dailyCap;
++
++  const sourcingBatch = !needsMoreCompanies
++    ? 0
++    : (pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5);
++
+   const result = sourcingBatch > 0
+     ? await processCampaignBatch(campaignId, sourcingBatch)
+-    : { skipped_pacing: true, daily_target_usd: pacing?.dailyTargetUsd, day_spend_usd: pacing?.daySpendUsd };
++    : {
++        skipped_sourcing: needsMoreCompanies ? 'pacing' : 'stock_suffisant',
++        uncontacted_stock: uncontactedStock,
++        daily_cap: dailyCap,
++        daily_target_usd: pacing?.dailyTargetUsd,
++        day_spend_usd: pacing?.daySpendUsd,
++      };
+ 
+   const { data: newProspectCompanies } = await supabaseAdmin
+     .from('prospect_companies')
+-- 
+2.43.0
+
