@@ -164,6 +164,30 @@ export class MailboxAuthBrokenError extends Error {
   }
 }
 
+// Corps d'email manifestement amputé (Alex, 30/10/2026). Un prospect réel a
+// reçu un message dont le corps entier était « Bon » — le début de
+// « Bonjour » —, parce que la réponse du modèle avait été coupée, que la
+// réparation JSON l'avait refermée proprement, et que plus rien en aval ne
+// s'en méfiait. La cause est corrigée en amont (lib/extract-json.ts signale
+// désormais une réponse reconstruite), mais le garde-fou se met ICI : c'est
+// le seul point par lequel TOUS les envois passent, quel que soit le chemin
+// qui a produit le texte.
+export class EmailBodyTooShortError extends Error {
+  constructor(public readonly length: number) {
+    super(
+      `Corps d'email anormalement court (${length} caractères) : l'envoi est annulé. ` +
+      `C'est presque toujours une réponse du modèle coupée en cours d'écriture.`
+    );
+    this.name = 'EmailBodyTooShortError';
+  }
+}
+
+// 40 caractères : un email de prospection ou une relance en fait plusieurs
+// centaines. Même la réponse utile la plus brève (« Parfait, je vous envoie
+// ça aujourd'hui. ») dépasse largement ce seuil, qui n'attrape donc que des
+// fragments. Volontairement bas : on bloque l'absurde, pas le laconique.
+const MIN_EMAIL_BODY_CHARS = 40;
+
 export class DomainNotDeliverableError extends Error {
   domain: string;
   constructor(domain: string) {
@@ -416,6 +440,16 @@ export async function sendEmailForUser(
   // ligne manuels avant même le plafond de démarchage/le choix du
   // fournisseur, pour couvrir tous les envois sans exception.
   body = normalizeEmailBodyLineBreaks(body);
+
+  // Dernière ligne de défense, avant toute autre vérification : on n'envoie
+  // jamais un fragment. Voir EmailBodyTooShortError.
+  const bodyLength = (body || '').trim().length;
+  if (bodyLength < MIN_EMAIL_BODY_CHARS) {
+    console.error(
+      `[email] envoi annulé pour ${to} : corps de ${bodyLength} caractères — « ${(body || '').trim().slice(0, 60)} »`
+    );
+    throw new EmailBodyTooShortError(bodyLength);
+  }
 
   if (emailType === 'prospecting' && (await hasReachedProspectingCap(userId))) {
     // Le plafond annonce dans l'erreur est le plafond EFFECTIF (montee en

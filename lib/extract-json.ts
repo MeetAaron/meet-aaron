@@ -21,7 +21,18 @@
 //      appelants savent déjà gérer un champ absent).
 // Si rien ne marche, on lève — l'appelant garde son message d'erreur.
 
-export function extractJsonObject<T = any>(text: string): T {
+// `meta.repaired` passe à true quand l'objet n'a PAS été obtenu tel quel mais
+// reconstruit à partir d'une réponse coupée. C'est une information critique
+// (Alex, 30/10/2026) : un objet réparé contient par construction au moins une
+// valeur tronquée, et jusqu'ici rien ne distinguait un email complet d'un
+// email amputé. Un prospect réel a reçu un message dont le corps entier était
+// « Bon » — le début de « Bonjour » — parce que la réponse du modèle avait été
+// coupée juste après l'ouverture de la chaîne, que la réparation a fermé
+// proprement, et que l'envoi automatique n'avait aucune raison de s'en
+// méfier. La réparation reste la bonne stratégie : elle sauve un brouillon
+// relisible plutôt que de tout perdre. Ce qui manquait, c'est de DIRE qu'on a
+// réparé, pour que l'appelant refuse d'envoyer sans relecture.
+export function extractJsonObject<T = any>(text: string, meta?: { repaired?: boolean }): T {
   const cleaned = String(text || '').replace(/```json|```/g, '').trim();
   try {
     return JSON.parse(cleaned) as T;
@@ -32,14 +43,19 @@ export function extractJsonObject<T = any>(text: string): T {
   const slice = balancedObjectSlice(cleaned);
   if (slice) {
     try {
-      return JSON.parse(slice) as T;
+      const parsed = JSON.parse(slice) as T;
+      // Tranche équilibrée analysable telle quelle : la réponse contenait du
+      // texte autour du JSON, pas un JSON coupé. Rien n'est tronqué.
+      return parsed;
     } catch {
       // on continue
     }
     const repaired = closeTruncatedJson(slice);
     if (repaired) {
       try {
-        return JSON.parse(repaired) as T;
+        const parsed = JSON.parse(repaired) as T;
+        if (meta) meta.repaired = true;
+        return parsed;
       } catch {
         // on continue
       }

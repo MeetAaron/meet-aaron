@@ -120,6 +120,14 @@ export async function runFirstContact(prospect: FirstContactProspect) {
 
     aaronOutput = await generateAaronResponse(prospect.id);
 
+    // Réponse du modèle COUPÉE puis reconstruite (voir lib/extract-json.ts) :
+    // l'objet est exploitable mais au moins une valeur est amputée. Un
+    // prospect réel a reçu un email dont le corps entier était « Bon »
+    // (Alex, 30/10/2026). On garde le brouillon — il a été payé et il est
+    // souvent récupérable en deux mots — mais il attend une relecture au
+    // lieu de partir tout seul.
+    const truncated = aaronOutput.truncated === true;
+
     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
     // FICHE ENREGISTREE AVANT L'ENVOI (Alex, 30/10/2026). Cet UPDATE se
@@ -139,7 +147,7 @@ export async function runFirstContact(prospect: FirstContactProspect) {
       })
       .eq('id', prospect.id);
 
-    if (hasEmailToSend && sender?.require_first_email_approval) {
+    if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
       await supabaseAdmin
         .from('prospects')
         .update({
@@ -149,8 +157,10 @@ export async function runFirstContact(prospect: FirstContactProspect) {
         })
         .eq('id', prospect.id);
 
-      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
-      emailWarningCode = 'pendingApproval';
+      emailWarning = truncated
+        ? "Prospect ajouté — le premier email a été coupé pendant sa rédaction, il t'attend pour relecture avant envoi."
+        : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+      emailWarningCode = truncated ? 'truncatedDraft' : 'pendingApproval';
 
       try {
         await sendPushNotification(prospect.assigned_user_id, {

@@ -97,6 +97,11 @@ const MAX_CHARS_PER_DOC = 600;
 
 export interface AaronOutput {
   email_draft: { subject: string; body: string };
+  // Vrai quand la réponse du modèle a été COUPÉE et reconstruite (voir
+  // lib/extract-json.ts). L'objet est exploitable, mais au moins une de ses
+  // valeurs est amputée — typiquement la fin de l'email. Rien ne doit partir
+  // automatiquement dans cet état : le brouillon attend une relecture.
+  truncated?: boolean;
   prospect_status: 'vert' | 'jaune' | 'orange' | 'rouge' | 'bleu';
   personality_type: 'dominant' | 'influent' | 'stable' | 'consciencieux' | null;
   personality_notes: string | null;
@@ -518,7 +523,20 @@ export function parseAaronOutput(data: any): AaronOutput {
   // récupéré tant qu'il est là. L'erreur ne reste que pour une réponse sans
   // aucun JSON.
   try {
-    return extractJsonObject<AaronOutput>(textBlock.text);
+    const meta: { repaired?: boolean } = {};
+    const parsed = extractJsonObject<AaronOutput>(textBlock.text, meta);
+    if (meta.repaired) {
+      // Signalé pour que l'appelant refuse l'envoi automatique. Journalisé
+      // avec la longueur du corps : si ça se répète, c'est que max_tokens est
+      // trop bas pour le gabarit de réponse demandé, et c'est la vraie
+      // correction de fond.
+      console.error(
+        `[aaron] réponse COUPÉE puis reconstruite — corps de ${String(parsed?.email_draft?.body || '').length} caractères. ` +
+        `Rien ne sera envoyé automatiquement.`
+      );
+      parsed.truncated = true;
+    }
+    return parsed;
   } catch (e) {
     console.error('Réponse Aaron non parsable:', textBlock.text);
     throw new Error('Réponse Aaron mal formée (JSON invalide)');
