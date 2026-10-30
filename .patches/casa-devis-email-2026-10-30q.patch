@@ -1,0 +1,495 @@
+From fc884116f7e763bfdce5ff802ae52cc65e67f8ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 08:56:47 +0000
+Subject: [PATCH] =?UTF-8?q?Emails=20:=20ne=20plus=20jamais=20envoyer=20un?=
+ =?UTF-8?q?=20message=20coup=C3=A9,=20et=20la=20brique=20annuaire?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+URGENT — signalé par le premier utilisateur externe : un prospect réel a reçu
+un email dont le corps entier était « Bon ». C'est le début de « Bonjour ».
+
+Enchaînement complet. Le modèle écrit sa réponse en JSON ; email_draft arrive
+tard dans l'objet ; sur une réponse verbeuse, max_tokens est atteint pile au
+début du corps. extract-json répare alors la réponse coupée — ce qui est la
+bonne stratégie, un brouillon amputé vaut mieux que rien — et referme
+proprement la chaîne. En sortie, un objet parfaitement valide dont le corps
+fait trois lettres. Plus rien en aval n'avait de raison de s'en méfier, et
+l'envoi automatique l'a expédié.
+
+Le commentaire d'origine de la réparation disait « mieux vaut un email
+tronqué RELU PAR LE COMMERCIAL qu'aucun objet ». L'hypothèse de relecture
+était juste ; elle a cessé d'être vraie le jour où l'envoi automatique est
+devenu le mode par défaut.
+
+Trois corrections, à trois niveaux.
+
+extract-json signale désormais qu'il a réparé, au lieu de rendre un objet
+réparé indiscernable d'un objet intact. C'est l'information qui manquait.
+
+lib/aaron porte ce signal jusqu'à l'appelant (AaronOutput.truncated) et
+journalise la longueur du corps : si ça se répète, c'est que max_tokens est
+trop bas pour le gabarit demandé, et ce sera la correction de fond.
+
+lib/first-contact range un brouillon tronqué en attente de relecture au lieu
+de l'envoyer, avec un message qui dit pourquoi — le texte est payé et souvent
+récupérable en deux mots.
+
+Et un garde-fou universel dans sendEmailForUser, avant toute autre
+vérification : un corps de moins de 40 caractères lève
+EmailBodyTooShortError. C'est le seul point par lequel TOUS les envois
+passent, quel que soit le chemin qui a produit le texte — relances, réponses
+entrantes, brouillons différés compris. Seuil volontairement bas : même la
+réponse utile la plus brève le dépasse largement, on ne bloque que l'absurde.
+
+---
+
+Inclut aussi lib/registry-sirene.ts, première brique du chantier annuaire,
+QUI N'EST APPELÉE PAR RIEN pour l'instant — lib/sourcing.ts est inchangé.
+Elle servira à la route de comparaison réservée au compte fondateur : le
+registre constitue sa liste dans son coin, on la compare à ce que la
+recherche web avait trouvé sur la même zone, et on ne bascule que si elle
+tient la route.
+
+Deux partis pris qui méritent d'être écrits. Le code NAF sert de FILET, pas
+de filtre : il est déclaré à la création et presque jamais mis à jour, donc
+filtrer dessus ferait manquer la moitié de la cible. On prend trop large —
+c'est gratuit — et le tri vient après, en UN appel Haiku sans recherche web
+qui juge 300 candidats sur leur nom et leur activité déclarée, pour environ
+deux dixièmes de centime. Trois piles et pas deux : on ne paie que les sûrs,
+et on ne pioche dans les douteux que si la campagne n'atteint pas son
+objectif.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/aaron.ts           |  20 +++-
+ lib/extract-json.ts    |  22 +++-
+ lib/first-contact.ts   |  16 ++-
+ lib/messaging.ts       |  34 ++++++
+ lib/registry-sirene.ts | 235 +++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 320 insertions(+), 7 deletions(-)
+ create mode 100644 lib/registry-sirene.ts
+
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 0d614c8..3f96494 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -97,6 +97,11 @@ const MAX_CHARS_PER_DOC = 600;
+ 
+ export interface AaronOutput {
+   email_draft: { subject: string; body: string };
++  // Vrai quand la réponse du modèle a été COUPÉE et reconstruite (voir
++  // lib/extract-json.ts). L'objet est exploitable, mais au moins une de ses
++  // valeurs est amputée — typiquement la fin de l'email. Rien ne doit partir
++  // automatiquement dans cet état : le brouillon attend une relecture.
++  truncated?: boolean;
+   prospect_status: 'vert' | 'jaune' | 'orange' | 'rouge' | 'bleu';
+   personality_type: 'dominant' | 'influent' | 'stable' | 'consciencieux' | null;
+   personality_notes: string | null;
+@@ -518,7 +523,20 @@ export function parseAaronOutput(data: any): AaronOutput {
+   // récupéré tant qu'il est là. L'erreur ne reste que pour une réponse sans
+   // aucun JSON.
+   try {
+-    return extractJsonObject<AaronOutput>(textBlock.text);
++    const meta: { repaired?: boolean } = {};
++    const parsed = extractJsonObject<AaronOutput>(textBlock.text, meta);
++    if (meta.repaired) {
++      // Signalé pour que l'appelant refuse l'envoi automatique. Journalisé
++      // avec la longueur du corps : si ça se répète, c'est que max_tokens est
++      // trop bas pour le gabarit de réponse demandé, et c'est la vraie
++      // correction de fond.
++      console.error(
++        `[aaron] réponse COUPÉE puis reconstruite — corps de ${String(parsed?.email_draft?.body || '').length} caractères. ` +
++        `Rien ne sera envoyé automatiquement.`
++      );
++      parsed.truncated = true;
++    }
++    return parsed;
+   } catch (e) {
+     console.error('Réponse Aaron non parsable:', textBlock.text);
+     throw new Error('Réponse Aaron mal formée (JSON invalide)');
+diff --git a/lib/extract-json.ts b/lib/extract-json.ts
+index 1a0c57d..8258289 100644
+--- a/lib/extract-json.ts
++++ b/lib/extract-json.ts
+@@ -21,7 +21,18 @@
+ //      appelants savent déjà gérer un champ absent).
+ // Si rien ne marche, on lève — l'appelant garde son message d'erreur.
+ 
+-export function extractJsonObject<T = any>(text: string): T {
++// `meta.repaired` passe à true quand l'objet n'a PAS été obtenu tel quel mais
++// reconstruit à partir d'une réponse coupée. C'est une information critique
++// (Alex, 30/10/2026) : un objet réparé contient par construction au moins une
++// valeur tronquée, et jusqu'ici rien ne distinguait un email complet d'un
++// email amputé. Un prospect réel a reçu un message dont le corps entier était
++// « Bon » — le début de « Bonjour » — parce que la réponse du modèle avait été
++// coupée juste après l'ouverture de la chaîne, que la réparation a fermé
++// proprement, et que l'envoi automatique n'avait aucune raison de s'en
++// méfier. La réparation reste la bonne stratégie : elle sauve un brouillon
++// relisible plutôt que de tout perdre. Ce qui manquait, c'est de DIRE qu'on a
++// réparé, pour que l'appelant refuse d'envoyer sans relecture.
++export function extractJsonObject<T = any>(text: string, meta?: { repaired?: boolean }): T {
+   const cleaned = String(text || '').replace(/```json|```/g, '').trim();
+   try {
+     return JSON.parse(cleaned) as T;
+@@ -32,14 +43,19 @@ export function extractJsonObject<T = any>(text: string): T {
+   const slice = balancedObjectSlice(cleaned);
+   if (slice) {
+     try {
+-      return JSON.parse(slice) as T;
++      const parsed = JSON.parse(slice) as T;
++      // Tranche équilibrée analysable telle quelle : la réponse contenait du
++      // texte autour du JSON, pas un JSON coupé. Rien n'est tronqué.
++      return parsed;
+     } catch {
+       // on continue
+     }
+     const repaired = closeTruncatedJson(slice);
+     if (repaired) {
+       try {
+-        return JSON.parse(repaired) as T;
++        const parsed = JSON.parse(repaired) as T;
++        if (meta) meta.repaired = true;
++        return parsed;
+       } catch {
+         // on continue
+       }
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index eaf945c..8cc7d81 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -120,6 +120,14 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+ 
+     aaronOutput = await generateAaronResponse(prospect.id);
+ 
++    // Réponse du modèle COUPÉE puis reconstruite (voir lib/extract-json.ts) :
++    // l'objet est exploitable mais au moins une valeur est amputée. Un
++    // prospect réel a reçu un email dont le corps entier était « Bon »
++    // (Alex, 30/10/2026). On garde le brouillon — il a été payé et il est
++    // souvent récupérable en deux mots — mais il attend une relecture au
++    // lieu de partir tout seul.
++    const truncated = aaronOutput.truncated === true;
++
+     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+ 
+     // FICHE ENREGISTREE AVANT L'ENVOI (Alex, 30/10/2026). Cet UPDATE se
+@@ -139,7 +147,7 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+       })
+       .eq('id', prospect.id);
+ 
+-    if (hasEmailToSend && sender?.require_first_email_approval) {
++    if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+@@ -149,8 +157,10 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+         })
+         .eq('id', prospect.id);
+ 
+-      emailWarning = "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+-      emailWarningCode = 'pendingApproval';
++      emailWarning = truncated
++        ? "Prospect ajouté — le premier email a été coupé pendant sa rédaction, il t'attend pour relecture avant envoi."
++        : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
++      emailWarningCode = truncated ? 'truncatedDraft' : 'pendingApproval';
+ 
+       try {
+         await sendPushNotification(prospect.assigned_user_id, {
+diff --git a/lib/messaging.ts b/lib/messaging.ts
+index ef0f892..5fec9a7 100644
+--- a/lib/messaging.ts
++++ b/lib/messaging.ts
+@@ -164,6 +164,30 @@ export class MailboxAuthBrokenError extends Error {
+   }
+ }
+ 
++// Corps d'email manifestement amputé (Alex, 30/10/2026). Un prospect réel a
++// reçu un message dont le corps entier était « Bon » — le début de
++// « Bonjour » —, parce que la réponse du modèle avait été coupée, que la
++// réparation JSON l'avait refermée proprement, et que plus rien en aval ne
++// s'en méfiait. La cause est corrigée en amont (lib/extract-json.ts signale
++// désormais une réponse reconstruite), mais le garde-fou se met ICI : c'est
++// le seul point par lequel TOUS les envois passent, quel que soit le chemin
++// qui a produit le texte.
++export class EmailBodyTooShortError extends Error {
++  constructor(public readonly length: number) {
++    super(
++      `Corps d'email anormalement court (${length} caractères) : l'envoi est annulé. ` +
++      `C'est presque toujours une réponse du modèle coupée en cours d'écriture.`
++    );
++    this.name = 'EmailBodyTooShortError';
++  }
++}
++
++// 40 caractères : un email de prospection ou une relance en fait plusieurs
++// centaines. Même la réponse utile la plus brève (« Parfait, je vous envoie
++// ça aujourd'hui. ») dépasse largement ce seuil, qui n'attrape donc que des
++// fragments. Volontairement bas : on bloque l'absurde, pas le laconique.
++const MIN_EMAIL_BODY_CHARS = 40;
++
+ export class DomainNotDeliverableError extends Error {
+   domain: string;
+   constructor(domain: string) {
+@@ -417,6 +441,16 @@ export async function sendEmailForUser(
+   // fournisseur, pour couvrir tous les envois sans exception.
+   body = normalizeEmailBodyLineBreaks(body);
+ 
++  // Dernière ligne de défense, avant toute autre vérification : on n'envoie
++  // jamais un fragment. Voir EmailBodyTooShortError.
++  const bodyLength = (body || '').trim().length;
++  if (bodyLength < MIN_EMAIL_BODY_CHARS) {
++    console.error(
++      `[email] envoi annulé pour ${to} : corps de ${bodyLength} caractères — « ${(body || '').trim().slice(0, 60)} »`
++    );
++    throw new EmailBodyTooShortError(bodyLength);
++  }
++
+   if (emailType === 'prospecting' && (await hasReachedProspectingCap(userId))) {
+     // Le plafond annonce dans l'erreur est le plafond EFFECTIF (montee en
+     // charge comprise) — sinon le message dirait « 40/jour » a quelqu'un qui
+diff --git a/lib/registry-sirene.ts b/lib/registry-sirene.ts
+new file mode 100644
+index 0000000..baa3eae
+--- /dev/null
++++ b/lib/registry-sirene.ts
+@@ -0,0 +1,235 @@
++// lib/registry-sirene.ts
++//
++// ANNUAIRE OFFICIEL FRANÇAIS (INSEE Sirene) — MODE PARALLÈLE, NE TOUCHE À RIEN.
++//
++// Demande Alex (30/10/2026), après le constat de coût : trouver les
++// entreprises d'une zone par recherche web coûte environ 9 centimes par appel
++// (5 recherches web à 1 centime + la lecture des résultats), alors que l'INSEE
++// publie gratuitement et sans limite la liste de TOUTES les entreprises
++// françaises avec leur activité déclarée, leur adresse et leur tranche
++// d'effectifs. Le constat qui a déclenché ça : 66 sociétés analysées pour
++// 28 prospects exploitables, et la découverte représentait 71 % de la facture.
++//
++// CE FICHIER NE REMPLACE RIEN POUR L'INSTANT. Il est appelé uniquement par
++// la route de comparaison app/api/admin/sirene-shadow, réservée au compte
++// fondateur. Le sourcing de production (lib/sourcing.ts) est inchangé. On
++// bascule seulement si la comparaison sur une vraie campagne montre que la
++// liste INSEE vaut celle de la recherche web — pas avant.
++//
++// POURQUOI UN FILET LARGE PLUTÔT QU'UN FILTRE PRÉCIS.
++// Le code d'activité (NAF/APE) est déclaré à la création de l'entreprise et
++// presque jamais mis à jour : une agence événementielle peut être en 8230Z,
++// en 7311Z, en 9001Z, ou sous un code qui n'a plus rien à voir. Filtrer
++// dessus ferait manquer la moitié de la cible et ramènerait des imprimeurs.
++// On prend donc VOLONTAIREMENT trop large — ça ne coûte rien puisque l'API
++// est gratuite — et le tri se fait après, par un seul appel Haiku groupé qui
++// lit les noms et les libellés d'activité (voir classifyCandidates).
++//
++// AUTHENTIFICATION : nouveau portail INSEE (portail-api.insee.fr), une clé
++// d'API envoyée dans l'en-tête `X-INSEE-Api-Key-Integration`, pas d'OAuth.
++// La clé se crée en s'abonnant à l'API Sirene au plan « Public » ; elle
++// n'expire pas. Variable d'environnement : INSEE_API_KEY.
++// L'URL de base est dans INSEE_API_BASE pour pouvoir la corriger sans
++// redéployer si l'INSEE la fait bouger.
++
++import { callClaude } from './anthropic-client';
++
++const INSEE_BASE = process.env.INSEE_API_BASE || 'https://api.insee.fr/api-sirene/3.11';
++
++export interface SireneCandidate {
++  siret: string;
++  name: string;              // dénomination, ou enseigne si plus parlante
++  activityCode: string | null;
++  activityLabel: string | null;
++  postalCode: string | null;
++  city: string | null;
++  employeeBracket: string | null;  // code tranche d'effectifs INSEE
++  createdAt: string | null;
++}
++
++export function sireneConfigured(): boolean {
++  return !!process.env.INSEE_API_KEY;
++}
++
++// Un champ peut manquer ou changer de place d'une version à l'autre de l'API :
++// on lit défensivement plutôt que de supposer une forme exacte.
++function pick(obj: any, ...paths: string[]): string | null {
++  for (const path of paths) {
++    let cur = obj;
++    for (const part of path.split('.')) {
++      if (cur == null) break;
++      cur = Array.isArray(cur) ? cur[0]?.[part] : cur[part];
++    }
++    if (typeof cur === 'string' && cur.trim()) return cur.trim();
++  }
++  return null;
++}
++
++function toCandidate(etab: any): SireneCandidate | null {
++  const siret = pick(etab, 'siret');
++  if (!siret) return null;
++  const denomination = pick(
++    etab,
++    'uniteLegale.denominationUniteLegale',
++    'uniteLegale.denominationUsuelle1UniteLegale'
++  );
++  const enseigne = pick(etab, 'periodesEtablissement.enseigne1Etablissement');
++  const nom = pick(etab, 'uniteLegale.nomUniteLegale');
++  const prenom = pick(etab, 'uniteLegale.prenom1UniteLegale');
++  // Entreprise individuelle : pas de dénomination, seulement un nom de personne.
++  const personne = nom ? [prenom, nom].filter(Boolean).join(' ') : null;
++
++  return {
++    siret,
++    name: enseigne || denomination || personne || siret,
++    activityCode: pick(etab, 'periodesEtablissement.activitePrincipaleEtablissement', 'uniteLegale.activitePrincipaleUniteLegale'),
++    activityLabel: pick(etab, 'periodesEtablissement.activitePrincipaleEtablissementLibelle'),
++    postalCode: pick(etab, 'adresseEtablissement.codePostalEtablissement'),
++    city: pick(etab, 'adresseEtablissement.libelleCommuneEtablissement'),
++    employeeBracket: pick(etab, 'trancheEffectifsEtablissement', 'uniteLegale.trancheEffectifsUniteLegale'),
++    createdAt: pick(etab, 'dateCreationEtablissement'),
++  };
++}
++
++// Interroge Sirene. `nafCodes` est volontairement large, `departments` est une
++// liste de préfixes de code postal (« 75 », « 92 »…). On ne garde que les
++// établissements ACTIFS (etatAdministratifEtablissement:A) : un établissement
++// fermé n'a aucun intérêt en prospection et coûterait une recherche de contact
++// pour rien.
++export async function searchSireneCandidates(opts: {
++  nafCodes: string[];
++  departments: string[];
++  limit?: number;
++}): Promise<{ candidates: SireneCandidate[]; error?: string }> {
++  const key = process.env.INSEE_API_KEY;
++  if (!key) return { candidates: [], error: 'INSEE_API_KEY absente' };
++  if (!opts.nafCodes.length || !opts.departments.length) {
++    return { candidates: [], error: 'codes NAF ou départements manquants' };
++  }
++
++  const naf = opts.nafCodes.map((c) => `activitePrincipaleEtablissement:${c}`).join(' OR ');
++  const cp = opts.departments.map((d) => `codePostalEtablissement:${d}*`).join(' OR ');
++  const q = `(${naf}) AND (${cp}) AND etatAdministratifEtablissement:A`;
++
++  const url = `${INSEE_BASE}/siret?q=${encodeURIComponent(q)}&nombre=${Math.min(opts.limit || 300, 1000)}`;
++
++  try {
++    const res = await fetch(url, {
++      headers: { 'X-INSEE-Api-Key-Integration': key, Accept: 'application/json' },
++    });
++    if (!res.ok) {
++      const body = await res.text().catch(() => '');
++      return { candidates: [], error: `INSEE ${res.status} ${body.slice(0, 200)}` };
++    }
++    const data: any = await res.json();
++    const etablissements: any[] = data?.etablissements || [];
++    const candidates = etablissements.map(toCandidate).filter(Boolean) as SireneCandidate[];
++    return { candidates };
++  } catch (err: any) {
++    return { candidates: [], error: err?.message || String(err) };
++  }
++}
++
++// ─────────────────────────────────────────────────────────────────────────
++// TRADUCTION DU CIBLAGE EN CRITÈRES INSEE.
++// Même découpe que le sourcing web depuis le 30/10 : Sonnet fait le travail de
++// jugement (quels codes d'activité, quels départements), sur un prompt
++// minuscule et sans aucun outil — quelques dixièmes de centime. Il n'est PAS
++// demandé d'être précis sur les codes : on veut un filet large, le tri vient
++// après.
++export async function planSireneCriteria(
++  companyId: string,
++  sectorKeywords: string[],
++  zoneLabel: string
++): Promise<{ nafCodes: string[]; departments: string[]; error?: string }> {
++  const prompt = `Tu prépares une requête sur le répertoire Sirene de l'INSEE (entreprises françaises).
++
++Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
++Zone géographique : ${zoneLabel}
++
++1. Donne la liste des codes NAF/APE (format 4 chiffres + 1 lettre, ex: 8230Z) sous lesquels ces entreprises PEUVENT être enregistrées. Sois VOLONTAIREMENT LARGE : le code est déclaré à la création et rarement mis à jour, donc inclus les codes voisins et les codes sous lesquels ce métier est souvent déclaré par erreur ou par héritage. Entre 4 et 12 codes.
++2. Donne la liste des préfixes de code postal (2 chiffres, ex: 75, 92, 93) couvrant la zone. Si la zone est une ville, donne le ou les départements qui la contiennent.
++
++Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises markdown :
++{"naf": ["8230Z", "..."], "departements": ["75", "..."]}`;
++
++  try {
++    const data = await callClaude(
++      { model: 'claude-sonnet-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] },
++      companyId, 'ap'
++    );
++    const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
++    if (!textBlock) return { nafCodes: [], departments: [], error: 'réponse vide' };
++    const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
++    const nafCodes = (parsed?.naf || []).filter((c: any) => typeof c === 'string' && /^\d{4}[A-Z]$/.test(c.trim())).map((c: string) => c.trim());
++    const departments = (parsed?.departements || []).filter((d: any) => typeof d === 'string' && /^\d{2,3}$/.test(d.trim())).map((d: string) => d.trim());
++    return { nafCodes, departments };
++  } catch (err: any) {
++    return { nafCodes: [], departments: [], error: err?.message || String(err) };
++  }
++}
++
++// ─────────────────────────────────────────────────────────────────────────
++// LE TRI, EN UN SEUL APPEL.
++//
++// C'est le cœur de l'économie. Aujourd'hui, découvrir qu'une entreprise ne
++// correspond pas coûte 3,4 centimes, parce qu'on ne le sait qu'APRÈS avoir
++// payé l'enrichissement et la recherche de contact. Ici, 300 candidats sont
++// jugés en un seul appel Haiku sans aucune recherche web, sur leur nom et
++// leur activité déclarée : quelques milliers de jetons au total, soit environ
++// deux dixièmes de centime pour les 300.
++//
++// Trois piles et pas deux (« sûr », « douteux », « non ») : on ne paie que la
++// pile « sûr », et on ne pioche dans les douteux que si la campagne n'atteint
++// pas son objectif. Le doute se paie quand il sert, jamais d'avance.
++export type CandidatePile = 'sur' | 'douteux' | 'non';
++
++export async function classifyCandidates(
++  companyId: string,
++  candidates: SireneCandidate[],
++  sectorKeywords: string[]
++): Promise<{ piles: Record<string, CandidatePile>; error?: string }> {
++  if (candidates.length === 0) return { piles: {} };
++
++  const lines = candidates
++    .map((c, i) => `${i}. ${c.name} — ${c.activityLabel || c.activityCode || 'activité inconnue'} — ${c.city || ''} ${c.postalCode || ''}`)
++    .join('\n');
++
++  const prompt = `Voici une liste d'entreprises françaises issues du répertoire officiel, avec leur nom et leur activité DÉCLARÉE (souvent obsolète ou approximative).
++
++Cible recherchée : ${sectorKeywords.join(', ')}
++
++Pour chaque entreprise, dis si elle correspond plausiblement à la cible :
++- "sur" : le nom ou l'activité déclarée indiquent clairement ce métier.
++- "douteux" : rien ne l'exclut, mais rien ne le confirme non plus (nom de personne, activité trop générale).
++- "non" : le nom ou l'activité indiquent clairement un autre métier.
++
++Dans le doute entre "sur" et "douteux", choisis "douteux". N'invente rien : tu ne disposes que de ces deux informations, tu ne consultes aucun site.
++
++${lines}
++
++Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises markdown, dont les clés sont les numéros de ligne et les valeurs "sur", "douteux" ou "non" :
++{"0": "sur", "1": "non"}`;
++
++  try {
++    const data = await callClaude(
++      { model: 'claude-haiku-4-5', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] },
++      companyId, 'ap'
++    );
++    const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
++    if (!textBlock) return { piles: {}, error: 'réponse vide' };
++    const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
++    const piles: Record<string, CandidatePile> = {};
++    for (const [index, pile] of Object.entries(parsed || {})) {
++      const candidate = candidates[Number(index)];
++      if (!candidate) continue;
++      if (pile === 'sur' || pile === 'douteux' || pile === 'non') piles[candidate.siret] = pile;
++    }
++    // Un candidat que le modèle a oublié de classer n'est pas perdu : il part
++    // dans les douteux, jamais écarté en silence.
++    for (const c of candidates) if (!piles[c.siret]) piles[c.siret] = 'douteux';
++    return { piles };
++  } catch (err: any) {
++    return { piles: {}, error: err?.message || String(err) };
++  }
++}
+-- 
+2.43.0
+
