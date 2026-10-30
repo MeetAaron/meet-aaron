@@ -1,0 +1,117 @@
+From 75dcb616fe2b716cb70cab6a6d28bbe67f98583c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 09:01:34 +0000
+Subject: [PATCH] =?UTF-8?q?Emails=20coup=C3=A9s=20:=20traiter=20la=20cause?=
+ =?UTF-8?q?,=20pas=20seulement=20le=20sympt=C3=B4me?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Le garde-fou déployé il y a vingt minutes empêche l'envoi, mais le problème
+se répète — un deuxième prospect a reçu « Bonjour Claire, je suis Axel », et
+rien d'autre. Bloquer les envois sans corriger la cause aurait simplement
+arrêté la campagne au lieu de l'abîmer.
+
+Ce que les deux cas disent. Les coupures tombent à des longueurs
+DIFFÉRENTES — 3 caractères puis 28 — ce qui écarte un découpage fixe quelque
+part dans le code et désigne une limite de jetons atteinte en cours
+d'écriture. Et email_draft est déjà le PREMIER champ du schéma : pour que la
+coupure tombe dedans, il faut que le budget ait été largement consommé avant
+même le début de l'objet.
+
+Deux corrections.
+
+max_tokens passe de 3000 à 8000. Le passage de 2000 à 3000 le 08/09 avait le
+bon raisonnement mais pas assez de marge. Ce raisonnement justifie d'ailleurs
+d'aller franchement au-dessus du besoin : seuls les jetons RÉELLEMENT
+PRODUITS sont facturés. Une réponse normale en consomme environ 800, donc
+relever le plafond ne coûte rien sur le cas courant et supprime la coupure
+sur le cas long. Un plafond trop bas, lui, coûte un prospect brûlé —
+infiniment plus cher que quelques jetons.
+
+Et le prompt interdit désormais explicitement tout texte hors de l'objet
+JSON : premier caractère `{`, dernier `}`, pas de raisonnement en préambule.
+Si Aaron veut commenter quelque chose, le champ aaron_advice est fait pour
+ça. Le prompt dit aussi pourquoi email_draft est placé en premier — c'est le
+seul champ dont le contenu part chez un tiers, donc le seul qui doit être
+écrit en entier quoi qu'il arrive.
+
+En filet, la journalisation d'une réponse reconstruite affiche maintenant les
+200 premiers caractères de la réponse brute. Si la coupure persiste malgré
+8000 jetons, ces 200 caractères diront immédiatement ce que le modèle écrit
+avant le JSON, au lieu de relancer une enquête à l'aveugle.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/aaron.ts               | 27 +++++++++++++++++++++------
+ lib/aaron_system_prompt.md |  6 +++++-
+ 2 files changed, 26 insertions(+), 7 deletions(-)
+
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 3f96494..42654ec 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -485,11 +485,21 @@ export async function buildAaronRequest(prospectId: string, options?: { model?:
+ 
+   const body = {
+     model: options?.model || 'claude-sonnet-5',
+-    // 3000 et non 2000 (08/09/2026) : un premier email long + le conseil +
+-    // la proposition de RDV dépassaient parfois 2000 tokens, et la réponse
+-    // coupée n'était plus un JSON valide. Seuls les tokens réellement
+-    // produits sont facturés : relever le plafond ne coûte rien.
+-    max_tokens: 3000,
++    // 8000 et non 3000 (30/10/2026). Le passage de 2000 à 3000 le 08/09 avait
++    // le bon raisonnement mais pas assez de marge : des prospects réels ont
++    // reçu des emails coupés en pleine phrase — « Bon », puis « Bonjour
++    // Claire, je suis Axel » —, la réponse ayant été tronquée pile dans
++    // email_draft.body. Les longueurs de coupure varient d'un cas à l'autre,
++    // ce qui confirme une limite de jetons atteinte et non un découpage fixe
++    // quelque part dans le code.
++    //
++    // Le raisonnement d'origine reste le bon et justifie d'aller franchement
++    // au-dessus du besoin : SEULS LES JETONS RÉELLEMENT PRODUITS SONT
++    // FACTURÉS. Une réponse normale en consomme environ 800 ; relever le
++    // plafond à 8000 ne coûte donc rien sur le cas courant et supprime la
++    // coupure sur le cas long. Un plafond trop bas, lui, coûte un prospect
++    // brûlé — infiniment plus cher que quelques jetons.
++    max_tokens: 8000,
+     // Prompt caching : ce system prompt est identique à chaque appel (un par
+     // prospect, à chaque cycle de prospection) — le mettre en cache réduit
+     // fortement le coût et la latence sur le plus gros poste d'appels API.
+@@ -530,9 +540,14 @@ export function parseAaronOutput(data: any): AaronOutput {
+       // avec la longueur du corps : si ça se répète, c'est que max_tokens est
+       // trop bas pour le gabarit de réponse demandé, et c'est la vraie
+       // correction de fond.
++      // On journalise aussi le DÉBUT de la réponse brute : si la coupure
++      // persiste malgré max_tokens à 8000, c'est que le modèle écrit du texte
++      // avant le JSON et consomme son budget pour rien. Ces 200 caractères le
++      // diront immédiatement, au lieu de relancer une enquête à l'aveugle.
+       console.error(
+         `[aaron] réponse COUPÉE puis reconstruite — corps de ${String(parsed?.email_draft?.body || '').length} caractères. ` +
+-        `Rien ne sera envoyé automatiquement.`
++        `Rien ne sera envoyé automatiquement. Début de la réponse brute : ` +
++        `${String(textBlock.text || '').slice(0, 200).replace(/\s+/g, ' ')}`
+       );
+       parsed.truncated = true;
+     }
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index a669586..a9873ad 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -232,7 +232,11 @@ Inclus cette tentative dans le champ `rescue_proposal` du JSON de sortie (unique
+ 
+ ## FORMAT DE SORTIE STRUCTURÉ (JSON)
+ 
+-Chaque réponse générée par Aaron doit produire un objet JSON structuré exploitable par le backend :
++Chaque réponse générée par Aaron doit produire un objet JSON structuré exploitable par le backend.
++
++**Ta réponse ne contient QUE cet objet JSON.** Aucun texte avant, aucun texte après, aucune explication de ton raisonnement, aucune balise markdown autour. Le premier caractère de ta réponse est `{` et le dernier est `}`. Tout ce que tu écrirais en dehors de l'objet consomme ton budget de réponse et risque de faire couper l'email en pleine phrase — un prospect réel a déjà reçu un message dont le corps entier était « Bonjour Claire, je suis Axel » pour cette raison. Si tu as besoin de commenter quelque chose à l'intention du commercial, c'est le champ `aaron_advice` qui est fait pour ça, jamais du texte libre hors de l'objet.
++
++Le champ `email_draft` est volontairement placé EN PREMIER : c'est le seul dont le contenu part chez un tiers, donc le seul qui doit être écrit en entier quoi qu'il arrive.
+ 
+ ```json
+ {
+-- 
+2.43.0
+
