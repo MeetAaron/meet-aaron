@@ -1,0 +1,247 @@
+From dcb823534d267380f77ff98f00b482961962c95f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 07:34:39 +0000
+Subject: [PATCH] =?UTF-8?q?Bilan=20RDV=20:=20dire=20quand=20aucune=20fiche?=
+ =?UTF-8?q?=20contact=20n'a=20boug=C3=A9,=20et=20ne=20plus=20=C3=A9chouer?=
+ =?UTF-8?q?=20en=20silence?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Alex : « j'ai placé un RDV en perdu, mais où est passé ce contact ? ». Le SQL
+a tranché : le rendez-vous en question (outcome « perdu », 30/10 07h01) a
+`prospect_id = null` et `contact_name = "Jean"`. Il avait été saisi avec un
+simple nom, sans fiche du fichier derrière. Il n'y avait donc rien à faire
+passer en perdu, et le code a fait exactement ce qui était prévu.
+
+Le défaut n'est pas dans l'écriture, il est dans le silence. On clique
+« Perdu », Aaron répond, tout a l'air normal — et le fichier n'a pas bougé
+sans que rien ne le dise. Le bilan renvoie désormais si une fiche a été mise
+à jour, et l'écran l'affiche quand ce n'est pas le cas.
+
+Au passage, le rattrapage d'erreur juste en dessous était une bombe à
+retardement de la même famille : quand une colonne manquait, il retirait
+TOUJOURS quote_requested_at, quelle que soit la colonne réellement absente.
+Pour une issue « perdu » il retirait donc la mauvaise, la seconde tentative
+échouait pareil, et son erreur n'était même plus vérifiée. Échec totalement
+muet, et exactement le scénario que je soupçonnais avant d'avoir les
+données. Il retire désormais les colonnes optionnelles une par une, s'arrête
+dès qu'une tentative passe, et journalise clairement si tout échoue — sans
+jamais sacrifier le statut ni is_lost/is_won.
+
+Inclut aussi la section QUAND PARLER D'UNE CARACTÉRISTIQUE DE L'OFFRE dans
+le prompt d'Aaron : une application mobile ou une intégration n'est pas une
+accroche de premier email, c'est une réponse à une objection et une
+réassurance au moment de conclure. Et Aaron ne mentionne jamais une
+caractéristique qui ne figure pas dans les données de la société.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/outcome/route.ts | 16 +++++++-
+ app/app/agenda/rdv/[id]/bilan/page.jsx     | 34 ++++++++++++++++
+ lib/aaron_system_prompt.md                 | 14 +++++++
+ lib/appointment-outcome.ts                 | 47 ++++++++++++++++++++--
+ 4 files changed, 105 insertions(+), 6 deletions(-)
+
+diff --git a/app/api/appointments/[id]/outcome/route.ts b/app/api/appointments/[id]/outcome/route.ts
+index 8fa370f..5ba8b81 100644
+--- a/app/api/appointments/[id]/outcome/route.ts
++++ b/app/api/appointments/[id]/outcome/route.ts
+@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+     // puis la note d'Aaron et l'email de remerciement se font en arrière-plan.
+     // La page relit GET /api/appointments/[id] quelques secondes plus tard
+     // pour afficher la note personnalisée et l'état de l'email.
+-    const { note } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
++    const { note, prospectUpdated, hasProspect } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
+     const wantsThankYou = send_thank_you === true;
+     const notePending = outcome !== 'opportunite' && outcome !== 'devis';
+     runInBackground(`bilan RDV ${params.id}`, async () => {
+@@ -66,7 +66,19 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+         }
+       }
+     });
+-    return NextResponse.json({ note, note_pending: notePending, thank_you_pending: wantsThankYou });
++    // `contact_updated: false` = le bilan est enregistré sur le rendez-vous
++    // mais AUCUNE fiche contact n'a bougé. Cas le plus fréquent : le RDV a été
++    // saisi avec un simple nom, sans contact du fichier derrière — il n'y a
++    // alors rien à faire passer en perdu ni en opportunité. L'écran doit le
++    // dire, sinon le commercial croit son fichier à jour alors qu'il ne l'est
++    // pas (remonté par Alex le 30/10/2026).
++    return NextResponse.json({
++      note,
++      note_pending: notePending,
++      thank_you_pending: wantsThankYou,
++      contact_updated: prospectUpdated,
++      has_contact: hasProspect,
++    });
+   } catch (err: any) {
+     console.error('Erreur enregistrement bilan RDV:', err.message);
+     return NextResponse.json({ error: "Impossible d'enregistrer le bilan" }, { status: 500 });
+diff --git a/app/app/agenda/rdv/[id]/bilan/page.jsx b/app/app/agenda/rdv/[id]/bilan/page.jsx
+index 11f3500..bb95c23 100644
+--- a/app/app/agenda/rdv/[id]/bilan/page.jsx
++++ b/app/app/agenda/rdv/[id]/bilan/page.jsx
+@@ -114,6 +114,21 @@ function orderedChoices(locale, mood) {
+ }
+ 
+ // Textes propres à cette page (dictionnaire local).
++// Rendez-vous sans contact rattache (Alex, 30/10/2026 : « j'ai place un RDV
++// en perdu, mais ou est passe ce contact ? »). Le RDV avait ete saisi avec un
++// simple nom — il n'existait aucune fiche a faire passer en perdu. Le bilan
++// etait bien enregistre, Aaron repondait, et rien ne disait que le fichier
++// n'avait pas bouge. On le dit maintenant.
++const NO_CONTACT_NOTICE = {
++  fr: "Ce rendez-vous n'est rattaché à aucun contact de ton fichier — il avait été saisi avec un simple nom. Le bilan est enregistré sur le rendez-vous, mais aucune fiche n'a été mise à jour.",
++  en: 'This meeting is not linked to any contact in your list — it was entered with just a name. The outcome is saved on the meeting, but no contact record was updated.',
++  de: 'Dieser Termin ist mit keinem Kontakt aus deiner Liste verknüpft — er wurde nur mit einem Namen angelegt. Das Ergebnis ist am Termin gespeichert, aber es wurde kein Kontakt aktualisiert.',
++  it: "Questo appuntamento non è collegato a nessun contatto della tua lista — era stato inserito con un semplice nome. L'esito è registrato sull'appuntamento, ma nessuna scheda è stata aggiornata.",
++  es: 'Esta cita no está vinculada a ningún contacto de tu lista — se creó solo con un nombre. El resultado queda guardado en la cita, pero no se actualizó ninguna ficha.',
++  pt: 'Esta reunião não está associada a nenhum contacto da tua lista — foi criada apenas com um nome. O resultado fica guardado na reunião, mas nenhuma ficha foi atualizada.',
++  nl: 'Deze afspraak is aan geen enkel contact uit je lijst gekoppeld — ze is met alleen een naam aangemaakt. De uitkomst is bij de afspraak opgeslagen, maar er is geen contactfiche bijgewerkt.',
++};
++
+ const THANK_YOU_PENDING = {
+   fr: "Aaron rédige et envoie l'email de remerciement…",
+   en: 'Aaron is writing and sending the thank-you email…',
+@@ -136,6 +151,8 @@ export default function BilanRdvPage(props) {
+   const [mood, setMood] = useState(null); // 'bien' | 'moyen' | 'mal'
+   const CHOICES = orderedChoices(locale, mood);
+   const [outcome, setOutcome] = useState(null);
++  // null = pas encore enregistre ; false = aucune fiche contact mise a jour.
++  const [contactUpdated, setContactUpdated] = useState(null);
+   const [context, setContext] = useState('');
+   const [sendThankYou, setSendThankYou] = useState(true);
+   const [thankYouStatus, setThankYouStatus] = useState(null); // 'sent' | 'failed' | null
+@@ -212,6 +229,7 @@ export default function BilanRdvPage(props) {
+         // la note personnalisée d'Aaron et l'email de remerciement arrivent en
+         // arrière-plan. On relit le RDV à 4 s, 10 s et 20 s pour les afficher.
+         setNote(body.note);
++        if (body.contact_updated === false) setContactUpdated(false);
+         const wantsThankYou = sendThankYou && appointment?.can_send_thank_you !== false;
+         if (wantsThankYou) setThankYouStatus('pending');
+         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
+@@ -337,6 +355,10 @@ export default function BilanRdvPage(props) {
+ 
+         {error && <p style={styles.errorText}>{error}</p>}
+ 
++        {contactUpdated === false && (
++          <p style={styles.noContactNotice}>{NO_CONTACT_NOTICE[locale] || NO_CONTACT_NOTICE.fr}</p>
++        )}
++
+         {note && (
+           <div style={styles.noteBox}>
+             <p style={styles.noteLabel}>{t('bilanRdv.aaronLabel', locale)}</p>
+@@ -556,4 +578,16 @@ const styles = {
+     color: '#e5484d',
+     marginTop: 12,
+   },
++  // Avertissement « aucune fiche contact mise à jour » : informatif, pas une
++  // erreur — le bilan EST enregistré. Ton ambre plutôt que rouge.
++  noContactNotice: {
++    marginTop: 14,
++    padding: '10px 12px',
++    borderRadius: 10,
++    border: '1px solid rgba(245, 166, 35, 0.35)',
++    background: 'rgba(245, 166, 35, 0.10)',
++    color: 'var(--text, #f4f1ea)',
++    fontSize: 13,
++    lineHeight: 1.45,
++  },
+ };
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index 8e5460d..a669586 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -148,6 +148,20 @@ Cialdini explique **pourquoi** quelqu'un accepte ; l'empathie tactique donne **q
+ 4. **Obtention du RDV** : dès que l'intérêt est confirmé, propose 2-3 créneaux précis (pas juste "quand êtes-vous disponible ?" — la facilité de choix augmente le taux de conversion) et demande le format préféré (tel/physique/visio) si non précisé.
+ 5. **Transmission au commercial** : dès qu'un créneau est accepté par le prospect, transmets-le au format structuré ci-dessous pour que le commercial valide/reporte/annule.
+ 
++## QUAND PARLER D'UNE CARACTÉRISTIQUE DE L'OFFRE (application mobile, intégrations, disponibilité…)
++
++Demande Alex (30/10/2026). Une caractéristique — « ça existe en application sur téléphone », « ça se branche sur votre logiciel », « c'est disponible 7j/7 » — n'est PAS un argument d'accroche. Personne ne répond à un email froid parce qu'il existe une application : on répond parce qu'on reconnaît son propre problème dans les deux premières lignes. Une caractéristique lue trop tôt se lit comme une plaquette, et une plaquette ne se lit pas.
++
++Elle a en revanche une vraie valeur à trois moments précis, et nulle part ailleurs :
++
++1. **Jamais dans le premier message**, sauf un cas : quand cette caractéristique EST le bénéfice central pour le poste du prospect (voir ADAPTER L'ANGLE SELON LE POSTE). Un commercial terrain qui passe ses journées en voiture, un artisan jamais assis devant un ordinateur : pour eux « depuis votre téléphone » n'est pas une caractéristique, c'est la condition pour que l'offre existe. Dans ce cas, une incise de quelques mots — jamais une phrase entière, jamais une liste.
++2. **Quand une objection la touche directement** : « je n'ai pas le temps », « je ne suis jamais au bureau », « mon équipe est tout le temps sur la route », « on n'a personne pour s'en occuper ». Là elle devient l'argument central, et c'est le moment où elle convainc vraiment — parce que c'est le prospect lui-même qui vient d'en poser le besoin. Suis l'ordre habituel : étiquetage ou question calibrée d'abord, la caractéristique ensuite, comme réponse.
++3. **Au moment de conclure** (prise de rendez-vous, demande de devis, inscription) : une ligne de réassurance pour lever la dernière friction pratique, pas pour vendre. « Tout se pilote depuis le téléphone, vous n'avez rien à installer sur un ordinateur » — et on s'arrête là.
++
++Dans les relances intermédiaires, elle ne sert que si elle apporte l'angle nouveau que la relance doit apporter de toute façon : une relance qui ne fait qu'ajouter une caractéristique à la précédente est une relance vide.
++
++**Interdiction qui prime sur tout le reste** : tu ne mentionnes une caractéristique que si elle figure réellement dans `offre_vendue`, `commercial.documents_entreprise` ou le profil d'entreprise du commercial. Tu n'en déduis jamais l'existence, même quand elle paraîtrait évidente pour ce type de produit. Annoncer une application, une intégration ou une disponibilité qui n'existe pas est le genre de promesse qui se retourne au premier rendez-vous, et elle n'engage pas que toi : elle engage le commercial.
++
+ ## FORMAT DU RENDEZ-VOUS ET LIEN DE VISIO (`commercial.peut_fournir_lien_visio`)
+ 
+ Quand `commercial.peut_fournir_lien_visio` vaut `false`, le commercial n'a AUCUN moyen d'envoyer un lien de réunion en ligne : sa messagerie n'est ni chez Google ni chez Microsoft (donc ni Google Meet ni Teams ne peuvent créer de lien) et il n'a pas renseigné de salle permanente. Dans ce cas, quand tu proposes un rendez-vous, mets en avant **le téléphone ou le présentiel**, jamais la visio — proposer une visio puis envoyer un rappel sans lien de connexion donne au prospect l'image d'une organisation approximative dès le premier rendez-vous. Si le PROSPECT demande lui-même explicitement une visio, accepte sans discuter (c'est sa préférence, elle prime), et n'invente évidemment aucun lien : le commercial lancera l'appel depuis l'outil de son choix le jour venu.
+diff --git a/lib/appointment-outcome.ts b/lib/appointment-outcome.ts
+index 091e589..baa0215 100644
+--- a/lib/appointment-outcome.ts
++++ b/lib/appointment-outcome.ts
+@@ -242,6 +242,10 @@ export async function recordAppointmentOutcome(
+       .eq('id', appointmentId));
+   }
+ 
++  // Vrai tant qu'on n'a pas constaté le contraire ; passe à false s'il n'y a
++  // aucun contact rattaché, ou si l'écriture échoue.
++  let prospectUpdated = !!prospect?.id;
++
+   if (prospect?.id) {
+     const now = new Date().toISOString();
+     const prospectUpdate: Record<string, any> = { status: prospectStatusFor(outcome, details.mood), status_updated_at: now };
+@@ -278,13 +282,48 @@ export async function recordAppointmentOutcome(
+ 
+     const { error: prospectUpdateError } = await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
+     if (prospectUpdateError && prospectUpdateError.code === '42703') {
+-      // Migration fusion pas encore passée : on enregistre sans quote_requested_at.
+-      const { quote_requested_at, ...withoutQuote } = prospectUpdate;
+-      await supabaseAdmin.from('prospects').update(withoutQuote).eq('id', prospect.id);
++      // Colonne absente (migration pas encore jouée). L'ancien rattrapage
++      // retirait TOUJOURS quote_requested_at, quelle que soit la colonne
++      // réellement manquante — donc pour une issue « perdu » il retirait la
++      // mauvaise, la seconde tentative échouait pareil, et son erreur n'était
++      // même plus vérifiée : échec totalement muet. On retire désormais les
++      // colonnes optionnelles une par une, de la moins essentielle à la plus
++      // essentielle, et on s'arrête dès qu'une tentative passe. Le statut et
++      // is_lost/is_won, eux, ne sont jamais sacrifiés.
++      const OPTIONAL_COLUMNS = ['quote_requested_at', 'lost_at', 'deal_stage_updated_at', 'deal_stage'];
++      let attempt: Record<string, any> = { ...prospectUpdate };
++      let lastError: any = prospectUpdateError;
++      for (const column of OPTIONAL_COLUMNS) {
++        if (!(column in attempt)) continue;
++        delete attempt[column];
++        const { error } = await supabaseAdmin.from('prospects').update(attempt).eq('id', prospect.id);
++        lastError = error;
++        if (!error) break;
++        if (error.code !== '42703') break;
++      }
++      if (lastError) {
++        console.error(
++          `Bilan RDV ${appointmentId} : impossible de mettre à jour le prospect ${prospect.id} (${lastError.code || '?'}) — ` +
++          `l'issue « ${outcome} » est enregistrée sur le rendez-vous mais PAS sur la fiche contact.`
++        );
++        prospectUpdated = false;
++      }
++    } else if (prospectUpdateError) {
++      console.error(
++        `Bilan RDV ${appointmentId} : échec de mise à jour du prospect ${prospect.id} (${prospectUpdateError.code || '?'}) : ${prospectUpdateError.message}`
++      );
++      prospectUpdated = false;
+     }
+   }
+ 
+-  return { note };
++  // `prospectUpdated: false` veut dire « le bilan est enregistré sur le RDV,
++  // mais AUCUNE fiche contact n'a bougé » — soit parce que le rendez-vous
++  // n'est rattaché à aucun contact (RDV saisi avec un simple nom), soit
++  // parce que l'écriture a échoué. Dans les deux cas le commercial doit le
++  // savoir : sans ça il clique « Perdu », voit la confirmation, et croit que
++  // son fichier est à jour alors qu'il ne l'est pas (remonté par Alex le
++  // 30/10/2026 — « j'ai placé un RDV en perdu, où est passé ce contact ? »).
++  return { note, prospectUpdated, hasProspect: !!prospect?.id };
+ }
+ 
+ // Note personnalisée d'Aaron, calculée APRÈS la réponse au navigateur (voir
+-- 
+2.43.0
+
