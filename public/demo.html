@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="fr" id="htmlRoot">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meet Aaron — la démo en 36 secondes</title>
+<meta name="description" content="Aaron prospecte, relance et remplit votre agenda pendant que vous travaillez. Voyez-le en 36 secondes.">
+<meta name="robots" content="index, follow">
+<link rel="icon" href="/favicon.ico">
+<meta property="og:title" content="Meet Aaron — la démo en 36 secondes">
+<meta property="og:description" content="Aaron prospecte, relance et remplit votre agenda pendant que vous travaillez.">
+<meta property="og:url" content="https://meetaaron.app/demo">
+<meta property="og:type" content="website">
+<style>
+  /* Palette alignée sur landing.html et sur l'application. */
+  :root{
+    --bg:#080a14; --card:#10142a; --surface:#151a33;
+    --ink:#f2f3f8; --ink-2:#aab0c6; --ink-3:#787f99;
+    --accent:#4b39ef; --accent-2:#c93f8c; --border:rgba(255,255,255,.10);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--ink); }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(90% 60% at 50% -10%, rgba(75,57,239,.30), transparent 62%),
+      radial-gradient(70% 50% at 100% 100%, rgba(201,63,140,.14), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
+  }
+  .wrap{ max-width:880px; margin:0 auto; padding:0 16px 72px; }
+  header{ padding:28px 0 8px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:600; letter-spacing:-.01em; }
+  .brand-mark{
+    width:30px; height:30px; border-radius:9px; flex:0 0 auto;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  }
+  .lang{
+    background:rgba(255,255,255,.06); color:var(--ink-2); border:1px solid var(--border);
+    border-radius:9px; padding:7px 10px; font:inherit; font-size:.84rem;
+  }
+  .hero{ padding:34px 0 26px; text-align:center; }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px; margin:0 0 14px;
+    font-size:.74rem; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3);
+  }
+  .dot{ width:6px; height:6px; border-radius:50%; background:#3DD68C; }
+  h1{ font-size:clamp(1.8rem,5.2vw,2.75rem); line-height:1.12; margin:0 0 14px; letter-spacing:-.02em; }
+  h1 em{ font-style:normal; background:linear-gradient(90deg,#8f7bff,#e36bb4); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .sub{ margin:0 auto; max-width:46ch; color:var(--ink-2); font-size:1.02rem; }
+
+  .video-frame{
+    position:relative; width:100%; aspect-ratio:16/9; margin:30px 0 0;
+    border-radius:18px; overflow:hidden; border:1px solid var(--border);
+    background:
+      radial-gradient(120% 120% at 18% 0%, rgba(75,57,239,.35), transparent 60%),
+      radial-gradient(120% 120% at 100% 100%, rgba(201,63,140,.26), transparent 58%),
+      #0d1024;
+    box-shadow:0 24px 60px rgba(0,0,0,.45);
+  }
+  .video-frame iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .video-facade{
+    position:absolute; inset:0; width:100%; height:100%; color:#fff; font:inherit;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    background:transparent; border:0; cursor:pointer;
+  }
+  .video-facade:focus-visible{ outline:2px solid #8f7bff; outline-offset:-4px; }
+  .video-play{
+    width:72px; height:72px; border-radius:50%; padding-left:4px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.30);
+    transition:transform .18s ease, background .18s ease;
+  }
+  .video-facade:hover .video-play{ transform:scale(1.07); background:rgba(255,255,255,.20); }
+  .video-play-label{ font-size:.95rem; opacity:.92; }
+  .note{ text-align:center; margin:14px 0 0; font-size:.85rem; color:var(--ink-3); }
+
+  .points{ display:grid; gap:12px; margin:40px 0 0; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); }
+  .point{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .point h3{ margin:0 0 6px; font-size:.98rem; letter-spacing:-.01em; }
+  .point p{ margin:0; color:var(--ink-2); font-size:.9rem; }
+
+  .cta-row{ text-align:center; margin:40px 0 0; }
+  .cta{
+    display:inline-block; padding:15px 30px; border-radius:12px; border:0; cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff;
+    font:inherit; font-size:1rem; font-weight:600; text-decoration:none;
+    box-shadow:0 12px 30px rgba(75,57,239,.34);
+  }
+  .cta:hover{ filter:brightness(1.07); }
+  .cta-sub{ margin:14px 0 0; font-size:.85rem; color:var(--ink-3); }
+  .cta-sub a{ color:var(--ink-2); }
+  footer{ margin:56px 0 0; text-align:center; font-size:.8rem; color:var(--ink-3); }
+  footer a{ color:var(--ink-3); }
+  @media (max-width:640px){
+    .video-frame{ border-radius:14px; }
+    .video-play{ width:60px; height:60px; }
+  }
+  @media (prefers-reduced-motion:reduce){ .video-facade:hover .video-play{ transform:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="brand-mark"></span> Meet Aaron</div>
+    <select class="lang" id="langPicker" aria-label="Langue"></select>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow"><span class="dot"></span> <span data-i18n="eyebrow">La démo en 36 secondes</span></p>
+    <h1 data-i18n="title">Aaron prospecte pendant que vous travaillez</h1>
+    <p class="sub" data-i18n="sub">Il trouve les bons contacts, écrit le premier message, relance ceux qui ne répondent pas et remplit votre agenda.</p>
+  </section>
+
+  <div class="video-frame" id="videoFrame">
+    <button type="button" class="video-facade" id="videoFacade">
+      <span class="video-play" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l10.2-6.4a1 1 0 0 0 0-1.7L9.52 4.75A1 1 0 0 0 8 5.6Z"/></svg>
+      </span>
+      <span class="video-play-label" data-i18n="play">Lire la vidéo</span>
+    </button>
+  </div>
+  <p class="note" data-i18n="note">Sans son — tout est écrit à l'écran.</p>
+
+  <div class="points">
+    <div class="point"><h3 data-i18n="p1t">Il trouve</h3><p data-i18n="p1b">Vous décrivez votre cible une fois. Aaron cherche les entreprises et les bons interlocuteurs.</p></div>
+    <div class="point"><h3 data-i18n="p2t">Il écrit</h3><p data-i18n="p2b">Un premier message pensé pour cette entreprise-là, pas un modèle recopié.</p></div>
+    <div class="point"><h3 data-i18n="p3t">Il relance</h3><p data-i18n="p3b">Et quand quelqu'un répond, il propose un créneau dans votre agenda.</p></div>
+  </div>
+
+  <div class="cta-row">
+    <a class="cta" href="/app" data-i18n="cta">Essayer maintenant</a>
+    <p class="cta-sub" data-i18n-html="ctasub">Sans carte bancaire. <a href="/landing.html">Voir toutes les fonctionnalités</a></p>
+  </div>
+
+  <footer><a href="/landing.html">meetaaron.app</a></footer>
+</div>
+
+<script>
+/* Même logique que landing.html — voir le commentaire détaillé là-bas.
+   La vidéo dépend du PAYS (le prix est à l'écran), pas de la langue.
+   Ajouter un pays = une ligne dans VIDEO_BY_COUNTRY. Quand la version USA
+   existera, DEFAULT_COUNTRY passe à 'US'. */
+var VIDEO_BY_COUNTRY = {
+  FR: 'V-r0IvDzZO8',   // France — officielle 16:9, euros
+  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, livres
+  // US: '...',        // à venir : deviendra le repli par défaut
+};
+var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
+var TZ_COUNTRY = {
+  'Europe/Paris':'FR','Indian/Reunion':'FR','America/Martinique':'FR','America/Guadeloupe':'FR',
+  'Europe/London':'GB','Europe/Belfast':'GB',
+  'Europe/Brussels':'BE','Europe/Zurich':'CH','Europe/Luxembourg':'LU','Europe/Monaco':'MC',
+  'Europe/Berlin':'DE','Europe/Vienna':'AT','Europe/Rome':'IT','Europe/Madrid':'ES',
+  'Europe/Lisbon':'PT','Europe/Amsterdam':'NL','Europe/Dublin':'IE',
+  'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
+  'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
+  'America/Toronto':'CA','America/Vancouver':'CA',
+  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
+};
+function detectCountry(){
+  try { var f = new URLSearchParams(window.location.search).get('pays'); if (f) return f.toUpperCase(); } catch(e){}
+  try { var tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz && TZ_COUNTRY[tz]) return TZ_COUNTRY[tz]; } catch(e){}
+  try {
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+    for (var i=0;i<langs.length;i++){ var m = String(langs[i]).match(/^[a-z]{2}[-_]([A-Za-z]{2})$/); if (m) return m[1].toUpperCase(); }
+  } catch(e){}
+  return DEFAULT_COUNTRY;
+}
+function pickVideoId(){ var c = detectCountry(); return VIDEO_BY_COUNTRY[c] || VIDEO_BY_COUNTRY[DEFAULT_COUNTRY]; }
+
+var I18N = {
+ fr:{'meta.title':'Meet Aaron — la démo en 36 secondes','eyebrow':'La démo en 36 secondes','title':'Aaron prospecte pendant que vous travaillez','sub':"Il trouve les bons contacts, écrit le premier message, relance ceux qui ne répondent pas et remplit votre agenda.",'play':'Lire la vidéo','note':"Sans son — tout est écrit à l'écran.",'p1t':'Il trouve','p1b':'Vous décrivez votre cible une fois. Aaron cherche les entreprises et les bons interlocuteurs.','p2t':'Il écrit','p2b':"Un premier message pensé pour cette entreprise-là, pas un modèle recopié.",'p3t':'Il relance','p3b':"Et quand quelqu'un répond, il propose un créneau dans votre agenda.",'cta':'Essayer maintenant','ctasub':'Sans carte bancaire. <a href="/landing.html">Voir toutes les fonctionnalités</a>'},
+ en:{'meta.title':'Meet Aaron — the 36-second demo','eyebrow':'The 36-second demo','title':'Aaron prospects while you work','sub':'He finds the right contacts, writes the first message, follows up with those who stay silent and fills your calendar.','play':'Play video','note':'No sound — everything is on screen.','p1t':'He finds','p1b':'Describe your target once. Aaron looks for the companies and the right people inside them.','p2t':'He writes','p2b':'A first message written for that company, not a template copied over.','p3t':'He follows up','p3b':'And when someone replies, he offers a slot in your calendar.','cta':'Try it now','ctasub':'No card required. <a href="/landing.html">See every feature</a>'},
+ de:{'meta.title':'Meet Aaron — die Demo in 36 Sekunden','eyebrow':'Die Demo in 36 Sekunden','title':'Aaron akquiriert, während Sie arbeiten','sub':'Er findet die richtigen Kontakte, schreibt die erste Nachricht, hakt bei Schweigenden nach und füllt Ihren Kalender.','play':'Video abspielen','note':'Ohne Ton — alles steht auf dem Bildschirm.','p1t':'Er findet','p1b':'Sie beschreiben Ihre Zielgruppe einmal. Aaron sucht die Unternehmen und die passenden Ansprechpartner.','p2t':'Er schreibt','p2b':'Eine erste Nachricht für genau dieses Unternehmen, keine kopierte Vorlage.','p3t':'Er hakt nach','p3b':'Und wenn jemand antwortet, schlägt er einen Termin in Ihrem Kalender vor.','cta':'Jetzt testen','ctasub':'Ohne Kreditkarte. <a href="/landing.html">Alle Funktionen ansehen</a>'},
+ it:{'meta.title':'Meet Aaron — la demo in 36 secondi','eyebrow':'La demo in 36 secondi','title':'Aaron fa prospezione mentre tu lavori','sub':'Trova i contatti giusti, scrive il primo messaggio, ricontatta chi non risponde e riempie la tua agenda.','play':'Riproduci il video','note':'Senza audio — tutto è scritto a schermo.','p1t':'Trova','p1b':'Descrivi il tuo target una volta. Aaron cerca le aziende e gli interlocutori giusti.','p2t':'Scrive','p2b':"Un primo messaggio pensato per quell'azienda, non un modello ricopiato.",'p3t':'Ricontatta','p3b':'E quando qualcuno risponde, propone uno slot nella tua agenda.','cta':'Prova subito','ctasub':'Senza carta di credito. <a href="/landing.html">Vedi tutte le funzioni</a>'},
+ es:{'meta.title':'Meet Aaron — la demo en 36 segundos','eyebrow':'La demo en 36 segundos','title':'Aaron prospecta mientras tú trabajas','sub':'Encuentra los contactos adecuados, escribe el primer mensaje, insiste con quienes no responden y llena tu agenda.','play':'Reproducir vídeo','note':'Sin sonido — todo está escrito en pantalla.','p1t':'Encuentra','p1b':'Describe tu objetivo una vez. Aaron busca las empresas y las personas adecuadas.','p2t':'Escribe','p2b':'Un primer mensaje pensado para esa empresa, no una plantilla copiada.','p3t':'Insiste','p3b':'Y cuando alguien responde, propone un hueco en tu agenda.','cta':'Probar ahora','ctasub':'Sin tarjeta. <a href="/landing.html">Ver todas las funciones</a>'},
+ pt:{'meta.title':'Meet Aaron — a demo em 36 segundos','eyebrow':'A demo em 36 segundos','title':'O Aaron prospeta enquanto tu trabalhas','sub':'Encontra os contactos certos, escreve a primeira mensagem, insiste com quem não responde e enche a tua agenda.','play':'Reproduzir vídeo','note':'Sem som — está tudo escrito no ecrã.','p1t':'Encontra','p1b':'Descreves o teu alvo uma vez. O Aaron procura as empresas e os interlocutores certos.','p2t':'Escreve','p2b':'Uma primeira mensagem pensada para aquela empresa, não um modelo copiado.','p3t':'Insiste','p3b':'E quando alguém responde, propõe um horário na tua agenda.','cta':'Experimentar agora','ctasub':'Sem cartão. <a href="/landing.html">Ver todas as funcionalidades</a>'},
+ nl:{'meta.title':'Meet Aaron — de demo in 36 seconden','eyebrow':'De demo in 36 seconden','title':'Aaron prospecteert terwijl jij werkt','sub':'Hij vindt de juiste contacten, schrijft het eerste bericht, rappelleert wie niet reageert en vult je agenda.','play':'Video afspelen','note':'Zonder geluid — alles staat in beeld.','p1t':'Hij vindt','p1b':'Je beschrijft je doelgroep één keer. Aaron zoekt de bedrijven en de juiste mensen.','p2t':'Hij schrijft','p2b':'Een eerste bericht voor dat bedrijf, geen gekopieerd sjabloon.','p3t':'Hij rappelleert','p3b':'En zodra iemand antwoordt, stelt hij een moment in je agenda voor.','cta':'Nu proberen','ctasub':'Geen kaart nodig. <a href="/landing.html">Bekijk alle functies</a>'}
+};
+var LOCALES = ['fr','en','de','it','es','pt','nl'];
+var LOCALE_LABELS = {fr:'Français',en:'English',de:'Deutsch',it:'Italiano',es:'Español',pt:'Português',nl:'Nederlands'};
+var LANG_KEY = 'aaron_locale';   // même clé que landing.html : un seul choix de langue pour tout le site
+var currentLocale = 'fr';
+
+function tr(k){ var d = I18N[currentLocale] || I18N.fr; return d[k] !== undefined ? d[k] : (I18N.fr[k] || ''); }
+function detectLocale(){
+  try { var s = localStorage.getItem(LANG_KEY); if (s && I18N[s]) return s; } catch(e){}
+  var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'fr'];
+  for (var i=0;i<langs.length;i++){ var c = String(langs[i]).slice(0,2).toLowerCase(); if (I18N[c]) return c; }
+  return 'en';
+}
+function applyLocale(loc){
+  currentLocale = I18N[loc] ? loc : 'fr';
+  document.getElementById('htmlRoot').setAttribute('lang', currentLocale);
+  var n = document.querySelectorAll('[data-i18n]');
+  for (var i=0;i<n.length;i++) n[i].textContent = tr(n[i].getAttribute('data-i18n'));
+  var h = document.querySelectorAll('[data-i18n-html]');
+  for (var j=0;j<h.length;j++) h[j].innerHTML = tr(h[j].getAttribute('data-i18n-html'));
+  document.title = tr('meta.title');
+  var p = document.getElementById('langPicker');
+  if (p) p.value = currentLocale;
+  try { localStorage.setItem(LANG_KEY, currentLocale); } catch(e){}
+}
+(function init(){
+  var p = document.getElementById('langPicker');
+  for (var i=0;i<LOCALES.length;i++){
+    var o = document.createElement('option');
+    o.value = LOCALES[i]; o.textContent = LOCALE_LABELS[LOCALES[i]];
+    p.appendChild(o);
+  }
+  p.addEventListener('change', function(){ applyLocale(p.value); });
+  applyLocale(detectLocale());
+
+  var facade = document.getElementById('videoFacade');
+  var frame = document.getElementById('videoFrame');
+  facade.addEventListener('click', function(){
+    var f = document.createElement('iframe');
+    f.src = 'https://www.youtube-nocookie.com/embed/' + pickVideoId() + '?autoplay=1&rel=0&modestbranding=1&playsinline=1';
+    f.title = 'Meet Aaron';
+    f.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture';
+    f.setAttribute('allowfullscreen','');
+    f.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+    frame.innerHTML = '';
+    frame.appendChild(f);
+  });
+})();
+</script>
+</body>
+</html>

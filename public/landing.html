@@ -267,6 +267,43 @@
   .footer-links{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;}
   .footer-links a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;}
   .footer-links a:hover{color:#f4f1ea;border-bottom-color:currentColor;}
+
+/* ── Vidéo de présentation (30/10/2026) ──────────────────────────────── */
+#video { scroll-margin-top: 80px; }
+.video-frame{
+  position:relative; width:100%; max-width:860px; margin:0 auto;
+  aspect-ratio:16/9; border-radius:18px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+  background:
+    radial-gradient(120% 120% at 18% 0%, rgba(75,57,239,.35), transparent 60%),
+    radial-gradient(120% 120% at 100% 100%, rgba(201,63,140,.26), transparent 58%),
+    #0d1024;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.video-frame iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+.video-facade{
+  position:absolute; inset:0; width:100%; height:100%;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  background:transparent; border:0; cursor:pointer; color:#fff; font:inherit;
+}
+.video-facade:focus-visible{ outline:2px solid #8f7bff; outline-offset:-4px; }
+.video-play{
+  width:72px; height:72px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.30);
+  backdrop-filter:blur(6px); padding-left:4px;
+  transition:transform .18s ease, background .18s ease;
+}
+.video-facade:hover .video-play{ transform:scale(1.07); background:rgba(255,255,255,.20); }
+.video-play-label{ font-size:.95rem; letter-spacing:.01em; opacity:.92; }
+.video-note{ text-align:center; margin:14px auto 0; font-size:.86rem; opacity:.55; }
+@media (max-width:640px){
+  .video-frame{ border-radius:14px; }
+  .video-play{ width:60px; height:60px; }
+}
+@media (prefers-reduced-motion:reduce){
+  .video-facade:hover .video-play{ transform:none; }
+}
 </style>
 </head>
 <body>
@@ -295,6 +332,31 @@
   <h1 data-i18n-html="hero.title">Aaron, le <em>copilote</em> de votre commercial</h1>
   <p class="sub" data-i18n="hero.sub">Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.</p>
   <button class="cta" onclick="window.location.href='/app'" data-i18n="hero.cta">Essayer maintenant →</button>
+</section>
+
+<!-- ───────────────────────────────────────────────────────────────────────
+     VIDÉO DE PRÉSENTATION (30/10/2026).
+     La vidéo dépend du PAYS du visiteur, pas de sa langue : c'est le pays qui
+     décide du prix affiché à l'écran. Voir pickVideoId() plus bas.
+     Façade cliquable et PAS d'iframe au chargement : rien de YouTube n'est
+     appelé tant que le visiteur n'a pas cliqué (aucun cookie tiers avant un
+     geste explicite, et la page reste légère). Au clic on charge
+     youtube-nocookie.com, le domaine sans cookie de suivi.
+     ──────────────────────────────────────────────────────────────────── -->
+<section class="page-section" id="video">
+  <div class="section-head">
+    <p class="eyebrow" data-i18n="video.eyebrow">En 36 secondes</p>
+    <h2 data-i18n="video.title">Voir Aaron travailler</h2>
+  </div>
+  <div class="video-frame" id="videoFrame">
+    <button type="button" class="video-facade" id="videoFacade">
+      <span class="video-play" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l10.2-6.4a1 1 0 0 0 0-1.7L9.52 4.75A1 1 0 0 0 8 5.6Z"/></svg>
+      </span>
+      <span class="video-play-label" data-i18n="video.play">Lire la vidéo</span>
+    </button>
+  </div>
+  <p class="video-note" data-i18n="video.note">Sans son — tout est écrit à l'écran.</p>
 </section>
 
 <main id="telecharger">
@@ -483,6 +545,10 @@ var I18N = {
   'install.launched':'Installation lancée.',
   'install.cancelled':'Installation annulée — vous pouvez réessayer à tout moment.',
   'install.manual':"Ouvrez ce menu dans votre navigateur : icône ⊕ / « Installer Meet Aaron » dans la barre d'adresse (Chrome/Edge).",
+  'video.eyebrow':'En 36 secondes',
+  'video.title':'Voir Aaron travailler',
+  'video.play':'Lire la vidéo',
+  'video.note':'Sans son — tout est écrit à l\'écran.',
   'install.done':'Meet Aaron est installé.'
  },
  en:{
@@ -523,6 +589,10 @@ var I18N = {
   'install.launched':'Installation started.',
   'install.cancelled':'Installation cancelled — you can try again any time.',
   'install.manual':'Open this menu in your browser: the ⊕ icon / “Install Meet Aaron” in the address bar (Chrome/Edge).',
+  'video.eyebrow':'In 36 seconds',
+  'video.title':'Watch Aaron at work',
+  'video.play':'Play video',
+  'video.note':'No sound — everything is on screen.',
   'install.done':'Meet Aaron is installed.'
  },
  de:{
@@ -563,6 +633,10 @@ var I18N = {
   'install.launched':'Installation gestartet.',
   'install.cancelled':'Installation abgebrochen — Sie können es jederzeit erneut versuchen.',
   'install.manual':'Öffnen Sie dieses Menü im Browser: Symbol ⊕ / „Meet Aaron installieren“ in der Adressleiste (Chrome/Edge).',
+  'video.eyebrow':'In 36 Sekunden',
+  'video.title':'Aaron bei der Arbeit',
+  'video.play':'Video abspielen',
+  'video.note':'Ohne Ton — alles steht auf dem Bildschirm.',
   'install.done':'Meet Aaron ist installiert.'
  },
  it:{
@@ -603,6 +677,10 @@ var I18N = {
   'install.launched':'Installazione avviata.',
   'install.cancelled':'Installazione annullata — puoi riprovare quando vuoi.',
   'install.manual':'Apri questo menu nel browser: icona ⊕ / « Installa Meet Aaron » nella barra degli indirizzi (Chrome/Edge).',
+  'video.eyebrow':'In 36 secondi',
+  'video.title':'Guarda Aaron al lavoro',
+  'video.play':'Riproduci il video',
+  'video.note':'Senza audio — tutto è scritto a schermo.',
   'install.done':'Meet Aaron è installato.'
  },
  es:{
@@ -643,6 +721,10 @@ var I18N = {
   'install.launched':'Instalación iniciada.',
   'install.cancelled':'Instalación cancelada — puedes volver a intentarlo cuando quieras.',
   'install.manual':'Abre este menú en tu navegador: icono ⊕ / «Instalar Meet Aaron» en la barra de direcciones (Chrome/Edge).',
+  'video.eyebrow':'En 36 segundos',
+  'video.title':'Mira a Aaron trabajar',
+  'video.play':'Reproducir vídeo',
+  'video.note':'Sin sonido — todo está escrito en pantalla.',
   'install.done':'Meet Aaron está instalado.'
  },
  pt:{
@@ -683,6 +765,10 @@ var I18N = {
   'install.launched':'Instalação iniciada.',
   'install.cancelled':'Instalação cancelada — podes tentar de novo quando quiseres.',
   'install.manual':'Abre este menu no teu navegador: ícone ⊕ / «Instalar Meet Aaron» na barra de endereço (Chrome/Edge).',
+  'video.eyebrow':'Em 36 segundos',
+  'video.title':'Vê o Aaron a trabalhar',
+  'video.play':'Reproduzir vídeo',
+  'video.note':'Sem som — está tudo escrito no ecrã.',
   'install.done':'O Meet Aaron está instalado.'
  },
  nl:{
@@ -723,6 +809,10 @@ var I18N = {
   'install.launched':'Installatie gestart.',
   'install.cancelled':'Installatie geannuleerd — je kunt het altijd opnieuw proberen.',
   'install.manual':'Open dit menu in je browser: pictogram ⊕ / „Meet Aaron installeren” in de adresbalk (Chrome/Edge).',
+  'video.eyebrow':'In 36 seconden',
+  'video.title':'Zie Aaron aan het werk',
+  'video.play':'Video afspelen',
+  'video.note':'Zonder geluid — alles staat in beeld.',
   'install.done':'Meet Aaron is geïnstalleerd.'
  }
 };
@@ -835,5 +925,87 @@ window.addEventListener('appinstalled', () => {
   }
 </script>
 
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────
+   QUELLE VIDÉO POUR QUEL PAYS (30/10/2026, décision Alex).
+
+   La vidéo n'est PAS choisie par la langue mais par le PAYS : le prix affiché
+   à l'écran est en euros dans la version France et en livres dans la version
+   Royaume-Uni. Un Belge francophone doit voir des euros, pas la version UK
+   parce qu'il parle français ni l'inverse.
+
+   AJOUTER UN PAYS plus tard = une seule ligne dans VIDEO_BY_COUNTRY, plus son
+   fuseau dans TZ_COUNTRY si le pays n'y est pas encore. Rien d'autre à
+   toucher. Quand la version USA existera, mettre DEFAULT_COUNTRY = 'US' :
+   c'est elle qui deviendra le repli de tous les pays non couverts (dollars).
+
+   DÉTECTION : fuseau horaire du navigateur, puis région de la langue
+   (fr-BE -> BE). Aucun appel réseau, aucune base de géolocalisation externe —
+   exigence CASA, la page ne doit contacter personne au chargement.
+   On peut forcer avec ?pays=FR pour tester.
+   ──────────────────────────────────────────────────────────────────────── */
+var VIDEO_BY_COUNTRY = {
+  FR: 'V-r0IvDzZO8',   // France — officielle 16:9, prix en euros
+  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, prix en livres
+  // US: '...',        // à ajouter : deviendra le repli par défaut
+};
+var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
+
+var TZ_COUNTRY = {
+  'Europe/Paris':'FR','Indian/Reunion':'FR','America/Martinique':'FR','America/Guadeloupe':'FR',
+  'Europe/London':'GB','Europe/Belfast':'GB',
+  'Europe/Brussels':'BE','Europe/Zurich':'CH','Europe/Luxembourg':'LU','Europe/Monaco':'MC',
+  'Europe/Berlin':'DE','Europe/Vienna':'AT','Europe/Rome':'IT','Europe/Madrid':'ES',
+  'Europe/Lisbon':'PT','Europe/Amsterdam':'NL','Europe/Dublin':'IE',
+  'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
+  'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
+  'America/Toronto':'CA','America/Vancouver':'CA',
+  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
+};
+
+function detectCountry(){
+  try {
+    var forced = new URLSearchParams(window.location.search).get('pays');
+    if (forced) return forced.toUpperCase();
+  } catch(e){}
+  try {
+    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && TZ_COUNTRY[tz]) return TZ_COUNTRY[tz];
+  } catch(e){}
+  try {
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+    for (var i=0;i<langs.length;i++){
+      var m = String(langs[i]).match(/^[a-z]{2}[-_]([A-Za-z]{2})$/);
+      if (m) return m[1].toUpperCase();
+    }
+  } catch(e){}
+  return DEFAULT_COUNTRY;
+}
+
+function pickVideoId(){
+  var country = detectCountry();
+  return VIDEO_BY_COUNTRY[country] || VIDEO_BY_COUNTRY[DEFAULT_COUNTRY];
+}
+
+(function initVideo(){
+  var facade = document.getElementById('videoFacade');
+  var frame  = document.getElementById('videoFrame');
+  if (!facade || !frame) return;
+  facade.addEventListener('click', function(){
+    var id = pickVideoId();
+    var iframe = document.createElement('iframe');
+    // nocookie + autoplay (geste utilisateur, donc autorisé) + rel=0 pour ne
+    // pas proposer les vidéos d'autres chaînes à la fin.
+    iframe.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&modestbranding=1&playsinline=1';
+    iframe.title = 'Meet Aaron';
+    iframe.allow = 'accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture';
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    frame.innerHTML = '';
+    frame.appendChild(iframe);
+  });
+})();
+</script>
 </body>
 </html>
