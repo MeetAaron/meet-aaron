@@ -179,16 +179,6 @@
   @media(max-width:1000px){ .grid{grid-template-columns:repeat(2,1fr);} }
   @media(max-width:760px){ .grid{grid-template-columns:1fr;} }
 
-  /* Repli mobile sous la grille — voir le commentaire dans le markup. */
-  .mobile-web{
-    display:flex; align-items:center; gap:16px; margin:22px auto 0;
-    max-width:560px; padding:14px 18px; border-radius:14px;
-    border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.025);
-  }
-  .mobile-web .qr-box{ flex:0 0 auto; width:84px; height:84px; }
-  .mobile-web-title{ margin:0 0 4px; font-size:.92rem; font-weight:600; }
-  .mobile-web-desc{ margin:0; font-size:.82rem; opacity:.62; line-height:1.45; }
-  @media(max-width:520px){ .mobile-web{ flex-direction:column; text-align:center; } }
 
   /* --- Tarifs / Contact (tâche Alex 2026-08-22 : les liens de nav pointaient
      vers rien) — mêmes tokens/composants que la section Installation
@@ -427,20 +417,6 @@
       </div>
     </div>
 
-  </div>
-
-  <!-- Repli mobile tant que les applis ne sont pas publiées (30/10/2026).
-       Sort de la grille pour laisser les trois cartes alignées, comme demandé,
-       mais ne disparaît pas : c'est aujourd'hui le SEUL moyen d'utiliser Aaron
-       sur téléphone, et le retirer maintenant laisserait un visiteur mobile
-       devant deux « Bientôt disponible » et rien d'utilisable.
-       À SUPPRIMER le jour où les applis iOS et Android sortent. -->
-  <div class="mobile-web">
-    <div class="qr-box" id="qr-pwa"></div>
-    <div>
-      <p class="mobile-web-title" data-i18n="c2.title">Sur votre téléphone (web)</p>
-      <p class="mobile-web-desc" data-i18n-html="c2.note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
-    </div>
   </div>
 </main>
 
@@ -904,6 +880,10 @@ function applyLocale(loc){
     const el = document.getElementById(elId);
     if (el) el.innerHTML = QR_SVG[key];
   }
+  // 30/10/2026 (Alex) : l'accès web mobile ne figure plus sur la page — pas
+  // de campagne avant la sortie des applis natives, donc personne à qui il
+  // manquerait. makeQR est protégé par `if (el)` : l'appel reste sans effet
+  // et sert de point de remontage si l'accès web devait revenir.
   makeQR("qr-pwa", "pwa");
   makeQR("qr-ios", "ios");
   makeQR("qr-android", "android");
