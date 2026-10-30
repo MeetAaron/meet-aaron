@@ -22,7 +22,7 @@ import { processCampaignBatch } from '@/lib/sourcing';
 import { getProspectQuota } from '@/lib/prospect-quota';
 import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
-import { hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
+import { hasReachedProspectingCap, effectiveProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { getPacing } from '@/lib/anthropic-client';
 
 function isAuthorized(request: NextRequest) {
@@ -57,10 +57,65 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   // avant) ; à 0, on ne cherche pas de nouvelles sociétés mais on contacte
   // quand même celles déjà trouvées (leur premier email est déjà budgété).
   const pacing = campaignOwner?.company_id ? await getPacing(campaignOwner.company_id) : null;
-  const sourcingBatch = pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5;
+
+  // ───────────────────────────────────────────────────────────────────────
+  // NE CHERCHER QUE CE QU'ON POURRA CONTACTER (Alex, 30/10/2026).
+  //
+  // Diagnostic du 30/10 : ce cron passe toutes les 10 minutes, soit 144 fois
+  // par jour, et il relancait searchCompaniesInZone (lib/sourcing.ts — Sonnet
+  // avec jusqu'a 5 recherches web par appel) a CHAQUE passage, tant que
+  // getPacing laissait du budget. Or getPacing est fait pour consommer
+  // l'abonnement en entier : il ne freinait donc rien tant qu'il restait de
+  // l'argent. Resultat mesure sur la premiere campagne d'un client : 66
+  // societes recherchees pour 28 prospects exploitables en deux jours, et
+  // environ 9 $ de budget API — pendant que la montee en charge de la boite
+  // d'envoi n'autorisait que 8 a 12 envois par jour.
+  //
+  // Le bon frein n'est pas le budget, c'est le STOCK. Tant qu'il reste plus
+  // de prospects trouves-et-pas-encore-contactes que ce que le commercial
+  // peut envoyer aujourd'hui, chercher davantage ne sert a rien : ces
+  // prospects attendront des jours, et leurs informations auront vieilli
+  // quand leur tour viendra. On ne cherche donc que lorsque le stock passe
+  // sous le plafond d'envoi du jour.
+  const { data: stockCompanies } = await supabaseAdmin
+    .from('prospect_companies')
+    .select('id')
+    .eq('found_by_campaign_id', campaignId);
+  const stockCompanyIds = (stockCompanies || []).map((c: any) => c.id);
+
+  let uncontactedStock = 0;
+  if (stockCompanyIds.length > 0) {
+    const { data: stockProspects } = await supabaseAdmin
+      .from('prospects')
+      .select('id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
+      .in('prospect_company_id', stockCompanyIds);
+    uncontactedStock = (stockProspects || []).filter((p: any) => {
+      // Repris en main par le commercial : ne compte pas, Aaron ne lui ecrira pas.
+      if (p.ai_managed === false) return false;
+      // Brouillon deja redige (relecture ou creneau d'envoi) : c'est du stock
+      // deja paye qui partira, il compte.
+      if (p.pending_first_email_subject) return true;
+      const total = (p.conversations || []).reduce((sum: number, c: any) => sum + (c.messages?.length || 0), 0);
+      return total === 0;
+    }).length;
+  }
+
+  const dailyCap = await effectiveProspectingCap(assignedUserId);
+  const needsMoreCompanies = uncontactedStock < dailyCap;
+
+  const sourcingBatch = !needsMoreCompanies
+    ? 0
+    : (pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5);
+
   const result = sourcingBatch > 0
     ? await processCampaignBatch(campaignId, sourcingBatch)
-    : { skipped_pacing: true, daily_target_usd: pacing?.dailyTargetUsd, day_spend_usd: pacing?.daySpendUsd };
+    : {
+        skipped_sourcing: needsMoreCompanies ? 'pacing' : 'stock_suffisant',
+        uncontacted_stock: uncontactedStock,
+        daily_cap: dailyCap,
+        daily_target_usd: pacing?.dailyTargetUsd,
+        day_spend_usd: pacing?.daySpendUsd,
+      };
 
   const { data: newProspectCompanies } = await supabaseAdmin
     .from('prospect_companies')
