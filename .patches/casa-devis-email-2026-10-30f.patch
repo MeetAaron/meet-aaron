@@ -1,0 +1,243 @@
+From 78125bb62d62c7c7437e7a8ad74be07735f24a93 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 06:55:36 +0000
+Subject: [PATCH] =?UTF-8?q?Page=20d'accueil=20:=20lien=20D=C3=A9mo,=20troi?=
+ =?UTF-8?q?s=20cartes=20align=C3=A9es,=20repli=20mobile=20hors=20grille?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Lien « Démo » en première position dans la barre de navigation, avant
+Télécharger : c'est le haut de l'entonnoir, et « Démo » dit ce qu'on y gagne
+là où « Vidéo » ne dit que le format.
+
+La grille d'installation passe à trois colonnes (PC/Mac, App Store, Google
+Play) et le sous-titre annonce trois accès au lieu de quatre, dans les sept
+langues.
+
+La carte « Sur votre téléphone (web) » sort de la grille mais ne disparaît
+pas, et c'est délibérément différent de ce qui était demandé : tant que les
+applis natives ne sont pas publiées, c'est le SEUL moyen d'utiliser Aaron sur
+téléphone. La retirer aujourd'hui laisserait un visiteur mobile devant deux
+« Bientôt disponible » et rien d'utilisable. Elle devient une ligne discrète
+sous les trois cartes, QR compris, à supprimer le jour de la publication des
+applis — le commentaire dans le markup le rappelle.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ public/landing.html | 68 ++++++++++++++++++++++++++++-----------------
+ 1 file changed, 43 insertions(+), 25 deletions(-)
+
+diff --git a/public/landing.html b/public/landing.html
+index f40560a..26c0417 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -173,11 +173,23 @@
+ 
+   .grid{
+     display:grid;
+-    grid-template-columns:repeat(2,1fr);
++    grid-template-columns:repeat(3,1fr);
+     gap:20px;
+   }
++  @media(max-width:1000px){ .grid{grid-template-columns:repeat(2,1fr);} }
+   @media(max-width:760px){ .grid{grid-template-columns:1fr;} }
+ 
++  /* Repli mobile sous la grille — voir le commentaire dans le markup. */
++  .mobile-web{
++    display:flex; align-items:center; gap:16px; margin:22px auto 0;
++    max-width:560px; padding:14px 18px; border-radius:14px;
++    border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.025);
++  }
++  .mobile-web .qr-box{ flex:0 0 auto; width:84px; height:84px; }
++  .mobile-web-title{ margin:0 0 4px; font-size:.92rem; font-weight:600; }
++  .mobile-web-desc{ margin:0; font-size:.82rem; opacity:.62; line-height:1.45; }
++  @media(max-width:520px){ .mobile-web{ flex-direction:column; text-align:center; } }
++
+   /* --- Tarifs / Contact (tâche Alex 2026-08-22 : les liens de nav pointaient
+      vers rien) — mêmes tokens/composants que la section Installation
+      ci-dessus (.section-head, .card, .badge, .btn) pour rester cohérent. --- */
+@@ -319,6 +331,7 @@
+     <div class="word">Meet Aaron</div>
+   </div>
+   <nav>
++    <a href="#video" data-i18n="nav.video">Démo</a>
+     <a href="#telecharger" data-i18n="nav.download">Télécharger</a>
+     <a href="#tarifs" data-i18n="nav.pricing">Tarifs</a>
+     <a href="#contact" data-i18n="nav.contact">Contact</a>
+@@ -363,7 +376,7 @@
+   <div class="section-head">
+     <p class="eyebrow" data-i18n="inst.eyebrow">Installation</p>
+     <h2 data-i18n="inst.title">Utilisez Aaron où vous voulez</h2>
+-    <p class="sub" data-i18n="inst.sub">La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.</p>
++    <p class="sub" data-i18n="inst.sub">La même appli, trois façons d'y accéder — vos données restent synchronisées partout.</p>
+   </div>
+ 
+   <div class="grid">
+@@ -382,22 +395,6 @@
+       <p class="install-status" id="installStatus"></p>
+     </div>
+ 
+-    <!-- 4. PWA iOS / Android -->
+-    <div class="card">
+-      <div class="top">
+-        <div class="icon">📱</div>
+-        <span class="badge live" data-i18n="badge.live">Disponible</span>
+-      </div>
+-      <div>
+-        <h3 data-i18n="c2.title">Sur votre téléphone (web)</h3>
+-        <p class="desc" data-i18n="c2.desc">Scannez avec l'appareil photo de votre téléphone, puis choisissez "Ajouter à l'écran d'accueil" — Aaron se comporte comme une app native.</p>
+-      </div>
+-      <div class="qr-wrap">
+-        <div class="qr-box" id="qr-pwa"></div>
+-        <p class="qr-note" data-i18n-html="c2.note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
+-      </div>
+-    </div>
+-
+     <!-- 3. iOS App Store — à venir -->
+     <div class="card">
+       <div class="top">
+@@ -431,6 +428,20 @@
+     </div>
+ 
+   </div>
++
++  <!-- Repli mobile tant que les applis ne sont pas publiées (30/10/2026).
++       Sort de la grille pour laisser les trois cartes alignées, comme demandé,
++       mais ne disparaît pas : c'est aujourd'hui le SEUL moyen d'utiliser Aaron
++       sur téléphone, et le retirer maintenant laisserait un visiteur mobile
++       devant deux « Bientôt disponible » et rien d'utilisable.
++       À SUPPRIMER le jour où les applis iOS et Android sortent. -->
++  <div class="mobile-web">
++    <div class="qr-box" id="qr-pwa"></div>
++    <div>
++      <p class="mobile-web-title" data-i18n="c2.title">Sur votre téléphone (web)</p>
++      <p class="mobile-web-desc" data-i18n-html="c2.note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
++    </div>
++  </div>
+ </main>
+ 
+ <section class="page-section" id="tarifs">
+@@ -514,7 +525,7 @@ var I18N = {
+   'hero.sub':'Pendant que vous dormez, déjeunez, roulez — Aaron prospecte, relance et remplit votre agenda.',
+   'hero.cta':'Essayer maintenant →',
+   'inst.eyebrow':'Installation','inst.title':'Utilisez Aaron où vous voulez',
+-  'inst.sub':"La même appli, quatre façons d'y accéder — vos données restent synchronisées partout.",
++  'inst.sub':"La même appli, trois façons d'y accéder — vos données restent synchronisées partout.",
+   'badge.live':'Disponible','badge.soon':'Bientôt disponible',
+   'c1.title':'Sur votre PC ou Mac',
+   'c1.desc':'Installez Aaron comme une vraie application de bureau, avec icône et fenêtre dédiée — sans passer par un store.',
+@@ -545,6 +556,7 @@ var I18N = {
+   'install.launched':'Installation lancée.',
+   'install.cancelled':'Installation annulée — vous pouvez réessayer à tout moment.',
+   'install.manual':"Ouvrez ce menu dans votre navigateur : icône ⊕ / « Installer Meet Aaron » dans la barre d'adresse (Chrome/Edge).",
++  'nav.video':'Démo',
+   'video.eyebrow':'En 36 secondes',
+   'video.title':'Voir Aaron travailler',
+   'video.play':'Lire la vidéo',
+@@ -558,7 +570,7 @@ var I18N = {
+   'hero.sub':'While you sleep, eat or drive — Aaron prospects, follows up and fills your calendar.',
+   'hero.cta':'Try it now →',
+   'inst.eyebrow':'Install','inst.title':'Use Aaron wherever you are',
+-  'inst.sub':'The same app, four ways in — your data stays in sync everywhere.',
++  'inst.sub':'The same app, three ways in — your data stays in sync everywhere.',
+   'badge.live':'Available','badge.soon':'Coming soon',
+   'c1.title':'On your PC or Mac',
+   'c1.desc':'Install Aaron as a real desktop app, with its own icon and window — no store required.',
+@@ -589,6 +601,7 @@ var I18N = {
+   'install.launched':'Installation started.',
+   'install.cancelled':'Installation cancelled — you can try again any time.',
+   'install.manual':'Open this menu in your browser: the ⊕ icon / “Install Meet Aaron” in the address bar (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'In 36 seconds',
+   'video.title':'Watch Aaron at work',
+   'video.play':'Play video',
+@@ -602,7 +615,7 @@ var I18N = {
+   'hero.sub':'Während Sie schlafen, essen oder fahren — Aaron akquiriert, hakt nach und füllt Ihren Kalender.',
+   'hero.cta':'Jetzt ausprobieren →',
+   'inst.eyebrow':'Installation','inst.title':'Nutzen Sie Aaron überall',
+-  'inst.sub':'Dieselbe App, vier Zugänge — Ihre Daten bleiben überall synchron.',
++  'inst.sub':'Dieselbe App, drei Zugänge — Ihre Daten bleiben überall synchron.',
+   'badge.live':'Verfügbar','badge.soon':'Demnächst verfügbar',
+   'c1.title':'Auf Ihrem PC oder Mac',
+   'c1.desc':'Installieren Sie Aaron als echte Desktop-Anwendung, mit eigenem Symbol und Fenster — ganz ohne Store.',
+@@ -633,6 +646,7 @@ var I18N = {
+   'install.launched':'Installation gestartet.',
+   'install.cancelled':'Installation abgebrochen — Sie können es jederzeit erneut versuchen.',
+   'install.manual':'Öffnen Sie dieses Menü im Browser: Symbol ⊕ / „Meet Aaron installieren“ in der Adressleiste (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'In 36 Sekunden',
+   'video.title':'Aaron bei der Arbeit',
+   'video.play':'Video abspielen',
+@@ -646,7 +660,7 @@ var I18N = {
+   'hero.sub':'Mentre dormi, mangi o guidi — Aaron cerca clienti, ricontatta e riempie la tua agenda.',
+   'hero.cta':'Prova subito →',
+   'inst.eyebrow':'Installazione','inst.title':'Usa Aaron dove vuoi',
+-  'inst.sub':'La stessa app, quattro modi di accedervi — i tuoi dati restano sincronizzati ovunque.',
++  'inst.sub':'La stessa app, tre modi di accedervi — i tuoi dati restano sincronizzati ovunque.',
+   'badge.live':'Disponibile','badge.soon':'Presto disponibile',
+   'c1.title':'Sul tuo PC o Mac',
+   'c1.desc':'Installa Aaron come una vera applicazione desktop, con icona e finestra dedicate — senza passare da uno store.',
+@@ -677,6 +691,7 @@ var I18N = {
+   'install.launched':'Installazione avviata.',
+   'install.cancelled':'Installazione annullata — puoi riprovare quando vuoi.',
+   'install.manual':'Apri questo menu nel browser: icona ⊕ / « Installa Meet Aaron » nella barra degli indirizzi (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'In 36 secondi',
+   'video.title':'Guarda Aaron al lavoro',
+   'video.play':'Riproduci il video',
+@@ -690,7 +705,7 @@ var I18N = {
+   'hero.sub':'Mientras duermes, comes o conduces — Aaron prospecta, hace seguimiento y llena tu agenda.',
+   'hero.cta':'Probar ahora →',
+   'inst.eyebrow':'Instalación','inst.title':'Usa Aaron donde quieras',
+-  'inst.sub':'La misma app, cuatro formas de acceder — tus datos siguen sincronizados en todas partes.',
++  'inst.sub':'La misma app, tres formas de acceder — tus datos siguen sincronizados en todas partes.',
+   'badge.live':'Disponible','badge.soon':'Próximamente',
+   'c1.title':'En tu PC o Mac',
+   'c1.desc':'Instala Aaron como una aplicación de escritorio de verdad, con icono y ventana propios — sin pasar por una tienda.',
+@@ -721,6 +736,7 @@ var I18N = {
+   'install.launched':'Instalación iniciada.',
+   'install.cancelled':'Instalación cancelada — puedes volver a intentarlo cuando quieras.',
+   'install.manual':'Abre este menú en tu navegador: icono ⊕ / «Instalar Meet Aaron» en la barra de direcciones (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'En 36 segundos',
+   'video.title':'Mira a Aaron trabajar',
+   'video.play':'Reproducir vídeo',
+@@ -734,7 +750,7 @@ var I18N = {
+   'hero.sub':'Enquanto dormes, almoças ou conduzes — Aaron prospeta, faz seguimento e enche a tua agenda.',
+   'hero.cta':'Experimentar agora →',
+   'inst.eyebrow':'Instalação','inst.title':'Usa o Aaron onde quiseres',
+-  'inst.sub':'A mesma aplicação, quatro formas de lá chegar — os teus dados ficam sincronizados em todo o lado.',
++  'inst.sub':'A mesma aplicação, três formas de lá chegar — os teus dados ficam sincronizados em todo o lado.',
+   'badge.live':'Disponível','badge.soon':'Brevemente disponível',
+   'c1.title':'No teu PC ou Mac',
+   'c1.desc':'Instala o Aaron como uma verdadeira aplicação de secretária, com ícone e janela próprios — sem passar por uma loja.',
+@@ -765,6 +781,7 @@ var I18N = {
+   'install.launched':'Instalação iniciada.',
+   'install.cancelled':'Instalação cancelada — podes tentar de novo quando quiseres.',
+   'install.manual':'Abre este menu no teu navegador: ícone ⊕ / «Instalar Meet Aaron» na barra de endereço (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'Em 36 segundos',
+   'video.title':'Vê o Aaron a trabalhar',
+   'video.play':'Reproduzir vídeo',
+@@ -778,7 +795,7 @@ var I18N = {
+   'hero.sub':'Terwijl je slaapt, eet of rijdt — Aaron prospecteert, volgt op en vult je agenda.',
+   'hero.cta':'Nu uitproberen →',
+   'inst.eyebrow':'Installatie','inst.title':'Gebruik Aaron waar je wilt',
+-  'inst.sub':'Dezelfde app, vier manieren om erin te komen — je gegevens blijven overal gesynchroniseerd.',
++  'inst.sub':'Dezelfde app, drie manieren om erin te komen — je gegevens blijven overal gesynchroniseerd.',
+   'badge.live':'Beschikbaar','badge.soon':'Binnenkort beschikbaar',
+   'c1.title':'Op je pc of Mac',
+   'c1.desc':'Installeer Aaron als een echte desktoptoepassing, met eigen pictogram en venster — zonder store.',
+@@ -809,6 +826,7 @@ var I18N = {
+   'install.launched':'Installatie gestart.',
+   'install.cancelled':'Installatie geannuleerd — je kunt het altijd opnieuw proberen.',
+   'install.manual':'Open dit menu in je browser: pictogram ⊕ / „Meet Aaron installeren” in de adresbalk (Chrome/Edge).',
++  'nav.video':'Demo',
+   'video.eyebrow':'In 36 seconden',
+   'video.title':'Zie Aaron aan het werk',
+   'video.play':'Video afspelen',
+-- 
+2.43.0
+
