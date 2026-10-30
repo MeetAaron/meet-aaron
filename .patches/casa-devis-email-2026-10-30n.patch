@@ -1,0 +1,163 @@
+From a743e12be7c969e9f0795513a4236f8366366d79 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 07:48:03 +0000
+Subject: [PATCH] =?UTF-8?q?Sourcing=20:=20Sonnet=20d=C3=A9cide=20quoi=20ch?=
+ =?UTF-8?q?ercher,=20Haiku=20lit=20et=20extrait?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Découpe proposée par Alex, et meilleure que ce que j'avais suggéré. Je
+disais « mets Haiku à la place de Sonnet », ce qui faisait perdre à Aaron son
+jugement sur OÙ chercher. Lui sépare les deux métiers : Sonnet comprend le
+ciblage et formule les requêtes, Haiku lit les résultats et en extrait les
+sociétés. Le jugement reste à Sonnet, seule la lecture change de modèle.
+
+C'est le même raisonnement que findContactForCompany, passé en Haiku le
+05/09 avec le commentaire « chercher un nom et un email, c'est de
+l'extraction, pas de la rédaction ». Appliqué un cran plus haut.
+
+L'appel de planification n'a aucun outil et un prompt minuscule : quelques
+centaines de jetons, une fraction de centime. Tout le volume — les résultats
+des cinq recherches web injectés dans le contexte, de loin l'appel le plus
+lourd de l'application — passe sur Haiku.
+
+max_uses reste à 5 (choix d'Alex : mieux couvrir la zone vaut les 5 cents).
+C'est de toute façon le vrai plancher : une recherche web coûte le même prix
+quel que soit le modèle qui la demande, donc changer de modèle ne fait
+baisser que la partie jetons. L'appel passe d'environ 15 à environ 9 cents,
+pas de 15 à 1.
+
+Repli prévu : si la planification échoue ou renvoie n'importe quoi, on
+retombe sur des requêtes construites à partir des critères bruts. Le sourcing
+ne doit jamais s'arrêter parce que l'étape de planification a hoqueté. Et la
+consigne « n'invente jamais une entreprise qui n'apparaît pas dans les
+résultats » est explicite dans le prompt d'extraction, Haiku étant plus
+enclin que Sonnet à combler un trou.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/sourcing.ts | 95 ++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 87 insertions(+), 8 deletions(-)
+
+diff --git a/lib/sourcing.ts b/lib/sourcing.ts
+index 3980f6b..e51c18e 100644
+--- a/lib/sourcing.ts
++++ b/lib/sourcing.ts
+@@ -47,6 +47,65 @@ interface FoundContact {
+   linkedin_url: string | null;
+ }
+ 
++// ─────────────────────────────────────────────────────────────────────────
++// ÉTAPE 1 — SONNET DÉCIDE QUOI CHERCHER (Alex, 30/10/2026).
++//
++// Découpe proposée par Alex, et meilleure que ce que j'avais suggéré :
++// remplacer Sonnet par Haiku sur tout l'appel lui aurait fait perdre son
++// jugement sur OÙ chercher. On sépare donc les deux métiers — Sonnet comprend
++// le ciblage et formule les requêtes, Haiku lit les résultats et en extrait
++// les sociétés. Le jugement reste à Sonnet, seule la lecture change de modèle.
++//
++// Cet appel n'a AUCUN outil et un prompt minuscule : quelques centaines de
++// jetons en entrée, quelques centaines en sortie. Il coûte une fraction de
++// centime. Tout le volume — les résultats de recherche injectés dans le
++// contexte — se déplace sur Haiku à l'étape 2.
++//
++// Même raisonnement que findContactForCompany, passé en Haiku le 05/09/2026 :
++// « chercher un nom et un email, c'est de l'extraction, pas de la rédaction ».
++// Ici on l'applique un cran plus haut.
++//
++// Repli : si cet appel échoue ou renvoie n'importe quoi, on redonne des
++// requêtes construites bêtement à partir des critères. Le sourcing ne doit
++// jamais s'arrêter parce que l'étape de planification a hoqueté.
++async function planSearchQueries(
++  companyId: string,
++  sectorKeywords: string[],
++  zoneLabel: string,
++  companySizeLabels: string[],
++  maxQueries: number
++): Promise<string[]> {
++  const fallback = sectorKeywords.slice(0, maxQueries).map((kw) => `${kw} ${zoneLabel}`);
++  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web.
++
++Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
++Zone géographique : ${zoneLabel}
++${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}
++Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
++
++Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après, sans balises markdown. Exemple de forme : ["requête 1", "requête 2"]`;
++
++  try {
++    const data = await callClaude(
++      {
++        model: 'claude-sonnet-5',
++        max_tokens: 400,
++        messages: [{ role: 'user', content: prompt }],
++      },
++      companyId, 'ap'
++    );
++    const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
++    if (!textBlock) return fallback;
++    const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
++    if (!Array.isArray(parsed)) return fallback;
++    const queries = parsed.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, maxQueries);
++    return queries.length > 0 ? queries : fallback;
++  } catch (err: any) {
++    console.error('Planification des requêtes de sourcing impossible, repli sur les critères bruts :', err?.message || err);
++    return fallback;
++  }
++}
++
+ async function searchCompaniesInZone(
+   companyId: string,
+   sectorKeywords: string[],
+@@ -77,18 +136,38 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises
+   }
+ ]`;
+ 
++  // ───────────────────────────────────────────────────────────────────────
++  // ÉTAPE 2 — HAIKU CHERCHE ET EXTRAIT.
++  //
++  // C'est ici que passe tout le volume : les résultats des cinq recherches
++  // web sont injectés dans le contexte du modèle, ce qui en fait de loin
++  // l'appel le plus lourd de l'application. Lire ces résultats et en sortir
++  // des noms, domaines et adresses est de l'extraction — Haiku le fait pour
++  // environ 4× moins cher que Sonnet, qui garde le jugement à l'étape 1.
++  //
++  // max_uses reste à 5 (choix d'Alex, 30/10/2026 : mieux couvrir la zone vaut
++  // les 5 cents). Ce plafond est le vrai plancher du coût : une recherche web
++  // coûte le même prix quel que soit le modèle qui la demande, donc changer de
++  // modèle ne fait baisser que la partie jetons, jamais les 5 cents de
++  // recherche. Sans max_uses, un seul prompt peut déclencher un nombre de
++  // recherches non borné.
++  const searchQueries = await planSearchQueries(
++    companyId,
++    sectorKeywords,
++    zoneLabel,
++    companySizeLabels,
++    5
++  );
++
+   const data = await callClaude(
+     {
+-      model: 'claude-sonnet-5',
++      model: 'claude-haiku-4-5',
+       max_tokens: 4000,
+-      // max_uses borne le nombre de recherches web que le modèle peut lancer
+-      // pour CET appel — sans cette limite, un seul prompt peut déclencher un
+-      // nombre de recherches non borné (facturées en plus des tokens), ce qui
+-      // était identifié comme le principal poste de coût API non maîtrisé
+-      // (voir statut projet, "vitesse & coût API"). Ne change ni le format de
+-      // réponse attendu ni la qualité : borne juste le pire cas.
+       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+-      messages: [{ role: 'user', content: prompt }],
++      messages: [{
++        role: 'user',
++        content: `${prompt}\n\nUtilise exactement ces recherches web, dans cet ordre :\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nNe cherche rien d'autre. Ton travail est de LIRE ces résultats et d'en extraire les entreprises réelles qui correspondent aux critères — n'invente jamais une entreprise, un domaine ou une adresse qui n'apparaît pas dans les résultats.`,
++      }],
+     },
+     companyId, 'ap'
+   );
+-- 
+2.43.0
+
