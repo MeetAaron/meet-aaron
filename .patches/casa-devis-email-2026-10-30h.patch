@@ -1,0 +1,86 @@
+From d0212417c5cd8621eebc8b2fdee5abef1d33a638 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 07:11:34 +0000
+Subject: [PATCH] =?UTF-8?q?Page=20d'accueil=20:=20l'acc=C3=A8s=20web=20mob?=
+ =?UTF-8?q?ile=20dispara=C3=AEt?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Alex tranche, et son argument lève mon objection d'hier : il ne lancera
+aucune campagne avant la sortie des applis natives, donc il n'y aura pas de
+visiteur mobile à laisser sans solution pendant la transition. La carte
+« Sur votre téléphone (web) », déjà sortie de la grille, est retirée
+entièrement — markup, styles et QR.
+
+Trois cartes alignées, et plus que des parcours que l'utilisateur peut
+vraiment suivre : PC/Mac aujourd'hui, App Store et Google Play annoncés.
+
+makeQR("qr-pwa") reste en place, protégé par son `if (el)` : l'appel est sans
+effet et sert de point de remontage si l'accès web devait revenir. Les clés
+i18n c2.* restent elles aussi, inutilisées mais traduites dans les sept
+langues — les resupprimer ne gagnerait rien et compliquerait un retour en
+arrière.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ public/landing.html | 28 ++++------------------------
+ 1 file changed, 4 insertions(+), 24 deletions(-)
+
+diff --git a/public/landing.html b/public/landing.html
+index 26c0417..ef6ea78 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -179,16 +179,6 @@
+   @media(max-width:1000px){ .grid{grid-template-columns:repeat(2,1fr);} }
+   @media(max-width:760px){ .grid{grid-template-columns:1fr;} }
+ 
+-  /* Repli mobile sous la grille — voir le commentaire dans le markup. */
+-  .mobile-web{
+-    display:flex; align-items:center; gap:16px; margin:22px auto 0;
+-    max-width:560px; padding:14px 18px; border-radius:14px;
+-    border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.025);
+-  }
+-  .mobile-web .qr-box{ flex:0 0 auto; width:84px; height:84px; }
+-  .mobile-web-title{ margin:0 0 4px; font-size:.92rem; font-weight:600; }
+-  .mobile-web-desc{ margin:0; font-size:.82rem; opacity:.62; line-height:1.45; }
+-  @media(max-width:520px){ .mobile-web{ flex-direction:column; text-align:center; } }
+ 
+   /* --- Tarifs / Contact (tâche Alex 2026-08-22 : les liens de nav pointaient
+      vers rien) — mêmes tokens/composants que la section Installation
+@@ -428,20 +418,6 @@
+     </div>
+ 
+   </div>
+-
+-  <!-- Repli mobile tant que les applis ne sont pas publiées (30/10/2026).
+-       Sort de la grille pour laisser les trois cartes alignées, comme demandé,
+-       mais ne disparaît pas : c'est aujourd'hui le SEUL moyen d'utiliser Aaron
+-       sur téléphone, et le retirer maintenant laisserait un visiteur mobile
+-       devant deux « Bientôt disponible » et rien d'utilisable.
+-       À SUPPRIMER le jour où les applis iOS et Android sortent. -->
+-  <div class="mobile-web">
+-    <div class="qr-box" id="qr-pwa"></div>
+-    <div>
+-      <p class="mobile-web-title" data-i18n="c2.title">Sur votre téléphone (web)</p>
+-      <p class="mobile-web-desc" data-i18n-html="c2.note">Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.</p>
+-    </div>
+-  </div>
+ </main>
+ 
+ <section class="page-section" id="tarifs">
+@@ -904,6 +880,10 @@ function applyLocale(loc){
+     const el = document.getElementById(elId);
+     if (el) el.innerHTML = QR_SVG[key];
+   }
++  // 30/10/2026 (Alex) : l'accès web mobile ne figure plus sur la page — pas
++  // de campagne avant la sortie des applis natives, donc personne à qui il
++  // manquerait. makeQR est protégé par `if (el)` : l'appel reste sans effet
++  // et sert de point de remontage si l'accès web devait revenir.
+   makeQR("qr-pwa", "pwa");
+   makeQR("qr-ios", "ios");
+   makeQR("qr-android", "android");
+-- 
+2.43.0
+
