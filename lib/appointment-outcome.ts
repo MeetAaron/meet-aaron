@@ -242,6 +242,10 @@ export async function recordAppointmentOutcome(
       .eq('id', appointmentId));
   }
 
+  // Vrai tant qu'on n'a pas constaté le contraire ; passe à false s'il n'y a
+  // aucun contact rattaché, ou si l'écriture échoue.
+  let prospectUpdated = !!prospect?.id;
+
   if (prospect?.id) {
     const now = new Date().toISOString();
     const prospectUpdate: Record<string, any> = { status: prospectStatusFor(outcome, details.mood), status_updated_at: now };
@@ -278,13 +282,48 @@ export async function recordAppointmentOutcome(
 
     const { error: prospectUpdateError } = await supabaseAdmin.from('prospects').update(prospectUpdate).eq('id', prospect.id);
     if (prospectUpdateError && prospectUpdateError.code === '42703') {
-      // Migration fusion pas encore passée : on enregistre sans quote_requested_at.
-      const { quote_requested_at, ...withoutQuote } = prospectUpdate;
-      await supabaseAdmin.from('prospects').update(withoutQuote).eq('id', prospect.id);
+      // Colonne absente (migration pas encore jouée). L'ancien rattrapage
+      // retirait TOUJOURS quote_requested_at, quelle que soit la colonne
+      // réellement manquante — donc pour une issue « perdu » il retirait la
+      // mauvaise, la seconde tentative échouait pareil, et son erreur n'était
+      // même plus vérifiée : échec totalement muet. On retire désormais les
+      // colonnes optionnelles une par une, de la moins essentielle à la plus
+      // essentielle, et on s'arrête dès qu'une tentative passe. Le statut et
+      // is_lost/is_won, eux, ne sont jamais sacrifiés.
+      const OPTIONAL_COLUMNS = ['quote_requested_at', 'lost_at', 'deal_stage_updated_at', 'deal_stage'];
+      let attempt: Record<string, any> = { ...prospectUpdate };
+      let lastError: any = prospectUpdateError;
+      for (const column of OPTIONAL_COLUMNS) {
+        if (!(column in attempt)) continue;
+        delete attempt[column];
+        const { error } = await supabaseAdmin.from('prospects').update(attempt).eq('id', prospect.id);
+        lastError = error;
+        if (!error) break;
+        if (error.code !== '42703') break;
+      }
+      if (lastError) {
+        console.error(
+          `Bilan RDV ${appointmentId} : impossible de mettre à jour le prospect ${prospect.id} (${lastError.code || '?'}) — ` +
+          `l'issue « ${outcome} » est enregistrée sur le rendez-vous mais PAS sur la fiche contact.`
+        );
+        prospectUpdated = false;
+      }
+    } else if (prospectUpdateError) {
+      console.error(
+        `Bilan RDV ${appointmentId} : échec de mise à jour du prospect ${prospect.id} (${prospectUpdateError.code || '?'}) : ${prospectUpdateError.message}`
+      );
+      prospectUpdated = false;
     }
   }
 
-  return { note };
+  // `prospectUpdated: false` veut dire « le bilan est enregistré sur le RDV,
+  // mais AUCUNE fiche contact n'a bougé » — soit parce que le rendez-vous
+  // n'est rattaché à aucun contact (RDV saisi avec un simple nom), soit
+  // parce que l'écriture a échoué. Dans les deux cas le commercial doit le
+  // savoir : sans ça il clique « Perdu », voit la confirmation, et croit que
+  // son fichier est à jour alors qu'il ne l'est pas (remonté par Alex le
+  // 30/10/2026 — « j'ai placé un RDV en perdu, où est passé ce contact ? »).
+  return { note, prospectUpdated, hasProspect: !!prospect?.id };
 }
 
 // Note personnalisée d'Aaron, calculée APRÈS la réponse au navigateur (voir

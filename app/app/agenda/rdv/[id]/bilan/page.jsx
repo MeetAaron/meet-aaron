@@ -114,6 +114,21 @@ function orderedChoices(locale, mood) {
 }
 
 // Textes propres à cette page (dictionnaire local).
+// Rendez-vous sans contact rattache (Alex, 30/10/2026 : « j'ai place un RDV
+// en perdu, mais ou est passe ce contact ? »). Le RDV avait ete saisi avec un
+// simple nom — il n'existait aucune fiche a faire passer en perdu. Le bilan
+// etait bien enregistre, Aaron repondait, et rien ne disait que le fichier
+// n'avait pas bouge. On le dit maintenant.
+const NO_CONTACT_NOTICE = {
+  fr: "Ce rendez-vous n'est rattaché à aucun contact de ton fichier — il avait été saisi avec un simple nom. Le bilan est enregistré sur le rendez-vous, mais aucune fiche n'a été mise à jour.",
+  en: 'This meeting is not linked to any contact in your list — it was entered with just a name. The outcome is saved on the meeting, but no contact record was updated.',
+  de: 'Dieser Termin ist mit keinem Kontakt aus deiner Liste verknüpft — er wurde nur mit einem Namen angelegt. Das Ergebnis ist am Termin gespeichert, aber es wurde kein Kontakt aktualisiert.',
+  it: "Questo appuntamento non è collegato a nessun contatto della tua lista — era stato inserito con un semplice nome. L'esito è registrato sull'appuntamento, ma nessuna scheda è stata aggiornata.",
+  es: 'Esta cita no está vinculada a ningún contacto de tu lista — se creó solo con un nombre. El resultado queda guardado en la cita, pero no se actualizó ninguna ficha.',
+  pt: 'Esta reunião não está associada a nenhum contacto da tua lista — foi criada apenas com um nome. O resultado fica guardado na reunião, mas nenhuma ficha foi atualizada.',
+  nl: 'Deze afspraak is aan geen enkel contact uit je lijst gekoppeld — ze is met alleen een naam aangemaakt. De uitkomst is bij de afspraak opgeslagen, maar er is geen contactfiche bijgewerkt.',
+};
+
 const THANK_YOU_PENDING = {
   fr: "Aaron rédige et envoie l'email de remerciement…",
   en: 'Aaron is writing and sending the thank-you email…',
@@ -136,6 +151,8 @@ export default function BilanRdvPage(props) {
   const [mood, setMood] = useState(null); // 'bien' | 'moyen' | 'mal'
   const CHOICES = orderedChoices(locale, mood);
   const [outcome, setOutcome] = useState(null);
+  // null = pas encore enregistre ; false = aucune fiche contact mise a jour.
+  const [contactUpdated, setContactUpdated] = useState(null);
   const [context, setContext] = useState('');
   const [sendThankYou, setSendThankYou] = useState(true);
   const [thankYouStatus, setThankYouStatus] = useState(null); // 'sent' | 'failed' | null
@@ -212,6 +229,7 @@ export default function BilanRdvPage(props) {
         // la note personnalisée d'Aaron et l'email de remerciement arrivent en
         // arrière-plan. On relit le RDV à 4 s, 10 s et 20 s pour les afficher.
         setNote(body.note);
+        if (body.contact_updated === false) setContactUpdated(false);
         const wantsThankYou = sendThankYou && appointment?.can_send_thank_you !== false;
         if (wantsThankYou) setThankYouStatus('pending');
         setAppointment((prev) => (prev ? { ...prev, outcome } : prev));
@@ -336,6 +354,10 @@ export default function BilanRdvPage(props) {
         )}
 
         {error && <p style={styles.errorText}>{error}</p>}
+
+        {contactUpdated === false && (
+          <p style={styles.noContactNotice}>{NO_CONTACT_NOTICE[locale] || NO_CONTACT_NOTICE.fr}</p>
+        )}
 
         {note && (
           <div style={styles.noteBox}>
@@ -555,5 +577,17 @@ const styles = {
   errorText: {
     color: '#e5484d',
     marginTop: 12,
+  },
+  // Avertissement « aucune fiche contact mise à jour » : informatif, pas une
+  // erreur — le bilan EST enregistré. Ton ambre plutôt que rouge.
+  noContactNotice: {
+    marginTop: 14,
+    padding: '10px 12px',
+    borderRadius: 10,
+    border: '1px solid rgba(245, 166, 35, 0.35)',
+    background: 'rgba(245, 166, 35, 0.10)',
+    color: 'var(--text, #f4f1ea)',
+    fontSize: 13,
+    lineHeight: 1.45,
   },
 };

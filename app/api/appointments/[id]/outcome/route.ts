@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     // puis la note d'Aaron et l'email de remerciement se font en arrière-plan.
     // La page relit GET /api/appointments/[id] quelques secondes plus tard
     // pour afficher la note personnalisée et l'état de l'email.
-    const { note } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
+    const { note, prospectUpdated, hasProspect } = await recordAppointmentOutcome(params.id, outcome, details, { fast: true });
     const wantsThankYou = send_thank_you === true;
     const notePending = outcome !== 'opportunite' && outcome !== 'devis';
     runInBackground(`bilan RDV ${params.id}`, async () => {
@@ -66,7 +66,19 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         }
       }
     });
-    return NextResponse.json({ note, note_pending: notePending, thank_you_pending: wantsThankYou });
+    // `contact_updated: false` = le bilan est enregistré sur le rendez-vous
+    // mais AUCUNE fiche contact n'a bougé. Cas le plus fréquent : le RDV a été
+    // saisi avec un simple nom, sans contact du fichier derrière — il n'y a
+    // alors rien à faire passer en perdu ni en opportunité. L'écran doit le
+    // dire, sinon le commercial croit son fichier à jour alors qu'il ne l'est
+    // pas (remonté par Alex le 30/10/2026).
+    return NextResponse.json({
+      note,
+      note_pending: notePending,
+      thank_you_pending: wantsThankYou,
+      contact_updated: prospectUpdated,
+      has_contact: hasProspect,
+    });
   } catch (err: any) {
     console.error('Erreur enregistrement bilan RDV:', err.message);
     return NextResponse.json({ error: "Impossible d'enregistrer le bilan" }, { status: 500 });
