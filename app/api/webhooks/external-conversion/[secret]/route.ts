@@ -26,6 +26,14 @@
 //      directement SON PROPRE webhook Stripe ici sans transformation :
 //      { "data": { "object": { "customer_details": { "email": "..." } } } }
 //
+// INSCRIPTION N'EST PAS PAIEMENT (30/10/2026). Le payload décide : avec une
+// preuve de paiement (`{"paid": true}`, ou Stripe payment_status 'paid' avec
+// un montant non nul), le prospect devient client avec première commande
+// confirmée. Sans preuve — essai gratuit, compte gratuit, inscription à une
+// liste — il passe en OPPORTUNITÉ au stade le plus avancé, pas en client :
+// Aaron arrête de le démarcher à froid et le suit comme une affaire en
+// cours. Le jour où le paiement arrive, le même webhook le promeut client.
+//
 // Réponse toujours 200 dès que le secret est valide, MÊME si aucun email
 // exploitable n'est trouvé dans le payload ou si aucun prospect ne
 // correspond : un webhook qui répond une erreur déclenche des retries
@@ -35,6 +43,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { convertMatchingProspectsToClients } from '@/lib/prospect-conversion';
+
+// Le payload prouve-t-il un PAIEMENT, ou seulement une inscription ?
+// (Alex, 30/10/2026.) Jusqu'ici la route répondait « paiement » dans tous les
+// cas : un prospect qui ouvrait un simple essai gratuit basculait en client
+// avec première commande confirmée — Aaron arrêtait de le suivre, l'accueil
+// automatique partait, la synchro CRM aussi, et il comptait dans le chiffre
+// d'affaires de la page Marge. Un euro affiché que personne n'avait encaissé.
+//
+// On ne devine rien : il faut une preuve explicite dans le payload. Sans
+// preuve, l'inscription reste une inscription (voir prospect-conversion.ts).
+function looksPaid(body: any): boolean {
+  if (!body || typeof body !== 'object') return false;
+
+  // Forme générique : le commercial (ou son Zapier) le dit lui-même.
+  if (body.paid === true || body.paid === 'true') return true;
+
+  // Forme Stripe native : checkout.session.completed d'un paiement réel.
+  // payment_status vaut 'no_payment_required' pour un essai sans carte et
+  // 'unpaid' tant que rien n'est encaissé — seul 'paid' compte, et il faut
+  // en plus un montant non nul (un coupon à 100 % donne 'paid' à 0).
+  const obj = body?.data?.object;
+  if (obj && typeof obj === 'object') {
+    const amount = Number(obj.amount_total ?? obj.amount_paid ?? 0);
+    if (obj.payment_status === 'paid' && amount > 0) return true;
+  }
+  return false;
+}
 
 function extractEmail(body: any): string | null {
   if (!body || typeof body !== 'object') return null;
@@ -90,7 +125,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ secret
   // fin avant de répondre pour ne pas risquer que la fonction serverless
   // s'arrête avant que la conversion soit faite.
   try {
-    await convertMatchingProspectsToClients(email, company.id);
+    await convertMatchingProspectsToClients(email, company.id, { paid: looksPaid(body) });
   } catch (err: any) {
     console.error(`Erreur webhook conversion externe (société ${company.id}):`, err.message);
   }

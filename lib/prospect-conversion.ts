@@ -45,9 +45,29 @@ import { markProspectAsClient } from './become-client';
 // (30/09/2026). L'appelant en a besoin : le webhook Stripe cree une fiche
 // client « inscription directe » quand ce nombre vaut zero — voir
 // lib/self-signup-client.ts. Renvoyait void jusqu'ici.
+// `paid` (Alex, 30/10/2026) : le payload a-t-il PROUVÉ un paiement ?
+//
+// Jusqu'ici la réponse était « oui » dans tous les cas, et c'était faux pour
+// la moitié des usages. Un prospect qui ouvre un essai gratuit ou crée un
+// compte gratuit n'est pas un client : le basculer en client avec première
+// commande confirmée déclenchait l'accueil automatique, le passage de relais,
+// la synchro CRM, et le faisait compter dans le chiffre d'affaires de la page
+// Marge — un euro affiché que personne n'avait encaissé.
+//
+// Où va-t-il alors ? En OPPORTUNITÉ, au stade le plus avancé
+// (`en_negociation`, catégorie opportunité — voir lib/pipeline.ts). C'est la
+// place juste : quelqu'un qui vient d'ouvrir un essai est l'affaire la plus
+// chaude du fichier, mais ce n'est pas une vente. Aaron cesse de le démarcher
+// à froid et le suit comme une affaire en cours, ce qui est exactement ce
+// qu'il faut faire d'un essai en cours. Le jour où le paiement arrive, le
+// même webhook repasse avec la preuve et le promeut client.
+//
+// Jamais de recul : un prospect déjà plus avancé (ou déjà client) n'est pas
+// ramené en arrière par une inscription tardive.
 export async function convertMatchingProspectsToClients(
   signupEmail: string,
-  companyId?: string
+  companyId?: string,
+  options: { paid?: boolean } = {}
 ): Promise<number> {
   if (!signupEmail) return 0;
 
@@ -71,21 +91,50 @@ export async function convertMatchingProspectsToClients(
 
     let converted = 0;
 
+    const paid = options.paid !== false; // défaut historique : appel interne Stripe = paiement réel
+
     for (const prospect of matches) {
-      // Le paiement confirmé EST la 1ère commande. Une seule fonction pour
-      // devenir client (28/10/2026, lib/become-client.ts) : colonnes,
-      // accueil automatique, passage de relais, CRM.
-      const result = await markProspectAsClient(prospect.id, { source: 'paiement', firstOrderConfirmed: true });
-      if (!result.ok) {
-        console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto)`);
+      if (paid) {
+        // Le paiement confirmé EST la 1ère commande. Une seule fonction pour
+        // devenir client (28/10/2026, lib/become-client.ts) : colonnes,
+        // accueil automatique, passage de relais, CRM.
+        const result = await markProspectAsClient(prospect.id, { source: 'paiement', firstOrderConfirmed: true });
+        if (!result.ok) {
+          console.error(`Erreur passage en client du prospect ${prospect.id} (conversion auto)`);
+          continue;
+        }
+        console.log(
+          `Prospect ${prospect.id} (${prospect.full_name || signupEmail}) marqué CLIENT automatiquement : ` +
+          `paiement prouvé${companyId ? ' (webhook externe société ' + companyId + ')' : ' (inscription meetaaron.app)'}.`
+        );
+        converted += 1;
         continue;
       }
 
+      // Inscription sans preuve de paiement : opportunité, pas client.
+      const now = new Date().toISOString();
+      const update: Record<string, any> = {
+        status: 'bleu',
+        status_updated_at: now,
+        deal_stage: 'en_negociation',
+        deal_stage_updated_at: now,
+      };
+      const { error: stageError } = await supabaseAdmin
+        .from('prospects')
+        .update(update)
+        .eq('id', prospect.id)
+        // Jamais de recul : on ne touche qu'aux fiches moins avancées.
+        .not('deal_stage', 'in', '("en_negociation","signe","perdu")');
+      if (stageError) {
+        console.error(
+          `Erreur passage en opportunité du prospect ${prospect.id} (inscription sans paiement, ${stageError.code || '?'}) : ${stageError.message}`
+        );
+        continue;
+      }
       console.log(
-        `Prospect ${prospect.id} (${prospect.full_name || signupEmail}) marqué gagné automatiquement : ` +
-        `inscription/paiement détecté${companyId ? ' (webhook externe société ' + companyId + ')' : ' (inscription meetaaron.app)'}.`
+        `Prospect ${prospect.id} (${prospect.full_name || signupEmail}) passé en OPPORTUNITÉ : ` +
+        `inscription détectée sans preuve de paiement${companyId ? ' (webhook externe société ' + companyId + ')' : ''}.`
       );
-
       converted += 1;
     }
     return converted;

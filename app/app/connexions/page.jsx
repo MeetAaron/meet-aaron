@@ -49,6 +49,215 @@ function downloadBlob(blob, filename) {
 // continuerait a le relancer comme s'il n'avait jamais repondu. Le webhook
 // de conversion existait deja, mais il vivait dans « Avance », sans aucun
 // lien avec le reglage qui le rend indispensable.
+// Mode d'emploi du webhook de conversion (Alex, 30/10/2026). « Developpeurs
+// -> Webhooks -> checkout.session.completed », pour un traiteur ou un
+// plombier, c'est illisible — et c'est le client du commercial qui doit le
+// faire, pas nous. Trois onglets selon l'outil, une phrase par etape, et un
+// troisieme onglet honnete pour ceux dont l'outil ne sait pas faire : ils
+// cochent « Client gagne » a la main, comme avant. Sans ce dernier onglet,
+// l'objectif « inscription directe » a l'air inutilisable sans Stripe.
+//
+// L'avertissement sur le secret, lui, reste HORS du depliant et toujours
+// visible : un avertissement cache derriere un bouton ne previent personne.
+const WEBHOOK_GUIDE = {
+  "fr": {
+    "secretTitle": "Cette adresse est un mot de passe",
+    "secretBody": "Qui la possède peut déclarer n'importe qui comme ton client. Colle-la directement dans l'outil concerné — jamais dans un email, un message, une capture d'écran ou un document partagé.",
+    "open": "Comment brancher ça ?",
+    "close": "Masquer les instructions",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier ou Make",
+    "tabNone": "Mon outil ne sait pas faire ça",
+    "stripe": [
+      "Connecte-toi sur stripe.com, puis tape « Webhooks » dans la barre de recherche tout en haut de la page.",
+      "Clique sur le bouton « Ajouter un point de terminaison », en haut à droite.",
+      "Dans le champ « URL du point de terminaison », colle l'adresse ci-dessus.",
+      "Juste en dessous, clique sur « Sélectionner des événements ». Une longue liste s'ouvre : cherche checkout.session.completed et coche-la. Une seule case, pas plus.",
+      "Clique sur « Ajouter des événements », puis sur « Ajouter un point de terminaison ». C'est terminé."
+    ],
+    "stripeNote": "Stripe affiche ensuite une « clé secrète de signature ». Tu n'en as pas besoin ici, ignore-la.",
+    "zapier": [
+      "Crée un nouveau Zap dans Zapier, ou un nouveau scénario dans Make.",
+      "Déclencheur : ton outil d'inscription ou de paiement, événement « nouvelle inscription » ou « nouveau client ».",
+      "Action : cherche « Webhooks by Zapier » (ou « HTTP » dans Make) et choisis « POST ».",
+      "Dans le champ « URL », colle l'adresse ci-dessus.",
+      "Dans « Data », ajoute une ligne : à gauche email, à droite le champ email de ton déclencheur.",
+      "Si l'inscription est payante, ajoute une deuxième ligne : à gauche paid, à droite true.",
+      "Active le Zap."
+    ],
+    "zapierNote": "Sans la ligne paid, le contact passe en opportunité et pas en client — c'est voulu : une inscription gratuite n'est pas une vente.",
+    "none": "Beaucoup d'outils ne savent pas envoyer ce genre d'appel, et ce n'est pas bloquant. Tu continues simplement à cocher « Client gagné » toi-même sur la fiche du contact quand quelqu'un s'inscrit. L'objectif « inscription directe » fonctionne très bien comme ça : tu perds l'automatisation, rien d'autre."
+  },
+  "en": {
+    "secretTitle": "This address is a password",
+    "secretBody": "Anyone who has it can declare anyone your client. Paste it straight into the tool itself — never into an email, a message, a screenshot or a shared document.",
+    "open": "How do I connect this?",
+    "close": "Hide the instructions",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier or Make",
+    "tabNone": "My tool cannot do this",
+    "stripe": [
+      "Sign in at stripe.com, then type “Webhooks” into the search bar at the very top of the page.",
+      "Click the “Add endpoint” button, top right.",
+      "In the “Endpoint URL” field, paste the address above.",
+      "Just below, click “Select events”. A long list opens: search for checkout.session.completed and tick it. One box only.",
+      "Click “Add events”, then “Add endpoint”. Done."
+    ],
+    "stripeNote": "Stripe then shows a “signing secret”. You do not need it here — ignore it.",
+    "zapier": [
+      "Create a new Zap in Zapier, or a new scenario in Make.",
+      "Trigger: your sign-up or payment tool, event “new signup” or “new customer”.",
+      "Action: search for “Webhooks by Zapier” (or “HTTP” in Make) and choose “POST”.",
+      "In the “URL” field, paste the address above.",
+      "Under “Data”, add one row: email on the left, your trigger's email field on the right.",
+      "If the signup is paid, add a second row: paid on the left, true on the right.",
+      "Turn the Zap on."
+    ],
+    "zapierNote": "Without the paid row the contact becomes an opportunity, not a client — deliberately: a free signup is not a sale.",
+    "none": "Many tools cannot send this kind of call, and that is not a blocker. You simply keep ticking “Won client” yourself on the contact when someone signs up. The “direct signup” objective works perfectly well that way — you only lose the automation."
+  },
+  "de": {
+    "secretTitle": "Diese Adresse ist ein Passwort",
+    "secretBody": "Wer sie hat, kann beliebige Personen als deine Kunden eintragen. Füge sie direkt im jeweiligen Tool ein — nie in eine E-Mail, eine Nachricht, einen Screenshot oder ein geteiltes Dokument.",
+    "open": "Wie verbinde ich das?",
+    "close": "Anleitung ausblenden",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier oder Make",
+    "tabNone": "Mein Tool kann das nicht",
+    "stripe": [
+      "Melde dich auf stripe.com an und tippe „Webhooks“ in die Suchleiste ganz oben.",
+      "Klicke oben rechts auf „Endpunkt hinzufügen“.",
+      "Füge im Feld „Endpunkt-URL“ die Adresse von oben ein.",
+      "Klicke direkt darunter auf „Ereignisse auswählen“. Eine lange Liste öffnet sich: suche checkout.session.completed und hake es an. Nur dieses eine.",
+      "Klicke auf „Ereignisse hinzufügen“ und dann auf „Endpunkt hinzufügen“. Fertig."
+    ],
+    "stripeNote": "Stripe zeigt anschließend ein „Signing Secret“. Das brauchst du hier nicht — ignoriere es.",
+    "zapier": [
+      "Erstelle einen neuen Zap in Zapier oder ein neues Szenario in Make.",
+      "Auslöser: dein Anmelde- oder Zahlungstool, Ereignis „neue Anmeldung“ oder „neuer Kunde“.",
+      "Aktion: suche „Webhooks by Zapier“ (oder „HTTP“ in Make) und wähle „POST“.",
+      "Füge im Feld „URL“ die Adresse von oben ein.",
+      "Füge unter „Data“ eine Zeile hinzu: links email, rechts das E-Mail-Feld deines Auslösers.",
+      "Ist die Anmeldung kostenpflichtig, füge eine zweite Zeile hinzu: links paid, rechts true.",
+      "Schalte den Zap ein."
+    ],
+    "zapierNote": "Ohne die Zeile paid wird der Kontakt eine Opportunity und kein Kunde — absichtlich: eine kostenlose Anmeldung ist kein Verkauf.",
+    "none": "Viele Tools können solche Aufrufe nicht senden, und das ist kein Hindernis. Du hakst einfach weiterhin selbst „Kunde gewonnen“ am Kontakt ab, wenn sich jemand anmeldet. Das Ziel „direkte Anmeldung“ funktioniert so einwandfrei — dir fehlt nur die Automatisierung."
+  },
+  "it": {
+    "secretTitle": "Questo indirizzo è una password",
+    "secretBody": "Chi lo possiede può dichiarare chiunque come tuo cliente. Incollalo direttamente nello strumento interessato — mai in un'email, un messaggio, uno screenshot o un documento condiviso.",
+    "open": "Come lo collego?",
+    "close": "Nascondi le istruzioni",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier o Make",
+    "tabNone": "Il mio strumento non sa farlo",
+    "stripe": [
+      "Accedi su stripe.com, poi scrivi « Webhooks » nella barra di ricerca in alto.",
+      "Clicca sul pulsante « Aggiungi endpoint », in alto a destra.",
+      "Nel campo « URL endpoint », incolla l'indirizzo qui sopra.",
+      "Subito sotto, clicca su « Seleziona eventi ». Si apre un lungo elenco: cerca checkout.session.completed e spuntalo. Una sola casella.",
+      "Clicca su « Aggiungi eventi », poi su « Aggiungi endpoint ». Finito."
+    ],
+    "stripeNote": "Stripe mostra poi una « chiave segreta di firma ». Qui non serve, ignorala.",
+    "zapier": [
+      "Crea un nuovo Zap in Zapier, o un nuovo scenario in Make.",
+      "Trigger: il tuo strumento di iscrizione o pagamento, evento « nuova iscrizione » o « nuovo cliente ».",
+      "Azione: cerca « Webhooks by Zapier » (o « HTTP » in Make) e scegli « POST ».",
+      "Nel campo « URL », incolla l'indirizzo qui sopra.",
+      "In « Data », aggiungi una riga: a sinistra email, a destra il campo email del tuo trigger.",
+      "Se l'iscrizione è a pagamento, aggiungi una seconda riga: a sinistra paid, a destra true.",
+      "Attiva lo Zap."
+    ],
+    "zapierNote": "Senza la riga paid il contatto diventa un'opportunità e non un cliente — è voluto: un'iscrizione gratuita non è una vendita.",
+    "none": "Molti strumenti non sanno inviare questo tipo di chiamata, e non è bloccante. Continui semplicemente a spuntare « Cliente acquisito » tu stesso sulla scheda quando qualcuno si iscrive. L'obiettivo « iscrizione diretta » funziona benissimo così: perdi solo l'automazione."
+  },
+  "es": {
+    "secretTitle": "Esta dirección es una contraseña",
+    "secretBody": "Quien la tenga puede declarar a cualquiera como tu cliente. Pégala directamente en la herramienta correspondiente — nunca en un email, un mensaje, una captura de pantalla ni un documento compartido.",
+    "open": "¿Cómo lo conecto?",
+    "close": "Ocultar las instrucciones",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier o Make",
+    "tabNone": "Mi herramienta no sabe hacerlo",
+    "stripe": [
+      "Inicia sesión en stripe.com y escribe « Webhooks » en la barra de búsqueda de arriba del todo.",
+      "Haz clic en el botón « Añadir endpoint », arriba a la derecha.",
+      "En el campo « URL del endpoint », pega la dirección de arriba.",
+      "Justo debajo, haz clic en « Seleccionar eventos ». Se abre una lista larga: busca checkout.session.completed y márcalo. Una sola casilla.",
+      "Haz clic en « Añadir eventos » y luego en « Añadir endpoint ». Ya está."
+    ],
+    "stripeNote": "Stripe muestra después una « clave secreta de firma ». Aquí no hace falta, ignórala.",
+    "zapier": [
+      "Crea un nuevo Zap en Zapier, o un nuevo escenario en Make.",
+      "Disparador: tu herramienta de registro o de pago, evento « nuevo registro » o « nuevo cliente ».",
+      "Acción: busca « Webhooks by Zapier » (o « HTTP » en Make) y elige « POST ».",
+      "En el campo « URL », pega la dirección de arriba.",
+      "En « Data », añade una fila: a la izquierda email, a la derecha el campo email de tu disparador.",
+      "Si el registro es de pago, añade una segunda fila: a la izquierda paid, a la derecha true.",
+      "Activa el Zap."
+    ],
+    "zapierNote": "Sin la fila paid el contacto pasa a oportunidad y no a cliente — es a propósito: un registro gratuito no es una venta.",
+    "none": "Muchas herramientas no saben enviar este tipo de llamada, y no es un impedimento. Simplemente sigues marcando « Cliente ganado » tú mismo en la ficha cuando alguien se registra. El objetivo « registro directo » funciona perfectamente así: solo pierdes la automatización."
+  },
+  "pt": {
+    "secretTitle": "Este endereço é uma palavra-passe",
+    "secretBody": "Quem o tiver pode declarar qualquer pessoa como teu cliente. Cola-o diretamente na ferramenta em causa — nunca num email, numa mensagem, numa captura de ecrã ou num documento partilhado.",
+    "open": "Como ligo isto?",
+    "close": "Esconder as instruções",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier ou Make",
+    "tabNone": "A minha ferramenta não sabe fazer isto",
+    "stripe": [
+      "Entra em stripe.com e escreve « Webhooks » na barra de pesquisa no topo da página.",
+      "Clica no botão « Adicionar endpoint », no canto superior direito.",
+      "No campo « URL do endpoint », cola o endereço acima.",
+      "Logo abaixo, clica em « Selecionar eventos ». Abre-se uma lista longa: procura checkout.session.completed e assinala. Só essa caixa.",
+      "Clica em « Adicionar eventos » e depois em « Adicionar endpoint ». Está feito."
+    ],
+    "stripeNote": "O Stripe mostra depois uma « chave secreta de assinatura ». Aqui não precisas dela, ignora.",
+    "zapier": [
+      "Cria um novo Zap no Zapier, ou um novo cenário no Make.",
+      "Gatilho: a tua ferramenta de inscrição ou de pagamento, evento « nova inscrição » ou « novo cliente ».",
+      "Ação: procura « Webhooks by Zapier » (ou « HTTP » no Make) e escolhe « POST ».",
+      "No campo « URL », cola o endereço acima.",
+      "Em « Data », acrescenta uma linha: à esquerda email, à direita o campo email do teu gatilho.",
+      "Se a inscrição for paga, acrescenta uma segunda linha: à esquerda paid, à direita true.",
+      "Ativa o Zap."
+    ],
+    "zapierNote": "Sem a linha paid o contacto passa a oportunidade e não a cliente — é propositado: uma inscrição gratuita não é uma venda.",
+    "none": "Muitas ferramentas não sabem enviar este tipo de chamada, e isso não impede nada. Continuas simplesmente a assinalar « Cliente ganho » na ficha quando alguém se inscreve. O objetivo « inscrição direta » funciona muito bem assim: só perdes a automatização."
+  },
+  "nl": {
+    "secretTitle": "Dit adres is een wachtwoord",
+    "secretBody": "Wie het heeft, kan iedereen als jouw klant opvoeren. Plak het rechtstreeks in de betrokken tool — nooit in een e-mail, een bericht, een schermafbeelding of een gedeeld document.",
+    "open": "Hoe koppel ik dit?",
+    "close": "Instructies verbergen",
+    "tabStripe": "Stripe",
+    "tabZapier": "Zapier of Make",
+    "tabNone": "Mijn tool kan dit niet",
+    "stripe": [
+      "Log in op stripe.com en typ „Webhooks” in de zoekbalk bovenaan de pagina.",
+      "Klik rechtsboven op de knop „Endpoint toevoegen”.",
+      "Plak het adres hierboven in het veld „Endpoint-URL”.",
+      "Klik er net onder op „Gebeurtenissen selecteren”. Er opent een lange lijst: zoek checkout.session.completed en vink het aan. Eén vakje, niet meer.",
+      "Klik op „Gebeurtenissen toevoegen” en daarna op „Endpoint toevoegen”. Klaar."
+    ],
+    "stripeNote": "Stripe toont daarna een „signing secret”. Die heb je hier niet nodig — negeer hem.",
+    "zapier": [
+      "Maak een nieuwe Zap in Zapier, of een nieuw scenario in Make.",
+      "Trigger: je aanmeld- of betaaltool, gebeurtenis „nieuwe aanmelding” of „nieuwe klant”.",
+      "Actie: zoek „Webhooks by Zapier” (of „HTTP” in Make) en kies „POST”.",
+      "Plak het adres hierboven in het veld „URL”.",
+      "Voeg onder „Data” één rij toe: links email, rechts het e-mailveld van je trigger.",
+      "Is de aanmelding betaald, voeg dan een tweede rij toe: links paid, rechts true.",
+      "Zet de Zap aan."
+    ],
+    "zapierNote": "Zonder de rij paid wordt het contact een opportuniteit en geen klant — bewust: een gratis aanmelding is geen verkoop.",
+    "none": "Veel tools kunnen zo'n oproep niet versturen, en dat is geen blokkade. Je vinkt gewoon zelf „Klant gewonnen” aan op de fiche zodra iemand zich aanmeldt. Het doel „directe aanmelding” werkt zo prima — je verliest alleen de automatisering."
+  }
+};
+
 const AUTO_CONVERSION_HINT = {
   fr: {
     title: 'Branche la conversion automatique',
@@ -488,6 +697,8 @@ export default function ConnexionsPage() {
   const OFFERS = offersFor(locale);
   const [prefs, setPrefs] = useState(null);
   const [webhookCopied, setWebhookCopied] = useState(false);
+  // null = depliant ferme ; sinon 'stripe' | 'zapier' | 'none'.
+  const [webhookGuide, setWebhookGuide] = useState(null);
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -3506,14 +3717,77 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                     <label>{t('preferences.externalConversionWebhookLabel', locale)}</label>
                     <p className="field-hint">{t('preferences.externalConversionWebhookHint', locale)}</p>
                     {prefs.external_conversion_webhook_secret ? (
-                      <div className="webhook-url-row">
-                        <code className="webhook-url">
-                          {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`}
-                        </code>
-                        <button type="button" className="btn-secondary" onClick={copyWebhookUrl}>
-                          {webhookCopied ? t('team.copied', locale) : t('team.copy', locale)}
+                      <>
+                        <div className="webhook-url-row">
+                          <code className="webhook-url">
+                            {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/external-conversion/${prefs.external_conversion_webhook_secret}`}
+                          </code>
+                          <button type="button" className="btn-secondary" onClick={copyWebhookUrl}>
+                            {webhookCopied ? t('team.copied', locale) : t('team.copy', locale)}
+                          </button>
+                        </div>
+
+                        {/* Avertissement TOUJOURS visible, volontairement hors du
+                            dépliant : un avertissement caché derrière un bouton ne
+                            prévient personne, et celui-ci doit être lu avant que
+                            l'adresse parte dans un email. */}
+                        <div className="webhook-secret">
+                          <span className="webhook-secret-ic"><Ic name="lock" size={15} /></span>
+                          <div>
+                            <p className="webhook-secret-title">{(WEBHOOK_GUIDE[locale] || WEBHOOK_GUIDE.fr).secretTitle}</p>
+                            <p className="webhook-secret-body">{(WEBHOOK_GUIDE[locale] || WEBHOOK_GUIDE.fr).secretBody}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-link webhook-guide-toggle"
+                          onClick={() => setWebhookGuide((g) => (g ? null : 'stripe'))}
+                        >
+                          {webhookGuide
+                            ? (WEBHOOK_GUIDE[locale] || WEBHOOK_GUIDE.fr).close
+                            : (WEBHOOK_GUIDE[locale] || WEBHOOK_GUIDE.fr).open}
                         </button>
-                      </div>
+
+                        {webhookGuide && (() => {
+                          const g = WEBHOOK_GUIDE[locale] || WEBHOOK_GUIDE.fr;
+                          const TABS = [
+                            { key: 'stripe', label: g.tabStripe },
+                            { key: 'zapier', label: g.tabZapier },
+                            { key: 'none', label: g.tabNone },
+                          ];
+                          return (
+                            <div className="webhook-guide">
+                              <div className="webhook-guide-tabs">
+                                {TABS.map((tab) => (
+                                  <button
+                                    key={tab.key}
+                                    type="button"
+                                    className={`chip${webhookGuide === tab.key ? ' active' : ''}`}
+                                    onClick={() => setWebhookGuide(tab.key)}
+                                  >
+                                    {tab.label}
+                                  </button>
+                                ))}
+                              </div>
+                              {webhookGuide === 'none' ? (
+                                <p className="webhook-guide-note">{g.none}</p>
+                              ) : (
+                                <>
+                                  <ol className="webhook-guide-steps">
+                                    {(webhookGuide === 'stripe' ? g.stripe : g.zapier).map((step, i) => (
+                                      <li key={i}>{step}</li>
+                                    ))}
+                                  </ol>
+                                  <p className="webhook-guide-note">
+                                    {webhookGuide === 'stripe' ? g.stripeNote : g.zapierNote}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </>
                     ) : (
                       <p className="field-hint">{t('preferences.externalConversionWebhookPending', locale)}</p>
                     )}
@@ -4742,6 +5016,46 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           letter-spacing: 0.09em;
           text-transform: uppercase;
           color: var(--muted);
+        }
+        /* Mode d'emploi du webhook : avertissement toujours visible, puis
+           dépliant à trois onglets. Voir WEBHOOK_GUIDE. */
+        .webhook-secret {
+          display: flex;
+          gap: 0.65rem;
+          align-items: flex-start;
+          margin: 0.7rem 0 0;
+          padding: 0.7rem 0.85rem;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(245, 166, 35, 0.35);
+          background: rgba(245, 166, 35, 0.09);
+        }
+        .webhook-secret-ic { color: var(--accent-amber); margin-top: 0.1rem; flex: 0 0 auto; }
+        .webhook-secret-title { margin: 0 0 0.2rem; font-size: 0.85rem; font-weight: 600; }
+        .webhook-secret-body { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+        .webhook-guide-toggle { margin: 0.7rem 0 0; padding: 0; font-size: 0.84rem; }
+        .webhook-guide {
+          margin-top: 0.6rem;
+          padding: 0.85rem 0.9rem;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border);
+          background: var(--surface);
+        }
+        .webhook-guide-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.8rem; }
+        .webhook-guide-steps {
+          margin: 0;
+          padding-left: 1.2rem;
+          display: grid;
+          gap: 0.5rem;
+          font-size: 0.84rem;
+          line-height: 1.5;
+          color: var(--text);
+        }
+        .webhook-guide-steps li::marker { color: var(--accent-light); font-weight: 600; }
+        .webhook-guide-note {
+          margin: 0.75rem 0 0;
+          font-size: 0.8rem;
+          color: var(--muted);
+          line-height: 1.5;
         }
         /* Encart de guidage sous l'objectif de prospection, et surbrillance
            de la carte vers laquelle il renvoie — voir AUTO_CONVERSION_HINT. */
