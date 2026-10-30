@@ -47,6 +47,65 @@ interface FoundContact {
   linkedin_url: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// ÉTAPE 1 — SONNET DÉCIDE QUOI CHERCHER (Alex, 30/10/2026).
+//
+// Découpe proposée par Alex, et meilleure que ce que j'avais suggéré :
+// remplacer Sonnet par Haiku sur tout l'appel lui aurait fait perdre son
+// jugement sur OÙ chercher. On sépare donc les deux métiers — Sonnet comprend
+// le ciblage et formule les requêtes, Haiku lit les résultats et en extrait
+// les sociétés. Le jugement reste à Sonnet, seule la lecture change de modèle.
+//
+// Cet appel n'a AUCUN outil et un prompt minuscule : quelques centaines de
+// jetons en entrée, quelques centaines en sortie. Il coûte une fraction de
+// centime. Tout le volume — les résultats de recherche injectés dans le
+// contexte — se déplace sur Haiku à l'étape 2.
+//
+// Même raisonnement que findContactForCompany, passé en Haiku le 05/09/2026 :
+// « chercher un nom et un email, c'est de l'extraction, pas de la rédaction ».
+// Ici on l'applique un cran plus haut.
+//
+// Repli : si cet appel échoue ou renvoie n'importe quoi, on redonne des
+// requêtes construites bêtement à partir des critères. Le sourcing ne doit
+// jamais s'arrêter parce que l'étape de planification a hoqueté.
+async function planSearchQueries(
+  companyId: string,
+  sectorKeywords: string[],
+  zoneLabel: string,
+  companySizeLabels: string[],
+  maxQueries: number
+): Promise<string[]> {
+  const fallback = sectorKeywords.slice(0, maxQueries).map((kw) => `${kw} ${zoneLabel}`);
+  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web.
+
+Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
+Zone géographique : ${zoneLabel}
+${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}
+Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
+
+Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après, sans balises markdown. Exemple de forme : ["requête 1", "requête 2"]`;
+
+  try {
+    const data = await callClaude(
+      {
+        model: 'claude-sonnet-5',
+        max_tokens: 400,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      companyId, 'ap'
+    );
+    const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+    if (!textBlock) return fallback;
+    const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
+    if (!Array.isArray(parsed)) return fallback;
+    const queries = parsed.filter((q: any) => typeof q === 'string' && q.trim()).slice(0, maxQueries);
+    return queries.length > 0 ? queries : fallback;
+  } catch (err: any) {
+    console.error('Planification des requêtes de sourcing impossible, repli sur les critères bruts :', err?.message || err);
+    return fallback;
+  }
+}
+
 async function searchCompaniesInZone(
   companyId: string,
   sectorKeywords: string[],
@@ -77,18 +136,38 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
   }
 ]`;
 
+  // ───────────────────────────────────────────────────────────────────────
+  // ÉTAPE 2 — HAIKU CHERCHE ET EXTRAIT.
+  //
+  // C'est ici que passe tout le volume : les résultats des cinq recherches
+  // web sont injectés dans le contexte du modèle, ce qui en fait de loin
+  // l'appel le plus lourd de l'application. Lire ces résultats et en sortir
+  // des noms, domaines et adresses est de l'extraction — Haiku le fait pour
+  // environ 4× moins cher que Sonnet, qui garde le jugement à l'étape 1.
+  //
+  // max_uses reste à 5 (choix d'Alex, 30/10/2026 : mieux couvrir la zone vaut
+  // les 5 cents). Ce plafond est le vrai plancher du coût : une recherche web
+  // coûte le même prix quel que soit le modèle qui la demande, donc changer de
+  // modèle ne fait baisser que la partie jetons, jamais les 5 cents de
+  // recherche. Sans max_uses, un seul prompt peut déclencher un nombre de
+  // recherches non borné.
+  const searchQueries = await planSearchQueries(
+    companyId,
+    sectorKeywords,
+    zoneLabel,
+    companySizeLabels,
+    5
+  );
+
   const data = await callClaude(
     {
-      model: 'claude-sonnet-5',
+      model: 'claude-haiku-4-5',
       max_tokens: 4000,
-      // max_uses borne le nombre de recherches web que le modèle peut lancer
-      // pour CET appel — sans cette limite, un seul prompt peut déclencher un
-      // nombre de recherches non borné (facturées en plus des tokens), ce qui
-      // était identifié comme le principal poste de coût API non maîtrisé
-      // (voir statut projet, "vitesse & coût API"). Ne change ni le format de
-      // réponse attendu ni la qualité : borne juste le pire cas.
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{
+        role: 'user',
+        content: `${prompt}\n\nUtilise exactement ces recherches web, dans cet ordre :\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nNe cherche rien d'autre. Ton travail est de LIRE ces résultats et d'en extraire les entreprises réelles qui correspondent aux critères — n'invente jamais une entreprise, un domaine ou une adresse qui n'apparaît pas dans les résultats.`,
+      }],
     },
     companyId, 'ap'
   );
