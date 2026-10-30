@@ -1,0 +1,537 @@
+From c39bb35a0bc062e52e26f4b4cda0f3849c6904a0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 06:01:26 +0000
+Subject: [PATCH] =?UTF-8?q?Budget=20API=20:=20p=C3=A9riode=20d'abonnement?=
+ =?UTF-8?q?=20r=C3=A9elle,=20rattrapage=20brid=C3=A9,=20et=20plus=20d'emai?=
+ =?UTF-8?q?ls=20pay=C3=A9s=20puis=20jet=C3=A9s?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Déclencheur : facture Anthropic du 29/10. 3,17 $ le 29 et 3,56 $ le 30 contre
+1,81 $ sur les 28 jours précédents, après l'import d'une campagne de
+300 prospects. Quatre causes distinctes, toutes corrigées ici.
+
+1. lib/first-contact.ts — ne rédiger que ce qu'on peut envoyer.
+   L'import rédigeait les 300 premiers emails avec Sonnet dans la foulée,
+   alors que la montée en charge de la boîte (WARMUP_STEPS) n'en laissait
+   partir que 8 le premier jour. On vérifie désormais hasReachedProspectingCap
+   AVANT de payer la rédaction ; le prospect reste « jamais contacté » et
+   retry-uncontacted-prospects le reprend le jour où le plafond se libère,
+   avec des informations fraîches. Exception : require_first_email_approval,
+   où rien ne part automatiquement et où les brouillons sont justement
+   attendus.
+
+2. lib/first-contact.ts — ne plus jeter ce qu'on a payé.
+   L'UPDATE qui enregistre statut, profil, conviction et conseil se trouvait
+   APRÈS sendEmailForUser : un échec d'envoi sautait l'enregistrement et
+   perdait tout le travail déjà facturé. Il remonte avant l'envoi. En prime,
+   sur un échec rattrapable (plafond, SPF, boîte déconnectée) le brouillon est
+   rangé dans pending_first_email_*, là où first-email-deferred va le chercher
+   toutes les 20 min — plus aucune rédaction payée deux fois.
+
+3. lib/anthropic-client.ts — période de facturation réelle.
+   Le budget était indexé sur le mois calendaire : reset le 1er, rattrapage
+   calculé jusqu'au 31, aucun rapport avec la date payée. Un client abonné le
+   28 disposait de deux budgets pleins en quatre jours. On s'ancre sur
+   companies.api_period_start/end (voir migration du 30/10), avec repli sur le
+   mois calendaire tant qu'elles sont nulles — donc aucun changement de
+   comportement tant que le webhook n'a pas tourné. La clé de période réutilise
+   la colonne texte year_month, pas de migration des tables d'usage.
+
+4. lib/anthropic-client.ts — rattrapage bridé et boosts étalés.
+   catchUpDaily autorisait 8 à 10 $/jour en fin de mois : un budget mensuel
+   inutilisé pouvait partir en 48 h. Plafonné à 3x le lissage. Et un boost dont
+   la date visée est dépassée donnait daysToEnd = 1, donc tout son reste poussé
+   sur la journée : plancher à max(jours restants, 7) dans getPacing et
+   getBudgetStatus. Un boost n'expirant pas, ce qui n'est pas consommé bascule
+   sur la période suivante.
+
+app/api/webhooks/stripe/route.ts : syncBillingPeriod remplit api_period_start
+et api_period_end à chaque facture payée. Best-effort, jamais bloquant.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/webhooks/stripe/route.ts |  63 +++++++++++++
+ lib/anthropic-client.ts          | 149 +++++++++++++++++++++++++++----
+ lib/first-contact.ts             | 107 +++++++++++++++++++---
+ 3 files changed, 288 insertions(+), 31 deletions(-)
+
+diff --git a/app/api/webhooks/stripe/route.ts b/app/api/webhooks/stripe/route.ts
+index 8421a90..a338bcb 100644
+--- a/app/api/webhooks/stripe/route.ts
++++ b/app/api/webhooks/stripe/route.ts
+@@ -343,6 +343,14 @@ export async function POST(request: NextRequest) {
+         graceEndsAt: null,
+         failureReason: null,
+       });
++      // Chaque facture payee ouvre une nouvelle periode : c'est le moment ou
++      // le budget API doit repartir de zero (voir syncBillingPeriod).
++      const subscriptionId =
++        invoice.subscription ||
++        invoice.parent?.subscription_details?.subscription ||
++        invoice.lines?.data?.[0]?.subscription ||
++        null;
++      await syncBillingPeriod(companyId, typeof subscriptionId === 'string' ? subscriptionId : subscriptionId?.id);
+     }
+     return NextResponse.json({ received: true });
+   }
+@@ -365,6 +373,61 @@ export async function POST(request: NextRequest) {
+ // l'événement. Renvoie null si aucune correspondance (client Stripe créé
+ // hors application, société supprimée...) — dans ce cas on ignore
+ // l'événement plutôt que de faire échouer le webhook.
++// ───────────────────────────────────────────────────────────────────────────
++// PERIODE DE FACTURATION (Alex, 30/10/2026).
++//
++// Le budget API etait indexe sur le MOIS CALENDAIRE (reset le 1er), pas sur
++// la periode reellement payee : un client abonne le 28 disposait de deux
++// budgets pleins en quatre jours. lib/anthropic-client.ts lit desormais
++// companies.api_period_start / api_period_end — c'est ici qu'elles sont
++// remplies, a chaque facture payee et a la creation de l'abonnement.
++//
++// Tant qu'elles sont nulles, anthropic-client retombe sur le mois calendaire,
++// donc une panne de ce bloc ne casse rien : elle redonne juste l'ancien
++// comportement. Best-effort, jamais bloquant pour le webhook.
++//
++// Meme precaution que app/api/api-usage/route.ts : sur les abonnements
++// multi-lignes recents, current_period_start/end ont ete deplaces du niveau
++// abonnement au niveau de chaque ligne — on regarde les deux.
++async function syncBillingPeriod(companyId: string, subscriptionId: string | null | undefined): Promise<void> {
++  if (!companyId || !subscriptionId) return;
++  try {
++    const subscription: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['items'] });
++
++    const starts: number[] = [];
++    const ends: number[] = [];
++    if (subscription.current_period_start) starts.push(subscription.current_period_start);
++    if (subscription.current_period_end) ends.push(subscription.current_period_end);
++    for (const item of subscription.items?.data || []) {
++      if (item.current_period_start) starts.push(item.current_period_start);
++      if (item.current_period_end) ends.push(item.current_period_end);
++    }
++    if (!starts.length || !ends.length) return;
++
++    // Debut le plus TOT et fin la plus TARD : la fenetre couvre toutes les
++    // lignes, on ne coupe jamais le budget au milieu d'une periode payee.
++    const toIsoDate = (unixSeconds: number) => new Date(unixSeconds * 1000).toISOString().slice(0, 10);
++    const periodStart = toIsoDate(Math.min(...starts));
++    const periodEnd = toIsoDate(Math.max(...ends));
++    if (periodEnd <= periodStart) return;
++
++    const { error } = await supabaseAdmin
++      .from('companies')
++      .update({ api_period_start: periodStart, api_period_end: periodEnd })
++      .eq('id', companyId);
++    if (error) {
++      console.error('[stripe-webhook] periode de facturation non enregistree', {
++        company_id: companyId,
++        code: (error as any).code || null,
++      });
++      return;
++    }
++    console.info('[stripe-webhook] periode de facturation', { company_id: companyId, periodStart, periodEnd });
++  } catch (err: any) {
++    console.error('[stripe-webhook] periode de facturation illisible:', err?.message || err);
++  }
++}
++
+ async function companyIdFromStripeCustomer(customerId: string | null | undefined): Promise<string | null> {
+   if (!customerId) return null;
+   const { data } = await supabaseAdmin
+diff --git a/lib/anthropic-client.ts b/lib/anthropic-client.ts
+index 88399ae..611e559 100644
+--- a/lib/anthropic-client.ts
++++ b/lib/anthropic-client.ts
+@@ -96,6 +96,15 @@ const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien =
+ // multiplicateur, une valeur = ce montant par siège.
+ const HARD_CEILING_MULTIPLIER = 1.5;
+ 
++// Bridage du rattrapage (Alex, 30/10/2026). Le plafond du jour est le maximum
++// entre le lissage (budget / nb de jours de la periode) et un rattrapage
++// (reste / jours restants x 1,25). Quand il ne reste que 2 ou 3 jours, ce
++// rattrapage explose : les 29 et 30 octobre il autorisait 8 a 10 $/jour, ce
++// qui a permis a un import de 300 prospects de vider en deux jours un budget
++// mensuel reste inutilise. Le budget doit rester consommable en entier, mais
++// jamais en 48 heures : on plafonne le rattrapage a 3x le lissage.
++const CATCHUP_MAX_MULTIPLIER = 3;
++
+ // Deux activités, deux régimes de plafond. Le module Aaron dit déjà laquelle :
+ // 'ap' (Aaron Prospect) et les traitements société sans module = prospection,
+ // le robinet que le commercial ouvre ; 'as' (opportunités) et 'ac' (clients) =
+@@ -152,6 +161,93 @@ function currentYearMonth(): string {
+   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+ }
+ 
++// ─────────────────────────────────────────────────────────────────────────
++// PERIODE DE BUDGET (Alex, 30/10/2026).
++//
++// Tout le budget API etait indexe sur le MOIS CALENDAIRE : compteur remis a
++// zero le 1er a 00h00 UTC, et rattrapage calcule jusqu'au 31. Aucun rapport
++// avec la date a laquelle le client a paye. Deux consequences : un client qui
++// s'abonne le 28 disposait de 21,50 $ pour 3 jours PUIS d'un budget neuf le
++// 1er (deux mois d'API pour un mois encaisse), et le rattrapage s'emballait en
++// fin de mois calendaire sans raison.
++//
++// On s'ancre desormais sur la periode d'abonnement Stripe, stockee par le
++// webhook dans companies.api_period_start / api_period_end (voir
++// migration_periode_facturation_api_2026-10-30.sql). Repli sur le mois
++// calendaire quand elle est absente : societes billing_exempt, comptes
++// internes, ou webhook pas encore passe. Le repli donne exactement l'ancien
++// comportement, donc la mise en production ne change rien tant que les
++// colonnes sont vides.
++//
++// La cle de periode reutilise la colonne texte `year_month` : "YYYY-MM" pour
++// le repli calendaire (forme historique), "YYYY-MM-DD" = premier jour de la
++// periode d'abonnement sinon. Aucune migration de schema sur les tables
++// d'usage.
++export interface PeriodWindow {
++  key: string;
++  daysLeft: number;
++  daysTotal: number;
++}
++
++function isoDateUTC(d: Date): string {
++  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
++}
++
++// Decale d'un mois en conservant le jour d'ancrage, borne au dernier jour du
++// mois vise (un ancrage au 31 tombe au 30 en novembre, comme chez Stripe).
++function addOneMonthUTC(d: Date): Date {
++  const y = d.getUTCFullYear();
++  const m = d.getUTCMonth();
++  const lastDayNextMonth = new Date(Date.UTC(y, m + 2, 0)).getUTCDate();
++  return new Date(Date.UTC(y, m + 1, Math.min(d.getUTCDate(), lastDayNextMonth)));
++}
++
++function calendarWindow(now: Date): PeriodWindow {
++  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
++  return {
++    key: currentYearMonth(),
++    daysLeft: Math.max(1, daysInMonth - now.getUTCDate() + 1),
++    daysTotal: daysInMonth,
++  };
++}
++
++export async function getPeriodWindow(companyId: string): Promise<PeriodWindow> {
++  const now = new Date();
++  try {
++    const { data, error } = await supabaseAdmin
++      .from('companies')
++      .select('api_period_start, api_period_end')
++      .eq('id', companyId)
++      .maybeSingle();
++    // Colonnes absentes (42703) ou periode non renseignee : repli calendaire.
++    if (error || !data?.api_period_start || !data?.api_period_end) return calendarWindow(now);
++
++    let start = new Date(`${data.api_period_start}T00:00:00Z`);
++    let end = new Date(`${data.api_period_end}T00:00:00Z`);
++    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return calendarWindow(now);
++
++    // Filet si le webhook a manque un renouvellement : on avance de periode en
++    // periode jusqu'a englober aujourd'hui, sans appeler Stripe.
++    let guard = 0;
++    while (end.getTime() <= now.getTime() && guard < 240) {
++      start = addOneMonthUTC(start);
++      end = addOneMonthUTC(end);
++      guard += 1;
++    }
++    // Periode qui commence dans le futur : on ne devine pas, repli calendaire.
++    if (start.getTime() > now.getTime()) return calendarWindow(now);
++
++    return {
++      key: isoDateUTC(start),
++      daysLeft: Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86_400_000)),
++      daysTotal: Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000)),
++    };
++  } catch {
++    // Le budget ne doit JAMAIS tomber sur une lecture ratee : repli calendaire.
++    return calendarWindow(now);
++  }
++}
++
+ function currentDateUTC(): string {
+   const now = new Date();
+   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+@@ -199,12 +295,12 @@ function hardCeilingFor(subscriptionCap: number): number {
+   return subscriptionCap * HARD_CEILING_MULTIPLIER;
+ }
+ 
+-async function getCurrentMonthSpendUsd(companyId: string): Promise<number> {
++async function getCurrentMonthSpendUsd(companyId: string, periodKey: string): Promise<number> {
+   const { data } = await supabaseAdmin
+     .from('api_usage_monthly')
+     .select('cost_usd')
+     .eq('company_id', companyId)
+-    .eq('year_month', currentYearMonth())
++    .eq('year_month', periodKey)
+     .maybeSingle();
+ 
+   return data?.cost_usd || 0;
+@@ -273,15 +369,15 @@ export async function getPacing(companyId: string): Promise<Pacing | null> {
+   const subscriptionCap = await getMonthlyCapUsd(companyId);
+   if (subscriptionCap === null) return null; // plafond désactivé : pas de rythme
+ 
++  const period = await getPeriodWindow(companyId);
+   const [monthSpend, daySpend, boosts] = await Promise.all([
+-    getCurrentMonthSpendUsd(companyId),
++    getCurrentMonthSpendUsd(companyId, period.key),
+     getCurrentDaySpendUsd(companyId),
+     listActiveBoosts(companyId),
+   ]);
+ 
+   const now = new Date();
+-  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+-  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
++  const daysLeft = period.daysLeft;
+ 
+   const marginUsd = PACING_MARGIN_CREDITS * USD_PER_CREDIT;
+   const subscriptionRemaining = Math.max(0, subscriptionCap - marginUsd - monthSpend);
+@@ -291,8 +387,15 @@ export async function getPacing(companyId: string): Promise<Pacing | null> {
+   let boostRemaining = 0;
+   for (const b of boosts) {
+     boostRemaining += b.remaining_usd;
++    // Un boost N'EXPIRE PLUS (Alex, 05/09/2026 — voir listActiveBoosts) :
++    // ends_at n'est qu'une date VISEE. Le plancher est indispensable, sinon un
++    // boost dont la date visee est passee donne daysToEnd = 1 et tout son
++    // reste se retrouve pousse sur la journee en cours. On l'etale au moins
++    // sur ce qu'il reste de la periode d'abonnement, et jamais sur moins
++    // d'une semaine : ce qui n'est pas consomme bascule simplement sur la
++    // periode suivante, c'est tout l'interet d'un boost qui n'expire pas.
+     const msToEnd = new Date(b.ends_at).getTime() - now.getTime();
+-    const daysToEnd = Math.max(1, Math.ceil(msToEnd / 86_400_000));
++    const daysToEnd = Math.max(daysLeft, 7, Math.ceil(msToEnd / 86_400_000));
+     boostDaily += b.remaining_usd / daysToEnd;
+   }
+ 
+@@ -317,8 +420,9 @@ async function getBudgetStatus(
+   const subscriptionCap = await getMonthlyCapUsd(companyId);
+   if (subscriptionCap === null) return { exceeded: false }; // plafond désactivé pour cette société
+ 
++  const period = await getPeriodWindow(companyId);
+   const [monthSpend, daySpend, boosts] = await Promise.all([
+-    getCurrentMonthSpendUsd(companyId),
++    getCurrentMonthSpendUsd(companyId, period.key),
+     getCurrentDaySpendUsd(companyId),
+     listActiveBoosts(companyId),
+   ]);
+@@ -358,14 +462,20 @@ async function getBudgetStatus(
+   // grosse campagne ne doit pas rester bloqué par la limite de son
+   // abonnement — exactement ce qu'il cherchait à débloquer en payant.
+   const now = new Date();
+-  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+-  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
+-  const smoothedDaily = (subscriptionCap + boostRemaining) / DAILY_CAP_DIVISOR;
++  const daysLeft = period.daysLeft;
++  const smoothedDaily = (subscriptionCap + boostRemaining) / period.daysTotal;
++  // Meme plancher que getPacing : un boost a la date visee depassee ne doit
++  // pas se deverser en une seule journee (daysToEnd = 1).
+   const catchUpDaily = (Math.max(0, subscriptionCap - monthSpend) / daysLeft + boosts.reduce((sum, b) => {
+-    const daysToEnd = Math.max(1, Math.ceil((new Date(b.ends_at).getTime() - now.getTime()) / 86_400_000));
++    const daysToEnd = Math.max(daysLeft, 7, Math.ceil((new Date(b.ends_at).getTime() - now.getTime()) / 86_400_000));
+     return sum + b.remaining_usd / daysToEnd;
+   }, 0)) * 1.25;
+-  const dailyCap = Math.max(smoothedDaily, catchUpDaily);
++  // Voir CATCHUP_MAX_MULTIPLIER : le rattrapage ne peut pas depasser 3x le
++  // lissage, sinon une fin de periode peu consommee s'evapore en deux jours.
++  const dailyCap = Math.min(
++    Math.max(smoothedDaily, catchUpDaily),
++    smoothedDaily * CATCHUP_MAX_MULTIPLIER
++  );
+   if (daySpend >= dailyCap) return { exceeded: true, reason: 'daily' };
+ 
+   return { exceeded: false };
+@@ -384,7 +494,11 @@ export interface BudgetSnapshot {
+ export async function getBudgetSnapshot(companyId: string): Promise<BudgetSnapshot | null> {
+   const capUsd = await getMonthlyCapUsd(companyId);
+   if (capUsd === null) return null;
+-  const [spentUsd, boosts] = await Promise.all([getCurrentMonthSpendUsd(companyId), listActiveBoosts(companyId)]);
++  const period = await getPeriodWindow(companyId);
++  const [spentUsd, boosts] = await Promise.all([
++    getCurrentMonthSpendUsd(companyId, period.key),
++    listActiveBoosts(companyId),
++  ]);
+   const boostRemainingUsd = boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
+   const availableUsd = Math.max(0, capUsd - spentUsd) + boostRemainingUsd;
+   const total = capUsd + boostRemainingUsd + Math.max(0, spentUsd - capUsd);
+@@ -471,14 +585,15 @@ export async function recordUsage(
+   // du coût pourrait ne pas être comptée sur l'une des deux tables (ou les
+   // deux). Acceptable pour un garde-fou de sécurité, pas pour une facturation
+   // exacte.
++  const period = await getPeriodWindow(companyId);
+   const [currentMonthSpend, currentDaySpend] = await Promise.all([
+-    getCurrentMonthSpendUsd(companyId),
++    getCurrentMonthSpendUsd(companyId, period.key),
+     getCurrentDaySpendUsd(companyId),
+   ]);
+ 
+   await Promise.all([
+     supabaseAdmin.from('api_usage_monthly').upsert(
+-      { company_id: companyId, year_month: currentYearMonth(), cost_usd: currentMonthSpend + costUsd },
++      { company_id: companyId, year_month: period.key, cost_usd: currentMonthSpend + costUsd },
+       { onConflict: 'company_id,year_month' }
+     ),
+     supabaseAdmin.from('api_usage_daily').upsert(
+@@ -512,13 +627,13 @@ export async function recordUsage(
+         .from('api_usage_user_monthly')
+         .select('cost_usd')
+         .eq('user_id', userId)
+-        .eq('year_month', currentYearMonth())
++        .eq('year_month', period.key)
+         .maybeSingle();
+       await supabaseAdmin.from('api_usage_user_monthly').upsert(
+         {
+           company_id: companyId,
+           user_id: userId,
+-          year_month: currentYearMonth(),
++          year_month: period.key,
+           cost_usd: Number(existing?.cost_usd || 0) + costUsd,
+           updated_at: new Date().toISOString(),
+         },
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index 9853bdc..eaf945c 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -7,7 +7,14 @@
+ 
+ import { supabaseAdmin } from './supabase-admin';
+ import { generateAaronResponse, convictionColumns } from './aaron';
+-import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from './messaging';
++import {
++  sendEmailForUser,
++  hasReachedProspectingCap,
++  effectiveProspectingCap,
++  DailySendCapExceededError,
++  DomainNotDeliverableError,
++  MailboxAuthBrokenError,
++} from './messaging';
+ import { sendPushNotification } from './push';
+ import { ensureCompanyEnriched } from './prospect-research';
+ 
+@@ -69,17 +76,69 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+   let emailWarningCode: string | null = null;
+   let emailWarningParams: Record<string, string> | null = null;
+ 
++  // Hisse hors du try : le bloc catch en a besoin pour savoir s'il a le droit
++  // de ranger un brouillon dans pending_first_email_* (voir plus bas).
++  let sender: { email: string | null; require_first_email_approval: boolean | null } | null = null;
++
+   try {
+-    const { data: sender } = await supabaseAdmin
++    const senderRes = await supabaseAdmin
+       .from('users')
+       .select('email, require_first_email_approval')
+       .eq('id', prospect.assigned_user_id)
+       .single();
++    sender = (senderRes.data as any) || null;
++
++    // ───────────────────────────────────────────────────────────────────────
++    // NE REDIGER QUE CE QU'ON PEUT ENVOYER (Alex, 30/10/2026).
++    //
++    // Constat : un import de 300 prospects faisait rediger les 300 premiers
++    // emails a Sonnet DANS LA FOULEE, alors que la montee en charge de la
++    // boite d'envoi (WARMUP_STEPS, lib/messaging.ts) n'en laissait partir que
++    // 8 le premier jour. Les 292 autres etaient payes puis jetes : l'envoi
++    // levait DailySendCapExceededError, et le catch plus bas n'enregistrait
++    // meme pas le texte produit. Facture constatee : 3,17 $ le 29/10 et
++    // 3,56 $ le 30/10 contre 1,81 $ sur les 28 jours precedents.
++    //
++    // Desormais on verifie le plafond AVANT de payer la redaction. Le prospect
++    // reste "jamais contacte" (aucun message, aucun brouillon en attente), donc
++    // app/api/cron/retry-uncontacted-prospects le reprend tout seul le jour ou
++    // le plafond se libere — ce cron verifie deja hasReachedProspectingCap et
++    // se limite a MAX_PER_USER_PER_RUN par passage. Bonus : l'email est redige
++    // le jour de son envoi, donc avec des informations fraiches.
++    //
++    // Exception volontaire : require_first_email_approval = true. Dans ce mode
++    // rien ne part automatiquement, le compteur d'envois ne bouge donc jamais
++    // et le plafond ne se declencherait pas — et le commercial veut justement
++    // ses brouillons prets a relire. On redige comme avant.
++    if (!sender?.require_first_email_approval && (await hasReachedProspectingCap(prospect.assigned_user_id))) {
++      const cap = await effectiveProspectingCap(prospect.assigned_user_id);
++      emailWarningCode = 'dailyCap';
++      emailWarningParams = { cap: String(cap) };
++      emailWarning = `Prospect ajoute — plafond quotidien d'emails de prospection atteint (${cap}/jour), le premier message sera redige et envoye automatiquement des que le plafond se libere.`;
++      return { prospect, aaronOutput: null, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
++    }
+ 
+     aaronOutput = await generateAaronResponse(prospect.id);
+ 
+     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+ 
++    // FICHE ENREGISTREE AVANT L'ENVOI (Alex, 30/10/2026). Cet UPDATE se
++    // trouvait APRES sendEmailForUser : si l'envoi echouait (plafond, SPF,
++    // boite deconnectee), l'exception sautait l'enregistrement et tout le
++    // travail de Claude — statut, profil, conviction, conseil — etait perdu
++    // alors qu'il etait deja paye. Il ne depend pas de l'envoi : il monte ici.
++    await supabaseAdmin
++      .from('prospects')
++      .update({
++        status: aaronOutput.prospect_status,
++        status_updated_at: new Date().toISOString(),
++        personality_type: aaronOutput.personality_type,
++        personality_notes: aaronOutput.personality_notes,
++        aaron_advice: aaronOutput.aaron_advice,
++        ...convictionColumns(aaronOutput),
++      })
++      .eq('id', prospect.id);
++
+     if (hasEmailToSend && sender?.require_first_email_approval) {
+       await supabaseAdmin
+         .from('prospects')
+@@ -123,20 +182,40 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+         });
+       }
+     }
+-
+-    await supabaseAdmin
+-      .from('prospects')
+-      .update({
+-        status: aaronOutput.prospect_status,
+-        status_updated_at: new Date().toISOString(),
+-        personality_type: aaronOutput.personality_type,
+-        personality_notes: aaronOutput.personality_notes,
+-        aaron_advice: aaronOutput.aaron_advice,
+-            ...convictionColumns(aaronOutput),
+-      })
+-      .eq('id', prospect.id);
+   } catch (err: any) {
+     console.error('Erreur génération/envoi du premier message prospect:', err.message);
++
++    // ───────────────────────────────────────────────────────────────────────
++    // NE PLUS JETER CE QU'ON A PAYE (Alex, 30/10/2026).
++    //
++    // L'email etait redige par Sonnet PUIS perdu des que l'envoi echouait pour
++    // une raison temporaire. Le prospect repassait alors "jamais contacte" et
++    // le cron de rattrapage repayait une redaction complete.
++    //
++    // On range desormais le brouillon dans pending_first_email_*, exactement
++    // la ou lib/first-email-deferred.ts va le chercher toutes les 20 minutes
++    // (reclamation atomique, remise en place si l'envoi rate encore). Effet de
++    // bord voulu : un prospect avec un brouillon en attente est exclu du cron
++    // retry-uncontacted-prospects, donc plus aucune redaction en double.
++    const draft = aaronOutput?.email_draft;
++    const retryable =
++      err instanceof DailySendCapExceededError ||
++      err instanceof DomainNotDeliverableError ||
++      err instanceof MailboxAuthBrokenError;
++    if (retryable && !sender?.require_first_email_approval && draft?.subject?.trim() && draft?.body?.trim()) {
++      try {
++        await supabaseAdmin
++          .from('prospects')
++          .update({
++            pending_first_email_subject: draft.subject,
++            pending_first_email_body: draft.body,
++            pending_first_email_generated_at: new Date().toISOString(),
++          })
++          .eq('id', prospect.id);
++      } catch (keepErr: any) {
++        console.error('Erreur sauvegarde du brouillon de premier email (non bloquant):', keepErr.message);
++      }
++    }
+     if (err instanceof DailySendCapExceededError) {
+       emailWarningCode = 'dailyCap';
+       emailWarningParams = { cap: String(err.cap) };
+-- 
+2.43.0
+
