@@ -96,6 +96,15 @@ const DAILY_CAP_DIVISOR = 30; // "répartis sur 30 jours" : plafond quotidien = 
 // multiplicateur, une valeur = ce montant par siège.
 const HARD_CEILING_MULTIPLIER = 1.5;
 
+// Bridage du rattrapage (Alex, 30/10/2026). Le plafond du jour est le maximum
+// entre le lissage (budget / nb de jours de la periode) et un rattrapage
+// (reste / jours restants x 1,25). Quand il ne reste que 2 ou 3 jours, ce
+// rattrapage explose : les 29 et 30 octobre il autorisait 8 a 10 $/jour, ce
+// qui a permis a un import de 300 prospects de vider en deux jours un budget
+// mensuel reste inutilise. Le budget doit rester consommable en entier, mais
+// jamais en 48 heures : on plafonne le rattrapage a 3x le lissage.
+const CATCHUP_MAX_MULTIPLIER = 3;
+
 // Deux activités, deux régimes de plafond. Le module Aaron dit déjà laquelle :
 // 'ap' (Aaron Prospect) et les traitements société sans module = prospection,
 // le robinet que le commercial ouvre ; 'as' (opportunités) et 'ac' (clients) =
@@ -152,6 +161,93 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PERIODE DE BUDGET (Alex, 30/10/2026).
+//
+// Tout le budget API etait indexe sur le MOIS CALENDAIRE : compteur remis a
+// zero le 1er a 00h00 UTC, et rattrapage calcule jusqu'au 31. Aucun rapport
+// avec la date a laquelle le client a paye. Deux consequences : un client qui
+// s'abonne le 28 disposait de 21,50 $ pour 3 jours PUIS d'un budget neuf le
+// 1er (deux mois d'API pour un mois encaisse), et le rattrapage s'emballait en
+// fin de mois calendaire sans raison.
+//
+// On s'ancre desormais sur la periode d'abonnement Stripe, stockee par le
+// webhook dans companies.api_period_start / api_period_end (voir
+// migration_periode_facturation_api_2026-10-30.sql). Repli sur le mois
+// calendaire quand elle est absente : societes billing_exempt, comptes
+// internes, ou webhook pas encore passe. Le repli donne exactement l'ancien
+// comportement, donc la mise en production ne change rien tant que les
+// colonnes sont vides.
+//
+// La cle de periode reutilise la colonne texte `year_month` : "YYYY-MM" pour
+// le repli calendaire (forme historique), "YYYY-MM-DD" = premier jour de la
+// periode d'abonnement sinon. Aucune migration de schema sur les tables
+// d'usage.
+export interface PeriodWindow {
+  key: string;
+  daysLeft: number;
+  daysTotal: number;
+}
+
+function isoDateUTC(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Decale d'un mois en conservant le jour d'ancrage, borne au dernier jour du
+// mois vise (un ancrage au 31 tombe au 30 en novembre, comme chez Stripe).
+function addOneMonthUTC(d: Date): Date {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const lastDayNextMonth = new Date(Date.UTC(y, m + 2, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m + 1, Math.min(d.getUTCDate(), lastDayNextMonth)));
+}
+
+function calendarWindow(now: Date): PeriodWindow {
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  return {
+    key: currentYearMonth(),
+    daysLeft: Math.max(1, daysInMonth - now.getUTCDate() + 1),
+    daysTotal: daysInMonth,
+  };
+}
+
+export async function getPeriodWindow(companyId: string): Promise<PeriodWindow> {
+  const now = new Date();
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('companies')
+      .select('api_period_start, api_period_end')
+      .eq('id', companyId)
+      .maybeSingle();
+    // Colonnes absentes (42703) ou periode non renseignee : repli calendaire.
+    if (error || !data?.api_period_start || !data?.api_period_end) return calendarWindow(now);
+
+    let start = new Date(`${data.api_period_start}T00:00:00Z`);
+    let end = new Date(`${data.api_period_end}T00:00:00Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return calendarWindow(now);
+
+    // Filet si le webhook a manque un renouvellement : on avance de periode en
+    // periode jusqu'a englober aujourd'hui, sans appeler Stripe.
+    let guard = 0;
+    while (end.getTime() <= now.getTime() && guard < 240) {
+      start = addOneMonthUTC(start);
+      end = addOneMonthUTC(end);
+      guard += 1;
+    }
+    // Periode qui commence dans le futur : on ne devine pas, repli calendaire.
+    if (start.getTime() > now.getTime()) return calendarWindow(now);
+
+    return {
+      key: isoDateUTC(start),
+      daysLeft: Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86_400_000)),
+      daysTotal: Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000)),
+    };
+  } catch {
+    // Le budget ne doit JAMAIS tomber sur une lecture ratee : repli calendaire.
+    return calendarWindow(now);
+  }
+}
+
 function currentDateUTC(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
@@ -199,12 +295,12 @@ function hardCeilingFor(subscriptionCap: number): number {
   return subscriptionCap * HARD_CEILING_MULTIPLIER;
 }
 
-async function getCurrentMonthSpendUsd(companyId: string): Promise<number> {
+async function getCurrentMonthSpendUsd(companyId: string, periodKey: string): Promise<number> {
   const { data } = await supabaseAdmin
     .from('api_usage_monthly')
     .select('cost_usd')
     .eq('company_id', companyId)
-    .eq('year_month', currentYearMonth())
+    .eq('year_month', periodKey)
     .maybeSingle();
 
   return data?.cost_usd || 0;
@@ -273,15 +369,15 @@ export async function getPacing(companyId: string): Promise<Pacing | null> {
   const subscriptionCap = await getMonthlyCapUsd(companyId);
   if (subscriptionCap === null) return null; // plafond désactivé : pas de rythme
 
+  const period = await getPeriodWindow(companyId);
   const [monthSpend, daySpend, boosts] = await Promise.all([
-    getCurrentMonthSpendUsd(companyId),
+    getCurrentMonthSpendUsd(companyId, period.key),
     getCurrentDaySpendUsd(companyId),
     listActiveBoosts(companyId),
   ]);
 
   const now = new Date();
-  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
-  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
+  const daysLeft = period.daysLeft;
 
   const marginUsd = PACING_MARGIN_CREDITS * USD_PER_CREDIT;
   const subscriptionRemaining = Math.max(0, subscriptionCap - marginUsd - monthSpend);
@@ -291,8 +387,15 @@ export async function getPacing(companyId: string): Promise<Pacing | null> {
   let boostRemaining = 0;
   for (const b of boosts) {
     boostRemaining += b.remaining_usd;
+    // Un boost N'EXPIRE PLUS (Alex, 05/09/2026 — voir listActiveBoosts) :
+    // ends_at n'est qu'une date VISEE. Le plancher est indispensable, sinon un
+    // boost dont la date visee est passee donne daysToEnd = 1 et tout son
+    // reste se retrouve pousse sur la journee en cours. On l'etale au moins
+    // sur ce qu'il reste de la periode d'abonnement, et jamais sur moins
+    // d'une semaine : ce qui n'est pas consomme bascule simplement sur la
+    // periode suivante, c'est tout l'interet d'un boost qui n'expire pas.
     const msToEnd = new Date(b.ends_at).getTime() - now.getTime();
-    const daysToEnd = Math.max(1, Math.ceil(msToEnd / 86_400_000));
+    const daysToEnd = Math.max(daysLeft, 7, Math.ceil(msToEnd / 86_400_000));
     boostDaily += b.remaining_usd / daysToEnd;
   }
 
@@ -317,8 +420,9 @@ async function getBudgetStatus(
   const subscriptionCap = await getMonthlyCapUsd(companyId);
   if (subscriptionCap === null) return { exceeded: false }; // plafond désactivé pour cette société
 
+  const period = await getPeriodWindow(companyId);
   const [monthSpend, daySpend, boosts] = await Promise.all([
-    getCurrentMonthSpendUsd(companyId),
+    getCurrentMonthSpendUsd(companyId, period.key),
     getCurrentDaySpendUsd(companyId),
     listActiveBoosts(companyId),
   ]);
@@ -358,14 +462,20 @@ async function getBudgetStatus(
   // grosse campagne ne doit pas rester bloqué par la limite de son
   // abonnement — exactement ce qu'il cherchait à débloquer en payant.
   const now = new Date();
-  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
-  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
-  const smoothedDaily = (subscriptionCap + boostRemaining) / DAILY_CAP_DIVISOR;
+  const daysLeft = period.daysLeft;
+  const smoothedDaily = (subscriptionCap + boostRemaining) / period.daysTotal;
+  // Meme plancher que getPacing : un boost a la date visee depassee ne doit
+  // pas se deverser en une seule journee (daysToEnd = 1).
   const catchUpDaily = (Math.max(0, subscriptionCap - monthSpend) / daysLeft + boosts.reduce((sum, b) => {
-    const daysToEnd = Math.max(1, Math.ceil((new Date(b.ends_at).getTime() - now.getTime()) / 86_400_000));
+    const daysToEnd = Math.max(daysLeft, 7, Math.ceil((new Date(b.ends_at).getTime() - now.getTime()) / 86_400_000));
     return sum + b.remaining_usd / daysToEnd;
   }, 0)) * 1.25;
-  const dailyCap = Math.max(smoothedDaily, catchUpDaily);
+  // Voir CATCHUP_MAX_MULTIPLIER : le rattrapage ne peut pas depasser 3x le
+  // lissage, sinon une fin de periode peu consommee s'evapore en deux jours.
+  const dailyCap = Math.min(
+    Math.max(smoothedDaily, catchUpDaily),
+    smoothedDaily * CATCHUP_MAX_MULTIPLIER
+  );
   if (daySpend >= dailyCap) return { exceeded: true, reason: 'daily' };
 
   return { exceeded: false };
@@ -384,7 +494,11 @@ export interface BudgetSnapshot {
 export async function getBudgetSnapshot(companyId: string): Promise<BudgetSnapshot | null> {
   const capUsd = await getMonthlyCapUsd(companyId);
   if (capUsd === null) return null;
-  const [spentUsd, boosts] = await Promise.all([getCurrentMonthSpendUsd(companyId), listActiveBoosts(companyId)]);
+  const period = await getPeriodWindow(companyId);
+  const [spentUsd, boosts] = await Promise.all([
+    getCurrentMonthSpendUsd(companyId, period.key),
+    listActiveBoosts(companyId),
+  ]);
   const boostRemainingUsd = boosts.reduce((sum, b) => sum + b.remaining_usd, 0);
   const availableUsd = Math.max(0, capUsd - spentUsd) + boostRemainingUsd;
   const total = capUsd + boostRemainingUsd + Math.max(0, spentUsd - capUsd);
@@ -471,14 +585,15 @@ export async function recordUsage(
   // du coût pourrait ne pas être comptée sur l'une des deux tables (ou les
   // deux). Acceptable pour un garde-fou de sécurité, pas pour une facturation
   // exacte.
+  const period = await getPeriodWindow(companyId);
   const [currentMonthSpend, currentDaySpend] = await Promise.all([
-    getCurrentMonthSpendUsd(companyId),
+    getCurrentMonthSpendUsd(companyId, period.key),
     getCurrentDaySpendUsd(companyId),
   ]);
 
   await Promise.all([
     supabaseAdmin.from('api_usage_monthly').upsert(
-      { company_id: companyId, year_month: currentYearMonth(), cost_usd: currentMonthSpend + costUsd },
+      { company_id: companyId, year_month: period.key, cost_usd: currentMonthSpend + costUsd },
       { onConflict: 'company_id,year_month' }
     ),
     supabaseAdmin.from('api_usage_daily').upsert(
@@ -512,13 +627,13 @@ export async function recordUsage(
         .from('api_usage_user_monthly')
         .select('cost_usd')
         .eq('user_id', userId)
-        .eq('year_month', currentYearMonth())
+        .eq('year_month', period.key)
         .maybeSingle();
       await supabaseAdmin.from('api_usage_user_monthly').upsert(
         {
           company_id: companyId,
           user_id: userId,
-          year_month: currentYearMonth(),
+          year_month: period.key,
           cost_usd: Number(existing?.cost_usd || 0) + costUsd,
           updated_at: new Date().toISOString(),
         },

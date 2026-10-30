@@ -7,7 +7,14 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { generateAaronResponse, convictionColumns } from './aaron';
-import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError } from './messaging';
+import {
+  sendEmailForUser,
+  hasReachedProspectingCap,
+  effectiveProspectingCap,
+  DailySendCapExceededError,
+  DomainNotDeliverableError,
+  MailboxAuthBrokenError,
+} from './messaging';
 import { sendPushNotification } from './push';
 import { ensureCompanyEnriched } from './prospect-research';
 
@@ -69,16 +76,68 @@ export async function runFirstContact(prospect: FirstContactProspect) {
   let emailWarningCode: string | null = null;
   let emailWarningParams: Record<string, string> | null = null;
 
+  // Hisse hors du try : le bloc catch en a besoin pour savoir s'il a le droit
+  // de ranger un brouillon dans pending_first_email_* (voir plus bas).
+  let sender: { email: string | null; require_first_email_approval: boolean | null } | null = null;
+
   try {
-    const { data: sender } = await supabaseAdmin
+    const senderRes = await supabaseAdmin
       .from('users')
       .select('email, require_first_email_approval')
       .eq('id', prospect.assigned_user_id)
       .single();
+    sender = (senderRes.data as any) || null;
+
+    // ───────────────────────────────────────────────────────────────────────
+    // NE REDIGER QUE CE QU'ON PEUT ENVOYER (Alex, 30/10/2026).
+    //
+    // Constat : un import de 300 prospects faisait rediger les 300 premiers
+    // emails a Sonnet DANS LA FOULEE, alors que la montee en charge de la
+    // boite d'envoi (WARMUP_STEPS, lib/messaging.ts) n'en laissait partir que
+    // 8 le premier jour. Les 292 autres etaient payes puis jetes : l'envoi
+    // levait DailySendCapExceededError, et le catch plus bas n'enregistrait
+    // meme pas le texte produit. Facture constatee : 3,17 $ le 29/10 et
+    // 3,56 $ le 30/10 contre 1,81 $ sur les 28 jours precedents.
+    //
+    // Desormais on verifie le plafond AVANT de payer la redaction. Le prospect
+    // reste "jamais contacte" (aucun message, aucun brouillon en attente), donc
+    // app/api/cron/retry-uncontacted-prospects le reprend tout seul le jour ou
+    // le plafond se libere — ce cron verifie deja hasReachedProspectingCap et
+    // se limite a MAX_PER_USER_PER_RUN par passage. Bonus : l'email est redige
+    // le jour de son envoi, donc avec des informations fraiches.
+    //
+    // Exception volontaire : require_first_email_approval = true. Dans ce mode
+    // rien ne part automatiquement, le compteur d'envois ne bouge donc jamais
+    // et le plafond ne se declencherait pas — et le commercial veut justement
+    // ses brouillons prets a relire. On redige comme avant.
+    if (!sender?.require_first_email_approval && (await hasReachedProspectingCap(prospect.assigned_user_id))) {
+      const cap = await effectiveProspectingCap(prospect.assigned_user_id);
+      emailWarningCode = 'dailyCap';
+      emailWarningParams = { cap: String(cap) };
+      emailWarning = `Prospect ajoute — plafond quotidien d'emails de prospection atteint (${cap}/jour), le premier message sera redige et envoye automatiquement des que le plafond se libere.`;
+      return { prospect, aaronOutput: null, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
+    }
 
     aaronOutput = await generateAaronResponse(prospect.id);
 
     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+
+    // FICHE ENREGISTREE AVANT L'ENVOI (Alex, 30/10/2026). Cet UPDATE se
+    // trouvait APRES sendEmailForUser : si l'envoi echouait (plafond, SPF,
+    // boite deconnectee), l'exception sautait l'enregistrement et tout le
+    // travail de Claude — statut, profil, conviction, conseil — etait perdu
+    // alors qu'il etait deja paye. Il ne depend pas de l'envoi : il monte ici.
+    await supabaseAdmin
+      .from('prospects')
+      .update({
+        status: aaronOutput.prospect_status,
+        status_updated_at: new Date().toISOString(),
+        personality_type: aaronOutput.personality_type,
+        personality_notes: aaronOutput.personality_notes,
+        aaron_advice: aaronOutput.aaron_advice,
+        ...convictionColumns(aaronOutput),
+      })
+      .eq('id', prospect.id);
 
     if (hasEmailToSend && sender?.require_first_email_approval) {
       await supabaseAdmin
@@ -123,20 +182,40 @@ export async function runFirstContact(prospect: FirstContactProspect) {
         });
       }
     }
-
-    await supabaseAdmin
-      .from('prospects')
-      .update({
-        status: aaronOutput.prospect_status,
-        status_updated_at: new Date().toISOString(),
-        personality_type: aaronOutput.personality_type,
-        personality_notes: aaronOutput.personality_notes,
-        aaron_advice: aaronOutput.aaron_advice,
-            ...convictionColumns(aaronOutput),
-      })
-      .eq('id', prospect.id);
   } catch (err: any) {
     console.error('Erreur génération/envoi du premier message prospect:', err.message);
+
+    // ───────────────────────────────────────────────────────────────────────
+    // NE PLUS JETER CE QU'ON A PAYE (Alex, 30/10/2026).
+    //
+    // L'email etait redige par Sonnet PUIS perdu des que l'envoi echouait pour
+    // une raison temporaire. Le prospect repassait alors "jamais contacte" et
+    // le cron de rattrapage repayait une redaction complete.
+    //
+    // On range desormais le brouillon dans pending_first_email_*, exactement
+    // la ou lib/first-email-deferred.ts va le chercher toutes les 20 minutes
+    // (reclamation atomique, remise en place si l'envoi rate encore). Effet de
+    // bord voulu : un prospect avec un brouillon en attente est exclu du cron
+    // retry-uncontacted-prospects, donc plus aucune redaction en double.
+    const draft = aaronOutput?.email_draft;
+    const retryable =
+      err instanceof DailySendCapExceededError ||
+      err instanceof DomainNotDeliverableError ||
+      err instanceof MailboxAuthBrokenError;
+    if (retryable && !sender?.require_first_email_approval && draft?.subject?.trim() && draft?.body?.trim()) {
+      try {
+        await supabaseAdmin
+          .from('prospects')
+          .update({
+            pending_first_email_subject: draft.subject,
+            pending_first_email_body: draft.body,
+            pending_first_email_generated_at: new Date().toISOString(),
+          })
+          .eq('id', prospect.id);
+      } catch (keepErr: any) {
+        console.error('Erreur sauvegarde du brouillon de premier email (non bloquant):', keepErr.message);
+      }
+    }
     if (err instanceof DailySendCapExceededError) {
       emailWarningCode = 'dailyCap';
       emailWarningParams = { cap: String(err.cap) };

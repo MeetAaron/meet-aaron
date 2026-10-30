@@ -343,6 +343,14 @@ export async function POST(request: NextRequest) {
         graceEndsAt: null,
         failureReason: null,
       });
+      // Chaque facture payee ouvre une nouvelle periode : c'est le moment ou
+      // le budget API doit repartir de zero (voir syncBillingPeriod).
+      const subscriptionId =
+        invoice.subscription ||
+        invoice.parent?.subscription_details?.subscription ||
+        invoice.lines?.data?.[0]?.subscription ||
+        null;
+      await syncBillingPeriod(companyId, typeof subscriptionId === 'string' ? subscriptionId : subscriptionId?.id);
     }
     return NextResponse.json({ received: true });
   }
@@ -365,6 +373,61 @@ export async function POST(request: NextRequest) {
 // l'événement. Renvoie null si aucune correspondance (client Stripe créé
 // hors application, société supprimée...) — dans ce cas on ignore
 // l'événement plutôt que de faire échouer le webhook.
+// ───────────────────────────────────────────────────────────────────────────
+// PERIODE DE FACTURATION (Alex, 30/10/2026).
+//
+// Le budget API etait indexe sur le MOIS CALENDAIRE (reset le 1er), pas sur
+// la periode reellement payee : un client abonne le 28 disposait de deux
+// budgets pleins en quatre jours. lib/anthropic-client.ts lit desormais
+// companies.api_period_start / api_period_end — c'est ici qu'elles sont
+// remplies, a chaque facture payee et a la creation de l'abonnement.
+//
+// Tant qu'elles sont nulles, anthropic-client retombe sur le mois calendaire,
+// donc une panne de ce bloc ne casse rien : elle redonne juste l'ancien
+// comportement. Best-effort, jamais bloquant pour le webhook.
+//
+// Meme precaution que app/api/api-usage/route.ts : sur les abonnements
+// multi-lignes recents, current_period_start/end ont ete deplaces du niveau
+// abonnement au niveau de chaque ligne — on regarde les deux.
+async function syncBillingPeriod(companyId: string, subscriptionId: string | null | undefined): Promise<void> {
+  if (!companyId || !subscriptionId) return;
+  try {
+    const subscription: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['items'] });
+
+    const starts: number[] = [];
+    const ends: number[] = [];
+    if (subscription.current_period_start) starts.push(subscription.current_period_start);
+    if (subscription.current_period_end) ends.push(subscription.current_period_end);
+    for (const item of subscription.items?.data || []) {
+      if (item.current_period_start) starts.push(item.current_period_start);
+      if (item.current_period_end) ends.push(item.current_period_end);
+    }
+    if (!starts.length || !ends.length) return;
+
+    // Debut le plus TOT et fin la plus TARD : la fenetre couvre toutes les
+    // lignes, on ne coupe jamais le budget au milieu d'une periode payee.
+    const toIsoDate = (unixSeconds: number) => new Date(unixSeconds * 1000).toISOString().slice(0, 10);
+    const periodStart = toIsoDate(Math.min(...starts));
+    const periodEnd = toIsoDate(Math.max(...ends));
+    if (periodEnd <= periodStart) return;
+
+    const { error } = await supabaseAdmin
+      .from('companies')
+      .update({ api_period_start: periodStart, api_period_end: periodEnd })
+      .eq('id', companyId);
+    if (error) {
+      console.error('[stripe-webhook] periode de facturation non enregistree', {
+        company_id: companyId,
+        code: (error as any).code || null,
+      });
+      return;
+    }
+    console.info('[stripe-webhook] periode de facturation', { company_id: companyId, periodStart, periodEnd });
+  } catch (err: any) {
+    console.error('[stripe-webhook] periode de facturation illisible:', err?.message || err);
+  }
+}
+
 async function companyIdFromStripeCustomer(customerId: string | null | undefined): Promise<string | null> {
   if (!customerId) return null;
   const { data } = await supabaseAdmin
