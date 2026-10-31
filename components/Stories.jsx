@@ -43,6 +43,7 @@ const RING = {
   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
   client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
+  message_client: 'linear-gradient(135deg, #4b9ef0, #b07cf5)',
   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
 };
 
@@ -66,6 +67,7 @@ const ICON_NAME = {
   bilan_a_faire: 'notes',
   commande_a_confirmer: 'trophy',
   client_a_confirmer: 'trophy',
+  message_client: 'message',
   a_risque: 'flame',
 };
 // Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
@@ -864,6 +866,23 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
           <button type="button" className="btn-primary" disabled={acting} onClick={() => act(prospectUrl, { action: 'confirmer_client' })}>{t('stories.clientSignalYes', locale)}</button>
           <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'rejeter_signal_client' })}>{t('stories.clientSignalNo', locale)}</button>
           <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.openCard', locale)}</button>
+        </>
+      );
+      break;
+    case 'message_client':
+      // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
+      // Pas de bouton « envoyer » ici volontairement : la réponse se relit en
+      // entier dans l'écran Clients, et une story ne montre qu'un extrait. On
+      // ne propose pas d'envoyer à l'aveugle un texte qu'on n'a pas lu.
+      body = (
+        <>
+          <p className="lead">{t('stories.clientMessageLead', locale).replace('{name}', item.prospect_name)}</p>
+          {item.meta?.subject && <p className="hint">{item.meta.subject}</p>}
+        </>
+      );
+      actions = (
+        <>
+          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
         </>
       );
       break;

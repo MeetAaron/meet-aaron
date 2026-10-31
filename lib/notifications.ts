@@ -11,6 +11,7 @@
 // l'action est faite (devis envoyé, RDV validé, bilan rempli…).
 
 import { supabaseAdmin } from './supabase-admin';
+import { selectInChunks } from './chunked-in';
 import { resolveUserTimeZone, localDayBounds } from './user-timezone';
 import { derivePipelinePosition } from './pipeline';
 
@@ -26,6 +27,7 @@ export type NotificationType =
   | 'bilan_a_faire'
   | 'commande_a_confirmer'
   | 'client_a_confirmer'
+  | 'message_client'
   | 'a_risque';
 
 // Ordre d'urgence des groupes (ordre d'affichage des stories).
@@ -48,6 +50,10 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
   // Accord écrit, paiement ou signature détecté dans la boîte : « je le
   // passe en client ? » (28/10/2026, lib/become-client.ts).
   'client_a_confirmer',
+  // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
+  // Placé APRÈS les signaux d'argent mais AVANT « à risque » : c'est une
+  // personne qui attend une réponse, pas un indicateur à surveiller.
+  'message_client',
   'a_risque',
 ];
 
@@ -236,6 +242,50 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // MESSAGES DE CLIENTS EN ATTENTE DE RÉPONSE (Alex, 31/10/2026).
+  //
+  // Alex, en relisant : « chaque notification push provient d'actions
+  // requises ». C'est la bonne règle, et c'est exactement ce qui manquait
+  // ici : quand un client écrivait, le code envoyait une push SANS créer
+  // d'action requise correspondante. Seul cas de l'application à déroger à
+  // la règle — donc une push manquée ou balayée ne laissait plus rien
+  // derrière elle, et le brouillon dormait dans l'écran Clients.
+  //
+  // Mêmes filtres que app/api/support-drafts : ni envoyé, ni écarté.
+  try {
+    const prospectById = new Map<string, any>((prospects || []).map((p: any) => [p.id, p]));
+    const myProspectIds = Array.from(prospectById.keys());
+    if (myProspectIds.length > 0) {
+      const { data: supportDrafts } = await selectInChunks(myProspectIds, (part) => supabaseAdmin
+        .from('customer_support_drafts')
+        .select('id, prospect_id, suggested_subject, suggested_body, is_simple, created_at')
+        .in('prospect_id', part)
+        .is('sent_at', null)
+        .is('dismissed_at', null));
+      for (const d of (supportDrafts as any[]) || []) {
+        const p = prospectById.get(d.prospect_id);
+        if (!p) continue;
+        push({
+          prospect_id: d.prospect_id,
+          appointment_id: null,
+          prospect_name: p.full_name || '',
+          company_name: p.prospect_companies?.name || null,
+          personality_type: p.personality_type || null,
+          at: d.created_at,
+          days_waiting: null,
+          id: `message_client:${d.id}`,
+          type: 'message_client',
+          meta: { subject: d.suggested_subject, body: d.suggested_body, is_simple: !!d.is_simple },
+        } as any);
+      }
+    }
+  } catch (err: any) {
+    // Table absente (migration pas passée) ou lecture impossible : on perd
+    // ce groupe, jamais les autres.
+    console.error('Messages clients en attente — lecture impossible (non bloquant):', err?.message || err);
+  }
+
   // Tri interne : devis le plus ancien d'abord ; RDV le plus proche d'abord ;
   // le reste dans l'ordre de lecture.
   if (byType.devis_a_faire) byType.devis_a_faire.sort((x, y) => new Date(x.at!).getTime() - new Date(y.at!).getTime());
@@ -244,6 +294,14 @@ export async function buildNotifications(userId: string, now: Date = new Date())
   }
   for (const t of ['rdv_manque', 'bilan_a_faire'] as NotificationType[]) {
     if (byType[t]) byType[t].sort((x, y) => new Date(y.at!).getTime() - new Date(x.at!).getTime());
+  }
+  // Questions simples d'abord (prêtes à envoyer en un clic), puis les plus
+  // anciennes — même ordre que l'écran Clients, pour ne pas donner deux
+  // classements différents du même contenu.
+  if (byType.message_client) {
+    byType.message_client.sort((x: any, y: any) =>
+      (Number(!!y.meta?.is_simple) - Number(!!x.meta?.is_simple)) ||
+      new Date(x.at!).getTime() - new Date(y.at!).getTime());
   }
 
   return NOTIFICATION_TYPE_ORDER.filter((t) => byType[t]?.length).map((t) => ({ type: t, count: byType[t].length, items: byType[t] }));

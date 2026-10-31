@@ -17,6 +17,7 @@
 // pour une alerte. Le jour de la saisie est compté en entier : même logique.
 
 import { supabaseAdmin } from './supabase-admin';
+import { realSpendSince, adminApiConfigured } from './anthropic-admin';
 
 export interface BalanceStatus {
   configured: boolean;
@@ -24,6 +25,17 @@ export interface BalanceStatus {
   balanceUsd: number | null;
   asOf: string | null;
   spentSinceUsd: number;
+  // 'anthropic' = dépense réelle lue chez Anthropic ; 'estimation' = calcul
+  // maison, volontairement prudent donc légèrement surestimé. Affiché au
+  // fondateur : une alerte fondée sur une estimation ne se lit pas comme une
+  // alerte fondée sur la facture.
+  spentSource: 'anthropic' | 'estimation';
+  // Ancienneté du solde saisi, en jours. Au-delà de STALE_AFTER_DAYS, le
+  // chiffre « il reste X » n'a plus de sens : un rechargement a pu avoir lieu
+  // sans être ressaisi, ce qui est exactement ce qui a produit la fausse
+  // alerte du 31/10/2026 (1,43 $ annoncés, 9,48 $ réels).
+  balanceAgeDays: number | null;
+  stale: boolean;
   remainingUsd: number | null;
   avgDailyUsd: number;
   daysLeft: number | null;
@@ -49,6 +61,11 @@ async function sumUsageSince(fromDay: string, toDayExclusive?: string): Promise<
   return total;
 }
 
+// Au-delà de ce délai sans nouvelle saisie, on cesse d'annoncer un chiffre.
+// Un solde faux est pire que pas de solde : il fait paniquer, puis il fait
+// ignorer l'alerte suivante.
+const STALE_AFTER_DAYS = 10;
+
 export async function getBalanceStatus(): Promise<BalanceStatus> {
   const now = new Date();
   const today = isoDay(now);
@@ -66,20 +83,38 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
   if (error || !snap) {
     return {
       configured: false, snapshotId: null, balanceUsd: null, asOf: null, spentSinceUsd: 0,
+      spentSource: 'estimation', balanceAgeDays: null, stale: false,
       remainingUsd: null, avgDailyUsd, daysLeft: null, alerted10At: null, alerted3At: null,
     };
   }
 
-  const spentSinceUsd = await sumUsageSince(isoDay(new Date(snap.as_of)));
+  // Dépense réelle d'abord, estimation maison en repli. L'estimation
+  // surestime volontairement par prudence : sur plusieurs jours, l'écart
+  // cumulé suffit à annoncer un solde presque vide alors qu'il ne l'est pas.
+  const asOfDate = new Date(snap.as_of);
+  const realSpend = adminApiConfigured() ? await realSpendSince(asOfDate) : null;
+  const spentSinceUsd = realSpend !== null ? realSpend : await sumUsageSince(isoDay(asOfDate));
+  const spentSource: 'anthropic' | 'estimation' = realSpend !== null ? 'anthropic' : 'estimation';
+
   const balanceUsd = Number(snap.balance_usd) || 0;
-  const remainingUsd = balanceUsd - spentSinceUsd;
-  const daysLeft = avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
+  const balanceAgeDays = Math.max(0, Math.floor((Date.now() - asOfDate.getTime()) / 86400000));
+  const stale = balanceAgeDays > STALE_AFTER_DAYS;
+
+  // Solde périmé : on n'annonce plus ni reste ni autonomie. L'écran et
+  // l'alerte diront « solde à revérifier » au lieu d'un chiffre inventé.
+  const remainingUsd = stale ? null : balanceUsd - spentSinceUsd;
+  const daysLeft =
+    remainingUsd !== null && avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
+
   return {
     configured: true,
     snapshotId: snap.id,
     balanceUsd,
     asOf: snap.as_of,
     spentSinceUsd,
+    spentSource,
+    balanceAgeDays,
+    stale,
     remainingUsd,
     avgDailyUsd,
     daysLeft,

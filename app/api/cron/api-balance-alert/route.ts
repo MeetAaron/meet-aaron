@@ -28,8 +28,42 @@ export async function GET(request: NextRequest) {
   }
   try {
     const st = await getBalanceStatus();
-    if (!st.configured || st.daysLeft === null || !st.snapshotId) {
+    if (!st.configured || !st.snapshotId) {
       return NextResponse.json({ checked: true, configured: st.configured, daysLeft: st.daysLeft });
+    }
+
+    // SOLDE PÉRIMÉ (31/10/2026). Au-delà de dix jours sans nouvelle saisie, on
+    // n'annonce plus de chiffre — un rechargement a pu avoir lieu entre-temps
+    // sans être ressaisi, et c'est exactement ce qui a produit une alerte
+    // « il reste 1,43 $ » alors que le solde réel était de 9,48 $.
+    //
+    // Mais se taire serait pire : le filet de sécurité disparaîtrait
+    // silencieusement. On alerte donc sur l'ANCIENNETÉ au lieu du montant, une
+    // seule fois par solde (on réutilise alerted_10_at comme marqueur).
+    if (st.stale) {
+      if (st.alerted10At || st.alerted3At) {
+        return NextResponse.json({ checked: true, stale: true, alreadyAlerted: true });
+      }
+      const title = 'Solde Anthropic à revérifier';
+      const body =
+        `Le dernier solde saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus fiable — ` +
+        `je ne peux plus dire combien il reste. Ouvre platform.claude.com (Facturation), ` +
+        `lis le solde réel et saisis-le dans /app/marge. ` +
+        `Dépense constatée depuis la dernière saisie : ${st.spentSinceUsd.toFixed(2)} $.`;
+      const { data: staleFounders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
+      for (const founder of staleFounders || []) {
+        await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: 'api-balance-stale' } as any).catch(() => {});
+      }
+      await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
+      await supabaseAdmin
+        .from('api_balance_snapshots')
+        .update({ alerted_10_at: new Date().toISOString() })
+        .eq('id', st.snapshotId);
+      return NextResponse.json({ alerted: 'stale', balanceAgeDays: st.balanceAgeDays });
+    }
+
+    if (st.daysLeft === null) {
+      return NextResponse.json({ checked: true, daysLeft: null });
     }
 
     // Seuil le plus grave atteint et pas encore signalé pour ce solde.
@@ -44,7 +78,12 @@ export async function GET(request: NextRequest) {
     const body =
       `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
       `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
-      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.`;
+      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.\n\n` +
+      // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
+      // pas comme une alerte fondée sur la facture Anthropic.
+      (st.spentSource === 'anthropic'
+        ? `Dépense lue chez Anthropic (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}).`
+        : `Dépense ESTIMÉE (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}) — pose ANTHROPIC_ADMIN_KEY pour lire la dépense réelle.`);
 
     // Tous les comptes fondateur (lib/founder.ts), pas un seul.
     const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);

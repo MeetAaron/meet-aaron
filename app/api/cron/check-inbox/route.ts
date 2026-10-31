@@ -21,6 +21,7 @@ import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
+import { sendSystemEmail } from '@/lib/google';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -339,13 +340,48 @@ async function handleWonCustomerMessage(
       is_simple: draft.is_simple,
     });
 
+    const notifBody = draft.is_simple
+      ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
+      : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`;
+
     await sendPushNotification(userId, {
       title: 'Nouveau message client',
-      body: draft.is_simple
-        ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
-        : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
+      body: notifBody,
       url: `/app/prospects?user_id=${userId}`,
     });
+
+    // DOUBLURE PAR EMAIL (Alex, 31/10/2026). La notification push était le
+    // SEUL signal : ni email, ni rappel, ni entrée dans « Action requise ».
+    // Un commercial qui n'a jamais autorisé les notifications sur son
+    // navigateur, ou qui a installé l'app sur un téléphone sans les activer,
+    // ne saura jamais qu'un client lui a écrit — et le brouillon attendra
+    // indéfiniment dans son écran Clients.
+    //
+    // Un client qui écrit est l'événement le plus important de la journée :
+    // c'est le seul qui ne doit pas pouvoir se perdre. Une push se perd, un
+    // email reste. Envoyé depuis l'adresse système, pas depuis la boîte du
+    // commercial — il n'a pas à recevoir un message de lui-même.
+    //
+    // Best-effort : un échec d'email ne doit jamais empêcher le brouillon
+    // d'exister, il est déjà enregistré à ce stade.
+    try {
+      const { data: notified } = await supabaseAdmin
+        .from('users')
+        .select('email, locale')
+        .eq('id', userId)
+        .maybeSingle();
+      if (notified?.email) {
+        await sendSystemEmail(
+          notified.email,
+          `Meet Aaron — message de ${prospect.full_name}`,
+          `${notifBody}\n\nOuvre ta fiche contact pour relire et envoyer :\n` +
+            `https://meetaaron.app/app/prospects?user_id=${userId}&contact=${prospect.id}`,
+          (notified as any).locale || null
+        );
+      }
+    } catch (mailErr: any) {
+      console.error(`Doublure email du message client ${prospect.id} impossible (non bloquant):`, mailErr?.message || mailErr);
+    }
   } catch (err: any) {
     console.error(`Erreur triage support pour prospect ${prospect.id}:`, err.message);
   }
