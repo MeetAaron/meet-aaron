@@ -29,13 +29,18 @@ export async function computePeriodSummary(
   end: Date | null
 ): Promise<PeriodSummary> {
   // Prospects contactés pendant la période (date de création).
+  // On garde les IDENTIFIANTS, pas seulement le compte : le taux de
+  // conversion plus bas doit se calculer sur CES prospects-là (voir le bug
+  // des 150 %).
   let prospectsQuery = supabaseAdmin
     .from('prospects')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('assigned_user_id', userId);
   if (start) prospectsQuery = prospectsQuery.gte('created_at', start.toISOString());
   if (end) prospectsQuery = prospectsQuery.lte('created_at', end.toISOString());
-  const { count: prospectsContactes } = await prospectsQuery;
+  const { data: prospectsRows } = await prospectsQuery;
+  const prospectIdsInRange = new Set<string>(((prospectsRows as any[]) || []).map((p) => p.id));
+  const prospectsContactes = prospectIdsInRange.size;
 
   // RDV proposés sur la période (date du RDV, pas date de création).
   // purpose = 'commercial' uniquement : un RDV de lancement (tâche #141,
@@ -43,7 +48,7 @@ export async function computePeriodSummary(
   // migration_kickoff_rdv_2026-08-20.sql.
   let apptQuery = supabaseAdmin
     .from('appointments')
-    .select('id, status')
+    .select('id, status, prospect_id')
     .eq('user_id', userId)
     .eq('purpose', 'commercial');
   if (start) apptQuery = apptQuery.gte('proposed_at', start.toISOString());
@@ -51,8 +56,30 @@ export async function computePeriodSummary(
   const { data: appts } = await apptQuery;
   const rdvObtenus = (appts || []).filter((a: any) => a.status === 'validé' || a.status === 'terminé').length;
   const rdvEnAttente = (appts || []).filter((a: any) => a.status === 'proposé').length;
+
+  // ───────────────────────────────────────────────────────────────────────
+  // TAUX DE CONVERSION : 150 % (bug signalé par Alex, 02/11/2026).
+  //
+  // Le rapport mensuel affichait « 2 prospects contactés, 3 RDV obtenus,
+  // taux de conversion 150 % ». La division portait sur DEUX POPULATIONS
+  // DIFFÉRENTES : au numérateur les RDV dont la DATE tombe dans la période,
+  // au dénominateur les prospects CRÉÉS dans la période. Un RDV obtenu ce
+  // mois-ci avec un prospect contacté le mois dernier gonflait donc le
+  // numérateur sans rien ajouter au dénominateur — et le taux pouvait
+  // dépasser 100 % sans que rien ne soit faux dans les données.
+  //
+  // Un taux n'a de sens que sur une seule population : on compte les
+  // prospects CONTACTÉS DANS LA PÉRIODE qui ont décroché un RDV. Un
+  // prospect qui en a décroché deux compte une fois (sinon on repasse
+  // au-dessus de 100 %). « RDV obtenus » reste affiché tel quel : c'est un
+  // décompte d'activité du mois, pas le numérateur du taux.
+  const prospectsAvecRdv = new Set<string>();
+  for (const a of ((appts as any[]) || [])) {
+    if (a.status !== 'validé' && a.status !== 'terminé') continue;
+    if (a.prospect_id && prospectIdsInRange.has(a.prospect_id)) prospectsAvecRdv.add(a.prospect_id);
+  }
   const tauxConversion =
-    prospectsContactes && prospectsContactes > 0 ? Math.round((rdvObtenus / prospectsContactes) * 100) : 0;
+    prospectsContactes > 0 ? Math.round((prospectsAvecRdv.size / prospectsContactes) * 100) : 0;
 
   // Opportunités dont l'étape a bougé sur la période (mêmes conventions que
   // /api/sales/pipeline : deal_stage renseigné = "affaire").
@@ -79,7 +106,7 @@ export async function computePeriodSummary(
   const { count: clientsGagnes } = await customersQuery;
 
   return {
-    prospectsContactes: prospectsContactes || 0,
+    prospectsContactes,
     rdvObtenus,
     rdvEnAttente,
     tauxConversion,

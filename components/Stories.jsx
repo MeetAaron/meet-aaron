@@ -402,7 +402,14 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   const item = deck[index];
   const [acting, setActing] = useState(false);
   const [error, setError] = useState(null);
+  // Texte du brouillon déplié ou non (Alex, 02/11/2026) : une story ne
+  // montre qu'un extrait, un clic sur le texte l'ouvre en entier.
+  const [expanded, setExpanded] = useState(false);
   const touch = useRef(null);
+
+  // Changer de story remet le texte replié : sinon la story suivante
+  // s'ouvrait déjà dépliée, et la carte débordait.
+  useEffect(() => { setExpanded(false); }, [item?.id]);
 
   const close = useCallback(() => setState(null), [setState]);
   const next = useCallback(() => {
@@ -869,23 +876,55 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         </>
       );
       break;
-    case 'message_client':
+    case 'message_client': {
       // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
-      // Pas de bouton « envoyer » ici volontairement : la réponse se relit en
-      // entier dans l'écran Clients, et une story ne montre qu'un extrait. On
-      // ne propose pas d'envoyer à l'aveugle un texte qu'on n'a pas lu.
+      //
+      // Au départ : pas de bouton « envoyer » ici, au motif qu'une story ne
+      // montre qu'un extrait et qu'on n'envoie pas à l'aveugle un texte
+      // qu'on n'a pas lu. Alex, le 02/11/2026 : « quand on clique sur le
+      // texte il s'affiche en entier, et donc on peut ainsi avoir le bouton
+      // envoyer ». Il a raison : l'objection portait sur l'extrait, pas sur
+      // le bouton. On rend donc le texte dépliable, et l'envoi se fait d'ici.
+      const draftId = String(item.id || '').split(':')[1] || '';
+      const draftUrl = `/api/support-drafts/${draftId}`;
+      const draftBody = item.meta?.body || '';
+      const longEnough = draftBody.length > 200 || draftBody.split('\n').length > 4;
       body = (
         <>
           <p className="lead">{t('stories.clientMessageLead', locale).replace('{name}', item.prospect_name)}</p>
-          {item.meta?.subject && <p className="hint">{item.meta.subject}</p>}
+          <div className="mail">
+            {item.meta?.subject && <p className="subject">{item.meta.subject}</p>}
+            <p
+              className={expanded || !longEnough ? 'mailbody' : 'mailbody clamped'}
+              onClick={() => longEnough && setExpanded((v) => !v)}
+              role={longEnough ? 'button' : undefined}
+              tabIndex={longEnough ? 0 : undefined}
+              onKeyDown={(e) => {
+                if (longEnough && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  setExpanded((v) => !v);
+                }
+              }}
+            >
+              {draftBody}
+            </p>
+            {longEnough && !expanded && (
+              <button type="button" className="mail-more" onClick={() => setExpanded(true)}>
+                {t('stories.clientMessageExpand', locale)}
+              </button>
+            )}
+          </div>
         </>
       );
       actions = (
         <>
-          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
+          <button type="button" className="btn-primary" disabled={acting || !draftId} onClick={() => act(draftUrl, { action: 'envoyer' })}>{t('stories.send', locale)}</button>
+          <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
+          <button type="button" className="btn-danger" disabled={acting || !draftId} onClick={() => act(draftUrl, { action: 'ecarter' })}>{t('stories.clientMessageDismiss', locale)}</button>
         </>
       );
       break;
+    }
     case 'a_risque':
       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)
@@ -1120,6 +1159,24 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         }
         .body :global(.subject) { font-weight: 600; font-size: 0.86rem; margin: 0 0 0.4rem; }
         .body :global(.mailbody) { font-size: 0.8rem; color: var(--muted); white-space: pre-line; margin: 0; }
+        .body :global(.mailbody.clamped) {
+          display: -webkit-box;
+          -webkit-line-clamp: 4;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          cursor: pointer;
+        }
+        .body :global(.mail-more) {
+          margin-top: 0.35rem;
+          padding: 0;
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-family: inherit;
+          font-size: 0.78rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
         .error { color: var(--accent-red); font-size: 0.8rem; margin: 0.6rem 0 0; }
         .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
         .actions :global(.btn-primary), .actions :global(.btn-secondary), .actions :global(.btn-danger) {

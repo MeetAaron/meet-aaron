@@ -285,10 +285,21 @@ function reportLabel(type, bucket, locale) {
 function summarizeRange(range, data) {
   const { prospects, appointments, deals, customers } = data;
   const prospectsInRange = prospects.filter((p) => withinRange(p.created_at || p.updated_at, range));
-  const apptsInRange = appointments.filter((a) => withinRange(a.proposed_at, range));
+  // purpose = 'commercial' seulement, comme lib/results-report.ts : un RDV de
+  // lancement (client déjà signé) n'est pas une conversion de prospection.
+  const apptsInRange = appointments.filter((a) => a.purpose !== 'lancement' && withinRange(a.proposed_at, range));
   const rdvObtenus = apptsInRange.filter((a) => a.status === 'validé' || a.status === 'terminé').length;
   const rdvEnAttente = apptsInRange.filter((a) => a.status === 'proposé').length;
-  const tauxConversion = prospectsInRange.length > 0 ? Math.round((rdvObtenus / prospectsInRange.length) * 100) : 0;
+  // Taux de conversion : même population au numérateur et au dénominateur,
+  // sinon il dépasse 100 % (Alex a vu « 150 % », 02/11/2026 — explication
+  // complète dans lib/results-report.ts).
+  const prospectIdsInRange = new Set(prospectsInRange.map((p) => p.id));
+  const prospectsAvecRdv = new Set(
+    apptsInRange
+      .filter((a) => (a.status === 'validé' || a.status === 'terminé') && a.prospect_id && prospectIdsInRange.has(a.prospect_id))
+      .map((a) => a.prospect_id)
+  );
+  const tauxConversion = prospectsInRange.length > 0 ? Math.round((prospectsAvecRdv.size / prospectsInRange.length) * 100) : 0;
   const dealsInRange = deals.filter((d) => withinRange(d.deal_stage_updated_at, range));
   const opportunitesGagnees = dealsInRange.filter((d) => d.deal_stage === 'signe').length;
   const opportunitesPerdues = dealsInRange.filter((d) => d.deal_stage === 'perdu').length;
