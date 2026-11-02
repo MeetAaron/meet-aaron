@@ -1,0 +1,933 @@
+From 7edeff31013a010da5349d975be043a24f69a738 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 31 Oct 2026 08:19:27 +0000
+Subject: [PATCH 1/2] =?UTF-8?q?Solde=20Anthropic=20r=C3=A9el,=20et=20messa?=
+ =?UTF-8?q?ge=20client=20en=20action=20requise?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Deux correctifs issus de la même relecture.
+
+1. SOLDE — une alerte « il reste 1,43 $, soit 2 jours » est partie alors que
+le solde réel était de 9,48 $. Panique inutile, et pire : une alerte qui crie
+au loup finit par ne plus être lue le jour où elle a raison.
+
+Côté dépense, le calcul additionnait l'estimation maison, volontairement
+prudente donc toujours un peu haute ; sur une semaine l'écart cumulé suffit à
+annoncer un solde vide. Nouveau lib/anthropic-admin.ts : le coût RÉEL est lu
+chez Anthropic, l'estimation ne sert plus que de repli, et l'alerte dit d'où
+vient le chiffre.
+
+Côté solde, il n'existe toujours pas d'endpoint de solde restant (revérifié
+ce matin). Le chiffre de départ reste saisi à la main, et Alex avait rechargé
+10,11 $ sans le ressaisir. Au-delà de dix jours sans saisie on cesse
+d'annoncer un montant — un solde faux est pire que pas de solde — mais se
+taire serait pire encore, donc l'alerte bascule sur l'ANCIENNETÉ : « le
+dernier solde date d'il y a N jours, je ne peux plus savoir ». Une fois par
+solde.
+
+ANTHROPIC_ADMIN_KEY est une clé Admin (sk-ant-admin01-), distincte de la clé
+d'API ; une clé de workspace ne marche pas. Sans elle, tout retombe sur
+l'ancien calcul.
+
+2. MESSAGE CLIENT — « chaque notification push provient d'actions requises »,
+dit Alex. Le code y dérogeait exactement une fois : un client qui écrivait
+déclenchait une push sans action requise derrière. Une push manquée ou
+jamais autorisée ne laissait donc plus rien, et le brouillon dormait dans
+l'écran Clients pendant que le client attendait.
+
+Nouveau type message_client, mêmes filtres que l'écran Clients pour ne pas
+donner deux comptages du même contenu, placé après les signaux d'argent et
+avant « à risque ». Pas de bouton « envoyer » dans la story : on ne propose
+pas d'expédier à l'aveugle un texte dont on ne voit qu'un extrait. En
+doublure, un email au commercial — entorse assumée à la règle d'Alex, parce
+qu'un client qui écrit est le seul évènement qui ne doit pas pouvoir se
+perdre. Sept langues.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/api-balance-alert/route.ts |  43 ++++++++-
+ app/api/cron/check-inbox/route.ts       |  42 ++++++++-
+ components/Stories.jsx                  |  19 ++++
+ lib/anthropic-admin.ts                  | 116 ++++++++++++++++++++++++
+ lib/api-balance.ts                      |  41 ++++++++-
+ lib/i18n.js                             |  21 +++++
+ lib/notifications.ts                    |  58 ++++++++++++
+ 7 files changed, 332 insertions(+), 8 deletions(-)
+ create mode 100644 lib/anthropic-admin.ts
+
+diff --git a/app/api/cron/api-balance-alert/route.ts b/app/api/cron/api-balance-alert/route.ts
+index 2211515..aef4ae5 100644
+--- a/app/api/cron/api-balance-alert/route.ts
++++ b/app/api/cron/api-balance-alert/route.ts
+@@ -28,10 +28,44 @@ export async function GET(request: NextRequest) {
+   }
+   try {
+     const st = await getBalanceStatus();
+-    if (!st.configured || st.daysLeft === null || !st.snapshotId) {
++    if (!st.configured || !st.snapshotId) {
+       return NextResponse.json({ checked: true, configured: st.configured, daysLeft: st.daysLeft });
+     }
+ 
++    // SOLDE PÉRIMÉ (31/10/2026). Au-delà de dix jours sans nouvelle saisie, on
++    // n'annonce plus de chiffre — un rechargement a pu avoir lieu entre-temps
++    // sans être ressaisi, et c'est exactement ce qui a produit une alerte
++    // « il reste 1,43 $ » alors que le solde réel était de 9,48 $.
++    //
++    // Mais se taire serait pire : le filet de sécurité disparaîtrait
++    // silencieusement. On alerte donc sur l'ANCIENNETÉ au lieu du montant, une
++    // seule fois par solde (on réutilise alerted_10_at comme marqueur).
++    if (st.stale) {
++      if (st.alerted10At || st.alerted3At) {
++        return NextResponse.json({ checked: true, stale: true, alreadyAlerted: true });
++      }
++      const title = 'Solde Anthropic à revérifier';
++      const body =
++        `Le dernier solde saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus fiable — ` +
++        `je ne peux plus dire combien il reste. Ouvre platform.claude.com (Facturation), ` +
++        `lis le solde réel et saisis-le dans /app/marge. ` +
++        `Dépense constatée depuis la dernière saisie : ${st.spentSinceUsd.toFixed(2)} $.`;
++      const { data: staleFounders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
++      for (const founder of staleFounders || []) {
++        await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: 'api-balance-stale' } as any).catch(() => {});
++      }
++      await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
++      await supabaseAdmin
++        .from('api_balance_snapshots')
++        .update({ alerted_10_at: new Date().toISOString() })
++        .eq('id', st.snapshotId);
++      return NextResponse.json({ alerted: 'stale', balanceAgeDays: st.balanceAgeDays });
++    }
++
++    if (st.daysLeft === null) {
++      return NextResponse.json({ checked: true, daysLeft: null });
++    }
++
+     // Seuil le plus grave atteint et pas encore signalé pour ce solde.
+     let level: 3 | 10 | null = null;
+     if (st.daysLeft <= 3 && !st.alerted3At) level = 3;
+@@ -44,7 +78,12 @@ export async function GET(request: NextRequest) {
+     const body =
+       `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
+       `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
+-      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.`;
++      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.\n\n` +
++      // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
++      // pas comme une alerte fondée sur la facture Anthropic.
++      (st.spentSource === 'anthropic'
++        ? `Dépense lue chez Anthropic (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}).`
++        : `Dépense ESTIMÉE (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}) — pose ANTHROPIC_ADMIN_KEY pour lire la dépense réelle.`);
+ 
+     // Tous les comptes fondateur (lib/founder.ts), pas un seul.
+     const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index 2264c07..7379f6d 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -21,6 +21,7 @@ import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
+ import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
+ import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
+ import { sendPushNotification } from '@/lib/push';
++import { sendSystemEmail } from '@/lib/google';
+ 
+ function isAuthorized(request: NextRequest) {
+   const authHeader = request.headers.get('authorization');
+@@ -339,13 +340,48 @@ async function handleWonCustomerMessage(
+       is_simple: draft.is_simple,
+     });
+ 
++    const notifBody = draft.is_simple
++      ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
++      : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`;
++
+     await sendPushNotification(userId, {
+       title: 'Nouveau message client',
+-      body: draft.is_simple
+-        ? `${prospect.full_name} a écrit une question simple. Aaron a préparé la réponse, prête à envoyer.`
+-        : `${prospect.full_name} a écrit. Aaron propose une réponse à relire dans Aaron Customer.`,
++      body: notifBody,
+       url: `/app/prospects?user_id=${userId}`,
+     });
++
++    // DOUBLURE PAR EMAIL (Alex, 31/10/2026). La notification push était le
++    // SEUL signal : ni email, ni rappel, ni entrée dans « Action requise ».
++    // Un commercial qui n'a jamais autorisé les notifications sur son
++    // navigateur, ou qui a installé l'app sur un téléphone sans les activer,
++    // ne saura jamais qu'un client lui a écrit — et le brouillon attendra
++    // indéfiniment dans son écran Clients.
++    //
++    // Un client qui écrit est l'événement le plus important de la journée :
++    // c'est le seul qui ne doit pas pouvoir se perdre. Une push se perd, un
++    // email reste. Envoyé depuis l'adresse système, pas depuis la boîte du
++    // commercial — il n'a pas à recevoir un message de lui-même.
++    //
++    // Best-effort : un échec d'email ne doit jamais empêcher le brouillon
++    // d'exister, il est déjà enregistré à ce stade.
++    try {
++      const { data: notified } = await supabaseAdmin
++        .from('users')
++        .select('email, locale')
++        .eq('id', userId)
++        .maybeSingle();
++      if (notified?.email) {
++        await sendSystemEmail(
++          notified.email,
++          `Meet Aaron — message de ${prospect.full_name}`,
++          `${notifBody}\n\nOuvre ta fiche contact pour relire et envoyer :\n` +
++            `https://meetaaron.app/app/prospects?user_id=${userId}&contact=${prospect.id}`,
++          (notified as any).locale || null
++        );
++      }
++    } catch (mailErr: any) {
++      console.error(`Doublure email du message client ${prospect.id} impossible (non bloquant):`, mailErr?.message || mailErr);
++    }
+   } catch (err: any) {
+     console.error(`Erreur triage support pour prospect ${prospect.id}:`, err.message);
+   }
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index af87e7b..4c85e9f 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -43,6 +43,7 @@ const RING = {
+   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
+   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
+   client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
++  message_client: 'linear-gradient(135deg, #4b9ef0, #b07cf5)',
+   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
+ };
+ 
+@@ -66,6 +67,7 @@ const ICON_NAME = {
+   bilan_a_faire: 'notes',
+   commande_a_confirmer: 'trophy',
+   client_a_confirmer: 'trophy',
++  message_client: 'message',
+   a_risque: 'flame',
+ };
+ // Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
+@@ -867,6 +869,23 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         </>
+       );
+       break;
++    case 'message_client':
++      // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
++      // Pas de bouton « envoyer » ici volontairement : la réponse se relit en
++      // entier dans l'écran Clients, et une story ne montre qu'un extrait. On
++      // ne propose pas d'envoyer à l'aveugle un texte qu'on n'a pas lu.
++      body = (
++        <>
++          <p className="lead">{t('stories.clientMessageLead', locale).replace('{name}', item.prospect_name)}</p>
++          {item.meta?.subject && <p className="hint">{item.meta.subject}</p>}
++        </>
++      );
++      actions = (
++        <>
++          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
++        </>
++      );
++      break;
+     case 'a_risque':
+       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
+       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)
+diff --git a/lib/anthropic-admin.ts b/lib/anthropic-admin.ts
+new file mode 100644
+index 0000000..9e9609a
+--- /dev/null
++++ b/lib/anthropic-admin.ts
+@@ -0,0 +1,116 @@
++// lib/anthropic-admin.ts
++//
++// DÉPENSE RÉELLE, LUE CHEZ ANTHROPIC (Alex, 31/10/2026).
++//
++// Déclencheur : une alerte « il reste 1,43 $, soit 2 jours » alors que le
++// solde réel était de 9,48 $. Panique inutile, et pire — une alerte qui crie
++// au loup finit par ne plus être lue le jour où elle a raison.
++//
++// Deux sources de dérive dans l'ancien calcul. Côté dépense, il ADDITIONNAIT
++// l'estimation maison (api_usage_daily), qui surestime volontairement par
++// prudence. Côté solde, il partait d'un chiffre saisi à la main et ignorait
++// tout rechargement survenu depuis — Alex avait rechargé 10,11 $ deux jours
++// plus tôt sans le ressaisir.
++//
++// Ce module supprime la première dérive : l'API d'administration d'Anthropic
++// expose le coût RÉEL par jour, en dollars. Plus d'estimation, plus de
++// surestimation prudente, plus d'écart qui se creuse.
++//
++// Il N'EXISTE TOUJOURS PAS d'endpoint de solde restant (revérifié le
++// 31/10/2026 : l'API d'administration expose l'usage et le coût, pas le
++// solde). La seconde dérive se règle donc autrement — en détectant les
++// emails de reçu d'Anthropic, voir le chantier suivant.
++//
++// CLÉ : ANTHROPIC_ADMIN_KEY, une clé Admin (sk-ant-admin01-...), distincte de
++// la clé d'API normale. Une clé de workspace NE FONCTIONNE PAS. Sans elle,
++// toutes les fonctions renvoient null et le calcul retombe sur l'estimation
++// maison, exactement comme avant : rien ne casse, c'est juste moins précis.
++
++const ADMIN_BASE = 'https://api.anthropic.com/v1/organizations';
++
++export function adminApiConfigured(): boolean {
++  return !!process.env.ANTHROPIC_ADMIN_KEY;
++}
++
++// Les montants arrivent en chaînes décimales exprimées dans la plus petite
++// unité (des cents). On ne suppose rien : on accepte aussi un nombre, et on
++// ignore proprement ce qu'on ne sait pas lire plutôt que de produire un NaN
++// qui contaminerait tout le calcul de solde.
++function centsToUsd(value: unknown): number {
++  const n = typeof value === 'number' ? value : Number(String(value ?? '').trim());
++  if (!Number.isFinite(n)) return 0;
++  return n / 100;
++}
++
++export interface DailyCost {
++  day: string;      // AAAA-MM-JJ (UTC)
++  usd: number;
++}
++
++// Coût réel par jour entre deux dates. `endingAt` est EXCLUSIF côté Anthropic.
++// Renvoie null — et non un tableau vide — quand la lecture est impossible :
++// l'appelant doit pouvoir distinguer « zéro dépense » de « je ne sais pas »,
++// sans quoi une panne d'API se lirait comme une journée gratuite.
++export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise<DailyCost[] | null> {
++  const key = process.env.ANTHROPIC_ADMIN_KEY;
++  if (!key) return null;
++
++  const params = new URLSearchParams({
++    starting_at: startingAt.toISOString(),
++    ending_at: endingAt.toISOString(),
++  });
++
++  try {
++    const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
++      headers: {
++        'x-api-key': key,
++        'anthropic-version': '2023-06-01',
++      },
++    });
++    if (!res.ok) {
++      const body = await res.text().catch(() => '');
++      console.error(`[admin] cost_report ${res.status} : ${body.slice(0, 200)}`);
++      return null;
++    }
++    const json: any = await res.json();
++
++    // La réponse est paginée en « buckets » journaliers, chacun contenant une
++    // liste de résultats à additionner. On lit défensivement : la forme exacte
++    // a déjà changé une fois côté Anthropic, et une alerte de solde ne doit
++    // pas tomber en panne parce qu'un champ a été renommé.
++    const buckets: any[] = json?.data || json?.buckets || [];
++    const days: DailyCost[] = [];
++    for (const bucket of buckets) {
++      const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
++      if (!day) continue;
++      const results: any[] = bucket?.results || bucket?.items || [];
++      let usd = 0;
++      for (const r of results) {
++        usd += centsToUsd(r?.amount ?? r?.cost ?? r?.amount_cents);
++      }
++      days.push({ day, usd: Math.round(usd * 10000) / 10000 });
++    }
++    if (days.length === 0 && buckets.length > 0) {
++      // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
++      // et on renvoie null pour retomber sur l'estimation, plutôt que
++      // d'annoncer une dépense nulle qui ferait croire à un solde intact.
++      console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
++      return null;
++    }
++    return days;
++  } catch (err: any) {
++    console.error('[admin] cost_report injoignable :', err?.message || err);
++    return null;
++  }
++}
++
++// Somme dépensée depuis un instant donné, d'après Anthropic. null = inconnu.
++export async function realSpendSince(since: Date): Promise<number | null> {
++  // On part du JOUR de la saisie, inclus : Anthropic agrège par journée UTC,
++  // et compter la journée entière va dans le sens prudent pour une alerte.
++  const start = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
++  const end = new Date(Date.now() + 86400000);
++  const days = await fetchDailyCosts(start, end);
++  if (days === null) return null;
++  return days.reduce((sum, d) => sum + d.usd, 0);
++}
+diff --git a/lib/api-balance.ts b/lib/api-balance.ts
+index 546792f..401f83f 100644
+--- a/lib/api-balance.ts
++++ b/lib/api-balance.ts
+@@ -17,6 +17,7 @@
+ // pour une alerte. Le jour de la saisie est compté en entier : même logique.
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { realSpendSince, adminApiConfigured } from './anthropic-admin';
+ 
+ export interface BalanceStatus {
+   configured: boolean;
+@@ -24,6 +25,17 @@ export interface BalanceStatus {
+   balanceUsd: number | null;
+   asOf: string | null;
+   spentSinceUsd: number;
++  // 'anthropic' = dépense réelle lue chez Anthropic ; 'estimation' = calcul
++  // maison, volontairement prudent donc légèrement surestimé. Affiché au
++  // fondateur : une alerte fondée sur une estimation ne se lit pas comme une
++  // alerte fondée sur la facture.
++  spentSource: 'anthropic' | 'estimation';
++  // Ancienneté du solde saisi, en jours. Au-delà de STALE_AFTER_DAYS, le
++  // chiffre « il reste X » n'a plus de sens : un rechargement a pu avoir lieu
++  // sans être ressaisi, ce qui est exactement ce qui a produit la fausse
++  // alerte du 31/10/2026 (1,43 $ annoncés, 9,48 $ réels).
++  balanceAgeDays: number | null;
++  stale: boolean;
+   remainingUsd: number | null;
+   avgDailyUsd: number;
+   daysLeft: number | null;
+@@ -49,6 +61,11 @@ async function sumUsageSince(fromDay: string, toDayExclusive?: string): Promise<
+   return total;
+ }
+ 
++// Au-delà de ce délai sans nouvelle saisie, on cesse d'annoncer un chiffre.
++// Un solde faux est pire que pas de solde : il fait paniquer, puis il fait
++// ignorer l'alerte suivante.
++const STALE_AFTER_DAYS = 10;
++
+ export async function getBalanceStatus(): Promise<BalanceStatus> {
+   const now = new Date();
+   const today = isoDay(now);
+@@ -66,20 +83,38 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
+   if (error || !snap) {
+     return {
+       configured: false, snapshotId: null, balanceUsd: null, asOf: null, spentSinceUsd: 0,
++      spentSource: 'estimation', balanceAgeDays: null, stale: false,
+       remainingUsd: null, avgDailyUsd, daysLeft: null, alerted10At: null, alerted3At: null,
+     };
+   }
+ 
+-  const spentSinceUsd = await sumUsageSince(isoDay(new Date(snap.as_of)));
++  // Dépense réelle d'abord, estimation maison en repli. L'estimation
++  // surestime volontairement par prudence : sur plusieurs jours, l'écart
++  // cumulé suffit à annoncer un solde presque vide alors qu'il ne l'est pas.
++  const asOfDate = new Date(snap.as_of);
++  const realSpend = adminApiConfigured() ? await realSpendSince(asOfDate) : null;
++  const spentSinceUsd = realSpend !== null ? realSpend : await sumUsageSince(isoDay(asOfDate));
++  const spentSource: 'anthropic' | 'estimation' = realSpend !== null ? 'anthropic' : 'estimation';
++
+   const balanceUsd = Number(snap.balance_usd) || 0;
+-  const remainingUsd = balanceUsd - spentSinceUsd;
+-  const daysLeft = avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
++  const balanceAgeDays = Math.max(0, Math.floor((Date.now() - asOfDate.getTime()) / 86400000));
++  const stale = balanceAgeDays > STALE_AFTER_DAYS;
++
++  // Solde périmé : on n'annonce plus ni reste ni autonomie. L'écran et
++  // l'alerte diront « solde à revérifier » au lieu d'un chiffre inventé.
++  const remainingUsd = stale ? null : balanceUsd - spentSinceUsd;
++  const daysLeft =
++    remainingUsd !== null && avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
++
+   return {
+     configured: true,
+     snapshotId: snap.id,
+     balanceUsd,
+     asOf: snap.as_of,
+     spentSinceUsd,
++    spentSource,
++    balanceAgeDays,
++    stale,
+     remainingUsd,
+     avgDailyUsd,
+     daysLeft,
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 0be174a..ef2a7ad 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -247,6 +247,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails à valider",
+     "stories.type.bilan_a_faire": "Bilans RDV",
+     "stories.type.commande_a_confirmer": "Commandes à confirmer",
++    "stories.type.message_client": "Messages clients",
++    "stories.clientMessageLead": "{name} t'a écrit. Aaron a préparé une réponse, à relire avant envoi.",
++    "stories.clientMessageOpen": "Relire la réponse",
+     "stories.type.client_a_confirmer": "Clients à confirmer",
+     "stories.clientSignalLead": "{name} semble être devenu client. Je le passe en client ?",
+     "stories.clientSignalYes": "Oui, c'est un client",
+@@ -2639,6 +2642,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails to approve",
+     "stories.type.bilan_a_faire": "Meeting debriefs",
+     "stories.type.commande_a_confirmer": "Orders to confirm",
++    "stories.type.message_client": "Client messages",
++    "stories.clientMessageLead": "{name} wrote to you. Aaron has drafted a reply for you to review before sending.",
++    "stories.clientMessageOpen": "Review the reply",
+     "stories.type.client_a_confirmer": "Clients to confirm",
+     "stories.clientSignalLead": "{name} seems to have become a client. Should I mark them as a client?",
+     "stories.clientSignalYes": "Yes, it's a client",
+@@ -4726,6 +4732,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "E-Mails freigeben",
+     "stories.type.bilan_a_faire": "Termin-Bilanzen",
+     "stories.type.commande_a_confirmer": "Bestellungen bestätigen",
++    "stories.type.message_client": "Kundennachrichten",
++    "stories.clientMessageLead": "{name} hat dir geschrieben. Aaron hat eine Antwort vorbereitet, die du vor dem Senden prüfen solltest.",
++    "stories.clientMessageOpen": "Antwort prüfen",
+     "stories.type.client_a_confirmer": "Kunden bestätigen",
+     "stories.clientSignalLead": "{name} scheint Kunde geworden zu sein. Soll ich ihn als Kunden eintragen?",
+     "stories.clientSignalYes": "Ja, Kunde",
+@@ -6813,6 +6822,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "Email da approvare",
+     "stories.type.bilan_a_faire": "Bilanci RDV",
+     "stories.type.commande_a_confirmer": "Ordini da confermare",
++    "stories.type.message_client": "Messaggi dei clienti",
++    "stories.clientMessageLead": "{name} ti ha scritto. Aaron ha preparato una risposta, da rileggere prima di inviarla.",
++    "stories.clientMessageOpen": "Rileggi la risposta",
+     "stories.type.client_a_confirmer": "Clienti da confermare",
+     "stories.clientSignalLead": "{name} sembra essere diventato cliente. Lo registro come cliente?",
+     "stories.clientSignalYes": "Sì, è un cliente",
+@@ -8900,6 +8912,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails por validar",
+     "stories.type.bilan_a_faire": "Balances de citas",
+     "stories.type.commande_a_confirmer": "Pedidos por confirmar",
++    "stories.type.message_client": "Mensajes de clientes",
++    "stories.clientMessageLead": "{name} te ha escrito. Aaron ha preparado una respuesta para que la revises antes de enviarla.",
++    "stories.clientMessageOpen": "Revisar la respuesta",
+     "stories.type.client_a_confirmer": "Clientes por confirmar",
+     "stories.clientSignalLead": "{name} parece haberse convertido en cliente. ¿Lo paso a cliente?",
+     "stories.clientSignalYes": "Sí, es cliente",
+@@ -10987,6 +11002,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "Emails a validar",
+     "stories.type.bilan_a_faire": "Balanços",
+     "stories.type.commande_a_confirmer": "Encomendas a confirmar",
++    "stories.type.message_client": "Mensagens de clientes",
++    "stories.clientMessageLead": "{name} escreveu-te. O Aaron preparou uma resposta, para releres antes de enviar.",
++    "stories.clientMessageOpen": "Reler a resposta",
+     "stories.type.client_a_confirmer": "Clientes a confirmar",
+     "stories.clientSignalLead": "{name} parece ter-se tornado cliente. Passo-o a cliente?",
+     "stories.clientSignalYes": "Sim, é cliente",
+@@ -13074,6 +13092,9 @@ export const DICT = {
+     "stories.type.email_a_valider": "E-mails goedkeuren",
+     "stories.type.bilan_a_faire": "Evaluaties",
+     "stories.type.commande_a_confirmer": "Bestellingen bevestigen",
++    "stories.type.message_client": "Klantberichten",
++    "stories.clientMessageLead": "{name} heeft je geschreven. Aaron heeft een antwoord opgesteld om na te lezen voor je het verstuurt.",
++    "stories.clientMessageOpen": "Antwoord nalezen",
+     "stories.type.client_a_confirmer": "Klanten bevestigen",
+     "stories.clientSignalLead": "{name} lijkt klant te zijn geworden. Zet ik hem op klant?",
+     "stories.clientSignalYes": "Ja, klant",
+diff --git a/lib/notifications.ts b/lib/notifications.ts
+index 3315e20..b1a36f3 100644
+--- a/lib/notifications.ts
++++ b/lib/notifications.ts
+@@ -11,6 +11,7 @@
+ // l'action est faite (devis envoyé, RDV validé, bilan rempli…).
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { selectInChunks } from './chunked-in';
+ import { resolveUserTimeZone, localDayBounds } from './user-timezone';
+ import { derivePipelinePosition } from './pipeline';
+ 
+@@ -26,6 +27,7 @@ export type NotificationType =
+   | 'bilan_a_faire'
+   | 'commande_a_confirmer'
+   | 'client_a_confirmer'
++  | 'message_client'
+   | 'a_risque';
+ 
+ // Ordre d'urgence des groupes (ordre d'affichage des stories).
+@@ -48,6 +50,10 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
+   // Accord écrit, paiement ou signature détecté dans la boîte : « je le
+   // passe en client ? » (28/10/2026, lib/become-client.ts).
+   'client_a_confirmer',
++  // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
++  // Placé APRÈS les signaux d'argent mais AVANT « à risque » : c'est une
++  // personne qui attend une réponse, pas un indicateur à surveiller.
++  'message_client',
+   'a_risque',
+ ];
+ 
+@@ -236,6 +242,50 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     }
+   }
+ 
++  // ─────────────────────────────────────────────────────────────────────
++  // MESSAGES DE CLIENTS EN ATTENTE DE RÉPONSE (Alex, 31/10/2026).
++  //
++  // Alex, en relisant : « chaque notification push provient d'actions
++  // requises ». C'est la bonne règle, et c'est exactement ce qui manquait
++  // ici : quand un client écrivait, le code envoyait une push SANS créer
++  // d'action requise correspondante. Seul cas de l'application à déroger à
++  // la règle — donc une push manquée ou balayée ne laissait plus rien
++  // derrière elle, et le brouillon dormait dans l'écran Clients.
++  //
++  // Mêmes filtres que app/api/support-drafts : ni envoyé, ni écarté.
++  try {
++    const prospectById = new Map<string, any>((prospects || []).map((p: any) => [p.id, p]));
++    const myProspectIds = Array.from(prospectById.keys());
++    if (myProspectIds.length > 0) {
++      const { data: supportDrafts } = await selectInChunks(myProspectIds, (part) => supabaseAdmin
++        .from('customer_support_drafts')
++        .select('id, prospect_id, suggested_subject, suggested_body, is_simple, created_at')
++        .in('prospect_id', part)
++        .is('sent_at', null)
++        .is('dismissed_at', null));
++      for (const d of (supportDrafts as any[]) || []) {
++        const p = prospectById.get(d.prospect_id);
++        if (!p) continue;
++        push({
++          prospect_id: d.prospect_id,
++          appointment_id: null,
++          prospect_name: p.full_name || '',
++          company_name: p.prospect_companies?.name || null,
++          personality_type: p.personality_type || null,
++          at: d.created_at,
++          days_waiting: null,
++          id: `message_client:${d.id}`,
++          type: 'message_client',
++          meta: { subject: d.suggested_subject, body: d.suggested_body, is_simple: !!d.is_simple },
++        } as any);
++      }
++    }
++  } catch (err: any) {
++    // Table absente (migration pas passée) ou lecture impossible : on perd
++    // ce groupe, jamais les autres.
++    console.error('Messages clients en attente — lecture impossible (non bloquant):', err?.message || err);
++  }
++
+   // Tri interne : devis le plus ancien d'abord ; RDV le plus proche d'abord ;
+   // le reste dans l'ordre de lecture.
+   if (byType.devis_a_faire) byType.devis_a_faire.sort((x, y) => new Date(x.at!).getTime() - new Date(y.at!).getTime());
+@@ -245,6 +295,14 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+   for (const t of ['rdv_manque', 'bilan_a_faire'] as NotificationType[]) {
+     if (byType[t]) byType[t].sort((x, y) => new Date(y.at!).getTime() - new Date(x.at!).getTime());
+   }
++  // Questions simples d'abord (prêtes à envoyer en un clic), puis les plus
++  // anciennes — même ordre que l'écran Clients, pour ne pas donner deux
++  // classements différents du même contenu.
++  if (byType.message_client) {
++    byType.message_client.sort((x: any, y: any) =>
++      (Number(!!y.meta?.is_simple) - Number(!!x.meta?.is_simple)) ||
++      new Date(x.at!).getTime() - new Date(y.at!).getTime());
++  }
+ 
+   return NOTIFICATION_TYPE_ORDER.filter((t) => byType[t]?.length).map((t) => ({ type: t, count: byType[t].length, items: byType[t] }));
+ }
+-- 
+2.43.0
+
+
+From b6b9c56f03d1f1c02ff6b72abe340aec367a93e2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 11:46:39 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?Message=20client=20:=20lire=20la=20r=C3=A9p?=
+ =?UTF-8?q?onse=20en=20entier=20et=20l'envoyer=20d'ici=20;=20taux=20de=20c?=
+ =?UTF-8?q?onversion=20sur=20une=20seule=20population?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Trois corrections.
+
+1. La story « message client » n'avait pas de bouton envoyer : je l'avais
+   écarté au motif qu'une story ne montre qu'un extrait. Alex : « quand on
+   clique sur le texte il s'affiche en entier, et donc on peut ainsi avoir
+   le bouton envoyer. » L'objection portait sur l'extrait, pas sur le
+   bouton. Le texte se déplie d'un clic, et l'envoi (ou l'écartement) se
+   fait depuis la story.
+
+2. Taux de conversion à 150 % dans le rapport mensuel. La division portait
+   sur deux populations : au numérateur les RDV dont la date tombe dans la
+   période, au dénominateur les prospects créés dans la période. Un RDV
+   obtenu ce mois-ci avec un prospect contacté le mois dernier gonflait le
+   numérateur sans rien ajouter au dénominateur. On compte désormais les
+   prospects de la période qui ont décroché un RDV, chacun une seule fois :
+   le taux ne peut plus dépasser 100 %.
+
+3. L'écran Résultats comptait les RDV de lancement dans le taux de
+   conversion de prospection, alors que le rapport serveur les excluait.
+   Les deux disent maintenant la même chose.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/resultats/page.jsx | 15 +++++++--
+ components/Stories.jsx     | 69 ++++++++++++++++++++++++++++++++++----
+ lib/i18n.js                | 14 ++++++++
+ lib/results-report.ts      | 37 +++++++++++++++++---
+ 4 files changed, 122 insertions(+), 13 deletions(-)
+
+diff --git a/app/app/resultats/page.jsx b/app/app/resultats/page.jsx
+index 958a8ee..9416279 100644
+--- a/app/app/resultats/page.jsx
++++ b/app/app/resultats/page.jsx
+@@ -285,10 +285,21 @@ function reportLabel(type, bucket, locale) {
+ function summarizeRange(range, data) {
+   const { prospects, appointments, deals, customers } = data;
+   const prospectsInRange = prospects.filter((p) => withinRange(p.created_at || p.updated_at, range));
+-  const apptsInRange = appointments.filter((a) => withinRange(a.proposed_at, range));
++  // purpose = 'commercial' seulement, comme lib/results-report.ts : un RDV de
++  // lancement (client déjà signé) n'est pas une conversion de prospection.
++  const apptsInRange = appointments.filter((a) => a.purpose !== 'lancement' && withinRange(a.proposed_at, range));
+   const rdvObtenus = apptsInRange.filter((a) => a.status === 'validé' || a.status === 'terminé').length;
+   const rdvEnAttente = apptsInRange.filter((a) => a.status === 'proposé').length;
+-  const tauxConversion = prospectsInRange.length > 0 ? Math.round((rdvObtenus / prospectsInRange.length) * 100) : 0;
++  // Taux de conversion : même population au numérateur et au dénominateur,
++  // sinon il dépasse 100 % (Alex a vu « 150 % », 02/11/2026 — explication
++  // complète dans lib/results-report.ts).
++  const prospectIdsInRange = new Set(prospectsInRange.map((p) => p.id));
++  const prospectsAvecRdv = new Set(
++    apptsInRange
++      .filter((a) => (a.status === 'validé' || a.status === 'terminé') && a.prospect_id && prospectIdsInRange.has(a.prospect_id))
++      .map((a) => a.prospect_id)
++  );
++  const tauxConversion = prospectsInRange.length > 0 ? Math.round((prospectsAvecRdv.size / prospectsInRange.length) * 100) : 0;
+   const dealsInRange = deals.filter((d) => withinRange(d.deal_stage_updated_at, range));
+   const opportunitesGagnees = dealsInRange.filter((d) => d.deal_stage === 'signe').length;
+   const opportunitesPerdues = dealsInRange.filter((d) => d.deal_stage === 'perdu').length;
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index 4c85e9f..2e34461 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -402,8 +402,15 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+   const item = deck[index];
+   const [acting, setActing] = useState(false);
+   const [error, setError] = useState(null);
++  // Texte du brouillon déplié ou non (Alex, 02/11/2026) : une story ne
++  // montre qu'un extrait, un clic sur le texte l'ouvre en entier.
++  const [expanded, setExpanded] = useState(false);
+   const touch = useRef(null);
+ 
++  // Changer de story remet le texte replié : sinon la story suivante
++  // s'ouvrait déjà dépliée, et la carte débordait.
++  useEffect(() => { setExpanded(false); }, [item?.id]);
++
+   const close = useCallback(() => setState(null), [setState]);
+   const next = useCallback(() => {
+     setState((prev) => {
+@@ -869,23 +876,55 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         </>
+       );
+       break;
+-    case 'message_client':
++    case 'message_client': {
+       // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
+-      // Pas de bouton « envoyer » ici volontairement : la réponse se relit en
+-      // entier dans l'écran Clients, et une story ne montre qu'un extrait. On
+-      // ne propose pas d'envoyer à l'aveugle un texte qu'on n'a pas lu.
++      //
++      // Au départ : pas de bouton « envoyer » ici, au motif qu'une story ne
++      // montre qu'un extrait et qu'on n'envoie pas à l'aveugle un texte
++      // qu'on n'a pas lu. Alex, le 02/11/2026 : « quand on clique sur le
++      // texte il s'affiche en entier, et donc on peut ainsi avoir le bouton
++      // envoyer ». Il a raison : l'objection portait sur l'extrait, pas sur
++      // le bouton. On rend donc le texte dépliable, et l'envoi se fait d'ici.
++      const draftId = String(item.id || '').split(':')[1] || '';
++      const draftUrl = `/api/support-drafts/${draftId}`;
++      const draftBody = item.meta?.body || '';
++      const longEnough = draftBody.length > 200 || draftBody.split('\n').length > 4;
+       body = (
+         <>
+           <p className="lead">{t('stories.clientMessageLead', locale).replace('{name}', item.prospect_name)}</p>
+-          {item.meta?.subject && <p className="hint">{item.meta.subject}</p>}
++          <div className="mail">
++            {item.meta?.subject && <p className="subject">{item.meta.subject}</p>}
++            <p
++              className={expanded || !longEnough ? 'mailbody' : 'mailbody clamped'}
++              onClick={() => longEnough && setExpanded((v) => !v)}
++              role={longEnough ? 'button' : undefined}
++              tabIndex={longEnough ? 0 : undefined}
++              onKeyDown={(e) => {
++                if (longEnough && (e.key === 'Enter' || e.key === ' ')) {
++                  e.preventDefault();
++                  setExpanded((v) => !v);
++                }
++              }}
++            >
++              {draftBody}
++            </p>
++            {longEnough && !expanded && (
++              <button type="button" className="mail-more" onClick={() => setExpanded(true)}>
++                {t('stories.clientMessageExpand', locale)}
++              </button>
++            )}
++          </div>
+         </>
+       );
+       actions = (
+         <>
+-          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
++          <button type="button" className="btn-primary" disabled={acting || !draftId} onClick={() => act(draftUrl, { action: 'envoyer' })}>{t('stories.send', locale)}</button>
++          <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.clientMessageOpen', locale)}</button>
++          <button type="button" className="btn-danger" disabled={acting || !draftId} onClick={() => act(draftUrl, { action: 'ecarter' })}>{t('stories.clientMessageDismiss', locale)}</button>
+         </>
+       );
+       break;
++    }
+     case 'a_risque':
+       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
+       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)
+@@ -1120,6 +1159,24 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         }
+         .body :global(.subject) { font-weight: 600; font-size: 0.86rem; margin: 0 0 0.4rem; }
+         .body :global(.mailbody) { font-size: 0.8rem; color: var(--muted); white-space: pre-line; margin: 0; }
++        .body :global(.mailbody.clamped) {
++          display: -webkit-box;
++          -webkit-line-clamp: 4;
++          -webkit-box-orient: vertical;
++          overflow: hidden;
++          cursor: pointer;
++        }
++        .body :global(.mail-more) {
++          margin-top: 0.35rem;
++          padding: 0;
++          background: none;
++          border: none;
++          color: var(--accent);
++          font-family: inherit;
++          font-size: 0.78rem;
++          font-weight: 600;
++          cursor: pointer;
++        }
+         .error { color: var(--accent-red); font-size: 0.8rem; margin: 0.6rem 0 0; }
+         .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+         .actions :global(.btn-primary), .actions :global(.btn-secondary), .actions :global(.btn-danger) {
+diff --git a/lib/i18n.js b/lib/i18n.js
+index ef2a7ad..e6c4180 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -250,6 +250,8 @@ export const DICT = {
+     "stories.type.message_client": "Messages clients",
+     "stories.clientMessageLead": "{name} t'a écrit. Aaron a préparé une réponse, à relire avant envoi.",
+     "stories.clientMessageOpen": "Relire la réponse",
++    "stories.clientMessageExpand": "Voir la réponse en entier",
++    "stories.clientMessageDismiss": "Je réponds moi-même",
+     "stories.type.client_a_confirmer": "Clients à confirmer",
+     "stories.clientSignalLead": "{name} semble être devenu client. Je le passe en client ?",
+     "stories.clientSignalYes": "Oui, c'est un client",
+@@ -2645,6 +2647,8 @@ export const DICT = {
+     "stories.type.message_client": "Client messages",
+     "stories.clientMessageLead": "{name} wrote to you. Aaron has drafted a reply for you to review before sending.",
+     "stories.clientMessageOpen": "Review the reply",
++    "stories.clientMessageExpand": "Show the full reply",
++    "stories.clientMessageDismiss": "I'll reply myself",
+     "stories.type.client_a_confirmer": "Clients to confirm",
+     "stories.clientSignalLead": "{name} seems to have become a client. Should I mark them as a client?",
+     "stories.clientSignalYes": "Yes, it's a client",
+@@ -4735,6 +4739,8 @@ export const DICT = {
+     "stories.type.message_client": "Kundennachrichten",
+     "stories.clientMessageLead": "{name} hat dir geschrieben. Aaron hat eine Antwort vorbereitet, die du vor dem Senden prüfen solltest.",
+     "stories.clientMessageOpen": "Antwort prüfen",
++    "stories.clientMessageExpand": "Ganze Antwort anzeigen",
++    "stories.clientMessageDismiss": "Ich antworte selbst",
+     "stories.type.client_a_confirmer": "Kunden bestätigen",
+     "stories.clientSignalLead": "{name} scheint Kunde geworden zu sein. Soll ich ihn als Kunden eintragen?",
+     "stories.clientSignalYes": "Ja, Kunde",
+@@ -6825,6 +6831,8 @@ export const DICT = {
+     "stories.type.message_client": "Messaggi dei clienti",
+     "stories.clientMessageLead": "{name} ti ha scritto. Aaron ha preparato una risposta, da rileggere prima di inviarla.",
+     "stories.clientMessageOpen": "Rileggi la risposta",
++    "stories.clientMessageExpand": "Mostra la risposta completa",
++    "stories.clientMessageDismiss": "Rispondo io",
+     "stories.type.client_a_confirmer": "Clienti da confermare",
+     "stories.clientSignalLead": "{name} sembra essere diventato cliente. Lo registro come cliente?",
+     "stories.clientSignalYes": "Sì, è un cliente",
+@@ -8915,6 +8923,8 @@ export const DICT = {
+     "stories.type.message_client": "Mensajes de clientes",
+     "stories.clientMessageLead": "{name} te ha escrito. Aaron ha preparado una respuesta para que la revises antes de enviarla.",
+     "stories.clientMessageOpen": "Revisar la respuesta",
++    "stories.clientMessageExpand": "Ver la respuesta completa",
++    "stories.clientMessageDismiss": "Respondo yo mismo",
+     "stories.type.client_a_confirmer": "Clientes por confirmar",
+     "stories.clientSignalLead": "{name} parece haberse convertido en cliente. ¿Lo paso a cliente?",
+     "stories.clientSignalYes": "Sí, es cliente",
+@@ -11005,6 +11015,8 @@ export const DICT = {
+     "stories.type.message_client": "Mensagens de clientes",
+     "stories.clientMessageLead": "{name} escreveu-te. O Aaron preparou uma resposta, para releres antes de enviar.",
+     "stories.clientMessageOpen": "Reler a resposta",
++    "stories.clientMessageExpand": "Ver a resposta completa",
++    "stories.clientMessageDismiss": "Respondo eu",
+     "stories.type.client_a_confirmer": "Clientes a confirmar",
+     "stories.clientSignalLead": "{name} parece ter-se tornado cliente. Passo-o a cliente?",
+     "stories.clientSignalYes": "Sim, é cliente",
+@@ -13095,6 +13107,8 @@ export const DICT = {
+     "stories.type.message_client": "Klantberichten",
+     "stories.clientMessageLead": "{name} heeft je geschreven. Aaron heeft een antwoord opgesteld om na te lezen voor je het verstuurt.",
+     "stories.clientMessageOpen": "Antwoord nalezen",
++    "stories.clientMessageExpand": "Volledig antwoord tonen",
++    "stories.clientMessageDismiss": "Ik antwoord zelf",
+     "stories.type.client_a_confirmer": "Klanten bevestigen",
+     "stories.clientSignalLead": "{name} lijkt klant te zijn geworden. Zet ik hem op klant?",
+     "stories.clientSignalYes": "Ja, klant",
+diff --git a/lib/results-report.ts b/lib/results-report.ts
+index d97b47f..a8b61c1 100644
+--- a/lib/results-report.ts
++++ b/lib/results-report.ts
+@@ -29,13 +29,18 @@ export async function computePeriodSummary(
+   end: Date | null
+ ): Promise<PeriodSummary> {
+   // Prospects contactés pendant la période (date de création).
++  // On garde les IDENTIFIANTS, pas seulement le compte : le taux de
++  // conversion plus bas doit se calculer sur CES prospects-là (voir le bug
++  // des 150 %).
+   let prospectsQuery = supabaseAdmin
+     .from('prospects')
+-    .select('id', { count: 'exact', head: true })
++    .select('id')
+     .eq('assigned_user_id', userId);
+   if (start) prospectsQuery = prospectsQuery.gte('created_at', start.toISOString());
+   if (end) prospectsQuery = prospectsQuery.lte('created_at', end.toISOString());
+-  const { count: prospectsContactes } = await prospectsQuery;
++  const { data: prospectsRows } = await prospectsQuery;
++  const prospectIdsInRange = new Set<string>(((prospectsRows as any[]) || []).map((p) => p.id));
++  const prospectsContactes = prospectIdsInRange.size;
+ 
+   // RDV proposés sur la période (date du RDV, pas date de création).
+   // purpose = 'commercial' uniquement : un RDV de lancement (tâche #141,
+@@ -43,7 +48,7 @@ export async function computePeriodSummary(
+   // migration_kickoff_rdv_2026-08-20.sql.
+   let apptQuery = supabaseAdmin
+     .from('appointments')
+-    .select('id, status')
++    .select('id, status, prospect_id')
+     .eq('user_id', userId)
+     .eq('purpose', 'commercial');
+   if (start) apptQuery = apptQuery.gte('proposed_at', start.toISOString());
+@@ -51,8 +56,30 @@ export async function computePeriodSummary(
+   const { data: appts } = await apptQuery;
+   const rdvObtenus = (appts || []).filter((a: any) => a.status === 'validé' || a.status === 'terminé').length;
+   const rdvEnAttente = (appts || []).filter((a: any) => a.status === 'proposé').length;
++
++  // ───────────────────────────────────────────────────────────────────────
++  // TAUX DE CONVERSION : 150 % (bug signalé par Alex, 02/11/2026).
++  //
++  // Le rapport mensuel affichait « 2 prospects contactés, 3 RDV obtenus,
++  // taux de conversion 150 % ». La division portait sur DEUX POPULATIONS
++  // DIFFÉRENTES : au numérateur les RDV dont la DATE tombe dans la période,
++  // au dénominateur les prospects CRÉÉS dans la période. Un RDV obtenu ce
++  // mois-ci avec un prospect contacté le mois dernier gonflait donc le
++  // numérateur sans rien ajouter au dénominateur — et le taux pouvait
++  // dépasser 100 % sans que rien ne soit faux dans les données.
++  //
++  // Un taux n'a de sens que sur une seule population : on compte les
++  // prospects CONTACTÉS DANS LA PÉRIODE qui ont décroché un RDV. Un
++  // prospect qui en a décroché deux compte une fois (sinon on repasse
++  // au-dessus de 100 %). « RDV obtenus » reste affiché tel quel : c'est un
++  // décompte d'activité du mois, pas le numérateur du taux.
++  const prospectsAvecRdv = new Set<string>();
++  for (const a of ((appts as any[]) || [])) {
++    if (a.status !== 'validé' && a.status !== 'terminé') continue;
++    if (a.prospect_id && prospectIdsInRange.has(a.prospect_id)) prospectsAvecRdv.add(a.prospect_id);
++  }
+   const tauxConversion =
+-    prospectsContactes && prospectsContactes > 0 ? Math.round((rdvObtenus / prospectsContactes) * 100) : 0;
++    prospectsContactes > 0 ? Math.round((prospectsAvecRdv.size / prospectsContactes) * 100) : 0;
+ 
+   // Opportunités dont l'étape a bougé sur la période (mêmes conventions que
+   // /api/sales/pipeline : deal_stage renseigné = "affaire").
+@@ -79,7 +106,7 @@ export async function computePeriodSummary(
+   const { count: clientsGagnes } = await customersQuery;
+ 
+   return {
+-    prospectsContactes: prospectsContactes || 0,
++    prospectsContactes,
+     rdvObtenus,
+     rdvEnAttente,
+     tauxConversion,
+-- 
+2.43.0
+
