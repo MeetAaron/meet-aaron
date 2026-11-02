@@ -124,6 +124,10 @@
     {
       "path": "/api/cron/subscription-alerts",
       "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/api/cron/own-clients-sync",
+      "schedule": "20 4 * * *"
     }
   ]
 }

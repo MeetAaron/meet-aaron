@@ -37,6 +37,7 @@
 // de l'effet recherche. La fiche est creee, Alex decide ensuite.
 
 import { supabaseAdmin } from './supabase-admin';
+import { isFounderEmail } from './founder';
 
 // Domaines grand public : on ne cree jamais de fiche societe rattachee a un
 // domaine partage, sinon tous les clients en @gmail.com se retrouveraient
@@ -62,7 +63,7 @@ export interface SelfSignupInput {
 export interface SelfSignupResult {
   created: boolean;
   prospectId?: string;
-  reason?: 'not_configured' | 'no_email' | 'already_known' | 'error';
+  reason?: 'not_configured' | 'no_email' | 'founder' | 'already_known' | 'error';
 }
 
 export async function ensureSelfSignupClient(input: SelfSignupInput): Promise<SelfSignupResult> {
@@ -71,6 +72,12 @@ export async function ensureSelfSignupClient(input: SelfSignupInput): Promise<Se
   const email = String(input.email || '').toLowerCase().trim();
 
   if (!email) return { created: false, reason: 'no_email' };
+
+  // MEET AARON N'EST PAS SON PROPRE CLIENT (Alex, 02/11/2026 : « pourquoi
+  // alexandre.fevre01@gmail.com est encore client ? »). Les comptes
+  // fondateur passent par le meme Checkout que n'importe qui — ils se
+  // retrouvaient donc dans le fichier client, en face d'Alex lui-meme.
+  if (isFounderEmail(email)) return { created: false, reason: 'founder' };
 
   if (!ownCompanyId || !ownUserId) {
     if (!warnedMissingConfig) {
