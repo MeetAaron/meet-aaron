@@ -120,6 +120,10 @@
     {
       "path": "/api/cron/api-balance-alert",
       "schedule": "15 23 * * *"
+    },
+    {
+      "path": "/api/cron/subscription-alerts",
+      "schedule": "40 7 * * *"
     }
   ]
 }

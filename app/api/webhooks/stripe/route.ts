@@ -343,6 +343,13 @@ export async function POST(request: NextRequest) {
         graceEndsAt: null,
         failureReason: null,
       });
+      // Les relances « paiement refusé » repartent de zéro : sinon un client
+      // qui tombe deux fois en impayé à six mois d'écart ne serait prévenu
+      // que la première fois (voir app/api/cron/subscription-alerts).
+      await supabaseAdmin
+        .from('companies')
+        .update({ dunning_alert_stage: null, dunning_alert_sent_at: null })
+        .eq('id', companyId);
       // Chaque facture payee ouvre une nouvelle periode : c'est le moment ou
       // le budget API doit repartir de zero (voir syncBillingPeriod).
       const subscriptionId =

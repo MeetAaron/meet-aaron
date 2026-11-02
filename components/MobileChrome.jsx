@@ -58,7 +58,7 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
             className={`mobile-tab${item.label === title ? ' active' : ''}`}
             aria-current={item.label === title ? 'page' : undefined}
           >
-            <span className="mobile-tab-icon"><NavIcon slug={item.slug} size={22} /></span>
+            <span className="mobile-tab-icon"><NavIcon slug={item.slug} size={24} /></span>
             <span className="mobile-tab-label">{item.label}</span>
           </Link>
         ))}
