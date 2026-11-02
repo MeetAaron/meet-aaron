@@ -1,0 +1,190 @@
+From 1ddb6e60c19dc3c2d1fb7ad9f1861cb1c266631c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 11:57:08 +0000
+Subject: [PATCH] Fichier client : un rattrapage quotidien, et Meet Aaron n'est
+ plus son propre client
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+« Tous ceux qui utilisent Aaron doivent être dans mon fichier client »
+(Alex). C'était déjà le cas, mais depuis un seul point de passage : le
+webhook Stripe, au moment du paiement. Un webhook qui échoue, une société
+créée à la main dans Supabase, une société antérieure à ce code, et le
+client n'apparaissait nulle part sans que rien ne le rattrape.
+
+Un cron quotidien repasse donc sur toutes les sociétés ayant au moins un
+utilisateur. ensureSelfSignupClient est idempotent, donc ce passage ne
+crée aucun doublon et ne coûte rien quand tout va bien.
+
+Et la réponse au « pourquoi alexandre.fevre01@gmail.com est encore
+client ? » : les comptes fondateur passaient par le même Checkout que
+n'importe qui, donc ils se retrouvaient dans le fichier client, en face
+d'Alex lui-même. Ils en sont désormais exclus — la fiche déjà créée, elle,
+reste à supprimer à la main.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/own-clients-sync/route.ts | 98 ++++++++++++++++++++++++++
+ lib/self-signup-client.ts              |  9 ++-
+ vercel.json                            |  4 ++
+ 3 files changed, 110 insertions(+), 1 deletion(-)
+ create mode 100644 app/api/cron/own-clients-sync/route.ts
+
+diff --git a/app/api/cron/own-clients-sync/route.ts b/app/api/cron/own-clients-sync/route.ts
+new file mode 100644
+index 0000000..35ec192
+--- /dev/null
++++ b/app/api/cron/own-clients-sync/route.ts
+@@ -0,0 +1,98 @@
++// app/api/cron/own-clients-sync/route.ts
++//
++// « TOUS CEUX QUI UTILISENT AARON DOIVENT ÊTRE DANS MON FICHIER CLIENT »
++// (Alex, 02/11/2026 — et c'est logique).
++//
++// lib/self-signup-client.ts créait déjà la fiche client au moment du
++// paiement, depuis le webhook Stripe. Un seul point de passage, donc un seul
++// point de panne : si le webhook échoue, si la société a été créée à la main
++// dans Supabase, si elle existait avant que ce code soit écrit, ou si les
++// variables MEETAARON_OWN_* n'étaient pas encore posées, le client n'apparaît
++// NULLE PART et rien ne le rattrape jamais.
++//
++// Ce cron est ce rattrapage : une fois par jour, toute société qui a au moins
++// un utilisateur a sa fiche dans le compte Meet Aaron. ensureSelfSignupClient
++// est idempotent (il répond « already_known » si la fiche existe), donc ce
++// passage ne crée jamais de doublon et ne coûte rien quand tout va bien.
++//
++// Exclus, volontairement :
++//   - le compte Meet Aaron lui-même (il ne se démarche pas) ;
++//   - les adresses fondateur (même raison, voir lib/founder.ts) ;
++//   - les sociétés sans aucun utilisateur (coquille d'inscription abandonnée).
++//
++// Une société exemptée de facturation (billing_exempt) est en revanche
++// INCLUSE : elle utilise Aaron, c'est tout ce que la demande dit. Alex
++// décidera lui-même quoi en faire dans son fichier.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { ensureSelfSignupClient } from '@/lib/self-signup-client';
++import { isFounderEmail } from '@/lib/founder';
++import { serverError } from '@/lib/http';
++
++export const dynamic = 'force-dynamic';
++
++function isAuthorized(request: NextRequest) {
++  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
++}
++
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) {
++    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++  }
++
++  const ownCompanyId = (process.env.MEETAARON_OWN_COMPANY_ID || '').trim();
++  if (!ownCompanyId || !(process.env.MEETAARON_OWN_USER_ID || '').trim()) {
++    return NextResponse.json({
++      skipped: true,
++      reason: 'MEETAARON_OWN_COMPANY_ID et/ou MEETAARON_OWN_USER_ID absentes',
++    });
++  }
++
++  try {
++    const { data: companies, error } = await supabaseAdmin
++      .from('companies')
++      .select('id, name, billing_country, stripe_customer_id');
++    if (error) return serverError(error, 'Fichier client — lecture des sociétés');
++
++    let created = 0;
++    let already = 0;
++    let skipped = 0;
++    const problems: string[] = [];
++
++    for (const c of ((companies as any[]) || [])) {
++      if (c.id === ownCompanyId) { skipped += 1; continue; }
++
++      // Le patron, c'est-à-dire la personne qui a souscrit. À défaut, le plus
++      // ancien utilisateur de la société.
++      const { data: users } = await supabaseAdmin
++        .from('users')
++        .select('email, full_name, role, created_at')
++        .eq('company_id', c.id)
++        .order('created_at', { ascending: true });
++      const rows = (users as any[]) || [];
++      const patron = rows.find((u) => u.role === 'patron') || rows[0];
++      if (!patron?.email) { skipped += 1; continue; }
++      if (isFounderEmail(patron.email)) { skipped += 1; continue; }
++
++      try {
++        const res = await ensureSelfSignupClient({
++          email: patron.email,
++          fullName: patron.full_name || null,
++          companyName: c.name || null,
++          country: c.billing_country || null,
++          stripeCustomerId: c.stripe_customer_id || null,
++        });
++        if (res.created) created += 1;
++        else if (res.reason === 'already_known') already += 1;
++        else skipped += 1;
++      } catch (err: any) {
++        problems.push(`${c.id} : ${err?.message}`);
++      }
++    }
++
++    return NextResponse.json({ created, already, skipped, problems });
++  } catch (err: any) {
++    return serverError(err, 'Fichier client — rattrapage');
++  }
++}
+diff --git a/lib/self-signup-client.ts b/lib/self-signup-client.ts
+index 7e5f2ad..be9b20b 100644
+--- a/lib/self-signup-client.ts
++++ b/lib/self-signup-client.ts
+@@ -37,6 +37,7 @@
+ // de l'effet recherche. La fiche est creee, Alex decide ensuite.
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { isFounderEmail } from './founder';
+ 
+ // Domaines grand public : on ne cree jamais de fiche societe rattachee a un
+ // domaine partage, sinon tous les clients en @gmail.com se retrouveraient
+@@ -62,7 +63,7 @@ export interface SelfSignupInput {
+ export interface SelfSignupResult {
+   created: boolean;
+   prospectId?: string;
+-  reason?: 'not_configured' | 'no_email' | 'already_known' | 'error';
++  reason?: 'not_configured' | 'no_email' | 'founder' | 'already_known' | 'error';
+ }
+ 
+ export async function ensureSelfSignupClient(input: SelfSignupInput): Promise<SelfSignupResult> {
+@@ -72,6 +73,12 @@ export async function ensureSelfSignupClient(input: SelfSignupInput): Promise<Se
+ 
+   if (!email) return { created: false, reason: 'no_email' };
+ 
++  // MEET AARON N'EST PAS SON PROPRE CLIENT (Alex, 02/11/2026 : « pourquoi
++  // alexandre.fevre01@gmail.com est encore client ? »). Les comptes
++  // fondateur passent par le meme Checkout que n'importe qui — ils se
++  // retrouvaient donc dans le fichier client, en face d'Alex lui-meme.
++  if (isFounderEmail(email)) return { created: false, reason: 'founder' };
++
+   if (!ownCompanyId || !ownUserId) {
+     if (!warnedMissingConfig) {
+       warnedMissingConfig = true;
+diff --git a/vercel.json b/vercel.json
+index 34e73fe..e5d1b2e 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -124,6 +124,10 @@
+     {
+       "path": "/api/cron/subscription-alerts",
+       "schedule": "40 7 * * *"
++    },
++    {
++      "path": "/api/cron/own-clients-sync",
++      "schedule": "20 4 * * *"
+     }
+   ]
+ }
+-- 
+2.43.0
+
