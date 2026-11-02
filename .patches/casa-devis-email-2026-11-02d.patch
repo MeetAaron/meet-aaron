@@ -1,0 +1,104 @@
+From 396be49f33e1178e73701cfa5c5531065c9c4b15 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 22:34:20 +0000
+Subject: [PATCH] =?UTF-8?q?Un=20interrupteur=20=C2=AB=20pas=20un=20client?=
+ =?UTF-8?q?=20=C2=BB=20:=20l'audit=20n'entre=20pas=20dans=20le=20fichier?=
+ =?UTF-8?q?=20client?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Le rattrapage quotidien ajouté ce matin allait mettre le compte « CASA
+Audit » dans le fichier client de Meet Aaron. Il utilise bien Aaron, mais
+c'est un compte d'audit de sécurité, pas un client — et une fiche
+supprimée à la main aurait été recréée au passage suivant.
+
+Une colonne companies.not_a_client, lue de façon tolérante (si la
+migration n'est pas passée, on relit sans elle au lieu de ne rien faire).
+Open X, la société du père d'Alex, reste incluse : elle utilise vraiment
+Aaron.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/own-clients-sync/route.ts | 29 +++++++++++++++++++++-----
+ migration_pas_un_client_2026-11-02.sql | 20 ++++++++++++++++++
+ 2 files changed, 44 insertions(+), 5 deletions(-)
+ create mode 100644 migration_pas_un_client_2026-11-02.sql
+
+diff --git a/app/api/cron/own-clients-sync/route.ts b/app/api/cron/own-clients-sync/route.ts
+index 35ec192..1815001 100644
+--- a/app/api/cron/own-clients-sync/route.ts
++++ b/app/api/cron/own-clients-sync/route.ts
+@@ -50,18 +50,37 @@ export async function GET(request: NextRequest) {
+   }
+ 
+   try {
+-    const { data: companies, error } = await supabaseAdmin
+-      .from('companies')
+-      .select('id, name, billing_country, stripe_customer_id');
+-    if (error) return serverError(error, 'Fichier client — lecture des sociétés');
++    // `not_a_client` : interrupteur par société (voir
++    // migration_pas_un_client_2026-11-02.sql). Sans lui, une fiche supprimée
++    // à la main serait RECRÉÉE au passage suivant — exactement le cas du
++    // compte « CASA Audit », qui utilise Aaron sans être un client.
++    //
++    // La colonne peut ne pas exister encore (migration pas passée) : dans ce
++    // cas on relit sans elle plutôt que de ne rien faire.
++    let companies: any[] | null = null;
++    {
++      const withFlag = await supabaseAdmin
++        .from('companies')
++        .select('id, name, billing_country, stripe_customer_id, not_a_client');
++      if (withFlag.error) {
++        const plain = await supabaseAdmin
++          .from('companies')
++          .select('id, name, billing_country, stripe_customer_id');
++        if (plain.error) return serverError(plain.error, 'Fichier client — lecture des sociétés');
++        companies = (plain.data as any[]) || [];
++      } else {
++        companies = (withFlag.data as any[]) || [];
++      }
++    }
+ 
+     let created = 0;
+     let already = 0;
+     let skipped = 0;
+     const problems: string[] = [];
+ 
+-    for (const c of ((companies as any[]) || [])) {
++    for (const c of (companies || [])) {
+       if (c.id === ownCompanyId) { skipped += 1; continue; }
++      if (c.not_a_client === true) { skipped += 1; continue; }
+ 
+       // Le patron, c'est-à-dire la personne qui a souscrit. À défaut, le plus
+       // ancien utilisateur de la société.
+diff --git a/migration_pas_un_client_2026-11-02.sql b/migration_pas_un_client_2026-11-02.sql
+new file mode 100644
+index 0000000..3e9d41f
+--- /dev/null
++++ b/migration_pas_un_client_2026-11-02.sql
+@@ -0,0 +1,20 @@
++-- migration_pas_un_client_2026-11-02.sql
++--
++-- « Tous ceux qui utilisent Aaron doivent être dans mon fichier client »
++-- (Alex, 02/11/2026). Vrai, mais pas de tout le monde : le compte « CASA
++-- Audit » existe pour l'audit de sécurité, il utilise Aaron et n'est pas un
++-- client. Sans interrupteur, la fiche supprimée à la main serait recréée au
++-- passage suivant du cron own-clients-sync.
++--
++-- Open X (la société du père d'Alex) reste INCLUSE : elle utilise vraiment
++-- Aaron, et c'est à Alex de décider de son suivi.
++
++ALTER TABLE companies
++  ADD COLUMN IF NOT EXISTS not_a_client boolean NOT NULL DEFAULT false;
++
++COMMENT ON COLUMN companies.not_a_client IS
++  'true = cette société utilise Aaron mais n''est pas un client de Meet Aaron (compte d''audit, bac à sable). Ignorée par le cron own-clients-sync.';
++
++-- Le compte d'audit de sécurité.
++UPDATE companies SET not_a_client = true
++WHERE id = 'eb31b752-6a63-4fb2-8e02-1a23bcb79796';
+-- 
+2.43.0
+
