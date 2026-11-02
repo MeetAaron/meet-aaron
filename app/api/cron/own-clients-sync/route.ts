@@ -50,18 +50,37 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { data: companies, error } = await supabaseAdmin
-      .from('companies')
-      .select('id, name, billing_country, stripe_customer_id');
-    if (error) return serverError(error, 'Fichier client — lecture des sociétés');
+    // `not_a_client` : interrupteur par société (voir
+    // migration_pas_un_client_2026-11-02.sql). Sans lui, une fiche supprimée
+    // à la main serait RECRÉÉE au passage suivant — exactement le cas du
+    // compte « CASA Audit », qui utilise Aaron sans être un client.
+    //
+    // La colonne peut ne pas exister encore (migration pas passée) : dans ce
+    // cas on relit sans elle plutôt que de ne rien faire.
+    let companies: any[] | null = null;
+    {
+      const withFlag = await supabaseAdmin
+        .from('companies')
+        .select('id, name, billing_country, stripe_customer_id, not_a_client');
+      if (withFlag.error) {
+        const plain = await supabaseAdmin
+          .from('companies')
+          .select('id, name, billing_country, stripe_customer_id');
+        if (plain.error) return serverError(plain.error, 'Fichier client — lecture des sociétés');
+        companies = (plain.data as any[]) || [];
+      } else {
+        companies = (withFlag.data as any[]) || [];
+      }
+    }
 
     let created = 0;
     let already = 0;
     let skipped = 0;
     const problems: string[] = [];
 
-    for (const c of ((companies as any[]) || [])) {
+    for (const c of (companies || [])) {
       if (c.id === ownCompanyId) { skipped += 1; continue; }
+      if (c.not_a_client === true) { skipped += 1; continue; }
 
       // Le patron, c'est-à-dire la personne qui a souscrit. À défaut, le plus
       // ancien utilisateur de la société.
