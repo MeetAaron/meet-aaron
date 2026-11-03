@@ -1,0 +1,537 @@
+From eda1fcded99b9635855f64eda8f144e569bc8dec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 07:58:15 +0000
+Subject: [PATCH] =?UTF-8?q?Les=20trois=20boutons=20de=20la=20carte=20campa?=
+ =?UTF-8?q?gne,=20et=20le=20fichier=20complet=20d=C3=A8s=20le=20lancement?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Les boutons d'abord. « Voir les N contacts » mène maintenant à la liste
+Prospects filtrée par campagne (?campagne=<id>), avec un bandeau qui
+nomme la campagne et un lien pour l'enlever. C'était le manque le plus
+criant : on lisait « 23 trouvés, 3 réponses » sans aucun moyen
+d'atteindre ces contacts, et avec deux campagnes en parallèle c'était
+impossible à faire à la main.
+
+« Relancer » rejoue le MÊME ciblage dans une nouvelle campagne — zone,
+secteurs, tailles, note de ciblage, rôle visé, langue — sans repasser
+par le chat. Seul le ciblage est dupliqué : ni les contacts, ni les
+statistiques, ni l'avis d'Aaron. C'est une nouvelle campagne qui
+consomme son propre quota, et l'API refuse si le quota du mois est
+épuisé.
+
+« Voir mes résultats » mène à l'écran Résultats. Pas un bilan PAR
+campagne : cette page n'existe pas, et je préfère un bouton qui dit où
+il va qu'un bouton qui promet un bilan qu'il ne donne pas.
+
+Ensuite, la fenêtre de lancement. Mesuré sur la première campagne d'un
+client : 4,67 $ et 5,05 $ les deux jours avant la pose du verrou de
+stock, puis 0,58 $, 0,88 $ et 0,71 $ les trois jours suivants, à volume
+d'envois identique. Le verrou fait donc exactement son travail — mais il
+étalait aussi la RECHERCHE sur des semaines, alors que trouver et
+contacter sont deux choses différentes : la montée en chauffe de la
+boîte mail doit brider les envois, pas la constitution du fichier.
+
+Pendant 48 h après la création d'une campagne, la recherche ignore donc
+le stock et va jusqu'à l'objectif, par lots de 10 au lieu de 5. Passé ce
+délai, le verrou reprend la main. La fenêtre ne crée aucun budget : le
+plafond mensuel, le plafond dur et le rythme restent au-dessus de tout.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/run-campaigns/route.ts | 55 ++++++++++++++++++-
+ app/api/prospects/route.ts          |  6 ++-
+ app/app/campaigns/page.jsx          | 83 ++++++++++++++++++++++++++++-
+ app/app/prospects/page.jsx          | 73 +++++++++++++++++++++++++
+ lib/i18n.js                         | 49 +++++++++++++++++
+ 5 files changed, 261 insertions(+), 5 deletions(-)
+
+diff --git a/app/api/cron/run-campaigns/route.ts b/app/api/cron/run-campaigns/route.ts
+index 1015cb9..391cc93 100644
+--- a/app/api/cron/run-campaigns/route.ts
++++ b/app/api/cron/run-campaigns/route.ts
+@@ -37,6 +37,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
+     .eq('id', campaignId)
+     .eq('status', 'en_attente');
+ 
++  // La campagne elle-même : sa date de création et son objectif décident de
++  // la fenêtre de lancement plus bas. Lecture tolérante — sans elle, on
++  // retombe simplement sur le comportement d'avant (verrou de stock seul).
++  const { data: campaign } = await supabaseAdmin
++    .from('prospecting_campaigns')
++    .select('created_at, target_count, contacts_found')
++    .eq('id', campaignId)
++    .maybeSingle();
++
+   // Le commercial propriétaire (une campagne = un commercial = une société) :
+   // sert au rythme de consommation ci-dessous. La relecture avant envoi et la
+   // pièce jointe du premier email sont gérées au moment de l'application de
+@@ -101,16 +110,58 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
+   }
+ 
+   const dailyCap = await effectiveProspectingCap(assignedUserId);
+-  const needsMoreCompanies = uncontactedStock < dailyCap;
+ 
++  // ───────────────────────────────────────────────────────────────────────
++  // FENÊTRE DE LANCEMENT (Alex, 30/10/2026 : « si le client lance une
++  // campagne à 300 prospects, tu trouves les 300, tu crées les fiches, dans
++  // la même journée. Et ensuite tu n'en contactes que 40 »).
++  //
++  // Le verrou de stock ci-dessus a fait exactement ce qu'on lui demandait —
++  // mesuré sur la première campagne d'un client : 4,67 $ et 5,05 $ les deux
++  // jours précédant sa pose, puis 0,58 $, 0,88 $ et 0,71 $ les trois jours
++  // suivants, à volume d'envois identique. Environ six fois moins cher.
++  //
++  // Mais il a un effet de bord : il étale aussi la RECHERCHE sur des
++  // semaines, alors qu'Alex veut le fichier complet dès le premier jour.
++  // Trouver et contacter sont deux choses différentes : la montée en chauffe
++  // de la boîte mail doit brider les ENVOIS, pas la constitution du fichier.
++  //
++  // Pendant LAUNCH_WINDOW_HOURS après la création de la campagne, on cherche
++  // donc sans regarder le stock, jusqu'à l'objectif. Passé ce délai, le
++  // verrou de stock reprend la main — c'est lui qui empêche de re-chercher
++  // 144 fois par jour pour rien.
++  //
++  // Ce qui protège quand même : le plafond mensuel et le plafond dur
++  // (lib/anthropic-client) restent au-dessus de tout. La fenêtre de
++  // lancement ne crée aucun budget, elle autorise seulement à le dépenser
++  // plus tôt. Un mois entier de budget consommé le premier jour laisserait
++  // la campagne sans quoi parler à ses prospects : c'est pour ça que le lot
++  // par passage reste petit, et que le rythme (getPacing) continue de
++  // s'appliquer.
++  const LAUNCH_WINDOW_HOURS = 48;
++  const createdAt = campaign?.created_at ? new Date(campaign.created_at).getTime() : null;
++  const inLaunchWindow =
++    createdAt !== null && Date.now() - createdAt < LAUNCH_WINDOW_HOURS * 3600 * 1000;
++  const targetReached =
++    typeof campaign?.target_count === 'number' &&
++    typeof campaign?.contacts_found === 'number' &&
++    campaign.contacts_found >= campaign.target_count;
++
++  const needsMoreCompanies = (inLaunchWindow && !targetReached) || uncontactedStock < dailyCap;
++
++  // Pendant la fenêtre de lancement on va deux fois plus vite par passage,
++  // sans jamais ignorer le rythme : c'est l'étalement qu'on raccourcit, pas
++  // le budget qu'on augmente.
++  const maxPerPass = inLaunchWindow && !targetReached ? 10 : 5;
+   const sourcingBatch = !needsMoreCompanies
+     ? 0
+-    : (pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5);
++    : (pacing ? Math.max(0, Math.min(maxPerPass, pacing.prospectsAllowedToday)) : maxPerPass);
+ 
+   const result = sourcingBatch > 0
+     ? await processCampaignBatch(campaignId, sourcingBatch)
+     : {
+         skipped_sourcing: needsMoreCompanies ? 'pacing' : 'stock_suffisant',
++        in_launch_window: inLaunchWindow,
+         uncontacted_stock: uncontactedStock,
+         daily_cap: dailyCap,
+         daily_target_usd: pacing?.dailyTargetUsd,
+diff --git a/app/api/prospects/route.ts b/app/api/prospects/route.ts
+index 7a13157..d9a1bc8 100644
+--- a/app/api/prospects/route.ts
++++ b/app/api/prospects/route.ts
+@@ -19,7 +19,11 @@ import { runFirstContact, loadFirstContactProspect } from '@/lib/first-contact';
+ import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+-const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at';
++// found_by_campaign_id : ajouté le 03/11/2026 pour que la liste Prospects
++// puisse être filtrée par campagne (bouton « Voir les N contacts » de la
++// carte campagne). Sans lui, impossible de savoir d'où vient un contact
++// quand plusieurs campagnes tournent en parallèle.
++const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at, found_by_campaign_id';
+ const COMPANY_FIELDS_NEWS = `${COMPANY_FIELDS_BASE}, news_signal, news_signal_url, news_signal_at`;
+ const COMPANY_FIELDS_FULL = `${COMPANY_FIELDS_NEWS}, linkedin_url, instagram_url, socials_checked_at, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at`;
+ 
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 01f5505..e8f1360 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -174,6 +174,8 @@ export default function CampaignsPage() {
+   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
+   const [changingStatusFor, setChangingStatusFor] = useState(null);
+   const [confirmEndId, setConfirmEndId] = useState(null);
++  const [relaunchingId, setRelaunchingId] = useState(null);
++  const [relaunchError, setRelaunchError] = useState(null);
+   // Refonte de la carte campagne (03/11/2026, maquette validée par Alex) :
+   // le ciblage est replié sur deux lignes, les actions destructrices sont
+   // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
+@@ -271,6 +273,50 @@ export default function CampaignsPage() {
+   }
+ 
+   // #16 — pause/reprise/fin manuelle d'une campagne.
++  // RELANCER (03/11/2026). Rejoue le MÊME ciblage dans une nouvelle
++  // campagne, sans repasser par le chat. Une campagne terminée a souvent été
++  // réglée finement — zone, secteurs, tailles, note de ciblage, rôle visé,
++  // langue — et tout ressaisir à la main était le meilleur moyen de perdre
++  // ces réglages en route.
++  //
++  // On ne duplique QUE le ciblage : ni les contacts trouvés, ni les
++  // statistiques, ni l'avis d'Aaron. C'est une nouvelle campagne, qui
++  // repart de zéro et consomme son propre quota — l'API refuse d'ailleurs
++  // si le quota du mois est épuisé, et le message passe tel quel.
++  async function relaunchCampaign(c) {
++    setRelaunchingId(c.id);
++    setRelaunchError(null);
++    try {
++      const res = await fetch('/api/campaigns', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          company_id: companyId,
++          assigned_user_id: userId,
++          zone_label: c.zone_label,
++          zone_type: c.zone_type || 'zone',
++          zone_codes: c.zone_codes && c.zone_codes.length ? c.zone_codes : [c.zone_label],
++          sector_keywords: c.sector_keywords || [],
++          company_sizes: c.company_sizes || [],
++          target_count: c.target_count || 20,
++          context_notes: c.context_notes || null,
++          target_role: c.target_role || null,
++          target_locale: c.target_locale || null,
++        }),
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok) {
++        setRelaunchError(body.error || t('campaigns.relaunchFailed', locale));
++        return;
++      }
++      await loadCampaigns();
++    } catch {
++      setRelaunchError(t('campaigns.relaunchFailed', locale));
++    } finally {
++      setRelaunchingId(null);
++    }
++  }
++
+   async function changeCampaignStatus(campaignId, action) {
+     setChangingStatusFor(campaignId);
+     const res = await fetch(`/api/campaigns/${campaignId}`, {
+@@ -481,6 +527,7 @@ export default function CampaignsPage() {
+         />
+       ) : (
+         <div className="cards">
++          {relaunchError && <p className="relaunch-error">{relaunchError}</p>}
+           {campaigns.map((c) => {
+             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
+             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+@@ -656,9 +703,35 @@ export default function CampaignsPage() {
+                 </p>
+ 
+                 <div className="camp-acts">
+-                  <a className="camp-primary" href={`/app/prospects${userId ? `?user_id=${userId}` : ''}`}>
+-                    {t('campaigns.seeProspects', locale)} <Ic name="arrowRight" size={14} />
++                  {/* Le compteur enfin relié au travail réel (03/11/2026) :
++                      la liste Prospects accepte ?campagne=<id>. Avant, on
++                      lisait « 23 trouvés, 3 réponses » sans aucun moyen
++                      d'atteindre ces contacts. */}
++                  <a
++                    className="camp-primary"
++                    href={`/app/prospects?campagne=${c.id}${userId ? `&user_id=${userId}` : ''}`}
++                  >
++                    {isWaiting
++                      ? t('campaigns.seeProspects', locale)
++                      : t('campaigns.seeCampaignContacts', locale).replace('{n}', c.contacts_found || 0)}{' '}
++                    <Ic name="arrowRight" size={14} />
+                   </a>
++                  {isTerminee && (
++                    <>
++                      <a className="camp-manage-btn" href={`/app/resultats${userId ? `?user_id=${userId}` : ''}`}>
++                        <Ic name="chart" size={13} /> {t('campaigns.seeResults', locale)}
++                      </a>
++                      <button
++                        type="button"
++                        className="camp-manage-btn"
++                        disabled={relaunchingId === c.id}
++                        onClick={() => relaunchCampaign(c)}
++                      >
++                        <Ic name="refresh" size={13} />{' '}
++                        {relaunchingId === c.id ? t('campaigns.relaunching', locale) : t('campaigns.relaunch', locale)}
++                      </button>
++                    </>
++                  )}
+                   {!isTerminee && (
+                     <div className="camp-manage">
+                       <button
+@@ -1082,6 +1155,12 @@ export default function CampaignsPage() {
+           border: 1px solid transparent;
+         }
+         .camp-primary:hover { background: var(--accent-light, var(--accent)); }
++        .relaunch-error {
++          grid-column: 1 / -1;
++          margin: 0;
++          color: var(--accent-red);
++          font-size: 0.84rem;
++        }
+         .camp-manage { position: relative; }
+         .camp-manage-btn {
+           display: inline-flex;
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index ee2e09d..bebadf0 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -10,6 +10,7 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+ import Stories from '@/components/Stories';
++import Ic from '@/components/UiIcon';
+ import { frenchTypography } from '@/lib/text-typography';
+ import CsvImportModal from '@/components/CsvImportModal';
+ import ActionMenu from '@/components/ActionMenu';
+@@ -280,6 +281,32 @@ export default function ProspectsPage() {
+   const deepLinkEmailDoneRef = useRef(false);
+   const [search, setSearch] = useState('');
+ 
++  // FILTRE PAR CAMPAGNE (03/11/2026, bouton « Voir les N contacts » de la
++  // carte campagne). Avant, on voyait « 23 trouvés, 3 réponses » sur la
++  // carte sans aucun moyen d'atteindre ces 23 contacts : il fallait les
++  // reconnaître à la main dans la liste, ce qui devient impossible dès que
++  // deux campagnes tournent en parallèle.
++  //
++  // Lu une seule fois à l'ouverture et conservé en état : le commercial peut
++  // le retirer d'un clic sans que l'URL le remette.
++  const [campaignFilter, setCampaignFilter] = useState(null);
++  const [campaignLabel, setCampaignLabel] = useState('');
++  useEffect(() => {
++    if (typeof window === 'undefined') return;
++    const id = new URLSearchParams(window.location.search).get('campagne');
++    if (id) setCampaignFilter(id);
++  }, []);
++  useEffect(() => {
++    if (!campaignFilter || !userId) return;
++    fetch(`/api/campaigns?user_id=${userId}`)
++      .then((r) => (r.ok ? r.json() : null))
++      .then((j) => {
++        const c = (j?.campaigns || []).find((x) => x.id === campaignFilter);
++        if (c) setCampaignLabel((c.sector_keywords || []).join(', ') || c.zone_label || '');
++      })
++      .catch(() => {});
++  }, [campaignFilter, userId]);
++
+   // Le bandeau disparaît tout seul au bout de huit secondes — assez pour
+   // lire une phrase, assez peu pour ne pas encombrer l'écran.
+   useEffect(() => {
+@@ -429,6 +456,10 @@ export default function ProspectsPage() {
+       if (managedFilter === 'me' && p.ai_managed !== false) return false;
+       return true;
+     })
++    .filter(({ p }) => {
++      if (!campaignFilter) return true;
++      return p.prospect_companies?.found_by_campaign_id === campaignFilter;
++    })
+     .filter(({ p }) => {
+       if (!searchTerm) return true;
+       const haystack = [p.full_name, p.email, p.phone, p.job_title, p.prospect_companies?.name].filter(Boolean).join(' ').toLowerCase();
+@@ -682,6 +713,22 @@ export default function ProspectsPage() {
+         })}
+       </div>
+ 
++      {campaignFilter && (
++        <div className="campaign-filter">
++          <span className="campaign-filter-ic"><Ic name="target" size={14} /></span>
++          <span className="campaign-filter-text">
++            {t('prospects.campaignFilter', locale).replace('{name}', campaignLabel || '…')}
++          </span>
++          <button
++            type="button"
++            className="campaign-filter-clear"
++            onClick={() => { setCampaignFilter(null); setCampaignLabel(''); }}
++          >
++            {t('prospects.campaignFilterClear', locale)}
++          </button>
++        </div>
++      )}
++
+       {prospects.length > 0 && (
+         <div className="search-row">
+           <input
+@@ -1081,6 +1128,32 @@ export default function ProspectsPage() {
+         }
+         .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
+         .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
++        .campaign-filter {
++          display: flex;
++          align-items: center;
++          gap: 0.6rem;
++          flex-wrap: wrap;
++          margin-bottom: 0.8rem;
++          padding: 0.6rem 0.9rem;
++          border-radius: var(--radius-md);
++          background: rgba(75, 57, 239, 0.12);
++          border: 1px solid rgba(124, 110, 245, 0.35);
++          font-size: 0.84rem;
++        }
++        .campaign-filter-ic { display: inline-flex; color: var(--accent-light, var(--accent)); }
++        .campaign-filter-text { min-width: 0; }
++        .campaign-filter-clear {
++          margin-left: auto;
++          background: none;
++          border: 0;
++          padding: 0;
++          color: var(--accent-light, var(--accent));
++          font-family: inherit;
++          font-size: 0.8rem;
++          font-weight: 600;
++          cursor: pointer;
++          text-decoration: underline;
++        }
+         .search-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+         .search-input {
+           flex: 1;
+diff --git a/lib/i18n.js b/lib/i18n.js
+index b072a52..357ebb3 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -583,6 +583,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Relire maintenant',
+     'prospects.searchPlaceholder': 'Rechercher un prospect (nom, société, email, téléphone, poste)…',
+     'prospects.clear': 'Effacer',
++    'prospects.campaignFilter': 'Contacts de la campagne « {name} »',
++    'prospects.campaignFilterClear': 'Voir tous mes contacts',
+     'prospects.allFilter': 'Tous ({count})',
+     'prospects.searchResultCount': '{count} résultat(s) pour « {query} »',
+     'prospects.emptyTitle': 'Aucun prospect ici',
+@@ -913,6 +915,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'donnera son avis dès les premiers contacts trouvés.',
+     'campaigns.seeProspects': 'Voir mes prospects',
+     'campaigns.manage': 'Gérer',
++    'campaigns.seeCampaignContacts': 'Voir les {n} contacts',
++    'campaigns.seeResults': 'Voir mes résultats',
++    'campaigns.relaunch': 'Relancer',
++    'campaigns.relaunching': 'Création…',
++    'campaigns.relaunchFailed': 'Impossible de relancer cette campagne.',
+     'campaigns.companiesAnalyzedSuffix': 'entreprises analysées',
+     'campaigns.outcomeWon': 'gagnés',
+     'campaigns.outcomeLost': 'perdus',
+@@ -2981,6 +2988,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Review now',
+     'prospects.searchPlaceholder': 'Search a prospect (name, company, email, phone, job title)…',
+     'prospects.clear': 'Clear',
++    'prospects.campaignFilter': 'Contacts from the “{name}” campaign',
++    'prospects.campaignFilterClear': 'See all my contacts',
+     'prospects.allFilter': 'All ({count})',
+     'prospects.searchResultCount': '{count} result(s) for "{query}"',
+     'prospects.emptyTitle': 'No prospects here',
+@@ -3222,6 +3231,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'will weigh in as soon as the first contacts come through.',
+     'campaigns.seeProspects': 'See my prospects',
+     'campaigns.manage': 'Manage',
++    'campaigns.seeCampaignContacts': 'See the {n} contacts',
++    'campaigns.seeResults': 'See my results',
++    'campaigns.relaunch': 'Run again',
++    'campaigns.relaunching': 'Creating…',
++    'campaigns.relaunchFailed': 'Could not run this campaign again.',
+     'campaigns.companiesAnalyzedSuffix': 'companies analyzed',
+     'campaigns.outcomeWon': 'won',
+     'campaigns.outcomeLost': 'lost',
+@@ -5084,6 +5098,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Jetzt prüfen',
+     'prospects.searchPlaceholder': 'Interessent suchen (Name, Unternehmen, E-Mail, Telefon, Position)…',
+     'prospects.clear': 'Löschen',
++    'prospects.campaignFilter': 'Kontakte aus der Kampagne „{name}“',
++    'prospects.campaignFilterClear': 'Alle Kontakte anzeigen',
+     'prospects.allFilter': 'Alle ({count})',
+     'prospects.searchResultCount': '{count} Ergebnis(se) für „{query}"',
+     'prospects.emptyTitle': 'Keine Interessenten hier',
+@@ -5325,6 +5341,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'meldet sich, sobald die ersten Kontakte da sind.',
+     'campaigns.seeProspects': 'Meine Kontakte ansehen',
+     'campaigns.manage': 'Verwalten',
++    'campaigns.seeCampaignContacts': 'Die {n} Kontakte ansehen',
++    'campaigns.seeResults': 'Meine Ergebnisse ansehen',
++    'campaigns.relaunch': 'Erneut starten',
++    'campaigns.relaunching': 'Wird erstellt…',
++    'campaigns.relaunchFailed': 'Diese Kampagne konnte nicht erneut gestartet werden.',
+     'campaigns.companiesAnalyzedSuffix': 'analysierte Unternehmen',
+     'campaigns.outcomeWon': 'gewonnen',
+     'campaigns.outcomeLost': 'verloren',
+@@ -7187,6 +7208,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Rivedi ora',
+     'prospects.searchPlaceholder': 'Cerca un prospect (nome, azienda, email, telefono, ruolo)…',
+     'prospects.clear': 'Cancella',
++    'prospects.campaignFilter': 'Contatti della campagna « {name} »',
++    'prospects.campaignFilterClear': 'Vedi tutti i contatti',
+     'prospects.allFilter': 'Tutti ({count})',
+     'prospects.searchResultCount': '{count} risultato(i) per "{query}"',
+     'prospects.emptyTitle': 'Nessun prospect qui',
+@@ -7428,6 +7451,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'darà il suo parere non appena arrivano i primi contatti.',
+     'campaigns.seeProspects': 'Vedi i miei contatti',
+     'campaigns.manage': 'Gestisci',
++    'campaigns.seeCampaignContacts': 'Vedi i {n} contatti',
++    'campaigns.seeResults': 'Vedi i miei risultati',
++    'campaigns.relaunch': 'Rilancia',
++    'campaigns.relaunching': 'Creazione…',
++    'campaigns.relaunchFailed': 'Impossibile rilanciare questa campagna.',
+     'campaigns.companiesAnalyzedSuffix': 'aziende analizzate',
+     'campaigns.outcomeWon': 'vinti',
+     'campaigns.outcomeLost': 'persi',
+@@ -9290,6 +9318,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Revisar ahora',
+     'prospects.searchPlaceholder': 'Buscar un prospecto (nombre, empresa, email, teléfono, cargo)…',
+     'prospects.clear': 'Borrar',
++    'prospects.campaignFilter': 'Contactos de la campaña «{name}»',
++    'prospects.campaignFilterClear': 'Ver todos mis contactos',
+     'prospects.allFilter': 'Todos ({count})',
+     'prospects.searchResultCount': '{count} resultado(s) para "{query}"',
+     'prospects.emptyTitle': 'Ningún prospecto aquí',
+@@ -9531,6 +9561,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'opinará en cuanto lleguen los primeros contactos.',
+     'campaigns.seeProspects': 'Ver mis contactos',
+     'campaigns.manage': 'Gestionar',
++    'campaigns.seeCampaignContacts': 'Ver los {n} contactos',
++    'campaigns.seeResults': 'Ver mis resultados',
++    'campaigns.relaunch': 'Relanzar',
++    'campaigns.relaunching': 'Creando…',
++    'campaigns.relaunchFailed': 'No se ha podido relanzar esta campaña.',
+     'campaigns.companiesAnalyzedSuffix': 'empresas analizadas',
+     'campaigns.outcomeWon': 'ganados',
+     'campaigns.outcomeLost': 'perdidos',
+@@ -11393,6 +11428,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Rever agora',
+     'prospects.searchPlaceholder': 'Pesquisar um prospeto (nome, empresa, email, telefone, cargo)…',
+     'prospects.clear': 'Limpar',
++    'prospects.campaignFilter': 'Contactos da campanha «{name}»',
++    'prospects.campaignFilterClear': 'Ver todos os meus contactos',
+     'prospects.allFilter': 'Todos ({count})',
+     'prospects.searchResultCount': '{count} resultado(s) para "{query}"',
+     'prospects.emptyTitle': 'Nenhum prospeto aqui',
+@@ -11634,6 +11671,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'dará a sua opinião assim que chegarem os primeiros contactos.',
+     'campaigns.seeProspects': 'Ver os meus contactos',
+     'campaigns.manage': 'Gerir',
++    'campaigns.seeCampaignContacts': 'Ver os {n} contactos',
++    'campaigns.seeResults': 'Ver os meus resultados',
++    'campaigns.relaunch': 'Relançar',
++    'campaigns.relaunching': 'A criar…',
++    'campaigns.relaunchFailed': 'Não foi possível relançar esta campanha.',
+     'campaigns.companiesAnalyzedSuffix': 'empresas analisadas',
+     'campaigns.outcomeWon': 'ganhos',
+     'campaigns.outcomeLost': 'perdidos',
+@@ -13496,6 +13538,8 @@ export const DICT = {
+     'prospects.reviewNow': 'Nu beoordelen',
+     'prospects.searchPlaceholder': 'Prospect zoeken (naam, bedrijf, e-mail, telefoon, functie)…',
+     'prospects.clear': 'Wissen',
++    'prospects.campaignFilter': 'Contacten uit de campagne “{name}”',
++    'prospects.campaignFilterClear': 'Alle contacten tonen',
+     'prospects.allFilter': 'Alle ({count})',
+     'prospects.searchResultCount': '{count} resultaat/resultaten voor "{query}"',
+     'prospects.emptyTitle': 'Geen prospects hier',
+@@ -13737,6 +13781,11 @@ export const DICT = {
+     'campaigns.adviceWaiting': 'geeft zijn mening zodra de eerste contacten binnen zijn.',
+     'campaigns.seeProspects': 'Mijn contacten bekijken',
+     'campaigns.manage': 'Beheren',
++    'campaigns.seeCampaignContacts': 'De {n} contacten bekijken',
++    'campaigns.seeResults': 'Mijn resultaten bekijken',
++    'campaigns.relaunch': 'Opnieuw starten',
++    'campaigns.relaunching': 'Aanmaken…',
++    'campaigns.relaunchFailed': 'Deze campagne kon niet opnieuw worden gestart.',
+     'campaigns.companiesAnalyzedSuffix': 'bedrijven geanalyseerd',
+     'campaigns.outcomeWon': 'gewonnen',
+     'campaigns.outcomeLost': 'verloren',
+-- 
+2.43.0
+
