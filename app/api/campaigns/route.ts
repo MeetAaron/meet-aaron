@@ -36,7 +36,11 @@ export async function GET(request: NextRequest) {
   // commercial de voir en un coup d'œil comment chaque campagne performe
   // quand plusieurs tournent en même temps, sans avoir à aller dans Prospects.
   const campaignIds = (campaigns || []).map((c) => c.id);
-  const statsByCampaign: Record<string, { won: number; lost: number; active: number }> = {};
+  const statsByCampaign: Record<string, { won: number; lost: number; active: number; contacted: number; replied: number }> = {};
+  // prospect_id -> campagne, pour compter ensuite les contactés et les
+  // répondants (refonte de la carte campagne, 03/11/2026 : « est-ce que ça
+  // marche » ne se lit pas dans « 23 contacts trouvés »).
+  const campaignIdByProspectId: Record<string, string> = {};
 
   if (campaignIds.length > 0) {
     const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
@@ -53,23 +57,72 @@ export async function GET(request: NextRequest) {
     if (companyIds.length > 0) {
       const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
         .from('prospects')
-        .select('prospect_company_id, is_won, is_lost')
+        .select('id, prospect_company_id, is_won, is_lost')
         .in('prospect_company_id', part));
 
       (prospects || []).forEach((p) => {
         const campaignId = campaignIdByCompanyId[p.prospect_company_id];
         if (!campaignId) return;
-        if (!statsByCampaign[campaignId]) statsByCampaign[campaignId] = { won: 0, lost: 0, active: 0 };
+        if (!statsByCampaign[campaignId]) {
+          statsByCampaign[campaignId] = { won: 0, lost: 0, active: 0, contacted: 0, replied: 0 };
+        }
         if (p.is_won) statsByCampaign[campaignId].won++;
         else if (p.is_lost) statsByCampaign[campaignId].lost++;
         else statsByCampaign[campaignId].active++;
+        if (p.id) campaignIdByProspectId[p.id] = campaignId;
       });
+
+      // CONTACTÉS ET RÉPONSES (03/11/2026). Un prospect compte une seule fois,
+      // quel que soit le nombre d'emails échangés — sinon le « taux de
+      // réponse » affiché sur la carte dépasserait 100 %, exactement le bug
+      // du rapport mensuel corrigé la veille.
+      //
+      // Non bloquant : si cette lecture échoue, la carte affiche le reste et
+      // perd seulement deux chiffres.
+      try {
+        const prospectIds = Object.keys(campaignIdByProspectId);
+        if (prospectIds.length > 0) {
+          const { data: conversations } = await selectInChunks(prospectIds, (part) => supabaseAdmin
+            .from('conversations')
+            .select('id, prospect_id')
+            .in('prospect_id', part));
+          const prospectIdByConversationId: Record<string, string> = {};
+          (conversations || []).forEach((cv: any) => {
+            if (cv.prospect_id) prospectIdByConversationId[cv.id] = cv.prospect_id;
+          });
+          const conversationIds = Object.keys(prospectIdByConversationId);
+          if (conversationIds.length > 0) {
+            const { data: messages } = await selectInChunks(conversationIds, (part) => supabaseAdmin
+              .from('messages')
+              .select('conversation_id, direction')
+              .in('conversation_id', part));
+            const contactedProspects = new Set<string>();
+            const repliedProspects = new Set<string>();
+            (messages || []).forEach((m: any) => {
+              const prospectId = prospectIdByConversationId[m.conversation_id];
+              if (!prospectId) return;
+              if (m.direction === 'outbound') contactedProspects.add(prospectId);
+              else if (m.direction === 'inbound') repliedProspects.add(prospectId);
+            });
+            for (const prospectId of contactedProspects) {
+              const campaignId = campaignIdByProspectId[prospectId];
+              if (campaignId && statsByCampaign[campaignId]) statsByCampaign[campaignId].contacted++;
+            }
+            for (const prospectId of repliedProspects) {
+              const campaignId = campaignIdByProspectId[prospectId];
+              if (campaignId && statsByCampaign[campaignId]) statsByCampaign[campaignId].replied++;
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('Contactés/réponses par campagne — lecture impossible (non bloquant):', err?.message || err);
+      }
     }
   }
 
   const campaignsWithStats = (campaigns || []).map((c) => ({
     ...c,
-    stats: statsByCampaign[c.id] || { won: 0, lost: 0, active: 0 },
+    stats: statsByCampaign[c.id] || { won: 0, lost: 0, active: 0, contacted: 0, replied: 0 },
   }));
 
   return NextResponse.json({ campaigns: campaignsWithStats });

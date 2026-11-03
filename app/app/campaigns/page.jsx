@@ -101,6 +101,18 @@ const STATUS_COLORS = {
   en_pause: '#F0914E',
 };
 
+// Titre de la carte campagne (03/11/2026). Le titre disait la ZONE
+// (« Île-de-France »), ce qui ne dit ni ce qu'on prospecte ni pour qui. Il
+// dit maintenant les SECTEURS, et la zone descend d'une ligne. Repli sur la
+// zone quand aucun secteur n'est renseigné — mieux vaut l'ancien titre
+// qu'une carte sans titre.
+function campaignTitle(campaign, locale) {
+  const sectors = (campaign?.sector_keywords || []).filter(Boolean);
+  if (sectors.length === 0) return campaign?.zone_label || '';
+  const joined = sectors.join(', ');
+  return joined.charAt(0).toLocaleUpperCase(locale || 'fr') + joined.slice(1);
+}
+
 function statusLabelsFor(locale) {
   return {
     en_attente: { label: t('campaigns.statusEnAttente', locale), color: STATUS_COLORS.en_attente },
@@ -162,6 +174,11 @@ export default function CampaignsPage() {
   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
   const [changingStatusFor, setChangingStatusFor] = useState(null);
   const [confirmEndId, setConfirmEndId] = useState(null);
+  // Refonte de la carte campagne (03/11/2026, maquette validée par Alex) :
+  // le ciblage est replié sur deux lignes, les actions destructrices sont
+  // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
+  const [briefOpenId, setBriefOpenId] = useState(null);
+  const [manageOpenId, setManageOpenId] = useState(null);
   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : "pas dans Marketing,
   // plutôt dans Campagnes" — 3e onglet ici, même composant CsvImportModal
   // que Prospects/Sales/Customer mais avec context="reactivation" (voir ce
@@ -468,6 +485,14 @@ export default function CampaignsPage() {
             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
             const isTerminee = c.status === 'terminee';
+            const contacted = c.stats?.contacted || 0;
+            const replied = c.stats?.replied || 0;
+            const replyRate = contacted > 0 ? Math.round((replied / contacted) * 100) : null;
+            const opportunities = (c.stats?.won || 0) + (c.stats?.active || 0);
+            // « En attente » au sens de la carte : rien n'a encore été trouvé.
+            // Afficher 0/50, une barre vide et 0 % donne à une campagne saine
+            // l'air d'être cassée.
+            const isWaiting = !isTerminee && (c.contacts_found || 0) === 0;
             return (
               <div className={`card${isTerminee ? ' card-done' : ' card-live'}`} key={c.id}>
                 {/* Refonte 04/09/2026 (« la page manque de force, elle est
@@ -477,17 +502,46 @@ export default function CampaignsPage() {
                     l'ancienne page les traitait exactement pareil, d'où
                     l'impression de liste plate. */}
                 <div className="card-inner">
-                <div className="card-top">
-                  <div>
-                    <h3>{c.zone_label}</h3>
-                    <p className="muted">{c.sector_keywords?.join(', ')}</p>
-                    {c.company_sizes?.length > 0 && (
-                      <p className="muted">
-                        {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
-                        {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
-                      </p>
-                    )}
-                    {c.context_notes && <p className="context-notes"><Ic name="message" /> {c.context_notes}</p>}
+                {/* Refonte 03/11/2026 (maquette validée). Ce qu'une carte doit
+                    dire en trois secondes : où en est la campagne, est-ce que
+                    ça marche, et qu'est-ce que je fais maintenant.
+
+                    Ce qui a changé, et pourquoi :
+                      - le titre dit CE QU'ON PROSPECTE (les secteurs), la zone
+                        descend en sous-ligne. « Île-de-France » seul ne disait
+                        ni quoi ni pour qui ;
+                      - le ciblage est replié sur deux lignes : c'était un
+                        troisième paragraphe gris du même corps que les autres,
+                        l'œil n'accrochait nulle part ;
+                      - une campagne qui vient de naître n'affiche plus quatre
+                        zéros (0/50, barre vide, 0 %, 0 entreprises) : elle dit
+                        ce qu'Aaron fait et quand revenir ;
+                      - l'entonnoir contactés → réponses → gagnés répond à
+                        « est-ce que ça marche », ce que « 23 contacts trouvés »
+                        ne disait pas ;
+                      - Pause et Terminer passent derrière « Gérer ». C'étaient
+                        les deux seules actions de la carte, dont une rouge. */}
+                <div className="camp-head">
+                  <div className="camp-id">
+                    <h3>{campaignTitle(c, locale)}</h3>
+                    <p className="camp-meta">
+                      {/* Icône et libellé dans le MÊME élément : séparés, le
+                          retour à la ligne laissait l'icône seule en fin de
+                          ligne et son texte en dessous (vu au rendu à 430px). */}
+                      {c.zone_label && (
+                        <span className="meta-bit"><Ic name="map" size={13} /> {c.zone_label}</span>
+                      )}
+                      {c.company_sizes?.length > 0 && (
+                        <>
+                          {c.zone_label && <span className="sep">·</span>}
+                          <span className="meta-bit">
+                            <Ic name="city" size={13} />{' '}
+                            {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
+                            {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
+                          </span>
+                        </>
+                      )}
+                    </p>
                   </div>
                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
                     {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
@@ -495,86 +549,153 @@ export default function CampaignsPage() {
                   </span>
                 </div>
 
-                {/* La progression porte un chiffre lisible à sa droite : une
-                    barre seule oblige à estimer à l'œil. */}
-                <div className="progress-head">
-                  <span>{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
-                  <span className="progress-pct">{progress} %</span>
-                </div>
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${progress}%` }} />
-                </div>
-                <p className="muted card-bottom-note">{c.companies_found} {t('campaigns.companiesAnalyzedSuffix', locale)}</p>
-
-                {(c.stats?.won > 0 || c.stats?.lost > 0 || c.stats?.active > 0) && (
-                  <div className="campaign-outcome">
-                    <div className="outcome-cell">
-                      <span className="outcome-num num-active">{c.stats.active}</span>
-                      <span className="outcome-lbl">{t('campaigns.outcomeActive', locale)}</span>
-                    </div>
-                    <div className="outcome-cell">
-                      <span className="outcome-num num-won">{c.stats.won}</span>
-                      <span className="outcome-lbl">{t('campaigns.outcomeWon', locale)}</span>
-                    </div>
-                    <div className="outcome-cell">
-                      <span className="outcome-num num-lost">{c.stats.lost}</span>
-                      <span className="outcome-lbl">{t('campaigns.outcomeLost', locale)}</span>
-                    </div>
+                {c.context_notes && (
+                  <div className="camp-brief">
+                    <Ic name="message" size={13} />
+                    <span className={briefOpenId === c.id ? 'brief-text' : 'brief-text clamp2'}>{c.context_notes}</span>
+                    <button
+                      type="button"
+                      className="brief-more"
+                      onClick={() => setBriefOpenId(briefOpenId === c.id ? null : c.id)}
+                    >
+                      {briefOpenId === c.id ? t('campaigns.briefLess', locale) : t('campaigns.briefMore', locale)}
+                      <Ic name={briefOpenId === c.id ? 'chevronUp' : 'chevronDown'} size={12} />
+                    </button>
                   </div>
                 )}
 
-                <div className="advice-box">
-                  <p className="advice-label"><Ic name="bot" /> {t('campaigns.adviceTitle', locale)}</p>
-                  {c.advice ? (
+                <div className="camp-pipe">
+                  {isWaiting ? (
+                    <div className="camp-waiting">
+                      <span className="camp-halo" aria-hidden="true"><Ic name="target" size={16} /></span>
+                      <div>
+                        <p className="camp-wt">{t('campaigns.waitingTitle', locale)}</p>
+                        <p className="camp-wd">{t('campaigns.waitingBody', locale)}</p>
+                        <p className="camp-wg">
+                          <Ic name="clock" size={12} /> {t('campaigns.waitingGoal', locale).replace('{n}', c.target_count)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
                     <>
-                      <p className="advice-text">{frenchTypography(c.advice)}</p>
+                      <div className="camp-big">
+                        {isTerminee ? (
+                          <>
+                            <span className="camp-n">{opportunities}</span>
+                            <span className="camp-lbl">
+                              {t('campaigns.bigOpportunities', locale).replace('{n}', c.contacts_found)}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="camp-n">{c.contacts_found}</span>
+                            <span className="camp-of">/ {c.target_count}</span>
+                            <span className="camp-lbl">{t('campaigns.contactsFoundSuffix', locale)}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="camp-track">
+                        <div className="camp-fill" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="camp-funnel">
+                        <div className="camp-cell">
+                          <span className="camp-v blue">{contacted}</span>
+                          <span className="camp-k"><Ic name="mail" size={12} /> {t('campaigns.funnelContacted', locale)}</span>
+                        </div>
+                        <div className="camp-cell">
+                          <span className="camp-v green">
+                            {replied}
+                            {replyRate !== null && <span className="camp-rate">{replyRate} %</span>}
+                          </span>
+                          <span className="camp-k"><Ic name="userCheck" size={12} /> {t('campaigns.funnelReplied', locale)}</span>
+                        </div>
+                        <div className="camp-cell">
+                          <span className={`camp-v ${c.stats?.won > 0 ? 'green' : 'amber'}`}>{c.stats?.won || 0}</span>
+                          <span className="camp-k">
+                            <Ic name="trophy" size={12} /> {t('campaigns.outcomeWon', locale)}
+                            {c.stats?.lost > 0 && ` · ${c.stats.lost} ${t('campaigns.outcomeLost', locale)}`}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* L'avis d'Aaron redevient une ligne de conversation. En
+                    capitales sur fond séparé, il avait le poids d'une section
+                    alors qu'il tient en une phrase. */}
+                <p className="camp-aaron">
+                  <Ic name="bot" size={14} />
+                  <span>
+                    <span className="camp-who">Aaron{c.advice ? ' :' : ''}</span>{' '}
+                    {c.advice ? (
+                      <>
+                        {frenchTypography(c.advice)}{' '}
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={generatingAdviceFor === c.id}
+                          onClick={() => generateAdvice(c.id)}
+                        >
+                          {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
+                        </button>
+                      </>
+                    ) : isWaiting ? (
+                      <span className="camp-soft">{t('campaigns.adviceWaiting', locale)}</span>
+                    ) : (
                       <button
                         type="button"
                         className="link-btn"
                         disabled={generatingAdviceFor === c.id}
                         onClick={() => generateAdvice(c.id)}
                       >
-                        {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="link-btn"
-                      disabled={generatingAdviceFor === c.id}
-                      onClick={() => generateAdvice(c.id)}
-                    >
-                      {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
-                    </button>
-                  )}
-                </div>
-
-                {!isTerminee && (
-                  <div className="status-actions">
-                    {c.status === 'en_pause' ? (
-                      <button
-                        type="button"
-                        className="status-btn"
-                        disabled={changingStatusFor === c.id}
-                        onClick={() => changeCampaignStatus(c.id, 'reprendre')}
-                      >
-                        <Ic name="play" size={13} /> {t('campaigns.resumeCampaign', locale)}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="status-btn"
-                        disabled={changingStatusFor === c.id}
-                        onClick={() => changeCampaignStatus(c.id, 'pause')}
-                      >
-                        <Ic name="pause" size={13} /> {t('campaigns.pauseCampaign', locale)}
+                        {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
                       </button>
                     )}
-                    <button type="button" className="status-btn danger" onClick={() => setConfirmEndId(c.id)}>
-                      <Ic name="stop" size={12} /> {t('campaigns.endCampaign', locale)}
-                    </button>
-                  </div>
-                )}
+                  </span>
+                </p>
+
+                <div className="camp-acts">
+                  <a className="camp-primary" href={`/app/prospects${userId ? `?user_id=${userId}` : ''}`}>
+                    {t('campaigns.seeProspects', locale)} <Ic name="arrowRight" size={14} />
+                  </a>
+                  {!isTerminee && (
+                    <div className="camp-manage">
+                      <button
+                        type="button"
+                        className="camp-manage-btn"
+                        aria-expanded={manageOpenId === c.id}
+                        onClick={() => setManageOpenId(manageOpenId === c.id ? null : c.id)}
+                      >
+                        {t('campaigns.manage', locale)} <Ic name="chevronDown" size={12} />
+                      </button>
+                      {manageOpenId === c.id && (
+                        <div className="camp-menu" role="menu">
+                          <button
+                            type="button"
+                            className="camp-menu-it"
+                            disabled={changingStatusFor === c.id}
+                            onClick={() => {
+                              setManageOpenId(null);
+                              changeCampaignStatus(c.id, c.status === 'en_pause' ? 'reprendre' : 'pause');
+                            }}
+                          >
+                            <Ic name={c.status === 'en_pause' ? 'play' : 'pause'} size={13} />{' '}
+                            {c.status === 'en_pause' ? t('campaigns.resumeCampaign', locale) : t('campaigns.pauseCampaign', locale)}
+                          </button>
+                          <div className="camp-menu-rule" />
+                          <button
+                            type="button"
+                            className="camp-menu-it danger"
+                            onClick={() => { setManageOpenId(null); setConfirmEndId(c.id); }}
+                          >
+                            <Ic name="stop" size={12} /> {t('campaigns.endCampaign', locale)}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <SavedFlash when={savedKey === c.id} locale={locale} />
                 </div>
               </div>
@@ -734,9 +855,12 @@ export default function CampaignsPage() {
           font-weight: 600;
           cursor: pointer;
         }
+        /* auto-fit et non auto-fill (03/11/2026) : avec auto-fill, une
+           campagne seule gardait des colonnes fantômes à sa droite et
+           flottait dans une page vide. */
         .cards {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
           gap: 1rem;
         }
         /* Refonte campagnes (04/09/2026). Une campagne EN COURS porte un
@@ -757,12 +881,274 @@ export default function CampaignsPage() {
         .card-done .card-inner {
           opacity: 0.78;
         }
+        .card {
+          container-type: inline-size;
+          min-width: 0;
+        }
         .card-inner {
           background: var(--bg-elevated, var(--surface));
           border-radius: var(--radius-lg);
-          padding: 1.2rem;
+          padding: 1.15rem 1.2rem 1.1rem;
           height: 100%;
           box-sizing: border-box;
+          display: grid;
+          gap: 0.95rem;
+          align-content: start;
+          min-width: 0;
+        }
+
+        /* ---- Carte campagne, refonte du 03/11/2026 (maquette validée) ---- */
+        .camp-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 0.8rem;
+        }
+        .camp-id { min-width: 0; }
+        .camp-head h3 {
+          margin: 0 0 0.3rem;
+          font-family: var(--font-display);
+          font-size: 1.12rem;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+        .camp-meta {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.25rem 0.5rem;
+          font-size: 0.8rem;
+          color: var(--muted);
+          margin: 0;
+        }
+        .camp-meta .sep { opacity: 0.5; }
+        .meta-bit { display: inline-flex; align-items: center; gap: 0.3rem; min-width: 0; }
+        .camp-brief {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 0.2rem 0.45rem;
+          font-size: 0.8rem;
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .brief-text { min-width: 0; }
+        .clamp2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .brief-more {
+          grid-column: 2;
+          justify-self: start;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          background: none;
+          border: 0;
+          padding: 0;
+          font-family: inherit;
+          font-size: 0.76rem;
+          color: var(--accent-light, var(--accent));
+          cursor: pointer;
+        }
+        /* Le bloc « où on en est » : c'est lui qu'on regarde en premier. */
+        .camp-pipe {
+          background: var(--surface);
+          border: 1px solid var(--border-soft, var(--border));
+          border-radius: var(--radius-md);
+          padding: 0.9rem 1rem;
+          display: grid;
+          gap: 0.75rem;
+        }
+        .camp-big {
+          display: flex;
+          align-items: baseline;
+          gap: 0.45rem;
+          flex-wrap: wrap;
+        }
+        .camp-n {
+          font-family: var(--font-mono);
+          font-size: 1.9rem;
+          line-height: 1;
+          font-variant-numeric: tabular-nums;
+        }
+        .camp-of {
+          font-family: var(--font-mono);
+          color: var(--muted);
+          font-size: 1rem;
+        }
+        .camp-lbl { font-size: 0.82rem; color: var(--muted); }
+        .camp-track {
+          height: 6px;
+          background: var(--surface-hover, var(--border));
+          border-radius: 999px;
+          overflow: hidden;
+        }
+        .camp-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, var(--accent), #c93f8c);
+          transition: width var(--normal);
+        }
+        .card-done .camp-fill { background: var(--accent-green); }
+        .camp-funnel {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.5rem;
+        }
+        .camp-cell { display: grid; gap: 2px; min-width: 0; }
+        .camp-v {
+          font-family: var(--font-mono);
+          font-size: 1.1rem;
+          line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+        }
+        .camp-v.blue { color: #3d8fe8; }
+        .camp-v.green { color: var(--accent-green); }
+        .camp-v.amber { color: var(--accent-amber, #f5a623); }
+        .camp-rate {
+          font-size: 0.72rem;
+          color: var(--accent-green);
+          margin-left: 0.25rem;
+        }
+        .camp-k {
+          font-size: 0.7rem;
+          color: var(--muted);
+          display: flex;
+          align-items: center;
+          gap: 0.3rem;
+          min-width: 0;
+        }
+        /* En attente : ni barre ni pourcentage à zéro. On dit ce qu'Aaron
+           fait et quand revenir. */
+        .camp-waiting {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 0.75rem;
+          align-items: start;
+        }
+        .camp-halo {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          display: grid;
+          place-items: center;
+          color: var(--accent-light, var(--accent));
+          background: rgba(75, 57, 239, 0.14);
+          border: 1px solid rgba(124, 110, 245, 0.35);
+        }
+        .camp-wt { margin: 0; font-weight: 600; font-size: 0.9rem; }
+        .camp-wd { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+        .camp-wg {
+          margin: 0.5rem 0 0;
+          font-size: 0.76rem;
+          color: var(--muted);
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .camp-aaron {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 0.5rem;
+          align-items: start;
+          font-size: 0.82rem;
+          line-height: 1.45;
+          margin: 0;
+        }
+        .camp-aaron :global(svg) { margin-top: 0.2em; color: var(--accent-light, var(--accent)); }
+        .camp-who { color: var(--accent-light, var(--accent)); font-weight: 600; }
+        .camp-soft { color: var(--muted); }
+        .camp-acts {
+          display: flex;
+          gap: 0.5rem;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .camp-primary {
+          flex: 1 1 auto;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.45rem;
+          border-radius: var(--radius-md);
+          padding: 0.62rem 1rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          background: var(--accent);
+          color: #fff;
+          text-decoration: none;
+          border: 1px solid transparent;
+        }
+        .camp-primary:hover { background: var(--accent-light, var(--accent)); }
+        .camp-manage { position: relative; }
+        .camp-manage-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          border-radius: var(--radius-md);
+          padding: 0.62rem 0.9rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          font-family: inherit;
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .camp-manage-btn:hover { border-color: var(--accent); color: var(--text); }
+        .camp-menu {
+          position: absolute;
+          right: 0;
+          bottom: calc(100% + 6px);
+          z-index: 20;
+          width: 232px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          padding: 0.35rem;
+          box-shadow: var(--shadow-md);
+          display: grid;
+          gap: 2px;
+        }
+        .camp-menu-it {
+          display: flex;
+          align-items: center;
+          gap: 0.55rem;
+          width: 100%;
+          padding: 0.5rem 0.65rem;
+          border: 0;
+          border-radius: var(--radius-sm);
+          background: none;
+          color: var(--text);
+          font-family: inherit;
+          font-size: 0.84rem;
+          text-align: left;
+          cursor: pointer;
+        }
+        .camp-menu-it:hover { background: var(--surface-hover, var(--border)); }
+        .camp-menu-it.danger { color: var(--accent-red); }
+        .camp-menu-it:disabled { opacity: 0.5; cursor: not-allowed; }
+        .camp-menu-rule { height: 1px; background: var(--border); margin: 0.2rem 0.3rem; }
+        /* Carte large : identité à gauche, résultats à droite. La requête
+           porte sur la CARTE, pas sur la fenêtre — une carte seule sur un
+           grand écran se réorganise, trois cartes côte à côte non. */
+        @container (min-width: 560px) {
+          .card-inner {
+            grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+            grid-template-areas:
+              'head pipe'
+              'brief pipe'
+              'aaron pipe'
+              'acts pipe';
+            column-gap: 1.6rem;
+          }
+          .camp-head { grid-area: head; }
+          .camp-brief { grid-area: brief; }
+          .camp-pipe { grid-area: pipe; align-self: stretch; }
+          .camp-aaron { grid-area: aaron; align-self: end; }
+          .camp-acts { grid-area: acts; align-self: end; }
         }
         .card-top {
           display: flex;
