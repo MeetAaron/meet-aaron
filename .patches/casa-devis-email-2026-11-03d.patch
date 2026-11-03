@@ -1,0 +1,896 @@
+From 6f5e9fda20c85d0d1efa72483ee91c3ec2c98c86 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 01:00:52 +0000
+Subject: [PATCH] La carte campagne, revue : ce qu'elle doit dire en trois
+ secondes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Transposition de la maquette validée. Une carte doit répondre à trois
+questions : où en est la campagne, est-ce que ça marche, qu'est-ce que je
+fais maintenant. L'ancienne n'en traitait aucune proprement.
+
+Le titre disait la ZONE. « Île-de-France » ne dit ni ce qu'on prospecte
+ni pour qui : il dit maintenant les secteurs, la zone descend en
+sous-ligne avec les tailles d'entreprise.
+
+Le ciblage était un troisième paragraphe gris du même corps que les deux
+autres, et l'œil n'accrochait nulle part. Il est replié sur deux lignes,
+dépliable d'un clic.
+
+Une campagne qui venait de naître affichait quatre zéros — 0/50, barre
+vide, 0 %, 0 entreprises analysées — et avait l'air cassée alors qu'elle
+allait très bien. Elle dit maintenant ce qu'Aaron fait et quand revenir,
+avec l'objectif en toutes lettres.
+
+« 23 contacts trouvés » ne dit pas si ça marche. Un entonnoir contactés →
+réponses → gagnés le dit, avec le taux de réponse à côté du chiffre. Deux
+compteurs de plus côté API, comptés par PROSPECT et non par message :
+sinon le taux dépasserait 100 %, exactement le bug du rapport mensuel
+corrigé hier.
+
+Les deux seules actions de la carte étaient Pause et Terminer, dont une
+rouge, sur une campagne qui venait de démarrer. Elles passent derrière
+« Gérer ».
+
+Enfin la grille passe de auto-fill à auto-fit : une campagne seule ne
+flotte plus à côté de colonnes fantômes, et au-delà de 560px de large la
+carte se réorganise en deux colonnes via une requête de conteneur.
+
+Rendu vérifié à 1440 et 430px.
+
+Ce que la maquette propose et qui n'a pas de destination : « Voir les N
+contacts » filtrés par campagne, « Voir le bilan » et « Relancer ». Le
+bouton principal mène pour l'instant à la liste complète des prospects.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/campaigns/route.ts |  61 ++++-
+ app/app/campaigns/page.jsx | 540 +++++++++++++++++++++++++++++++------
+ lib/i18n.js                |  77 ++++++
+ 3 files changed, 597 insertions(+), 81 deletions(-)
+
+diff --git a/app/api/campaigns/route.ts b/app/api/campaigns/route.ts
+index fc3aa4e..190b8e8 100644
+--- a/app/api/campaigns/route.ts
++++ b/app/api/campaigns/route.ts
+@@ -36,7 +36,11 @@ export async function GET(request: NextRequest) {
+   // commercial de voir en un coup d'œil comment chaque campagne performe
+   // quand plusieurs tournent en même temps, sans avoir à aller dans Prospects.
+   const campaignIds = (campaigns || []).map((c) => c.id);
+-  const statsByCampaign: Record<string, { won: number; lost: number; active: number }> = {};
++  const statsByCampaign: Record<string, { won: number; lost: number; active: number; contacted: number; replied: number }> = {};
++  // prospect_id -> campagne, pour compter ensuite les contactés et les
++  // répondants (refonte de la carte campagne, 03/11/2026 : « est-ce que ça
++  // marche » ne se lit pas dans « 23 contacts trouvés »).
++  const campaignIdByProspectId: Record<string, string> = {};
+ 
+   if (campaignIds.length > 0) {
+     const { data: companies } = await selectInChunks(campaignIds, (part) => supabaseAdmin
+@@ -53,23 +57,72 @@ export async function GET(request: NextRequest) {
+     if (companyIds.length > 0) {
+       const { data: prospects } = await selectInChunks(companyIds, (part) => supabaseAdmin
+         .from('prospects')
+-        .select('prospect_company_id, is_won, is_lost')
++        .select('id, prospect_company_id, is_won, is_lost')
+         .in('prospect_company_id', part));
+ 
+       (prospects || []).forEach((p) => {
+         const campaignId = campaignIdByCompanyId[p.prospect_company_id];
+         if (!campaignId) return;
+-        if (!statsByCampaign[campaignId]) statsByCampaign[campaignId] = { won: 0, lost: 0, active: 0 };
++        if (!statsByCampaign[campaignId]) {
++          statsByCampaign[campaignId] = { won: 0, lost: 0, active: 0, contacted: 0, replied: 0 };
++        }
+         if (p.is_won) statsByCampaign[campaignId].won++;
+         else if (p.is_lost) statsByCampaign[campaignId].lost++;
+         else statsByCampaign[campaignId].active++;
++        if (p.id) campaignIdByProspectId[p.id] = campaignId;
+       });
++
++      // CONTACTÉS ET RÉPONSES (03/11/2026). Un prospect compte une seule fois,
++      // quel que soit le nombre d'emails échangés — sinon le « taux de
++      // réponse » affiché sur la carte dépasserait 100 %, exactement le bug
++      // du rapport mensuel corrigé la veille.
++      //
++      // Non bloquant : si cette lecture échoue, la carte affiche le reste et
++      // perd seulement deux chiffres.
++      try {
++        const prospectIds = Object.keys(campaignIdByProspectId);
++        if (prospectIds.length > 0) {
++          const { data: conversations } = await selectInChunks(prospectIds, (part) => supabaseAdmin
++            .from('conversations')
++            .select('id, prospect_id')
++            .in('prospect_id', part));
++          const prospectIdByConversationId: Record<string, string> = {};
++          (conversations || []).forEach((cv: any) => {
++            if (cv.prospect_id) prospectIdByConversationId[cv.id] = cv.prospect_id;
++          });
++          const conversationIds = Object.keys(prospectIdByConversationId);
++          if (conversationIds.length > 0) {
++            const { data: messages } = await selectInChunks(conversationIds, (part) => supabaseAdmin
++              .from('messages')
++              .select('conversation_id, direction')
++              .in('conversation_id', part));
++            const contactedProspects = new Set<string>();
++            const repliedProspects = new Set<string>();
++            (messages || []).forEach((m: any) => {
++              const prospectId = prospectIdByConversationId[m.conversation_id];
++              if (!prospectId) return;
++              if (m.direction === 'outbound') contactedProspects.add(prospectId);
++              else if (m.direction === 'inbound') repliedProspects.add(prospectId);
++            });
++            for (const prospectId of contactedProspects) {
++              const campaignId = campaignIdByProspectId[prospectId];
++              if (campaignId && statsByCampaign[campaignId]) statsByCampaign[campaignId].contacted++;
++            }
++            for (const prospectId of repliedProspects) {
++              const campaignId = campaignIdByProspectId[prospectId];
++              if (campaignId && statsByCampaign[campaignId]) statsByCampaign[campaignId].replied++;
++            }
++          }
++        }
++      } catch (err: any) {
++        console.error('Contactés/réponses par campagne — lecture impossible (non bloquant):', err?.message || err);
++      }
+     }
+   }
+ 
+   const campaignsWithStats = (campaigns || []).map((c) => ({
+     ...c,
+-    stats: statsByCampaign[c.id] || { won: 0, lost: 0, active: 0 },
++    stats: statsByCampaign[c.id] || { won: 0, lost: 0, active: 0, contacted: 0, replied: 0 },
+   }));
+ 
+   return NextResponse.json({ campaigns: campaignsWithStats });
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index b6e1418..01f5505 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -101,6 +101,18 @@ const STATUS_COLORS = {
+   en_pause: '#F0914E',
+ };
+ 
++// Titre de la carte campagne (03/11/2026). Le titre disait la ZONE
++// (« Île-de-France »), ce qui ne dit ni ce qu'on prospecte ni pour qui. Il
++// dit maintenant les SECTEURS, et la zone descend d'une ligne. Repli sur la
++// zone quand aucun secteur n'est renseigné — mieux vaut l'ancien titre
++// qu'une carte sans titre.
++function campaignTitle(campaign, locale) {
++  const sectors = (campaign?.sector_keywords || []).filter(Boolean);
++  if (sectors.length === 0) return campaign?.zone_label || '';
++  const joined = sectors.join(', ');
++  return joined.charAt(0).toLocaleUpperCase(locale || 'fr') + joined.slice(1);
++}
++
+ function statusLabelsFor(locale) {
+   return {
+     en_attente: { label: t('campaigns.statusEnAttente', locale), color: STATUS_COLORS.en_attente },
+@@ -162,6 +174,11 @@ export default function CampaignsPage() {
+   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
+   const [changingStatusFor, setChangingStatusFor] = useState(null);
+   const [confirmEndId, setConfirmEndId] = useState(null);
++  // Refonte de la carte campagne (03/11/2026, maquette validée par Alex) :
++  // le ciblage est replié sur deux lignes, les actions destructrices sont
++  // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
++  const [briefOpenId, setBriefOpenId] = useState(null);
++  const [manageOpenId, setManageOpenId] = useState(null);
+   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : "pas dans Marketing,
+   // plutôt dans Campagnes" — 3e onglet ici, même composant CsvImportModal
+   // que Prospects/Sales/Customer mais avec context="reactivation" (voir ce
+@@ -468,6 +485,14 @@ export default function CampaignsPage() {
+             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
+             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+             const isTerminee = c.status === 'terminee';
++            const contacted = c.stats?.contacted || 0;
++            const replied = c.stats?.replied || 0;
++            const replyRate = contacted > 0 ? Math.round((replied / contacted) * 100) : null;
++            const opportunities = (c.stats?.won || 0) + (c.stats?.active || 0);
++            // « En attente » au sens de la carte : rien n'a encore été trouvé.
++            // Afficher 0/50, une barre vide et 0 % donne à une campagne saine
++            // l'air d'être cassée.
++            const isWaiting = !isTerminee && (c.contacts_found || 0) === 0;
+             return (
+               <div className={`card${isTerminee ? ' card-done' : ' card-live'}`} key={c.id}>
+                 {/* Refonte 04/09/2026 (« la page manque de force, elle est
+@@ -477,17 +502,46 @@ export default function CampaignsPage() {
+                     l'ancienne page les traitait exactement pareil, d'où
+                     l'impression de liste plate. */}
+                 <div className="card-inner">
+-                <div className="card-top">
+-                  <div>
+-                    <h3>{c.zone_label}</h3>
+-                    <p className="muted">{c.sector_keywords?.join(', ')}</p>
+-                    {c.company_sizes?.length > 0 && (
+-                      <p className="muted">
+-                        {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
+-                        {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
+-                      </p>
+-                    )}
+-                    {c.context_notes && <p className="context-notes"><Ic name="message" /> {c.context_notes}</p>}
++                {/* Refonte 03/11/2026 (maquette validée). Ce qu'une carte doit
++                    dire en trois secondes : où en est la campagne, est-ce que
++                    ça marche, et qu'est-ce que je fais maintenant.
++
++                    Ce qui a changé, et pourquoi :
++                      - le titre dit CE QU'ON PROSPECTE (les secteurs), la zone
++                        descend en sous-ligne. « Île-de-France » seul ne disait
++                        ni quoi ni pour qui ;
++                      - le ciblage est replié sur deux lignes : c'était un
++                        troisième paragraphe gris du même corps que les autres,
++                        l'œil n'accrochait nulle part ;
++                      - une campagne qui vient de naître n'affiche plus quatre
++                        zéros (0/50, barre vide, 0 %, 0 entreprises) : elle dit
++                        ce qu'Aaron fait et quand revenir ;
++                      - l'entonnoir contactés → réponses → gagnés répond à
++                        « est-ce que ça marche », ce que « 23 contacts trouvés »
++                        ne disait pas ;
++                      - Pause et Terminer passent derrière « Gérer ». C'étaient
++                        les deux seules actions de la carte, dont une rouge. */}
++                <div className="camp-head">
++                  <div className="camp-id">
++                    <h3>{campaignTitle(c, locale)}</h3>
++                    <p className="camp-meta">
++                      {/* Icône et libellé dans le MÊME élément : séparés, le
++                          retour à la ligne laissait l'icône seule en fin de
++                          ligne et son texte en dessous (vu au rendu à 430px). */}
++                      {c.zone_label && (
++                        <span className="meta-bit"><Ic name="map" size={13} /> {c.zone_label}</span>
++                      )}
++                      {c.company_sizes?.length > 0 && (
++                        <>
++                          {c.zone_label && <span className="sep">·</span>}
++                          <span className="meta-bit">
++                            <Ic name="city" size={13} />{' '}
++                            {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
++                            {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
++                          </span>
++                        </>
++                      )}
++                    </p>
+                   </div>
+                   <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
+                     {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
+@@ -495,86 +549,153 @@ export default function CampaignsPage() {
+                   </span>
+                 </div>
+ 
+-                {/* La progression porte un chiffre lisible à sa droite : une
+-                    barre seule oblige à estimer à l'œil. */}
+-                <div className="progress-head">
+-                  <span>{c.contacts_found} / {c.target_count} {t('campaigns.contactsFoundSuffix', locale)}</span>
+-                  <span className="progress-pct">{progress} %</span>
+-                </div>
+-                <div className="progress-track">
+-                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+-                </div>
+-                <p className="muted card-bottom-note">{c.companies_found} {t('campaigns.companiesAnalyzedSuffix', locale)}</p>
+-
+-                {(c.stats?.won > 0 || c.stats?.lost > 0 || c.stats?.active > 0) && (
+-                  <div className="campaign-outcome">
+-                    <div className="outcome-cell">
+-                      <span className="outcome-num num-active">{c.stats.active}</span>
+-                      <span className="outcome-lbl">{t('campaigns.outcomeActive', locale)}</span>
+-                    </div>
+-                    <div className="outcome-cell">
+-                      <span className="outcome-num num-won">{c.stats.won}</span>
+-                      <span className="outcome-lbl">{t('campaigns.outcomeWon', locale)}</span>
+-                    </div>
+-                    <div className="outcome-cell">
+-                      <span className="outcome-num num-lost">{c.stats.lost}</span>
+-                      <span className="outcome-lbl">{t('campaigns.outcomeLost', locale)}</span>
+-                    </div>
++                {c.context_notes && (
++                  <div className="camp-brief">
++                    <Ic name="message" size={13} />
++                    <span className={briefOpenId === c.id ? 'brief-text' : 'brief-text clamp2'}>{c.context_notes}</span>
++                    <button
++                      type="button"
++                      className="brief-more"
++                      onClick={() => setBriefOpenId(briefOpenId === c.id ? null : c.id)}
++                    >
++                      {briefOpenId === c.id ? t('campaigns.briefLess', locale) : t('campaigns.briefMore', locale)}
++                      <Ic name={briefOpenId === c.id ? 'chevronUp' : 'chevronDown'} size={12} />
++                    </button>
+                   </div>
+                 )}
+ 
+-                <div className="advice-box">
+-                  <p className="advice-label"><Ic name="bot" /> {t('campaigns.adviceTitle', locale)}</p>
+-                  {c.advice ? (
++                <div className="camp-pipe">
++                  {isWaiting ? (
++                    <div className="camp-waiting">
++                      <span className="camp-halo" aria-hidden="true"><Ic name="target" size={16} /></span>
++                      <div>
++                        <p className="camp-wt">{t('campaigns.waitingTitle', locale)}</p>
++                        <p className="camp-wd">{t('campaigns.waitingBody', locale)}</p>
++                        <p className="camp-wg">
++                          <Ic name="clock" size={12} /> {t('campaigns.waitingGoal', locale).replace('{n}', c.target_count)}
++                        </p>
++                      </div>
++                    </div>
++                  ) : (
+                     <>
+-                      <p className="advice-text">{frenchTypography(c.advice)}</p>
+-                      <button
+-                        type="button"
+-                        className="link-btn"
+-                        disabled={generatingAdviceFor === c.id}
+-                        onClick={() => generateAdvice(c.id)}
+-                      >
+-                        {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
+-                      </button>
++                      <div className="camp-big">
++                        {isTerminee ? (
++                          <>
++                            <span className="camp-n">{opportunities}</span>
++                            <span className="camp-lbl">
++                              {t('campaigns.bigOpportunities', locale).replace('{n}', c.contacts_found)}
++                            </span>
++                          </>
++                        ) : (
++                          <>
++                            <span className="camp-n">{c.contacts_found}</span>
++                            <span className="camp-of">/ {c.target_count}</span>
++                            <span className="camp-lbl">{t('campaigns.contactsFoundSuffix', locale)}</span>
++                          </>
++                        )}
++                      </div>
++                      <div className="camp-track">
++                        <div className="camp-fill" style={{ width: `${progress}%` }} />
++                      </div>
++                      <div className="camp-funnel">
++                        <div className="camp-cell">
++                          <span className="camp-v blue">{contacted}</span>
++                          <span className="camp-k"><Ic name="mail" size={12} /> {t('campaigns.funnelContacted', locale)}</span>
++                        </div>
++                        <div className="camp-cell">
++                          <span className="camp-v green">
++                            {replied}
++                            {replyRate !== null && <span className="camp-rate">{replyRate} %</span>}
++                          </span>
++                          <span className="camp-k"><Ic name="userCheck" size={12} /> {t('campaigns.funnelReplied', locale)}</span>
++                        </div>
++                        <div className="camp-cell">
++                          <span className={`camp-v ${c.stats?.won > 0 ? 'green' : 'amber'}`}>{c.stats?.won || 0}</span>
++                          <span className="camp-k">
++                            <Ic name="trophy" size={12} /> {t('campaigns.outcomeWon', locale)}
++                            {c.stats?.lost > 0 && ` · ${c.stats.lost} ${t('campaigns.outcomeLost', locale)}`}
++                          </span>
++                        </div>
++                      </div>
+                     </>
+-                  ) : (
+-                    <button
+-                      type="button"
+-                      className="link-btn"
+-                      disabled={generatingAdviceFor === c.id}
+-                      onClick={() => generateAdvice(c.id)}
+-                    >
+-                      {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
+-                    </button>
+                   )}
+                 </div>
+ 
+-                {!isTerminee && (
+-                  <div className="status-actions">
+-                    {c.status === 'en_pause' ? (
++                {/* L'avis d'Aaron redevient une ligne de conversation. En
++                    capitales sur fond séparé, il avait le poids d'une section
++                    alors qu'il tient en une phrase. */}
++                <p className="camp-aaron">
++                  <Ic name="bot" size={14} />
++                  <span>
++                    <span className="camp-who">Aaron{c.advice ? ' :' : ''}</span>{' '}
++                    {c.advice ? (
++                      <>
++                        {frenchTypography(c.advice)}{' '}
++                        <button
++                          type="button"
++                          className="link-btn"
++                          disabled={generatingAdviceFor === c.id}
++                          onClick={() => generateAdvice(c.id)}
++                        >
++                          {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
++                        </button>
++                      </>
++                    ) : isWaiting ? (
++                      <span className="camp-soft">{t('campaigns.adviceWaiting', locale)}</span>
++                    ) : (
+                       <button
+                         type="button"
+-                        className="status-btn"
+-                        disabled={changingStatusFor === c.id}
+-                        onClick={() => changeCampaignStatus(c.id, 'reprendre')}
++                        className="link-btn"
++                        disabled={generatingAdviceFor === c.id}
++                        onClick={() => generateAdvice(c.id)}
+                       >
+-                        <Ic name="play" size={13} /> {t('campaigns.resumeCampaign', locale)}
++                        {generatingAdviceFor === c.id ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceGenerate', locale)}
+                       </button>
+-                    ) : (
++                    )}
++                  </span>
++                </p>
++
++                <div className="camp-acts">
++                  <a className="camp-primary" href={`/app/prospects${userId ? `?user_id=${userId}` : ''}`}>
++                    {t('campaigns.seeProspects', locale)} <Ic name="arrowRight" size={14} />
++                  </a>
++                  {!isTerminee && (
++                    <div className="camp-manage">
+                       <button
+                         type="button"
+-                        className="status-btn"
+-                        disabled={changingStatusFor === c.id}
+-                        onClick={() => changeCampaignStatus(c.id, 'pause')}
++                        className="camp-manage-btn"
++                        aria-expanded={manageOpenId === c.id}
++                        onClick={() => setManageOpenId(manageOpenId === c.id ? null : c.id)}
+                       >
+-                        <Ic name="pause" size={13} /> {t('campaigns.pauseCampaign', locale)}
++                        {t('campaigns.manage', locale)} <Ic name="chevronDown" size={12} />
+                       </button>
+-                    )}
+-                    <button type="button" className="status-btn danger" onClick={() => setConfirmEndId(c.id)}>
+-                      <Ic name="stop" size={12} /> {t('campaigns.endCampaign', locale)}
+-                    </button>
+-                  </div>
+-                )}
++                      {manageOpenId === c.id && (
++                        <div className="camp-menu" role="menu">
++                          <button
++                            type="button"
++                            className="camp-menu-it"
++                            disabled={changingStatusFor === c.id}
++                            onClick={() => {
++                              setManageOpenId(null);
++                              changeCampaignStatus(c.id, c.status === 'en_pause' ? 'reprendre' : 'pause');
++                            }}
++                          >
++                            <Ic name={c.status === 'en_pause' ? 'play' : 'pause'} size={13} />{' '}
++                            {c.status === 'en_pause' ? t('campaigns.resumeCampaign', locale) : t('campaigns.pauseCampaign', locale)}
++                          </button>
++                          <div className="camp-menu-rule" />
++                          <button
++                            type="button"
++                            className="camp-menu-it danger"
++                            onClick={() => { setManageOpenId(null); setConfirmEndId(c.id); }}
++                          >
++                            <Ic name="stop" size={12} /> {t('campaigns.endCampaign', locale)}
++                          </button>
++                        </div>
++                      )}
++                    </div>
++                  )}
++                </div>
+                 <SavedFlash when={savedKey === c.id} locale={locale} />
+                 </div>
+               </div>
+@@ -734,9 +855,12 @@ export default function CampaignsPage() {
+           font-weight: 600;
+           cursor: pointer;
+         }
++        /* auto-fit et non auto-fill (03/11/2026) : avec auto-fill, une
++           campagne seule gardait des colonnes fantômes à sa droite et
++           flottait dans une page vide. */
+         .cards {
+           display: grid;
+-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
++          grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+           gap: 1rem;
+         }
+         /* Refonte campagnes (04/09/2026). Une campagne EN COURS porte un
+@@ -757,12 +881,274 @@ export default function CampaignsPage() {
+         .card-done .card-inner {
+           opacity: 0.78;
+         }
++        .card {
++          container-type: inline-size;
++          min-width: 0;
++        }
+         .card-inner {
+           background: var(--bg-elevated, var(--surface));
+           border-radius: var(--radius-lg);
+-          padding: 1.2rem;
++          padding: 1.15rem 1.2rem 1.1rem;
+           height: 100%;
+           box-sizing: border-box;
++          display: grid;
++          gap: 0.95rem;
++          align-content: start;
++          min-width: 0;
++        }
++
++        /* ---- Carte campagne, refonte du 03/11/2026 (maquette validée) ---- */
++        .camp-head {
++          display: flex;
++          justify-content: space-between;
++          align-items: flex-start;
++          gap: 0.8rem;
++        }
++        .camp-id { min-width: 0; }
++        .camp-head h3 {
++          margin: 0 0 0.3rem;
++          font-family: var(--font-display);
++          font-size: 1.12rem;
++          font-weight: 600;
++          line-height: 1.25;
++        }
++        .camp-meta {
++          display: flex;
++          flex-wrap: wrap;
++          align-items: center;
++          gap: 0.25rem 0.5rem;
++          font-size: 0.8rem;
++          color: var(--muted);
++          margin: 0;
++        }
++        .camp-meta .sep { opacity: 0.5; }
++        .meta-bit { display: inline-flex; align-items: center; gap: 0.3rem; min-width: 0; }
++        .camp-brief {
++          display: grid;
++          grid-template-columns: auto 1fr;
++          gap: 0.2rem 0.45rem;
++          font-size: 0.8rem;
++          color: var(--muted);
++          line-height: 1.4;
++        }
++        .brief-text { min-width: 0; }
++        .clamp2 {
++          display: -webkit-box;
++          -webkit-line-clamp: 2;
++          -webkit-box-orient: vertical;
++          overflow: hidden;
++        }
++        .brief-more {
++          grid-column: 2;
++          justify-self: start;
++          display: inline-flex;
++          align-items: center;
++          gap: 0.25rem;
++          background: none;
++          border: 0;
++          padding: 0;
++          font-family: inherit;
++          font-size: 0.76rem;
++          color: var(--accent-light, var(--accent));
++          cursor: pointer;
++        }
++        /* Le bloc « où on en est » : c'est lui qu'on regarde en premier. */
++        .camp-pipe {
++          background: var(--surface);
++          border: 1px solid var(--border-soft, var(--border));
++          border-radius: var(--radius-md);
++          padding: 0.9rem 1rem;
++          display: grid;
++          gap: 0.75rem;
++        }
++        .camp-big {
++          display: flex;
++          align-items: baseline;
++          gap: 0.45rem;
++          flex-wrap: wrap;
++        }
++        .camp-n {
++          font-family: var(--font-mono);
++          font-size: 1.9rem;
++          line-height: 1;
++          font-variant-numeric: tabular-nums;
++        }
++        .camp-of {
++          font-family: var(--font-mono);
++          color: var(--muted);
++          font-size: 1rem;
++        }
++        .camp-lbl { font-size: 0.82rem; color: var(--muted); }
++        .camp-track {
++          height: 6px;
++          background: var(--surface-hover, var(--border));
++          border-radius: 999px;
++          overflow: hidden;
++        }
++        .camp-fill {
++          height: 100%;
++          border-radius: 999px;
++          background: linear-gradient(90deg, var(--accent), #c93f8c);
++          transition: width var(--normal);
++        }
++        .card-done .camp-fill { background: var(--accent-green); }
++        .camp-funnel {
++          display: grid;
++          grid-template-columns: repeat(3, minmax(0, 1fr));
++          gap: 0.5rem;
++        }
++        .camp-cell { display: grid; gap: 2px; min-width: 0; }
++        .camp-v {
++          font-family: var(--font-mono);
++          font-size: 1.1rem;
++          line-height: 1.1;
++          font-variant-numeric: tabular-nums;
++        }
++        .camp-v.blue { color: #3d8fe8; }
++        .camp-v.green { color: var(--accent-green); }
++        .camp-v.amber { color: var(--accent-amber, #f5a623); }
++        .camp-rate {
++          font-size: 0.72rem;
++          color: var(--accent-green);
++          margin-left: 0.25rem;
++        }
++        .camp-k {
++          font-size: 0.7rem;
++          color: var(--muted);
++          display: flex;
++          align-items: center;
++          gap: 0.3rem;
++          min-width: 0;
++        }
++        /* En attente : ni barre ni pourcentage à zéro. On dit ce qu'Aaron
++           fait et quand revenir. */
++        .camp-waiting {
++          display: grid;
++          grid-template-columns: auto 1fr;
++          gap: 0.75rem;
++          align-items: start;
++        }
++        .camp-halo {
++          width: 36px;
++          height: 36px;
++          border-radius: 50%;
++          display: grid;
++          place-items: center;
++          color: var(--accent-light, var(--accent));
++          background: rgba(75, 57, 239, 0.14);
++          border: 1px solid rgba(124, 110, 245, 0.35);
++        }
++        .camp-wt { margin: 0; font-weight: 600; font-size: 0.9rem; }
++        .camp-wd { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
++        .camp-wg {
++          margin: 0.5rem 0 0;
++          font-size: 0.76rem;
++          color: var(--muted);
++          display: flex;
++          align-items: center;
++          gap: 0.35rem;
++        }
++        .camp-aaron {
++          display: grid;
++          grid-template-columns: auto 1fr;
++          gap: 0.5rem;
++          align-items: start;
++          font-size: 0.82rem;
++          line-height: 1.45;
++          margin: 0;
++        }
++        .camp-aaron :global(svg) { margin-top: 0.2em; color: var(--accent-light, var(--accent)); }
++        .camp-who { color: var(--accent-light, var(--accent)); font-weight: 600; }
++        .camp-soft { color: var(--muted); }
++        .camp-acts {
++          display: flex;
++          gap: 0.5rem;
++          align-items: center;
++          flex-wrap: wrap;
++        }
++        .camp-primary {
++          flex: 1 1 auto;
++          display: inline-flex;
++          align-items: center;
++          justify-content: center;
++          gap: 0.45rem;
++          border-radius: var(--radius-md);
++          padding: 0.62rem 1rem;
++          font-size: 0.84rem;
++          font-weight: 600;
++          background: var(--accent);
++          color: #fff;
++          text-decoration: none;
++          border: 1px solid transparent;
++        }
++        .camp-primary:hover { background: var(--accent-light, var(--accent)); }
++        .camp-manage { position: relative; }
++        .camp-manage-btn {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.4rem;
++          border-radius: var(--radius-md);
++          padding: 0.62rem 0.9rem;
++          font-size: 0.84rem;
++          font-weight: 600;
++          font-family: inherit;
++          background: transparent;
++          border: 1px solid var(--border);
++          color: var(--muted);
++          cursor: pointer;
++        }
++        .camp-manage-btn:hover { border-color: var(--accent); color: var(--text); }
++        .camp-menu {
++          position: absolute;
++          right: 0;
++          bottom: calc(100% + 6px);
++          z-index: 20;
++          width: 232px;
++          background: var(--surface);
++          border: 1px solid var(--border);
++          border-radius: var(--radius-md);
++          padding: 0.35rem;
++          box-shadow: var(--shadow-md);
++          display: grid;
++          gap: 2px;
++        }
++        .camp-menu-it {
++          display: flex;
++          align-items: center;
++          gap: 0.55rem;
++          width: 100%;
++          padding: 0.5rem 0.65rem;
++          border: 0;
++          border-radius: var(--radius-sm);
++          background: none;
++          color: var(--text);
++          font-family: inherit;
++          font-size: 0.84rem;
++          text-align: left;
++          cursor: pointer;
++        }
++        .camp-menu-it:hover { background: var(--surface-hover, var(--border)); }
++        .camp-menu-it.danger { color: var(--accent-red); }
++        .camp-menu-it:disabled { opacity: 0.5; cursor: not-allowed; }
++        .camp-menu-rule { height: 1px; background: var(--border); margin: 0.2rem 0.3rem; }
++        /* Carte large : identité à gauche, résultats à droite. La requête
++           porte sur la CARTE, pas sur la fenêtre — une carte seule sur un
++           grand écran se réorganise, trois cartes côte à côte non. */
++        @container (min-width: 560px) {
++          .card-inner {
++            grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
++            grid-template-areas:
++              'head pipe'
++              'brief pipe'
++              'aaron pipe'
++              'acts pipe';
++            column-gap: 1.6rem;
++          }
++          .camp-head { grid-area: head; }
++          .camp-brief { grid-area: brief; }
++          .camp-pipe { grid-area: pipe; align-self: stretch; }
++          .camp-aaron { grid-area: aaron; align-self: end; }
++          .camp-acts { grid-area: acts; align-self: end; }
+         }
+         .card-top {
+           display: flex;
+diff --git a/lib/i18n.js b/lib/i18n.js
+index e6c4180..b072a52 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -902,6 +902,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Terminée',
+     'campaigns.statusEnPause': 'En pause',
+     'campaigns.contactsFoundSuffix': 'contacts trouvés',
++    'campaigns.briefMore': 'Lire le ciblage complet',
++    'campaigns.briefLess': 'Replier le ciblage',
++    'campaigns.waitingTitle': 'Aaron prépare ta campagne',
++    'campaigns.waitingBody': 'Il repère les entreprises qui correspondent à ton ciblage. Les premiers contacts arrivent en général sous 24 h.',
++    'campaigns.waitingGoal': 'Objectif : {n} contacts',
++    'campaigns.bigOpportunities': 'opportunités sur {n} contacts',
++    'campaigns.funnelContacted': 'contactés',
++    'campaigns.funnelReplied': 'réponses',
++    'campaigns.adviceWaiting': 'donnera son avis dès les premiers contacts trouvés.',
++    'campaigns.seeProspects': 'Voir mes prospects',
++    'campaigns.manage': 'Gérer',
+     'campaigns.companiesAnalyzedSuffix': 'entreprises analysées',
+     'campaigns.outcomeWon': 'gagnés',
+     'campaigns.outcomeLost': 'perdus',
+@@ -3200,6 +3211,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Completed',
+     'campaigns.statusEnPause': 'Paused',
+     'campaigns.contactsFoundSuffix': 'contacts found',
++    'campaigns.briefMore': 'Read the full brief',
++    'campaigns.briefLess': 'Collapse the brief',
++    'campaigns.waitingTitle': 'Aaron is preparing your campaign',
++    'campaigns.waitingBody': 'He\'s finding companies that match your brief. The first contacts usually arrive within 24 hours.',
++    'campaigns.waitingGoal': 'Target: {n} contacts',
++    'campaigns.bigOpportunities': 'opportunities out of {n} contacts',
++    'campaigns.funnelContacted': 'contacted',
++    'campaigns.funnelReplied': 'replies',
++    'campaigns.adviceWaiting': 'will weigh in as soon as the first contacts come through.',
++    'campaigns.seeProspects': 'See my prospects',
++    'campaigns.manage': 'Manage',
+     'campaigns.companiesAnalyzedSuffix': 'companies analyzed',
+     'campaigns.outcomeWon': 'won',
+     'campaigns.outcomeLost': 'lost',
+@@ -5292,6 +5314,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Abgeschlossen',
+     'campaigns.statusEnPause': 'Pausiert',
+     'campaigns.contactsFoundSuffix': 'gefundene Kontakte',
++    'campaigns.briefMore': 'Vollständige Zielgruppe lesen',
++    'campaigns.briefLess': 'Zielgruppe einklappen',
++    'campaigns.waitingTitle': 'Aaron bereitet deine Kampagne vor',
++    'campaigns.waitingBody': 'Er sucht Unternehmen, die zu deiner Zielgruppe passen. Die ersten Kontakte kommen meist innerhalb von 24 Stunden.',
++    'campaigns.waitingGoal': 'Ziel: {n} Kontakte',
++    'campaigns.bigOpportunities': 'Chancen aus {n} Kontakten',
++    'campaigns.funnelContacted': 'kontaktiert',
++    'campaigns.funnelReplied': 'Antworten',
++    'campaigns.adviceWaiting': 'meldet sich, sobald die ersten Kontakte da sind.',
++    'campaigns.seeProspects': 'Meine Kontakte ansehen',
++    'campaigns.manage': 'Verwalten',
+     'campaigns.companiesAnalyzedSuffix': 'analysierte Unternehmen',
+     'campaigns.outcomeWon': 'gewonnen',
+     'campaigns.outcomeLost': 'verloren',
+@@ -7384,6 +7417,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Completata',
+     'campaigns.statusEnPause': 'In pausa',
+     'campaigns.contactsFoundSuffix': 'contatti trovati',
++    'campaigns.briefMore': 'Leggi tutto il targeting',
++    'campaigns.briefLess': 'Richiudi il targeting',
++    'campaigns.waitingTitle': 'Aaron sta preparando la tua campagna',
++    'campaigns.waitingBody': 'Sta individuando le aziende che corrispondono al tuo targeting. I primi contatti arrivano di solito entro 24 ore.',
++    'campaigns.waitingGoal': 'Obiettivo: {n} contatti',
++    'campaigns.bigOpportunities': 'opportunità su {n} contatti',
++    'campaigns.funnelContacted': 'contattati',
++    'campaigns.funnelReplied': 'risposte',
++    'campaigns.adviceWaiting': 'darà il suo parere non appena arrivano i primi contatti.',
++    'campaigns.seeProspects': 'Vedi i miei contatti',
++    'campaigns.manage': 'Gestisci',
+     'campaigns.companiesAnalyzedSuffix': 'aziende analizzate',
+     'campaigns.outcomeWon': 'vinti',
+     'campaigns.outcomeLost': 'persi',
+@@ -9476,6 +9520,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Finalizada',
+     'campaigns.statusEnPause': 'En pausa',
+     'campaigns.contactsFoundSuffix': 'contactos encontrados',
++    'campaigns.briefMore': 'Leer todo el enfoque',
++    'campaigns.briefLess': 'Plegar el enfoque',
++    'campaigns.waitingTitle': 'Aaron está preparando tu campaña',
++    'campaigns.waitingBody': 'Está localizando las empresas que encajan con tu enfoque. Los primeros contactos suelen llegar en 24 horas.',
++    'campaigns.waitingGoal': 'Objetivo: {n} contactos',
++    'campaigns.bigOpportunities': 'oportunidades de {n} contactos',
++    'campaigns.funnelContacted': 'contactados',
++    'campaigns.funnelReplied': 'respuestas',
++    'campaigns.adviceWaiting': 'opinará en cuanto lleguen los primeros contactos.',
++    'campaigns.seeProspects': 'Ver mis contactos',
++    'campaigns.manage': 'Gestionar',
+     'campaigns.companiesAnalyzedSuffix': 'empresas analizadas',
+     'campaigns.outcomeWon': 'ganados',
+     'campaigns.outcomeLost': 'perdidos',
+@@ -11568,6 +11623,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Concluída',
+     'campaigns.statusEnPause': 'Em pausa',
+     'campaigns.contactsFoundSuffix': 'contactos encontrados',
++    'campaigns.briefMore': 'Ler todo o enquadramento',
++    'campaigns.briefLess': 'Fechar o enquadramento',
++    'campaigns.waitingTitle': 'O Aaron está a preparar a tua campanha',
++    'campaigns.waitingBody': 'Está a identificar as empresas que correspondem ao teu enquadramento. Os primeiros contactos chegam normalmente em 24 horas.',
++    'campaigns.waitingGoal': 'Objetivo: {n} contactos',
++    'campaigns.bigOpportunities': 'oportunidades em {n} contactos',
++    'campaigns.funnelContacted': 'contactados',
++    'campaigns.funnelReplied': 'respostas',
++    'campaigns.adviceWaiting': 'dará a sua opinião assim que chegarem os primeiros contactos.',
++    'campaigns.seeProspects': 'Ver os meus contactos',
++    'campaigns.manage': 'Gerir',
+     'campaigns.companiesAnalyzedSuffix': 'empresas analisadas',
+     'campaigns.outcomeWon': 'ganhos',
+     'campaigns.outcomeLost': 'perdidos',
+@@ -13660,6 +13726,17 @@ export const DICT = {
+     'campaigns.statusTerminee': 'Voltooid',
+     'campaigns.statusEnPause': 'Gepauzeerd',
+     'campaigns.contactsFoundSuffix': 'contacten gevonden',
++    'campaigns.briefMore': 'Lees de volledige doelgroep',
++    'campaigns.briefLess': 'Doelgroep inklappen',
++    'campaigns.waitingTitle': 'Aaron bereidt je campagne voor',
++    'campaigns.waitingBody': 'Hij zoekt bedrijven die bij je doelgroep passen. De eerste contacten komen meestal binnen 24 uur.',
++    'campaigns.waitingGoal': 'Doel: {n} contacten',
++    'campaigns.bigOpportunities': 'kansen uit {n} contacten',
++    'campaigns.funnelContacted': 'benaderd',
++    'campaigns.funnelReplied': 'reacties',
++    'campaigns.adviceWaiting': 'geeft zijn mening zodra de eerste contacten binnen zijn.',
++    'campaigns.seeProspects': 'Mijn contacten bekijken',
++    'campaigns.manage': 'Beheren',
+     'campaigns.companiesAnalyzedSuffix': 'bedrijven geanalyseerd',
+     'campaigns.outcomeWon': 'gewonnen',
+     'campaigns.outcomeLost': 'verloren',
+-- 
+2.43.0
+
