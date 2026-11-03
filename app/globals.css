@@ -636,6 +636,97 @@ html[data-theme='light'] .shell > .sidebar {
 }
 
 /* =====================================================================
+   RAIL DÉPLIÉ SUR GRAND ÉCRAN (Alex, 17/10/2026 : « regarde les rubriques
+   sur le côté, elles sont petites par rapport à ma résolution » — et, sur
+   le « Plus » du menu : « tu me mets un plus alors que j'ai largement la
+   place de les mettre »).
+
+   Le rail à 78px et ses libellés en info-bulle ont été pensés pour un
+   écran d'ordinateur portable, où la place manque. Au-delà de 1400px elle
+   ne manque plus : on rend au rail sa largeur et ses libellés, en
+   ANNULANT les règles du bloc ci-dessus plutôt qu'en les dupliquant.
+
+   Rien ne change en dessous de 1400px, ni sur téléphone.
+   ===================================================================== */
+@media (min-width: 1400px) {
+  .shell {
+    grid-template-columns: 212px 1fr !important;
+  }
+  .shell > .sidebar {
+    padding: 1.1rem 0.85rem 1rem !important;
+  }
+  .sidebar .brand {
+    justify-content: flex-start !important;
+    padding: 0 0.3rem !important;
+  }
+  .sidebar .brand span {
+    display: inline !important;
+  }
+  .sidebar .nav-list li {
+    justify-content: flex-start !important;
+    gap: 0.65rem;
+    padding: 0.4rem 0.45rem !important;
+    border-radius: 12px;
+  }
+  .sidebar .nav-icon {
+    width: 2.1em !important;
+    height: 2.1em !important;
+  }
+  .sidebar .nav-list li.active::before {
+    left: -0.85rem !important;
+  }
+  /* Le libellé n'est plus une info-bulle : il reprend sa place dans la
+     ligne, donc tout ce qui en faisait une bulle est défait. */
+  .sidebar .nav-label {
+    position: static;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    font-size: 0.84rem;
+    color: inherit;
+  }
+  .sidebar .lock-badge {
+    position: static;
+    margin-left: auto !important;
+  }
+  /* La langue retrouve son nom complet : le code « FR » par-dessus un
+     select invisible n'a plus de raison d'être. */
+  .sidebar .lang-wrap::before {
+    display: none;
+  }
+  .sidebar .lang-wrap .lang-switcher {
+    position: static;
+    opacity: 1;
+    height: auto;
+    padding: 0.4rem 0.5rem !important;
+    font-size: 0.78rem !important;
+    text-align: left;
+    text-align-last: left;
+  }
+  .sidebar .conn-status {
+    justify-content: flex-start !important;
+    padding: 0.3rem 0.45rem 0.4rem !important;
+    gap: 0.5rem;
+  }
+  .sidebar .conn-status .nav-label {
+    display: inline;
+  }
+  .sidebar .logout-btn {
+    justify-content: flex-start !important;
+    gap: 0.65rem;
+    padding: 0.4rem 0.45rem !important;
+  }
+  .rail-bell {
+    justify-content: flex-start;
+    padding-left: 0.45rem;
+  }
+}
+
+/* =====================================================================
    BANDEAU DE NOTIFICATIONS COLLANT (docx « derniers ajouts », 05/09/2026 :
    « sur PC ET téléphone, qu'on monte ou qu'on descende, il faut les
    notifications en haut — s'il n'y en a pas tu n'affiches pas — et ce sur

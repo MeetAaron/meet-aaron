@@ -147,10 +147,15 @@ export default function MargePage() {
       {/* Retour (24/10/2026, « pourquoi je ne peux pas revenir en arrière ? ») :
           cet écran n'a pas la barre de navigation de l'app. */}
       <nav className="topnav">
-        <a href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>← Mon compte</a>
-        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>Tableau de bord</a>
+        <a className="nav-pill" href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
+          <span className="pill-ic"><Ic name="arrowRight" size={15} /></span> Mon compte
+        </a>
+        <a className="nav-pill ghost" href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>
+          Tableau de bord
+        </a>
       </nav>
       <header className="head">
+        <p className="eyebrow">Fondateur</p>
         <h1>Marge par client</h1>
         <p className="sub">
           Réservé à ton compte. Mois en cours{data?.year_month ? ` — ${data.year_month}` : ''}.
@@ -314,18 +319,58 @@ export default function MargePage() {
       )}
 
       <style jsx>{`
+        /* Barre de retour (Alex, 24/10/2026 : « le retour en arrière de cette
+           page est moche, fais moderne comme pour les autres pages »). Deux
+           pastilles au lieu de deux liens nus : même hauteur, même rayon et
+           même survol que les boutons du reste de l'application. */
         .topnav {
           display: flex;
           justify-content: space-between;
-          gap: 1rem;
-          margin-bottom: 1.2rem;
-          font-size: 0.85rem;
+          align-items: center;
+          gap: 0.6rem;
+          margin-bottom: 1.4rem;
         }
-        .topnav a {
+        .nav-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.45rem 0.85rem;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--bg-elevated);
           color: var(--muted);
+          font-size: 0.82rem;
+          font-weight: 500;
           text-decoration: none;
+          transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
         }
-        .topnav a:hover { color: var(--text); }
+        .nav-pill:hover {
+          color: var(--text);
+          border-color: var(--accent);
+          background: var(--surface-hover);
+        }
+        /* Pas de chevron gauche dans la bibliothèque d'icônes : on retourne
+           la flèche droite plutôt que d'en ajouter une pour un seul usage. */
+        .pill-ic {
+          display: inline-flex;
+          transform: scaleX(-1);
+        }
+        .nav-pill.ghost {
+          background: transparent;
+          border-color: transparent;
+        }
+        .nav-pill.ghost:hover {
+          border-color: var(--border);
+          background: var(--bg-elevated);
+        }
+        .eyebrow {
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 0.7rem;
+          color: var(--accent);
+          font-weight: 600;
+          margin: 0 0 0.35rem;
+        }
         .page {
           max-width: 980px;
           margin: 0 auto;
