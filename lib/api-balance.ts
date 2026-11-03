@@ -18,8 +18,30 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { realSpendSince, adminApiConfigured } from './anthropic-admin';
+import {
+  realSpendSince as openAiRealSpendSince,
+  openAiAdminConfigured,
+} from './openai-admin';
+
+// Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
+// chez OpenAI quand OPENAI_API_KEY est posée (c'est le cas en production).
+// Chaque fournisseur a son solde, sa dépense et ses alertes.
+export type BalanceProvider = 'anthropic' | 'openai';
+
+export const BALANCE_PROVIDERS: BalanceProvider[] = ['anthropic', 'openai'];
+
+export const PROVIDER_LABELS: Record<BalanceProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+};
+
+export const PROVIDER_CONSOLES: Record<BalanceProvider, string> = {
+  anthropic: 'https://platform.claude.com/settings/billing',
+  openai: 'https://platform.openai.com/settings/organization/billing/overview',
+};
 
 export interface BalanceStatus {
+  provider: BalanceProvider;
   configured: boolean;
   snapshotId: string | null;
   balanceUsd: number | null;
@@ -29,7 +51,12 @@ export interface BalanceStatus {
   // maison, volontairement prudent donc légèrement surestimé. Affiché au
   // fondateur : une alerte fondée sur une estimation ne se lit pas comme une
   // alerte fondée sur la facture.
-  spentSource: 'anthropic' | 'estimation';
+  spentSource: 'fournisseur' | 'estimation';
+  // true = on ne sait PAS combien a été dépensé (clé d'administration
+  // absente ou API muette) et aucun repli crédible n'existe. Dans ce cas on
+  // n'annonce ni reste ni autonomie : un chiffre inventé est pire que pas de
+  // chiffre, c'est toute la leçon du 31/10/2026.
+  spendUnknown: boolean;
   // Ancienneté du solde saisi, en jours. Au-delà de STALE_AFTER_DAYS, le
   // chiffre « il reste X » n'a plus de sens : un rechargement a pu avoir lieu
   // sans être ressaisi, ce qui est exactement ce qui a produit la fausse
@@ -66,25 +93,27 @@ async function sumUsageSince(fromDay: string, toDayExclusive?: string): Promise<
 // ignorer l'alerte suivante.
 const STALE_AFTER_DAYS = 10;
 
-export async function getBalanceStatus(): Promise<BalanceStatus> {
+export async function getBalanceStatus(
+  provider: BalanceProvider = 'anthropic'
+): Promise<BalanceStatus> {
   const now = new Date();
   const today = isoDay(now);
   const weekAgo = isoDay(new Date(now.getTime() - 7 * 86400000));
-  const avgDailyUsd = (await sumUsageSince(weekAgo, today)) / 7;
 
   const { data: snap, error } = await supabaseAdmin
     .from('api_balance_snapshots')
     .select('id, balance_usd, as_of, alerted_10_at, alerted_3_at')
-    .eq('provider', 'anthropic')
+    .eq('provider', provider)
     .order('as_of', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error || !snap) {
     return {
-      configured: false, snapshotId: null, balanceUsd: null, asOf: null, spentSinceUsd: 0,
-      spentSource: 'estimation', balanceAgeDays: null, stale: false,
-      remainingUsd: null, avgDailyUsd, daysLeft: null, alerted10At: null, alerted3At: null,
+      provider, configured: false, snapshotId: null, balanceUsd: null, asOf: null,
+      spentSinceUsd: 0, spentSource: 'estimation', spendUnknown: false,
+      balanceAgeDays: null, stale: false, remainingUsd: null, avgDailyUsd: 0,
+      daysLeft: null, alerted10At: null, alerted3At: null,
     };
   }
 
@@ -92,9 +121,32 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
   // surestime volontairement par prudence : sur plusieurs jours, l'écart
   // cumulé suffit à annoncer un solde presque vide alors qu'il ne l'est pas.
   const asOfDate = new Date(snap.as_of);
-  const realSpend = adminApiConfigured() ? await realSpendSince(asOfDate) : null;
-  const spentSinceUsd = realSpend !== null ? realSpend : await sumUsageSince(isoDay(asOfDate));
-  const spentSource: 'anthropic' | 'estimation' = realSpend !== null ? 'anthropic' : 'estimation';
+
+  // Dépense réelle chez le fournisseur d'abord. Pour Anthropic, l'estimation
+  // maison reste un repli acceptable (elle surestime par prudence). Pour
+  // OpenAI il n'y a PAS de repli : api_usage_daily additionne les deux
+  // fournisseurs, donc s'en servir pour OpenAI attribuerait à OpenAI la
+  // dépense Anthropic. Mieux vaut dire « je ne sais pas ».
+  const realSpend =
+    provider === 'anthropic'
+      ? adminApiConfigured()
+        ? await realSpendSince(asOfDate)
+        : null
+      : openAiAdminConfigured()
+        ? await openAiRealSpendSince(asOfDate)
+        : null;
+
+  const spendUnknown = realSpend === null && provider !== 'anthropic';
+  const spentSinceUsd = realSpend !== null
+    ? realSpend
+    : spendUnknown
+      ? 0
+      : await sumUsageSince(isoDay(asOfDate));
+  const spentSource: 'fournisseur' | 'estimation' = realSpend !== null ? 'fournisseur' : 'estimation';
+
+  // Rythme quotidien : chez le fournisseur quand on l'a, sinon l'estimation
+  // maison (Anthropic seulement, même raison que ci-dessus).
+  const avgDailyUsd = spendUnknown ? 0 : (await sumUsageSince(weekAgo, today)) / 7;
 
   const balanceUsd = Number(snap.balance_usd) || 0;
   const balanceAgeDays = Math.max(0, Math.floor((Date.now() - asOfDate.getTime()) / 86400000));
@@ -102,12 +154,14 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
 
   // Solde périmé : on n'annonce plus ni reste ni autonomie. L'écran et
   // l'alerte diront « solde à revérifier » au lieu d'un chiffre inventé.
-  const remainingUsd = stale ? null : balanceUsd - spentSinceUsd;
+  const remainingUsd = stale || spendUnknown ? null : balanceUsd - spentSinceUsd;
   const daysLeft =
     remainingUsd !== null && avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
 
   return {
+    provider,
     configured: true,
+    spendUnknown,
     snapshotId: snap.id,
     balanceUsd,
     asOf: snap.as_of,

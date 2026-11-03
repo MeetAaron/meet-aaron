@@ -66,39 +66,53 @@ function money(amount, symbol) {
   return `${symbol}${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Mêmes valeurs que lib/api-balance.ts (PROVIDER_LABELS / PROVIDER_CONSOLES).
+// Recopiées ici plutôt qu'importées : ce module serveur tire supabase-admin.
+const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI' };
+const PROVIDER_CONSOLES = {
+  anthropic: 'https://platform.claude.com/settings/billing',
+  openai: 'https://platform.openai.com/settings/organization/billing/overview',
+};
+
 export default function MargePage() {
   const userId = useAuthedUser();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Solde Anthropic (22/10/2026) : voir lib/api-balance.ts et le cron
+  // Soldes des fournisseurs d'IA (22/10/2026, deux fournisseurs depuis le
+  // 03/11/2026) : voir lib/api-balance.ts et le cron
   // /api/cron/api-balance-alert (push à 10 puis 3 jours d'autonomie).
-  const [balance, setBalance] = useState(null);
-  const [balanceInput, setBalanceInput] = useState('');
-  const [balanceSaving, setBalanceSaving] = useState(false);
+  // Aaron envoie le palier « cheap » chez OpenAI : les deux soldes comptent,
+  // l'un vide arrête Aaron aussi sûrement que l'autre.
+  const [balances, setBalances] = useState([]);
+  const [balanceInputs, setBalanceInputs] = useState({});
+  const [balanceSavingFor, setBalanceSavingFor] = useState(null);
   const [balanceError, setBalanceError] = useState(null);
 
   useEffect(() => {
     if (!userId) return;
     fetch('/api/admin/api-balance')
       .then((r) => (r.ok ? r.json() : null))
-      .then((b) => { if (b?.status) setBalance(b.status); })
+      .then((b) => {
+        if (Array.isArray(b?.statuses)) setBalances(b.statuses);
+        else if (b?.status) setBalances([b.status]);
+      })
       .catch(() => {});
   }, [userId]);
 
-  async function saveBalance() {
-    setBalanceSaving(true);
+  async function saveBalance(provider) {
+    setBalanceSavingFor(provider);
     setBalanceError(null);
     const r = await fetch('/api/admin/api-balance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ balance_usd: balanceInput }),
+      body: JSON.stringify({ balance_usd: balanceInputs[provider] || '', provider }),
     }).catch(() => null);
     const b = r ? await r.json().catch(() => ({})) : {};
-    setBalanceSaving(false);
+    setBalanceSavingFor(null);
     if (!r || !r.ok) { setBalanceError(b.error || 'Enregistrement impossible'); return; }
-    setBalance(b.status);
-    setBalanceInput('');
+    if (Array.isArray(b?.statuses)) setBalances(b.statuses);
+    setBalanceInputs((prev) => ({ ...prev, [provider]: '' }));
   }
 
   useEffect(() => {
@@ -202,44 +216,77 @@ export default function MargePage() {
           </section>
 
           {/* ---------------------------------------------------------------
-              SOLDE ANTHROPIC (22/10/2026) — à zéro, Aaron s'arrête pour TOUS
-              les clients. Tu saisis le solde lu dans la console Anthropic
-              (après chaque recharge) ; Aaron déduit ce qui a été consommé
-              depuis et te prévient à 10 puis 3 jours d'autonomie.
+              SOLDES DES FOURNISSEURS D'IA (22/10/2026, deux fournisseurs
+              depuis le 03/11/2026) — à zéro, Aaron s'arrête pour TOUS les
+              clients. Tu saisis le solde lu dans la console du fournisseur
+              après chaque recharge ; Aaron déduit ce qui a été consommé
+              depuis et te prévient à 10 puis 3 jours d'autonomie. Les reçus
+              de recharge sont lus automatiquement dans la boîte Meet Aaron,
+              cette saisie reste le filet de sécurité.
           --------------------------------------------------------------- */}
-          <section className={`gst gst-${!balance?.configured ? 'unknown' : balance.daysLeft !== null && balance.daysLeft <= 3 ? 'due' : balance.daysLeft !== null && balance.daysLeft <= 10 ? 'warn' : 'ok'}`}>
-            <div className="gst-head">
-              <span className="gst-icon"><Ic name={balance?.configured && (balance.daysLeft === null || balance.daysLeft > 10) ? 'checkCircle' : 'alert'} size={18} /></span>
-              <div className="gst-title-wrap">
-                <h2>Solde Anthropic</h2>
-                <p className="gst-msg">
-                  {!balance?.configured
-                    ? 'Pas encore de solde saisi : saisis celui affiché sur platform.claude.com (Facturation) pour activer l\'alerte.'
-                    : balance.daysLeft === null
-                      ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
-                      : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
-                </p>
-              </div>
-            </div>
-            {balance?.configured && (
-              <p className="gst-foot">
-                Solde saisi : {money(balance.balanceUsd, '$')} le {new Date(balance.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(balance.spentSinceUsd, '$')} (estimation prudente, le jour de la saisie compte en entier).
-              </p>
-            )}
-            <div className="bal-row">
-              <input
-                className="bal-input"
-                inputMode="decimal"
-                placeholder="Nouveau solde en $ (ex. 85.40)"
-                value={balanceInput}
-                onChange={(e) => setBalanceInput(e.target.value)}
-              />
-              <button type="button" className="bal-btn" disabled={balanceSaving || !balanceInput.trim()} onClick={saveBalance}>
-                {balanceSaving ? 'Enregistrement…' : 'Enregistrer'}
-              </button>
-            </div>
-            {balanceError && <p className="err">{balanceError}</p>}
-          </section>
+          {balances.map((bal) => {
+            const label = PROVIDER_LABELS[bal.provider] || bal.provider;
+            const consoleUrl = PROVIDER_CONSOLES[bal.provider] || '';
+            const level = !bal.configured || bal.spendUnknown
+              ? 'unknown'
+              : bal.daysLeft !== null && bal.daysLeft <= 3
+                ? 'due'
+                : bal.daysLeft !== null && bal.daysLeft <= 10
+                  ? 'warn'
+                  : 'ok';
+            return (
+              <section className={`gst gst-${level}`} key={bal.provider}>
+                <div className="gst-head">
+                  <span className="gst-icon"><Ic name={level === 'ok' ? 'checkCircle' : 'alert'} size={18} /></span>
+                  <div className="gst-title-wrap">
+                    <h2>Solde {label}</h2>
+                    <p className="gst-msg">
+                      {!bal.configured
+                        ? `Pas encore de solde saisi : saisis celui affiché sur ${consoleUrl} pour activer l'alerte.`
+                        : bal.spendUnknown
+                          ? `Solde saisi, mais la dépense réelle n'est pas lisible : il manque la clé d'administration ${bal.provider === 'openai' ? 'OPENAI_ADMIN_KEY' : 'ANTHROPIC_ADMIN_KEY'} dans Vercel. Tant qu'elle manque, personne ne surveille ce solde.`
+                          : bal.stale
+                            ? `Dernier solde saisi il y a ${bal.balanceAgeDays} jours : trop ancien pour annoncer un reste. Relis le solde réel et ressaisis-le.`
+                            : bal.daysLeft === null
+                              ? `Reste estimé : ${money(Math.max(0, bal.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
+                              : `Reste estimé : ${money(Math.max(0, bal.remainingUsd), '$')}, soit environ ${Math.floor(bal.daysLeft)} jour(s) à ${money(bal.avgDailyUsd, '$')} par jour.`}
+                    </p>
+                  </div>
+                </div>
+                {bal.configured && !bal.spendUnknown && (
+                  <p className="gst-foot">
+                    Solde saisi : {money(bal.balanceUsd, '$')} le {new Date(bal.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(bal.spentSinceUsd, '$')}{' '}
+                    ({bal.spentSource === 'fournisseur' ? `lu chez ${label}` : 'estimation prudente'}, le jour de la saisie compte en entier).
+                  </p>
+                )}
+                <div className="bal-row">
+                  <input
+                    className="bal-input"
+                    inputMode="decimal"
+                    placeholder={`Nouveau solde ${label} en $ (ex. 85.40)`}
+                    value={balanceInputs[bal.provider] || ''}
+                    onChange={(e) => setBalanceInputs((prev) => ({ ...prev, [bal.provider]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="bal-btn"
+                    disabled={balanceSavingFor === bal.provider || !(balanceInputs[bal.provider] || '').trim()}
+                    onClick={() => saveBalance(bal.provider)}
+                  >
+                    {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
+                  </button>
+                </div>
+                {consoleUrl && (
+                  <p className="gst-foot">
+                    <a className="bal-link" href={consoleUrl} target="_blank" rel="noopener noreferrer">
+                      Ouvrir la console {label} <Ic name="arrowRight" size={12} />
+                    </a>
+                  </p>
+                )}
+                {balanceError && balanceSavingFor === null && <p className="err">{balanceError}</p>}
+              </section>
+            );
+          })}
 
           {/* Trois chiffres, pas plus : ce qui est rentré, ce qui est sorti,
               et le nombre de clients qui paient réellement. */}
@@ -363,6 +410,15 @@ export default function MargePage() {
           border-color: var(--border);
           background: var(--bg-elevated);
         }
+        .bal-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          color: var(--accent-light, var(--accent));
+          text-decoration: none;
+          font-size: 0.8rem;
+        }
+        .bal-link:hover { text-decoration: underline; }
         .eyebrow {
           text-transform: uppercase;
           letter-spacing: 0.12em;

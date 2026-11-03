@@ -36,15 +36,26 @@
 import { supabaseAdmin } from './supabase-admin';
 import { searchGmailMessages, getGmailMessage, getGmailMessageMetadata } from './google';
 import { gmailBodyText } from './manual-replies';
-import { getBalanceStatus } from './api-balance';
+import { getBalanceStatus, type BalanceProvider, PROVIDER_LABELS } from './api-balance';
 
-// Domaines dont un reçu est accepté. Une adresse hors de cette liste est
-// ignorée, quel que soit le sujet du message.
-const TRUSTED_SENDER_DOMAINS = ['anthropic.com', 'claude.com', 'stripe.com'];
-
-// Un reçu Stripe ne suffit pas : Stripe envoie aussi les reçus des autres
-// abonnements d'Alex. Le corps doit parler d'Anthropic.
-const MUST_MENTION = /anthropic|claude\.ai|claude\.com/i;
+// Domaines dont un reçu est accepté, et ce que son corps doit mentionner.
+// Un reçu Stripe ne suffit pas : Stripe envoie aussi les reçus des AUTRES
+// abonnements d'Alex. Sans le second filtre, une facture Vercel créditerait
+// le solde Anthropic.
+//
+// Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
+// chez OpenAI. Les deux soldes se rechargent, les deux reçus arrivent dans
+// la même boîte, et rien ne doit les confondre.
+const PROVIDER_RECEIPTS: Record<BalanceProvider, { domains: string[]; mustMention: RegExp }> = {
+  anthropic: {
+    domains: ['anthropic.com', 'claude.com', 'stripe.com'],
+    mustMention: /anthropic|claude\.ai|claude\.com/i,
+  },
+  openai: {
+    domains: ['openai.com', 'stripe.com'],
+    mustMention: /openai|chatgpt|platform\.openai/i,
+  },
+};
 
 // Montants ÉTIQUETÉS seulement. L'ordre compte : on garde la première
 // étiquette trouvée, de la plus explicite à la plus générale.
@@ -75,9 +86,9 @@ function headerValue(meta: any, name: string): string {
   return found?.value || '';
 }
 
-function senderTrusted(from: string): boolean {
+function senderTrusted(from: string, domains: string[]): boolean {
   const lower = from.toLowerCase();
-  return TRUSTED_SENDER_DOMAINS.some((d) => lower.includes(`@${d}`) || lower.includes(`.${d}>`));
+  return domains.some((d) => lower.includes(`@${d}`) || lower.includes(`.${d}>`));
 }
 
 export function extractPaidAmountUsd(text: string): number | null {
@@ -102,16 +113,21 @@ export function receiptsMailboxUserId(): string | null {
   );
 }
 
-export async function scanAnthropicReceipts(): Promise<{
+export async function scanProviderReceipts(provider: BalanceProvider = 'anthropic'): Promise<{
+  provider: BalanceProvider;
+  label: string;
   scanned: number;
   outcomes: ReceiptOutcome[];
   mailbox: string | null;
 }> {
+  const conf = PROVIDER_RECEIPTS[provider];
+  const label = PROVIDER_LABELS[provider];
   const userId = receiptsMailboxUserId();
-  if (!userId) return { scanned: 0, outcomes: [], mailbox: null };
+  if (!userId) return { provider, label, scanned: 0, outcomes: [], mailbox: null };
 
+  const fromClause = conf.domains.map((d) => `from:${d}`).join(' OR ');
   const query =
-    'newer_than:30d (from:anthropic.com OR from:claude.com OR from:stripe.com) ' +
+    `newer_than:30d (${fromClause}) ` +
     '(subject:receipt OR subject:invoice OR subject:reçu OR subject:facture OR subject:payment)';
   const messages = await searchGmailMessages(userId, query, 25);
 
@@ -120,7 +136,7 @@ export async function scanAnthropicReceipts(): Promise<{
   for (const m of messages) {
     const meta = await getGmailMessageMetadata(userId, m.id);
     if (!meta) continue;
-    if (!senderTrusted(headerValue(meta, 'From'))) continue;
+    if (!senderTrusted(headerValue(meta, 'From'), conf.domains)) continue;
 
     // Déjà traité ? La colonne peut ne pas exister (migration pas passée) :
     // dans ce cas on s'arrête net plutôt que de risquer un double crédit.
@@ -146,7 +162,7 @@ export async function scanAnthropicReceipts(): Promise<{
       continue;
     }
     const text = gmailBodyText(full?.payload);
-    if (!text || !MUST_MENTION.test(`${headerValue(meta, 'Subject')}\n${text}`)) continue;
+    if (!text || !conf.mustMention.test(`${headerValue(meta, 'Subject')}\n${text}`)) continue;
 
     const amountUsd = extractPaidAmountUsd(text);
     if (amountUsd === null) {
@@ -161,12 +177,12 @@ export async function scanAnthropicReceipts(): Promise<{
     // Reste estimé AVANT la recharge. Si le solde est périmé, remainingUsd
     // vaut null : on repart alors du montant rechargé seul, ce qui
     // sous-estime — on préfère sous-estimer un solde que le gonfler.
-    const before = await getBalanceStatus();
+    const before = await getBalanceStatus(provider);
     const remainingBefore = before.remainingUsd !== null ? Math.max(0, before.remainingUsd) : 0;
     const newBalanceUsd = Math.round((remainingBefore + amountUsd) * 100) / 100;
 
     const { error: insertError } = await supabaseAdmin.from('api_balance_snapshots').insert({
-      provider: 'anthropic',
+      provider,
       balance_usd: newBalanceUsd,
       as_of: new Date().toISOString(),
       source_message_id: m.id,
@@ -179,5 +195,5 @@ export async function scanAnthropicReceipts(): Promise<{
     outcomes.push({ messageId: m.id, amountUsd, credited: true, newBalanceUsd });
   }
 
-  return { scanned: messages.length, outcomes, mailbox: userId };
+  return { provider, label, scanned: messages.length, outcomes, mailbox: userId };
 }

@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
 import { isFounderEmail } from '@/lib/founder';
-import { getBalanceStatus } from '@/lib/api-balance';
+import { getBalanceStatus, BALANCE_PROVIDERS, type BalanceProvider } from '@/lib/api-balance';
 import { readJsonBody, serverError } from '@/lib/http';
 
 
@@ -27,7 +27,10 @@ export async function GET(request: NextRequest) {
   const g = await guard(request);
   if (g.error) return g.error;
   try {
-    return NextResponse.json({ status: await getBalanceStatus() });
+    // Les deux fournisseurs d'un coup : l'écran les affiche côte à côte, et
+    // `status` reste là pour ne rien casser pendant le déploiement.
+    const statuses = await Promise.all(BALANCE_PROVIDERS.map((p) => getBalanceStatus(p)));
+    return NextResponse.json({ status: statuses[0], statuses });
   } catch (err) {
     return serverError(err, '/api/admin/api-balance');
   }
@@ -41,14 +44,19 @@ export async function POST(request: NextRequest) {
   if (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000) {
     return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
   }
+  // Repli sur Anthropic quand le fournisseur n'est pas transmis : l'ancien
+  // écran n'envoyait pas ce champ, et une saisie perdue vaut moins qu'une
+  // saisie rangée au bon endroit par défaut.
+  const provider: BalanceProvider = BALANCE_PROVIDERS.includes(body?.provider) ? body.provider : 'anthropic';
   const { error } = await supabaseAdmin
     .from('api_balance_snapshots')
-    .insert({ provider: 'anthropic', balance_usd: Math.round(balance * 100) / 100, as_of: new Date().toISOString() });
+    .insert({ provider, balance_usd: Math.round(balance * 100) / 100, as_of: new Date().toISOString() });
   if (error) {
     if ((error as any).code === '42P01') {
       return NextResponse.json({ error: 'Table api_balance_snapshots absente : lance migration_solde_api_2026-10-22.sql' }, { status: 409 });
     }
     return serverError(error, '/api/admin/api-balance');
   }
-  return NextResponse.json({ status: await getBalanceStatus() });
+  const statuses = await Promise.all(BALANCE_PROVIDERS.map((p) => getBalanceStatus(p)));
+  return NextResponse.json({ status: statuses[0], statuses });
 }
