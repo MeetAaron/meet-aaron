@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
-import { formatSubscriptionPrice } from '@/lib/boost-tiers';
+import { formatSubscriptionPrice, USD_PER_CREDIT, PROSPECTS_PER_CREDIT } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
@@ -558,8 +558,9 @@ export default function TeamPage() {
               <div className="credits-head">
                 <h2>{t('team.creditsTitle', locale)}</h2>
                 <span className="credits-total">
-                  {formatEur(credits.company_total_usd)}
-                  {credits.cap_usd ? ` / ${formatEur(credits.cap_usd)}` : ''}
+                  {prospectsFromUsd(credits.company_total_usd)}
+                  {credits.cap_usd ? ` / ${prospectsFromUsd(credits.cap_usd)}` : ''}
+                  {' '}{t('quota.unit', locale)}
                 </span>
               </div>
               <p className="muted credits-hint">{t('team.creditsHint', locale)}</p>
@@ -607,7 +608,7 @@ export default function TeamPage() {
                           key={r.id}
                           className={`credits-seg${r.shared ? ' shared' : ''}`}
                           style={{ width: `${Math.min(100, (r.value / base) * 100)}%`, background: r.shared ? undefined : colors[i % colors.length] }}
-                          title={`${r.label} — ${formatEur(r.value)}`}
+                          title={`${r.label} — ${prospectsFromUsd(r.value)} ${t('quota.unit', locale)}`}
                         />
                       ))}
                       {/* Repère de fin des crédits inclus (01/09/2026) :
@@ -619,14 +620,14 @@ export default function TeamPage() {
                         <span
                           className="credits-boost-mark"
                           style={{ left: `${Math.min(100, (credits.subscription_cap_usd / base) * 100)}%` }}
-                          title={`${t('team.creditsBoostSegment', locale)} : +${credits.boost_credits}`}
+                          title={`${t('team.creditsBoostSegment', locale)} : +${prospectsFromUsd(credits.boost_cap_usd)} ${t('quota.unit', locale)}`}
                         />
                       )}
                     </div>
                     {(credits.boost_cap_usd || 0) > 0 && (
                       <p className="muted credits-hint credits-boost-note">
-                        {formatEur(credits.subscription_cap_usd)} + {t('team.creditsBoostSegment', locale)}{' '}
-                        {formatEur(credits.boost_cap_usd)} (+{credits.boost_credits})
+                        {prospectsFromUsd(credits.subscription_cap_usd)} + {t('team.creditsBoostSegment', locale)}{' '}
+                        {prospectsFromUsd(credits.boost_cap_usd)} {t('quota.unit', locale)}
                       </p>
                     )}
                     <ul className="credits-legend">
@@ -634,7 +635,7 @@ export default function TeamPage() {
                         <li key={r.id}>
                           <span className={`credits-dot${r.shared ? ' shared' : ''}`} style={{ background: r.shared ? undefined : colors[i % colors.length] }} />
                           <span className="credits-name">{r.label}</span>
-                          <span className="credits-value">{formatEur(r.value)}</span>
+                          <span className="credits-value">{prospectsFromUsd(r.value)}</span>
                           {credits.cap_usd ? (
                             <span className="credits-pct">{Math.round((r.value / credits.cap_usd) * 100)} %</span>
                           ) : null}
@@ -706,7 +707,7 @@ export default function TeamPage() {
                       {m.clients_actifs} {t('team.shortClients', locale)}
                       {' · '}
                       {m.clients_perdus} {t('team.shortLost', locale)}
-                      {credits?.available ? ` · ${formatEur(m.credits_used_usd || 0)}` : ''}
+                      {credits?.available ? ` · ${prospectsFromUsd(m.credits_used_usd || 0)} ${t('quota.unit', locale)}` : ''}
                     </span>
                   </div>
                   <span className="rank-score">{m.clients_gagnes || 0}</span>
@@ -1821,11 +1822,23 @@ function TeamSuggestionsPanel({ userId, locale }) {
 // Coût API affiché en euros (les coûts Anthropic sont calculés en dollars,
 // voir lib/anthropic-client.ts) — conversion volontairement approximative et
 // fixe : cette jauge sert à voir QUI consomme, pas à facturer au centime.
-const USD_TO_EUR = 0.92;
-function formatEur(usd) {
-  const eur = (Number(usd) || 0) * USD_TO_EUR;
-  if (eur > 0 && eur < 0.01) return '< 0,01 €';
-  return eur.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+// EN PROSPECTS, PAS EN EUROS (Alex, 03/11/2026).
+//
+// Cet écran affichait le budget d'API en euros : « Jean a consommé 4,20 € ».
+// Deux problèmes. D'abord ça ne veut rien dire pour un patron — il n'achète
+// pas des euros d'API, il achète de la prospection. Ensuite ça lui montrait
+// notre coût de revient, c'est-à-dire notre marge, ce qui n'a rien à faire
+// là.
+//
+// Même conversion que lib/prospect-quota.ts, donc les deux écrans disent le
+// même chiffre : un crédit vaut USD_PER_CREDIT de budget et PROSPECTS_PER_CREDIT
+// prospects. L'estimation est volontairement prudente (le coût réel mesuré
+// par prospect est plus bas), donc le compte affiché est un PLANCHER : on
+// n'annonce jamais plus de prospects qu'on ne peut en servir.
+function prospectsFromUsd(usd) {
+  const n = (Number(usd) || 0) / USD_PER_CREDIT * PROSPECTS_PER_CREDIT;
+  if (n > 0 && n < 1) return '< 1';
+  return Math.round(n).toLocaleString('fr-FR');
 }
 
 function EmptyState({ title, body }) {
