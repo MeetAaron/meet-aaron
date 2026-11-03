@@ -543,6 +543,27 @@ export async function listNewGmailMessages(userId: string, afterTimestamp: numbe
   return data.messages || []; // liste de { id, threadId } — à récupérer en détail ensuite
 }
 
+// Recherche Gmail libre (02/11/2026) : listNewGmailMessages ne sait chercher
+// que « tout ce qui est arrivé depuis telle date ». La détection des reçus
+// Anthropic (lib/anthropic-receipts.ts) a besoin de cibler un expéditeur et
+// un sujet, sinon il faudrait télécharger toute la boîte pour trouver deux
+// messages par mois. Même syntaxe que la barre de recherche de Gmail.
+export async function searchGmailMessages(userId: string, query: string, maxResults = 20) {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const response = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.messages || []) as { id: string; threadId: string }[];
+  } catch (err: any) {
+    console.error('Erreur recherche Gmail:', err.message);
+    return [];
+  }
+}
+
 // En-têtes seuls d'un message Gmail (01/09/2026, optimisation coût) :
 // quelques centaines d'octets au lieu du message entier avec ses pièces
 // jointes. Le cron de lecture s'en sert pour savoir QUI écrit avant de

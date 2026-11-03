@@ -90,7 +90,7 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-function gmailBodyText(payload: any): string {
+export function gmailBodyText(payload: any): string {
   if (!payload) return '';
   const decode = (data: string) => Buffer.from(data, 'base64').toString('utf-8');
   if (payload.mimeType === 'text/plain' && payload.body?.data) return decode(payload.body.data);
