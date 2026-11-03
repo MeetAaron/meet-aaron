@@ -55,12 +55,28 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
   const key = process.env.ANTHROPIC_ADMIN_KEY;
   if (!key) return null;
 
-  const params = new URLSearchParams({
-    starting_at: startingAt.toISOString(),
-    ending_at: endingAt.toISOString(),
-  });
+  // LIMITE PAR DÉFAUT : 7 SEAUX (03/11/2026, trouvé en relisant la doc).
+  //
+  // En granularité journalière, l'API renvoie SEPT jours par défaut et trente
+  // et un au maximum. Nous ne passions pas `limit` : au-delà d'une semaine
+  // sans nouvelle saisie de solde, la dépense était donc tronquée en silence,
+  // donc SOUS-ESTIMÉE, donc le reste annoncé était trop élevé. C'est
+  // exactement le genre de panne qu'on cherchait à éliminer — un chiffre faux
+  // qui a l'air juste.
+  //
+  // On demande le maximum, et on pagine : `has_more` + `next_page`.
+  const days: DailyCost[] = [];
+  let page: string | null = null;
+  let seenBuckets = 0;
 
   try {
+    for (let i = 0; i < 6; i++) {
+    const params = new URLSearchParams({
+      starting_at: startingAt.toISOString(),
+      ending_at: endingAt.toISOString(),
+      limit: '31',
+    });
+    if (page) params.set('page', page);
     const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
       headers: {
         'x-api-key': key,
@@ -79,7 +95,7 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
     // a déjà changé une fois côté Anthropic, et une alerte de solde ne doit
     // pas tomber en panne parce qu'un champ a été renommé.
     const buckets: any[] = json?.data || json?.buckets || [];
-    const days: DailyCost[] = [];
+    seenBuckets += buckets.length;
     for (const bucket of buckets) {
       const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
       if (!day) continue;
@@ -90,7 +106,11 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
       }
       days.push({ day, usd: Math.round(usd * 10000) / 10000 });
     }
-    if (days.length === 0 && buckets.length > 0) {
+      if (!json?.has_more || !json?.next_page) break;
+      page = String(json.next_page);
+    }
+
+    if (days.length === 0 && seenBuckets > 0) {
       // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
       // et on renvoie null pour retomber sur l'estimation, plutôt que
       // d'annoncer une dépense nulle qui ferait croire à un solde intact.
