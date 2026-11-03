@@ -1,0 +1,416 @@
+From 454d84ee9e55a1a6ed34185ce881d42e50a3f469 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 00:45:10 +0000
+Subject: [PATCH] =?UTF-8?q?Le=20solde=20Anthropic=20se=20recharge=20tout?=
+ =?UTF-8?q?=20seul=20:=20lire=20le=20re=C3=A7u=20plut=C3=B4t=20que=20le=20?=
+ =?UTF-8?q?demander?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+« C'est ridicule, change ça en automatique, je ne vais pas le faire
+manuellement à chaque fois. » La dépense était déjà lue directement chez
+Anthropic depuis la clé admin ; restait la saisie du solde après chaque
+recharge, parce qu'Anthropic ne publie pas d'API du solde restant.
+
+Mais une recharge laisse une trace : un reçu par email. On le lit, on en
+extrait le montant payé, et on enregistre le nouveau solde. Le compteur
+d'ancienneté repart du même coup, donc l'alerte « solde à revérifier »
+cesse de se déclencher pour rien.
+
+Volontairement prudent, parce qu'un montant mal lu reproduirait en pire le
+bug du 31/10 : expéditeur vérifié, montant ÉTIQUETÉ seulement (le plus
+gros nombre de la page ne suffit pas, un reçu contient aussi des numéros
+de carte et des sous-totaux), fourchette de plausibilité, un reçu marqué
+par son identifiant de message donc jamais compté deux fois, et un email
+à Alex à chaque crédit pour qu'une erreur se voie le jour même. Sans
+montant lisible, on n'écrit RIEN et on le dit.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/anthropic-receipts/route.ts |  89 +++++++++++
+ lib/anthropic-receipts.ts                | 183 +++++++++++++++++++++++
+ lib/google.ts                            |  21 +++
+ lib/manual-replies.ts                    |   2 +-
+ migration_recus_anthropic_2026-11-02.sql |  21 +++
+ vercel.json                              |   4 +
+ 6 files changed, 319 insertions(+), 1 deletion(-)
+ create mode 100644 app/api/cron/anthropic-receipts/route.ts
+ create mode 100644 lib/anthropic-receipts.ts
+ create mode 100644 migration_recus_anthropic_2026-11-02.sql
+
+diff --git a/app/api/cron/anthropic-receipts/route.ts b/app/api/cron/anthropic-receipts/route.ts
+new file mode 100644
+index 0000000..ac4e9f3
+--- /dev/null
++++ b/app/api/cron/anthropic-receipts/route.ts
+@@ -0,0 +1,89 @@
++// app/api/cron/anthropic-receipts/route.ts
++// Une fois par jour : cherche les reçus de recharge Anthropic dans la boîte
++// Meet Aaron et met le solde à jour tout seul (voir lib/anthropic-receipts.ts).
++// Alex reçoit un email à chaque crédit — une erreur de lecture doit se voir
++// le jour même, pas trois semaines plus tard.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { scanAnthropicReceipts } from '@/lib/anthropic-receipts';
++import { sendSystemEmail } from '@/lib/google';
++import { serverError } from '@/lib/http';
++
++export const dynamic = 'force-dynamic';
++
++const OPERATOR_EMAIL = process.env.OPERATOR_ALERT_EMAIL || 'aaron@meetaaron.app';
++
++function isAuthorized(request: NextRequest) {
++  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
++}
++
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) {
++    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++  }
++
++  try {
++    const result = await scanAnthropicReceipts();
++    if (!result.mailbox) {
++      return NextResponse.json({ skipped: true, reason: 'aucune boîte configurée' });
++    }
++
++    const credited = result.outcomes.filter((o) => o.credited);
++    const needsHand = result.outcomes.filter(
++      (o) => !o.credited && (o.reason === 'montant_introuvable' || o.reason === 'montant_aberrant')
++    );
++    const blocked = result.outcomes.filter((o) => o.reason === 'colonne_absente');
++
++    if (credited.length > 0) {
++      const lines = [
++        'Recharge Anthropic détectée, solde mis à jour tout seul :',
++        '',
++        ...credited.map(
++          (o) => `• +${o.amountUsd?.toFixed(2)} $ → nouveau solde ${o.newBalanceUsd?.toFixed(2)} $`
++        ),
++        '',
++        "Si l'un de ces montants est faux, corrige le solde dans /app/marge : la saisie",
++        'manuelle reste prioritaire, elle écrase celui-ci.',
++      ];
++      await sendSystemEmail(OPERATOR_EMAIL, 'Meet Aaron — solde Anthropic mis à jour', lines.join('\n'), 'fr').catch(
++        () => {}
++      );
++    }
++
++    if (needsHand.length > 0) {
++      const lines = [
++        "J'ai trouvé un reçu Anthropic mais je n'ai pas réussi à en lire le montant de façon sûre,",
++        "donc je n'ai rien écrit — un solde faux serait pire que pas de solde.",
++        '',
++        ...needsHand.map((o) =>
++          o.reason === 'montant_aberrant'
++            ? `• montant lu invraisemblable (${o.amountUsd} $), ignoré`
++            : '• aucun montant étiqueté trouvé dans le reçu'
++        ),
++        '',
++        'Saisis le solde à la main dans /app/marge.',
++      ];
++      await sendSystemEmail(
++        OPERATOR_EMAIL,
++        'Meet Aaron — reçu Anthropic à saisir à la main',
++        lines.join('\n'),
++        'fr'
++      ).catch(() => {});
++    }
++
++    if (blocked.length > 0) {
++      console.error(
++        '[reçus Anthropic] colonne source_message_id absente : lancer migration_recus_anthropic_2026-11-02.sql'
++      );
++    }
++
++    return NextResponse.json({
++      scanned: result.scanned,
++      credited: credited.length,
++      needsHand: needsHand.length,
++      blocked: blocked.length,
++    });
++  } catch (err: any) {
++    return serverError(err, 'Reçus Anthropic');
++  }
++}
+diff --git a/lib/anthropic-receipts.ts b/lib/anthropic-receipts.ts
+new file mode 100644
+index 0000000..39eda8b
+--- /dev/null
++++ b/lib/anthropic-receipts.ts
+@@ -0,0 +1,183 @@
++// lib/anthropic-receipts.ts
++//
++// CRÉDITER UNE RECHARGE TOUT SEUL (Alex, 31/10/2026 : « c'est ridicule,
++// change ça en automatique, je ne vais pas le faire manuellement à chaque
++// fois »).
++//
++// Depuis la clé admin Anthropic, la DÉPENSE est lue directement chez
++// Anthropic (lib/anthropic-admin.ts). Il restait une saisie manuelle : le
++// SOLDE après chaque recharge, parce qu'Anthropic ne publie aucune API du
++// solde restant — seulement la dépense.
++//
++// Mais une recharge laisse une trace : un reçu par email. On le lit, on en
++// extrait le montant payé, et on enregistre un nouveau solde =
++// (reste estimé juste avant la recharge) + (montant rechargé). Le compteur
++// d'ancienneté repart à zéro par la même occasion, donc l'alerte « solde à
++// revérifier » ne se déclenche plus pour rien.
++//
++// ── CE QUI EST VOLONTAIREMENT PRUDENT ────────────────────────────────────
++//
++// Un montant mal lu corromprait le solde en silence, et on reproduirait en
++// pire le bug du 31/10 (une alerte fondée sur un chiffre faux). Donc :
++//
++//   - l'expéditeur doit être un domaine Anthropic connu ;
++//   - le montant doit être ÉTIQUETÉ dans le texte (« amount paid », « total
++//     paid »...). Le plus gros nombre de la page ne suffit pas : un reçu
++//     contient aussi des identifiants, des numéros de carte tronqués et des
++//     sous-totaux ;
++//   - sans montant étiqueté, on ne crédite RIEN et on prévient Alex de
++//     saisir à la main. Ne rien faire est toujours préférable à écrire un
++//     chiffre inventé ;
++//   - chaque reçu est marqué par son identifiant de message, donc jamais
++//     compté deux fois ;
++//   - et dans tous les cas Alex reçoit un email disant ce qui a été crédité,
++//     pour qu'une erreur se voie le jour même et pas trois semaines après.
++
++import { supabaseAdmin } from './supabase-admin';
++import { searchGmailMessages, getGmailMessage, getGmailMessageMetadata } from './google';
++import { gmailBodyText } from './manual-replies';
++import { getBalanceStatus } from './api-balance';
++
++// Domaines dont un reçu est accepté. Une adresse hors de cette liste est
++// ignorée, quel que soit le sujet du message.
++const TRUSTED_SENDER_DOMAINS = ['anthropic.com', 'claude.com', 'stripe.com'];
++
++// Un reçu Stripe ne suffit pas : Stripe envoie aussi les reçus des autres
++// abonnements d'Alex. Le corps doit parler d'Anthropic.
++const MUST_MENTION = /anthropic|claude\.ai|claude\.com/i;
++
++// Montants ÉTIQUETÉS seulement. L'ordre compte : on garde la première
++// étiquette trouvée, de la plus explicite à la plus générale.
++const AMOUNT_PATTERNS: RegExp[] = [
++  /amount\s+paid[^0-9$]{0,40}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
++  /total\s+paid[^0-9$]{0,40}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
++  /montant\s+(?:pay[ée]|r[ée]gl[ée])[^0-9$]{0,40}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
++  /(?:^|\n)\s*total[^0-9$\n]{0,30}\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i,
++];
++
++// Garde-fou de bon sens : une recharge Anthropic d'Alex se compte en
++// dizaines de dollars. En dehors de cette fourchette, on préfère ne rien
++// écrire et le lui dire.
++const MIN_PLAUSIBLE_USD = 1;
++const MAX_PLAUSIBLE_USD = 2000;
++
++export interface ReceiptOutcome {
++  messageId: string;
++  amountUsd: number | null;
++  credited: boolean;
++  newBalanceUsd?: number;
++  reason?: 'deja_traite' | 'montant_introuvable' | 'montant_aberrant' | 'colonne_absente';
++}
++
++function headerValue(meta: any, name: string): string {
++  const headers = meta?.payload?.headers || [];
++  const found = headers.find((h: any) => String(h.name).toLowerCase() === name.toLowerCase());
++  return found?.value || '';
++}
++
++function senderTrusted(from: string): boolean {
++  const lower = from.toLowerCase();
++  return TRUSTED_SENDER_DOMAINS.some((d) => lower.includes(`@${d}`) || lower.includes(`.${d}>`));
++}
++
++export function extractPaidAmountUsd(text: string): number | null {
++  for (const re of AMOUNT_PATTERNS) {
++    const m = text.match(re);
++    if (!m) continue;
++    const value = Number(String(m[1]).replace(/,/g, ''));
++    if (Number.isFinite(value) && value > 0) return value;
++  }
++  return null;
++}
++
++// Identifiant de la boîte à lire. Par défaut celle qui envoie déjà les
++// emails système — c'est la boîte Meet Aaron. ANTHROPIC_RECEIPTS_USER_ID
++// permet d'en désigner une autre sans toucher au code, si le compte
++// Anthropic est rattaché à une autre adresse.
++export function receiptsMailboxUserId(): string | null {
++  return (
++    (process.env.ANTHROPIC_RECEIPTS_USER_ID || '').trim() ||
++    (process.env.SYSTEM_EMAIL_SENDER_USER_ID || '').trim() ||
++    null
++  );
++}
++
++export async function scanAnthropicReceipts(): Promise<{
++  scanned: number;
++  outcomes: ReceiptOutcome[];
++  mailbox: string | null;
++}> {
++  const userId = receiptsMailboxUserId();
++  if (!userId) return { scanned: 0, outcomes: [], mailbox: null };
++
++  const query =
++    'newer_than:30d (from:anthropic.com OR from:claude.com OR from:stripe.com) ' +
++    '(subject:receipt OR subject:invoice OR subject:reçu OR subject:facture OR subject:payment)';
++  const messages = await searchGmailMessages(userId, query, 25);
++
++  const outcomes: ReceiptOutcome[] = [];
++
++  for (const m of messages) {
++    const meta = await getGmailMessageMetadata(userId, m.id);
++    if (!meta) continue;
++    if (!senderTrusted(headerValue(meta, 'From'))) continue;
++
++    // Déjà traité ? La colonne peut ne pas exister (migration pas passée) :
++    // dans ce cas on s'arrête net plutôt que de risquer un double crédit.
++    const seen = await supabaseAdmin
++      .from('api_balance_snapshots')
++      .select('id')
++      .eq('source_message_id', m.id)
++      .limit(1)
++      .maybeSingle();
++    if (seen.error) {
++      outcomes.push({ messageId: m.id, amountUsd: null, credited: false, reason: 'colonne_absente' });
++      break;
++    }
++    if (seen.data) {
++      outcomes.push({ messageId: m.id, amountUsd: null, credited: false, reason: 'deja_traite' });
++      continue;
++    }
++
++    let full: any;
++    try {
++      full = await getGmailMessage(userId, m.id);
++    } catch {
++      continue;
++    }
++    const text = gmailBodyText(full?.payload);
++    if (!text || !MUST_MENTION.test(`${headerValue(meta, 'Subject')}\n${text}`)) continue;
++
++    const amountUsd = extractPaidAmountUsd(text);
++    if (amountUsd === null) {
++      outcomes.push({ messageId: m.id, amountUsd: null, credited: false, reason: 'montant_introuvable' });
++      continue;
++    }
++    if (amountUsd < MIN_PLAUSIBLE_USD || amountUsd > MAX_PLAUSIBLE_USD) {
++      outcomes.push({ messageId: m.id, amountUsd, credited: false, reason: 'montant_aberrant' });
++      continue;
++    }
++
++    // Reste estimé AVANT la recharge. Si le solde est périmé, remainingUsd
++    // vaut null : on repart alors du montant rechargé seul, ce qui
++    // sous-estime — on préfère sous-estimer un solde que le gonfler.
++    const before = await getBalanceStatus();
++    const remainingBefore = before.remainingUsd !== null ? Math.max(0, before.remainingUsd) : 0;
++    const newBalanceUsd = Math.round((remainingBefore + amountUsd) * 100) / 100;
++
++    const { error: insertError } = await supabaseAdmin.from('api_balance_snapshots').insert({
++      provider: 'anthropic',
++      balance_usd: newBalanceUsd,
++      as_of: new Date().toISOString(),
++      source_message_id: m.id,
++    });
++    if (insertError) {
++      outcomes.push({ messageId: m.id, amountUsd, credited: false, reason: 'colonne_absente' });
++      break;
++    }
++
++    outcomes.push({ messageId: m.id, amountUsd, credited: true, newBalanceUsd });
++  }
++
++  return { scanned: messages.length, outcomes, mailbox: userId };
++}
+diff --git a/lib/google.ts b/lib/google.ts
+index b52ab81..b652bf3 100644
+--- a/lib/google.ts
++++ b/lib/google.ts
+@@ -543,6 +543,27 @@ export async function listNewGmailMessages(userId: string, afterTimestamp: numbe
+   return data.messages || []; // liste de { id, threadId } — à récupérer en détail ensuite
+ }
+ 
++// Recherche Gmail libre (02/11/2026) : listNewGmailMessages ne sait chercher
++// que « tout ce qui est arrivé depuis telle date ». La détection des reçus
++// Anthropic (lib/anthropic-receipts.ts) a besoin de cibler un expéditeur et
++// un sujet, sinon il faudrait télécharger toute la boîte pour trouver deux
++// messages par mois. Même syntaxe que la barre de recherche de Gmail.
++export async function searchGmailMessages(userId: string, query: string, maxResults = 20) {
++  try {
++    const accessToken = await getValidAccessToken(userId);
++    const response = await fetch(
++      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`,
++      { headers: { Authorization: `Bearer ${accessToken}` } }
++    );
++    if (!response.ok) return [];
++    const data = await response.json();
++    return (data.messages || []) as { id: string; threadId: string }[];
++  } catch (err: any) {
++    console.error('Erreur recherche Gmail:', err.message);
++    return [];
++  }
++}
++
+ // En-têtes seuls d'un message Gmail (01/09/2026, optimisation coût) :
+ // quelques centaines d'octets au lieu du message entier avec ses pièces
+ // jointes. Le cron de lecture s'en sert pour savoir QUI écrit avant de
+diff --git a/lib/manual-replies.ts b/lib/manual-replies.ts
+index 3cdf11f..203de17 100644
+--- a/lib/manual-replies.ts
++++ b/lib/manual-replies.ts
+@@ -90,7 +90,7 @@ function htmlToText(html: string): string {
+     .trim();
+ }
+ 
+-function gmailBodyText(payload: any): string {
++export function gmailBodyText(payload: any): string {
+   if (!payload) return '';
+   const decode = (data: string) => Buffer.from(data, 'base64').toString('utf-8');
+   if (payload.mimeType === 'text/plain' && payload.body?.data) return decode(payload.body.data);
+diff --git a/migration_recus_anthropic_2026-11-02.sql b/migration_recus_anthropic_2026-11-02.sql
+new file mode 100644
+index 0000000..f1be26e
+--- /dev/null
++++ b/migration_recus_anthropic_2026-11-02.sql
+@@ -0,0 +1,21 @@
++-- migration_recus_anthropic_2026-11-02.sql
++--
++-- « C'est ridicule, change ça en automatique, je ne vais pas le faire
++-- manuellement à chaque fois » (Alex, 31/10/2026, à propos de la saisie du
++-- solde Anthropic après chaque recharge).
++--
++-- lib/anthropic-receipts.ts lit les reçus de recharge dans la boîte Meet
++-- Aaron et enregistre le nouveau solde tout seul. Cette colonne marque le
++-- message d'où vient chaque solde : sans elle, le même reçu serait crédité
++-- à chaque passage du cron. L'index unique est la vraie protection — le
++-- code vérifie avant d'insérer, la base refuse si deux passages se croisent.
++
++ALTER TABLE public.api_balance_snapshots
++  ADD COLUMN IF NOT EXISTS source_message_id text;
++
++COMMENT ON COLUMN public.api_balance_snapshots.source_message_id IS
++  'Identifiant du message Gmail (reçu de recharge) dont ce solde a été déduit. NULL = solde saisi à la main par Alex dans /app/marge.';
++
++CREATE UNIQUE INDEX IF NOT EXISTS api_balance_snapshots_source_message_id_idx
++  ON public.api_balance_snapshots (source_message_id)
++  WHERE source_message_id IS NOT NULL;
+diff --git a/vercel.json b/vercel.json
+index e5d1b2e..e696e53 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -128,6 +128,10 @@
+     {
+       "path": "/api/cron/own-clients-sync",
+       "schedule": "20 4 * * *"
++    },
++    {
++      "path": "/api/cron/anthropic-receipts",
++      "schedule": "50 6 * * *"
+     }
+   ]
+ }
+-- 
+2.43.0
+
