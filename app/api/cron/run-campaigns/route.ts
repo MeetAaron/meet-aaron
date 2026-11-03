@@ -37,6 +37,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
     .eq('id', campaignId)
     .eq('status', 'en_attente');
 
+  // La campagne elle-même : sa date de création et son objectif décident de
+  // la fenêtre de lancement plus bas. Lecture tolérante — sans elle, on
+  // retombe simplement sur le comportement d'avant (verrou de stock seul).
+  const { data: campaign } = await supabaseAdmin
+    .from('prospecting_campaigns')
+    .select('created_at, target_count, contacts_found')
+    .eq('id', campaignId)
+    .maybeSingle();
+
   // Le commercial propriétaire (une campagne = un commercial = une société) :
   // sert au rythme de consommation ci-dessous. La relecture avant envoi et la
   // pièce jointe du premier email sont gérées au moment de l'application de
@@ -101,16 +110,58 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   }
 
   const dailyCap = await effectiveProspectingCap(assignedUserId);
-  const needsMoreCompanies = uncontactedStock < dailyCap;
 
+  // ───────────────────────────────────────────────────────────────────────
+  // FENÊTRE DE LANCEMENT (Alex, 30/10/2026 : « si le client lance une
+  // campagne à 300 prospects, tu trouves les 300, tu crées les fiches, dans
+  // la même journée. Et ensuite tu n'en contactes que 40 »).
+  //
+  // Le verrou de stock ci-dessus a fait exactement ce qu'on lui demandait —
+  // mesuré sur la première campagne d'un client : 4,67 $ et 5,05 $ les deux
+  // jours précédant sa pose, puis 0,58 $, 0,88 $ et 0,71 $ les trois jours
+  // suivants, à volume d'envois identique. Environ six fois moins cher.
+  //
+  // Mais il a un effet de bord : il étale aussi la RECHERCHE sur des
+  // semaines, alors qu'Alex veut le fichier complet dès le premier jour.
+  // Trouver et contacter sont deux choses différentes : la montée en chauffe
+  // de la boîte mail doit brider les ENVOIS, pas la constitution du fichier.
+  //
+  // Pendant LAUNCH_WINDOW_HOURS après la création de la campagne, on cherche
+  // donc sans regarder le stock, jusqu'à l'objectif. Passé ce délai, le
+  // verrou de stock reprend la main — c'est lui qui empêche de re-chercher
+  // 144 fois par jour pour rien.
+  //
+  // Ce qui protège quand même : le plafond mensuel et le plafond dur
+  // (lib/anthropic-client) restent au-dessus de tout. La fenêtre de
+  // lancement ne crée aucun budget, elle autorise seulement à le dépenser
+  // plus tôt. Un mois entier de budget consommé le premier jour laisserait
+  // la campagne sans quoi parler à ses prospects : c'est pour ça que le lot
+  // par passage reste petit, et que le rythme (getPacing) continue de
+  // s'appliquer.
+  const LAUNCH_WINDOW_HOURS = 48;
+  const createdAt = campaign?.created_at ? new Date(campaign.created_at).getTime() : null;
+  const inLaunchWindow =
+    createdAt !== null && Date.now() - createdAt < LAUNCH_WINDOW_HOURS * 3600 * 1000;
+  const targetReached =
+    typeof campaign?.target_count === 'number' &&
+    typeof campaign?.contacts_found === 'number' &&
+    campaign.contacts_found >= campaign.target_count;
+
+  const needsMoreCompanies = (inLaunchWindow && !targetReached) || uncontactedStock < dailyCap;
+
+  // Pendant la fenêtre de lancement on va deux fois plus vite par passage,
+  // sans jamais ignorer le rythme : c'est l'étalement qu'on raccourcit, pas
+  // le budget qu'on augmente.
+  const maxPerPass = inLaunchWindow && !targetReached ? 10 : 5;
   const sourcingBatch = !needsMoreCompanies
     ? 0
-    : (pacing ? Math.max(0, Math.min(5, pacing.prospectsAllowedToday)) : 5);
+    : (pacing ? Math.max(0, Math.min(maxPerPass, pacing.prospectsAllowedToday)) : maxPerPass);
 
   const result = sourcingBatch > 0
     ? await processCampaignBatch(campaignId, sourcingBatch)
     : {
         skipped_sourcing: needsMoreCompanies ? 'pacing' : 'stock_suffisant',
+        in_launch_window: inLaunchWindow,
         uncontacted_stock: uncontactedStock,
         daily_cap: dailyCap,
         daily_target_usd: pacing?.dailyTargetUsd,

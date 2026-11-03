@@ -174,6 +174,8 @@ export default function CampaignsPage() {
   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
   const [changingStatusFor, setChangingStatusFor] = useState(null);
   const [confirmEndId, setConfirmEndId] = useState(null);
+  const [relaunchingId, setRelaunchingId] = useState(null);
+  const [relaunchError, setRelaunchError] = useState(null);
   // Refonte de la carte campagne (03/11/2026, maquette validée par Alex) :
   // le ciblage est replié sur deux lignes, les actions destructrices sont
   // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
@@ -271,6 +273,50 @@ export default function CampaignsPage() {
   }
 
   // #16 — pause/reprise/fin manuelle d'une campagne.
+  // RELANCER (03/11/2026). Rejoue le MÊME ciblage dans une nouvelle
+  // campagne, sans repasser par le chat. Une campagne terminée a souvent été
+  // réglée finement — zone, secteurs, tailles, note de ciblage, rôle visé,
+  // langue — et tout ressaisir à la main était le meilleur moyen de perdre
+  // ces réglages en route.
+  //
+  // On ne duplique QUE le ciblage : ni les contacts trouvés, ni les
+  // statistiques, ni l'avis d'Aaron. C'est une nouvelle campagne, qui
+  // repart de zéro et consomme son propre quota — l'API refuse d'ailleurs
+  // si le quota du mois est épuisé, et le message passe tel quel.
+  async function relaunchCampaign(c) {
+    setRelaunchingId(c.id);
+    setRelaunchError(null);
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          assigned_user_id: userId,
+          zone_label: c.zone_label,
+          zone_type: c.zone_type || 'zone',
+          zone_codes: c.zone_codes && c.zone_codes.length ? c.zone_codes : [c.zone_label],
+          sector_keywords: c.sector_keywords || [],
+          company_sizes: c.company_sizes || [],
+          target_count: c.target_count || 20,
+          context_notes: c.context_notes || null,
+          target_role: c.target_role || null,
+          target_locale: c.target_locale || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRelaunchError(body.error || t('campaigns.relaunchFailed', locale));
+        return;
+      }
+      await loadCampaigns();
+    } catch {
+      setRelaunchError(t('campaigns.relaunchFailed', locale));
+    } finally {
+      setRelaunchingId(null);
+    }
+  }
+
   async function changeCampaignStatus(campaignId, action) {
     setChangingStatusFor(campaignId);
     const res = await fetch(`/api/campaigns/${campaignId}`, {
@@ -481,6 +527,7 @@ export default function CampaignsPage() {
         />
       ) : (
         <div className="cards">
+          {relaunchError && <p className="relaunch-error">{relaunchError}</p>}
           {campaigns.map((c) => {
             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
@@ -656,9 +703,35 @@ export default function CampaignsPage() {
                 </p>
 
                 <div className="camp-acts">
-                  <a className="camp-primary" href={`/app/prospects${userId ? `?user_id=${userId}` : ''}`}>
-                    {t('campaigns.seeProspects', locale)} <Ic name="arrowRight" size={14} />
+                  {/* Le compteur enfin relié au travail réel (03/11/2026) :
+                      la liste Prospects accepte ?campagne=<id>. Avant, on
+                      lisait « 23 trouvés, 3 réponses » sans aucun moyen
+                      d'atteindre ces contacts. */}
+                  <a
+                    className="camp-primary"
+                    href={`/app/prospects?campagne=${c.id}${userId ? `&user_id=${userId}` : ''}`}
+                  >
+                    {isWaiting
+                      ? t('campaigns.seeProspects', locale)
+                      : t('campaigns.seeCampaignContacts', locale).replace('{n}', c.contacts_found || 0)}{' '}
+                    <Ic name="arrowRight" size={14} />
                   </a>
+                  {isTerminee && (
+                    <>
+                      <a className="camp-manage-btn" href={`/app/resultats${userId ? `?user_id=${userId}` : ''}`}>
+                        <Ic name="chart" size={13} /> {t('campaigns.seeResults', locale)}
+                      </a>
+                      <button
+                        type="button"
+                        className="camp-manage-btn"
+                        disabled={relaunchingId === c.id}
+                        onClick={() => relaunchCampaign(c)}
+                      >
+                        <Ic name="refresh" size={13} />{' '}
+                        {relaunchingId === c.id ? t('campaigns.relaunching', locale) : t('campaigns.relaunch', locale)}
+                      </button>
+                    </>
+                  )}
                   {!isTerminee && (
                     <div className="camp-manage">
                       <button
@@ -1082,6 +1155,12 @@ export default function CampaignsPage() {
           border: 1px solid transparent;
         }
         .camp-primary:hover { background: var(--accent-light, var(--accent)); }
+        .relaunch-error {
+          grid-column: 1 / -1;
+          margin: 0;
+          color: var(--accent-red);
+          font-size: 0.84rem;
+        }
         .camp-manage { position: relative; }
         .camp-manage-btn {
           display: inline-flex;

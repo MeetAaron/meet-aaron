@@ -19,7 +19,11 @@ import { runFirstContact, loadFirstContactProspect } from '@/lib/first-contact';
 import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
 import { readJsonBody, serverError } from '@/lib/http';
 
-const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at';
+// found_by_campaign_id : ajouté le 03/11/2026 pour que la liste Prospects
+// puisse être filtrée par campagne (bouton « Voir les N contacts » de la
+// carte campagne). Sans lui, impossible de savoir d'où vient un contact
+// quand plusieurs campagnes tournent en parallèle.
+const COMPANY_FIELDS_BASE = 'name, domain, address, siret, website, industry, company_size, estimated_revenue, research_summary, research_checked_at, found_by_campaign_id';
 const COMPANY_FIELDS_NEWS = `${COMPANY_FIELDS_BASE}, news_signal, news_signal_url, news_signal_at`;
 const COMPANY_FIELDS_FULL = `${COMPANY_FIELDS_NEWS}, linkedin_url, instagram_url, socials_checked_at, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at`;
 

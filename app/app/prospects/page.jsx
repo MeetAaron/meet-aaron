@@ -10,6 +10,7 @@ import { NavIcon, LockIcon } from '@/components/NavIcon';
 import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
+import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
 import CsvImportModal from '@/components/CsvImportModal';
 import ActionMenu from '@/components/ActionMenu';
@@ -280,6 +281,32 @@ export default function ProspectsPage() {
   const deepLinkEmailDoneRef = useRef(false);
   const [search, setSearch] = useState('');
 
+  // FILTRE PAR CAMPAGNE (03/11/2026, bouton « Voir les N contacts » de la
+  // carte campagne). Avant, on voyait « 23 trouvés, 3 réponses » sur la
+  // carte sans aucun moyen d'atteindre ces 23 contacts : il fallait les
+  // reconnaître à la main dans la liste, ce qui devient impossible dès que
+  // deux campagnes tournent en parallèle.
+  //
+  // Lu une seule fois à l'ouverture et conservé en état : le commercial peut
+  // le retirer d'un clic sans que l'URL le remette.
+  const [campaignFilter, setCampaignFilter] = useState(null);
+  const [campaignLabel, setCampaignLabel] = useState('');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = new URLSearchParams(window.location.search).get('campagne');
+    if (id) setCampaignFilter(id);
+  }, []);
+  useEffect(() => {
+    if (!campaignFilter || !userId) return;
+    fetch(`/api/campaigns?user_id=${userId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const c = (j?.campaigns || []).find((x) => x.id === campaignFilter);
+        if (c) setCampaignLabel((c.sector_keywords || []).join(', ') || c.zone_label || '');
+      })
+      .catch(() => {});
+  }, [campaignFilter, userId]);
+
   // Le bandeau disparaît tout seul au bout de huit secondes — assez pour
   // lire une phrase, assez peu pour ne pas encombrer l'écran.
   useEffect(() => {
@@ -428,6 +455,10 @@ export default function ProspectsPage() {
       if (managedFilter === 'aaron' && p.ai_managed === false) return false;
       if (managedFilter === 'me' && p.ai_managed !== false) return false;
       return true;
+    })
+    .filter(({ p }) => {
+      if (!campaignFilter) return true;
+      return p.prospect_companies?.found_by_campaign_id === campaignFilter;
     })
     .filter(({ p }) => {
       if (!searchTerm) return true;
@@ -681,6 +712,22 @@ export default function ProspectsPage() {
           );
         })}
       </div>
+
+      {campaignFilter && (
+        <div className="campaign-filter">
+          <span className="campaign-filter-ic"><Ic name="target" size={14} /></span>
+          <span className="campaign-filter-text">
+            {t('prospects.campaignFilter', locale).replace('{name}', campaignLabel || '…')}
+          </span>
+          <button
+            type="button"
+            className="campaign-filter-clear"
+            onClick={() => { setCampaignFilter(null); setCampaignLabel(''); }}
+          >
+            {t('prospects.campaignFilterClear', locale)}
+          </button>
+        </div>
+      )}
 
       {prospects.length > 0 && (
         <div className="search-row">
@@ -1081,6 +1128,32 @@ export default function ProspectsPage() {
         }
         .stage-count { font-family: var(--font-mono); font-size: 0.95rem; color: var(--text); line-height: 1; margin-top: 0.15rem; }
         .stage-label { font-size: 0.7rem; text-align: center; line-height: 1.15; }
+        .campaign-filter {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.8rem;
+          padding: 0.6rem 0.9rem;
+          border-radius: var(--radius-md);
+          background: rgba(75, 57, 239, 0.12);
+          border: 1px solid rgba(124, 110, 245, 0.35);
+          font-size: 0.84rem;
+        }
+        .campaign-filter-ic { display: inline-flex; color: var(--accent-light, var(--accent)); }
+        .campaign-filter-text { min-width: 0; }
+        .campaign-filter-clear {
+          margin-left: auto;
+          background: none;
+          border: 0;
+          padding: 0;
+          color: var(--accent-light, var(--accent));
+          font-family: inherit;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: underline;
+        }
         .search-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
         .search-input {
           flex: 1;
