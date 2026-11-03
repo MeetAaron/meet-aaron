@@ -121,7 +121,27 @@ export function clearExplicitLogin() {
   clearAppStorageOnLogout();
 }
 
-const KEEP_ON_LOGOUT = new Set(['aaron-remembered-email', REMEMBER_ME_FLAG]);
+// IDENTIFIANT D'APPAREIL CONSERVÉ À LA DÉCONNEXION (03/11/2026).
+//
+// Bug signalé par Alex : « je reçois l'email "nouvelle connexion depuis un
+// appareil jamais utilisé" à CHAQUE connexion, sur mon téléphone comme sur
+// mon ordinateur ».
+//
+// Cause : ce nettoyage efface toutes les clés commençant par « aaron- », donc
+// aussi `aaron-device-id`. À la connexion suivante, le navigateur se forge un
+// nouvel identifiant, le serveur ne le reconnaît pas, et l'alerte de sécurité
+// part. À chaque fois. La table user_devices se remplissait d'une ligne par
+// connexion, pour tout le monde.
+//
+// Le pire n'est pas le bruit : c'est qu'une alerte qui se déclenche toujours
+// n'est plus lue. Le jour où quelqu'un se connecte vraiment depuis un
+// appareil inconnu, l'email se perd dans la masse — la sécurité qu'on croyait
+// avoir n'existe pas.
+//
+// On le conserve donc, comme l'email mémorisé l'était déjà. C'est un jeton
+// aléatoire opaque, sans aucune donnée personnelle, et reconnaître l'appareil
+// APRÈS une déconnexion est précisément sa raison d'être.
+const KEEP_ON_LOGOUT = new Set(['aaron-remembered-email', 'aaron-device-id', REMEMBER_ME_FLAG]);
 const KEEP_PREFIXES_ON_LOGOUT = ['meetaaron_theme', 'aaron_locale'];
 
 export function clearAppStorageOnLogout() {

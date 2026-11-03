@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { sendSystemEmail } from '@/lib/google';
+import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { serverError } from '@/lib/http';
 
 // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
@@ -161,12 +162,22 @@ async function registerDeviceAndNotify(userId: string, userEmail: string | null,
 
   if (!count || !userEmail) return; // premier appareil : enregistrement silencieux
 
-  const when = new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Paris' });
+  // Heure DU COMMERCIAL, pas celle de Paris (03/11/2026). Un fondateur à
+  // Perth lisait « 09:08 heure de Paris » pour une connexion faite chez lui à
+  // 16:08 : impossible de reconnaître sa propre connexion, donc impossible de
+  // juger si l'alerte est légitime. Repli sur Paris si le fuseau est inconnu.
+  const { data: tzUser } = await supabaseAdmin
+    .from('users')
+    .select('timezone, billing_country')
+    .eq('id', userId)
+    .maybeSingle();
+  const timeZone = resolveUserTimeZone((tzUser as any) || {});
+  const when = new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone });
   const body =
     `Bonjour${firstName ? ' ' + firstName : ''},\n\n` +
     `Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :\n` +
     `• ${describeUserAgent(userAgent)}\n` +
-    `• le ${when} (heure de Paris)\n\n` +
+    `• le ${when} (${timeZone})\n\n` +
     `Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.\n\n` +
     `Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.\n\n` +
     `Aaron`;
