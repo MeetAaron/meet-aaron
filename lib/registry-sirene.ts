@@ -80,6 +80,29 @@ function toCandidate(hit: any): RegistryCandidate | null {
 }
 
 // DÉCOUVERTE : toutes les sociétés d'un ou plusieurs codes d'activité dans un
+// FORMAT DES CODES NAF (03/11/2026, premier appel réel au registre).
+//
+// Le code existait depuis le 31/10 mais n'avait JAMAIS tourné : l'API
+// publique est inaccessible depuis l'environnement de développement. Le
+// premier appel en production a répondu 400 :
+//
+//   « Au moins un paramètre `activite_principale` est non valide.
+//     Les valeurs valides : ['01.11Z', '01.12Z', …] »
+//
+// L'API attend « 82.30Z », avec un point après les deux premiers chiffres.
+// Nous envoyions « 8230Z », la forme compacte de l'INSEE, que le modèle
+// produit naturellement. Un seul code mal formé fait échouer TOUTE la
+// requête, donc toute la découverte tombait, silencieusement.
+//
+// On accepte les deux écritures en entrée et on normalise vers celle que
+// l'API veut. Un code non reconnu est écarté plutôt que transmis tel quel :
+// mieux vaut chercher sur sept codes que d'échouer sur huit.
+export function normalizeNaf(code: string): string {
+  const raw = String(code || '').trim().toUpperCase().replace(/\./g, '');
+  if (!/^\d{4}[A-Z]$/.test(raw)) return '';
+  return `${raw.slice(0, 2)}.${raw.slice(2)}`;
+}
+
 // ou plusieurs départements. `nafCodes` est volontairement TROP LARGE (voir le
 // commentaire en tête de fichier) ; le tri vient après, par classifyCandidates.
 //
@@ -96,7 +119,7 @@ export async function discoverFrenchCompanies(opts: {
   }
   const limit = Math.min(opts.limit || 300, 1000);
   const params = new URLSearchParams({
-    activite_principale: opts.nafCodes.join(','),
+    activite_principale: opts.nafCodes.map(normalizeNaf).filter(Boolean).join(','),
     departement: opts.departments.join(','),
     etat_administratif: 'A',
     per_page: '25',
@@ -171,7 +194,13 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     if (!textBlock) return { nafCodes: [], departments: [], error: 'réponse vide' };
     const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
-    const nafCodes = (parsed?.naf || []).filter((c: any) => typeof c === 'string' && /^\d{4}[A-Z]$/.test(c.trim())).map((c: string) => c.trim());
+    // Le modèle écrit tantôt « 8230Z », tantôt « 82.30Z » : on normalise
+    // ici aussi, pour que les critères stockés et affichés soient déjà dans
+    // la forme attendue par l'API.
+    const nafCodes = (parsed?.naf || [])
+      .filter((c: any) => typeof c === 'string')
+      .map((c: string) => normalizeNaf(c))
+      .filter(Boolean);
     const departments = (parsed?.departements || []).filter((d: any) => typeof d === 'string' && /^\d{2,3}$/.test(d.trim())).map((d: string) => d.trim());
     return { nafCodes, departments };
   } catch (err: any) {
