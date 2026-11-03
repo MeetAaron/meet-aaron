@@ -1,0 +1,1044 @@
+From 554af35906aa0788c5b714ecff3e50950f8db629 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 04:15:55 +0000
+Subject: [PATCH] =?UTF-8?q?Le=20solde=20OpenAI=20surveill=C3=A9=20comme=20?=
+ =?UTF-8?q?celui=20d'Anthropic?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+OPENAI_API_KEY est posée en production depuis le 7 septembre : tout le
+palier « cheap » d'Aaron — tri, classification, extraction, relances —
+part chez OpenAI. Cette dépense existait bien dans api_usage_daily, mais
+MÉLANGÉE à celle d'Anthropic : impossible de dire qui dépensait quoi, et
+surtout, personne ne surveillait le solde OpenAI. Un compte OpenAI vide
+arrête Aaron aussi sûrement qu'un compte Anthropic vide.
+
+lib/openai-admin.ts lit donc la dépense réelle chez OpenAI, jumeau de
+lib/anthropic-admin.ts. Trois pièges qui lui sont propres : les dates
+sont en secondes Unix et non en ISO, le montant est en dollars et non en
+cents, et la réponse est plafonnée à 180 seaux — sans pagination, une
+longue période serait silencieusement tronquée, donc sous-estimée, ce
+qui ferait croire à un solde intact.
+
+Le solde, l'alerte, la saisie et la détection des reçus de recharge
+prennent tous un fournisseur. Un détail compte : pour OpenAI il n'y a
+AUCUN repli sur l'estimation maison, parce qu'api_usage_daily additionne
+les deux fournisseurs et attribuerait à OpenAI la dépense d'Anthropic.
+Sans la clé d'administration, le système dit qu'il ne sait pas et
+l'annonce une fois, au lieu d'inventer un reste.
+
+L'écran Marge affiche les deux soldes côte à côte, chacun avec le lien
+vers sa console.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/admin/api-balance/route.ts       |  16 +-
+ app/api/cron/anthropic-receipts/route.ts | 125 ++++++++-------
+ app/api/cron/api-balance-alert/route.ts  | 195 ++++++++++++++---------
+ app/app/marge/page.jsx                   | 152 ++++++++++++------
+ lib/anthropic-receipts.ts                |  52 +++---
+ lib/api-balance.ts                       |  76 +++++++--
+ lib/openai-admin.ts                      | 115 +++++++++++++
+ 7 files changed, 519 insertions(+), 212 deletions(-)
+ create mode 100644 lib/openai-admin.ts
+
+diff --git a/app/api/admin/api-balance/route.ts b/app/api/admin/api-balance/route.ts
+index c2f3e52..e58215d 100644
+--- a/app/api/admin/api-balance/route.ts
++++ b/app/api/admin/api-balance/route.ts
+@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse, requireMfa } from '@/lib/auth-helpers';
+ import { isFounderEmail } from '@/lib/founder';
+-import { getBalanceStatus } from '@/lib/api-balance';
++import { getBalanceStatus, BALANCE_PROVIDERS, type BalanceProvider } from '@/lib/api-balance';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+ 
+@@ -27,7 +27,10 @@ export async function GET(request: NextRequest) {
+   const g = await guard(request);
+   if (g.error) return g.error;
+   try {
+-    return NextResponse.json({ status: await getBalanceStatus() });
++    // Les deux fournisseurs d'un coup : l'écran les affiche côte à côte, et
++    // `status` reste là pour ne rien casser pendant le déploiement.
++    const statuses = await Promise.all(BALANCE_PROVIDERS.map((p) => getBalanceStatus(p)));
++    return NextResponse.json({ status: statuses[0], statuses });
+   } catch (err) {
+     return serverError(err, '/api/admin/api-balance');
+   }
+@@ -41,14 +44,19 @@ export async function POST(request: NextRequest) {
+   if (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000) {
+     return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
+   }
++  // Repli sur Anthropic quand le fournisseur n'est pas transmis : l'ancien
++  // écran n'envoyait pas ce champ, et une saisie perdue vaut moins qu'une
++  // saisie rangée au bon endroit par défaut.
++  const provider: BalanceProvider = BALANCE_PROVIDERS.includes(body?.provider) ? body.provider : 'anthropic';
+   const { error } = await supabaseAdmin
+     .from('api_balance_snapshots')
+-    .insert({ provider: 'anthropic', balance_usd: Math.round(balance * 100) / 100, as_of: new Date().toISOString() });
++    .insert({ provider, balance_usd: Math.round(balance * 100) / 100, as_of: new Date().toISOString() });
+   if (error) {
+     if ((error as any).code === '42P01') {
+       return NextResponse.json({ error: 'Table api_balance_snapshots absente : lance migration_solde_api_2026-10-22.sql' }, { status: 409 });
+     }
+     return serverError(error, '/api/admin/api-balance');
+   }
+-  return NextResponse.json({ status: await getBalanceStatus() });
++  const statuses = await Promise.all(BALANCE_PROVIDERS.map((p) => getBalanceStatus(p)));
++  return NextResponse.json({ status: statuses[0], statuses });
+ }
+diff --git a/app/api/cron/anthropic-receipts/route.ts b/app/api/cron/anthropic-receipts/route.ts
+index ac4e9f3..6f76f0a 100644
+--- a/app/api/cron/anthropic-receipts/route.ts
++++ b/app/api/cron/anthropic-receipts/route.ts
+@@ -1,11 +1,13 @@
+ // app/api/cron/anthropic-receipts/route.ts
+-// Une fois par jour : cherche les reçus de recharge Anthropic dans la boîte
+-// Meet Aaron et met le solde à jour tout seul (voir lib/anthropic-receipts.ts).
++// Une fois par jour : cherche les reçus de recharge Anthropic ET OpenAI dans
++// la boîte Meet Aaron et met les soldes à jour tout seuls (voir
++// lib/anthropic-receipts.ts).
+ // Alex reçoit un email à chaque crédit — une erreur de lecture doit se voir
+ // le jour même, pas trois semaines plus tard.
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+-import { scanAnthropicReceipts } from '@/lib/anthropic-receipts';
++import { scanProviderReceipts } from '@/lib/anthropic-receipts';
++import { BALANCE_PROVIDERS } from '@/lib/api-balance';
+ import { sendSystemEmail } from '@/lib/google';
+ import { serverError } from '@/lib/http';
+ 
+@@ -23,67 +25,76 @@ export async function GET(request: NextRequest) {
+   }
+ 
+   try {
+-    const result = await scanAnthropicReceipts();
+-    if (!result.mailbox) {
+-      return NextResponse.json({ skipped: true, reason: 'aucune boîte configurée' });
+-    }
++    const summary: Record<string, unknown>[] = [];
+ 
+-    const credited = result.outcomes.filter((o) => o.credited);
+-    const needsHand = result.outcomes.filter(
+-      (o) => !o.credited && (o.reason === 'montant_introuvable' || o.reason === 'montant_aberrant')
+-    );
+-    const blocked = result.outcomes.filter((o) => o.reason === 'colonne_absente');
++    for (const provider of BALANCE_PROVIDERS) {
++      const result = await scanProviderReceipts(provider);
++      const label = result.label;
++      if (!result.mailbox) {
++        summary.push({ provider, skipped: true, reason: 'aucune boîte configurée' });
++        continue;
++      }
+ 
+-    if (credited.length > 0) {
+-      const lines = [
+-        'Recharge Anthropic détectée, solde mis à jour tout seul :',
+-        '',
+-        ...credited.map(
+-          (o) => `• +${o.amountUsd?.toFixed(2)} $ → nouveau solde ${o.newBalanceUsd?.toFixed(2)} $`
+-        ),
+-        '',
+-        "Si l'un de ces montants est faux, corrige le solde dans /app/marge : la saisie",
+-        'manuelle reste prioritaire, elle écrase celui-ci.',
+-      ];
+-      await sendSystemEmail(OPERATOR_EMAIL, 'Meet Aaron — solde Anthropic mis à jour', lines.join('\n'), 'fr').catch(
+-        () => {}
++      const credited = result.outcomes.filter((o) => o.credited);
++      const needsHand = result.outcomes.filter(
++        (o) => !o.credited && (o.reason === 'montant_introuvable' || o.reason === 'montant_aberrant')
+       );
+-    }
++      const blocked = result.outcomes.filter((o) => o.reason === 'colonne_absente');
+ 
+-    if (needsHand.length > 0) {
+-      const lines = [
+-        "J'ai trouvé un reçu Anthropic mais je n'ai pas réussi à en lire le montant de façon sûre,",
+-        "donc je n'ai rien écrit — un solde faux serait pire que pas de solde.",
+-        '',
+-        ...needsHand.map((o) =>
+-          o.reason === 'montant_aberrant'
+-            ? `• montant lu invraisemblable (${o.amountUsd} $), ignoré`
+-            : '• aucun montant étiqueté trouvé dans le reçu'
+-        ),
+-        '',
+-        'Saisis le solde à la main dans /app/marge.',
+-      ];
+-      await sendSystemEmail(
+-        OPERATOR_EMAIL,
+-        'Meet Aaron — reçu Anthropic à saisir à la main',
+-        lines.join('\n'),
+-        'fr'
+-      ).catch(() => {});
+-    }
++      if (credited.length > 0) {
++        const lines = [
++          `Recharge ${label} détectée, solde mis à jour tout seul :`,
++          '',
++          ...credited.map(
++            (o) => `• +${o.amountUsd?.toFixed(2)} $ → nouveau solde ${o.newBalanceUsd?.toFixed(2)} $`
++          ),
++          '',
++          "Si l'un de ces montants est faux, corrige le solde dans /app/marge : la saisie",
++          'manuelle reste prioritaire, elle écrase celui-ci.',
++        ];
++        await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — solde ${label} mis à jour`, lines.join('\n'), 'fr').catch(
++          () => {}
++        );
++      }
+ 
+-    if (blocked.length > 0) {
+-      console.error(
+-        '[reçus Anthropic] colonne source_message_id absente : lancer migration_recus_anthropic_2026-11-02.sql'
+-      );
++      if (needsHand.length > 0) {
++        const lines = [
++          `J'ai trouvé un reçu ${label} mais je n'ai pas réussi à en lire le montant de façon sûre,`,
++          "donc je n'ai rien écrit — un solde faux serait pire que pas de solde.",
++          '',
++          ...needsHand.map((o) =>
++            o.reason === 'montant_aberrant'
++              ? `• montant lu invraisemblable (${o.amountUsd} $), ignoré`
++              : '• aucun montant étiqueté trouvé dans le reçu'
++          ),
++          '',
++          'Saisis le solde à la main dans /app/marge.',
++        ];
++        await sendSystemEmail(
++          OPERATOR_EMAIL,
++          `Meet Aaron — reçu ${label} à saisir à la main`,
++          lines.join('\n'),
++          'fr'
++        ).catch(() => {});
++      }
++
++      if (blocked.length > 0) {
++        console.error(
++          '[reçus] colonne source_message_id absente : lancer migration_recus_anthropic_2026-11-02.sql'
++        );
++      }
++
++      summary.push({
++        provider,
++        scanned: result.scanned,
++        credited: credited.length,
++        needsHand: needsHand.length,
++        blocked: blocked.length,
++      });
+     }
+ 
+-    return NextResponse.json({
+-      scanned: result.scanned,
+-      credited: credited.length,
+-      needsHand: needsHand.length,
+-      blocked: blocked.length,
+-    });
++    return NextResponse.json({ results: summary });
+   } catch (err: any) {
+-    return serverError(err, 'Reçus Anthropic');
++    return serverError(err, 'Reçus fournisseurs IA');
+   }
+ }
+diff --git a/app/api/cron/api-balance-alert/route.ts b/app/api/cron/api-balance-alert/route.ts
+index aef4ae5..ca6aa00 100644
+--- a/app/api/cron/api-balance-alert/route.ts
++++ b/app/api/cron/api-balance-alert/route.ts
+@@ -1,15 +1,28 @@
+ // app/api/cron/api-balance-alert/route.ts
+-// Tous les jours : prévient Alex quand son solde Anthropic ne couvre plus que
+-// 10 jours, puis 3 jours, de consommation moyenne (22/10/2026) — voir
+-// lib/api-balance.ts. Une seule alerte par seuil et par solde saisi : une
+-// nouvelle saisie dans /app/marge (après recharge) remet les compteurs à zéro.
+-// Notification push sur les appareils du compte fondateur + email système à
+-// l'adresse d'alerte opérateur.
++// Tous les jours : prévient Alex quand le solde d'un fournisseur d'IA ne
++// couvre plus que 10 jours, puis 3 jours, de consommation moyenne
++// (22/10/2026) — voir lib/api-balance.ts. Une seule alerte par seuil et par
++// solde saisi : une nouvelle saisie dans /app/marge (après recharge) remet
++// les compteurs à zéro. Notification push sur les appareils du compte
++// fondateur + email système à l'adresse d'alerte opérateur.
++//
++// DEUX FOURNISSEURS depuis le 03/11/2026 (Alex : « sois au courant du solde,
++// dépenses etc, comme pour Anthropic »). Aaron envoie le palier « cheap »
++// chez OpenAI quand OPENAI_API_KEY est posée — c'est le cas en production.
++// Chacun a son solde et ses seuils ; une panne sur l'un ne doit pas priver
++// l'autre de son alerte, donc chaque fournisseur est traité dans son propre
++// try/catch.
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { FOUNDER_EMAILS } from '@/lib/founder';
+-import { getBalanceStatus } from '@/lib/api-balance';
++import {
++  getBalanceStatus,
++  BALANCE_PROVIDERS,
++  PROVIDER_LABELS,
++  PROVIDER_CONSOLES,
++  type BalanceProvider,
++} from '@/lib/api-balance';
+ import { sendPushNotification } from '@/lib/push';
+ import { sendSystemEmail } from '@/lib/google';
+ import { serverError } from '@/lib/http';
+@@ -22,82 +35,116 @@ function isAuthorized(request: NextRequest) {
+   return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
+ }
+ 
+-export async function GET(request: NextRequest) {
+-  if (!isAuthorized(request)) {
+-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++async function notify(title: string, body: string, tag: string) {
++  const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
++  for (const founder of founders || []) {
++    await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag } as any).catch(() => {});
+   }
+-  try {
+-    const st = await getBalanceStatus();
+-    if (!st.configured || !st.snapshotId) {
+-      return NextResponse.json({ checked: true, configured: st.configured, daysLeft: st.daysLeft });
+-    }
++  await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
++}
+ 
+-    // SOLDE PÉRIMÉ (31/10/2026). Au-delà de dix jours sans nouvelle saisie, on
+-    // n'annonce plus de chiffre — un rechargement a pu avoir lieu entre-temps
+-    // sans être ressaisi, et c'est exactement ce qui a produit une alerte
+-    // « il reste 1,43 $ » alors que le solde réel était de 9,48 $.
+-    //
+-    // Mais se taire serait pire : le filet de sécurité disparaîtrait
+-    // silencieusement. On alerte donc sur l'ANCIENNETÉ au lieu du montant, une
+-    // seule fois par solde (on réutilise alerted_10_at comme marqueur).
+-    if (st.stale) {
+-      if (st.alerted10At || st.alerted3At) {
+-        return NextResponse.json({ checked: true, stale: true, alreadyAlerted: true });
+-      }
+-      const title = 'Solde Anthropic à revérifier';
+-      const body =
+-        `Le dernier solde saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus fiable — ` +
+-        `je ne peux plus dire combien il reste. Ouvre platform.claude.com (Facturation), ` +
+-        `lis le solde réel et saisis-le dans /app/marge. ` +
+-        `Dépense constatée depuis la dernière saisie : ${st.spentSinceUsd.toFixed(2)} $.`;
+-      const { data: staleFounders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
+-      for (const founder of staleFounders || []) {
+-        await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: 'api-balance-stale' } as any).catch(() => {});
+-      }
+-      await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
+-      await supabaseAdmin
+-        .from('api_balance_snapshots')
+-        .update({ alerted_10_at: new Date().toISOString() })
+-        .eq('id', st.snapshotId);
+-      return NextResponse.json({ alerted: 'stale', balanceAgeDays: st.balanceAgeDays });
+-    }
++async function checkProvider(provider: BalanceProvider): Promise<Record<string, unknown>> {
++  const label = PROVIDER_LABELS[provider];
++  const console_ = PROVIDER_CONSOLES[provider];
++  const st = await getBalanceStatus(provider);
+ 
+-    if (st.daysLeft === null) {
+-      return NextResponse.json({ checked: true, daysLeft: null });
+-    }
++  if (!st.configured || !st.snapshotId) {
++    return { provider, configured: st.configured, daysLeft: st.daysLeft };
++  }
+ 
+-    // Seuil le plus grave atteint et pas encore signalé pour ce solde.
+-    let level: 3 | 10 | null = null;
+-    if (st.daysLeft <= 3 && !st.alerted3At) level = 3;
+-    else if (st.daysLeft <= 10 && !st.alerted10At && !st.alerted3At) level = 10;
+-    if (!level) return NextResponse.json({ checked: true, daysLeft: st.daysLeft });
+-
+-    const days = Math.max(0, Math.floor(st.daysLeft));
+-    const remaining = Math.max(0, st.remainingUsd || 0).toFixed(2);
+-    const title = level === 3 ? 'Solde Anthropic presque vide' : 'Solde Anthropic à recharger';
+-    const body =
+-      `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
+-      `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
+-      `Recharge sur platform.claude.com (Facturation), puis saisis le nouveau solde dans /app/marge.\n\n` +
+-      // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
+-      // pas comme une alerte fondée sur la facture Anthropic.
+-      (st.spentSource === 'anthropic'
+-        ? `Dépense lue chez Anthropic (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}).`
+-        : `Dépense ESTIMÉE (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}) — pose ANTHROPIC_ADMIN_KEY pour lire la dépense réelle.`);
+-
+-    // Tous les comptes fondateur (lib/founder.ts), pas un seul.
+-    const { data: founders } = await supabaseAdmin.from('users').select('id, email').in('email', FOUNDER_EMAILS);
+-    for (const founder of founders || []) {
+-      await sendPushNotification((founder as any).id, { title, body, url: '/app/marge', tag: `api-balance-${level}` } as any).catch(() => {});
+-    }
+-    await sendSystemEmail(OPERATOR_EMAIL, `Meet Aaron — ${title}`, body, 'fr').catch(() => {});
++  // DÉPENSE INCONNUE (OpenAI sans clé d'administration). On ne peut ni
++  // annoncer un reste ni se taire : se taire ferait disparaître le filet
++  // sans bruit. On alerte donc une fois sur la CAUSE.
++  if (st.spendUnknown) {
++    if (st.alerted10At || st.alerted3At) return { provider, spendUnknown: true, alreadyAlerted: true };
++    await notify(
++      `Solde ${label} non surveillé`,
++      `Un solde ${label} a été saisi, mais je ne peux pas lire la dépense réelle : ` +
++        `la clé d'administration manque. Pose OPENAI_ADMIN_KEY dans Vercel (clé sk-admin-… ` +
++        `créée depuis ${console_}) pour que l'alerte fonctionne. ` +
++        `Tant qu'elle manque, personne ne surveille ce solde.`,
++      `api-balance-unknown-${provider}`
++    );
++    await supabaseAdmin
++      .from('api_balance_snapshots')
++      .update({ alerted_10_at: new Date().toISOString() })
++      .eq('id', st.snapshotId);
++    return { provider, alerted: 'spendUnknown' };
++  }
+ 
++  // SOLDE PÉRIMÉ. Au-delà de dix jours sans nouvelle saisie, on n'annonce
++  // plus de chiffre — un rechargement a pu avoir lieu entre-temps sans être
++  // ressaisi, et c'est exactement ce qui a produit une alerte « il reste
++  // 1,43 $ » alors que le solde réel était de 9,48 $.
++  //
++  // Mais se taire serait pire : le filet de sécurité disparaîtrait
++  // silencieusement. On alerte donc sur l'ANCIENNETÉ au lieu du montant, une
++  // seule fois par solde (on réutilise alerted_10_at comme marqueur).
++  if (st.stale) {
++    if (st.alerted10At || st.alerted3At) return { provider, stale: true, alreadyAlerted: true };
++    await notify(
++      `Solde ${label} à revérifier`,
++      `Le dernier solde ${label} saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus ` +
++        `fiable — je ne peux plus dire combien il reste. Ouvre ${console_}, lis le solde réel et ` +
++        `saisis-le dans /app/marge. Dépense constatée depuis la dernière saisie : ` +
++        `${st.spentSinceUsd.toFixed(2)} $.`,
++      `api-balance-stale-${provider}`
++    );
+     await supabaseAdmin
+       .from('api_balance_snapshots')
+-      .update(level === 3 ? { alerted_3_at: new Date().toISOString() } : { alerted_10_at: new Date().toISOString() })
++      .update({ alerted_10_at: new Date().toISOString() })
+       .eq('id', st.snapshotId);
++    return { provider, alerted: 'stale', balanceAgeDays: st.balanceAgeDays };
++  }
++
++  if (st.daysLeft === null) {
++    return { provider, checked: true, daysLeft: null };
++  }
++
++  // Seuil le plus grave atteint et pas encore signalé pour ce solde.
++  let level: 3 | 10 | null = null;
++  if (st.daysLeft <= 3 && !st.alerted3At) level = 3;
++  else if (st.daysLeft <= 10 && !st.alerted10At && !st.alerted3At) level = 10;
++  if (!level) return { provider, checked: true, daysLeft: st.daysLeft };
++
++  const days = Math.max(0, Math.floor(st.daysLeft));
++  const remaining = Math.max(0, st.remainingUsd || 0).toFixed(2);
++  const title = level === 3 ? `Solde ${label} presque vide` : `Solde ${label} à recharger`;
++  const body =
++    `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
++    `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
++    `Recharge sur ${console_}, puis saisis le nouveau solde dans /app/marge.\n\n` +
++    // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
++    // pas comme une alerte fondée sur la facture du fournisseur.
++    (st.spentSource === 'fournisseur'
++      ? `Dépense lue chez ${label} (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}).`
++      : `Dépense ESTIMÉE (${st.spentSinceUsd.toFixed(2)} $ depuis le solde saisi il y a ${st.balanceAgeDays} jour${(st.balanceAgeDays || 0) > 1 ? 's' : ''}) — pose la clé d'administration pour lire la dépense réelle.`);
++
++  await notify(title, body, `api-balance-${provider}-${level}`);
++
++  await supabaseAdmin
++    .from('api_balance_snapshots')
++    .update(level === 3 ? { alerted_3_at: new Date().toISOString() } : { alerted_10_at: new Date().toISOString() })
++    .eq('id', st.snapshotId);
++
++  return { provider, alerted: level, daysLeft: st.daysLeft };
++}
+ 
+-    return NextResponse.json({ alerted: level, daysLeft: st.daysLeft });
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) {
++    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++  }
++  try {
++    const results: Record<string, unknown>[] = [];
++    for (const provider of BALANCE_PROVIDERS) {
++      try {
++        results.push(await checkProvider(provider));
++      } catch (err: any) {
++        console.error(`[solde ${provider}] vérification impossible :`, err?.message || err);
++        results.push({ provider, error: String(err?.message || err) });
++      }
++    }
++    return NextResponse.json({ results });
+   } catch (err) {
+     return serverError(err, '/api/cron/api-balance-alert');
+   }
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index 37a7df0..059d23b 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -66,39 +66,53 @@ function money(amount, symbol) {
+   return `${symbol}${Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+ }
+ 
++// Mêmes valeurs que lib/api-balance.ts (PROVIDER_LABELS / PROVIDER_CONSOLES).
++// Recopiées ici plutôt qu'importées : ce module serveur tire supabase-admin.
++const PROVIDER_LABELS = { anthropic: 'Anthropic', openai: 'OpenAI' };
++const PROVIDER_CONSOLES = {
++  anthropic: 'https://platform.claude.com/settings/billing',
++  openai: 'https://platform.openai.com/settings/organization/billing/overview',
++};
++
+ export default function MargePage() {
+   const userId = useAuthedUser();
+   const [data, setData] = useState(null);
+   const [error, setError] = useState(null);
+   const [loading, setLoading] = useState(true);
+-  // Solde Anthropic (22/10/2026) : voir lib/api-balance.ts et le cron
++  // Soldes des fournisseurs d'IA (22/10/2026, deux fournisseurs depuis le
++  // 03/11/2026) : voir lib/api-balance.ts et le cron
+   // /api/cron/api-balance-alert (push à 10 puis 3 jours d'autonomie).
+-  const [balance, setBalance] = useState(null);
+-  const [balanceInput, setBalanceInput] = useState('');
+-  const [balanceSaving, setBalanceSaving] = useState(false);
++  // Aaron envoie le palier « cheap » chez OpenAI : les deux soldes comptent,
++  // l'un vide arrête Aaron aussi sûrement que l'autre.
++  const [balances, setBalances] = useState([]);
++  const [balanceInputs, setBalanceInputs] = useState({});
++  const [balanceSavingFor, setBalanceSavingFor] = useState(null);
+   const [balanceError, setBalanceError] = useState(null);
+ 
+   useEffect(() => {
+     if (!userId) return;
+     fetch('/api/admin/api-balance')
+       .then((r) => (r.ok ? r.json() : null))
+-      .then((b) => { if (b?.status) setBalance(b.status); })
++      .then((b) => {
++        if (Array.isArray(b?.statuses)) setBalances(b.statuses);
++        else if (b?.status) setBalances([b.status]);
++      })
+       .catch(() => {});
+   }, [userId]);
+ 
+-  async function saveBalance() {
+-    setBalanceSaving(true);
++  async function saveBalance(provider) {
++    setBalanceSavingFor(provider);
+     setBalanceError(null);
+     const r = await fetch('/api/admin/api-balance', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ balance_usd: balanceInput }),
++      body: JSON.stringify({ balance_usd: balanceInputs[provider] || '', provider }),
+     }).catch(() => null);
+     const b = r ? await r.json().catch(() => ({})) : {};
+-    setBalanceSaving(false);
++    setBalanceSavingFor(null);
+     if (!r || !r.ok) { setBalanceError(b.error || 'Enregistrement impossible'); return; }
+-    setBalance(b.status);
+-    setBalanceInput('');
++    if (Array.isArray(b?.statuses)) setBalances(b.statuses);
++    setBalanceInputs((prev) => ({ ...prev, [provider]: '' }));
+   }
+ 
+   useEffect(() => {
+@@ -202,44 +216,77 @@ export default function MargePage() {
+           </section>
+ 
+           {/* ---------------------------------------------------------------
+-              SOLDE ANTHROPIC (22/10/2026) — à zéro, Aaron s'arrête pour TOUS
+-              les clients. Tu saisis le solde lu dans la console Anthropic
+-              (après chaque recharge) ; Aaron déduit ce qui a été consommé
+-              depuis et te prévient à 10 puis 3 jours d'autonomie.
++              SOLDES DES FOURNISSEURS D'IA (22/10/2026, deux fournisseurs
++              depuis le 03/11/2026) — à zéro, Aaron s'arrête pour TOUS les
++              clients. Tu saisis le solde lu dans la console du fournisseur
++              après chaque recharge ; Aaron déduit ce qui a été consommé
++              depuis et te prévient à 10 puis 3 jours d'autonomie. Les reçus
++              de recharge sont lus automatiquement dans la boîte Meet Aaron,
++              cette saisie reste le filet de sécurité.
+           --------------------------------------------------------------- */}
+-          <section className={`gst gst-${!balance?.configured ? 'unknown' : balance.daysLeft !== null && balance.daysLeft <= 3 ? 'due' : balance.daysLeft !== null && balance.daysLeft <= 10 ? 'warn' : 'ok'}`}>
+-            <div className="gst-head">
+-              <span className="gst-icon"><Ic name={balance?.configured && (balance.daysLeft === null || balance.daysLeft > 10) ? 'checkCircle' : 'alert'} size={18} /></span>
+-              <div className="gst-title-wrap">
+-                <h2>Solde Anthropic</h2>
+-                <p className="gst-msg">
+-                  {!balance?.configured
+-                    ? 'Pas encore de solde saisi : saisis celui affiché sur platform.claude.com (Facturation) pour activer l\'alerte.'
+-                    : balance.daysLeft === null
+-                      ? `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
+-                      : `Reste estimé : ${money(Math.max(0, balance.remainingUsd), '$')}, soit environ ${Math.floor(balance.daysLeft)} jour(s) à ${money(balance.avgDailyUsd, '$')} par jour.`}
+-                </p>
+-              </div>
+-            </div>
+-            {balance?.configured && (
+-              <p className="gst-foot">
+-                Solde saisi : {money(balance.balanceUsd, '$')} le {new Date(balance.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(balance.spentSinceUsd, '$')} (estimation prudente, le jour de la saisie compte en entier).
+-              </p>
+-            )}
+-            <div className="bal-row">
+-              <input
+-                className="bal-input"
+-                inputMode="decimal"
+-                placeholder="Nouveau solde en $ (ex. 85.40)"
+-                value={balanceInput}
+-                onChange={(e) => setBalanceInput(e.target.value)}
+-              />
+-              <button type="button" className="bal-btn" disabled={balanceSaving || !balanceInput.trim()} onClick={saveBalance}>
+-                {balanceSaving ? 'Enregistrement…' : 'Enregistrer'}
+-              </button>
+-            </div>
+-            {balanceError && <p className="err">{balanceError}</p>}
+-          </section>
++          {balances.map((bal) => {
++            const label = PROVIDER_LABELS[bal.provider] || bal.provider;
++            const consoleUrl = PROVIDER_CONSOLES[bal.provider] || '';
++            const level = !bal.configured || bal.spendUnknown
++              ? 'unknown'
++              : bal.daysLeft !== null && bal.daysLeft <= 3
++                ? 'due'
++                : bal.daysLeft !== null && bal.daysLeft <= 10
++                  ? 'warn'
++                  : 'ok';
++            return (
++              <section className={`gst gst-${level}`} key={bal.provider}>
++                <div className="gst-head">
++                  <span className="gst-icon"><Ic name={level === 'ok' ? 'checkCircle' : 'alert'} size={18} /></span>
++                  <div className="gst-title-wrap">
++                    <h2>Solde {label}</h2>
++                    <p className="gst-msg">
++                      {!bal.configured
++                        ? `Pas encore de solde saisi : saisis celui affiché sur ${consoleUrl} pour activer l'alerte.`
++                        : bal.spendUnknown
++                          ? `Solde saisi, mais la dépense réelle n'est pas lisible : il manque la clé d'administration ${bal.provider === 'openai' ? 'OPENAI_ADMIN_KEY' : 'ANTHROPIC_ADMIN_KEY'} dans Vercel. Tant qu'elle manque, personne ne surveille ce solde.`
++                          : bal.stale
++                            ? `Dernier solde saisi il y a ${bal.balanceAgeDays} jours : trop ancien pour annoncer un reste. Relis le solde réel et ressaisis-le.`
++                            : bal.daysLeft === null
++                              ? `Reste estimé : ${money(Math.max(0, bal.remainingUsd), '$')}. Pas assez d'historique pour estimer l'autonomie.`
++                              : `Reste estimé : ${money(Math.max(0, bal.remainingUsd), '$')}, soit environ ${Math.floor(bal.daysLeft)} jour(s) à ${money(bal.avgDailyUsd, '$')} par jour.`}
++                    </p>
++                  </div>
++                </div>
++                {bal.configured && !bal.spendUnknown && (
++                  <p className="gst-foot">
++                    Solde saisi : {money(bal.balanceUsd, '$')} le {new Date(bal.asOf).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} · consommé depuis : {money(bal.spentSinceUsd, '$')}{' '}
++                    ({bal.spentSource === 'fournisseur' ? `lu chez ${label}` : 'estimation prudente'}, le jour de la saisie compte en entier).
++                  </p>
++                )}
++                <div className="bal-row">
++                  <input
++                    className="bal-input"
++                    inputMode="decimal"
++                    placeholder={`Nouveau solde ${label} en $ (ex. 85.40)`}
++                    value={balanceInputs[bal.provider] || ''}
++                    onChange={(e) => setBalanceInputs((prev) => ({ ...prev, [bal.provider]: e.target.value }))}
++                  />
++                  <button
++                    type="button"
++                    className="bal-btn"
++                    disabled={balanceSavingFor === bal.provider || !(balanceInputs[bal.provider] || '').trim()}
++                    onClick={() => saveBalance(bal.provider)}
++                  >
++                    {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
++                  </button>
++                </div>
++                {consoleUrl && (
++                  <p className="gst-foot">
++                    <a className="bal-link" href={consoleUrl} target="_blank" rel="noopener noreferrer">
++                      Ouvrir la console {label} <Ic name="arrowRight" size={12} />
++                    </a>
++                  </p>
++                )}
++                {balanceError && balanceSavingFor === null && <p className="err">{balanceError}</p>}
++              </section>
++            );
++          })}
+ 
+           {/* Trois chiffres, pas plus : ce qui est rentré, ce qui est sorti,
+               et le nombre de clients qui paient réellement. */}
+@@ -363,6 +410,15 @@ export default function MargePage() {
+           border-color: var(--border);
+           background: var(--bg-elevated);
+         }
++        .bal-link {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.3rem;
++          color: var(--accent-light, var(--accent));
++          text-decoration: none;
++          font-size: 0.8rem;
++        }
++        .bal-link:hover { text-decoration: underline; }
+         .eyebrow {
+           text-transform: uppercase;
+           letter-spacing: 0.12em;
+diff --git a/lib/anthropic-receipts.ts b/lib/anthropic-receipts.ts
+index 39eda8b..5b6049a 100644
+--- a/lib/anthropic-receipts.ts
++++ b/lib/anthropic-receipts.ts
+@@ -36,15 +36,26 @@
+ import { supabaseAdmin } from './supabase-admin';
+ import { searchGmailMessages, getGmailMessage, getGmailMessageMetadata } from './google';
+ import { gmailBodyText } from './manual-replies';
+-import { getBalanceStatus } from './api-balance';
++import { getBalanceStatus, type BalanceProvider, PROVIDER_LABELS } from './api-balance';
+ 
+-// Domaines dont un reçu est accepté. Une adresse hors de cette liste est
+-// ignorée, quel que soit le sujet du message.
+-const TRUSTED_SENDER_DOMAINS = ['anthropic.com', 'claude.com', 'stripe.com'];
+-
+-// Un reçu Stripe ne suffit pas : Stripe envoie aussi les reçus des autres
+-// abonnements d'Alex. Le corps doit parler d'Anthropic.
+-const MUST_MENTION = /anthropic|claude\.ai|claude\.com/i;
++// Domaines dont un reçu est accepté, et ce que son corps doit mentionner.
++// Un reçu Stripe ne suffit pas : Stripe envoie aussi les reçus des AUTRES
++// abonnements d'Alex. Sans le second filtre, une facture Vercel créditerait
++// le solde Anthropic.
++//
++// Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
++// chez OpenAI. Les deux soldes se rechargent, les deux reçus arrivent dans
++// la même boîte, et rien ne doit les confondre.
++const PROVIDER_RECEIPTS: Record<BalanceProvider, { domains: string[]; mustMention: RegExp }> = {
++  anthropic: {
++    domains: ['anthropic.com', 'claude.com', 'stripe.com'],
++    mustMention: /anthropic|claude\.ai|claude\.com/i,
++  },
++  openai: {
++    domains: ['openai.com', 'stripe.com'],
++    mustMention: /openai|chatgpt|platform\.openai/i,
++  },
++};
+ 
+ // Montants ÉTIQUETÉS seulement. L'ordre compte : on garde la première
+ // étiquette trouvée, de la plus explicite à la plus générale.
+@@ -75,9 +86,9 @@ function headerValue(meta: any, name: string): string {
+   return found?.value || '';
+ }
+ 
+-function senderTrusted(from: string): boolean {
++function senderTrusted(from: string, domains: string[]): boolean {
+   const lower = from.toLowerCase();
+-  return TRUSTED_SENDER_DOMAINS.some((d) => lower.includes(`@${d}`) || lower.includes(`.${d}>`));
++  return domains.some((d) => lower.includes(`@${d}`) || lower.includes(`.${d}>`));
+ }
+ 
+ export function extractPaidAmountUsd(text: string): number | null {
+@@ -102,16 +113,21 @@ export function receiptsMailboxUserId(): string | null {
+   );
+ }
+ 
+-export async function scanAnthropicReceipts(): Promise<{
++export async function scanProviderReceipts(provider: BalanceProvider = 'anthropic'): Promise<{
++  provider: BalanceProvider;
++  label: string;
+   scanned: number;
+   outcomes: ReceiptOutcome[];
+   mailbox: string | null;
+ }> {
++  const conf = PROVIDER_RECEIPTS[provider];
++  const label = PROVIDER_LABELS[provider];
+   const userId = receiptsMailboxUserId();
+-  if (!userId) return { scanned: 0, outcomes: [], mailbox: null };
++  if (!userId) return { provider, label, scanned: 0, outcomes: [], mailbox: null };
+ 
++  const fromClause = conf.domains.map((d) => `from:${d}`).join(' OR ');
+   const query =
+-    'newer_than:30d (from:anthropic.com OR from:claude.com OR from:stripe.com) ' +
++    `newer_than:30d (${fromClause}) ` +
+     '(subject:receipt OR subject:invoice OR subject:reçu OR subject:facture OR subject:payment)';
+   const messages = await searchGmailMessages(userId, query, 25);
+ 
+@@ -120,7 +136,7 @@ export async function scanAnthropicReceipts(): Promise<{
+   for (const m of messages) {
+     const meta = await getGmailMessageMetadata(userId, m.id);
+     if (!meta) continue;
+-    if (!senderTrusted(headerValue(meta, 'From'))) continue;
++    if (!senderTrusted(headerValue(meta, 'From'), conf.domains)) continue;
+ 
+     // Déjà traité ? La colonne peut ne pas exister (migration pas passée) :
+     // dans ce cas on s'arrête net plutôt que de risquer un double crédit.
+@@ -146,7 +162,7 @@ export async function scanAnthropicReceipts(): Promise<{
+       continue;
+     }
+     const text = gmailBodyText(full?.payload);
+-    if (!text || !MUST_MENTION.test(`${headerValue(meta, 'Subject')}\n${text}`)) continue;
++    if (!text || !conf.mustMention.test(`${headerValue(meta, 'Subject')}\n${text}`)) continue;
+ 
+     const amountUsd = extractPaidAmountUsd(text);
+     if (amountUsd === null) {
+@@ -161,12 +177,12 @@ export async function scanAnthropicReceipts(): Promise<{
+     // Reste estimé AVANT la recharge. Si le solde est périmé, remainingUsd
+     // vaut null : on repart alors du montant rechargé seul, ce qui
+     // sous-estime — on préfère sous-estimer un solde que le gonfler.
+-    const before = await getBalanceStatus();
++    const before = await getBalanceStatus(provider);
+     const remainingBefore = before.remainingUsd !== null ? Math.max(0, before.remainingUsd) : 0;
+     const newBalanceUsd = Math.round((remainingBefore + amountUsd) * 100) / 100;
+ 
+     const { error: insertError } = await supabaseAdmin.from('api_balance_snapshots').insert({
+-      provider: 'anthropic',
++      provider,
+       balance_usd: newBalanceUsd,
+       as_of: new Date().toISOString(),
+       source_message_id: m.id,
+@@ -179,5 +195,5 @@ export async function scanAnthropicReceipts(): Promise<{
+     outcomes.push({ messageId: m.id, amountUsd, credited: true, newBalanceUsd });
+   }
+ 
+-  return { scanned: messages.length, outcomes, mailbox: userId };
++  return { provider, label, scanned: messages.length, outcomes, mailbox: userId };
+ }
+diff --git a/lib/api-balance.ts b/lib/api-balance.ts
+index 401f83f..cf1d6ce 100644
+--- a/lib/api-balance.ts
++++ b/lib/api-balance.ts
+@@ -18,8 +18,30 @@
+ 
+ import { supabaseAdmin } from './supabase-admin';
+ import { realSpendSince, adminApiConfigured } from './anthropic-admin';
++import {
++  realSpendSince as openAiRealSpendSince,
++  openAiAdminConfigured,
++} from './openai-admin';
++
++// Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
++// chez OpenAI quand OPENAI_API_KEY est posée (c'est le cas en production).
++// Chaque fournisseur a son solde, sa dépense et ses alertes.
++export type BalanceProvider = 'anthropic' | 'openai';
++
++export const BALANCE_PROVIDERS: BalanceProvider[] = ['anthropic', 'openai'];
++
++export const PROVIDER_LABELS: Record<BalanceProvider, string> = {
++  anthropic: 'Anthropic',
++  openai: 'OpenAI',
++};
++
++export const PROVIDER_CONSOLES: Record<BalanceProvider, string> = {
++  anthropic: 'https://platform.claude.com/settings/billing',
++  openai: 'https://platform.openai.com/settings/organization/billing/overview',
++};
+ 
+ export interface BalanceStatus {
++  provider: BalanceProvider;
+   configured: boolean;
+   snapshotId: string | null;
+   balanceUsd: number | null;
+@@ -29,7 +51,12 @@ export interface BalanceStatus {
+   // maison, volontairement prudent donc légèrement surestimé. Affiché au
+   // fondateur : une alerte fondée sur une estimation ne se lit pas comme une
+   // alerte fondée sur la facture.
+-  spentSource: 'anthropic' | 'estimation';
++  spentSource: 'fournisseur' | 'estimation';
++  // true = on ne sait PAS combien a été dépensé (clé d'administration
++  // absente ou API muette) et aucun repli crédible n'existe. Dans ce cas on
++  // n'annonce ni reste ni autonomie : un chiffre inventé est pire que pas de
++  // chiffre, c'est toute la leçon du 31/10/2026.
++  spendUnknown: boolean;
+   // Ancienneté du solde saisi, en jours. Au-delà de STALE_AFTER_DAYS, le
+   // chiffre « il reste X » n'a plus de sens : un rechargement a pu avoir lieu
+   // sans être ressaisi, ce qui est exactement ce qui a produit la fausse
+@@ -66,25 +93,27 @@ async function sumUsageSince(fromDay: string, toDayExclusive?: string): Promise<
+ // ignorer l'alerte suivante.
+ const STALE_AFTER_DAYS = 10;
+ 
+-export async function getBalanceStatus(): Promise<BalanceStatus> {
++export async function getBalanceStatus(
++  provider: BalanceProvider = 'anthropic'
++): Promise<BalanceStatus> {
+   const now = new Date();
+   const today = isoDay(now);
+   const weekAgo = isoDay(new Date(now.getTime() - 7 * 86400000));
+-  const avgDailyUsd = (await sumUsageSince(weekAgo, today)) / 7;
+ 
+   const { data: snap, error } = await supabaseAdmin
+     .from('api_balance_snapshots')
+     .select('id, balance_usd, as_of, alerted_10_at, alerted_3_at')
+-    .eq('provider', 'anthropic')
++    .eq('provider', provider)
+     .order('as_of', { ascending: false })
+     .limit(1)
+     .maybeSingle();
+ 
+   if (error || !snap) {
+     return {
+-      configured: false, snapshotId: null, balanceUsd: null, asOf: null, spentSinceUsd: 0,
+-      spentSource: 'estimation', balanceAgeDays: null, stale: false,
+-      remainingUsd: null, avgDailyUsd, daysLeft: null, alerted10At: null, alerted3At: null,
++      provider, configured: false, snapshotId: null, balanceUsd: null, asOf: null,
++      spentSinceUsd: 0, spentSource: 'estimation', spendUnknown: false,
++      balanceAgeDays: null, stale: false, remainingUsd: null, avgDailyUsd: 0,
++      daysLeft: null, alerted10At: null, alerted3At: null,
+     };
+   }
+ 
+@@ -92,9 +121,32 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
+   // surestime volontairement par prudence : sur plusieurs jours, l'écart
+   // cumulé suffit à annoncer un solde presque vide alors qu'il ne l'est pas.
+   const asOfDate = new Date(snap.as_of);
+-  const realSpend = adminApiConfigured() ? await realSpendSince(asOfDate) : null;
+-  const spentSinceUsd = realSpend !== null ? realSpend : await sumUsageSince(isoDay(asOfDate));
+-  const spentSource: 'anthropic' | 'estimation' = realSpend !== null ? 'anthropic' : 'estimation';
++
++  // Dépense réelle chez le fournisseur d'abord. Pour Anthropic, l'estimation
++  // maison reste un repli acceptable (elle surestime par prudence). Pour
++  // OpenAI il n'y a PAS de repli : api_usage_daily additionne les deux
++  // fournisseurs, donc s'en servir pour OpenAI attribuerait à OpenAI la
++  // dépense Anthropic. Mieux vaut dire « je ne sais pas ».
++  const realSpend =
++    provider === 'anthropic'
++      ? adminApiConfigured()
++        ? await realSpendSince(asOfDate)
++        : null
++      : openAiAdminConfigured()
++        ? await openAiRealSpendSince(asOfDate)
++        : null;
++
++  const spendUnknown = realSpend === null && provider !== 'anthropic';
++  const spentSinceUsd = realSpend !== null
++    ? realSpend
++    : spendUnknown
++      ? 0
++      : await sumUsageSince(isoDay(asOfDate));
++  const spentSource: 'fournisseur' | 'estimation' = realSpend !== null ? 'fournisseur' : 'estimation';
++
++  // Rythme quotidien : chez le fournisseur quand on l'a, sinon l'estimation
++  // maison (Anthropic seulement, même raison que ci-dessus).
++  const avgDailyUsd = spendUnknown ? 0 : (await sumUsageSince(weekAgo, today)) / 7;
+ 
+   const balanceUsd = Number(snap.balance_usd) || 0;
+   const balanceAgeDays = Math.max(0, Math.floor((Date.now() - asOfDate.getTime()) / 86400000));
+@@ -102,12 +154,14 @@ export async function getBalanceStatus(): Promise<BalanceStatus> {
+ 
+   // Solde périmé : on n'annonce plus ni reste ni autonomie. L'écran et
+   // l'alerte diront « solde à revérifier » au lieu d'un chiffre inventé.
+-  const remainingUsd = stale ? null : balanceUsd - spentSinceUsd;
++  const remainingUsd = stale || spendUnknown ? null : balanceUsd - spentSinceUsd;
+   const daysLeft =
+     remainingUsd !== null && avgDailyUsd > 0 ? Math.max(0, remainingUsd) / avgDailyUsd : null;
+ 
+   return {
++    provider,
+     configured: true,
++    spendUnknown,
+     snapshotId: snap.id,
+     balanceUsd,
+     asOf: snap.as_of,
+diff --git a/lib/openai-admin.ts b/lib/openai-admin.ts
+new file mode 100644
+index 0000000..366a9d2
+--- /dev/null
++++ b/lib/openai-admin.ts
+@@ -0,0 +1,115 @@
++// lib/openai-admin.ts
++//
++// DÉPENSE RÉELLE, LUE CHEZ OPENAI (Alex, 03/11/2026 : « sois au courant du
++// solde actuel, dépenses etc, comme pour Anthropic »).
++//
++// Jumeau de lib/anthropic-admin.ts. Aaron ne tourne pas que sur Anthropic :
++// quand OPENAI_API_KEY est posée (c'est le cas en production depuis le
++// 07/09/2026), tout le palier « cheap » part chez OpenAI — tri,
++// classification, extraction, relances. Cette dépense-là existait dans
++// api_usage_daily MÉLANGÉE à celle d'Anthropic, donc impossible de dire qui
++// dépensait quoi, et impossible de surveiller le solde OpenAI.
++//
++// Trois différences avec Anthropic, toutes des pièges :
++//   - les dates sont en SECONDES Unix, pas en ISO ;
++//   - le montant est en DOLLARS (amount.value), pas en cents ;
++//   - la réponse est paginée par `next_page` et plafonnée à 180 seaux :
++//     sans pagination, une longue période serait silencieusement tronquée,
++//     donc sous-estimée — exactement l'erreur qui fait croire à un solde
++//     intact.
++//
++// CLÉ : OPENAI_ADMIN_KEY, une clé d'administration d'organisation
++// (sk-admin-…), distincte de OPENAI_API_KEY. Sans elle, tout renvoie null et
++// l'appelant sait qu'il ne sait pas — il n'invente pas une dépense nulle.
++
++const COSTS_URL = 'https://api.openai.com/v1/organization/costs';
++
++export function openAiAdminConfigured(): boolean {
++  return !!process.env.OPENAI_ADMIN_KEY;
++}
++
++export interface DailyCost {
++  day: string; // AAAA-MM-JJ (UTC)
++  usd: number;
++}
++
++function dayFromUnix(seconds: unknown): string {
++  const n = typeof seconds === 'number' ? seconds : Number(seconds);
++  if (!Number.isFinite(n)) return '';
++  return new Date(n * 1000).toISOString().slice(0, 10);
++}
++
++function toUsd(value: unknown): number {
++  const n = typeof value === 'number' ? value : Number(String(value ?? '').trim());
++  return Number.isFinite(n) ? n : 0;
++}
++
++export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise<DailyCost[] | null> {
++  const key = process.env.OPENAI_ADMIN_KEY;
++  if (!key) return null;
++
++  const days: DailyCost[] = [];
++  let page: string | null = null;
++  let seenBuckets = 0;
++
++  try {
++    // Au plus 6 pages de 180 seaux : largement de quoi couvrir n'importe
++    // quelle période utile, et une borne dure contre une boucle infinie si
++    // `next_page` se mettait à pointer sur lui-même.
++    for (let i = 0; i < 6; i++) {
++      const params = new URLSearchParams({
++        start_time: String(Math.floor(startingAt.getTime() / 1000)),
++        end_time: String(Math.floor(endingAt.getTime() / 1000)),
++        limit: '180',
++      });
++      if (page) params.set('page', page);
++
++      const res: Response = await fetch(`${COSTS_URL}?${params.toString()}`, {
++        headers: { Authorization: `Bearer ${key}` },
++      });
++      if (!res.ok) {
++        const body = await res.text().catch(() => '');
++        console.error(`[openai-admin] costs ${res.status} : ${body.slice(0, 200)}`);
++        return null;
++      }
++      const json: any = await res.json();
++      const buckets: any[] = json?.data || [];
++      seenBuckets += buckets.length;
++
++      for (const bucket of buckets) {
++        const day = dayFromUnix(bucket?.start_time);
++        if (!day) continue;
++        let usd = 0;
++        for (const r of (bucket?.results || [])) {
++          usd += toUsd(r?.amount?.value ?? r?.amount);
++        }
++        days.push({ day, usd: Math.round(usd * 10000) / 10000 });
++      }
++
++      if (!json?.has_more || !json?.next_page) break;
++      page = String(json.next_page);
++    }
++
++    if (days.length === 0 && seenBuckets > 0) {
++      // Des seaux mais rien de lisible : la forme a changé. On le dit et on
++      // renvoie null, plutôt que d'annoncer une dépense nulle.
++      console.error('[openai-admin] costs : forme de réponse inattendue, dépense inconnue.');
++      return null;
++    }
++    return days;
++  } catch (err: any) {
++    console.error('[openai-admin] costs injoignable :', err?.message || err);
++    return null;
++  }
++}
++
++// Somme dépensée depuis un instant donné, d'après OpenAI. null = inconnu.
++export async function realSpendSince(since: Date): Promise<number | null> {
++  // Le JOUR de la saisie compte en entier : OpenAI agrège par journée UTC, et
++  // surestimer légèrement va dans le bon sens pour une alerte de solde.
++  const start = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
++  const end = new Date(Date.now() + 86400000);
++  const days = await fetchDailyCosts(start, end);
++  if (days === null) return null;
++  return days.reduce((sum, d) => sum + d.usd, 0);
++}
+-- 
+2.43.0
+
