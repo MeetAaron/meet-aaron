@@ -1,0 +1,111 @@
+From 7cb48d35e0951cd50e2a2436fd295e0c69d9f9c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 00:49:19 +0000
+Subject: [PATCH] =?UTF-8?q?Un=20client=20qui=20=C3=A9crit=20doit=20=C3=AAt?=
+ =?UTF-8?q?re=20reconnu=20:=20casse=20et=20doublons?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Le rapprochement entre l'expéditeur d'un email et la fiche contact était
+un égal strict sur l'adresse. Deux cas où quelqu'un écrivait et où Aaron
+ne le voyait jamais, sans rien dans les journaux pour le dire.
+
+La casse. L'en-tête From arrive tel que l'expéditeur l'a écrit —
+Jean.Dupont@Societe.fr — et n'était pas normalisé, alors que la fiche
+contient le plus souvent la version minuscule. Aucun rapprochement, donc
+aucune réponse.
+
+Le doublon. Avec .single(), DEUX fiches portant la même adresse renvoient
+une erreur et zéro ligne : le message était ignoré alors que le contact
+existe, deux fois.
+
+On essaie l'adresse telle quelle, puis en minuscules, puis une recherche
+insensible à la casse dont le résultat est revérifié en JavaScript —
+ilike traite « _ » comme un joker et « _ » est fréquent dans les
+adresses, donc sans cette vérification jean_dupont@x.fr pourrait être
+rapproché de jeanXdupont@x.fr.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/check-inbox/route.ts | 56 +++++++++++++++++++++++++++----
+ 1 file changed, 50 insertions(+), 6 deletions(-)
+
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index 7379f6d..67f4271 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -194,6 +194,55 @@ async function fetchNewMessagesForConnection(connection: {
+ // sans note claire), traiter le message comme une vraie demande potentielle
+ // et proposer une suggestion de réponse au commercial (triage support
+ // niveau 1, voir lib/aaron-customer.ts -> generateSupportReply).
++// RETROUVER L'EXPÉDITEUR (02/11/2026).
++//
++// Ce rapprochement était un `.eq('email', fromEmail)` strict, et il laissait
++// passer deux cas où un client qui ÉCRIT n'est jamais vu :
++//
++//   1. la casse. L'en-tête From arrive tel que l'expéditeur l'a écrit
++//      (« Jean.Dupont@Societe.fr ») et n'était pas normalisé, alors que la
++//      fiche contient souvent la version minuscule. Aucun rapprochement,
++//      aucune réponse, et rien dans les journaux pour le dire ;
++//   2. le doublon. Avec `.single()`, DEUX fiches portant la même adresse
++//      renvoient une erreur et zéro ligne — donc le message était ignoré
++//      alors que le contact existe bel et bien, deux fois.
++//
++// On essaie donc l'adresse telle quelle, puis en minuscules, puis une
++// recherche insensible à la casse dont le résultat est REVÉRIFIÉ en
++// JavaScript : `ilike` traite « _ » comme un joker, et « _ » est fréquent
++// dans les adresses. Sans cette vérification, jean_dupont@x.fr pourrait
++// être rapproché de jeanXdupont@x.fr.
++const PROSPECT_MATCH_COLUMNS =
++  'id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at, deal_stage, email';
++
++async function findProspectBySenderEmail(userId: string, fromEmail: string): Promise<any | null> {
++  const raw = (fromEmail || '').trim();
++  if (!raw) return null;
++  const lower = raw.toLowerCase();
++
++  for (const candidate of raw === lower ? [raw] : [raw, lower]) {
++    const { data } = await supabaseAdmin
++      .from('prospects')
++      .select(PROSPECT_MATCH_COLUMNS)
++      .eq('email', candidate)
++      .eq('assigned_user_id', userId)
++      .limit(1)
++      .maybeSingle();
++    if (data) return data;
++  }
++
++  const { data: fuzzy } = await supabaseAdmin
++    .from('prospects')
++    .select(PROSPECT_MATCH_COLUMNS)
++    .ilike('email', raw)
++    .eq('assigned_user_id', userId)
++    .limit(5);
++  const exact = ((fuzzy as any[]) || []).find(
++    (p) => String(p.email || '').trim().toLowerCase() === lower
++  );
++  return exact || null;
++}
++
+ async function handleWonCustomerMessage(
+   prospect: { id: string; full_name: string; company_id: string | null; kickoff_call_proposed_at?: string | null },
+   userId: string,
+@@ -527,12 +576,7 @@ export async function GET(request: NextRequest) {
+       // (démarchés par Aaron via une campagne, ou ajoutés/importés
+       // manuellement), jamais un email personnel quelconque adressé à sa
+       // boîte mail.
+-      const { data: prospect } = await supabaseAdmin
+-        .from('prospects')
+-        .select('id, full_name, is_won, is_lost, company_id, ai_managed, kickoff_call_proposed_at, deal_stage')
+-        .eq('email', fromEmail)
+-        .eq('assigned_user_id', connection.user_id)
+-        .single();
++      const prospect = await findProspectBySenderEmail(connection.user_id, fromEmail);
+ 
+       // is_lost : marqué manuellement comme perdu par le commercial (via
+       // "Marquer comme perdu" dans Prospects) — Aaron doit arrêter de le
+-- 
+2.43.0
+
