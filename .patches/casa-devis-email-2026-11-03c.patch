@@ -1,0 +1,225 @@
+From f495a7dfb999821012f3b3146c7f40b32ea037f9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 00:53:07 +0000
+Subject: [PATCH] =?UTF-8?q?Rendre=20au=20rail=20sa=20largeur=20sur=20grand?=
+ =?UTF-8?q?=20=C3=A9cran,=20et=20une=20barre=20de=20retour=20qui=20ne=20fa?=
+ =?UTF-8?q?it=20plus=20bricolage?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+« Regarde les rubriques sur le côté, elles sont petites par rapport à ma
+résolution » — et, sur le menu du bas : « tu me mets un Plus alors que
+j'ai largement la place de les mettre ».
+
+Le rail à 78 px avec ses libellés en info-bulle a été dessiné pour un
+écran d'ordinateur portable, où la place manque. Au-delà de 1400 px elle
+ne manque plus : le rail passe à 212 px, les libellés reprennent leur
+place dans la ligne, la langue retrouve son nom complet au lieu du code
+à deux lettres. Les règles du bloc existant sont ANNULÉES, pas
+dupliquées — rien ne change en dessous de 1400 px ni sur téléphone.
+Vérifié au rendu à 1280 et à 1500 px.
+
+Et la page Marge : deux liens nus en haut, c'est ce qu'Alex appelait
+« moche ». Deux pastilles à la place, même hauteur, même rayon et même
+survol que les boutons du reste de l'application, avec un surtitre qui
+dit à qui la page est réservée.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/marge/page.jsx | 59 +++++++++++++++++++++++----
+ app/globals.css        | 91 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 143 insertions(+), 7 deletions(-)
+
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index de1d415..37a7df0 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -147,10 +147,15 @@ export default function MargePage() {
+       {/* Retour (24/10/2026, « pourquoi je ne peux pas revenir en arrière ? ») :
+           cet écran n'a pas la barre de navigation de l'app. */}
+       <nav className="topnav">
+-        <a href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>← Mon compte</a>
+-        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>Tableau de bord</a>
++        <a className="nav-pill" href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
++          <span className="pill-ic"><Ic name="arrowRight" size={15} /></span> Mon compte
++        </a>
++        <a className="nav-pill ghost" href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>
++          Tableau de bord
++        </a>
+       </nav>
+       <header className="head">
++        <p className="eyebrow">Fondateur</p>
+         <h1>Marge par client</h1>
+         <p className="sub">
+           Réservé à ton compte. Mois en cours{data?.year_month ? ` — ${data.year_month}` : ''}.
+@@ -314,18 +319,58 @@ export default function MargePage() {
+       )}
+ 
+       <style jsx>{`
++        /* Barre de retour (Alex, 24/10/2026 : « le retour en arrière de cette
++           page est moche, fais moderne comme pour les autres pages »). Deux
++           pastilles au lieu de deux liens nus : même hauteur, même rayon et
++           même survol que les boutons du reste de l'application. */
+         .topnav {
+           display: flex;
+           justify-content: space-between;
+-          gap: 1rem;
+-          margin-bottom: 1.2rem;
+-          font-size: 0.85rem;
++          align-items: center;
++          gap: 0.6rem;
++          margin-bottom: 1.4rem;
+         }
+-        .topnav a {
++        .nav-pill {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.35rem;
++          padding: 0.45rem 0.85rem;
++          border-radius: 999px;
++          border: 1px solid var(--border);
++          background: var(--bg-elevated);
+           color: var(--muted);
++          font-size: 0.82rem;
++          font-weight: 500;
+           text-decoration: none;
++          transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
++        }
++        .nav-pill:hover {
++          color: var(--text);
++          border-color: var(--accent);
++          background: var(--surface-hover);
++        }
++        /* Pas de chevron gauche dans la bibliothèque d'icônes : on retourne
++           la flèche droite plutôt que d'en ajouter une pour un seul usage. */
++        .pill-ic {
++          display: inline-flex;
++          transform: scaleX(-1);
++        }
++        .nav-pill.ghost {
++          background: transparent;
++          border-color: transparent;
++        }
++        .nav-pill.ghost:hover {
++          border-color: var(--border);
++          background: var(--bg-elevated);
++        }
++        .eyebrow {
++          text-transform: uppercase;
++          letter-spacing: 0.12em;
++          font-size: 0.7rem;
++          color: var(--accent);
++          font-weight: 600;
++          margin: 0 0 0.35rem;
+         }
+-        .topnav a:hover { color: var(--text); }
+         .page {
+           max-width: 980px;
+           margin: 0 auto;
+diff --git a/app/globals.css b/app/globals.css
+index afc12b6..21398c6 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -635,6 +635,97 @@ html[data-theme='light'] .shell > .sidebar {
+   }
+ }
+ 
++/* =====================================================================
++   RAIL DÉPLIÉ SUR GRAND ÉCRAN (Alex, 17/10/2026 : « regarde les rubriques
++   sur le côté, elles sont petites par rapport à ma résolution » — et, sur
++   le « Plus » du menu : « tu me mets un plus alors que j'ai largement la
++   place de les mettre »).
++
++   Le rail à 78px et ses libellés en info-bulle ont été pensés pour un
++   écran d'ordinateur portable, où la place manque. Au-delà de 1400px elle
++   ne manque plus : on rend au rail sa largeur et ses libellés, en
++   ANNULANT les règles du bloc ci-dessus plutôt qu'en les dupliquant.
++
++   Rien ne change en dessous de 1400px, ni sur téléphone.
++   ===================================================================== */
++@media (min-width: 1400px) {
++  .shell {
++    grid-template-columns: 212px 1fr !important;
++  }
++  .shell > .sidebar {
++    padding: 1.1rem 0.85rem 1rem !important;
++  }
++  .sidebar .brand {
++    justify-content: flex-start !important;
++    padding: 0 0.3rem !important;
++  }
++  .sidebar .brand span {
++    display: inline !important;
++  }
++  .sidebar .nav-list li {
++    justify-content: flex-start !important;
++    gap: 0.65rem;
++    padding: 0.4rem 0.45rem !important;
++    border-radius: 12px;
++  }
++  .sidebar .nav-icon {
++    width: 2.1em !important;
++    height: 2.1em !important;
++  }
++  .sidebar .nav-list li.active::before {
++    left: -0.85rem !important;
++  }
++  /* Le libellé n'est plus une info-bulle : il reprend sa place dans la
++     ligne, donc tout ce qui en faisait une bulle est défait. */
++  .sidebar .nav-label {
++    position: static;
++    opacity: 1;
++    transform: none;
++    pointer-events: auto;
++    background: none;
++    border: none;
++    box-shadow: none;
++    padding: 0;
++    font-size: 0.84rem;
++    color: inherit;
++  }
++  .sidebar .lock-badge {
++    position: static;
++    margin-left: auto !important;
++  }
++  /* La langue retrouve son nom complet : le code « FR » par-dessus un
++     select invisible n'a plus de raison d'être. */
++  .sidebar .lang-wrap::before {
++    display: none;
++  }
++  .sidebar .lang-wrap .lang-switcher {
++    position: static;
++    opacity: 1;
++    height: auto;
++    padding: 0.4rem 0.5rem !important;
++    font-size: 0.78rem !important;
++    text-align: left;
++    text-align-last: left;
++  }
++  .sidebar .conn-status {
++    justify-content: flex-start !important;
++    padding: 0.3rem 0.45rem 0.4rem !important;
++    gap: 0.5rem;
++  }
++  .sidebar .conn-status .nav-label {
++    display: inline;
++  }
++  .sidebar .logout-btn {
++    justify-content: flex-start !important;
++    gap: 0.65rem;
++    padding: 0.4rem 0.45rem !important;
++  }
++  .rail-bell {
++    justify-content: flex-start;
++    padding-left: 0.45rem;
++  }
++}
++
+ /* =====================================================================
+    BANDEAU DE NOTIFICATIONS COLLANT (docx « derniers ajouts », 05/09/2026 :
+    « sur PC ET téléphone, qu'on monte ou qu'on descende, il faut les
+-- 
+2.43.0
+
