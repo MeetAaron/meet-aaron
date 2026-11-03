@@ -52,6 +52,11 @@ export interface BalanceStatus {
   // fondateur : une alerte fondée sur une estimation ne se lit pas comme une
   // alerte fondée sur la facture.
   spentSource: 'fournisseur' | 'estimation';
+  // La clé d'administration est-elle POSÉE ? (jamais sa valeur, juste oui/non)
+  // Ajouté le 03/11/2026 : sans ça, « dépense estimée » peut vouloir dire deux
+  // choses très différentes — clé absente, ou clé présente mais appel en
+  // échec — et on ne peut pas savoir laquelle sans lire les journaux Vercel.
+  adminKeyPresent: boolean;
   // true = on ne sait PAS combien a été dépensé (clé d'administration
   // absente ou API muette) et aucun repli crédible n'existe. Dans ce cas on
   // n'annonce ni reste ni autonomie : un chiffre inventé est pire que pas de
@@ -112,6 +117,7 @@ export async function getBalanceStatus(
     return {
       provider, configured: false, snapshotId: null, balanceUsd: null, asOf: null,
       spentSinceUsd: 0, spentSource: 'estimation', spendUnknown: false,
+      adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
       balanceAgeDays: null, stale: false, remainingUsd: null, avgDailyUsd: 0,
       daysLeft: null, alerted10At: null, alerted3At: null,
     };
@@ -162,6 +168,7 @@ export async function getBalanceStatus(
     provider,
     configured: true,
     spendUnknown,
+    adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
     snapshotId: snap.id,
     balanceUsd,
     asOf: snap.as_of,

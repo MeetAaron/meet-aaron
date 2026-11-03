@@ -28,6 +28,7 @@ import { isFounderEmail } from '@/lib/founder';
 import { serverError } from '@/lib/http';
 import {
   planSireneCriteria,
+  loadSellerContext,
   discoverFrenchCompanies,
   classifyCandidates,
   type CandidatePile,
@@ -76,7 +77,9 @@ export async function GET(request: NextRequest) {
   const webNames = new Set((webFound || []).map((c: any) => normalizeName(c.name)).filter(Boolean));
 
   // 2. Traduction du ciblage en critères de registre.
-  const criteria = await planSireneCriteria(campaign.company_id, sectorKeywords, zoneLabel);
+  // Qui vend : sert à écarter les concurrents, côté codes NAF comme côté tri.
+  const seller = await loadSellerContext(campaign.company_id);
+  const criteria = await planSireneCriteria(campaign.company_id, sectorKeywords, zoneLabel, seller);
   if (!criteria.nafCodes.length || !criteria.departments.length) {
     return NextResponse.json({
       etape: 'criteres',
@@ -105,7 +108,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 4. Le tri, un seul appel.
-  const classification = await classifyCandidates(campaign.company_id, discovery.candidates, sectorKeywords);
+  const classification = await classifyCandidates(campaign.company_id, discovery.candidates, sectorKeywords, seller);
 
   const parPile: Record<CandidatePile, any[]> = { sur: [], douteux: [], non: [] };
   let dejaTrouveesParLeWeb = 0;

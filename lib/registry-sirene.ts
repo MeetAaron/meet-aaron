@@ -30,6 +30,7 @@
 // demande un compte pour exactement la même donnée. REGISTRY_FR_BASE permet
 // de corriger l'adresse sans redéployer si elle bouge.
 
+import { supabaseAdmin } from './supabase-admin';
 import { callClaude } from './anthropic-client';
 
 // recherche-entreprises.api.gouv.fr : la même API que lib/company-directory.ts
@@ -164,6 +165,54 @@ export async function discoverFrenchCompanies(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// QUI VEND, ET DONC QUI EST UN CONCURRENT (03/11/2026).
+//
+// Premier essai réel du registre : la pile « sûr » contenait ELIOR, COMPASS
+// GROUP, SODEXO, API RESTAURATION — les plus gros groupes de restauration
+// collective de France. Ce sont les CONCURRENTS du client, pas ses prospects.
+//
+// Le registre n'a pas fauté : les mots-clés de la campagne valaient
+// « agence événementielle, ETI, grand groupe, traiteur événementiel », et le
+// dernier décrit ce que le client EST, pas qui il cherche. Le modèle en a
+// déduit les codes NAF de la restauration, et l'INSEE a répondu fidèlement.
+//
+// Ni le choix des codes ni le tri ne savaient QUI vend. On le leur dit
+// maintenant, et on leur demande explicitement d'écarter le métier du
+// vendeur. C'est la correction la moins chère : deux phrases de prompt, à
+// comparer avec une refonte de la saisie de campagne — qu'il faudra faire
+// un jour, mais qui ne rattrapera pas les campagnes déjà créées.
+export interface SellerContext {
+  name: string | null;
+  trade: string | null;
+}
+
+export async function loadSellerContext(companyId: string): Promise<SellerContext> {
+  try {
+    const { data } = await supabaseAdmin
+      .from('companies')
+      .select('name, business_summary')
+      .eq('id', companyId)
+      .maybeSingle();
+    const summary = String((data as any)?.business_summary || '');
+    // Les premières phrases suffisent à dire le métier ; envoyer la fiche
+    // entière coûterait plus cher que tout le reste de l'appel.
+    const trade = summary.replace(/^#.*$/gm, '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    return { name: (data as any)?.name || null, trade: trade || null };
+  } catch {
+    return { name: null, trade: null };
+  }
+}
+
+function sellerBlock(seller?: SellerContext | null): string {
+  if (!seller || (!seller.name && !seller.trade)) return '';
+  return `\n\nQUI VEND (à EXCLURE des résultats) :\n` +
+    `${seller.name ? `Entreprise : ${seller.name}\n` : ''}` +
+    `${seller.trade ? `Son métier : ${seller.trade}\n` : ''}` +
+    `Une entreprise qui exerce CE MÊME MÉTIER est un CONCURRENT, jamais un prospect. ` +
+    `Ne propose pas ses codes d'activité et classe ces entreprises en "non".`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // TRADUCTION DU CIBLAGE EN CRITÈRES INSEE.
 // Même découpe que le sourcing web depuis le 30/10 : Sonnet fait le travail de
 // jugement (quels codes d'activité, quels départements), sur un prompt
@@ -173,12 +222,13 @@ export async function discoverFrenchCompanies(opts: {
 export async function planSireneCriteria(
   companyId: string,
   sectorKeywords: string[],
-  zoneLabel: string
+  zoneLabel: string,
+  seller?: SellerContext | null
 ): Promise<{ nafCodes: string[]; departments: string[]; error?: string }> {
   const prompt = `Tu prépares une requête sur le répertoire Sirene de l'INSEE (entreprises françaises).
 
 Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
-Zone géographique : ${zoneLabel}
+Zone géographique : ${zoneLabel}${sellerBlock(seller)}
 
 1. Donne la liste des codes NAF/APE (format 4 chiffres + 1 lettre, ex: 8230Z) sous lesquels ces entreprises PEUVENT être enregistrées. Sois VOLONTAIREMENT LARGE : le code est déclaré à la création et rarement mis à jour, donc inclus les codes voisins et les codes sous lesquels ce métier est souvent déclaré par erreur ou par héritage. Entre 4 et 12 codes.
 2. Donne la liste des préfixes de code postal (2 chiffres, ex: 75, 92, 93) couvrant la zone. Si la zone est une ville, donne le ou les départements qui la contiennent.
@@ -226,7 +276,8 @@ export type CandidatePile = 'sur' | 'douteux' | 'non';
 export async function classifyCandidates(
   companyId: string,
   candidates: RegistryCandidate[],
-  sectorKeywords: string[]
+  sectorKeywords: string[],
+  seller?: SellerContext | null
 ): Promise<{ piles: Record<string, CandidatePile>; error?: string }> {
   if (candidates.length === 0) return { piles: {} };
 
@@ -236,12 +287,12 @@ export async function classifyCandidates(
 
   const prompt = `Voici une liste d'entreprises françaises issues du répertoire officiel, avec leur nom et leur activité DÉCLARÉE (souvent obsolète ou approximative).
 
-Cible recherchée : ${sectorKeywords.join(', ')}
+Cible recherchée : ${sectorKeywords.join(', ')}${sellerBlock(seller)}
 
 Pour chaque entreprise, dis si elle correspond plausiblement à la cible :
-- "sur" : le nom ou l'activité déclarée indiquent clairement ce métier.
+- "sur" : le nom ou l'activité déclarée indiquent clairement ce métier, ET ce n'est pas un concurrent du vendeur.
 - "douteux" : rien ne l'exclut, mais rien ne le confirme non plus (nom de personne, activité trop générale).
-- "non" : le nom ou l'activité indiquent clairement un autre métier.
+- "non" : le nom ou l'activité indiquent clairement un autre métier, OU il s'agit d'un concurrent du vendeur.
 
 Dans le doute entre "sur" et "douteux", choisis "douteux". N'invente rien : tu ne disposes que de ces deux informations, tu ne consultes aucun site.
 
