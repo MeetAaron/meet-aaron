@@ -33,6 +33,7 @@ import { sendSystemEmail } from '@/lib/google';
 import { sendPushNotification } from '@/lib/push';
 import { resolveUserTimeZone, localParts } from '@/lib/user-timezone';
 import { serverError } from '@/lib/http';
+import { technicalUserIds } from '@/lib/technical-accounts';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -95,9 +96,14 @@ export async function GET(request: NextRequest) {
   }
   users = res.data;
 
+  // Comptes techniques (audit CASA, bac à sable) : aucun email automatique.
+  // Voir lib/technical-accounts.ts.
+  const technicalUsers = await technicalUserIds();
+
   let sent = 0;
   let skipped = 0;
   for (const user of users || []) {
+    if (technicalUsers.has(user.id)) { skipped++; continue; }
     try {
       // ── Est-il minuit chez CE commercial ? ────────────────────────────
       const timeZone = resolveUserTimeZone(user);

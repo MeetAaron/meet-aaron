@@ -40,14 +40,21 @@ import { stripe } from '@/lib/stripe';
 import { sendSystemEmail } from '@/lib/google';
 import { GRACE_PERIOD_DAYS } from '@/lib/subscription-status';
 import { serverError } from '@/lib/http';
+import { technicalCompanyIds } from '@/lib/technical-accounts';
+import { computeStakes, stakesSentence } from '@/lib/subscription-stakes';
 
 export const dynamic = 'force-dynamic';
 
 // Paliers de relance, en jours écoulés depuis le premier refus.
+// Le 4e palier tombe APRÈS la coupure, pas avant (Alex, 03/11/2026). La
+// grâce dure 7 jours : à J+8, Aaron s'est tu depuis la veille, et c'est le
+// seul moment où la relance dit quelque chose de vrai — « voilà ce qui est
+// en pause », avec les chiffres réels du fichier du client.
 const DUNNING_STAGES: { stage: number; afterDays: number }[] = [
   { stage: 1, afterDays: 0 },
   { stage: 2, afterDays: 3 },
   { stage: 3, afterDays: 6 },
+  { stage: 4, afterDays: 8 },
 ];
 
 // On prévient de la fin d'une remise cinq jours avant : assez tôt pour
@@ -97,6 +104,7 @@ export async function GET(request: NextRequest) {
   }
 
   const now = new Date();
+  const technical = await technicalCompanyIds();
   let dunningSent = 0;
   let discountSent = 0;
   const problems: string[] = [];
@@ -111,7 +119,7 @@ export async function GET(request: NextRequest) {
       .in('subscription_status', ['past_due', 'unpaid']);
 
     for (const c of ((unpaid as any[]) || [])) {
-      if (c.billing_exempt === true) continue;
+      if (c.billing_exempt === true || technical.has(c.id)) continue;
       const since = c.subscription_past_due_since ? new Date(c.subscription_past_due_since) : null;
       if (!since) continue;
       const elapsed = days(now.getTime() - since.getTime());
@@ -131,6 +139,13 @@ export async function GET(request: NextRequest) {
       const daysLeft = graceEnds ? Math.max(0, days(graceEnds.getTime() - now.getTime())) : null;
       const suspended = c.subscription_status === 'unpaid' || daysLeft === 0;
 
+      // Ce qui dort pendant la coupure, uniquement au palier d'après la
+      // coupure : avant, ce serait une menace ; après, c'est un état de fait.
+      let stakes: string | null = null;
+      if (target === 4) {
+        stakes = stakesSentence(await computeStakes(c.id));
+      }
+
       const subject = suspended
         ? "Meet Aaron — Aaron est en pause, votre paiement n'est pas passé"
         : "Meet Aaron — votre paiement n'est pas passé";
@@ -146,6 +161,14 @@ export async function GET(request: NextRequest) {
             "Rien n'est perdu : vos contacts, vos rendez-vous et vos échanges sont intacts, et vous " +
               "gardez l'accès à l'application. Dès qu'un paiement passe, Aaron reprend exactement " +
               "où il s'était arrêté.",
+            ...(stakes
+              ? [
+                  '',
+                  `Concrètement, ce qui attend dans votre compte : ${stakes}. ` +
+                    "Aaron ne relance plus ces contacts et ne répond plus à leurs messages tant que " +
+                    "l'abonnement est suspendu.",
+                ]
+              : []),
             '',
             "Pour mettre votre carte à jour : ouvrez l'application, Préférences puis Abonnement.",
           ]
@@ -191,7 +214,7 @@ export async function GET(request: NextRequest) {
       .not('stripe_subscription_id', 'is', null);
 
     for (const c of ((subscribed as any[]) || [])) {
-      if (c.billing_exempt === true) continue;
+      if (c.billing_exempt === true || technical.has(c.id)) continue;
       let subscription: any;
       try {
         subscription = await stripe.subscriptions.retrieve(c.stripe_subscription_id, { expand: ['discounts'] });
