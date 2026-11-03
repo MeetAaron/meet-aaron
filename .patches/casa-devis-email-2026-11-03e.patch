@@ -1,0 +1,338 @@
+From 4f8e0db87e1d255f1cad8d3586c536f8746288b6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 04:06:39 +0000
+Subject: [PATCH] =?UTF-8?q?Apr=C3=A8s=20la=20coupure,=20dire=20ce=20qui=20?=
+ =?UTF-8?q?dort=20;=20et=20un=20compte=20d'audit=20qui=20n'existe=20pour?=
+ =?UTF-8?q?=20personne?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Deux demandes d'Alex.
+
+Un quatrième palier de relance, après la coupure et non avant. La grâce
+dure 7 jours : à J+8, Aaron s'est tu depuis la veille, et c'est le seul
+moment où la phrase dit quelque chose de vrai. L'email annonce ce qui
+attend dans le compte — prospects en cours de discussion, opportunités
+ouvertes, rendez-vous à venir — pris dans le fichier RÉEL du client.
+
+Les chiffres devaient être vrais, sinon l'idée se retourne : annoncer
+« 20 opportunités » à quelqu'un qui en a deux ne motive personne, ça lui
+apprend que Meet Aaron invente au moment de lui demander de l'argent.
+Quand il n'y a rien à dire, le paragraphe disparaît au lieu d'afficher
+des zéros. Et « prospect actif » veut dire qu'Aaron lui a vraiment écrit :
+un contact importé jamais démarché ne représente aucun travail en cours.
+
+Le compte « CASA Audit » ensuite : il utilise Aaron mais n'est ni un
+client ni un utilisateur, c'est de l'outillage qui doit resservir l'an
+prochain. companies.not_a_client prend donc son sens complet — aucun
+email automatique, aucun fichier, aucune relance. Le compte reste intact
+et connectable.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/send-results-reports/route.ts |   6 +
+ app/api/cron/subscription-alerts/route.ts  |  27 ++++-
+ lib/subscription-stakes.ts                 | 124 +++++++++++++++++++++
+ lib/technical-accounts.ts                  |  49 ++++++++
+ 4 files changed, 204 insertions(+), 2 deletions(-)
+ create mode 100644 lib/subscription-stakes.ts
+ create mode 100644 lib/technical-accounts.ts
+
+diff --git a/app/api/cron/send-results-reports/route.ts b/app/api/cron/send-results-reports/route.ts
+index 4d329e0..3dcf83f 100644
+--- a/app/api/cron/send-results-reports/route.ts
++++ b/app/api/cron/send-results-reports/route.ts
+@@ -33,6 +33,7 @@ import { sendSystemEmail } from '@/lib/google';
+ import { sendPushNotification } from '@/lib/push';
+ import { resolveUserTimeZone, localParts } from '@/lib/user-timezone';
+ import { serverError } from '@/lib/http';
++import { technicalUserIds } from '@/lib/technical-accounts';
+ 
+ function isAuthorized(request: NextRequest) {
+   const authHeader = request.headers.get('authorization');
+@@ -95,9 +96,14 @@ export async function GET(request: NextRequest) {
+   }
+   users = res.data;
+ 
++  // Comptes techniques (audit CASA, bac à sable) : aucun email automatique.
++  // Voir lib/technical-accounts.ts.
++  const technicalUsers = await technicalUserIds();
++
+   let sent = 0;
+   let skipped = 0;
+   for (const user of users || []) {
++    if (technicalUsers.has(user.id)) { skipped++; continue; }
+     try {
+       // ── Est-il minuit chez CE commercial ? ────────────────────────────
+       const timeZone = resolveUserTimeZone(user);
+diff --git a/app/api/cron/subscription-alerts/route.ts b/app/api/cron/subscription-alerts/route.ts
+index 0184109..a66a253 100644
+--- a/app/api/cron/subscription-alerts/route.ts
++++ b/app/api/cron/subscription-alerts/route.ts
+@@ -40,14 +40,21 @@ import { stripe } from '@/lib/stripe';
+ import { sendSystemEmail } from '@/lib/google';
+ import { GRACE_PERIOD_DAYS } from '@/lib/subscription-status';
+ import { serverError } from '@/lib/http';
++import { technicalCompanyIds } from '@/lib/technical-accounts';
++import { computeStakes, stakesSentence } from '@/lib/subscription-stakes';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+ // Paliers de relance, en jours écoulés depuis le premier refus.
++// Le 4e palier tombe APRÈS la coupure, pas avant (Alex, 03/11/2026). La
++// grâce dure 7 jours : à J+8, Aaron s'est tu depuis la veille, et c'est le
++// seul moment où la relance dit quelque chose de vrai — « voilà ce qui est
++// en pause », avec les chiffres réels du fichier du client.
+ const DUNNING_STAGES: { stage: number; afterDays: number }[] = [
+   { stage: 1, afterDays: 0 },
+   { stage: 2, afterDays: 3 },
+   { stage: 3, afterDays: 6 },
++  { stage: 4, afterDays: 8 },
+ ];
+ 
+ // On prévient de la fin d'une remise cinq jours avant : assez tôt pour
+@@ -97,6 +104,7 @@ export async function GET(request: NextRequest) {
+   }
+ 
+   const now = new Date();
++  const technical = await technicalCompanyIds();
+   let dunningSent = 0;
+   let discountSent = 0;
+   const problems: string[] = [];
+@@ -111,7 +119,7 @@ export async function GET(request: NextRequest) {
+       .in('subscription_status', ['past_due', 'unpaid']);
+ 
+     for (const c of ((unpaid as any[]) || [])) {
+-      if (c.billing_exempt === true) continue;
++      if (c.billing_exempt === true || technical.has(c.id)) continue;
+       const since = c.subscription_past_due_since ? new Date(c.subscription_past_due_since) : null;
+       if (!since) continue;
+       const elapsed = days(now.getTime() - since.getTime());
+@@ -131,6 +139,13 @@ export async function GET(request: NextRequest) {
+       const daysLeft = graceEnds ? Math.max(0, days(graceEnds.getTime() - now.getTime())) : null;
+       const suspended = c.subscription_status === 'unpaid' || daysLeft === 0;
+ 
++      // Ce qui dort pendant la coupure, uniquement au palier d'après la
++      // coupure : avant, ce serait une menace ; après, c'est un état de fait.
++      let stakes: string | null = null;
++      if (target === 4) {
++        stakes = stakesSentence(await computeStakes(c.id));
++      }
++
+       const subject = suspended
+         ? "Meet Aaron — Aaron est en pause, votre paiement n'est pas passé"
+         : "Meet Aaron — votre paiement n'est pas passé";
+@@ -146,6 +161,14 @@ export async function GET(request: NextRequest) {
+             "Rien n'est perdu : vos contacts, vos rendez-vous et vos échanges sont intacts, et vous " +
+               "gardez l'accès à l'application. Dès qu'un paiement passe, Aaron reprend exactement " +
+               "où il s'était arrêté.",
++            ...(stakes
++              ? [
++                  '',
++                  `Concrètement, ce qui attend dans votre compte : ${stakes}. ` +
++                    "Aaron ne relance plus ces contacts et ne répond plus à leurs messages tant que " +
++                    "l'abonnement est suspendu.",
++                ]
++              : []),
+             '',
+             "Pour mettre votre carte à jour : ouvrez l'application, Préférences puis Abonnement.",
+           ]
+@@ -191,7 +214,7 @@ export async function GET(request: NextRequest) {
+       .not('stripe_subscription_id', 'is', null);
+ 
+     for (const c of ((subscribed as any[]) || [])) {
+-      if (c.billing_exempt === true) continue;
++      if (c.billing_exempt === true || technical.has(c.id)) continue;
+       let subscription: any;
+       try {
+         subscription = await stripe.subscriptions.retrieve(c.stripe_subscription_id, { expand: ['discounts'] });
+diff --git a/lib/subscription-stakes.ts b/lib/subscription-stakes.ts
+new file mode 100644
+index 0000000..39f1b04
+--- /dev/null
++++ b/lib/subscription-stakes.ts
+@@ -0,0 +1,124 @@
++// lib/subscription-stakes.ts
++//
++// CE QUI EST EN PAUSE (Alex, 03/11/2026).
++//
++// « J'aimerais bien ajouter un truc après les 6 jours. Par exemple un email
++// du genre : réabonnez-vous, sinon nous aurons perdu des efforts de travail
++// sur 20 opportunités et 20 prospects actifs (Aaron se basera sur le fichier
++// contact réel de l'utilisateur). »
++//
++// L'idée est juste, à une condition : les chiffres doivent être VRAIS. Un
++// email qui annonce « 20 opportunités » à quelqu'un qui en a deux ne motive
++// personne, il apprend juste au client que Meet Aaron raconte n'importe quoi
++// au moment de lui demander de l'argent. Tout vient donc de ses données, et
++// quand il n'y a rien à dire, on ne dit rien — l'email part sans ce
++// paragraphe plutôt qu'avec des zéros.
++//
++// Trois mesures, choisies parce qu'elles représentent du travail DÉJÀ FAIT
++// qui dort, pas une promesse :
++//   - prospects actifs : contactés par Aaron, ni gagnés ni perdus ;
++//   - opportunités : affaires en cours, hors signées et perdues ;
++//   - rendez-vous à venir.
++
++import { supabaseAdmin } from './supabase-admin';
++import { NON_TERMINAL_DEAL_STAGES } from './team-stats';
++import { selectInChunks } from './chunked-in';
++
++export interface SubscriptionStakes {
++  activeProspects: number;
++  opportunities: number;
++  upcomingAppointments: number;
++  total: number;
++}
++
++const EMPTY: SubscriptionStakes = {
++  activeProspects: 0,
++  opportunities: 0,
++  upcomingAppointments: 0,
++  total: 0,
++};
++
++export async function computeStakes(companyId: string): Promise<SubscriptionStakes> {
++  try {
++    const { data: users } = await supabaseAdmin.from('users').select('id').eq('company_id', companyId);
++    const userIds = ((users as any[]) || []).map((u) => u.id).filter(Boolean);
++    if (userIds.length === 0) return EMPTY;
++
++    const { data: prospects } = await selectInChunks(userIds, (part) => supabaseAdmin
++      .from('prospects')
++      .select('id, is_won, is_lost, deal_stage')
++      .in('assigned_user_id', part));
++    const rows = (prospects as any[]) || [];
++
++    const opportunities = rows.filter(
++      (p) => p.deal_stage && NON_TERMINAL_DEAL_STAGES.includes(p.deal_stage)
++    ).length;
++
++    // « Actif » = Aaron lui a vraiment écrit. Un contact importé jamais
++    // démarché ne représente aucun travail en cours : le compter serait
++    // gonfler le chiffre, exactement ce qu'on veut éviter ici.
++    const openIds = rows.filter((p) => !p.is_won && !p.is_lost).map((p) => p.id);
++    let activeProspects = 0;
++    if (openIds.length > 0) {
++      const { data: conversations } = await selectInChunks(openIds, (part) => supabaseAdmin
++        .from('conversations')
++        .select('id, prospect_id')
++        .in('prospect_id', part));
++      const prospectIdByConversationId: Record<string, string> = {};
++      ((conversations as any[]) || []).forEach((cv) => {
++        if (cv.prospect_id) prospectIdByConversationId[cv.id] = cv.prospect_id;
++      });
++      const conversationIds = Object.keys(prospectIdByConversationId);
++      if (conversationIds.length > 0) {
++        const { data: messages } = await selectInChunks(conversationIds, (part) => supabaseAdmin
++          .from('messages')
++          .select('conversation_id, direction')
++          .in('conversation_id', part));
++        const engaged = new Set<string>();
++        ((messages as any[]) || []).forEach((m) => {
++          if (m.direction !== 'outbound') return;
++          const prospectId = prospectIdByConversationId[m.conversation_id];
++          if (prospectId) engaged.add(prospectId);
++        });
++        activeProspects = engaged.size;
++      }
++    }
++
++    const { data: appointments } = await selectInChunks(userIds, (part) => supabaseAdmin
++      .from('appointments')
++      .select('id, status, proposed_at')
++      .in('user_id', part)
++      .in('status', ['proposé', 'validé'])
++      .gte('proposed_at', new Date().toISOString()));
++    const upcomingAppointments = ((appointments as any[]) || []).length;
++
++    return {
++      activeProspects,
++      opportunities,
++      upcomingAppointments,
++      total: activeProspects + opportunities + upcomingAppointments,
++    };
++  } catch (err: any) {
++    // Jamais bloquant : sans ces chiffres l'email part quand même, sans le
++    // paragraphe. Une relance muette vaut mieux qu'une relance jamais partie.
++    console.error('Ce qui est en pause — calcul impossible (non bloquant):', err?.message || err);
++    return EMPTY;
++  }
++}
++
++// Phrase française prête à insérer, ou null quand il n'y a rien à dire.
++export function stakesSentence(stakes: SubscriptionStakes): string | null {
++  const bits: string[] = [];
++  if (stakes.activeProspects > 0) {
++    bits.push(`${stakes.activeProspects} prospect${stakes.activeProspects > 1 ? 's' : ''} en cours de discussion`);
++  }
++  if (stakes.opportunities > 0) {
++    bits.push(`${stakes.opportunities} opportunité${stakes.opportunities > 1 ? 's' : ''} ouverte${stakes.opportunities > 1 ? 's' : ''}`);
++  }
++  if (stakes.upcomingAppointments > 0) {
++    bits.push(`${stakes.upcomingAppointments} rendez-vous à venir`);
++  }
++  if (bits.length === 0) return null;
++  const last = bits.pop() as string;
++  return bits.length === 0 ? last : `${bits.join(', ')} et ${last}`;
++}
+diff --git a/lib/technical-accounts.ts b/lib/technical-accounts.ts
+new file mode 100644
+index 0000000..f9b6342
+--- /dev/null
++++ b/lib/technical-accounts.ts
+@@ -0,0 +1,49 @@
++// lib/technical-accounts.ts
++//
++// COMPTES TECHNIQUES (Alex, 03/11/2026, à propos du compte « CASA Audit ») :
++// « je ne veux pas que ça reçoive d'emails ou soit considéré comme un client.
++// Que cet audit disparaisse de tout, qu'il n'apparaisse nulle part. On ne le
++// garde que pour l'année prochaine, quand il faudra refaire l'audit CASA. »
++//
++// La colonne companies.not_a_client existait déjà pour le fichier client
++// (migration_pas_un_client_2026-11-02.sql). Elle prend ici son sens complet :
++// une société marquée ainsi est un compte d'outillage, pas un utilisateur.
++// Elle ne reçoit aucun email automatique, n'entre dans aucun fichier et ne
++// déclenche aucune relance. Le compte reste intact et connectable — c'est
++// tout l'intérêt : il doit resservir l'an prochain.
++//
++// Tolérant à l'absence de la colonne : sans elle on renvoie un ensemble vide,
++// c'est-à-dire le comportement d'avant. Une migration en retard ne doit pas
++// priver tout le monde de ses rapports.
++
++import { supabaseAdmin } from './supabase-admin';
++
++export async function technicalCompanyIds(): Promise<Set<string>> {
++  try {
++    const { data, error } = await supabaseAdmin
++      .from('companies')
++      .select('id')
++      .eq('not_a_client', true);
++    if (error) return new Set();
++    return new Set(((data as any[]) || []).map((c) => c.id));
++  } catch {
++    return new Set();
++  }
++}
++
++// Les utilisateurs de ces sociétés : c'est à ce niveau que se décide l'envoi
++// de la plupart des emails automatiques (rapports de résultats, relances).
++export async function technicalUserIds(): Promise<Set<string>> {
++  const companyIds = await technicalCompanyIds();
++  if (companyIds.size === 0) return new Set();
++  try {
++    const { data, error } = await supabaseAdmin
++      .from('users')
++      .select('id')
++      .in('company_id', Array.from(companyIds));
++    if (error) return new Set();
++    return new Set(((data as any[]) || []).map((u) => u.id));
++  } catch {
++    return new Set();
++  }
++}
+-- 
+2.43.0
+
