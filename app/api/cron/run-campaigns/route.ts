@@ -96,11 +96,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   if (stockCompanyIds.length > 0) {
     const { data: stockProspects } = await supabaseAdmin
       .from('prospects')
-      .select('id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
+      .select('id, ai_managed, is_lost, pending_first_email_subject, conversations(id, messages(id))')
       .in('prospect_company_id', stockCompanyIds);
     uncontactedStock = (stockProspects || []).filter((p: any) => {
       // Repris en main par le commercial : ne compte pas, Aaron ne lui ecrira pas.
       if (p.ai_managed === false) return false;
+      // Perdu sans jamais avoir ete contacte (hors cible, concurrent, email
+      // invalide) : ce n'est pas du stock, c'est du dechet. Le compter ici
+      // bloquerait la recherche de vrais prospects (04/11/2026).
+      if (p.is_lost === true) return false;
       // Brouillon deja redige (relecture ou creneau d'envoi) : c'est du stock
       // deja paye qui partira, il compte.
       if (p.pending_first_email_subject) return true;

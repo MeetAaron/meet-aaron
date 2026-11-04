@@ -147,6 +147,35 @@ export async function runFirstContact(prospect: FirstContactProspect) {
       })
       .eq('id', prospect.id);
 
+    // PROSPECT HORS CIBLE (04/11/2026). Aaron a jugé que ce prospect est un
+    // concurrent du commercial, ou ne peut pas acheter l'offre : email vide,
+    // rien ne part. Mais « rien ne part » ne suffit pas — un prospect sans
+    // message serait repris par retry-uncontacted-prospects et compté dans
+    // le stock à contacter, donc Sonnet repaierait ce même jugement tous les
+    // jours. On le marque perdu, avec la raison, et il sort de tous les
+    // circuits. Le commercial le voit dans sa liste, avec le conseil d'Aaron.
+    if (aaronOutput.hors_cible?.detected === true && !hasEmailToSend) {
+      const lostFields = {
+        is_lost: true,
+        lost_at: new Date().toISOString(),
+        ai_managed: false,
+      };
+      const { error: lostError } = await supabaseAdmin
+        .from('prospects')
+        .update({ ...lostFields, pipeline_lost_reason: 'hors_cible' })
+        .eq('id', prospect.id);
+      if (lostError) {
+        // Contrainte pas encore élargie (migration_hors_cible_2026-11-04.sql) :
+        // on marque quand même perdu, avec la raison la plus proche.
+        await supabaseAdmin
+          .from('prospects')
+          .update({ ...lostFields, pipeline_lost_reason: 'autre' })
+          .eq('id', prospect.id);
+      }
+      console.info(`[premier contact] hors cible, non contacté : ${prospect.id} — ${aaronOutput.hors_cible.reason || ''}`);
+      return;
+    }
+
     if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
       await supabaseAdmin
         .from('prospects')

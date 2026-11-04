@@ -45,7 +45,11 @@ Règles impératives :
 
   Où :
   - zone_label : description humaine de la zone (ex: "Allemagne, région de Bavière", "Île-de-France", "Californie et Texas, États-Unis").
-  - sector_keywords : tableau de mots-clés de secteur (1 à 5 mots-clés courts).
+  - sector_keywords : le MÉTIER DES CLIENTS À DÉMARCHER, en 1 à 5 mots-clés courts. Trois règles, chacune apprise sur une vraie campagne (04/11/2026) :
+    • JAMAIS le métier du commercial lui-même. Si le commercial est traiteur et vise des agences événementielles, la liste contient « agence événementielle » et PAS « traiteur ». Tout mot-clé qui décrit le commercial ferait chercher — et démarcher — ses CONCURRENTS. C'est arrivé : un traiteur a vu Aaron proposer de la sous-traitance à d'autres traiteurs, et l'a appris par ses pairs.
+    • JAMAIS une taille d'entreprise (« ETI », « PME », « grand groupe », « TPE ») : ça va dans company_sizes, pas ici. « ETI Île-de-France » n'est pas une recherche, c'est du bruit.
+    • Chaque mot-clé doit nommer un métier qu'on peut chercher dans un annuaire : « agence événementielle », « promoteur immobilier », « cabinet d'expertise comptable ». Pas « entreprises », pas « décideurs », pas « clients potentiels ».
+    Avant d'écrire le bloc, relis la liste et pose-toi la question pour chaque mot : « est-ce que cette entreprise ACHÈTERAIT ce que vend le commercial ? ». Si la réponse est « non, elle vend la même chose », retire-le.
   - company_sizes : tableau parmi "artisan_tpe", "pme", "eti", "grand_compte" — tableau vide si toutes tailles.
   - target_role : une valeur parmi "fondateur_dirigeant", "responsable_commercial", "responsable_achats", "rh", ou null si peu importe/non précisé.
   - target_count : nombre entier.

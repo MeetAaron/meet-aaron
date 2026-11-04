@@ -10,6 +10,7 @@ import { normalizeLinkedInProfileUrl } from './social-urls';
 import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
 import { searchDirectory } from './directory-db';
+import { loadSellerContext, type SellerContext } from './registry-sirene';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -48,6 +49,72 @@ interface FoundContact {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// QUI VEND — ET DONC QUI NE DOIT JAMAIS ÊTRE DÉMARCHÉ (04/11/2026).
+//
+// Retour du premier client externe, transmis par Alex : « beaucoup de
+// personnes contactées étaient en fait des traiteurs », à qui Aaron
+// proposait de sous-traiter. Le client EST traiteur. Aaron a démarché ses
+// concurrents, en se présentant comme plus gros qu'eux.
+//
+// Ce que la relecture du code a montré : à aucun endroit de cette chaîne —
+// ni la planification des requêtes, ni l'extraction des résultats — le
+// modèle ne savait QUI vend. Il recevait des mots-clés et une zone, point.
+// Et les mots-clés de la campagne contenaient « traiteur événementiel »,
+// parce que la saisie de campagne ne distingue pas « mon métier » de « ma
+// cible » (voir app/api/campaigns/chat). Le modèle a donc cherché
+// exactement ce qu'on lui demandait : des traiteurs en Île-de-France.
+//
+// Trois corrections ici, par ordre de profondeur :
+//   1. les deux appels reçoivent le nom et le métier du vendeur, avec la
+//      consigne explicite qu'une entreprise du même métier est un CONCURRENT
+//      et ne doit jamais remonter ;
+//   2. les mots-clés qui sont en réalité des TAILLES (ETI, PME, grand
+//      groupe…) sont retirés : ils ont leur propre champ, et laissés là ils
+//      font chercher « ETI Île-de-France », qui ne veut rien dire ;
+//   3. un mot-clé qui décrit le métier du vendeur lui-même est retiré avant
+//      la recherche. On ne peut pas le deviner à coup sûr, mais quand le
+//      métier du vendeur contient le mot-clé (ou l'inverse), le doute n'est
+//      pas permis.
+//
+// Ce n'est pas la correction définitive — celle-là est dans la saisie de
+// campagne, qui doit séparer les deux notions. Mais elle protège les
+// campagnes DÉJÀ créées, et c'est elles qui tournent ce soir.
+const SIZE_WORDS = /^(tpe|pme|eti|grands? (comptes?|groupes?)|grandes? entreprises?|petites? entreprises?|artisans?|auto[- ]?entrepreneurs?|start-?ups?|multinationales?)$/i;
+
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function cleanSectorKeywords(sectorKeywords: string[], seller: SellerContext | null): { kept: string[]; dropped: string[] } {
+  const sellerText = normalizeForMatch(`${seller?.name || ''} ${seller?.trade || ''}`);
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const raw of sectorKeywords || []) {
+    const kw = String(raw || '').trim();
+    if (!kw) continue;
+    if (SIZE_WORDS.test(kw)) { dropped.push(kw); continue; }
+    const n = normalizeForMatch(kw);
+    // Le mot-clé est contenu, mot pour mot, dans la description du vendeur :
+    // c'est son propre métier. « traiteur evenementiel » dans « Le Petit
+    // Gourmet est un traiteur evenementiel… » ne laisse aucun doute.
+    if (n.length >= 6 && sellerText.includes(n)) { dropped.push(kw); continue; }
+    kept.push(kw);
+  }
+  // Si on a tout retiré, on garde l'original : mieux vaut une recherche
+  // imparfaite qu'aucune recherche — et le vendeur sera quand même exclu
+  // par la consigne du prompt.
+  return kept.length > 0 ? { kept, dropped } : { kept: (sectorKeywords || []).filter(Boolean), dropped: [] };
+}
+
+function sellerInstruction(seller: SellerContext | null): string {
+  if (!seller || (!seller.name && !seller.trade)) return '';
+  return `
+QUI VEND — et donc qui ne doit JAMAIS remonter dans les résultats :
+${seller.name ? `Entreprise : ${seller.name}\n` : ''}${seller.trade ? `Son métier : ${seller.trade}\n` : ''}Les entreprises recherchées sont ses CLIENTS POTENTIELS, c'est-à-dire des entreprises qui ACHÈTENT ce qu'elle vend. Une entreprise qui exerce le même métier qu'elle est un CONCURRENT : ne la cherche pas, ne la propose pas, même si elle correspond aux mots-clés. En cas de doute sur une entreprise, écarte-la.
+`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // ÉTAPE 1 — SONNET DÉCIDE QUOI CHERCHER (Alex, 30/10/2026).
 //
 // Découpe proposée par Alex, et meilleure que ce que j'avais suggéré :
@@ -73,14 +140,15 @@ async function planSearchQueries(
   sectorKeywords: string[],
   zoneLabel: string,
   companySizeLabels: string[],
-  maxQueries: number
+  maxQueries: number,
+  seller: SellerContext | null
 ): Promise<string[]> {
   const fallback = sectorKeywords.slice(0, maxQueries).map((kw) => `${kw} ${zoneLabel}`);
-  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web.
+  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web, pour trouver des CLIENTS POTENTIELS à démarcher.
 
-Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
+Clients recherchés (leur métier) : ${sectorKeywords.join(', ')}
 Zone géographique : ${zoneLabel}
-${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}
+${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}${sellerInstruction(seller)}
 Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
 
 Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après, sans balises markdown. Exemple de forme : ["requête 1", "requête 2"]`;
@@ -116,12 +184,18 @@ async function searchCompaniesInZone(
 ): Promise<FoundCompany[]> {
   const companySizeLabels = (companySizeKeys || []).map((k) => COMPANY_SIZE_LABELS[k]).filter(Boolean);
 
-  const prompt = `Tu es un assistant de sourcing B2B. Cherche sur le web (Google Maps, annuaires professionnels, pages "contact" d'entreprises) des entreprises correspondant à ces critères :
+  const seller = await loadSellerContext(companyId);
+  const { kept: targetKeywords, dropped } = cleanSectorKeywords(sectorKeywords, seller);
+  if (dropped.length > 0) {
+    console.info('[sourcing] mots-clés retirés (taille ou métier du vendeur) :', dropped.join(', '));
+  }
 
-Secteur(s) : ${sectorKeywords.join(', ')}
+  const prompt = `Tu es un assistant de sourcing B2B. Cherche sur le web (Google Maps, annuaires professionnels, pages "contact" d'entreprises) des CLIENTS POTENTIELS correspondant à ces critères :
+
+Clients recherchés (leur métier) : ${targetKeywords.join(', ')}
 Zone géographique : ${zoneLabel}
 ${companySizeLabels.length ? `Taille d'entreprise recherchée : ${companySizeLabels.join(' ou ')}\n` : ''}Nombre d'entreprises à trouver : ${count}
-
+${sellerInstruction(seller)}
 Exclus ces domaines déjà connus : ${excludeDomains.join(', ') || 'aucun'}
 
 Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises markdown) au format :
@@ -153,10 +227,11 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
   // recherches non borné.
   const searchQueries = await planSearchQueries(
     companyId,
-    sectorKeywords,
+    targetKeywords,
     zoneLabel,
     companySizeLabels,
-    5
+    5,
+    seller
   );
 
   const data = await callClaude(

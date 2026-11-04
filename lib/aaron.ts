@@ -116,6 +116,12 @@ export interface AaronOutput {
     requires_sales_validation: boolean;
   } | null;
   action_required_from_sales: string | null;
+  // Prospect hors cible (04/11/2026) : concurrent du commercial, ou
+  // manifestement incapable d'acheter l'offre. Voir la section « PROSPECT
+  // HORS CIBLE » du prompt. Quand c'est vrai, email_draft est vide et
+  // lib/first-contact.ts marque le prospect perdu pour qu'aucun cron ne
+  // repaie jamais ce jugement.
+  hors_cible?: { detected: boolean; reason: string | null } | null;
   quote_requested: boolean;
   deal_approved: { detected: boolean; reason: string | null } | null;
   // Docx pipeline (Alex, 2026-08-23) : deux nouveaux signaux, même mécanique
