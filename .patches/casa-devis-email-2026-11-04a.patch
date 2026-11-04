@@ -1,0 +1,352 @@
+From 5d4028d6b962b9fccf78db54f500565129218547 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 06:11:09 +0000
+Subject: [PATCH] =?UTF-8?q?Aaron=20d=C3=A9marchait=20les=20concurrents=20d?=
+ =?UTF-8?q?e=20son=20client=20:=20trois=20garde-fous=20l=C3=A0=20o=C3=B9?=
+ =?UTF-8?q?=20il=20n'y=20en=20avait=20aucun?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Retour du premier client externe, par Alex : « beaucoup de personnes
+contactées étaient en fait des traiteurs ». Le client EST traiteur. Aaron
+a écrit à ses concurrents directs pour leur proposer de sous-traiter, en
+se présentant comme plus gros qu'eux. Le client l'a appris par ses pairs.
+
+Relecture complète de la chaîne. Chaque étape faisait son travail ; aucune
+ne se demandait si l'ensemble avait un sens.
+
+La saisie de campagne demandait des « mots-clés de secteur » sans
+distinguer le métier du commercial de celui de sa cible. Résultat :
+« agence événementielle, ETI, grand groupe, traiteur événementiel » —
+deux tailles et le métier du client dans une liste censée décrire ses
+prospects. La consigne dit maintenant explicitement ce qui n'y va pas,
+et pourquoi.
+
+La recherche web recevait ces mots-clés et une zone, rien d'autre. Elle
+ne savait pas qui vend. Elle a cherché « traiteur événementiel
+Île-de-France » et l'a trouvé. Elle reçoit désormais le nom et le métier
+du vendeur avec la consigne qu'une entreprise du même métier est un
+concurrent, et les mots-clés qui sont des tailles ou le métier du vendeur
+sont retirés avant la recherche — ce qui protège les campagnes déjà
+créées, celles qui tournent ce soir.
+
+La rédaction du premier email, enfin, recevait l'ordre de « parler depuis
+la même communauté » et d'utiliser les chiffres de légitimité du vendeur.
+Face à un traiteur, elle a fait exactement ça. Aaron vérifie maintenant,
+avant d'écrire, que le prospect peut ACHETER l'offre : un concurrent ne
+reçoit rien, est marqué perdu avec la raison, sort de tous les circuits
+de relance, et le commercial voit pourquoi. Un prospect douteux, lui,
+reçoit toujours son email — la règle évite l'absurde, elle ne fournit
+pas d'excuse pour ne rien envoyer.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/campaigns/chat/route.ts     |  6 +-
+ app/api/cron/run-campaigns/route.ts |  6 +-
+ lib/aaron.ts                        |  6 ++
+ lib/aaron_system_prompt.md          | 18 ++++++
+ lib/first-contact.ts                | 29 +++++++++
+ lib/sourcing.ts                     | 93 ++++++++++++++++++++++++++---
+ migration_hors_cible_2026-11-04.sql | 16 +++++
+ 7 files changed, 163 insertions(+), 11 deletions(-)
+ create mode 100644 migration_hors_cible_2026-11-04.sql
+
+diff --git a/app/api/campaigns/chat/route.ts b/app/api/campaigns/chat/route.ts
+index 76f6bfe..2e2644b 100644
+--- a/app/api/campaigns/chat/route.ts
++++ b/app/api/campaigns/chat/route.ts
+@@ -45,7 +45,11 @@ Règles impératives :
+ 
+   Où :
+   - zone_label : description humaine de la zone (ex: "Allemagne, région de Bavière", "Île-de-France", "Californie et Texas, États-Unis").
+-  - sector_keywords : tableau de mots-clés de secteur (1 à 5 mots-clés courts).
++  - sector_keywords : le MÉTIER DES CLIENTS À DÉMARCHER, en 1 à 5 mots-clés courts. Trois règles, chacune apprise sur une vraie campagne (04/11/2026) :
++    • JAMAIS le métier du commercial lui-même. Si le commercial est traiteur et vise des agences événementielles, la liste contient « agence événementielle » et PAS « traiteur ». Tout mot-clé qui décrit le commercial ferait chercher — et démarcher — ses CONCURRENTS. C'est arrivé : un traiteur a vu Aaron proposer de la sous-traitance à d'autres traiteurs, et l'a appris par ses pairs.
++    • JAMAIS une taille d'entreprise (« ETI », « PME », « grand groupe », « TPE ») : ça va dans company_sizes, pas ici. « ETI Île-de-France » n'est pas une recherche, c'est du bruit.
++    • Chaque mot-clé doit nommer un métier qu'on peut chercher dans un annuaire : « agence événementielle », « promoteur immobilier », « cabinet d'expertise comptable ». Pas « entreprises », pas « décideurs », pas « clients potentiels ».
++    Avant d'écrire le bloc, relis la liste et pose-toi la question pour chaque mot : « est-ce que cette entreprise ACHÈTERAIT ce que vend le commercial ? ». Si la réponse est « non, elle vend la même chose », retire-le.
+   - company_sizes : tableau parmi "artisan_tpe", "pme", "eti", "grand_compte" — tableau vide si toutes tailles.
+   - target_role : une valeur parmi "fondateur_dirigeant", "responsable_commercial", "responsable_achats", "rh", ou null si peu importe/non précisé.
+   - target_count : nombre entier.
+diff --git a/app/api/cron/run-campaigns/route.ts b/app/api/cron/run-campaigns/route.ts
+index 391cc93..f964689 100644
+--- a/app/api/cron/run-campaigns/route.ts
++++ b/app/api/cron/run-campaigns/route.ts
+@@ -96,11 +96,15 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
+   if (stockCompanyIds.length > 0) {
+     const { data: stockProspects } = await supabaseAdmin
+       .from('prospects')
+-      .select('id, ai_managed, pending_first_email_subject, conversations(id, messages(id))')
++      .select('id, ai_managed, is_lost, pending_first_email_subject, conversations(id, messages(id))')
+       .in('prospect_company_id', stockCompanyIds);
+     uncontactedStock = (stockProspects || []).filter((p: any) => {
+       // Repris en main par le commercial : ne compte pas, Aaron ne lui ecrira pas.
+       if (p.ai_managed === false) return false;
++      // Perdu sans jamais avoir ete contacte (hors cible, concurrent, email
++      // invalide) : ce n'est pas du stock, c'est du dechet. Le compter ici
++      // bloquerait la recherche de vrais prospects (04/11/2026).
++      if (p.is_lost === true) return false;
+       // Brouillon deja redige (relecture ou creneau d'envoi) : c'est du stock
+       // deja paye qui partira, il compte.
+       if (p.pending_first_email_subject) return true;
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 42654ec..7be36dc 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -116,6 +116,12 @@ export interface AaronOutput {
+     requires_sales_validation: boolean;
+   } | null;
+   action_required_from_sales: string | null;
++  // Prospect hors cible (04/11/2026) : concurrent du commercial, ou
++  // manifestement incapable d'acheter l'offre. Voir la section « PROSPECT
++  // HORS CIBLE » du prompt. Quand c'est vrai, email_draft est vide et
++  // lib/first-contact.ts marque le prospect perdu pour qu'aucun cron ne
++  // repaie jamais ce jugement.
++  hors_cible?: { detected: boolean; reason: string | null } | null;
+   quote_requested: boolean;
+   deal_approved: { detected: boolean; reason: string | null } | null;
+   // Docx pipeline (Alex, 2026-08-23) : deux nouveaux signaux, même mécanique
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index a9873ad..bfd20fa 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -105,6 +105,23 @@ Avant d'écrire le tout premier message à un prospect, tu dois maîtriser deux
+ 
+ Bug remonté par Alex (26/08/2026, capture à l'appui) : un premier email du type "je me permets de vous contacter car j'aimerais échanger quelques minutes sur un sujet qui pourrait vous intéresser" a reçu pour toute réponse "qui êtes-vous ?" — c'est le signe le plus sûr d'un cold email raté, et c'est évitable dans TOUS les cas, même le pire (`offre_vendue` ET `recherche_societe_prospect` tous les deux `null` — aucune donnée exploitable sur qui que ce soit). Dans ce pire cas précis, tu n'as pas le droit d'inventer un élément de légitimité ni une connaissance du métier du prospect (voir plus haut), mais `commercial.nom` et `commercial.societe` sont eux TOUJOURS connus et ne sont jamais `null` — il n'y a donc AUCUNE excuse à un message qui ne dit pas explicitement, dès les 2 premières phrases du corps du message (pas seulement dans la signature ajoutée après l'envoi, voir STYLE D'ÉCRITURE ci-dessus), qui écrit et pour quelle société : au minimum "je suis [prénom], je travaille chez [société]" accompagné d'une amorce d'une phrase sur ce que fait la société dès que `offre_vendue` le permet, même formulée simplement. Un inconnu qui demande un appel sans jamais dire qui il est n'a aucune raison d'obtenir la confiance du prospect — c'est une question de politesse et de crédibilité de base, indépendante du niveau de personnalisation Cialdini que permettent les autres données disponibles.
+ 
++## PROSPECT HORS CIBLE — NE PAS ÉCRIRE (04/11/2026)
++
++Avant d'écrire le tout premier message, tu vérifies une chose que personne ne vérifiait avant toi : **ce prospect peut-il ACHETER ce que vend le commercial ?**
++
++Retour d'un vrai client (04/11/2026) : son entreprise est un traiteur. Aaron a démarché d'autres traiteurs — ses concurrents directs — en leur proposant de sous-traiter, et en se présentant comme plus gros qu'eux. Le client l'a appris par ses pairs. C'est le pire message possible devant le pire public possible, et il a été envoyé parce que chaque étape faisait son travail sans que personne ne se demande si l'ensemble avait un sens.
++
++Tu es la dernière étape avant l'envoi. Donc, pour un premier contact, si `prospect.recherche_societe_prospect` (ou le nom et le poste du prospect) montre que sa société exerce **le même métier que celle du commercial** (`offre_vendue`), ou vend la même chose aux mêmes clients, c'est un **concurrent**, pas un prospect :
++
++- laisse `email_draft.subject` et `email_draft.body` **vides** (chaînes vides) — rien ne doit partir ;
++- mets `hors_cible` à `true` avec une `reason` d'une phrase, factuelle (« Traiteur événementiel à Créteil : même métier que le commercial ») ;
++- mets `prospect_status` à `"rouge"` ;
++- dans `aaron_advice`, dis-le au commercial en une ligne, sans détour : « Non contacté : c'est un concurrent. Si ta campagne en remonte plusieurs, son ciblage décrit ton métier au lieu de ta cible — corrige-la. »
++
++Même règle, même sortie, quand le prospect ne peut manifestement pas acheter l'offre (un particulier, une association sans activité, une administration pour une offre réservée aux entreprises). Dans le DOUTE, en revanche, tu écris : cette règle sert à éviter l'absurde, pas à te donner une excuse pour ne rien envoyer. Un prospect « douteux » reçoit un email ; un concurrent n'en reçoit jamais.
++
++Cette vérification ne s'applique qu'au PREMIER contact. Si une conversation est déjà engagée, tu la poursuis normalement, quoi que tu penses de la pertinence du prospect — ce n'est plus le moment.
++
+ ## POSITIONNEMENT D'AUTORITÉ DANS LE PREMIER CONTACT (Cialdini)
+ 
+ Un premier email qui se contente de décrire l'offre ("nous proposons X") sonne comme n'importe quel cold email interchangeable — ça n'installe aucune autorité, alors que c'est l'un des leviers de persuasion les plus puissants pour un premier contact froid. `offre_vendue` peut contenir une phrase de légitimité repérable (commençant typiquement par "Légitimité :" — voir `app/api/business-summary/route.ts`) : années d'expérience, certifications/labels, nombre de clients ou de réalisations, spécialisation précise, références notables. Quand cet élément est présent, utilise-le activement dans les 2-3 premières lignes du premier contact pour positionner le commercial comme un expert reconnu et établi de son domaine précis — pas juste "quelqu'un qui vend Y" — c'est le principe d'autorité de Cialdini appliqué avec de vrais faits vérifiables, jamais avec une formule vague et interchangeable ("meilleur du marché", "expert reconnu", "leader") qui ne repose sur rien de concret.
+@@ -258,6 +275,7 @@ Le champ `email_draft` est volontairement placé EN PREMIER : c'est le seul dont
+     "requires_sales_validation": true
+   },
+   "action_required_from_sales": "string ou null — ex: 'Valider le créneau proposé au client'",
++  "hors_cible": { "detected": true ou false, "reason": "string ou null" } ou null,
+   "quote_requested": true ou false,
+   "deal_approved": { "detected": true ou false, "reason": "string ou null" },
+   "negotiation_confidence": { "score": 0 à 100, "reason": "string" } ou null,
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index 8cc7d81..a44dc50 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -147,6 +147,35 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+       })
+       .eq('id', prospect.id);
+ 
++    // PROSPECT HORS CIBLE (04/11/2026). Aaron a jugé que ce prospect est un
++    // concurrent du commercial, ou ne peut pas acheter l'offre : email vide,
++    // rien ne part. Mais « rien ne part » ne suffit pas — un prospect sans
++    // message serait repris par retry-uncontacted-prospects et compté dans
++    // le stock à contacter, donc Sonnet repaierait ce même jugement tous les
++    // jours. On le marque perdu, avec la raison, et il sort de tous les
++    // circuits. Le commercial le voit dans sa liste, avec le conseil d'Aaron.
++    if (aaronOutput.hors_cible?.detected === true && !hasEmailToSend) {
++      const lostFields = {
++        is_lost: true,
++        lost_at: new Date().toISOString(),
++        ai_managed: false,
++      };
++      const { error: lostError } = await supabaseAdmin
++        .from('prospects')
++        .update({ ...lostFields, pipeline_lost_reason: 'hors_cible' })
++        .eq('id', prospect.id);
++      if (lostError) {
++        // Contrainte pas encore élargie (migration_hors_cible_2026-11-04.sql) :
++        // on marque quand même perdu, avec la raison la plus proche.
++        await supabaseAdmin
++          .from('prospects')
++          .update({ ...lostFields, pipeline_lost_reason: 'autre' })
++          .eq('id', prospect.id);
++      }
++      console.info(`[premier contact] hors cible, non contacté : ${prospect.id} — ${aaronOutput.hors_cible.reason || ''}`);
++      return;
++    }
++
+     if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
+       await supabaseAdmin
+         .from('prospects')
+diff --git a/lib/sourcing.ts b/lib/sourcing.ts
+index e51c18e..0687052 100644
+--- a/lib/sourcing.ts
++++ b/lib/sourcing.ts
+@@ -10,6 +10,7 @@ import { normalizeLinkedInProfileUrl } from './social-urls';
+ import { searchGooglePlaces, guessCountry } from './company-directory';
+ import { findFreshCompanies } from './fresh-companies';
+ import { searchDirectory } from './directory-db';
++import { loadSellerContext, type SellerContext } from './registry-sirene';
+ 
+ // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
+ // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
+@@ -47,6 +48,72 @@ interface FoundContact {
+   linkedin_url: string | null;
+ }
+ 
++// ─────────────────────────────────────────────────────────────────────────
++// QUI VEND — ET DONC QUI NE DOIT JAMAIS ÊTRE DÉMARCHÉ (04/11/2026).
++//
++// Retour du premier client externe, transmis par Alex : « beaucoup de
++// personnes contactées étaient en fait des traiteurs », à qui Aaron
++// proposait de sous-traiter. Le client EST traiteur. Aaron a démarché ses
++// concurrents, en se présentant comme plus gros qu'eux.
++//
++// Ce que la relecture du code a montré : à aucun endroit de cette chaîne —
++// ni la planification des requêtes, ni l'extraction des résultats — le
++// modèle ne savait QUI vend. Il recevait des mots-clés et une zone, point.
++// Et les mots-clés de la campagne contenaient « traiteur événementiel »,
++// parce que la saisie de campagne ne distingue pas « mon métier » de « ma
++// cible » (voir app/api/campaigns/chat). Le modèle a donc cherché
++// exactement ce qu'on lui demandait : des traiteurs en Île-de-France.
++//
++// Trois corrections ici, par ordre de profondeur :
++//   1. les deux appels reçoivent le nom et le métier du vendeur, avec la
++//      consigne explicite qu'une entreprise du même métier est un CONCURRENT
++//      et ne doit jamais remonter ;
++//   2. les mots-clés qui sont en réalité des TAILLES (ETI, PME, grand
++//      groupe…) sont retirés : ils ont leur propre champ, et laissés là ils
++//      font chercher « ETI Île-de-France », qui ne veut rien dire ;
++//   3. un mot-clé qui décrit le métier du vendeur lui-même est retiré avant
++//      la recherche. On ne peut pas le deviner à coup sûr, mais quand le
++//      métier du vendeur contient le mot-clé (ou l'inverse), le doute n'est
++//      pas permis.
++//
++// Ce n'est pas la correction définitive — celle-là est dans la saisie de
++// campagne, qui doit séparer les deux notions. Mais elle protège les
++// campagnes DÉJÀ créées, et c'est elles qui tournent ce soir.
++const SIZE_WORDS = /^(tpe|pme|eti|grands? (comptes?|groupes?)|grandes? entreprises?|petites? entreprises?|artisans?|auto[- ]?entrepreneurs?|start-?ups?|multinationales?)$/i;
++
++function normalizeForMatch(s: string): string {
++  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
++}
++
++export function cleanSectorKeywords(sectorKeywords: string[], seller: SellerContext | null): { kept: string[]; dropped: string[] } {
++  const sellerText = normalizeForMatch(`${seller?.name || ''} ${seller?.trade || ''}`);
++  const kept: string[] = [];
++  const dropped: string[] = [];
++  for (const raw of sectorKeywords || []) {
++    const kw = String(raw || '').trim();
++    if (!kw) continue;
++    if (SIZE_WORDS.test(kw)) { dropped.push(kw); continue; }
++    const n = normalizeForMatch(kw);
++    // Le mot-clé est contenu, mot pour mot, dans la description du vendeur :
++    // c'est son propre métier. « traiteur evenementiel » dans « Le Petit
++    // Gourmet est un traiteur evenementiel… » ne laisse aucun doute.
++    if (n.length >= 6 && sellerText.includes(n)) { dropped.push(kw); continue; }
++    kept.push(kw);
++  }
++  // Si on a tout retiré, on garde l'original : mieux vaut une recherche
++  // imparfaite qu'aucune recherche — et le vendeur sera quand même exclu
++  // par la consigne du prompt.
++  return kept.length > 0 ? { kept, dropped } : { kept: (sectorKeywords || []).filter(Boolean), dropped: [] };
++}
++
++function sellerInstruction(seller: SellerContext | null): string {
++  if (!seller || (!seller.name && !seller.trade)) return '';
++  return `
++QUI VEND — et donc qui ne doit JAMAIS remonter dans les résultats :
++${seller.name ? `Entreprise : ${seller.name}\n` : ''}${seller.trade ? `Son métier : ${seller.trade}\n` : ''}Les entreprises recherchées sont ses CLIENTS POTENTIELS, c'est-à-dire des entreprises qui ACHÈTENT ce qu'elle vend. Une entreprise qui exerce le même métier qu'elle est un CONCURRENT : ne la cherche pas, ne la propose pas, même si elle correspond aux mots-clés. En cas de doute sur une entreprise, écarte-la.
++`;
++}
++
+ // ─────────────────────────────────────────────────────────────────────────
+ // ÉTAPE 1 — SONNET DÉCIDE QUOI CHERCHER (Alex, 30/10/2026).
+ //
+@@ -73,14 +140,15 @@ async function planSearchQueries(
+   sectorKeywords: string[],
+   zoneLabel: string,
+   companySizeLabels: string[],
+-  maxQueries: number
++  maxQueries: number,
++  seller: SellerContext | null
+ ): Promise<string[]> {
+   const fallback = sectorKeywords.slice(0, maxQueries).map((kw) => `${kw} ${zoneLabel}`);
+-  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web.
++  const prompt = `Tu prépares une recherche d'entreprises B2B sur le web, pour trouver des CLIENTS POTENTIELS à démarcher.
+ 
+-Secteur(s) visé(s) : ${sectorKeywords.join(', ')}
++Clients recherchés (leur métier) : ${sectorKeywords.join(', ')}
+ Zone géographique : ${zoneLabel}
+-${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}
++${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}${sellerInstruction(seller)}
+ Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
+ 
+ Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après, sans balises markdown. Exemple de forme : ["requête 1", "requête 2"]`;
+@@ -116,12 +184,18 @@ async function searchCompaniesInZone(
+ ): Promise<FoundCompany[]> {
+   const companySizeLabels = (companySizeKeys || []).map((k) => COMPANY_SIZE_LABELS[k]).filter(Boolean);
+ 
+-  const prompt = `Tu es un assistant de sourcing B2B. Cherche sur le web (Google Maps, annuaires professionnels, pages "contact" d'entreprises) des entreprises correspondant à ces critères :
++  const seller = await loadSellerContext(companyId);
++  const { kept: targetKeywords, dropped } = cleanSectorKeywords(sectorKeywords, seller);
++  if (dropped.length > 0) {
++    console.info('[sourcing] mots-clés retirés (taille ou métier du vendeur) :', dropped.join(', '));
++  }
++
++  const prompt = `Tu es un assistant de sourcing B2B. Cherche sur le web (Google Maps, annuaires professionnels, pages "contact" d'entreprises) des CLIENTS POTENTIELS correspondant à ces critères :
+ 
+-Secteur(s) : ${sectorKeywords.join(', ')}
++Clients recherchés (leur métier) : ${targetKeywords.join(', ')}
+ Zone géographique : ${zoneLabel}
+ ${companySizeLabels.length ? `Taille d'entreprise recherchée : ${companySizeLabels.join(' ou ')}\n` : ''}Nombre d'entreprises à trouver : ${count}
+-
++${sellerInstruction(seller)}
+ Exclus ces domaines déjà connus : ${excludeDomains.join(', ') || 'aucun'}
+ 
+ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises markdown) au format :
+@@ -153,10 +227,11 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises
+   // recherches non borné.
+   const searchQueries = await planSearchQueries(
+     companyId,
+-    sectorKeywords,
++    targetKeywords,
+     zoneLabel,
+     companySizeLabels,
+-    5
++    5,
++    seller
+   );
+ 
+   const data = await callClaude(
+diff --git a/migration_hors_cible_2026-11-04.sql b/migration_hors_cible_2026-11-04.sql
+new file mode 100644
+index 0000000..06f4730
+--- /dev/null
++++ b/migration_hors_cible_2026-11-04.sql
+@@ -0,0 +1,16 @@
++-- migration_hors_cible_2026-11-04.sql
++--
++-- Retour du premier client externe (04/11/2026) : Aaron a démarché des
++-- concurrents de son client. Aaron sait maintenant refuser d'écrire à un
++-- prospect hors cible (concurrent, ou incapable d'acheter l'offre) — voir
++-- la section « PROSPECT HORS CIBLE » de lib/aaron_system_prompt.md.
++--
++-- Un tel prospect est marqué perdu avec cette raison, pour qu'aucun cron ne
++-- repaie jamais le même jugement. Sans cette valeur, le code retombe sur
++-- 'autre' : rien ne casse, on perd juste la précision.
++
++ALTER TABLE public.prospects DROP CONSTRAINT IF EXISTS prospects_pipeline_lost_reason_check;
++ALTER TABLE public.prospects ADD CONSTRAINT prospects_pipeline_lost_reason_check
++  CHECK (pipeline_lost_reason IS NULL OR pipeline_lost_reason IN (
++    'pas_interesse', 'sans_reponse', 'trop_cher', 'concurrent', 'timing',
++    'devis_refuse', 'resilie', 'email_invalide', 'hors_cible', 'autre'));
+-- 
+2.43.0
+
