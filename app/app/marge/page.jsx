@@ -276,6 +276,15 @@ export default function MargePage() {
                     {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
                   </button>
                 </div>
+                {/* Diagnostic (05/11/2026) : la clé est posée mais la dépense
+                    reste estimée — on montre POURQUOI, sans quoi il faut
+                    aller lire les journaux Vercel. Jamais la clé elle-même. */}
+                {bal.adminKeyPresent && bal.spentSource !== 'fournisseur' && bal.configured && (
+                  <p className="gst-foot bal-diag">
+                    Clé d'administration présente, mais la lecture chez {label} échoue
+                    {bal.adminLastError ? ` : ${bal.adminLastError}` : ' (aucune erreur enregistrée depuis le dernier déploiement — recharge la page dans une minute).'}
+                  </p>
+                )}
                 {consoleUrl && (
                   <p className="gst-foot">
                     <a className="bal-link" href={consoleUrl} target="_blank" rel="noopener noreferrer">
@@ -409,6 +418,12 @@ export default function MargePage() {
         .nav-pill.ghost:hover {
           border-color: var(--border);
           background: var(--bg-elevated);
+        }
+        .bal-diag {
+          color: var(--accent-amber, #f5a623);
+          font-family: var(--font-mono);
+          font-size: 0.74rem;
+          word-break: break-word;
         }
         .bal-link {
           display: inline-flex;
