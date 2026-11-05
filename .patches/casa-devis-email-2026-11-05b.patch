@@ -1,0 +1,57 @@
+From b7b3814e390a49934908d8b41df5fca10244617e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 06:35:26 +0000
+Subject: [PATCH] =?UTF-8?q?Marge=20:=20montrer=20pourquoi=20la=20lecture?=
+ =?UTF-8?q?=20chez=20le=20fournisseur=20=C3=A9choue?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+La clé est posée, c'est une vraie clé Admin, le compte est une
+organisation, et la dépense reste « estimée ». L'état du solde porte la
+dernière erreur depuis ce matin ; l'écran la montre maintenant, pour
+qu'Alex la lise en ouvrant Marge au lieu d'aller chercher les journaux
+Vercel. Jamais la clé elle-même.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/marge/page.jsx | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index 059d23b..feab885 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -276,6 +276,15 @@ export default function MargePage() {
+                     {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
+                   </button>
+                 </div>
++                {/* Diagnostic (05/11/2026) : la clé est posée mais la dépense
++                    reste estimée — on montre POURQUOI, sans quoi il faut
++                    aller lire les journaux Vercel. Jamais la clé elle-même. */}
++                {bal.adminKeyPresent && bal.spentSource !== 'fournisseur' && bal.configured && (
++                  <p className="gst-foot bal-diag">
++                    Clé d'administration présente, mais la lecture chez {label} échoue
++                    {bal.adminLastError ? ` : ${bal.adminLastError}` : ' (aucune erreur enregistrée depuis le dernier déploiement — recharge la page dans une minute).'}
++                  </p>
++                )}
+                 {consoleUrl && (
+                   <p className="gst-foot">
+                     <a className="bal-link" href={consoleUrl} target="_blank" rel="noopener noreferrer">
+@@ -410,6 +419,12 @@ export default function MargePage() {
+           border-color: var(--border);
+           background: var(--bg-elevated);
+         }
++        .bal-diag {
++          color: var(--accent-amber, #f5a623);
++          font-family: var(--font-mono);
++          font-size: 0.74rem;
++          word-break: break-word;
++        }
+         .bal-link {
+           display: inline-flex;
+           align-items: center;
+-- 
+2.43.0
+
