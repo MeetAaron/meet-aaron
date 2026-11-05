@@ -127,7 +127,8 @@ export async function triageWithHaiku(
       { system: HAIKU_SYSTEM, messages: [{ role: 'user', content: excerpt }], maxTokens: 60, json: true },
       companyId,
       'ap',
-      userId
+      userId,
+      'tri_entrant'
     );
     const json = JSON.parse(text.replace(/```json|```/g, '').trim());
     const category = String(json.category || 'other') as InboundCategory;

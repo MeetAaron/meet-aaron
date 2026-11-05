@@ -634,7 +634,7 @@ export async function POST(request: NextRequest) {
           messages,
         },
         // Imputation au commercial pour la jauge de Mon équipe (01/09/2026).
-        user?.company_id || null, undefined, user_id
+        user?.company_id || null, undefined, user_id, 'chat'
       ),
       detectFounderSuggestion(effectiveMessage, user?.company_id || null),
     ]);
@@ -681,7 +681,7 @@ export async function POST(request: NextRequest) {
           messages,
         },
         // Imputation au commercial pour la jauge de Mon équipe (01/09/2026).
-        user?.company_id || null, undefined, user_id
+        user?.company_id || null, undefined, user_id, 'chat'
       );
     }
   } catch (err: any) {

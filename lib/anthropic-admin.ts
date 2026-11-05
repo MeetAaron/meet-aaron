@@ -28,6 +28,19 @@
 
 const ADMIN_BASE = 'https://api.anthropic.com/v1/organizations';
 
+// DERNIÈRE ERREUR, LISIBLE DEPUIS L'ÉCRAN FONDATEUR (05/11/2026).
+//
+// La clé est posée, elle est bien une clé Admin, le compte est bien une
+// organisation — et la dépense reste « estimée ». Sans les journaux Vercel,
+// impossible de savoir POURQUOI l'appel échoue. On garde donc la dernière
+// erreur en mémoire (statut HTTP + début du corps, jamais la clé), et
+// /api/admin/api-balance la montre au fondateur. Mémoire du processus :
+// se vide à chaque redéploiement, ce qui suffit pour un diagnostic.
+let lastError: string | null = null;
+export function adminLastError(): string | null {
+  return lastError;
+}
+
 export function adminApiConfigured(): boolean {
   return !!process.env.ANTHROPIC_ADMIN_KEY;
 }
@@ -85,7 +98,8 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.error(`[admin] cost_report ${res.status} : ${body.slice(0, 200)}`);
+      lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
+      console.error(`[admin] cost_report ${lastError}`);
       return null;
     }
     const json: any = await res.json();
@@ -114,11 +128,14 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
       // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
       // et on renvoie null pour retomber sur l'estimation, plutôt que
       // d'annoncer une dépense nulle qui ferait croire à un solde intact.
+      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
       console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
       return null;
     }
+    lastError = null;
     return days;
   } catch (err: any) {
+    lastError = `injoignable : ${err?.message || err}`;
     console.error('[admin] cost_report injoignable :', err?.message || err);
     return null;
   }

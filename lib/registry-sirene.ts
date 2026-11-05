@@ -239,7 +239,7 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
   try {
     const data = await callClaude(
       { model: 'claude-sonnet-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] },
-      companyId, 'ap'
+      companyId, 'ap', null, 'prospection_recherche'
     );
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     if (!textBlock) return { nafCodes: [], departments: [], error: 'réponse vide' };
@@ -304,7 +304,7 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
   try {
     const data = await callClaude(
       { model: 'claude-haiku-4-5', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] },
-      companyId, 'ap'
+      companyId, 'ap', null, 'prospection_recherche'
     );
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     if (!textBlock) return { piles: {}, error: 'réponse vide' };

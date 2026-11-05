@@ -468,7 +468,7 @@ export async function POST(request: NextRequest) {
       .eq('id', assigned_user_id)
       .single();
 
-    aaronOutput = await generateAaronResponse(prospect.id);
+    aaronOutput = await generateAaronResponse(prospect.id, { feature: 'premier_email' });
 
     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 

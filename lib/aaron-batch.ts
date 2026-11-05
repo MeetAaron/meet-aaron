@@ -219,7 +219,7 @@ export async function collectAaronBatches(): Promise<{ checked: number; complete
         }
         const message = parsed.result.message;
         if (item.company_id && message?.usage) {
-          await recordUsage(item.company_id, item.model || message.model, usageFromApi(message.usage), item.user_id, 0.5);
+          await recordUsage(item.company_id, item.model || message.model, usageFromApi(message.usage), item.user_id, 0.5, 'relance');
         }
         const output = parseAaronOutput(message);
         lastOutput = output;

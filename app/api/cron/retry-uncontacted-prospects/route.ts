@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
   let contacted = 0;
   for (const item of items) {
     try {
-      const aaronOutput = await generateAaronResponse(item.prospectId);
+      const aaronOutput = await generateAaronResponse(item.prospectId, { feature: 'premier_email' });
       await applyAaronOutput(item, aaronOutput);
       contacted++;
     } catch (err: any) {

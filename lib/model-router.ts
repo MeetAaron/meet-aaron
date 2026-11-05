@@ -40,6 +40,7 @@ import {
   MonthlyCapExceededError,
   SubscriptionUnpaidError,
   type CreditModule,
+  type UsageFeature,
 } from './anthropic-client';
 
 export type ModelTier = 'cheap' | 'standard' | 'deep';
@@ -87,7 +88,8 @@ async function callOpenAi(
   input: SimpleCallInput,
   companyId: string | null,
   module: CreditModule,
-  userId?: string | null
+  userId?: string | null,
+  feature?: UsageFeature
 ): Promise<SimpleCallResult> {
   // Plafonds AVANT dépense : la voie OpenAI ne passe pas par callClaude, donc
   // sans ce contrôle elle ignorerait complètement le plafond de la société
@@ -150,7 +152,8 @@ async function callOpenAi(
         'claude-haiku-4-5',
         { inputTokens: freshIn, outputTokens: out, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: cachedIn, webSearches: 0 },
         userId,
-        multiplier
+        multiplier,
+        feature
       );
     }
   } catch (err: any) {
@@ -167,7 +170,8 @@ async function callAnthropicSimple(
   tier: ModelTier,
   companyId: string | null,
   module: CreditModule,
-  userId?: string | null
+  userId?: string | null,
+  feature?: UsageFeature
 ): Promise<SimpleCallResult> {
   const model = ANTHROPIC_MODEL_BY_TIER[tier];
   const data = await callClaude(
@@ -179,7 +183,8 @@ async function callAnthropicSimple(
     },
     companyId,
     module,
-    userId
+    userId,
+    feature
   );
   const text = (data?.content || [])
     .filter((b: any) => b.type === 'text')
@@ -198,11 +203,12 @@ export async function callModel(
   input: SimpleCallInput,
   companyId: string | null,
   module: CreditModule = 'ap',
-  userId?: string | null
+  userId?: string | null,
+  feature?: UsageFeature
 ): Promise<SimpleCallResult> {
   if (tier === 'cheap' && openAiEnabled()) {
     try {
-      return await callOpenAi(input, companyId, module, userId);
+      return await callOpenAi(input, companyId, module, userId, feature);
     } catch (err: any) {
       // Un refus de BUDGET n'est pas une panne OpenAI : se replier sur
       // Anthropic ferait juste échouer le même contrôle une seconde plus tard,
@@ -213,5 +219,5 @@ export async function callModel(
       console.error('OpenAI indisponible, repli Anthropic :', err?.message);
     }
   }
-  return callAnthropicSimple(input, tier, companyId, module, userId);
+  return callAnthropicSimple(input, tier, companyId, module, userId, feature);
 }

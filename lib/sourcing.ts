@@ -160,7 +160,7 @@ Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après
         max_tokens: 400,
         messages: [{ role: 'user', content: prompt }],
       },
-      companyId, 'ap'
+      companyId, 'ap', null, 'prospection_recherche'
     );
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     if (!textBlock) return fallback;
@@ -244,7 +244,7 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
         content: `${prompt}\n\nUtilise exactement ces recherches web, dans cet ordre :\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nNe cherche rien d'autre. Ton travail est de LIRE ces résultats et d'en extraire les entreprises réelles qui correspondent aux critères — n'invente jamais une entreprise, un domaine ou une adresse qui n'apparaît pas dans les résultats.`,
       }],
     },
-    companyId, 'ap'
+    companyId, 'ap', null, 'prospection_recherche'
   );
 
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
@@ -310,7 +310,7 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null 
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
       messages: [{ role: 'user', content: prompt }],
     },
-    companyId, 'ap'
+    companyId, 'ap', null, 'prospection_contact'
   );
 
   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();

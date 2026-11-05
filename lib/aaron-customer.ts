@@ -202,7 +202,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
         },
       ],
     },
-    companyId, 'ac'
+    companyId, 'ac', null, 'clients'
   );
 
   const result = parseJsonResponse<OnboardingPlan>(data, "Plan d'onboarding");
@@ -378,7 +378,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     return parseJsonResponse<CheckinMessage>(data, 'Email de check-in');
   } catch (err: any) {
@@ -417,7 +417,7 @@ export async function parseCheckinResponse(replyText: string, companyId: string 
           },
         ],
       },
-      companyId, 'ac'
+      companyId, 'ac', null, 'clients'
     );
     return parseJsonResponse<CheckinResponseParsed>(data, 'Réponse de check-in');
   } catch (err: any) {
@@ -463,7 +463,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     return parseJsonResponse<RenewalOutreach>(data, 'Email de renouvellement');
   } catch (err: any) {
@@ -508,7 +508,7 @@ export async function generateUpsellSuggestion(prospectId: string): Promise<stri
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     return textBlock?.text?.trim() || null;
@@ -557,7 +557,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     const result = parseJsonResponse<TestimonialRequest>(data, 'Demande de témoignage');
 
@@ -633,7 +633,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     return parseJsonResponse<SupportReplyDraft>(data, 'Suggestion de réponse support');
   } catch (err: any) {
@@ -694,7 +694,7 @@ export async function generateKickoffProposal(prospectId: string): Promise<Kicko
           },
         ],
       },
-      prospect.company_id, 'ac'
+      prospect.company_id, 'ac', null, 'clients'
     );
     return parseJsonResponse<KickoffProposal>(data, 'Proposition de RDV de lancement');
   } catch (err: any) {
@@ -742,7 +742,7 @@ export async function parseKickoffResponse(replyText: string, companyId: string 
           },
         ],
       },
-      companyId, 'ac'
+      companyId, 'ac', null, 'clients'
     );
     const result = parseJsonResponse<KickoffResponseParsed>(data, 'Réponse de RDV de lancement');
     if (!['visio', 'telephonique', 'physique'].includes(result.type)) result.type = 'visio';

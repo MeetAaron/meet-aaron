@@ -259,7 +259,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   let sent = 0;
   for (const item of items) {
     try {
-      const aaronOutput = await generateAaronResponse(item.prospectId);
+      const aaronOutput = await generateAaronResponse(item.prospectId, { feature: 'premier_email' });
       await applyAaronOutput(item, aaronOutput);
       sent++;
     } catch (err: any) {

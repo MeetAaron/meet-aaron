@@ -4,7 +4,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { extractJsonObject } from './extract-json';
-import { callClaude, CACHE_TTL_1H } from './anthropic-client';
+import { type UsageFeature, callClaude, CACHE_TTL_1H } from './anthropic-client';
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
 import { resolveProspectLocale } from './prospect-locale';
 import { aaronVideoConfigured } from './meeting-link';
@@ -564,9 +564,12 @@ export function parseAaronOutput(data: any): AaronOutput {
   }
 }
 
-export async function generateAaronResponse(prospectId: string, options?: { model?: AaronModel }): Promise<AaronOutput> {
+export async function generateAaronResponse(
+  prospectId: string,
+  options?: { model?: AaronModel; feature?: UsageFeature }
+): Promise<AaronOutput> {
   const req = await buildAaronRequest(prospectId, options);
   if (req.precomputed) return req.precomputed;
-  const data = await callClaude(req.body!, req.companyId, 'ap', req.userId);
+  const data = await callClaude(req.body!, req.companyId, 'ap', req.userId, options?.feature || 'reponse');
   return parseAaronOutput(data);
 }

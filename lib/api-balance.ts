@@ -17,10 +17,11 @@
 // pour une alerte. Le jour de la saisie est compté en entier : même logique.
 
 import { supabaseAdmin } from './supabase-admin';
-import { realSpendSince, adminApiConfigured } from './anthropic-admin';
+import { realSpendSince, adminApiConfigured, adminLastError } from './anthropic-admin';
 import {
   realSpendSince as openAiRealSpendSince,
   openAiAdminConfigured,
+  openAiAdminLastError,
 } from './openai-admin';
 
 // Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
@@ -57,6 +58,9 @@ export interface BalanceStatus {
   // choses très différentes — clé absente, ou clé présente mais appel en
   // échec — et on ne peut pas savoir laquelle sans lire les journaux Vercel.
   adminKeyPresent: boolean;
+  // Dernière erreur de lecture chez le fournisseur (statut HTTP + début du
+  // corps), ou null. Réservé à l'écran fondateur.
+  adminLastError: string | null;
   // true = on ne sait PAS combien a été dépensé (clé d'administration
   // absente ou API muette) et aucun repli crédible n'existe. Dans ce cas on
   // n'annonce ni reste ni autonomie : un chiffre inventé est pire que pas de
@@ -118,6 +122,7 @@ export async function getBalanceStatus(
       provider, configured: false, snapshotId: null, balanceUsd: null, asOf: null,
       spentSinceUsd: 0, spentSource: 'estimation', spendUnknown: false,
       adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
+      adminLastError: provider === 'anthropic' ? adminLastError() : openAiAdminLastError(),
       balanceAgeDays: null, stale: false, remainingUsd: null, avgDailyUsd: 0,
       daysLeft: null, alerted10At: null, alerted3At: null,
     };
@@ -169,6 +174,7 @@ export async function getBalanceStatus(
     configured: true,
     spendUnknown,
     adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
+    adminLastError: provider === 'anthropic' ? adminLastError() : openAiAdminLastError(),
     snapshotId: snap.id,
     balanceUsd,
     asOf: snap.as_of,

@@ -111,7 +111,9 @@ export async function findNewsSignal(company: CompanyRow, now: Date = new Date()
         messages: [{ role: 'user', content: prompt }],
       },
       company.company_id,
-      'ap'
+      'ap',
+      null,
+      'actualite'
     );
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
     const text = textBlock?.text?.trim();
@@ -200,7 +202,8 @@ export async function generateNewsFollowUp(prospectId: string, signal: NewsSigna
       },
       p.company_id,
       'ap',
-      p.assigned_user_id
+      p.assigned_user_id,
+      'actualite'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     if (!textBlock) return null;

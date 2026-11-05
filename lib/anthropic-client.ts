@@ -571,14 +571,41 @@ export function computeCostUsd(model: string | undefined, u: UsageBreakdown): nu
 // Exportée (05/09/2026) pour le Batch API (lib/aaron-batch.ts) : les
 // résultats d'un lot arrivent hors de callClaude, avec le même `usage`, et
 // coûtent la moitié (costMultiplier 0.5).
+async function recordFeatureUsage(companyId: string, feature: UsageFeature, costUsd: number): Promise<void> {
+  const date = currentDateUTC();
+  const { data: existing, error } = await supabaseAdmin
+    .from('api_usage_feature_daily')
+    .select('cost_usd')
+    .eq('company_id', companyId)
+    .eq('date', date)
+    .eq('feature', feature)
+    .maybeSingle();
+  if (error) return; // table absente : on n'insiste pas
+  const current = Number((existing as any)?.cost_usd || 0);
+  await supabaseAdmin
+    .from('api_usage_feature_daily')
+    .upsert(
+      { company_id: companyId, date, feature, cost_usd: Math.round((current + costUsd) * 10000) / 10000 },
+      { onConflict: 'company_id,date,feature' }
+    );
+}
+
 export async function recordUsage(
   companyId: string,
   model: string | undefined,
   usage: UsageBreakdown,
   userId?: string | null,
-  costMultiplier: number = 1
+  costMultiplier: number = 1,
+  feature?: UsageFeature
 ) {
   const costUsd = computeCostUsd(model, usage) * costMultiplier;
+
+  // Par fonction (05/11/2026). Best-effort et tolérant à l'absence de la
+  // table (migration_usage_par_fonction_2026-11-05.sql) : la jauge
+  // principale ne dépend jamais de ce décompte secondaire.
+  if (costUsd > 0) {
+    recordFeatureUsage(companyId, feature || 'autre', costUsd).catch(() => {});
+  }
 
   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
   // d'appels strictement simultanés pour la même société, une petite fraction
@@ -679,13 +706,39 @@ export async function assertBudgetAllows(companyId: string, module?: CreditModul
   }
 }
 
+// ÉTIQUETTE PAR FONCTION (Alex, 05/11/2026 : « ok je valide »).
+//
+// api_usage_daily enregistre un total par société et par jour. Quand Alex a
+// vu 0,58 $ dépensés un jour sans aucun email envoyé, personne ne pouvait
+// dire QUOI avait dépensé : la recherche, l'enrichissement, une relance, un
+// cron Clients ? On devinait. Chaque appel porte maintenant une étiquette,
+// et api_usage_feature_daily garde le coût par étiquette et par jour. Un
+// appel sans étiquette est compté sous « autre » : on voit au moins ce qui
+// reste à étiqueter.
+export type UsageFeature =
+  | 'prospection_recherche'   // trouver des entreprises (requêtes + extraction)
+  | 'prospection_contact'     // trouver le bon interlocuteur
+  | 'prospection_enrichissement' // fiche entreprise (recherche web)
+  | 'premier_email'           // rédaction du premier contact
+  | 'reponse'                 // réponse à un message reçu
+  | 'relance'                 // relances programmées
+  | 'tri_entrant'             // triage des emails reçus (automatiques, rebonds…)
+  | 'avis_campagne'           // avis d'Aaron sur une campagne
+  | 'saisie_campagne'         // chat de création de campagne
+  | 'chat'                    // chat libre avec Aaron
+  | 'clients'                 // automatismes Clients (check-ins, santé, relance renouvellement…)
+  | 'actualite'               // déclencheurs d'actualité
+  | 'documents'               // résumés et conseils sur les documents
+  | 'autre';
+
 export async function callClaude(
   body: Record<string, any>,
   companyId: string | null,
   module?: CreditModule,
   // userId (01/09/2026) : le commercial à qui imputer cet appel dans la
   // jauge de Mon équipe. Optionnel — omis pour les traitements société.
-  userId?: string | null
+  userId?: string | null,
+  feature?: UsageFeature
 ): Promise<any> {
 
   if (companyId) {
@@ -750,7 +803,7 @@ export async function callClaude(
     // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
     const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
 
-    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheWrite1hTokens, cacheReadTokens, webSearches }, userId);
+    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheWrite1hTokens, cacheReadTokens, webSearches }, userId, 1, feature);
 
   }
 

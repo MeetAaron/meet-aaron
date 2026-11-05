@@ -118,7 +118,7 @@ export async function runFirstContact(prospect: FirstContactProspect) {
       return { prospect, aaronOutput: null, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
     }
 
-    aaronOutput = await generateAaronResponse(prospect.id);
+    aaronOutput = await generateAaronResponse(prospect.id, { feature: 'premier_email' });
 
     // Réponse du modèle COUPÉE puis reconstruite (voir lib/extract-json.ts) :
     // l'objet est exploitable mais au moins une valeur est amputée. Un

@@ -884,7 +884,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const aaronOutput = await generateAaronResponse(prospect.id);
+      const aaronOutput = await generateAaronResponse(prospect.id, { feature: 'reponse' });
 
       // Si Aaron propose une tentative de sauvetage, on ne l'envoie PAS automatiquement —
       // elle attend la validation du commercial (voir Action requise "Prospect perdu").

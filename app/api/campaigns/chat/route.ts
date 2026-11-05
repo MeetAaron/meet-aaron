@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
         ],
         messages: conversationMessages,
       },
-      user.company_id, 'ap'
+      user.company_id, 'ap', null, 'saisie_campagne'
     );
 
     const textBlock = data.content.find((b: any) => b.type === 'text');

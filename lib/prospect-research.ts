@@ -215,7 +215,9 @@ export async function researchProspectCompany(
         messages: [{ role: 'user', content: prompt }],
       },
       companyId,
-      'ap'
+      'ap',
+      null,
+      'prospection_enrichissement'
     );
 
     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
@@ -343,7 +345,9 @@ export async function findCompanySocials(
         messages: [{ role: 'user', content: prompt }],
       },
       clientCompanyId,
-      'ap'
+      'ap',
+      null,
+      'prospection_enrichissement'
     );
     const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
     const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
@@ -420,7 +424,8 @@ export async function generateCompanyOpinion(
       { model: 'claude-haiku-4-5', max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
       clientCompanyId,
       'ap',
-      userId || null
+      userId || null,
+      'prospection_enrichissement'
     );
     const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
     const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);

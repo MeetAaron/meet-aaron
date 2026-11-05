@@ -110,9 +110,16 @@ async function checkProvider(provider: BalanceProvider): Promise<Record<string, 
   const days = Math.max(0, Math.floor(st.daysLeft));
   const remaining = Math.max(0, st.remainingUsd || 0).toFixed(2);
   const title = level === 3 ? `Solde ${label} presque vide` : `Solde ${label} à recharger`;
+  // D'où vient le rythme (Alex, 04/11/2026 : « pourquoi j'ai reçu cet
+  // email ? »). La moyenne des 7 derniers jours contenait encore deux
+  // journées exceptionnelles d'avant le verrou de stock, et l'email
+  // annonçait 6 jours là où le rythme réel en donnait 17. Le calcul reste
+  // volontairement pessimiste — pour une alerte de carburant, c'est le bon
+  // sens d'erreur — mais il doit dire sur quoi il se fonde.
   const body =
-    `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
-    `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
+    `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme des 7 derniers jours ` +
+    `(${st.avgDailyUsd.toFixed(2)} $/jour en moyenne — si une journée récente a été exceptionnelle, ` +
+    `l'autonomie réelle est plus longue que ça). À zéro, Aaron s'arrête pour TOUS les clients. ` +
     `Recharge sur ${console_}, puis saisis le nouveau solde dans /app/marge.\n\n` +
     // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
     // pas comme une alerte fondée sur la facture du fournisseur.

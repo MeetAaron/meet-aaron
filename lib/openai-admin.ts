@@ -24,6 +24,13 @@
 
 const COSTS_URL = 'https://api.openai.com/v1/organization/costs';
 
+// Dernière erreur, lisible depuis l'écran fondateur — même raison que dans
+// lib/anthropic-admin.ts (05/11/2026).
+let lastError: string | null = null;
+export function openAiAdminLastError(): string | null {
+  return lastError;
+}
+
 export function openAiAdminConfigured(): boolean {
   return !!process.env.OPENAI_ADMIN_KEY;
 }
@@ -69,7 +76,8 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        console.error(`[openai-admin] costs ${res.status} : ${body.slice(0, 200)}`);
+        lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
+        console.error(`[openai-admin] costs ${lastError}`);
         return null;
       }
       const json: any = await res.json();
@@ -93,11 +101,14 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
     if (days.length === 0 && seenBuckets > 0) {
       // Des seaux mais rien de lisible : la forme a changé. On le dit et on
       // renvoie null, plutôt que d'annoncer une dépense nulle.
+      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
       console.error('[openai-admin] costs : forme de réponse inattendue, dépense inconnue.');
       return null;
     }
+    lastError = null;
     return days;
   } catch (err: any) {
+    lastError = `injoignable : ${err?.message || err}`;
     console.error('[openai-admin] costs injoignable :', err?.message || err);
     return null;
   }

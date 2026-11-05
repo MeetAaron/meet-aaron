@@ -240,7 +240,7 @@ export async function GET(request: NextRequest) {
   let followedUp = 0;
   for (const item of items) {
     try {
-      const aaronOutput = await generateAaronResponse(item.prospectId, { model: 'claude-haiku-4-5' });
+      const aaronOutput = await generateAaronResponse(item.prospectId, { model: 'claude-haiku-4-5', feature: 'relance' });
       await applyAaronOutput(item, aaronOutput);
       followedUp++;
     } catch (err: any) {
