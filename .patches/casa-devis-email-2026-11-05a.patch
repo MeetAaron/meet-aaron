@@ -1,0 +1,820 @@
+From b28a0493d3930918d0da1d83843d8a506236f4e7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 06:25:57 +0000
+Subject: [PATCH] =?UTF-8?q?Savoir=20quelle=20fonction=20d=C3=A9pense,=20et?=
+ =?UTF-8?q?=20pourquoi=20la=20lecture=20chez=20le=20fournisseur=20=C3=A9ch?=
+ =?UTF-8?q?oue?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Deux instruments de mesure, parce que les deux questions d'Alex sont
+restées sans réponse faute d'outil.
+
+« 0,58 $ dépensés un jour sans aucun email envoyé » — personne ne pouvait
+dire quoi avait dépensé. api_usage_daily n'a qu'un total par société et
+par jour. Chaque appel porte maintenant une étiquette de fonction
+(recherche, contact, enrichissement, premier email, réponse, relance,
+tri, clients, actualité, chat, documents…) et api_usage_feature_daily
+garde le coût par étiquette. Un appel non étiqueté tombe dans « autre »,
+ce qui montre au moins ce qui reste à étiqueter. Table secondaire : la
+jauge et les plafonds restent sur les tables existantes.
+
+« La clé est posée, c'est une vraie clé Admin, le compte est une
+organisation — et la dépense reste estimée. » Sans les journaux Vercel,
+impossible de savoir pourquoi l'appel échoue. La dernière erreur
+(statut HTTP et début du corps, jamais la clé) est gardée en mémoire et
+montrée au fondateur dans l'état du solde.
+
+Au passage, l'email d'alerte de solde dit sur quoi se fonde son calcul
+d'autonomie : la moyenne des sept derniers jours contenait deux journées
+exceptionnelles, et annonçait 6 jours là où le rythme réel en donnait 17.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/campaigns/[id]/advice/route.ts        |  2 +-
+ app/api/campaigns/advice-global/route.ts      |  2 +-
+ app/api/campaigns/chat/route.ts               |  2 +-
+ app/api/chat/route.ts                         |  4 +-
+ app/api/cron/api-balance-alert/route.ts       | 11 +++-
+ app/api/cron/check-inbox/route.ts             |  2 +-
+ .../cron/retry-uncontacted-prospects/route.ts |  2 +-
+ app/api/cron/run-campaigns/route.ts           |  2 +-
+ app/api/cron/send-prospect-followups/route.ts |  2 +-
+ app/api/prospects/route.ts                    |  2 +-
+ lib/aaron-batch.ts                            |  2 +-
+ lib/aaron-customer.ts                         | 18 +++---
+ lib/aaron.ts                                  |  9 ++-
+ lib/anthropic-admin.ts                        | 19 +++++-
+ lib/anthropic-client.ts                       | 59 ++++++++++++++++++-
+ lib/api-balance.ts                            |  8 ++-
+ lib/first-contact.ts                          |  2 +-
+ lib/inbound-triage.ts                         |  3 +-
+ lib/model-router.ts                           | 20 ++++---
+ lib/news-triggers.ts                          |  7 ++-
+ lib/openai-admin.ts                           | 13 +++-
+ lib/prospect-research.ts                      | 11 +++-
+ lib/registry-sirene.ts                        |  4 +-
+ lib/sourcing.ts                               |  6 +-
+ migration_usage_par_fonction_2026-11-05.sql   | 25 ++++++++
+ 25 files changed, 187 insertions(+), 50 deletions(-)
+ create mode 100644 migration_usage_par_fonction_2026-11-05.sql
+
+diff --git a/app/api/campaigns/[id]/advice/route.ts b/app/api/campaigns/[id]/advice/route.ts
+index c1a51da..e668023 100644
+--- a/app/api/campaigns/[id]/advice/route.ts
++++ b/app/api/campaigns/[id]/advice/route.ts
+@@ -81,7 +81,7 @@ Donne un avis concret en 3-4 phrases maximum sur cette campagne : comment resser
+   try {
+     const data = await callClaude(
+       { model: 'claude-haiku-4-5', max_tokens: 250, messages: [{ role: 'user', content: prompt }] },
+-      campaign.company_id, 'ap'
++      campaign.company_id, 'ap', null, 'avis_campagne'
+     );
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+     advice = textBlock?.text?.trim() || "Aaron n'a pas pu générer d'avis cette fois — réessaie dans un instant.";
+diff --git a/app/api/campaigns/advice-global/route.ts b/app/api/campaigns/advice-global/route.ts
+index 1aa3af8..f10818d 100644
+--- a/app/api/campaigns/advice-global/route.ts
++++ b/app/api/campaigns/advice-global/route.ts
+@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
+   try {
+     const data = await callClaude(
+       { model: 'claude-haiku-4-5', max_tokens: 350, messages: [{ role: 'user', content: prompt }] },
+-      user.company_id, 'ap'
++      user.company_id, 'ap', null, 'avis_campagne'
+     );
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+     const advice = textBlock?.text?.trim() || "Aaron n'a pas pu générer d'avis cette fois — réessaie dans un instant.";
+diff --git a/app/api/campaigns/chat/route.ts b/app/api/campaigns/chat/route.ts
+index 2e2644b..c8b84a5 100644
+--- a/app/api/campaigns/chat/route.ts
++++ b/app/api/campaigns/chat/route.ts
+@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
+         ],
+         messages: conversationMessages,
+       },
+-      user.company_id, 'ap'
++      user.company_id, 'ap', null, 'saisie_campagne'
+     );
+ 
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index c9a3c6b..291c570 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -634,7 +634,7 @@ export async function POST(request: NextRequest) {
+           messages,
+         },
+         // Imputation au commercial pour la jauge de Mon équipe (01/09/2026).
+-        user?.company_id || null, undefined, user_id
++        user?.company_id || null, undefined, user_id, 'chat'
+       ),
+       detectFounderSuggestion(effectiveMessage, user?.company_id || null),
+     ]);
+@@ -681,7 +681,7 @@ export async function POST(request: NextRequest) {
+           messages,
+         },
+         // Imputation au commercial pour la jauge de Mon équipe (01/09/2026).
+-        user?.company_id || null, undefined, user_id
++        user?.company_id || null, undefined, user_id, 'chat'
+       );
+     }
+   } catch (err: any) {
+diff --git a/app/api/cron/api-balance-alert/route.ts b/app/api/cron/api-balance-alert/route.ts
+index ca6aa00..fb62109 100644
+--- a/app/api/cron/api-balance-alert/route.ts
++++ b/app/api/cron/api-balance-alert/route.ts
+@@ -110,9 +110,16 @@ async function checkProvider(provider: BalanceProvider): Promise<Record<string,
+   const days = Math.max(0, Math.floor(st.daysLeft));
+   const remaining = Math.max(0, st.remainingUsd || 0).toFixed(2);
+   const title = level === 3 ? `Solde ${label} presque vide` : `Solde ${label} à recharger`;
++  // D'où vient le rythme (Alex, 04/11/2026 : « pourquoi j'ai reçu cet
++  // email ? »). La moyenne des 7 derniers jours contenait encore deux
++  // journées exceptionnelles d'avant le verrou de stock, et l'email
++  // annonçait 6 jours là où le rythme réel en donnait 17. Le calcul reste
++  // volontairement pessimiste — pour une alerte de carburant, c'est le bon
++  // sens d'erreur — mais il doit dire sur quoi il se fonde.
+   const body =
+-    `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme actuel ` +
+-    `(${st.avgDailyUsd.toFixed(2)} $/jour). À zéro, Aaron s'arrête pour TOUS les clients. ` +
++    `Il reste environ ${remaining} $, soit ${days} jour${days > 1 ? 's' : ''} au rythme des 7 derniers jours ` +
++    `(${st.avgDailyUsd.toFixed(2)} $/jour en moyenne — si une journée récente a été exceptionnelle, ` +
++    `l'autonomie réelle est plus longue que ça). À zéro, Aaron s'arrête pour TOUS les clients. ` +
+     `Recharge sur ${console_}, puis saisis le nouveau solde dans /app/marge.\n\n` +
+     // D'où vient le chiffre : une alerte fondée sur une estimation ne se lit
+     // pas comme une alerte fondée sur la facture du fournisseur.
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index 67f4271..7b6d575 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -884,7 +884,7 @@ export async function GET(request: NextRequest) {
+         continue;
+       }
+ 
+-      const aaronOutput = await generateAaronResponse(prospect.id);
++      const aaronOutput = await generateAaronResponse(prospect.id, { feature: 'reponse' });
+ 
+       // Si Aaron propose une tentative de sauvetage, on ne l'envoie PAS automatiquement —
+       // elle attend la validation du commercial (voir Action requise "Prospect perdu").
+diff --git a/app/api/cron/retry-uncontacted-prospects/route.ts b/app/api/cron/retry-uncontacted-prospects/route.ts
+index 6d7d251..c4ed11c 100644
+--- a/app/api/cron/retry-uncontacted-prospects/route.ts
++++ b/app/api/cron/retry-uncontacted-prospects/route.ts
+@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
+   let contacted = 0;
+   for (const item of items) {
+     try {
+-      const aaronOutput = await generateAaronResponse(item.prospectId);
++      const aaronOutput = await generateAaronResponse(item.prospectId, { feature: 'premier_email' });
+       await applyAaronOutput(item, aaronOutput);
+       contacted++;
+     } catch (err: any) {
+diff --git a/app/api/cron/run-campaigns/route.ts b/app/api/cron/run-campaigns/route.ts
+index f964689..1d0f07c 100644
+--- a/app/api/cron/run-campaigns/route.ts
++++ b/app/api/cron/run-campaigns/route.ts
+@@ -259,7 +259,7 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
+   let sent = 0;
+   for (const item of items) {
+     try {
+-      const aaronOutput = await generateAaronResponse(item.prospectId);
++      const aaronOutput = await generateAaronResponse(item.prospectId, { feature: 'premier_email' });
+       await applyAaronOutput(item, aaronOutput);
+       sent++;
+     } catch (err: any) {
+diff --git a/app/api/cron/send-prospect-followups/route.ts b/app/api/cron/send-prospect-followups/route.ts
+index afea470..de43a98 100644
+--- a/app/api/cron/send-prospect-followups/route.ts
++++ b/app/api/cron/send-prospect-followups/route.ts
+@@ -240,7 +240,7 @@ export async function GET(request: NextRequest) {
+   let followedUp = 0;
+   for (const item of items) {
+     try {
+-      const aaronOutput = await generateAaronResponse(item.prospectId, { model: 'claude-haiku-4-5' });
++      const aaronOutput = await generateAaronResponse(item.prospectId, { model: 'claude-haiku-4-5', feature: 'relance' });
+       await applyAaronOutput(item, aaronOutput);
+       followedUp++;
+     } catch (err: any) {
+diff --git a/app/api/prospects/route.ts b/app/api/prospects/route.ts
+index d9a1bc8..28cfbce 100644
+--- a/app/api/prospects/route.ts
++++ b/app/api/prospects/route.ts
+@@ -468,7 +468,7 @@ export async function POST(request: NextRequest) {
+       .eq('id', assigned_user_id)
+       .single();
+ 
+-    aaronOutput = await generateAaronResponse(prospect.id);
++    aaronOutput = await generateAaronResponse(prospect.id, { feature: 'premier_email' });
+ 
+     const hasEmailToSend = aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+ 
+diff --git a/lib/aaron-batch.ts b/lib/aaron-batch.ts
+index 952f04a..8ffae20 100644
+--- a/lib/aaron-batch.ts
++++ b/lib/aaron-batch.ts
+@@ -219,7 +219,7 @@ export async function collectAaronBatches(): Promise<{ checked: number; complete
+         }
+         const message = parsed.result.message;
+         if (item.company_id && message?.usage) {
+-          await recordUsage(item.company_id, item.model || message.model, usageFromApi(message.usage), item.user_id, 0.5);
++          await recordUsage(item.company_id, item.model || message.model, usageFromApi(message.usage), item.user_id, 0.5, 'relance');
+         }
+         const output = parseAaronOutput(message);
+         lastOutput = output;
+diff --git a/lib/aaron-customer.ts b/lib/aaron-customer.ts
+index e5d2c96..e6cadf7 100644
+--- a/lib/aaron-customer.ts
++++ b/lib/aaron-customer.ts
+@@ -202,7 +202,7 @@ export async function generateOnboarding(prospectId: string): Promise<Onboarding
+         },
+       ],
+     },
+-    companyId, 'ac'
++    companyId, 'ac', null, 'clients'
+   );
+ 
+   const result = parseJsonResponse<OnboardingPlan>(data, "Plan d'onboarding");
+@@ -378,7 +378,7 @@ export async function generateCheckinMessage(prospectId: string, type: 'nps' | '
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     return parseJsonResponse<CheckinMessage>(data, 'Email de check-in');
+   } catch (err: any) {
+@@ -417,7 +417,7 @@ export async function parseCheckinResponse(replyText: string, companyId: string
+           },
+         ],
+       },
+-      companyId, 'ac'
++      companyId, 'ac', null, 'clients'
+     );
+     return parseJsonResponse<CheckinResponseParsed>(data, 'Réponse de check-in');
+   } catch (err: any) {
+@@ -463,7 +463,7 @@ export async function generateRenewalOutreach(prospectId: string): Promise<Renew
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     return parseJsonResponse<RenewalOutreach>(data, 'Email de renouvellement');
+   } catch (err: any) {
+@@ -508,7 +508,7 @@ export async function generateUpsellSuggestion(prospectId: string): Promise<stri
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+     return textBlock?.text?.trim() || null;
+@@ -557,7 +557,7 @@ export async function generateTestimonialRequest(prospectId: string): Promise<Te
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     const result = parseJsonResponse<TestimonialRequest>(data, 'Demande de témoignage');
+ 
+@@ -633,7 +633,7 @@ export async function generateSupportReply(prospectId: string, messageBody: stri
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     return parseJsonResponse<SupportReplyDraft>(data, 'Suggestion de réponse support');
+   } catch (err: any) {
+@@ -694,7 +694,7 @@ export async function generateKickoffProposal(prospectId: string): Promise<Kicko
+           },
+         ],
+       },
+-      prospect.company_id, 'ac'
++      prospect.company_id, 'ac', null, 'clients'
+     );
+     return parseJsonResponse<KickoffProposal>(data, 'Proposition de RDV de lancement');
+   } catch (err: any) {
+@@ -742,7 +742,7 @@ export async function parseKickoffResponse(replyText: string, companyId: string
+           },
+         ],
+       },
+-      companyId, 'ac'
++      companyId, 'ac', null, 'clients'
+     );
+     const result = parseJsonResponse<KickoffResponseParsed>(data, 'Réponse de RDV de lancement');
+     if (!['visio', 'telephonique', 'physique'].includes(result.type)) result.type = 'visio';
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 7be36dc..3ad8d8a 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -4,7 +4,7 @@
+ 
+ import { supabaseAdmin } from './supabase-admin';
+ import { extractJsonObject } from './extract-json';
+-import { callClaude, CACHE_TTL_1H } from './anthropic-client';
++import { type UsageFeature, callClaude, CACHE_TTL_1H } from './anthropic-client';
+ import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
+ import { resolveProspectLocale } from './prospect-locale';
+ import { aaronVideoConfigured } from './meeting-link';
+@@ -564,9 +564,12 @@ export function parseAaronOutput(data: any): AaronOutput {
+   }
+ }
+ 
+-export async function generateAaronResponse(prospectId: string, options?: { model?: AaronModel }): Promise<AaronOutput> {
++export async function generateAaronResponse(
++  prospectId: string,
++  options?: { model?: AaronModel; feature?: UsageFeature }
++): Promise<AaronOutput> {
+   const req = await buildAaronRequest(prospectId, options);
+   if (req.precomputed) return req.precomputed;
+-  const data = await callClaude(req.body!, req.companyId, 'ap', req.userId);
++  const data = await callClaude(req.body!, req.companyId, 'ap', req.userId, options?.feature || 'reponse');
+   return parseAaronOutput(data);
+ }
+diff --git a/lib/anthropic-admin.ts b/lib/anthropic-admin.ts
+index 20a16a6..803155f 100644
+--- a/lib/anthropic-admin.ts
++++ b/lib/anthropic-admin.ts
+@@ -28,6 +28,19 @@
+ 
+ const ADMIN_BASE = 'https://api.anthropic.com/v1/organizations';
+ 
++// DERNIÈRE ERREUR, LISIBLE DEPUIS L'ÉCRAN FONDATEUR (05/11/2026).
++//
++// La clé est posée, elle est bien une clé Admin, le compte est bien une
++// organisation — et la dépense reste « estimée ». Sans les journaux Vercel,
++// impossible de savoir POURQUOI l'appel échoue. On garde donc la dernière
++// erreur en mémoire (statut HTTP + début du corps, jamais la clé), et
++// /api/admin/api-balance la montre au fondateur. Mémoire du processus :
++// se vide à chaque redéploiement, ce qui suffit pour un diagnostic.
++let lastError: string | null = null;
++export function adminLastError(): string | null {
++  return lastError;
++}
++
+ export function adminApiConfigured(): boolean {
+   return !!process.env.ANTHROPIC_ADMIN_KEY;
+ }
+@@ -85,7 +98,8 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+     });
+     if (!res.ok) {
+       const body = await res.text().catch(() => '');
+-      console.error(`[admin] cost_report ${res.status} : ${body.slice(0, 200)}`);
++      lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
++      console.error(`[admin] cost_report ${lastError}`);
+       return null;
+     }
+     const json: any = await res.json();
+@@ -114,11 +128,14 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+       // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
+       // et on renvoie null pour retomber sur l'estimation, plutôt que
+       // d'annoncer une dépense nulle qui ferait croire à un solde intact.
++      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
+       console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
+       return null;
+     }
++    lastError = null;
+     return days;
+   } catch (err: any) {
++    lastError = `injoignable : ${err?.message || err}`;
+     console.error('[admin] cost_report injoignable :', err?.message || err);
+     return null;
+   }
+diff --git a/lib/anthropic-client.ts b/lib/anthropic-client.ts
+index 611e559..f502506 100644
+--- a/lib/anthropic-client.ts
++++ b/lib/anthropic-client.ts
+@@ -571,15 +571,42 @@ export function computeCostUsd(model: string | undefined, u: UsageBreakdown): nu
+ // Exportée (05/09/2026) pour le Batch API (lib/aaron-batch.ts) : les
+ // résultats d'un lot arrivent hors de callClaude, avec le même `usage`, et
+ // coûtent la moitié (costMultiplier 0.5).
++async function recordFeatureUsage(companyId: string, feature: UsageFeature, costUsd: number): Promise<void> {
++  const date = currentDateUTC();
++  const { data: existing, error } = await supabaseAdmin
++    .from('api_usage_feature_daily')
++    .select('cost_usd')
++    .eq('company_id', companyId)
++    .eq('date', date)
++    .eq('feature', feature)
++    .maybeSingle();
++  if (error) return; // table absente : on n'insiste pas
++  const current = Number((existing as any)?.cost_usd || 0);
++  await supabaseAdmin
++    .from('api_usage_feature_daily')
++    .upsert(
++      { company_id: companyId, date, feature, cost_usd: Math.round((current + costUsd) * 10000) / 10000 },
++      { onConflict: 'company_id,date,feature' }
++    );
++}
++
+ export async function recordUsage(
+   companyId: string,
+   model: string | undefined,
+   usage: UsageBreakdown,
+   userId?: string | null,
+-  costMultiplier: number = 1
++  costMultiplier: number = 1,
++  feature?: UsageFeature
+ ) {
+   const costUsd = computeCostUsd(model, usage) * costMultiplier;
+ 
++  // Par fonction (05/11/2026). Best-effort et tolérant à l'absence de la
++  // table (migration_usage_par_fonction_2026-11-05.sql) : la jauge
++  // principale ne dépend jamais de ce décompte secondaire.
++  if (costUsd > 0) {
++    recordFeatureUsage(companyId, feature || 'autre', costUsd).catch(() => {});
++  }
++
+   // Pas d'increment atomique côté DB (pas de RPC SQL dédiée) : sous un pic
+   // d'appels strictement simultanés pour la même société, une petite fraction
+   // du coût pourrait ne pas être comptée sur l'une des deux tables (ou les
+@@ -679,13 +706,39 @@ export async function assertBudgetAllows(companyId: string, module?: CreditModul
+   }
+ }
+ 
++// ÉTIQUETTE PAR FONCTION (Alex, 05/11/2026 : « ok je valide »).
++//
++// api_usage_daily enregistre un total par société et par jour. Quand Alex a
++// vu 0,58 $ dépensés un jour sans aucun email envoyé, personne ne pouvait
++// dire QUOI avait dépensé : la recherche, l'enrichissement, une relance, un
++// cron Clients ? On devinait. Chaque appel porte maintenant une étiquette,
++// et api_usage_feature_daily garde le coût par étiquette et par jour. Un
++// appel sans étiquette est compté sous « autre » : on voit au moins ce qui
++// reste à étiqueter.
++export type UsageFeature =
++  | 'prospection_recherche'   // trouver des entreprises (requêtes + extraction)
++  | 'prospection_contact'     // trouver le bon interlocuteur
++  | 'prospection_enrichissement' // fiche entreprise (recherche web)
++  | 'premier_email'           // rédaction du premier contact
++  | 'reponse'                 // réponse à un message reçu
++  | 'relance'                 // relances programmées
++  | 'tri_entrant'             // triage des emails reçus (automatiques, rebonds…)
++  | 'avis_campagne'           // avis d'Aaron sur une campagne
++  | 'saisie_campagne'         // chat de création de campagne
++  | 'chat'                    // chat libre avec Aaron
++  | 'clients'                 // automatismes Clients (check-ins, santé, relance renouvellement…)
++  | 'actualite'               // déclencheurs d'actualité
++  | 'documents'               // résumés et conseils sur les documents
++  | 'autre';
++
+ export async function callClaude(
+   body: Record<string, any>,
+   companyId: string | null,
+   module?: CreditModule,
+   // userId (01/09/2026) : le commercial à qui imputer cet appel dans la
+   // jauge de Mon équipe. Optionnel — omis pour les traitements société.
+-  userId?: string | null
++  userId?: string | null,
++  feature?: UsageFeature
+ ): Promise<any> {
+ 
+   if (companyId) {
+@@ -750,7 +803,7 @@ export async function callClaude(
+     // tour, ou pour tout appel qui ne l'a pas dans ses `tools`.
+     const webSearches = data.usage.server_tool_use?.web_search_requests || 0;
+ 
+-    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheWrite1hTokens, cacheReadTokens, webSearches }, userId);
++    await recordUsage(companyId, body.model, { inputTokens, outputTokens, cacheWriteTokens, cacheWrite1hTokens, cacheReadTokens, webSearches }, userId, 1, feature);
+ 
+   }
+ 
+diff --git a/lib/api-balance.ts b/lib/api-balance.ts
+index 14557e2..e4d8cad 100644
+--- a/lib/api-balance.ts
++++ b/lib/api-balance.ts
+@@ -17,10 +17,11 @@
+ // pour une alerte. Le jour de la saisie est compté en entier : même logique.
+ 
+ import { supabaseAdmin } from './supabase-admin';
+-import { realSpendSince, adminApiConfigured } from './anthropic-admin';
++import { realSpendSince, adminApiConfigured, adminLastError } from './anthropic-admin';
+ import {
+   realSpendSince as openAiRealSpendSince,
+   openAiAdminConfigured,
++  openAiAdminLastError,
+ } from './openai-admin';
+ 
+ // Deux fournisseurs depuis le 03/11/2026 : Aaron envoie le palier « cheap »
+@@ -57,6 +58,9 @@ export interface BalanceStatus {
+   // choses très différentes — clé absente, ou clé présente mais appel en
+   // échec — et on ne peut pas savoir laquelle sans lire les journaux Vercel.
+   adminKeyPresent: boolean;
++  // Dernière erreur de lecture chez le fournisseur (statut HTTP + début du
++  // corps), ou null. Réservé à l'écran fondateur.
++  adminLastError: string | null;
+   // true = on ne sait PAS combien a été dépensé (clé d'administration
+   // absente ou API muette) et aucun repli crédible n'existe. Dans ce cas on
+   // n'annonce ni reste ni autonomie : un chiffre inventé est pire que pas de
+@@ -118,6 +122,7 @@ export async function getBalanceStatus(
+       provider, configured: false, snapshotId: null, balanceUsd: null, asOf: null,
+       spentSinceUsd: 0, spentSource: 'estimation', spendUnknown: false,
+       adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
++      adminLastError: provider === 'anthropic' ? adminLastError() : openAiAdminLastError(),
+       balanceAgeDays: null, stale: false, remainingUsd: null, avgDailyUsd: 0,
+       daysLeft: null, alerted10At: null, alerted3At: null,
+     };
+@@ -169,6 +174,7 @@ export async function getBalanceStatus(
+     configured: true,
+     spendUnknown,
+     adminKeyPresent: provider === 'anthropic' ? adminApiConfigured() : openAiAdminConfigured(),
++    adminLastError: provider === 'anthropic' ? adminLastError() : openAiAdminLastError(),
+     snapshotId: snap.id,
+     balanceUsd,
+     asOf: snap.as_of,
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index a44dc50..2a56438 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -118,7 +118,7 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+       return { prospect, aaronOutput: null, emailWarning, emailWarningCode, emailWarningParams, skipped: false };
+     }
+ 
+-    aaronOutput = await generateAaronResponse(prospect.id);
++    aaronOutput = await generateAaronResponse(prospect.id, { feature: 'premier_email' });
+ 
+     // Réponse du modèle COUPÉE puis reconstruite (voir lib/extract-json.ts) :
+     // l'objet est exploitable mais au moins une valeur est amputée. Un
+diff --git a/lib/inbound-triage.ts b/lib/inbound-triage.ts
+index 346bf82..6880332 100644
+--- a/lib/inbound-triage.ts
++++ b/lib/inbound-triage.ts
+@@ -127,7 +127,8 @@ export async function triageWithHaiku(
+       { system: HAIKU_SYSTEM, messages: [{ role: 'user', content: excerpt }], maxTokens: 60, json: true },
+       companyId,
+       'ap',
+-      userId
++      userId,
++      'tri_entrant'
+     );
+     const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+     const category = String(json.category || 'other') as InboundCategory;
+diff --git a/lib/model-router.ts b/lib/model-router.ts
+index 348f6b1..226a343 100644
+--- a/lib/model-router.ts
++++ b/lib/model-router.ts
+@@ -40,6 +40,7 @@ import {
+   MonthlyCapExceededError,
+   SubscriptionUnpaidError,
+   type CreditModule,
++  type UsageFeature,
+ } from './anthropic-client';
+ 
+ export type ModelTier = 'cheap' | 'standard' | 'deep';
+@@ -87,7 +88,8 @@ async function callOpenAi(
+   input: SimpleCallInput,
+   companyId: string | null,
+   module: CreditModule,
+-  userId?: string | null
++  userId?: string | null,
++  feature?: UsageFeature
+ ): Promise<SimpleCallResult> {
+   // Plafonds AVANT dépense : la voie OpenAI ne passe pas par callClaude, donc
+   // sans ce contrôle elle ignorerait complètement le plafond de la société
+@@ -150,7 +152,8 @@ async function callOpenAi(
+         'claude-haiku-4-5',
+         { inputTokens: freshIn, outputTokens: out, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: cachedIn, webSearches: 0 },
+         userId,
+-        multiplier
++        multiplier,
++        feature
+       );
+     }
+   } catch (err: any) {
+@@ -167,7 +170,8 @@ async function callAnthropicSimple(
+   tier: ModelTier,
+   companyId: string | null,
+   module: CreditModule,
+-  userId?: string | null
++  userId?: string | null,
++  feature?: UsageFeature
+ ): Promise<SimpleCallResult> {
+   const model = ANTHROPIC_MODEL_BY_TIER[tier];
+   const data = await callClaude(
+@@ -179,7 +183,8 @@ async function callAnthropicSimple(
+     },
+     companyId,
+     module,
+-    userId
++    userId,
++    feature
+   );
+   const text = (data?.content || [])
+     .filter((b: any) => b.type === 'text')
+@@ -198,11 +203,12 @@ export async function callModel(
+   input: SimpleCallInput,
+   companyId: string | null,
+   module: CreditModule = 'ap',
+-  userId?: string | null
++  userId?: string | null,
++  feature?: UsageFeature
+ ): Promise<SimpleCallResult> {
+   if (tier === 'cheap' && openAiEnabled()) {
+     try {
+-      return await callOpenAi(input, companyId, module, userId);
++      return await callOpenAi(input, companyId, module, userId, feature);
+     } catch (err: any) {
+       // Un refus de BUDGET n'est pas une panne OpenAI : se replier sur
+       // Anthropic ferait juste échouer le même contrôle une seconde plus tard,
+@@ -213,5 +219,5 @@ export async function callModel(
+       console.error('OpenAI indisponible, repli Anthropic :', err?.message);
+     }
+   }
+-  return callAnthropicSimple(input, tier, companyId, module, userId);
++  return callAnthropicSimple(input, tier, companyId, module, userId, feature);
+ }
+diff --git a/lib/news-triggers.ts b/lib/news-triggers.ts
+index ac7e9a4..fc51d0e 100644
+--- a/lib/news-triggers.ts
++++ b/lib/news-triggers.ts
+@@ -111,7 +111,9 @@ export async function findNewsSignal(company: CompanyRow, now: Date = new Date()
+         messages: [{ role: 'user', content: prompt }],
+       },
+       company.company_id,
+-      'ap'
++      'ap',
++      null,
++      'actualite'
+     );
+     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+     const text = textBlock?.text?.trim();
+@@ -200,7 +202,8 @@ export async function generateNewsFollowUp(prospectId: string, signal: NewsSigna
+       },
+       p.company_id,
+       'ap',
+-      p.assigned_user_id
++      p.assigned_user_id,
++      'actualite'
+     );
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+     if (!textBlock) return null;
+diff --git a/lib/openai-admin.ts b/lib/openai-admin.ts
+index 366a9d2..65f4c69 100644
+--- a/lib/openai-admin.ts
++++ b/lib/openai-admin.ts
+@@ -24,6 +24,13 @@
+ 
+ const COSTS_URL = 'https://api.openai.com/v1/organization/costs';
+ 
++// Dernière erreur, lisible depuis l'écran fondateur — même raison que dans
++// lib/anthropic-admin.ts (05/11/2026).
++let lastError: string | null = null;
++export function openAiAdminLastError(): string | null {
++  return lastError;
++}
++
+ export function openAiAdminConfigured(): boolean {
+   return !!process.env.OPENAI_ADMIN_KEY;
+ }
+@@ -69,7 +76,8 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+       });
+       if (!res.ok) {
+         const body = await res.text().catch(() => '');
+-        console.error(`[openai-admin] costs ${res.status} : ${body.slice(0, 200)}`);
++        lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
++        console.error(`[openai-admin] costs ${lastError}`);
+         return null;
+       }
+       const json: any = await res.json();
+@@ -93,11 +101,14 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+     if (days.length === 0 && seenBuckets > 0) {
+       // Des seaux mais rien de lisible : la forme a changé. On le dit et on
+       // renvoie null, plutôt que d'annoncer une dépense nulle.
++      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
+       console.error('[openai-admin] costs : forme de réponse inattendue, dépense inconnue.');
+       return null;
+     }
++    lastError = null;
+     return days;
+   } catch (err: any) {
++    lastError = `injoignable : ${err?.message || err}`;
+     console.error('[openai-admin] costs injoignable :', err?.message || err);
+     return null;
+   }
+diff --git a/lib/prospect-research.ts b/lib/prospect-research.ts
+index 81c6966..a65a3b0 100644
+--- a/lib/prospect-research.ts
++++ b/lib/prospect-research.ts
+@@ -215,7 +215,9 @@ export async function researchProspectCompany(
+         messages: [{ role: 'user', content: prompt }],
+       },
+       companyId,
+-      'ap'
++      'ap',
++      null,
++      'prospection_enrichissement'
+     );
+ 
+     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+@@ -343,7 +345,9 @@ export async function findCompanySocials(
+         messages: [{ role: 'user', content: prompt }],
+       },
+       clientCompanyId,
+-      'ap'
++      'ap',
++      null,
++      'prospection_enrichissement'
+     );
+     const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
+     const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+@@ -420,7 +424,8 @@ export async function generateCompanyOpinion(
+       { model: 'claude-haiku-4-5', max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
+       clientCompanyId,
+       'ap',
+-      userId || null
++      userId || null,
++      'prospection_enrichissement'
+     );
+     const text = data.content.filter((b: any) => b.type === 'text').pop()?.text?.trim() || '';
+     const match = text.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+diff --git a/lib/registry-sirene.ts b/lib/registry-sirene.ts
+index f02e686..c00f4c1 100644
+--- a/lib/registry-sirene.ts
++++ b/lib/registry-sirene.ts
+@@ -239,7 +239,7 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
+   try {
+     const data = await callClaude(
+       { model: 'claude-sonnet-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] },
+-      companyId, 'ap'
++      companyId, 'ap', null, 'prospection_recherche'
+     );
+     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+     if (!textBlock) return { nafCodes: [], departments: [], error: 'réponse vide' };
+@@ -304,7 +304,7 @@ Réponds UNIQUEMENT avec un objet JSON, sans texte avant ni après, sans balises
+   try {
+     const data = await callClaude(
+       { model: 'claude-haiku-4-5', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] },
+-      companyId, 'ap'
++      companyId, 'ap', null, 'prospection_recherche'
+     );
+     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+     if (!textBlock) return { piles: {}, error: 'réponse vide' };
+diff --git a/lib/sourcing.ts b/lib/sourcing.ts
+index 0687052..1d966d8 100644
+--- a/lib/sourcing.ts
++++ b/lib/sourcing.ts
+@@ -160,7 +160,7 @@ Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après
+         max_tokens: 400,
+         messages: [{ role: 'user', content: prompt }],
+       },
+-      companyId, 'ap'
++      companyId, 'ap', null, 'prospection_recherche'
+     );
+     const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+     if (!textBlock) return fallback;
+@@ -244,7 +244,7 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises
+         content: `${prompt}\n\nUtilise exactement ces recherches web, dans cet ordre :\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nNe cherche rien d'autre. Ton travail est de LIRE ces résultats et d'en extraire les entreprises réelles qui correspondent aux critères — n'invente jamais une entreprise, un domaine ou une adresse qui n'apparaît pas dans les résultats.`,
+       }],
+     },
+-    companyId, 'ap'
++    companyId, 'ap', null, 'prospection_recherche'
+   );
+ 
+   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+@@ -310,7 +310,7 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null
+       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+       messages: [{ role: 'user', content: prompt }],
+     },
+-    companyId, 'ap'
++    companyId, 'ap', null, 'prospection_contact'
+   );
+ 
+   const textBlock = data.content.filter((b: any) => b.type === 'text').pop();
+diff --git a/migration_usage_par_fonction_2026-11-05.sql b/migration_usage_par_fonction_2026-11-05.sql
+new file mode 100644
+index 0000000..f5989cf
+--- /dev/null
++++ b/migration_usage_par_fonction_2026-11-05.sql
+@@ -0,0 +1,25 @@
++-- migration_usage_par_fonction_2026-11-05.sql
++--
++-- « 0,58 $ dépensés avec zéro email envoyé » (Alex, 04/11/2026). Personne ne
++-- pouvait dire QUOI avait dépensé : api_usage_daily n'a qu'un total par
++-- société et par jour. Chaque appel porte maintenant une étiquette de
++-- fonction (lib/anthropic-client.ts, type UsageFeature) et cette table garde
++-- le coût par étiquette et par jour. Un appel non étiqueté tombe dans
++-- « autre », ce qui montre au moins ce qui reste à étiqueter.
++--
++-- Table SECONDAIRE : la jauge, les plafonds et les boosts restent sur
++-- api_usage_daily / api_usage_monthly. Celle-ci ne sert qu'à comprendre.
++
++CREATE TABLE IF NOT EXISTS public.api_usage_feature_daily (
++  company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
++  date text NOT NULL,            -- 'AAAA-MM-JJ', calculé en UTC comme api_usage_daily
++  feature text NOT NULL,
++  cost_usd numeric NOT NULL DEFAULT 0,
++  updated_at timestamptz NOT NULL DEFAULT now(),
++  PRIMARY KEY (company_id, date, feature)
++);
++
++ALTER TABLE public.api_usage_feature_daily ENABLE ROW LEVEL SECURITY;
++
++COMMENT ON TABLE public.api_usage_feature_daily IS
++  'Coût API par société, par jour et par fonction (prospection_recherche, premier_email, relance, reponse, clients…). Lecture serveur uniquement.';
+-- 
+2.43.0
+
