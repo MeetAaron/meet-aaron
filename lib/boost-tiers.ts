@@ -177,6 +177,38 @@ export function subscriptionPrice(currency: BoostCurrency): number {
   return SUBSCRIPTION_PRICE_TABLE[currency] ?? SUBSCRIPTION_PRICE_TABLE.eur;
 }
 
+// TARIF ANNUEL (validé par Alex le 05/11/2026, « ok je valide ») : dix mois
+// pour douze, dans chaque devise — 590 € l'an, soit 49 € par mois. Comme le
+// mensuel, ces montants servent à l'AFFICHAGE ; le prix réellement prélevé
+// est le Price Stripe annuel (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY, avec ses
+// currency_options). À garder synchronisés à la main.
+export const YEARLY_PRICE_TABLE: Record<BoostCurrency, number> = {
+  eur: 590,
+  gbp: 490,
+  usd: 650,
+  aud: 990,
+  cad: 890,
+  chf: 590,
+  nzd: 1090,
+};
+
+export function yearlyPrice(currency: BoostCurrency): number {
+  return YEARLY_PRICE_TABLE[currency] ?? YEARLY_PRICE_TABLE.eur;
+}
+
+// « 49 € / mois » : l'équivalent mensuel du tarif annuel, arrondi à l'unité.
+export function yearlyPerMonth(currency: BoostCurrency): number {
+  return Math.round(yearlyPrice(currency) / 12);
+}
+
+export function formatYearlyPrice(currency: BoostCurrency = 'eur'): string {
+  return formatBoostPrice(yearlyPrice(currency), currency);
+}
+
+export function formatYearlyPerMonth(currency: BoostCurrency = 'eur'): string {
+  return formatBoostPrice(yearlyPerMonth(currency), currency);
+}
+
 export const CURRENCY_SYMBOLS: Record<BoostCurrency, string> = {
   eur: '€',
   aud: 'A$',

@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe, managedPaymentsParams } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
-import { ModuleCode, getModulePriceId, currencyForCountry } from '@/lib/subscription';
+import { ModuleCode, getModulePriceId, getAaronYearlyPriceId, currencyForCountry } from '@/lib/subscription';
 import { readJsonBody, serverError } from '@/lib/http';
 
 // Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
@@ -52,7 +52,7 @@ const STRIPE_LOCALE_MAP: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country, locale, modules, role } = await readJsonBody(request);
+  const { first_name, full_name, company_name, country, locale, modules, role, billing_interval } = await readJsonBody(request);
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -68,12 +68,17 @@ export async function POST(request: NextRequest) {
   void modules;
   const selectedModules: ModuleCode[] = ['AP'];
 
+  // TARIF ANNUEL (06/11/2026) : billing_interval 'year' → le Price annuel.
+  // S'il n'est pas configuré, on REFUSE (501) plutôt que de prélever un
+  // mensuel à quelqu'un qui a choisi l'année — l'écran d'inscription ne
+  // propose l'annuel que si NEXT_PUBLIC_YEARLY_PLAN vaut "1".
+  const yearly = billing_interval === 'year';
   const lineItems: { price: string; quantity: number }[] = [];
   for (const mod of selectedModules) {
-    const priceId = priceIdFor(mod);
+    const priceId = yearly ? getAaronYearlyPriceId() : priceIdFor(mod);
     if (!priceId) {
       return NextResponse.json(
-        { error: `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
+        { error: yearly ? "Tarif annuel pas encore configuré côté serveur (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY manquant)." : `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
         { status: 501 }
       );
     }
@@ -125,6 +130,7 @@ export async function POST(request: NextRequest) {
         full_name,
         company_name,
         country,
+        billing_interval: yearly ? 'year' : 'month',
         // Modules choisis à l'inscription — lu par le webhook
         // (checkout.session.completed) pour activer les bons booléens
         // offer_ap_active/offer_as_active/offer_ac_active à la création de

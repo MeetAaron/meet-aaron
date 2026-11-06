@@ -43,6 +43,17 @@ export function getAaronPriceId(): string | null {
   return process.env.STRIPE_PRICE_ID_AARON_PROSPECT || null;
 }
 
+// Prix ANNUEL (06/11/2026). Même règle que le mensuel : variable absente →
+// null, et le checkout refuse explicitement l'annuel plutôt que de prélever
+// un mensuel à quelqu'un qui a choisi l'année.
+export function getAaronYearlyPriceId(): string | null {
+  return process.env.STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY || null;
+}
+
+export function yearlyPlanAvailable(): boolean {
+  return !!getAaronYearlyPriceId();
+}
+
 export function getModulePriceId(module: ModuleCode): string | null {
   if (module === 'AP') return getAaronPriceId();
   const envKey = {

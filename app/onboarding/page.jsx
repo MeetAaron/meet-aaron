@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
 import { useLocale, localeForCountry, t } from '@/lib/i18n';
-import { currencyForCountryText, subscriptionPrice, formatBoostPrice } from '@/lib/boost-tiers';
+import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
 import Ic from '@/components/UiIcon';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
@@ -49,6 +49,60 @@ const COUNTRY_SUGGESTIONS = [
   'Maroc', 'Tunisie', 'Sénégal', "Côte d'Ivoire", 'Brésil', 'Mexique',
 ];
 
+// Mensuel / annuel (06/11/2026). Textes locaux, comme ailleurs dans cette page.
+const BILLING_TEXT = {
+  "fr": {
+    "label": "Rythme de facturation",
+    "monthly": "Mensuel",
+    "yearly": "Annuel",
+    "save": "2 mois offerts",
+    "billed": "facturé {total} par an"
+  },
+  "en": {
+    "label": "Billing period",
+    "monthly": "Monthly",
+    "yearly": "Yearly",
+    "save": "2 months free",
+    "billed": "billed {total} per year"
+  },
+  "de": {
+    "label": "Abrechnungszeitraum",
+    "monthly": "Monatlich",
+    "yearly": "Jährlich",
+    "save": "2 Monate geschenkt",
+    "billed": "{total} pro Jahr"
+  },
+  "it": {
+    "label": "Periodo di fatturazione",
+    "monthly": "Mensile",
+    "yearly": "Annuale",
+    "save": "2 mesi gratis",
+    "billed": "{total} all’anno"
+  },
+  "es": {
+    "label": "Periodo de facturación",
+    "monthly": "Mensual",
+    "yearly": "Anual",
+    "save": "2 meses gratis",
+    "billed": "{total} al año"
+  },
+  "pt": {
+    "label": "Período de faturação",
+    "monthly": "Mensal",
+    "yearly": "Anual",
+    "save": "2 meses grátis",
+    "billed": "{total} por ano"
+  },
+  "nl": {
+    "label": "Factureringsperiode",
+    "monthly": "Maandelijks",
+    "yearly": "Jaarlijks",
+    "save": "2 maanden gratis",
+    "billed": "{total} per jaar"
+  }
+};
+const bt = (key, locale) => (BILLING_TEXT[locale] || BILLING_TEXT.fr)[key] || BILLING_TEXT.fr[key];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
@@ -72,6 +126,10 @@ export default function OnboardingPage() {
   const [selectedModules, setSelectedModules] = useState(['AP']);
   const [openInfo, setOpenInfo] = useState(null); // value du module dont l'explication est ouverte, ou null
   const [attested, setAttested] = useState(false);
+  // Mensuel ou annuel (06/11/2026). L'annuel n'est proposé que si le prix
+  // Stripe existe (NEXT_PUBLIC_YEARLY_PLAN=1 posé en même temps que le Price).
+  const yearlyOffered = process.env.NEXT_PUBLIC_YEARLY_PLAN === '1';
+  const [billing, setBilling] = useState('month');
   const [inviteCode, setInviteCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -142,6 +200,7 @@ export default function OnboardingPage() {
         country,
         locale,
         modules: selectedModules,
+        billing_interval: yearlyOffered ? billing : 'month',
         // "patron" pour un(e) fondateur(trice)/dirigeant(e), "commercial"
         // pour un commercial solo qui paie pour lui-même sans code
         // d'activation (voir commentaire sur personRole/signupPath plus
@@ -350,6 +409,8 @@ export default function OnboardingPage() {
   // facturation saisie au Checkout.
   const billingCurrency = currencyForCountryText(country);
   const monthlyPriceLabel = formatBoostPrice(subscriptionPrice(billingCurrency), billingCurrency);
+  const yearlyLabel = formatBoostPrice(yearlyPrice(billingCurrency), billingCurrency);
+  const yearlyPerMonthLabel = formatBoostPrice(yearlyPerMonth(billingCurrency), billingCurrency);
 
   return (
     <div className="wrap">
@@ -425,10 +486,22 @@ export default function OnboardingPage() {
                       300 prospects par mois. Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
                     </span>
                   </span>
-                  <span className="module-price">{monthlyPriceLabel} {t('onboarding.perMonth', locale)}</span>
+                  <span className="module-price">{billing === 'year' && yearlyOffered ? `${yearlyPerMonthLabel} ${t('onboarding.perMonth', locale)}` : `${monthlyPriceLabel} ${t('onboarding.perMonth', locale)}`}</span>
                 </div>
               </div>
             </div>
+            {yearlyOffered && (
+              <div className="billing-switch" role="radiogroup" aria-label={bt('label', locale)}>
+                <button type="button" className={`billing-opt${billing === 'month' ? ' on' : ''}`} role="radio" aria-checked={billing === 'month'} onClick={() => setBilling('month')}>
+                  <strong>{bt('monthly', locale)}</strong>
+                  <span>{monthlyPriceLabel} {t('onboarding.perMonth', locale)}</span>
+                </button>
+                <button type="button" className={`billing-opt${billing === 'year' ? ' on' : ''}`} role="radio" aria-checked={billing === 'year'} onClick={() => setBilling('year')}>
+                  <strong>{bt('yearly', locale)} <em>{bt('save', locale)}</em></strong>
+                  <span>{yearlyPerMonthLabel} {t('onboarding.perMonth', locale)} · {bt('billed', locale).replace('{total}', yearlyLabel)}</span>
+                </button>
+              </div>
+            )}
             <p className="modules-hint">
               Sans engagement, résiliable à tout moment depuis l'application. Mises à jour et maintenance comprises.
             </p>
@@ -718,6 +791,29 @@ export default function OnboardingPage() {
           color: #8b90a8;
           font-size: 0.76rem;
         }
+        .billing-switch {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.6rem;
+          margin-top: 0.7rem;
+        }
+        .billing-opt {
+          text-align: left;
+          background: #0b0e1a;
+          border: 1px solid #232744;
+          border-radius: 10px;
+          padding: 0.7rem 0.85rem;
+          color: #e6e8f2;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          font: inherit;
+        }
+        .billing-opt.on { border-color: #4b39ef; box-shadow: 0 0 0 1px #4b39ef inset; }
+        .billing-opt strong { font-size: 0.88rem; }
+        .billing-opt strong em { font-style: normal; font-size: 0.7rem; color: #3dd68c; margin-left: 0.4rem; }
+        .billing-opt span { font-size: 0.78rem; color: #8b90a8; }
         .module-price {
           flex-shrink: 0;
           color: #4b39ef;
