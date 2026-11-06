@@ -26,6 +26,19 @@ import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
 import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
 import { resolveMeetingLink } from '@/lib/meeting-link';
+import { resolveProspectLocale } from '@/lib/prospect-locale';
+import { resolveUserTimeZone } from '@/lib/user-timezone';
+
+// Email de confirmation de rendez-vous, dans la langue du prospect (06/11/2026).
+const CONFIRMATION_TEXTS: Record<string, { intl: string; subject: string; hello: string; confirmed: string; types: Record<'visio' | 'telephonique' | 'physique', string>; link: string; linkLater: string; invite: string; reschedule: string; bye: string }> = {
+  fr: { intl: 'fr-FR', subject: "C'est confirmé pour notre rendez-vous", hello: 'Bonjour {name},', confirmed: "C'est confirmé pour notre rendez-vous {type}, le {date}.", types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, link: 'Voici le lien pour nous rejoindre : {link}', linkLater: 'Je vous envoie le lien de connexion dans un second email.', invite: 'Vous recevrez également une invitation pour votre agenda.', reschedule: 'Si vous avez besoin de décaler, répondez simplement à cet email.', bye: 'À très vite,' },
+  en: { intl: 'en-GB', subject: 'Our meeting is confirmed', hello: 'Hello {name},', confirmed: 'Our meeting {type} is confirmed for {date}.', types: { visio: 'by video call', telephonique: 'by phone', physique: 'in person' }, link: 'Here is the link to join: {link}', linkLater: 'I will send you the connection link in a second email.', invite: 'You will also receive a calendar invitation.', reschedule: 'If you need to reschedule, just reply to this email.', bye: 'Speak soon,' },
+  de: { intl: 'de-DE', subject: 'Unser Termin ist bestätigt', hello: 'Guten Tag {name},', confirmed: 'Unser Termin {type} ist bestätigt: {date}.', types: { visio: 'per Videoanruf', telephonique: 'per Telefon', physique: 'vor Ort' }, link: 'Hier ist der Link zur Teilnahme: {link}', linkLater: 'Den Zugangslink sende ich Ihnen in einer zweiten E-Mail.', invite: 'Sie erhalten außerdem eine Kalendereinladung.', reschedule: 'Falls Sie verschieben müssen, antworten Sie einfach auf diese E-Mail.', bye: 'Bis bald,' },
+  it: { intl: 'it-IT', subject: 'Il nostro appuntamento è confermato', hello: 'Buongiorno {name},', confirmed: 'Il nostro appuntamento {type} è confermato per {date}.', types: { visio: 'in videochiamata', telephonique: 'per telefono', physique: 'di persona' }, link: 'Ecco il link per collegarsi: {link}', linkLater: 'Le invierò il link di collegamento in una seconda email.', invite: 'Riceverà anche un invito per la sua agenda.', reschedule: 'Se ha bisogno di spostarlo, risponda semplicemente a questa email.', bye: 'A presto,' },
+  es: { intl: 'es-ES', subject: 'Nuestra reunión está confirmada', hello: 'Hola {name},', confirmed: 'Nuestra reunión {type} está confirmada para el {date}.', types: { visio: 'por videollamada', telephonique: 'por teléfono', physique: 'presencial' }, link: 'Aquí tiene el enlace para unirse: {link}', linkLater: 'Le enviaré el enlace de conexión en un segundo correo.', invite: 'También recibirá una invitación para su agenda.', reschedule: 'Si necesita cambiar la fecha, responda simplemente a este correo.', bye: 'Hasta pronto,' },
+  pt: { intl: 'pt-PT', subject: 'A nossa reunião está confirmada', hello: 'Olá {name},', confirmed: 'A nossa reunião {type} está confirmada para {date}.', types: { visio: 'por videochamada', telephonique: 'por telefone', physique: 'presencial' }, link: 'Aqui está o link para entrar: {link}', linkLater: 'Envio-lhe o link de ligação num segundo email.', invite: 'Receberá também um convite para a sua agenda.', reschedule: 'Se precisar de remarcar, basta responder a este email.', bye: 'Até breve,' },
+  nl: { intl: 'nl-NL', subject: 'Onze afspraak is bevestigd', hello: 'Hallo {name},', confirmed: 'Onze afspraak {type} is bevestigd voor {date}.', types: { visio: 'via videogesprek', telephonique: 'telefonisch', physique: 'ter plaatse' }, link: 'Hier is de link om deel te nemen: {link}', linkLater: 'De verbindingslink stuur ik je in een tweede e-mail.', invite: 'Je ontvangt ook een agenda-uitnodiging.', reschedule: 'Moet je verzetten? Beantwoord dan gewoon deze e-mail.', bye: 'Tot snel,' },
+};
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { canAccessAppointment } from '@/lib/appointment-access';
 import { runInBackground } from '@/lib/background';
@@ -151,7 +164,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
 
   const { data: appointment, error } = await supabaseAdmin
     .from('appointments')
-    .select('*, prospects(full_name, email, assigned_user_id)')
+    .select('*, prospects(full_name, email, assigned_user_id, prospect_companies(address, found_by_campaign_id))')
     .eq('id', appointmentId)
     .single();
 
@@ -278,35 +291,47 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     // un message de plus quand l'invitation arrive bien. C'est un prix
     // très inférieur à celui d'un rendez-vous manqué.
     if (appointment.prospects?.email) {
-      const dateStr = new Date(startISO).toLocaleString('fr-FR', {
-        dateStyle: 'full',
-        timeStyle: 'short',
-        timeZone: 'Europe/Paris',
+      // LANGUE DU PROSPECT ET FUSEAU DU COMMERCIAL (06/11/2026). Jusqu'ici :
+      // français en dur, date à l'heure de Paris — pour un prospect de Perth
+      // écrit en anglais, c'était une confirmation en français avec une
+      // heure fausse de sept heures. Même détermination de langue que le
+      // premier email (lib/prospect-locale.ts), et le fuseau est celui du
+      // commercial, puisque le créneau a été proposé dans son agenda.
+      const [{ data: seller }, { data: campaign }] = await Promise.all([
+        supabaseAdmin.from('users').select('timezone, billing_country, locale').eq('id', userId).maybeSingle(),
+        (appointment.prospects as any)?.prospect_companies?.found_by_campaign_id
+          ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', (appointment.prospects as any).prospect_companies.found_by_campaign_id).maybeSingle()
+          : Promise.resolve({ data: null as any }),
+      ]);
+      const prospectLocale = resolveProspectLocale({
+        campaignLocale: campaign?.target_locale || null,
+        address: (appointment.prospects as any)?.prospect_companies?.address || null,
+        email: appointment.prospects.email,
+        sellerLocale: (seller as any)?.locale || null,
       });
-      const typeLabel =
-        appointment.type === 'visio' ? 'en visio' : appointment.type === 'telephonique' ? 'par téléphone' : 'sur place';
-      const lines = [
-        `Bonjour ${appointment.prospects.full_name},`,
-        '',
-        `C'est confirmé pour notre rendez-vous ${typeLabel}, le ${dateStr}.`,
-      ];
+      const tz = resolveUserTimeZone((seller as any) || {});
+      const T = CONFIRMATION_TEXTS[prospectLocale] || CONFIRMATION_TEXTS.fr;
+      const dateStr = new Date(startISO).toLocaleString(T.intl, { dateStyle: 'full', timeStyle: 'short', timeZone: tz });
+      const typeLabel = T.types[appointment.type as 'visio' | 'telephonique' | 'physique'] || T.types.physique;
+      const lines = [T.hello.replace('{name}', appointment.prospects.full_name || ''), '', T.confirmed.replace('{type}', typeLabel).replace('{date}', dateStr)];
       if (meetLink) {
-        lines.push('', `Voici le lien pour nous rejoindre : ${meetLink}`);
+        lines.push('', T.link.replace('{link}', meetLink));
       } else if (appointment.type === 'visio') {
         // Aucun lien disponible au moment de la confirmation : on le dit,
         // plutôt que de laisser le prospect chercher.
-        lines.push('', 'Je vous envoie le lien de connexion dans un second email.');
+        lines.push('', T.linkLater);
       }
       if (calendarProvider) {
         // L'invitation d'agenda part aussi : on l'annonce pour que le
         // prospect ne prenne pas le second message pour un doublon.
-        lines.push('', "Vous recevrez également une invitation pour votre agenda.");
+        lines.push('', T.invite);
       }
-      lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
+      lines.push('', T.reschedule, '', T.bye);
+      const confirmationSubject = T.subject;
       // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
       // n'attend pas la boîte mail. Un échec reste dans les journaux.
       runInBackground(`confirmation RDV ${appointmentId}`, () =>
-        sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'))
+        sendEmailForUser(userId, appointment.prospects.email, confirmationSubject, lines.join('\n'))
       );
     }
 

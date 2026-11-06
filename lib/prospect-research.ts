@@ -38,6 +38,7 @@
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
 import { isGenericEmailDomain } from './csv-import';
 import { supabaseAdmin } from './supabase-admin';
+import { scanCompanySite } from './site-scan';
 import { guessCountry, lookupCompanyRegistry, type LegalRecord } from './company-directory';
 import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl } from './social-urls';
 import { localeInstruction, normalizeLocale } from './locale-instruction';
@@ -202,9 +203,29 @@ export async function researchProspectCompany(
     `}\n\n` +
     `N'INVENTE RIEN : chaque champ doit être null plutôt que deviné si tu n'as pas trouvé de source fiable.`;
 
+  // ── Le site officiel d'abord, lu gratuitement (06/11/2026) ───────────────
+  // Voir lib/site-scan.ts. Quand le site existe et se laisse lire, le résumé
+  // métier, le secteur, l'adresse et les réseaux sociaux en sortent sans
+  // aucune recherche payante : le modèle lit l'extrait fourni, sans outil.
+  // La recherche web ne sert plus que si le site est inconnu ou illisible.
+  const scan = input.website || input.domain ? await scanCompanySite(input.website || input.domain) : null;
+  const siteReadable = !!scan && scan.text.length > 300;
+
   try {
     const data = await callClaude(
-      {
+      siteReadable
+        ? {
+            model: 'claude-haiku-4-5',
+            max_tokens: 900,
+            messages: [{
+              role: 'user',
+              content:
+                `${prompt}\n\nTu n'as PAS accès au web. Tout ce que tu sais vient de l'extrait ci-dessous, lu sur le site officiel ` +
+                `(${scan!.pages.join(', ')}). Pour "website", réponds ${scan!.website}. Pour "siret", ne réponds que s'il figure ` +
+                `textuellement dans l'extrait (mentions légales), sinon null.\n\n--- EXTRAIT DU SITE ---\n${scan!.text}\n--- FIN ---`,
+            }],
+          }
+        : {
         // Haiku + 1 recherche (05/09/2026, plan de coûts validé par Alex) :
         // le résumé métier est une lecture-synthèse d'une page (le site de
         // l'entreprise), pas une rédaction commerciale. Les champs d'état
@@ -240,8 +261,9 @@ export async function researchProspectCompany(
       siret: registry?.registryId || (isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null),
       address: registry?.address || (typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null),
       industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : registry?.industry || null,
-      linkedin_url: normalizeLinkedInCompanyUrl(parsed.linkedin_url),
-      instagram_url: normalizeInstagramUrl(parsed.instagram_url),
+      // Les liens lus sur le site priment sur ce que le modèle a extrait.
+      linkedin_url: normalizeLinkedInCompanyUrl(scan?.linkedin_url || parsed.linkedin_url),
+      instagram_url: normalizeInstagramUrl(scan?.instagram_url || parsed.instagram_url),
       socials_searched: true,
     };
     await writeResearchCache(cacheKey, result);
@@ -328,6 +350,17 @@ export async function findCompanySocials(
 ): Promise<{ linkedin_url: string | null; instagram_url: string | null }> {
   const empty = { linkedin_url: null, instagram_url: null };
   if (!input.name && !input.website && !input.domain) return empty;
+  // Pied de page du site d'abord (06/11/2026, gratuit) : c'est là que sont
+  // les liens. La recherche payante ne sert que si le site ne donne rien.
+  if (input.website || input.domain) {
+    const scan = await scanCompanySite(input.website || input.domain);
+    if (scan.linkedin_url || scan.instagram_url) {
+      return {
+        linkedin_url: normalizeLinkedInCompanyUrl(scan.linkedin_url),
+        instagram_url: normalizeInstagramUrl(scan.instagram_url),
+      };
+    }
+  }
   const prompt =
     `Trouve les pages PUBLIQUES officielles de cette entreprise sur LinkedIn et Instagram :\n` +
     (input.name ? `Nom : ${input.name}\n` : '') +

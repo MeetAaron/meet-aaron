@@ -86,6 +86,11 @@ export default function MargePage() {
   // l'un vide arrête Aaron aussi sûrement que l'autre.
   const [balances, setBalances] = useState([]);
   const [balanceInputs, setBalanceInputs] = useState({});
+  // Cases de saisie repliées (06/11/2026, Alex : « plus besoin d'avoir les 2
+  // cases ? ») : la dépense est lue chez le fournisseur et les recharges
+  // détectées dans les reçus ; la saisie ne sert plus qu'à corriger. Elle
+  // reste ouverte tant qu'aucun solde n'a jamais été saisi.
+  const [balanceEditing, setBalanceEditing] = useState({});
   const [balanceSavingFor, setBalanceSavingFor] = useState(null);
   const [balanceError, setBalanceError] = useState(null);
 
@@ -259,6 +264,14 @@ export default function MargePage() {
                     ({bal.spentSource === 'fournisseur' ? `lu chez ${label}` : 'estimation prudente'}, le jour de la saisie compte en entier).
                   </p>
                 )}
+                {bal.configured && !balanceEditing[bal.provider] ? (
+                  <p className="gst-foot">
+                    <button type="button" className="bal-link bal-link-btn" onClick={() => setBalanceEditing((prev) => ({ ...prev, [bal.provider]: true }))}>
+                      Corriger le solde à la main <Ic name="pencil" size={12} />
+                    </button>
+                    {' '}· normalement inutile : les recharges sont détectées dans les reçus par email.
+                  </p>
+                ) : (
                 <div className="bal-row">
                   <input
                     className="bal-input"
@@ -276,6 +289,7 @@ export default function MargePage() {
                     {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
                   </button>
                 </div>
+                )}
                 {/* Diagnostic (05/11/2026) : la clé est posée mais la dépense
                     reste estimée — on montre POURQUOI, sans quoi il faut
                     aller lire les journaux Vercel. Jamais la clé elle-même. */}
@@ -418,6 +432,14 @@ export default function MargePage() {
         .nav-pill.ghost:hover {
           border-color: var(--border);
           background: var(--bg-elevated);
+        }
+        .bal-link-btn {
+          background: none;
+          border: 0;
+          padding: 0;
+          cursor: pointer;
+          font: inherit;
+          color: var(--accent-light, var(--accent));
         }
         .bal-diag {
           color: var(--accent-amber, #f5a623);

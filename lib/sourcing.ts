@@ -11,6 +11,7 @@ import { searchGooglePlaces, guessCountry } from './company-directory';
 import { findFreshCompanies } from './fresh-companies';
 import { searchDirectory } from './directory-db';
 import { loadSellerContext, type SellerContext } from './registry-sirene';
+import { scanCompanySite, isPersonalEmail } from './site-scan';
 
 // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
 // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
@@ -298,6 +299,50 @@ Réponds UNIQUEMENT avec un objet JSON (sans texte avant/après, sans balises ma
 
 Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null plutôt que d'inventer une information. Un email n'est retenu que s'il apparaît TEXTUELLEMENT dans une page trouvée (jamais déduit d'un modèle prenom.nom@domaine).`;
 
+  // ── D'abord le site de l'entreprise, lu gratuitement (06/11/2026) ─────────
+  // Voir lib/site-scan.ts : le coût par prospect était fait de recherches
+  // web à 0,01 $ pièce, pas de jetons. Si la page contact / équipe / mentions
+  // légales donne déjà un nom et un email, aucune recherche payante ne part.
+  // Le modèle lit un EXTRAIT fourni, sans outil : même consigne « null
+  // plutôt qu'inventer », même format de réponse.
+  let siteHint = '';
+  if (company.website) {
+    const scan = await scanCompanySite(company.website);
+    if (scan.text.length > 200 || scan.emails.length > 0) {
+      const emailsLine = scan.emails.length ? `Emails présents sur le site : ${scan.emails.join(', ')}\n` : '';
+      try {
+        const local = await callClaude(
+          {
+            model: 'claude-haiku-4-5',
+            max_tokens: 400,
+            messages: [{
+              role: 'user',
+              content: `${prompt}\n\nTu n'as PAS accès au web. Voici ce qui a déjà été lu sur le site officiel de l'entreprise (${scan.pages.join(', ')}). Ne retiens que ce qui y figure textuellement.\n${emailsLine}\n--- EXTRAIT DU SITE ---\n${scan.text}\n--- FIN ---`,
+            }],
+          },
+          companyId, 'ap', null, 'prospection_contact'
+        );
+        const block = local.content.filter((b: any) => b.type === 'text').pop();
+        if (block) {
+          const parsed = JSON.parse(block.text.replace(/```json|```/g, '').trim()) as FoundContact;
+          const email = typeof parsed?.email === 'string' ? parsed.email.trim().toLowerCase() : '';
+          // On s'arrête ici seulement si l'email vient bien du site (jamais
+          // déduit) ET qu'il désigne une personne, ou qu'on a un nom + un
+          // email de guichet : dans les deux cas le premier email a un
+          // destinataire réel. Sinon, la recherche payante prend le relais.
+          const onSite = !!email && scan.emails.includes(email);
+          if (onSite && (isPersonalEmail(email) || parsed.full_name)) {
+            return { ...parsed, email };
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === 'MonthlyCapExceededError' || err?.name === 'SubscriptionUnpaidError') throw err;
+        // extrait illisible : on passe à la recherche web
+      }
+      siteHint = `\n\nDéjà lu sur le site officiel (ne le recherche pas à nouveau) :\n${emailsLine}${scan.text.slice(0, 1500)}`;
+    }
+  }
+
   const data = await callClaude(
     {
       // Haiku (05/09/2026, plan de coûts validé par Alex) : chercher UN nom
@@ -308,7 +353,7 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null 
       model: 'claude-haiku-4-5',
       max_tokens: 400,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: prompt + siteHint }],
     },
     companyId, 'ap', null, 'prospection_contact'
   );
