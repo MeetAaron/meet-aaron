@@ -1,0 +1,267 @@
+From c168efa6679c0f9c4b74829580512ddac5b7169c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 04:41:28 +0000
+Subject: [PATCH] =?UTF-8?q?Lecture=20Anthropic=20:=20bornes=20align=C3=A9e?=
+ =?UTF-8?q?s=20sur=20des=20jours=20entiers=20;=20Managed=20Payments=20derr?=
+ =?UTF-8?q?i=C3=A8re=20une=20variable?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/anthropic-admin.ts : le 400 « ending date must be after starting date »
+  lu dans Marge venait des bornes ; minuits UTC sans millisecondes, au moins
+  un jour d'écart, seconde tentative avec « maintenant », bornes conservées
+  dans le diagnostic affiché.
+- lib/stripe.ts + checkout + boost : managed_payments activé quand
+  STRIPE_MANAGED_PAYMENTS=1 (Stripe vendeur officiel, collecte et reverse
+  les taxes). Rien ne change sans la variable.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/checkout/route.ts      |   4 +-
+ app/api/credits/boost/route.ts |   4 +-
+ lib/anthropic-admin.ts         | 141 ++++++++++++++++++++-------------
+ lib/stripe.ts                  |  17 ++++
+ 4 files changed, 111 insertions(+), 55 deletions(-)
+
+diff --git a/app/api/checkout/route.ts b/app/api/checkout/route.ts
+index 02e27f5..02fa05f 100644
+--- a/app/api/checkout/route.ts
++++ b/app/api/checkout/route.ts
+@@ -4,7 +4,7 @@
+ // puisse créer la société + le profil utilisateur une fois le paiement confirmé.
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+-import { stripe } from '@/lib/stripe';
++import { stripe, managedPaymentsParams } from '@/lib/stripe';
+ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { ModuleCode, getModulePriceId, currencyForCountry } from '@/lib/subscription';
+ import { readJsonBody, serverError } from '@/lib/http';
+@@ -93,6 +93,8 @@ export async function POST(request: NextRequest) {
+   const currency = currencyForCountry(country);
+   const sessionParams: Record<string, any> = {
+       mode: 'subscription',
++      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
++      ...managedPaymentsParams(),
+       customer_email: email,
+       line_items: lineItems,
+       allow_promotion_codes: true,
+diff --git a/app/api/credits/boost/route.ts b/app/api/credits/boost/route.ts
+index 112196f..6f89d92 100644
+--- a/app/api/credits/boost/route.ts
++++ b/app/api/credits/boost/route.ts
+@@ -15,7 +15,7 @@
+ // une erreur de configuration de moins, et un palier se change en une ligne.
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+-import { stripe } from '@/lib/stripe';
++import { stripe, managedPaymentsParams } from '@/lib/stripe';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { BOOST_TIERS, boostTierById, capUsdForCredits, listActiveBoosts } from '@/lib/credit-boosts';
+@@ -107,6 +107,8 @@ export async function POST(request: NextRequest) {
+   try {
+     const session = await stripe.checkout.sessions.create({
+       mode: 'payment',
++      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
++      ...managedPaymentsParams(),
+       ...(stripeCustomer
+         ? { customer: stripeCustomer }
+         : { customer_email: user?.email || undefined }),
+diff --git a/lib/anthropic-admin.ts b/lib/anthropic-admin.ts
+index 803155f..d15c5e4 100644
+--- a/lib/anthropic-admin.ts
++++ b/lib/anthropic-admin.ts
+@@ -78,62 +78,87 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+   // qui a l'air juste.
+   //
+   // On demande le maximum, et on pagine : `has_more` + `next_page`.
+-  const days: DailyCost[] = [];
+-  let page: string | null = null;
+-  let seenBuckets = 0;
++  // BORNES ALIGNÉES SUR DES JOURS ENTIERS (06/11/2026).
++  //
++  // Diagnostic lu dans Marge par Alex : « HTTP 400 — Invalid date range:
++  // ending date must be after starting date ». Anthropic ramène les bornes
++  // au début de leur journée UTC avant de les comparer, et la borne de fin
++  // « demain à la même heure » pouvait retomber sur le jour du début. On
++  // envoie des minuits UTC sans millisecondes, avec au moins un jour plein
++  // d'écart ; si cette forme est encore refusée pour les dates, on retente
++  // une seule fois avec « maintenant » comme fin (au cas où l'API refuse une
++  // borne dans le futur). La dernière erreur garde les bornes envoyées :
++  // sans elles, impossible de voir d'où vient un refus.
++  const startDay = utcMidnight(startingAt);
++  let endDay = utcMidnight(endingAt);
++  if (endDay.getTime() <= startDay.getTime()) endDay = new Date(startDay.getTime() + 2 * 86400000);
++  const startingParam = isoNoMs(startDay);
++  const candidates = [isoNoMs(endDay), isoNoMs(new Date())].filter((v, i, a) => a.indexOf(v) === i && v > startingParam);
+ 
+   try {
+-    for (let i = 0; i < 6; i++) {
+-    const params = new URLSearchParams({
+-      starting_at: startingAt.toISOString(),
+-      ending_at: endingAt.toISOString(),
+-      limit: '31',
+-    });
+-    if (page) params.set('page', page);
+-    const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
+-      headers: {
+-        'x-api-key': key,
+-        'anthropic-version': '2023-06-01',
+-      },
+-    });
+-    if (!res.ok) {
+-      const body = await res.text().catch(() => '');
+-      lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
+-      console.error(`[admin] cost_report ${lastError}`);
+-      return null;
+-    }
+-    const json: any = await res.json();
++    for (const endingParam of candidates) {
++      const days: DailyCost[] = [];
++      let page: string | null = null;
++      let seenBuckets = 0;
++      let dateRefused = false;
+ 
+-    // La réponse est paginée en « buckets » journaliers, chacun contenant une
+-    // liste de résultats à additionner. On lit défensivement : la forme exacte
+-    // a déjà changé une fois côté Anthropic, et une alerte de solde ne doit
+-    // pas tomber en panne parce qu'un champ a été renommé.
+-    const buckets: any[] = json?.data || json?.buckets || [];
+-    seenBuckets += buckets.length;
+-    for (const bucket of buckets) {
+-      const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
+-      if (!day) continue;
+-      const results: any[] = bucket?.results || bucket?.items || [];
+-      let usd = 0;
+-      for (const r of results) {
+-        usd += centsToUsd(r?.amount ?? r?.cost ?? r?.amount_cents);
+-      }
+-      days.push({ day, usd: Math.round(usd * 10000) / 10000 });
+-    }
+-      if (!json?.has_more || !json?.next_page) break;
+-      page = String(json.next_page);
+-    }
++      for (let i = 0; i < 6; i++) {
++        const params = new URLSearchParams({
++          starting_at: startingParam,
++          ending_at: endingParam,
++          limit: '31',
++        });
++        if (page) params.set('page', page);
++        const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
++          headers: {
++            'x-api-key': key,
++            'anthropic-version': '2023-06-01',
++          },
++        });
++        if (!res.ok) {
++          const body = await res.text().catch(() => '');
++          lastError = `HTTP ${res.status} (${startingParam} → ${endingParam}) : ${body.slice(0, 300)}`;
++          console.error(`[admin] cost_report ${lastError}`);
++          dateRefused = res.status === 400 && /date/i.test(body);
++          break;
++        }
++        const json: any = await res.json();
+ 
+-    if (days.length === 0 && seenBuckets > 0) {
+-      // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
+-      // et on renvoie null pour retomber sur l'estimation, plutôt que
+-      // d'annoncer une dépense nulle qui ferait croire à un solde intact.
+-      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
+-      console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
+-      return null;
++        // La réponse est paginée en « buckets » journaliers, chacun contenant
++        // une liste de résultats à additionner. On lit défensivement : la forme
++        // exacte a déjà changé une fois côté Anthropic, et une alerte de solde
++        // ne doit pas tomber en panne parce qu'un champ a été renommé.
++        const buckets: any[] = json?.data || json?.buckets || [];
++        seenBuckets += buckets.length;
++        for (const bucket of buckets) {
++          const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
++          if (!day) continue;
++          const results: any[] = bucket?.results || bucket?.items || [];
++          let usd = 0;
++          for (const r of results) {
++            usd += centsToUsd(r?.amount ?? r?.cost ?? r?.amount_cents);
++          }
++          days.push({ day, usd: Math.round(usd * 10000) / 10000 });
++        }
++        if (!json?.has_more || !json?.next_page) {
++          if (days.length === 0 && seenBuckets > 0) {
++            // Des buckets mais rien de lisible dedans : la forme a changé. On
++            // le dit et on renvoie null pour retomber sur l'estimation, plutôt
++            // que d'annoncer une dépense nulle qui ferait croire à un solde intact.
++            lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
++            console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
++            return null;
++          }
++          lastError = null;
++          return days;
++        }
++        page = String(json.next_page);
++      }
++      // Une page a échoué. Si ce n'est pas un refus de dates, inutile de
++      // retenter avec une autre borne.
++      if (!dateRefused) return null;
+     }
+-    lastError = null;
+-    return days;
++    return null;
+   } catch (err: any) {
+     lastError = `injoignable : ${err?.message || err}`;
+     console.error('[admin] cost_report injoignable :', err?.message || err);
+@@ -141,12 +166,22 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
+   }
+ }
+ 
++function isoNoMs(d: Date): string {
++  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
++}
++
++function utcMidnight(d: Date): Date {
++  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
++}
++
+ // Somme dépensée depuis un instant donné, d'après Anthropic. null = inconnu.
+ export async function realSpendSince(since: Date): Promise<number | null> {
+   // On part du JOUR de la saisie, inclus : Anthropic agrège par journée UTC,
+   // et compter la journée entière va dans le sens prudent pour une alerte.
+-  const start = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
+-  const end = new Date(Date.now() + 86400000);
++  // Fin : après-demain minuit UTC, pour que la journée en cours soit comprise
++  // quelle que soit l'heure de l'appel (fetchDailyCosts aligne de toute façon).
++  const start = utcMidnight(since);
++  const end = new Date(utcMidnight(new Date()).getTime() + 2 * 86400000);
+   const days = await fetchDailyCosts(start, end);
+   if (days === null) return null;
+   return days.reduce((sum, d) => sum + d.usd, 0);
+diff --git a/lib/stripe.ts b/lib/stripe.ts
+index 786e737..6dd12ea 100644
+--- a/lib/stripe.ts
++++ b/lib/stripe.ts
+@@ -7,3 +7,20 @@ import Stripe from 'stripe';
+ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+   apiVersion: '2025-03-31.basil' as any,
+ });
++
++// MANAGED PAYMENTS — STRIPE COMME VENDEUR OFFICIEL (06/11/2026).
++//
++// Quand STRIPE_MANAGED_PAYMENTS vaut "1", chaque session Checkout demande à
++// Stripe (via Link) d'être le « merchant of record » : c'est alors Stripe qui
++// calcule, collecte, DÉCLARE et REVERSE la TVA/GST/sales tax dans plus de 80
++// pays (toute l'UE, Royaume-Uni, Australie, Nouvelle-Zélande, Canada,
++// États-Unis, Suisse…), à +3,5 % par transaction. Plus de guichet unique
++// irlandais à ouvrir, plus de seuils à surveiller, plus de déclarations.
++//
++// La variable n'est PAS posée par le code : l'activation se fait d'abord dans
++// le Dashboard (Réglages → Managed Payments, acceptation des conditions), par
++// Alex lui-même ; ensuite seulement il pose la variable dans Vercel. Sans
++// elle, rien ne change : Stripe Tax classique, comme avant.
++export function managedPaymentsParams(): Record<string, any> {
++  return process.env.STRIPE_MANAGED_PAYMENTS === '1' ? { managed_payments: { enabled: true } } : {};
++}
+-- 
+2.43.0
+
