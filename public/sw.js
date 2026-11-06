@@ -34,7 +34,7 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: '/icon.png',
     badge: '/icon.png',
-    data: { url: data.url || '/app/dashboard' },
+    data: { url: data.url || '/app/campaigns' },
   };
   if (data.tag) {
     options.tag = data.tag;
@@ -48,7 +48,7 @@ self.addEventListener('push', (event) => {
 // déjà ouvert s'il y en a un, sinon en ouvre un nouveau sur la bonne page.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/app/dashboard';
+  const targetUrl = event.notification.data?.url || '/app/campaigns';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {

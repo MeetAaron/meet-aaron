@@ -101,7 +101,7 @@ export default function OnboardingPage() {
       if (res.ok) {
         // Page demandée avant la connexion (?next=… sur /login), sinon le
         // dashboard — voir rememberPostLoginNext dans lib/supabase-browser.ts.
-        router.push(consumePostLoginNext() || '/app/dashboard');
+        router.push(consumePostLoginNext() || '/app/campaigns');
         return;
       }
 

@@ -1162,7 +1162,7 @@ export async function GET(request: NextRequest) {
             await sendPushNotification(connection.user_id, {
               title: 'Accord détecté',
               body: `${prospect.full_name} semble avoir donné son accord${raison}. Je le passe en client ? Confirme depuis ton tableau de bord.`,
-              url: `/app/dashboard?user_id=${connection.user_id}`,
+              url: `/app/campaigns?user_id=${connection.user_id}`,
               tag: `client_signal:${prospect.id}`,
             });
           }

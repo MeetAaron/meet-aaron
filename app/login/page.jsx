@@ -143,7 +143,7 @@ export default function LoginPage() {
         const body = await res.json().catch(() => ({}));
         if (res.ok && body?.user?.id) {
           const next = consumePostLoginNext();
-          router.replace(next || `/app/dashboard?user_id=${body.user.id}`);
+          router.replace(next || `/app/campaigns?user_id=${body.user.id}`);
         } else {
           router.replace('/onboarding');
         }

@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 
-export const RARE_SLUGS = ['documents', 'connexions', 'team', 'suggestions', 'products', 'customer'];
+export const RARE_SLUGS = ['resultats', 'documents', 'connexions', 'team', 'suggestions', 'products', 'customer'];
 
 export function railLinkClass(slug, label, active) {
   return RARE_SLUGS.includes(slug) && label !== active ? 'nav-link nav-rare' : 'nav-link';

@@ -85,7 +85,7 @@ export async function detectPlatformClientSignal(params: {
   await sendPushNotification(params.userId, {
     title: kind === 'signature_plateforme' ? 'Signature détectée' : 'Paiement détecté',
     body: `${match.full_name} : ${reason}. Je le passe en client ? Confirme depuis ton tableau de bord.`,
-    url: `/app/dashboard?user_id=${params.userId}`,
+    url: `/app/campaigns?user_id=${params.userId}`,
     tag: `client_signal:${match.id}`,
   }).catch(() => {});
   return true;

@@ -24,7 +24,7 @@ import ConnectionBadge from '@/components/ConnectionBadge';
 
 // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
 // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
-const TAB_SLUGS = ['dashboard', 'prospects', 'agenda', 'chat'];
+const TAB_SLUGS = ['campaigns', 'prospects', 'agenda', 'chat'];
 
 export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel, locale }) {
   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);

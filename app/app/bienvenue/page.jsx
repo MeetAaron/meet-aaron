@@ -353,7 +353,7 @@ export default function BienvenuePage() {
       const body = await res.json().catch(() => ({}));
       if (cancelled) return;
       if (!res.ok || body.done) {
-        router.replace(`/app/dashboard?user_id=${link.user.id}`);
+        router.replace(`/app/campaigns?user_id=${link.user.id}`);
         return;
       }
       setMe({ id: link.user.id, company_id: link.user.company_id });
@@ -400,7 +400,7 @@ export default function BienvenuePage() {
 
   function later() {
     try { window.sessionStorage.setItem(LATER_FLAG, '1'); } catch (e) {}
-    router.push(`/app/dashboard?user_id=${me?.id || ''}`);
+    router.push(`/app/campaigns?user_id=${me?.id || ''}`);
   }
 
   // ---- Questionnaire ----
@@ -583,7 +583,7 @@ export default function BienvenuePage() {
   async function finish() {
     try { await save({ done: true }); } catch (e) {}
     try { window.sessionStorage.removeItem(LATER_FLAG); } catch (e) {}
-    router.push(`/app/dashboard?user_id=${me?.id || ''}`);
+    router.push(`/app/campaigns?user_id=${me?.id || ''}`);
   }
 
   if (!state) {

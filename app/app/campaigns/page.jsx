@@ -8,6 +8,9 @@ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import RailMore, { railLinkClass } from '@/components/RailMore';
+import SetupChecklist from '@/components/SetupChecklist';
+import ActivityFeed from '@/components/ActivityFeed';
+import InstallPrompt from '@/components/InstallPrompt';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
@@ -234,6 +237,8 @@ export default function CampaignsPage() {
   // visible ici seulement quand il retient le premier email — en cours, ou
   // tombé en spam. Relu toutes les 2 minutes tant qu'il est en cours.
   const [deliv, setDeliv] = useState(null);
+  // Story « mise en route » remontée par la checklist (components/SetupChecklist.jsx).
+  const [extraStoryGroups, setExtraStoryGroups] = useState([]);
   useEffect(() => {
     if (!userId) return;
     let stop = false;
@@ -393,7 +398,13 @@ export default function CampaignsPage() {
   }
 
   return (
-    <Shell active={t('nav.campaigns', locale)} userId={userId}>
+    <Shell active={t('nav.campaigns', locale)} userId={userId} extraStoryGroups={extraStoryGroups}>
+      {/* CAMPAGNES = ACCUEIL (décision Alex, 05-06/11/2026). Ce que le tableau
+          de bord apportait à l'arrivée vit maintenant ici : la checklist de
+          mise en route (comptes neufs), puis le journal « pendant ton
+          absence ». Le bandeau des actions requises est rendu par le Shell,
+          tout en haut, comme sur chaque page. */}
+      {userId && <SetupChecklist userId={userId} locale={locale} onStoryGroups={setExtraStoryGroups} />}
       <header className="header">
         <div>
           <p className="eyebrow">{t('campaigns.eyebrow', locale)}</p>
@@ -461,6 +472,15 @@ export default function CampaignsPage() {
         </div>
       ) : (
       <>
+      {userId && (
+        <div className="away-feed">
+          <ActivityFeed
+            userId={userId}
+            locale={locale}
+            onOpenContact={(id) => { window.location.href = `/app/prospects?user_id=${userId}&contact=${id}`; }}
+          />
+        </div>
+      )}
       {deliv && campaigns.some((c) => c.status !== 'terminee') && deliv.verdict === 'en_attente' && (
         <div className="campaign-filter deliv-banner">
           <span className="campaign-filter-ic"><Ic name="mail" size={14} /></span>
@@ -883,6 +903,7 @@ export default function CampaignsPage() {
       )}
 
       <style jsx>{`
+        .away-feed { margin-bottom: 1rem; }
         /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
            filtre de campagne de Contacts : une ligne, une icône, un texte. */
         .deliv-banner {
@@ -3869,7 +3890,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
   );
 }
 
-function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact }) {
+function Shell({ children, active, userId, onNotificationsChanged, onNotificationContact, extraStoryGroups }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [lockedModules, setLockedModules] = useState({ prospect: false, sales: false, customer: false });
   // Demande Alex (2026-08-25) : "Mon équipe" ne doit pas apparaître DU TOUT
@@ -3950,7 +3971,6 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   }
 
   const NAV_ITEMS = [
-    { label: t('nav.dashboard', locale), slug: 'dashboard', icon: '📊' },
     { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
@@ -4048,7 +4068,10 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
             Coût nul quand il n'y a rien à traiter : Stories rend `null` si
             aucun groupe n'est en attente (voir components/Stories.jsx), donc
             aucune page ne perd de hauteur utile. */}
-        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} />
+        <Stories userId={userId} locale={locale} onChanged={onNotificationsChanged} onOpenContact={onNotificationContact} extraGroups={extraStoryGroups || []} />
+        {/* Installation sur l'écran d'accueil : Campagnes est désormais la
+            page d'arrivée (06/11/2026), une fois suffit. */}
+        <InstallPrompt locale={locale} />
         {children}
       </main>
       <style jsx global>{`

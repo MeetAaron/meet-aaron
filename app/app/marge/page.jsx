@@ -169,7 +169,7 @@ export default function MargePage() {
         <a className="nav-pill" href={`/app/connexions${userId ? `?user_id=${userId}` : ''}`}>
           <span className="pill-ic"><Ic name="arrowRight" size={15} /></span> Mon compte
         </a>
-        <a className="nav-pill ghost" href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`}>
+        <a className="nav-pill ghost" href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`}>
           Tableau de bord
         </a>
       </nav>

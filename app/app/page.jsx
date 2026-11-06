@@ -10,8 +10,8 @@
 // nav mobile fonctionnelle du tout : le Shell de cette copie n'avait ni état
 // d'ouverture ni bouton hamburger, donc à ≤900px le menu latéral disparaissait
 // sans aucun moyen de le rouvrir. Remplacé par une simple redirection vers le
-// tableau de bord, la page d'entrée logique de l'app (même page vers laquelle
-// redirige déjà la fin de l'onboarding).
+// page Campagnes, l'accueil de l'app depuis le 06/11/2026 (décision Alex :
+// le tableau de bord disparaît, Campagnes le remplace).
 'use client';
 
 import { useEffect } from 'react';
@@ -22,7 +22,7 @@ export default function AppRootPage() {
 
   useEffect(() => {
     const userId = new URLSearchParams(window.location.search).get('user_id');
-    router.replace(userId ? `/app/dashboard?user_id=${userId}` : '/app/dashboard');
+    router.replace(userId ? `/app/campaigns?user_id=${userId}` : '/app/campaigns');
   }, [router]);
 
   return null;

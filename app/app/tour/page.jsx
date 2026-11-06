@@ -73,23 +73,19 @@ function useAuthedUser() {
 
 function slidesFor(locale) {
   return [
+    // Le tableau de bord n'existe plus (06/11/2026) : Campagnes est
+    // l'accueil, et c'est la première diapo.
     {
-      slug: 'dashboard',
-      icon: '📊',
-      title: t('tour.slide.dashboard.title', locale),
-      text: t('tour.slide.dashboard.text', locale),
+      slug: 'campaigns',
+      icon: '🚀',
+      title: t('tour.slide.campaigns.title', locale),
+      text: t('tour.slide.campaigns.text', locale),
     },
     {
       slug: 'prospects',
       icon: '🎯',
       title: t('tour.slide.prospects.title', locale),
       text: t('tour.slide.prospects.text', locale),
-    },
-    {
-      slug: 'campaigns',
-      icon: '🚀',
-      title: t('tour.slide.campaigns.title', locale),
-      text: t('tour.slide.campaigns.text', locale),
     },
     {
       slug: 'agenda',
@@ -250,7 +246,7 @@ export default function TourPage() {
             // tableau de bord, plus Connexions. La boîte mail est liée dans le
             // parcours /app/bienvenue ; ce renvoi donnait l'impression d'être
             // poussé à lier sa boîte en relançant une simple visite.
-            <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
+            <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
               {t('tour.finish', locale)}
             </a>
           ) : (
@@ -258,7 +254,7 @@ export default function TourPage() {
           )}
         </div>
 
-        <a href={`/app/dashboard${userId ? `?user_id=${userId}` : ''}`} className="skip">
+        <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="skip">
           {t('tour.skip', locale)}
         </a>
       </div>
