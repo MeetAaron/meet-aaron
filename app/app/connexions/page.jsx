@@ -7601,6 +7601,11 @@ function ConnectionCard({
           {recheckResult === 'ok' && health && !health.consumer_domain && !health.sending_blocked && (
             <p className="recheck-success">{t('connexions.recheckSuccess', locale)}</p>
           )}
+          {/* Test RÉEL (06/11/2026, lib/deliverability-test.ts) : les lignes
+              DNS ci-dessus disent si la boîte est bien configurée ; ce test
+              dit où un vrai email ARRIVE. C'est lui qui libère ou retient le
+              premier email de prospection. */}
+          {userId && <DeliverabilityRealTest userId={userId} locale={locale} />}
           {showReportProblem && (
             <a
               className="report-problem-link"
@@ -9151,6 +9156,85 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
           }
         }
       `}</style>
+    </div>
+  );
+}
+
+
+// Test de délivrabilité réel (06/11/2026). Autonome : lit /api/deliverability-test,
+// relance tant que le test est en cours, propose « Tester » / « Retester ».
+function DeliverabilityRealTest({ userId, locale }) {
+  const [test, setTest] = useState(undefined); // undefined = pas encore lu
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let stop = false;
+    let timer = null;
+    const load = () => fetch(`/api/deliverability-test?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (stop) return;
+        setTest(res.test || null);
+        if (res.test?.verdict === 'en_attente') timer = setTimeout(load, 90000);
+      })
+      .catch(() => { if (!stop) setTest(null); });
+    load();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, [userId]);
+
+  async function run() {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/deliverability-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      }).then((r) => r.json());
+      if (res.test) setTest(res.test);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (test === undefined) return null;
+  const verdict = test?.verdict;
+  const bad = verdict === 'spam' || verdict === 'introuvable';
+  const placementLabel = (r) =>
+    r.placement === 'inbox' || r.placement === 'autre' ? t('stories.delivInbox', locale)
+      : r.placement === 'spam' ? t('stories.delivSpam', locale)
+        : t('stories.delivNotFound', locale);
+  const when = test?.resolved_at || test?.sent_at;
+  return (
+    <div className={`health ${verdict === 'ok' ? 'health-ok' : ''}`}>
+      <p className="health-title"><Ic name="mail" /> {t('connexions.delivTitle', locale)}</p>
+      {!test && <p className="health-hint">{t('connexions.delivNone', locale)}</p>}
+      {verdict === 'en_attente' && <p className="health-hint">{t('connexions.delivRunning', locale)}</p>}
+      {verdict === 'ok' && <p className="health-status-ok">{t('connexions.delivOk', locale)}</p>}
+      {verdict === 'spam' && <p className="health-status-blocked">{t('connexions.delivSpam', locale)}</p>}
+      {verdict === 'introuvable' && <p className="health-status-blocked">{t('connexions.delivMissing', locale)}</p>}
+      {verdict === 'erreur' && <p className="health-hint">{t('connexions.delivError', locale)}</p>}
+      {Array.isArray(test?.results) && test.results.length > 0 && (
+        <ul className="health-steps">
+          {test.results.map((r) => (
+            <li key={r.email}>
+              {r.provider === 'google' ? 'Gmail' : 'Outlook'} · {placementLabel(r)}
+              {['spf', 'dkim', 'dmarc'].filter((k) => r[k]).length > 0 && (
+                <> — {['spf', 'dkim', 'dmarc'].filter((k) => r[k]).map((k) => `${k.toUpperCase()} ${r[k]}`).join(' · ')}</>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {bad && <p className="health-hint">{t(verdict === 'spam' ? 'stories.delivAdviceSpam' : 'stories.delivAdviceMissing', locale)}</p>}
+      {when && verdict !== 'en_attente' && (
+        <p className="health-hint">{t('connexions.delivLast', locale).replace('{date}', new Date(when).toLocaleString(locale))}</p>
+      )}
+      {!test && <p className="health-hint">{t('connexions.delivHint', locale)}</p>}
+      {verdict !== 'en_attente' && (
+        <button type="button" className="btn-secondary" onClick={run} disabled={busy}>
+          {test ? t('connexions.delivRetest', locale) : t('connexions.delivRun', locale)}
+        </button>
+      )}
     </div>
   );
 }

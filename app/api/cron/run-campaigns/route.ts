@@ -24,6 +24,7 @@ import { generateAaronResponse } from '@/lib/aaron';
 import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnabled, type BatchItemInput } from '@/lib/aaron-batch';
 import { hasReachedProspectingCap, effectiveProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { getPacing } from '@/lib/anthropic-client';
+import { deliverabilityGate } from '@/lib/deliverability-test';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -213,6 +214,20 @@ async function runOneCampaign(campaignId: string, assignedUserId: string) {
   // Claude par prospect pour rien (l'envoi échouerait de toute façon).
   if (newProspects.length > 0 && (await hasReachedProspectingCap(assignedUserId))) {
     return { campaign_id: campaignId, batch_result: result, first_contacts_sent: 0, skipped_daily_cap: true };
+  }
+
+  // TEST DE DÉLIVRABILITÉ RÉEL avant le premier email (06/11/2026, voir
+  // lib/deliverability-test.ts). Placé APRÈS la recherche : le fichier se
+  // constitue pendant qu'on attend le verdict, seul l'envoi est retenu.
+  // « wait » : le verdict n'est pas encore rendu (quelques minutes).
+  // « blocked » : l'email de test est tombé en spam ou n'est jamais arrivé ;
+  // une action requise l'explique au commercial, rien ne part tant qu'il n'a
+  // pas corrigé ou explicitement choisi de continuer.
+  if (newProspects.length > 0) {
+    const gate = await deliverabilityGate(assignedUserId, campaignId);
+    if (gate.status !== 'pass') {
+      return { campaign_id: campaignId, batch_result: result, first_contacts_sent: 0, deliverability: gate.status, deliverability_verdict: gate.test?.verdict || null };
+    }
   }
 
   // Batch API (05/09/2026, validé par Alex) : les premiers emails partent

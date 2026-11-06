@@ -16,6 +16,9 @@ import { resolveUserTimeZone, localDayBounds } from './user-timezone';
 import { derivePipelinePosition } from './pipeline';
 
 export type NotificationType =
+  // Test de délivrabilité négatif : rien ne part tant que ce n'est pas réglé
+  // (06/11/2026, lib/deliverability-test.ts).
+  | 'delivrabilite'
   | 'devis_ouvert'
   | 'devis_a_faire'
   | 'rdv_a_valider'
@@ -32,6 +35,9 @@ export type NotificationType =
 
 // Ordre d'urgence des groupes (ordre d'affichage des stories).
 export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
+  // Tout en tête : tant que les emails tombent en spam, aucun premier email
+  // ne part, donc rien d'autre dans cette liste ne peut avancer.
+  'delivrabilite',
   // En TÊTE, devant la demande de devis (15/10/2026). Tout le reste de cette
   // liste peut attendre une heure sans rien perdre ; ça, non. Un devis ouvert
   // est le seul évènement de l'application où la valeur s'effondre avec les
@@ -284,6 +290,34 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     // Table absente (migration pas passée) ou lecture impossible : on perd
     // ce groupe, jamais les autres.
     console.error('Messages clients en attente — lecture impossible (non bloquant):', err?.message || err);
+  }
+
+  // Test de délivrabilité négatif, pas encore traité (06/11/2026). Une
+  // seule story : la dernière. Lecture tolérante, table peut-être absente.
+  try {
+    const { data: deliv } = await supabaseAdmin
+      .from('deliverability_tests')
+      .select('id, verdict, results, resolved_at, acknowledged_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (deliv && (deliv.verdict === 'spam' || deliv.verdict === 'introuvable') && !deliv.acknowledged_at) {
+      push({
+        prospect_id: null,
+        appointment_id: null,
+        prospect_name: 'Aaron',
+        company_name: null,
+        personality_type: null,
+        at: deliv.resolved_at,
+        days_waiting: null,
+        id: `delivrabilite:${deliv.id}`,
+        type: 'delivrabilite',
+        meta: { verdict: deliv.verdict, results: deliv.results || [], user_id: userId },
+      } as any);
+    }
+  } catch (err: any) {
+    console.error('Test de délivrabilité — lecture impossible (non bloquant):', err?.message || err);
   }
 
   // Tri interne : devis le plus ancien d'abord ; RDV le plus proche d'abord ;

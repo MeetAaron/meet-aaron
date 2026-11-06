@@ -800,3 +800,9 @@ export async function listGoogleCalendarEvents(
       end: e.end.dateTime,
     }));
 }
+
+// Jeton d'accès Google d'un utilisateur, pour les lectures hors de ce
+// fichier (06/11/2026 : les boîtes témoins du test de délivrabilité,
+// lib/deliverability-test.ts). Même fonction que ci-dessus, simplement
+// exposée.
+export { getValidAccessToken as getGoogleAccessToken };

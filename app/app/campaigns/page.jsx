@@ -230,6 +230,26 @@ export default function CampaignsPage() {
     setLoading(false);
   }
 
+  // Test de délivrabilité réel (06/11/2026, lib/deliverability-test.ts) :
+  // visible ici seulement quand il retient le premier email — en cours, ou
+  // tombé en spam. Relu toutes les 2 minutes tant qu'il est en cours.
+  const [deliv, setDeliv] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    let stop = false;
+    let timer = null;
+    const load = () => fetch(`/api/deliverability-test?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (stop) return;
+        setDeliv(res.test || null);
+        if (res.test?.verdict === 'en_attente') timer = setTimeout(load, 120000);
+      })
+      .catch(() => {});
+    load();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, [userId]);
+
   useEffect(() => {
     if (!userId) return;
     loadCampaigns();
@@ -441,6 +461,19 @@ export default function CampaignsPage() {
         </div>
       ) : (
       <>
+      {deliv && campaigns.some((c) => c.status !== 'terminee') && deliv.verdict === 'en_attente' && (
+        <div className="campaign-filter deliv-banner">
+          <span className="campaign-filter-ic"><Ic name="mail" size={14} /></span>
+          <span className="campaign-filter-text">{t('campaigns.delivWaiting', locale)}</span>
+        </div>
+      )}
+      {deliv && campaigns.some((c) => c.status !== 'terminee') && (deliv.verdict === 'spam' || deliv.verdict === 'introuvable') && !deliv.acknowledged_at && (
+        <div className="campaign-filter deliv-banner deliv-bad">
+          <span className="campaign-filter-ic"><Ic name="ban" size={14} /></span>
+          <span className="campaign-filter-text">{t('campaigns.delivBlocked', locale)}</span>
+          <a className="campaign-filter-clear" href={`/app/connexions?user_id=${userId}`}>{t('stories.delivConnexions', locale)} →</a>
+        </div>
+      )}
       {/* Bandeau de synthèse (04/09/2026, « la page manque de force, sans
           âme »). La page disait « voici tes campagnes » avant de dire « ça
           marche ». Quatre chiffres en tête, calculés sur TOUTES les campagnes :
@@ -850,6 +883,31 @@ export default function CampaignsPage() {
       )}
 
       <style jsx>{`
+        /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
+           filtre de campagne de Contacts : une ligne, une icône, un texte. */
+        .deliv-banner {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          margin-bottom: 0.8rem;
+          padding: 0.6rem 0.9rem;
+          border-radius: var(--radius-md);
+          background: rgba(75, 57, 239, 0.12);
+          border: 1px solid rgba(124, 110, 245, 0.35);
+          font-size: 0.84rem;
+          color: var(--text-primary);
+        }
+        .deliv-banner .campaign-filter-ic { display: inline-flex; color: var(--accent-light, var(--accent)); }
+        .deliv-banner .campaign-filter-text { min-width: 0; flex: 1; }
+        .deliv-banner.deliv-bad { background: rgba(239, 68, 89, 0.12); border-color: rgba(239, 68, 89, 0.4); }
+        .deliv-banner.deliv-bad .campaign-filter-ic { color: #ef4459; }
+        .deliv-banner .campaign-filter-clear {
+          color: var(--text-primary);
+          font-weight: 600;
+          text-decoration: none;
+          white-space: nowrap;
+        }
         .header {
           display: flex;
           justify-content: space-between;

@@ -18,6 +18,7 @@ import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { getBrochureForReply } from '@/lib/first-email-attachment';
 import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { triageInbound, type InboundHeaders } from '@/lib/inbound-triage';
+import { isDeliverabilityTestSubject } from '@/lib/deliverability-test';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
@@ -613,6 +614,13 @@ export async function GET(request: NextRequest) {
       }
       if (prospect.is_lost) continue;
 
+      // Email de TEST DE DÉLIVRABILITÉ (06/11/2026) : un client de Meet Aaron
+      // envoie un email témoin à aaron@ avant sa première campagne (voir
+      // lib/deliverability-test.ts). Ce n'est ni une réponse ni une demande
+      // de support : on ne le traite pas, on ne l'étiquette pas, on ne crée
+      // pas de story. Le test le retrouve de son côté par sa référence.
+      if (isDeliverabilityTestSubject(msg.subject)) continue;
+
       // Contrôle MANUEL par-dessus la garantie structurelle ci-dessus : le
       // bouton "Aaron s'en charge / n'en charge plus" (Prospects, Aaron
       // Opportunité, Aaron Client — voir ai_managed, initialement réservé à
@@ -707,6 +715,9 @@ export async function GET(request: NextRequest) {
           continue;
         }
       }
+      // Même filtre qu'au-dessus, pour les fournisseurs dont l'objet n'est
+      // connu qu'après lecture complète (Outlook, IMAP).
+      if (isDeliverabilityTestSubject(msg.subject)) continue;
 
       // Marque le message comme "géré par Aaron" dès la réception, avant même
       // de générer la réponse — si la génération échoue plus bas, le

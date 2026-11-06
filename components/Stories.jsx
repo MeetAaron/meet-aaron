@@ -45,6 +45,7 @@ const RING = {
   client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
   message_client: 'linear-gradient(135deg, #4b9ef0, #b07cf5)',
   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
+  delivrabilite: 'linear-gradient(135deg, #ef4459, #f5a623)',
 };
 
 // Icônes des anneaux et du lecteur : traits (lucide, via components/UiIcon)
@@ -69,6 +70,7 @@ const ICON_NAME = {
   client_a_confirmer: 'trophy',
   message_client: 'message',
   a_risque: 'flame',
+  delivrabilite: 'ban',
 };
 // Relance d'actualité (lib/news-triggers.ts) : même story que le sauvetage,
 // mais on dit pourquoi Aaron écrit maintenant.
@@ -950,6 +952,49 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         </>
       );
       break;
+    case 'delivrabilite': {
+      // Le test d'envoi réel est tombé en spam ou n'est jamais arrivé
+      // (06/11/2026, lib/deliverability-test.ts). Aaron n'écrit à aucun
+      // prospect tant que ce n'est pas réglé — ou tant que le commercial n'a
+      // pas explicitement choisi de continuer.
+      const verdict = item.meta?.verdict;
+      const results = Array.isArray(item.meta?.results) ? item.meta.results : [];
+      const delivUrl = '/api/deliverability-test';
+      const uid = item.meta?.user_id;
+      const placementLabel = (r) =>
+        r.placement === 'inbox' ? t('stories.delivInbox', locale)
+          : r.placement === 'spam' ? t('stories.delivSpam', locale)
+            : r.placement === 'autre' ? t('stories.delivInbox', locale)
+              : t('stories.delivNotFound', locale);
+      const authLine = (r) => ['spf', 'dkim', 'dmarc']
+        .filter((k) => r[k])
+        .map((k) => `${k.toUpperCase()} ${r[k]}`)
+        .join(' · ');
+      body = (
+        <>
+          <p className="lead">{t(verdict === 'spam' ? 'stories.delivLeadSpam' : 'stories.delivLeadMissing', locale)}</p>
+          {results.length > 0 && (
+            <div className="mail">
+              {results.map((r) => (
+                <p key={r.email} className="mailbody">
+                  {r.provider === 'google' ? 'Gmail' : 'Outlook'} · {placementLabel(r)}
+                  {authLine(r) ? ` — ${authLine(r)}` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="advice"><Ic name="bulb" /> {t(verdict === 'spam' ? 'stories.delivAdviceSpam' : 'stories.delivAdviceMissing', locale)}</p>
+        </>
+      );
+      actions = (
+        <>
+          <a className="btn-primary" href={`/app/connexions?user_id=${uid || ''}`}>{t('stories.delivConnexions', locale)} →</a>
+          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(delivUrl, { user_id: uid, action: 'retester' })}>{t('stories.delivRetest', locale)}</button>
+          <button type="button" className="btn-danger" disabled={acting} onClick={() => act(delivUrl, { user_id: uid, action: 'ignorer' })}>{t('stories.delivIgnore', locale)}</button>
+        </>
+      );
+      break;
+    }
     case 'mise_en_route':
       body = (
         <>
