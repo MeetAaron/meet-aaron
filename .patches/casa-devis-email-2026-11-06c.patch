@@ -1,0 +1,572 @@
+From bb8fe4a041b235afa912808a1dc85cac0485235c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 06:53:43 +0000
+Subject: [PATCH] Lire le site du prospect avant toute recherche payante ;
+ confirmation de RDV dans la langue du prospect ; Marge
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/site-scan.ts : page d'accueil + contact/équipe/mentions légales lues
+  gratuitement (emails du domaine, LinkedIn, Instagram, texte). Le coût par
+  prospect venait des recherches web à 0,01 $ pièce, pas des jetons.
+- lib/sourcing.ts : contact extrait du site sans outil ; recherche web
+  seulement en repli. lib/prospect-research.ts : enrichissement depuis
+  l'extrait du site ; réseaux sociaux lus dans le pied de page.
+- app/api/appointments/[id] : email de confirmation en 7 langues, fuseau du
+  commercial (était français en dur, heure de Paris).
+- Marge : cases de saisie du solde repliées derrière « corriger à la main ».
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/route.ts |  59 ++++---
+ app/app/marge/page.jsx             |  22 +++
+ lib/prospect-research.ts           |  39 ++++-
+ lib/site-scan.ts                   | 237 +++++++++++++++++++++++++++++
+ lib/sourcing.ts                    |  47 +++++-
+ 5 files changed, 383 insertions(+), 21 deletions(-)
+ create mode 100644 lib/site-scan.ts
+
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index b11a5d8..2de0c87 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -26,6 +26,19 @@ import { createOutlookCalendarEvent } from '@/lib/microsoft';
+ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
+ import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+ import { resolveMeetingLink } from '@/lib/meeting-link';
++import { resolveProspectLocale } from '@/lib/prospect-locale';
++import { resolveUserTimeZone } from '@/lib/user-timezone';
++
++// Email de confirmation de rendez-vous, dans la langue du prospect (06/11/2026).
++const CONFIRMATION_TEXTS: Record<string, { intl: string; subject: string; hello: string; confirmed: string; types: Record<'visio' | 'telephonique' | 'physique', string>; link: string; linkLater: string; invite: string; reschedule: string; bye: string }> = {
++  fr: { intl: 'fr-FR', subject: "C'est confirmé pour notre rendez-vous", hello: 'Bonjour {name},', confirmed: "C'est confirmé pour notre rendez-vous {type}, le {date}.", types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, link: 'Voici le lien pour nous rejoindre : {link}', linkLater: 'Je vous envoie le lien de connexion dans un second email.', invite: 'Vous recevrez également une invitation pour votre agenda.', reschedule: 'Si vous avez besoin de décaler, répondez simplement à cet email.', bye: 'À très vite,' },
++  en: { intl: 'en-GB', subject: 'Our meeting is confirmed', hello: 'Hello {name},', confirmed: 'Our meeting {type} is confirmed for {date}.', types: { visio: 'by video call', telephonique: 'by phone', physique: 'in person' }, link: 'Here is the link to join: {link}', linkLater: 'I will send you the connection link in a second email.', invite: 'You will also receive a calendar invitation.', reschedule: 'If you need to reschedule, just reply to this email.', bye: 'Speak soon,' },
++  de: { intl: 'de-DE', subject: 'Unser Termin ist bestätigt', hello: 'Guten Tag {name},', confirmed: 'Unser Termin {type} ist bestätigt: {date}.', types: { visio: 'per Videoanruf', telephonique: 'per Telefon', physique: 'vor Ort' }, link: 'Hier ist der Link zur Teilnahme: {link}', linkLater: 'Den Zugangslink sende ich Ihnen in einer zweiten E-Mail.', invite: 'Sie erhalten außerdem eine Kalendereinladung.', reschedule: 'Falls Sie verschieben müssen, antworten Sie einfach auf diese E-Mail.', bye: 'Bis bald,' },
++  it: { intl: 'it-IT', subject: 'Il nostro appuntamento è confermato', hello: 'Buongiorno {name},', confirmed: 'Il nostro appuntamento {type} è confermato per {date}.', types: { visio: 'in videochiamata', telephonique: 'per telefono', physique: 'di persona' }, link: 'Ecco il link per collegarsi: {link}', linkLater: 'Le invierò il link di collegamento in una seconda email.', invite: 'Riceverà anche un invito per la sua agenda.', reschedule: 'Se ha bisogno di spostarlo, risponda semplicemente a questa email.', bye: 'A presto,' },
++  es: { intl: 'es-ES', subject: 'Nuestra reunión está confirmada', hello: 'Hola {name},', confirmed: 'Nuestra reunión {type} está confirmada para el {date}.', types: { visio: 'por videollamada', telephonique: 'por teléfono', physique: 'presencial' }, link: 'Aquí tiene el enlace para unirse: {link}', linkLater: 'Le enviaré el enlace de conexión en un segundo correo.', invite: 'También recibirá una invitación para su agenda.', reschedule: 'Si necesita cambiar la fecha, responda simplemente a este correo.', bye: 'Hasta pronto,' },
++  pt: { intl: 'pt-PT', subject: 'A nossa reunião está confirmada', hello: 'Olá {name},', confirmed: 'A nossa reunião {type} está confirmada para {date}.', types: { visio: 'por videochamada', telephonique: 'por telefone', physique: 'presencial' }, link: 'Aqui está o link para entrar: {link}', linkLater: 'Envio-lhe o link de ligação num segundo email.', invite: 'Receberá também um convite para a sua agenda.', reschedule: 'Se precisar de remarcar, basta responder a este email.', bye: 'Até breve,' },
++  nl: { intl: 'nl-NL', subject: 'Onze afspraak is bevestigd', hello: 'Hallo {name},', confirmed: 'Onze afspraak {type} is bevestigd voor {date}.', types: { visio: 'via videogesprek', telephonique: 'telefonisch', physique: 'ter plaatse' }, link: 'Hier is de link om deel te nemen: {link}', linkLater: 'De verbindingslink stuur ik je in een tweede e-mail.', invite: 'Je ontvangt ook een agenda-uitnodiging.', reschedule: 'Moet je verzetten? Beantwoord dan gewoon deze e-mail.', bye: 'Tot snel,' },
++};
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { canAccessAppointment } from '@/lib/appointment-access';
+ import { runInBackground } from '@/lib/background';
+@@ -151,7 +164,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+ 
+   const { data: appointment, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('*, prospects(full_name, email, assigned_user_id)')
++    .select('*, prospects(full_name, email, assigned_user_id, prospect_companies(address, found_by_campaign_id))')
+     .eq('id', appointmentId)
+     .single();
+ 
+@@ -278,35 +291,47 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     // un message de plus quand l'invitation arrive bien. C'est un prix
+     // très inférieur à celui d'un rendez-vous manqué.
+     if (appointment.prospects?.email) {
+-      const dateStr = new Date(startISO).toLocaleString('fr-FR', {
+-        dateStyle: 'full',
+-        timeStyle: 'short',
+-        timeZone: 'Europe/Paris',
++      // LANGUE DU PROSPECT ET FUSEAU DU COMMERCIAL (06/11/2026). Jusqu'ici :
++      // français en dur, date à l'heure de Paris — pour un prospect de Perth
++      // écrit en anglais, c'était une confirmation en français avec une
++      // heure fausse de sept heures. Même détermination de langue que le
++      // premier email (lib/prospect-locale.ts), et le fuseau est celui du
++      // commercial, puisque le créneau a été proposé dans son agenda.
++      const [{ data: seller }, { data: campaign }] = await Promise.all([
++        supabaseAdmin.from('users').select('timezone, billing_country, locale').eq('id', userId).maybeSingle(),
++        (appointment.prospects as any)?.prospect_companies?.found_by_campaign_id
++          ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', (appointment.prospects as any).prospect_companies.found_by_campaign_id).maybeSingle()
++          : Promise.resolve({ data: null as any }),
++      ]);
++      const prospectLocale = resolveProspectLocale({
++        campaignLocale: campaign?.target_locale || null,
++        address: (appointment.prospects as any)?.prospect_companies?.address || null,
++        email: appointment.prospects.email,
++        sellerLocale: (seller as any)?.locale || null,
+       });
+-      const typeLabel =
+-        appointment.type === 'visio' ? 'en visio' : appointment.type === 'telephonique' ? 'par téléphone' : 'sur place';
+-      const lines = [
+-        `Bonjour ${appointment.prospects.full_name},`,
+-        '',
+-        `C'est confirmé pour notre rendez-vous ${typeLabel}, le ${dateStr}.`,
+-      ];
++      const tz = resolveUserTimeZone((seller as any) || {});
++      const T = CONFIRMATION_TEXTS[prospectLocale] || CONFIRMATION_TEXTS.fr;
++      const dateStr = new Date(startISO).toLocaleString(T.intl, { dateStyle: 'full', timeStyle: 'short', timeZone: tz });
++      const typeLabel = T.types[appointment.type as 'visio' | 'telephonique' | 'physique'] || T.types.physique;
++      const lines = [T.hello.replace('{name}', appointment.prospects.full_name || ''), '', T.confirmed.replace('{type}', typeLabel).replace('{date}', dateStr)];
+       if (meetLink) {
+-        lines.push('', `Voici le lien pour nous rejoindre : ${meetLink}`);
++        lines.push('', T.link.replace('{link}', meetLink));
+       } else if (appointment.type === 'visio') {
+         // Aucun lien disponible au moment de la confirmation : on le dit,
+         // plutôt que de laisser le prospect chercher.
+-        lines.push('', 'Je vous envoie le lien de connexion dans un second email.');
++        lines.push('', T.linkLater);
+       }
+       if (calendarProvider) {
+         // L'invitation d'agenda part aussi : on l'annonce pour que le
+         // prospect ne prenne pas le second message pour un doublon.
+-        lines.push('', "Vous recevrez également une invitation pour votre agenda.");
++        lines.push('', T.invite);
+       }
+-      lines.push('', "Si vous avez besoin de décaler, répondez simplement à cet email.", '', 'À très vite,');
++      lines.push('', T.reschedule, '', T.bye);
++      const confirmationSubject = T.subject;
+       // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
+       // n'attend pas la boîte mail. Un échec reste dans les journaux.
+       runInBackground(`confirmation RDV ${appointmentId}`, () =>
+-        sendEmailForUser(userId, appointment.prospects.email, 'C\'est confirmé pour notre rendez-vous', lines.join('\n'))
++        sendEmailForUser(userId, appointment.prospects.email, confirmationSubject, lines.join('\n'))
+       );
+     }
+ 
+diff --git a/app/app/marge/page.jsx b/app/app/marge/page.jsx
+index feab885..34ee1eb 100644
+--- a/app/app/marge/page.jsx
++++ b/app/app/marge/page.jsx
+@@ -86,6 +86,11 @@ export default function MargePage() {
+   // l'un vide arrête Aaron aussi sûrement que l'autre.
+   const [balances, setBalances] = useState([]);
+   const [balanceInputs, setBalanceInputs] = useState({});
++  // Cases de saisie repliées (06/11/2026, Alex : « plus besoin d'avoir les 2
++  // cases ? ») : la dépense est lue chez le fournisseur et les recharges
++  // détectées dans les reçus ; la saisie ne sert plus qu'à corriger. Elle
++  // reste ouverte tant qu'aucun solde n'a jamais été saisi.
++  const [balanceEditing, setBalanceEditing] = useState({});
+   const [balanceSavingFor, setBalanceSavingFor] = useState(null);
+   const [balanceError, setBalanceError] = useState(null);
+ 
+@@ -259,6 +264,14 @@ export default function MargePage() {
+                     ({bal.spentSource === 'fournisseur' ? `lu chez ${label}` : 'estimation prudente'}, le jour de la saisie compte en entier).
+                   </p>
+                 )}
++                {bal.configured && !balanceEditing[bal.provider] ? (
++                  <p className="gst-foot">
++                    <button type="button" className="bal-link bal-link-btn" onClick={() => setBalanceEditing((prev) => ({ ...prev, [bal.provider]: true }))}>
++                      Corriger le solde à la main <Ic name="pencil" size={12} />
++                    </button>
++                    {' '}· normalement inutile : les recharges sont détectées dans les reçus par email.
++                  </p>
++                ) : (
+                 <div className="bal-row">
+                   <input
+                     className="bal-input"
+@@ -276,6 +289,7 @@ export default function MargePage() {
+                     {balanceSavingFor === bal.provider ? 'Enregistrement…' : 'Enregistrer'}
+                   </button>
+                 </div>
++                )}
+                 {/* Diagnostic (05/11/2026) : la clé est posée mais la dépense
+                     reste estimée — on montre POURQUOI, sans quoi il faut
+                     aller lire les journaux Vercel. Jamais la clé elle-même. */}
+@@ -419,6 +433,14 @@ export default function MargePage() {
+           border-color: var(--border);
+           background: var(--bg-elevated);
+         }
++        .bal-link-btn {
++          background: none;
++          border: 0;
++          padding: 0;
++          cursor: pointer;
++          font: inherit;
++          color: var(--accent-light, var(--accent));
++        }
+         .bal-diag {
+           color: var(--accent-amber, #f5a623);
+           font-family: var(--font-mono);
+diff --git a/lib/prospect-research.ts b/lib/prospect-research.ts
+index a65a3b0..14f5e5d 100644
+--- a/lib/prospect-research.ts
++++ b/lib/prospect-research.ts
+@@ -38,6 +38,7 @@
+ import { callClaude, MonthlyCapExceededError } from './anthropic-client';
+ import { isGenericEmailDomain } from './csv-import';
+ import { supabaseAdmin } from './supabase-admin';
++import { scanCompanySite } from './site-scan';
+ import { guessCountry, lookupCompanyRegistry, type LegalRecord } from './company-directory';
+ import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl } from './social-urls';
+ import { localeInstruction, normalizeLocale } from './locale-instruction';
+@@ -202,9 +203,29 @@ export async function researchProspectCompany(
+     `}\n\n` +
+     `N'INVENTE RIEN : chaque champ doit être null plutôt que deviné si tu n'as pas trouvé de source fiable.`;
+ 
++  // ── Le site officiel d'abord, lu gratuitement (06/11/2026) ───────────────
++  // Voir lib/site-scan.ts. Quand le site existe et se laisse lire, le résumé
++  // métier, le secteur, l'adresse et les réseaux sociaux en sortent sans
++  // aucune recherche payante : le modèle lit l'extrait fourni, sans outil.
++  // La recherche web ne sert plus que si le site est inconnu ou illisible.
++  const scan = input.website || input.domain ? await scanCompanySite(input.website || input.domain) : null;
++  const siteReadable = !!scan && scan.text.length > 300;
++
+   try {
+     const data = await callClaude(
+-      {
++      siteReadable
++        ? {
++            model: 'claude-haiku-4-5',
++            max_tokens: 900,
++            messages: [{
++              role: 'user',
++              content:
++                `${prompt}\n\nTu n'as PAS accès au web. Tout ce que tu sais vient de l'extrait ci-dessous, lu sur le site officiel ` +
++                `(${scan!.pages.join(', ')}). Pour "website", réponds ${scan!.website}. Pour "siret", ne réponds que s'il figure ` +
++                `textuellement dans l'extrait (mentions légales), sinon null.\n\n--- EXTRAIT DU SITE ---\n${scan!.text}\n--- FIN ---`,
++            }],
++          }
++        : {
+         // Haiku + 1 recherche (05/09/2026, plan de coûts validé par Alex) :
+         // le résumé métier est une lecture-synthèse d'une page (le site de
+         // l'entreprise), pas une rédaction commerciale. Les champs d'état
+@@ -240,8 +261,9 @@ export async function researchProspectCompany(
+       siret: registry?.registryId || (isPlausibleSiret(parsed.siret) ? parsed.siret.replace(/\s+/g, '') : null),
+       address: registry?.address || (typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim() : null),
+       industry: typeof parsed.industry === 'string' && parsed.industry.trim() ? parsed.industry.trim() : registry?.industry || null,
+-      linkedin_url: normalizeLinkedInCompanyUrl(parsed.linkedin_url),
+-      instagram_url: normalizeInstagramUrl(parsed.instagram_url),
++      // Les liens lus sur le site priment sur ce que le modèle a extrait.
++      linkedin_url: normalizeLinkedInCompanyUrl(scan?.linkedin_url || parsed.linkedin_url),
++      instagram_url: normalizeInstagramUrl(scan?.instagram_url || parsed.instagram_url),
+       socials_searched: true,
+     };
+     await writeResearchCache(cacheKey, result);
+@@ -328,6 +350,17 @@ export async function findCompanySocials(
+ ): Promise<{ linkedin_url: string | null; instagram_url: string | null }> {
+   const empty = { linkedin_url: null, instagram_url: null };
+   if (!input.name && !input.website && !input.domain) return empty;
++  // Pied de page du site d'abord (06/11/2026, gratuit) : c'est là que sont
++  // les liens. La recherche payante ne sert que si le site ne donne rien.
++  if (input.website || input.domain) {
++    const scan = await scanCompanySite(input.website || input.domain);
++    if (scan.linkedin_url || scan.instagram_url) {
++      return {
++        linkedin_url: normalizeLinkedInCompanyUrl(scan.linkedin_url),
++        instagram_url: normalizeInstagramUrl(scan.instagram_url),
++      };
++    }
++  }
+   const prompt =
+     `Trouve les pages PUBLIQUES officielles de cette entreprise sur LinkedIn et Instagram :\n` +
+     (input.name ? `Nom : ${input.name}\n` : '') +
+diff --git a/lib/site-scan.ts b/lib/site-scan.ts
+new file mode 100644
+index 0000000..8ab8645
+--- /dev/null
++++ b/lib/site-scan.ts
+@@ -0,0 +1,237 @@
++// lib/site-scan.ts
++//
++// LECTURE GRATUITE DU SITE D'UNE ENTREPRISE (06/11/2026).
++//
++// Constat chiffré sur la première campagne d'un client : le coût par prospect
++// (~0,044 $) n'est PAS dans les jetons du modèle, il est dans les recherches
++// web de l'outil Anthropic, facturées 0,01 $ chacune — environ quatre par
++// prospect (deux pour trouver le contact, une pour enrichir la fiche, une pour
++// LinkedIn/Instagram). Changer de modèle n'y changerait presque rien.
++//
++// Or l'essentiel de ce que ces recherches vont chercher est sur le site de
++// l'entreprise elle-même : page contact, équipe, mentions légales, pied de
++// page avec les réseaux sociaux. Lire ces pages directement ne coûte rien.
++// Ce module le fait, et les appelants (lib/sourcing.ts, lib/prospect-
++// research.ts) ne déclenchent une recherche payante que si cette lecture n'a
++// rien donné.
++//
++// Garde-fous : 3 pages au plus par site, 5 s par page, 400 Ko par page, HTML
++// seulement, jamais d'exception vers l'appelant. Aucune information n'est
++// inventée : on extrait des chaînes présentes dans la page (emails, liens
++// LinkedIn/Instagram, texte), le modèle fait le tri ensuite.
++
++export interface SiteScan {
++  website: string | null;      // URL effectivement lue (page d'accueil)
++  domain: string | null;
++  pages: string[];             // URLs lues avec succès
++  text: string;                // texte brut des pages, tronqué
++  emails: string[];            // emails trouvés sur le domaine (ou sous-domaines), dédoublonnés
++  linkedin_url: string | null; // page entreprise LinkedIn (linkedin.com/company/…)
++  instagram_url: string | null;
++  phone: string | null;
++}
++
++const EMPTY: SiteScan = { website: null, domain: null, pages: [], text: '', emails: [], linkedin_url: null, instagram_url: null, phone: null };
++
++const CANDIDATE_PATHS = [
++  '/contact', '/contact-us', '/contactez-nous', '/nous-contacter', '/kontakt', '/contatti', '/contacto', '/contactos',
++  '/equipe', '/notre-equipe', '/team', '/about', '/a-propos', '/qui-sommes-nous', '/about-us', '/ueber-uns', '/chi-siamo', '/sobre-nosotros', '/over-ons',
++  '/mentions-legales', '/legal', '/impressum', '/imprint',
++];
++const MAX_PAGES = 3;
++const PAGE_TIMEOUT_MS = 5000;
++const PAGE_MAX_BYTES = 400_000;
++const TEXT_CAP = 7000;
++
++const GENERIC_LOCAL_PARTS = /^(no-?reply|noreply|donotreply|ne-pas-repondre|newsletter|unsubscribe|abuse|postmaster|webmaster|privacy|dpo|rgpd|gdpr|press|presse|jobs|recrutement|careers|candidature|support|help|aide|billing|facturation|compta|comptabilite|accounting|admin|sav|service-client|customer|example|test|sentry)$/i;
++const IMAGE_LIKE = /\.(png|jpe?g|gif|svg|webp)$/i;
++
++export function normalizeWebsite(input: string | null | undefined): string | null {
++  const raw = String(input || '').trim();
++  if (!raw) return null;
++  try {
++    const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
++    if (!url.hostname.includes('.')) return null;
++    return `${url.protocol}//${url.hostname}`;
++  } catch {
++    return null;
++  }
++}
++
++async function fetchHtml(url: string): Promise<string | null> {
++  const ctrl = new AbortController();
++  const timer = setTimeout(() => ctrl.abort(), PAGE_TIMEOUT_MS);
++  try {
++    const res = await fetch(url, {
++      signal: ctrl.signal,
++      redirect: 'follow',
++      headers: {
++        'User-Agent': 'Mozilla/5.0 (compatible; MeetAaronBot/1.0; +https://meetaaron.app)',
++        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
++        'Accept-Language': 'fr,en;q=0.8,de;q=0.6,it;q=0.6,es;q=0.6,pt;q=0.6,nl;q=0.6',
++      },
++    });
++    if (!res.ok) return null;
++    const type = res.headers.get('content-type') || '';
++    if (type && !/html|xml/i.test(type)) return null;
++    const reader = res.body?.getReader();
++    if (!reader) return null;
++    const chunks: Uint8Array[] = [];
++    let size = 0;
++    while (size < PAGE_MAX_BYTES) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      if (value) {
++        chunks.push(value);
++        size += value.length;
++      }
++    }
++    try { await reader.cancel(); } catch { /* flux déjà clos */ }
++    const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
++    return buf.toString('utf8');
++  } catch {
++    return null;
++  } finally {
++    clearTimeout(timer);
++  }
++}
++
++const NAMED_ENTITIES: Record<string, string> = {
++  eacute: 'é', egrave: 'è', ecirc: 'ê', euml: 'ë', agrave: 'à', aacute: 'á', acirc: 'â', auml: 'ä', atilde: 'ã', aring: 'å',
++  ccedil: 'ç', iacute: 'í', icirc: 'î', iuml: 'ï', igrave: 'ì', ocirc: 'ô', oacute: 'ó', ograve: 'ò', ouml: 'ö', otilde: 'õ',
++  ucirc: 'û', uacute: 'ú', ugrave: 'ù', uuml: 'ü', ntilde: 'ñ', szlig: 'ß', oelig: 'œ', aelig: 'æ',
++  Eacute: 'É', Egrave: 'È', Agrave: 'À', Ccedil: 'Ç', Ouml: 'Ö', Uuml: 'Ü', Auml: 'Ä',
++  middot: '·', hellip: '…', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', ndash: '–', mdash: '—', euro: '€', copy: '©',
++  reg: '®', trade: '™', laquo: '«', raquo: '»', deg: '°', bull: '•',
++};
++
++function decodeEntities(s: string): string {
++  return s
++    .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name] ?? m)
++    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
++    .replace(/&nbsp;/g, ' ')
++    .replace(/&amp;/g, '&')
++    .replace(/&lt;/g, '<')
++    .replace(/&gt;/g, '>')
++    .replace(/&quot;/g, '"')
++    .replace(/&#39;|&apos;/g, "'")
++    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
++    .replace(/\[at\]|\(at\)|\s@\s/gi, '@')
++    .replace(/\[dot\]|\(dot\)/gi, '.');
++}
++
++export function htmlToText(html: string): string {
++  return decodeEntities(
++    html
++      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
++      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
++      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
++      .replace(/<!--[\s\S]*?-->/g, ' ')
++      .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr|section|article|footer|header)>/gi, '\n')
++      .replace(/<[^>]+>/g, ' ')
++  )
++    .replace(/[ \t\f\v]+/g, ' ')
++    .replace(/\s*\n\s*/g, '\n')
++    .replace(/\n{3,}/g, '\n\n')
++    .trim();
++}
++
++function extractEmails(html: string, domain: string | null): string[] {
++  const decoded = decodeEntities(html);
++  const found = new Set<string>();
++  // mailto: d'abord (le plus fiable), puis le texte.
++  const re = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
++  for (const m of decoded.match(re) || []) {
++    const email = m.toLowerCase().replace(/^mailto:/, '');
++    if (IMAGE_LIKE.test(email)) continue;
++    const [local, host] = email.split('@');
++    if (!host || GENERIC_LOCAL_PARTS.test(local)) continue;
++    // Seuls les emails du domaine de l'entreprise (ou d'un sous-domaine)
++    // sont retenus : un email tiers trouvé sur la page (prestataire, agence
++    // web) n'est pas un contact chez elle.
++    if (domain && !(host === domain || host.endsWith(`.${domain}`))) continue;
++    found.add(email);
++  }
++  return Array.from(found).slice(0, 12);
++}
++
++function extractSocial(html: string, kind: 'linkedin' | 'instagram'): string | null {
++  const re = kind === 'linkedin'
++    ? /https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/company\/[A-Za-z0-9._%-]+\/?/gi
++    : /https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9._]+\/?/gi;
++  const matches = (html.match(re) || []).filter((u) => !/instagram\.com\/(p|reel|explore|accounts|share)\b/i.test(u));
++  return matches[0] ? matches[0].replace(/\/$/, '') : null;
++}
++
++function extractPhone(text: string): string | null {
++  const m = text.match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{1,4}\)?[\s.-]?)?\d{2,4}(?:[\s.-]?\d{2,4}){2,4}/g) || [];
++  const plausible = m.map((s) => s.trim()).find((s) => s.replace(/\D/g, '').length >= 9 && s.replace(/\D/g, '').length <= 15);
++  return plausible || null;
++}
++
++// Lit la page d'accueil puis, parmi les liens qu'elle contient, jusqu'à deux
++// pages « contact / équipe / mentions légales ». Ne lève jamais.
++export async function scanCompanySite(websiteOrDomain: string | null | undefined): Promise<SiteScan> {
++  const base = normalizeWebsite(websiteOrDomain);
++  if (!base) return { ...EMPTY };
++  const domain = new URL(base).hostname.replace(/^www\./, '').toLowerCase();
++
++  const home = await fetchHtml(base) || (base.startsWith('https://') ? await fetchHtml(base.replace('https://', 'http://')) : null);
++  if (!home) return { ...EMPTY, domain };
++
++  const pages = [base];
++  const htmls = [home];
++
++  // Liens internes de la page d'accueil qui ressemblent à contact/équipe/légal.
++  const links = new Set<string>();
++  for (const m of home.matchAll(/href\s*=\s*["']([^"'#?]+)/gi)) {
++    let href = m[1].trim();
++    if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) continue;
++    try {
++      const u = new URL(href, base);
++      if (u.hostname.replace(/^www\./, '').toLowerCase() !== domain) continue;
++      const path = u.pathname.replace(/\/+$/, '').toLowerCase();
++      if (CANDIDATE_PATHS.some((p) => path === p || path.endsWith(p) || path.includes(p.slice(1)))) {
++        links.add(`${u.protocol}//${u.hostname}${u.pathname}`);
++      }
++    } catch { /* lien illisible */ }
++  }
++  // Ordre de préférence : contact, puis équipe/à-propos, puis mentions légales.
++  const ordered = Array.from(links).sort((a, b) => score(a) - score(b));
++  for (const url of ordered) {
++    if (pages.length >= MAX_PAGES) break;
++    const html = await fetchHtml(url);
++    if (html) {
++      pages.push(url);
++      htmls.push(html);
++    }
++  }
++
++  const all = htmls.join('\n');
++  const text = htmls.map(htmlToText).join('\n\n---\n\n').slice(0, TEXT_CAP);
++  return {
++    website: base,
++    domain,
++    pages,
++    text,
++    emails: extractEmails(all, domain),
++    linkedin_url: extractSocial(all, 'linkedin'),
++    instagram_url: extractSocial(all, 'instagram'),
++    phone: extractPhone(text),
++  };
++}
++
++function score(url: string): number {
++  const p = url.toLowerCase();
++  if (/contact/.test(p)) return 0;
++  if (/equipe|team|about|a-propos|qui-sommes|ueber-uns|chi-siamo|sobre|over-ons/.test(p)) return 1;
++  return 2;
++}
++
++// Un email « personnel » (prenom.nom@, p.nom@, prenom@) vaut plus qu'une
++// adresse de guichet (contact@, info@) pour écrire à quelqu'un.
++export function isPersonalEmail(email: string): boolean {
++  const local = email.split('@')[0];
++  if (/^(contact|info|infos|hello|bonjour|bienvenue|accueil|commercial|sales|vente|ventes|office|mail|email|direction|secretariat|reception|reservation|devis|commande|orders|team|equipe|marketing|communication|com|rh|hr|pro|b2b|shop|boutique)$/i.test(local)) return false;
++  return /^[a-z]+([._-][a-z]+)?$/i.test(local) && local.length >= 3;
++}
+diff --git a/lib/sourcing.ts b/lib/sourcing.ts
+index 1d966d8..d9d652a 100644
+--- a/lib/sourcing.ts
++++ b/lib/sourcing.ts
+@@ -11,6 +11,7 @@ import { searchGooglePlaces, guessCountry } from './company-directory';
+ import { findFreshCompanies } from './fresh-companies';
+ import { searchDirectory } from './directory-db';
+ import { loadSellerContext, type SellerContext } from './registry-sirene';
++import { scanCompanySite, isPersonalEmail } from './site-scan';
+ 
+ // Doit rester synchronisé avec COMPANY_SIZE_OPTIONS dans app/app/campaigns/page.jsx
+ // (les clés stockées en base sont ces mêmes clés courtes ; on ne convertit en
+@@ -298,6 +299,50 @@ Réponds UNIQUEMENT avec un objet JSON (sans texte avant/après, sans balises ma
+ 
+ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null plutôt que d'inventer une information. Un email n'est retenu que s'il apparaît TEXTUELLEMENT dans une page trouvée (jamais déduit d'un modèle prenom.nom@domaine).`;
+ 
++  // ── D'abord le site de l'entreprise, lu gratuitement (06/11/2026) ─────────
++  // Voir lib/site-scan.ts : le coût par prospect était fait de recherches
++  // web à 0,01 $ pièce, pas de jetons. Si la page contact / équipe / mentions
++  // légales donne déjà un nom et un email, aucune recherche payante ne part.
++  // Le modèle lit un EXTRAIT fourni, sans outil : même consigne « null
++  // plutôt qu'inventer », même format de réponse.
++  let siteHint = '';
++  if (company.website) {
++    const scan = await scanCompanySite(company.website);
++    if (scan.text.length > 200 || scan.emails.length > 0) {
++      const emailsLine = scan.emails.length ? `Emails présents sur le site : ${scan.emails.join(', ')}\n` : '';
++      try {
++        const local = await callClaude(
++          {
++            model: 'claude-haiku-4-5',
++            max_tokens: 400,
++            messages: [{
++              role: 'user',
++              content: `${prompt}\n\nTu n'as PAS accès au web. Voici ce qui a déjà été lu sur le site officiel de l'entreprise (${scan.pages.join(', ')}). Ne retiens que ce qui y figure textuellement.\n${emailsLine}\n--- EXTRAIT DU SITE ---\n${scan.text}\n--- FIN ---`,
++            }],
++          },
++          companyId, 'ap', null, 'prospection_contact'
++        );
++        const block = local.content.filter((b: any) => b.type === 'text').pop();
++        if (block) {
++          const parsed = JSON.parse(block.text.replace(/```json|```/g, '').trim()) as FoundContact;
++          const email = typeof parsed?.email === 'string' ? parsed.email.trim().toLowerCase() : '';
++          // On s'arrête ici seulement si l'email vient bien du site (jamais
++          // déduit) ET qu'il désigne une personne, ou qu'on a un nom + un
++          // email de guichet : dans les deux cas le premier email a un
++          // destinataire réel. Sinon, la recherche payante prend le relais.
++          const onSite = !!email && scan.emails.includes(email);
++          if (onSite && (isPersonalEmail(email) || parsed.full_name)) {
++            return { ...parsed, email };
++          }
++        }
++      } catch (err: any) {
++        if (err?.name === 'MonthlyCapExceededError' || err?.name === 'SubscriptionUnpaidError') throw err;
++        // extrait illisible : on passe à la recherche web
++      }
++      siteHint = `\n\nDéjà lu sur le site officiel (ne le recherche pas à nouveau) :\n${emailsLine}${scan.text.slice(0, 1500)}`;
++    }
++  }
++
+   const data = await callClaude(
+     {
+       // Haiku (05/09/2026, plan de coûts validé par Alex) : chercher UN nom
+@@ -308,7 +353,7 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null
+       model: 'claude-haiku-4-5',
+       max_tokens: 400,
+       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+-      messages: [{ role: 'user', content: prompt }],
++      messages: [{ role: 'user', content: prompt + siteHint }],
+     },
+     companyId, 'ap', null, 'prospection_contact'
+   );
+-- 
+2.43.0
+
