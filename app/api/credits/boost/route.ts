@@ -15,7 +15,7 @@
 // une erreur de configuration de moins, et un palier se change en une ligne.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
+import { stripe, managedPaymentsParams } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { BOOST_TIERS, boostTierById, capUsdForCredits, listActiveBoosts } from '@/lib/credit-boosts';
@@ -107,6 +107,8 @@ export async function POST(request: NextRequest) {
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
+      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
+      ...managedPaymentsParams(),
       ...(stripeCustomer
         ? { customer: stripeCustomer }
         : { customer_email: user?.email || undefined }),

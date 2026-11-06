@@ -4,7 +4,7 @@
 // puisse créer la société + le profil utilisateur une fois le paiement confirmé.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
+import { stripe, managedPaymentsParams } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { ModuleCode, getModulePriceId, currencyForCountry } from '@/lib/subscription';
 import { readJsonBody, serverError } from '@/lib/http';
@@ -93,6 +93,8 @@ export async function POST(request: NextRequest) {
   const currency = currencyForCountry(country);
   const sessionParams: Record<string, any> = {
       mode: 'subscription',
+      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
+      ...managedPaymentsParams(),
       customer_email: email,
       line_items: lineItems,
       allow_promotion_codes: true,

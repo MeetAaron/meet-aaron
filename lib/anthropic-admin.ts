@@ -78,62 +78,87 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
   // qui a l'air juste.
   //
   // On demande le maximum, et on pagine : `has_more` + `next_page`.
-  const days: DailyCost[] = [];
-  let page: string | null = null;
-  let seenBuckets = 0;
+  // BORNES ALIGNÉES SUR DES JOURS ENTIERS (06/11/2026).
+  //
+  // Diagnostic lu dans Marge par Alex : « HTTP 400 — Invalid date range:
+  // ending date must be after starting date ». Anthropic ramène les bornes
+  // au début de leur journée UTC avant de les comparer, et la borne de fin
+  // « demain à la même heure » pouvait retomber sur le jour du début. On
+  // envoie des minuits UTC sans millisecondes, avec au moins un jour plein
+  // d'écart ; si cette forme est encore refusée pour les dates, on retente
+  // une seule fois avec « maintenant » comme fin (au cas où l'API refuse une
+  // borne dans le futur). La dernière erreur garde les bornes envoyées :
+  // sans elles, impossible de voir d'où vient un refus.
+  const startDay = utcMidnight(startingAt);
+  let endDay = utcMidnight(endingAt);
+  if (endDay.getTime() <= startDay.getTime()) endDay = new Date(startDay.getTime() + 2 * 86400000);
+  const startingParam = isoNoMs(startDay);
+  const candidates = [isoNoMs(endDay), isoNoMs(new Date())].filter((v, i, a) => a.indexOf(v) === i && v > startingParam);
 
   try {
-    for (let i = 0; i < 6; i++) {
-    const params = new URLSearchParams({
-      starting_at: startingAt.toISOString(),
-      ending_at: endingAt.toISOString(),
-      limit: '31',
-    });
-    if (page) params.set('page', page);
-    const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
-      headers: {
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-      },
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      lastError = `HTTP ${res.status} : ${body.slice(0, 300)}`;
-      console.error(`[admin] cost_report ${lastError}`);
-      return null;
-    }
-    const json: any = await res.json();
+    for (const endingParam of candidates) {
+      const days: DailyCost[] = [];
+      let page: string | null = null;
+      let seenBuckets = 0;
+      let dateRefused = false;
 
-    // La réponse est paginée en « buckets » journaliers, chacun contenant une
-    // liste de résultats à additionner. On lit défensivement : la forme exacte
-    // a déjà changé une fois côté Anthropic, et une alerte de solde ne doit
-    // pas tomber en panne parce qu'un champ a été renommé.
-    const buckets: any[] = json?.data || json?.buckets || [];
-    seenBuckets += buckets.length;
-    for (const bucket of buckets) {
-      const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
-      if (!day) continue;
-      const results: any[] = bucket?.results || bucket?.items || [];
-      let usd = 0;
-      for (const r of results) {
-        usd += centsToUsd(r?.amount ?? r?.cost ?? r?.amount_cents);
+      for (let i = 0; i < 6; i++) {
+        const params = new URLSearchParams({
+          starting_at: startingParam,
+          ending_at: endingParam,
+          limit: '31',
+        });
+        if (page) params.set('page', page);
+        const res = await fetch(`${ADMIN_BASE}/cost_report?${params.toString()}`, {
+          headers: {
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+          },
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          lastError = `HTTP ${res.status} (${startingParam} → ${endingParam}) : ${body.slice(0, 300)}`;
+          console.error(`[admin] cost_report ${lastError}`);
+          dateRefused = res.status === 400 && /date/i.test(body);
+          break;
+        }
+        const json: any = await res.json();
+
+        // La réponse est paginée en « buckets » journaliers, chacun contenant
+        // une liste de résultats à additionner. On lit défensivement : la forme
+        // exacte a déjà changé une fois côté Anthropic, et une alerte de solde
+        // ne doit pas tomber en panne parce qu'un champ a été renommé.
+        const buckets: any[] = json?.data || json?.buckets || [];
+        seenBuckets += buckets.length;
+        for (const bucket of buckets) {
+          const day = String(bucket?.starting_at || bucket?.start || '').slice(0, 10);
+          if (!day) continue;
+          const results: any[] = bucket?.results || bucket?.items || [];
+          let usd = 0;
+          for (const r of results) {
+            usd += centsToUsd(r?.amount ?? r?.cost ?? r?.amount_cents);
+          }
+          days.push({ day, usd: Math.round(usd * 10000) / 10000 });
+        }
+        if (!json?.has_more || !json?.next_page) {
+          if (days.length === 0 && seenBuckets > 0) {
+            // Des buckets mais rien de lisible dedans : la forme a changé. On
+            // le dit et on renvoie null pour retomber sur l'estimation, plutôt
+            // que d'annoncer une dépense nulle qui ferait croire à un solde intact.
+            lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
+            console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
+            return null;
+          }
+          lastError = null;
+          return days;
+        }
+        page = String(json.next_page);
       }
-      days.push({ day, usd: Math.round(usd * 10000) / 10000 });
+      // Une page a échoué. Si ce n'est pas un refus de dates, inutile de
+      // retenter avec une autre borne.
+      if (!dateRefused) return null;
     }
-      if (!json?.has_more || !json?.next_page) break;
-      page = String(json.next_page);
-    }
-
-    if (days.length === 0 && seenBuckets > 0) {
-      // Des buckets mais rien de lisible dedans : la forme a changé. On le dit
-      // et on renvoie null pour retomber sur l'estimation, plutôt que
-      // d'annoncer une dépense nulle qui ferait croire à un solde intact.
-      lastError = 'forme de réponse inattendue (seaux présents, rien de lisible)';
-      console.error('[admin] cost_report : forme de réponse inattendue, repli sur l\'estimation maison.');
-      return null;
-    }
-    lastError = null;
-    return days;
+    return null;
   } catch (err: any) {
     lastError = `injoignable : ${err?.message || err}`;
     console.error('[admin] cost_report injoignable :', err?.message || err);
@@ -141,12 +166,22 @@ export async function fetchDailyCosts(startingAt: Date, endingAt: Date): Promise
   }
 }
 
+function isoNoMs(d: Date): string {
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function utcMidnight(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 // Somme dépensée depuis un instant donné, d'après Anthropic. null = inconnu.
 export async function realSpendSince(since: Date): Promise<number | null> {
   // On part du JOUR de la saisie, inclus : Anthropic agrège par journée UTC,
   // et compter la journée entière va dans le sens prudent pour une alerte.
-  const start = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
-  const end = new Date(Date.now() + 86400000);
+  // Fin : après-demain minuit UTC, pour que la journée en cours soit comprise
+  // quelle que soit l'heure de l'appel (fetchDailyCosts aligne de toute façon).
+  const start = utcMidnight(since);
+  const end = new Date(utcMidnight(new Date()).getTime() + 2 * 86400000);
   const days = await fetchDailyCosts(start, end);
   if (days === null) return null;
   return days.reduce((sum, d) => sum + d.usd, 0);
