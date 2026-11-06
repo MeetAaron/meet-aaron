@@ -1,0 +1,300 @@
+From e99356138bc2b36d64be402ab687dcabeb73205d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 07:10:01 +0000
+Subject: [PATCH] =?UTF-8?q?Tarif=20annuel=20:=20dix=20mois=20pour=20douze,?=
+ =?UTF-8?q?=20choix=20mensuel/annuel=20=C3=A0=20l'inscription?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/boost-tiers.ts : YEARLY_PRICE_TABLE (590 €, £490, $650, A$990, C$890,
+  CHF 590, NZ$1090), équivalent mensuel arrondi.
+- lib/subscription.ts : STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY.
+- app/api/checkout : billing_interval 'year' → prix annuel, refus explicite
+  (501) s'il n'est pas configuré.
+- app/onboarding : deux boutons Mensuel / Annuel (2 mois offerts), affichés
+  seulement si NEXT_PUBLIC_YEARLY_PLAN=1, 7 langues.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/checkout/route.ts |  14 ++++--
+ app/onboarding/page.jsx   | 100 +++++++++++++++++++++++++++++++++++++-
+ lib/boost-tiers.ts        |  32 ++++++++++++
+ lib/subscription.ts       |  11 +++++
+ 4 files changed, 151 insertions(+), 6 deletions(-)
+
+diff --git a/app/api/checkout/route.ts b/app/api/checkout/route.ts
+index 02fa05f..c9ff24b 100644
+--- a/app/api/checkout/route.ts
++++ b/app/api/checkout/route.ts
+@@ -6,7 +6,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { stripe, managedPaymentsParams } from '@/lib/stripe';
+ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+-import { ModuleCode, getModulePriceId, currencyForCountry } from '@/lib/subscription';
++import { ModuleCode, getModulePriceId, getAaronYearlyPriceId, currencyForCountry } from '@/lib/subscription';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+ // Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
+@@ -52,7 +52,7 @@ const STRIPE_LOCALE_MAP: Record<string, string> = {
+ };
+ 
+ export async function POST(request: NextRequest) {
+-  const { first_name, full_name, company_name, country, locale, modules, role } = await readJsonBody(request);
++  const { first_name, full_name, company_name, country, locale, modules, role, billing_interval } = await readJsonBody(request);
+ 
+   if (!first_name || !full_name || !company_name || !country) {
+     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
+@@ -68,12 +68,17 @@ export async function POST(request: NextRequest) {
+   void modules;
+   const selectedModules: ModuleCode[] = ['AP'];
+ 
++  // TARIF ANNUEL (06/11/2026) : billing_interval 'year' → le Price annuel.
++  // S'il n'est pas configuré, on REFUSE (501) plutôt que de prélever un
++  // mensuel à quelqu'un qui a choisi l'année — l'écran d'inscription ne
++  // propose l'annuel que si NEXT_PUBLIC_YEARLY_PLAN vaut "1".
++  const yearly = billing_interval === 'year';
+   const lineItems: { price: string; quantity: number }[] = [];
+   for (const mod of selectedModules) {
+-    const priceId = priceIdFor(mod);
++    const priceId = yearly ? getAaronYearlyPriceId() : priceIdFor(mod);
+     if (!priceId) {
+       return NextResponse.json(
+-        { error: `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
++        { error: yearly ? "Tarif annuel pas encore configuré côté serveur (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY manquant)." : `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
+         { status: 501 }
+       );
+     }
+@@ -125,6 +130,7 @@ export async function POST(request: NextRequest) {
+         full_name,
+         company_name,
+         country,
++        billing_interval: yearly ? 'year' : 'month',
+         // Modules choisis à l'inscription — lu par le webhook
+         // (checkout.session.completed) pour activer les bons booléens
+         // offer_ap_active/offer_as_active/offer_ac_active à la création de
+diff --git a/app/onboarding/page.jsx b/app/onboarding/page.jsx
+index ed52f0d..f295f40 100644
+--- a/app/onboarding/page.jsx
++++ b/app/onboarding/page.jsx
+@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
+ import { useLocale, localeForCountry, t } from '@/lib/i18n';
+-import { currencyForCountryText, subscriptionPrice, formatBoostPrice } from '@/lib/boost-tiers';
++import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
+ import Ic from '@/components/UiIcon';
+ 
+ // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
+@@ -49,6 +49,60 @@ const COUNTRY_SUGGESTIONS = [
+   'Maroc', 'Tunisie', 'Sénégal', "Côte d'Ivoire", 'Brésil', 'Mexique',
+ ];
+ 
++// Mensuel / annuel (06/11/2026). Textes locaux, comme ailleurs dans cette page.
++const BILLING_TEXT = {
++  "fr": {
++    "label": "Rythme de facturation",
++    "monthly": "Mensuel",
++    "yearly": "Annuel",
++    "save": "2 mois offerts",
++    "billed": "facturé {total} par an"
++  },
++  "en": {
++    "label": "Billing period",
++    "monthly": "Monthly",
++    "yearly": "Yearly",
++    "save": "2 months free",
++    "billed": "billed {total} per year"
++  },
++  "de": {
++    "label": "Abrechnungszeitraum",
++    "monthly": "Monatlich",
++    "yearly": "Jährlich",
++    "save": "2 Monate geschenkt",
++    "billed": "{total} pro Jahr"
++  },
++  "it": {
++    "label": "Periodo di fatturazione",
++    "monthly": "Mensile",
++    "yearly": "Annuale",
++    "save": "2 mesi gratis",
++    "billed": "{total} all’anno"
++  },
++  "es": {
++    "label": "Periodo de facturación",
++    "monthly": "Mensual",
++    "yearly": "Anual",
++    "save": "2 meses gratis",
++    "billed": "{total} al año"
++  },
++  "pt": {
++    "label": "Período de faturação",
++    "monthly": "Mensal",
++    "yearly": "Anual",
++    "save": "2 meses grátis",
++    "billed": "{total} por ano"
++  },
++  "nl": {
++    "label": "Factureringsperiode",
++    "monthly": "Maandelijks",
++    "yearly": "Jaarlijks",
++    "save": "2 maanden gratis",
++    "billed": "{total} per jaar"
++  }
++};
++const bt = (key, locale) => (BILLING_TEXT[locale] || BILLING_TEXT.fr)[key] || BILLING_TEXT.fr[key];
++
+ export default function OnboardingPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+@@ -72,6 +126,10 @@ export default function OnboardingPage() {
+   const [selectedModules, setSelectedModules] = useState(['AP']);
+   const [openInfo, setOpenInfo] = useState(null); // value du module dont l'explication est ouverte, ou null
+   const [attested, setAttested] = useState(false);
++  // Mensuel ou annuel (06/11/2026). L'annuel n'est proposé que si le prix
++  // Stripe existe (NEXT_PUBLIC_YEARLY_PLAN=1 posé en même temps que le Price).
++  const yearlyOffered = process.env.NEXT_PUBLIC_YEARLY_PLAN === '1';
++  const [billing, setBilling] = useState('month');
+   const [inviteCode, setInviteCode] = useState('');
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState(null);
+@@ -142,6 +200,7 @@ export default function OnboardingPage() {
+         country,
+         locale,
+         modules: selectedModules,
++        billing_interval: yearlyOffered ? billing : 'month',
+         // "patron" pour un(e) fondateur(trice)/dirigeant(e), "commercial"
+         // pour un commercial solo qui paie pour lui-même sans code
+         // d'activation (voir commentaire sur personRole/signupPath plus
+@@ -350,6 +409,8 @@ export default function OnboardingPage() {
+   // facturation saisie au Checkout.
+   const billingCurrency = currencyForCountryText(country);
+   const monthlyPriceLabel = formatBoostPrice(subscriptionPrice(billingCurrency), billingCurrency);
++  const yearlyLabel = formatBoostPrice(yearlyPrice(billingCurrency), billingCurrency);
++  const yearlyPerMonthLabel = formatBoostPrice(yearlyPerMonth(billingCurrency), billingCurrency);
+ 
+   return (
+     <div className="wrap">
+@@ -425,10 +486,22 @@ export default function OnboardingPage() {
+                       300 prospects par mois. Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
+                     </span>
+                   </span>
+-                  <span className="module-price">{monthlyPriceLabel} {t('onboarding.perMonth', locale)}</span>
++                  <span className="module-price">{billing === 'year' && yearlyOffered ? `${yearlyPerMonthLabel} ${t('onboarding.perMonth', locale)}` : `${monthlyPriceLabel} ${t('onboarding.perMonth', locale)}`}</span>
+                 </div>
+               </div>
+             </div>
++            {yearlyOffered && (
++              <div className="billing-switch" role="radiogroup" aria-label={bt('label', locale)}>
++                <button type="button" className={`billing-opt${billing === 'month' ? ' on' : ''}`} role="radio" aria-checked={billing === 'month'} onClick={() => setBilling('month')}>
++                  <strong>{bt('monthly', locale)}</strong>
++                  <span>{monthlyPriceLabel} {t('onboarding.perMonth', locale)}</span>
++                </button>
++                <button type="button" className={`billing-opt${billing === 'year' ? ' on' : ''}`} role="radio" aria-checked={billing === 'year'} onClick={() => setBilling('year')}>
++                  <strong>{bt('yearly', locale)} <em>{bt('save', locale)}</em></strong>
++                  <span>{yearlyPerMonthLabel} {t('onboarding.perMonth', locale)} · {bt('billed', locale).replace('{total}', yearlyLabel)}</span>
++                </button>
++              </div>
++            )}
+             <p className="modules-hint">
+               Sans engagement, résiliable à tout moment depuis l'application. Mises à jour et maintenance comprises.
+             </p>
+@@ -718,6 +791,29 @@ export default function OnboardingPage() {
+           color: #8b90a8;
+           font-size: 0.76rem;
+         }
++        .billing-switch {
++          display: grid;
++          grid-template-columns: 1fr 1fr;
++          gap: 0.6rem;
++          margin-top: 0.7rem;
++        }
++        .billing-opt {
++          text-align: left;
++          background: #0b0e1a;
++          border: 1px solid #232744;
++          border-radius: 10px;
++          padding: 0.7rem 0.85rem;
++          color: #e6e8f2;
++          cursor: pointer;
++          display: flex;
++          flex-direction: column;
++          gap: 0.2rem;
++          font: inherit;
++        }
++        .billing-opt.on { border-color: #4b39ef; box-shadow: 0 0 0 1px #4b39ef inset; }
++        .billing-opt strong { font-size: 0.88rem; }
++        .billing-opt strong em { font-style: normal; font-size: 0.7rem; color: #3dd68c; margin-left: 0.4rem; }
++        .billing-opt span { font-size: 0.78rem; color: #8b90a8; }
+         .module-price {
+           flex-shrink: 0;
+           color: #4b39ef;
+diff --git a/lib/boost-tiers.ts b/lib/boost-tiers.ts
+index d44581d..cb8109b 100644
+--- a/lib/boost-tiers.ts
++++ b/lib/boost-tiers.ts
+@@ -177,6 +177,38 @@ export function subscriptionPrice(currency: BoostCurrency): number {
+   return SUBSCRIPTION_PRICE_TABLE[currency] ?? SUBSCRIPTION_PRICE_TABLE.eur;
+ }
+ 
++// TARIF ANNUEL (validé par Alex le 05/11/2026, « ok je valide ») : dix mois
++// pour douze, dans chaque devise — 590 € l'an, soit 49 € par mois. Comme le
++// mensuel, ces montants servent à l'AFFICHAGE ; le prix réellement prélevé
++// est le Price Stripe annuel (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY, avec ses
++// currency_options). À garder synchronisés à la main.
++export const YEARLY_PRICE_TABLE: Record<BoostCurrency, number> = {
++  eur: 590,
++  gbp: 490,
++  usd: 650,
++  aud: 990,
++  cad: 890,
++  chf: 590,
++  nzd: 1090,
++};
++
++export function yearlyPrice(currency: BoostCurrency): number {
++  return YEARLY_PRICE_TABLE[currency] ?? YEARLY_PRICE_TABLE.eur;
++}
++
++// « 49 € / mois » : l'équivalent mensuel du tarif annuel, arrondi à l'unité.
++export function yearlyPerMonth(currency: BoostCurrency): number {
++  return Math.round(yearlyPrice(currency) / 12);
++}
++
++export function formatYearlyPrice(currency: BoostCurrency = 'eur'): string {
++  return formatBoostPrice(yearlyPrice(currency), currency);
++}
++
++export function formatYearlyPerMonth(currency: BoostCurrency = 'eur'): string {
++  return formatBoostPrice(yearlyPerMonth(currency), currency);
++}
++
+ export const CURRENCY_SYMBOLS: Record<BoostCurrency, string> = {
+   eur: '€',
+   aud: 'A$',
+diff --git a/lib/subscription.ts b/lib/subscription.ts
+index 4524045..9b14ec1 100644
+--- a/lib/subscription.ts
++++ b/lib/subscription.ts
+@@ -43,6 +43,17 @@ export function getAaronPriceId(): string | null {
+   return process.env.STRIPE_PRICE_ID_AARON_PROSPECT || null;
+ }
+ 
++// Prix ANNUEL (06/11/2026). Même règle que le mensuel : variable absente →
++// null, et le checkout refuse explicitement l'annuel plutôt que de prélever
++// un mensuel à quelqu'un qui a choisi l'année.
++export function getAaronYearlyPriceId(): string | null {
++  return process.env.STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY || null;
++}
++
++export function yearlyPlanAvailable(): boolean {
++  return !!getAaronYearlyPriceId();
++}
++
+ export function getModulePriceId(module: ModuleCode): string | null {
+   if (module === 'AP') return getAaronPriceId();
+   const envKey = {
+-- 
+2.43.0
+
