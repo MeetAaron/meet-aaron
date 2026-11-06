@@ -11,7 +11,7 @@
 // Mes documents).
 
 import { NextRequest, NextResponse } from 'next/server';
-import PDFDocument from 'pdfkit';
+import { createPdfDocument } from '@/lib/pdf-fonts';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { computePeriodSummary } from '@/lib/results-report';
@@ -26,7 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc: any = new (PDFDocument as any)({ margin: 50, size: 'A4' });
+    const doc: any = createPdfDocument({ margin: 50, size: 'A4' });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

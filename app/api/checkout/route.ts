@@ -154,12 +154,13 @@ export async function POST(request: NextRequest) {
     // encore cette option on réessaie en EUR — jamais de paiement cassé.
     let session;
     try {
-      session = await stripe.checkout.sessions.create(
-        currency !== 'eur' ? { ...sessionParams, currency } : sessionParams
-      );
+      // La devise est TOUJOURS passée, euro compris (06/11/2026) : le prix
+      // annuel a été créé avec le dollar australien comme devise de base, et
+      // sans `currency` Stripe facturerait un client français en AUD.
+      session = await stripe.checkout.sessions.create({ ...sessionParams, currency });
     } catch (err: any) {
       const msg = String(err?.message || '').toLowerCase();
-      if (currency !== 'eur' && /currenc/.test(msg)) {
+      if (/currenc/.test(msg)) {
         console.error(`Devise ${currency} non configurée sur le Price Stripe, repli EUR:`, err?.message);
         session = await stripe.checkout.sessions.create(sessionParams);
       } else {

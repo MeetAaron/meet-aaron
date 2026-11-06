@@ -5,12 +5,12 @@
 // lib/devis-pdf.ts et app/api/team/report/route.ts (pur JS, fonctionne sans
 // souci en serverless Vercel, déjà une dépendance du projet).
 
-import PDFDocument from 'pdfkit';
+import { createPdfDocument } from './pdf-fonts';
 import { classifyBusinessProfileParagraph, splitBusinessProfileParagraphs } from './business-profile-format';
 
 function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc: any = new (PDFDocument as any)({ margin: 50, size: 'A4', bufferPages: true });
+    const doc: any = createPdfDocument({ margin: 50, size: 'A4', bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -54,14 +54,14 @@ export async function buildBusinessProfilePdf(data: BusinessProfileDocData): Pro
         // couleur accent, avec un filet horizontal dessous pour bien séparer
         // les sections visuellement — cohérent avec le rendu Word.
         doc.moveDown(0.6);
-        doc.fontSize(15).fillColor(COLOR_ACCENT).font('Helvetica-Bold').text(classified.text, { align: 'left' });
+        doc.fontSize(15).fillColor(COLOR_ACCENT).font('Bold').text(classified.text, { align: 'left' });
         const lineY = doc.y + 2;
         doc.moveTo(doc.page.margins.left, lineY)
           .lineTo(doc.page.width - doc.page.margins.right, lineY)
           .strokeColor(COLOR_ACCENT)
           .lineWidth(0.75)
           .stroke();
-        doc.font('Helvetica');
+        doc.font('Regular');
         doc.moveDown(0.6);
       } else if (classified.type === 'marker') {
         doc.fontSize(11).fillColor(COLOR_ACCENT).text(classified.label, { continued: true, align: 'left' });

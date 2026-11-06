@@ -9,12 +9,12 @@
 // d'exonération), identité acheteur, détail des lignes, totaux HT/TVA/TTC,
 // conditions de paiement + mention légale pénalités de retard.
 
-import PDFDocument from 'pdfkit';
+import { createPdfDocument } from './pdf-fonts';
 import { InvoiceLineItem } from './client-invoices';
 
 function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc: any = new (PDFDocument as any)({ margin: 50, size: 'A4' });
+    const doc: any = createPdfDocument({ margin: 50, size: 'A4' });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

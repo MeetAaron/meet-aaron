@@ -11,12 +11,12 @@
 // future évolution) : objet, récapitulatif des postes avec prix, total, et
 // un emplacement réservé pour la signature en bas de page.
 
-import PDFDocument from 'pdfkit';
+import { createPdfDocument } from './pdf-fonts';
 import { Devis } from './aaron-sales';
 
 function pdfBufferFrom(build: (doc: any) => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc: any = new (PDFDocument as any)({ margin: 50, size: 'A4' });
+    const doc: any = createPdfDocument({ margin: 50, size: 'A4' });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
