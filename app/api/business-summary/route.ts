@@ -210,7 +210,14 @@ export async function POST(request: NextRequest) {
     (description && !qaText ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
     `Rédige cette fiche profil d'entreprise sous forme de sections, chacune précédée d'un titre au format ` +
     `Markdown "## Titre de la section" sur sa propre ligne, suivi d'un paragraphe rédigé en prose (pas de puces). ` +
-    `Utilise autant que possible ces 8 sections, dans cet ordre :\n` +
+    `Utilise autant que possible ces 9 sections, dans cet ordre :\n` +
+    // Section ajoutée le 06/11/2026 : « mon métier » distinct de « ma cible ».
+    // C'est l'absence de cette distinction qui a fait démarcher les
+    // concurrents d'un client (post-mortem du 04/11).
+    `## Métier et modèle (ce que l'entreprise EST : fabricant, revendeur ou distributeur, prestataire, ` +
+    `conseil, location… ; ce qu'elle vend exactement, et les marques ou fournisseurs qu'elle porte s'il y en a. ` +
+    `Termine cette section par UNE phrase qui commence par "Ne jamais démarcher :" et nomme les métiers qui sont ` +
+    `ses CONCURRENTS directs, c'est-à-dire le même métier qu'elle)\n` +
     `## Présentation de l'entreprise (secteur d'activité, ce qu'elle fait/vend, en une vue d'ensemble)\n` +
     `## Clientèle cible (taille des clients visés, un profil homogène ou plusieurs profils distincts, ` +
     `comportement/caractère de ces clients)\n` +

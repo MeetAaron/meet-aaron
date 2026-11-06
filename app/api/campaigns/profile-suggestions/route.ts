@@ -92,7 +92,10 @@ export async function GET(request: NextRequest) {
     `Déduis UNIQUEMENT de ces informations (n'invente pas de faits) :\n` +
     `1) "prefill" : la première campagne la plus évidente pour trouver des CLIENTS de cette entreprise :\n` +
     `   - "zone_label" : zone géographique (ville, région ou pays) où elle travaille, ou null si inconnue ;\n` +
-    `   - "sector_keywords" : 1 à 3 secteurs d'activité des entreprises CLIENTES à démarcher (pas son propre secteur) ;\n` +
+    `   - "sector_keywords" : 1 à 3 MÉTIERS des entreprises CLIENTES à démarcher, tels qu'on les cherche dans un annuaire ` +
+    `(« agence événementielle », « cabinet d'expertise comptable »). JAMAIS le métier du commercial lui-même ni un ` +
+    `métier qui vend la même chose que lui (ce seraient ses concurrents — voir la section « Métier et modèle » et la ` +
+    `phrase « Ne jamais démarcher » de sa fiche), jamais une taille d'entreprise (« PME », « grand groupe ») ;\n` +
     `   - "company_sizes" : parmi ${JSON.stringify(SIZE_KEYS)} ;\n` +
     `   - "target_role" : le décideur à contacter parmi ${JSON.stringify(ROLE_KEYS)} ou null ;\n` +
     `   - "context_notes" : une phrase utile pour Aaron (offre, argument principal), ou null.\n` +

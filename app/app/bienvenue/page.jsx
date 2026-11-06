@@ -48,6 +48,13 @@ const W = {
     prefilled: 'Pré-rempli par Aaron d’après ton document', suggestions: 'Idées de réponse',
     summarizing: 'Aaron rédige ta fiche entreprise…', summarizingHint: 'Ça prend une vingtaine de secondes.',
     summaryError: 'La fiche n’a pas pu être générée. Tu pourras la relancer depuis Mon entreprise.',
+    exTitle: "À quoi ça ressemblera",
+    exLead: "Trois fiches d'exemple, inventées pour te montrer le principe : Aaron trouve l'entreprise, la bonne personne, et prépare le premier email. Les vraies arriveront dès le lancement.",
+    exTag: "Exemple",
+    exFound: "trouvée par Aaron",
+    exDraftTitle: "Exemple de premier email",
+    exDraft: "Bonjour Camille, j'ai vu que Dupont Menuiserie venait d'ouvrir un second atelier à Nantes. À ce stade, le suivi des devis devient vite le goulot — c'est exactement ce qu'on règle chez nos clients du bâtiment. Dix minutes mardi ou jeudi pour voir si ça vous concerne ?",
+    ex: [["Camille Rousseau", "Dupont Menuiserie", "Gérante"], ["Yann Lefebvre", "Atelier Lefebvre & Fils", "Directeur commercial"], ["Inès Martin", "Martin Agencement", "Responsable achats"]],
     campaignTitle: 'Ta première campagne', campaignLead: 'Aaron l’a préparée d’après tes réponses. Vérifie, corrige si besoin, et choisis combien d’entreprises contacter.',
     campaignLoading: 'Aaron prépare ta campagne…', hintTitle: 'En une phrase : tu vends quoi, et à qui ?', hintPlaceholder: 'Ex. : des portes de garage motorisées, à des promoteurs immobiliers en Gironde',
     hintGo: 'Préparer ma campagne', zone: 'Zone', zonePlaceholder: 'Ville, région ou pays', sectors: 'Types d’entreprises à contacter', sectorsPlaceholder: 'Séparés par des virgules',
@@ -83,6 +90,13 @@ const W = {
     prefilled: 'Pre-filled by Aaron from your document', suggestions: 'Answer ideas',
     summarizing: 'Aaron is writing your company profile…', summarizingHint: 'This takes about twenty seconds.',
     summaryError: 'The profile could not be generated. You can retry from My company.',
+    exTitle: "What it will look like",
+    exLead: "Three example cards, made up to show the principle: Aaron finds the company, the right person, and drafts the first email. The real ones arrive as soon as you launch.",
+    exTag: "Example",
+    exFound: "found by Aaron",
+    exDraftTitle: "Example first email",
+    exDraft: "Hello Emma, I saw that Harper Joinery just opened a second workshop in Leeds. At that stage, quote follow-up quickly becomes the bottleneck — exactly what we fix for our clients in construction. Ten minutes on Tuesday or Thursday to see if it applies to you?",
+    ex: [["Emma Harper", "Harper Joinery", "Owner"], ["Liam Walker", "Walker & Sons Workshop", "Sales director"], ["Chloe Bennett", "Bennett Fit-outs", "Purchasing manager"]],
     campaignTitle: 'Your first campaign', campaignLead: 'Aaron prepared it from your answers. Check it, edit if needed, and choose how many companies to contact.',
     campaignLoading: 'Aaron is preparing your campaign…', hintTitle: 'In one sentence: what do you sell, and to whom?', hintPlaceholder: 'E.g. motorised garage doors, to property developers in Bristol',
     hintGo: 'Prepare my campaign', zone: 'Area', zonePlaceholder: 'City, region or country', sectors: 'Types of companies to contact', sectorsPlaceholder: 'Comma-separated',
@@ -118,6 +132,13 @@ const W = {
     prefilled: 'Von Aaron aus Ihrem Dokument vorausgefüllt', suggestions: 'Antwortideen',
     summarizing: 'Aaron schreibt Ihr Unternehmensprofil…', summarizingHint: 'Das dauert etwa zwanzig Sekunden.',
     summaryError: 'Das Profil konnte nicht erstellt werden. Sie können es unter Mein Unternehmen erneut starten.',
+    exTitle: "So wird es aussehen",
+    exLead: "Drei Beispielkarten, erfunden, um das Prinzip zu zeigen: Aaron findet das Unternehmen, die richtige Person und bereitet die erste E-Mail vor. Die echten kommen ab dem Start.",
+    exTag: "Beispiel",
+    exFound: "von Aaron gefunden",
+    exDraftTitle: "Beispiel einer ersten E-Mail",
+    exDraft: "Guten Tag Frau Keller, ich habe gesehen, dass Keller Schreinerei gerade eine zweite Werkstatt in Köln eröffnet hat. In dieser Phase wird die Angebotsnachverfolgung schnell zum Engpass — genau das lösen wir für unsere Kunden im Bau. Zehn Minuten am Dienstag oder Donnerstag, um zu sehen, ob es Sie betrifft?",
+    ex: [["Anna Keller", "Keller Schreinerei", "Geschäftsführerin"], ["Jonas Weber", "Weber & Söhne Werkstatt", "Vertriebsleiter"], ["Lena Fischer", "Fischer Innenausbau", "Einkaufsleiterin"]],
     campaignTitle: 'Ihre erste Kampagne', campaignLead: 'Aaron hat sie anhand Ihrer Antworten vorbereitet. Prüfen, bei Bedarf korrigieren und die Anzahl der Unternehmen wählen.',
     campaignLoading: 'Aaron bereitet Ihre Kampagne vor…', hintTitle: 'In einem Satz: Was verkaufen Sie, und an wen?', hintPlaceholder: 'Z. B. motorisierte Garagentore an Bauträger in Bayern',
     hintGo: 'Kampagne vorbereiten', zone: 'Gebiet', zonePlaceholder: 'Stadt, Region oder Land', sectors: 'Branchen, die kontaktiert werden', sectorsPlaceholder: 'Durch Kommas getrennt',
@@ -153,6 +174,13 @@ const W = {
     prefilled: 'Precompilato da Aaron dal tuo documento', suggestions: 'Idee di risposta',
     summarizing: 'Aaron sta scrivendo la scheda della tua azienda…', summarizingHint: 'Ci vogliono una ventina di secondi.',
     summaryError: 'Non è stato possibile generare la scheda. Potrai riprovare da La mia azienda.',
+    exTitle: "Come sarà",
+    exLead: "Tre schede di esempio, inventate per mostrare il principio: Aaron trova l'azienda, la persona giusta e prepara la prima email. Quelle vere arriveranno dal lancio.",
+    exTag: "Esempio",
+    exFound: "trovata da Aaron",
+    exDraftTitle: "Esempio di prima email",
+    exDraft: "Buongiorno Giulia, ho visto che Rossi Falegnameria ha appena aperto un secondo laboratorio a Torino. A questo punto il seguito dei preventivi diventa presto il collo di bottiglia — è esattamente ciò che risolviamo per i nostri clienti dell'edilizia. Dieci minuti martedì o giovedì per capire se vi riguarda?",
+    ex: [["Giulia Rossi", "Rossi Falegnameria", "Titolare"], ["Marco Bianchi", "Bianchi & Figli", "Direttore commerciale"], ["Sara Conti", "Conti Arredamenti", "Responsabile acquisti"]],
     campaignTitle: 'La tua prima campagna', campaignLead: 'Aaron l’ha preparata dalle tue risposte. Controlla, correggi se serve e scegli quante aziende contattare.',
     campaignLoading: 'Aaron sta preparando la campagna…', hintTitle: 'In una frase: cosa vendi, e a chi?', hintPlaceholder: 'Es.: porte da garage motorizzate, a costruttori immobiliari in Lombardia',
     hintGo: 'Prepara la mia campagna', zone: 'Zona', zonePlaceholder: 'Città, regione o paese', sectors: 'Tipi di aziende da contattare', sectorsPlaceholder: 'Separati da virgole',
@@ -188,6 +216,13 @@ const W = {
     prefilled: 'Rellenado por Aaron a partir de tu documento', suggestions: 'Ideas de respuesta',
     summarizing: 'Aaron está redactando la ficha de tu empresa…', summarizingHint: 'Tarda unos veinte segundos.',
     summaryError: 'No se pudo generar la ficha. Podrás relanzarla desde Mi empresa.',
+    exTitle: "Así se verá",
+    exLead: "Tres fichas de ejemplo, inventadas para mostrar el principio: Aaron encuentra la empresa, la persona adecuada y prepara el primer correo. Las reales llegarán en cuanto lances.",
+    exTag: "Ejemplo",
+    exFound: "encontrada por Aaron",
+    exDraftTitle: "Ejemplo de primer correo",
+    exDraft: "Hola Lucía, he visto que Carpintería García acaba de abrir un segundo taller en Valencia. En esa etapa, el seguimiento de presupuestos se convierte rápido en el cuello de botella — justo lo que resolvemos para nuestros clientes de la construcción. ¿Diez minutos el martes o el jueves para ver si os aplica?",
+    ex: [["Lucía García", "Carpintería García", "Gerente"], ["Pablo Martín", "Taller Martín e Hijos", "Director comercial"], ["Marta López", "López Interiorismo", "Responsable de compras"]],
     campaignTitle: 'Tu primera campaña', campaignLead: 'Aaron la ha preparado con tus respuestas. Revisa, corrige si hace falta y elige cuántas empresas contactar.',
     campaignLoading: 'Aaron está preparando tu campaña…', hintTitle: 'En una frase: ¿qué vendes y a quién?', hintPlaceholder: 'Ej.: puertas de garaje motorizadas, a promotores inmobiliarios en Valencia',
     hintGo: 'Preparar mi campaña', zone: 'Zona', zonePlaceholder: 'Ciudad, región o país', sectors: 'Tipos de empresas a contactar', sectorsPlaceholder: 'Separados por comas',
@@ -223,6 +258,13 @@ const W = {
     prefilled: 'Pré-preenchido pelo Aaron a partir do teu documento', suggestions: 'Ideias de resposta',
     summarizing: 'O Aaron está a redigir a ficha da tua empresa…', summarizingHint: 'Demora cerca de vinte segundos.',
     summaryError: 'Não foi possível gerar a ficha. Podes voltar a tentar em A minha empresa.',
+    exTitle: "Como vai ficar",
+    exLead: "Três fichas de exemplo, inventadas para mostrar o princípio: o Aaron encontra a empresa, a pessoa certa e prepara o primeiro email. As verdadeiras chegam assim que lançares.",
+    exTag: "Exemplo",
+    exFound: "encontrada pelo Aaron",
+    exDraftTitle: "Exemplo de primeiro email",
+    exDraft: "Olá Beatriz, vi que a Carpintaria Silva acabou de abrir uma segunda oficina no Porto. Nessa fase, o seguimento dos orçamentos torna-se rapidamente o estrangulamento — é exatamente o que resolvemos para os nossos clientes da construção. Dez minutos na terça ou na quinta para ver se vos diz respeito?",
+    ex: [["Beatriz Silva", "Carpintaria Silva", "Gerente"], ["Tiago Costa", "Oficina Costa & Filhos", "Diretor comercial"], ["Inês Pereira", "Pereira Interiores", "Responsável de compras"]],
     campaignTitle: 'A tua primeira campanha', campaignLead: 'O Aaron preparou-a a partir das tuas respostas. Verifica, corrige se for preciso e escolhe quantas empresas contactar.',
     campaignLoading: 'O Aaron está a preparar a tua campanha…', hintTitle: 'Numa frase: o que vendes, e a quem?', hintPlaceholder: 'Ex.: portões de garagem motorizados, a promotores imobiliários em Lisboa',
     hintGo: 'Preparar a minha campanha', zone: 'Zona', zonePlaceholder: 'Cidade, região ou país', sectors: 'Tipos de empresas a contactar', sectorsPlaceholder: 'Separados por vírgulas',
@@ -258,6 +300,13 @@ const W = {
     prefilled: 'Door Aaron ingevuld op basis van je document', suggestions: 'Antwoordideeën',
     summarizing: 'Aaron schrijft je bedrijfsprofiel…', summarizingHint: 'Dit duurt ongeveer twintig seconden.',
     summaryError: 'Het profiel kon niet worden gemaakt. Je kunt het opnieuw starten via Mijn bedrijf.',
+    exTitle: "Zo gaat het eruitzien",
+    exLead: "Drie voorbeeldkaarten, verzonnen om het principe te tonen: Aaron vindt het bedrijf, de juiste persoon en bereidt de eerste e-mail voor. De echte komen zodra je start.",
+    exTag: "Voorbeeld",
+    exFound: "gevonden door Aaron",
+    exDraftTitle: "Voorbeeld van een eerste e-mail",
+    exDraft: "Hallo Sanne, ik zag dat De Vries Timmerwerken net een tweede werkplaats in Utrecht heeft geopend. In die fase wordt het opvolgen van offertes al snel de bottleneck — precies wat we oplossen voor onze klanten in de bouw. Tien minuten dinsdag of donderdag om te kijken of het voor jullie speelt?",
+    ex: [["Sanne de Vries", "De Vries Timmerwerken", "Eigenaar"], ["Daan Jansen", "Jansen & Zonen Werkplaats", "Commercieel directeur"], ["Lotte Bakker", "Bakker Interieurbouw", "Inkoopmanager"]],
     campaignTitle: 'Je eerste campagne', campaignLead: 'Aaron heeft hem voorbereid op basis van je antwoorden. Controleer, pas aan waar nodig en kies hoeveel bedrijven je wilt benaderen.',
     campaignLoading: 'Aaron bereidt je campagne voor…', hintTitle: 'In één zin: wat verkoop je, en aan wie?', hintPlaceholder: 'Bijv. gemotoriseerde garagedeuren, aan projectontwikkelaars in Utrecht',
     hintGo: 'Mijn campagne voorbereiden', zone: 'Gebied', zonePlaceholder: 'Stad, regio of land', sectors: 'Soorten bedrijven om te benaderen', sectorsPlaceholder: 'Gescheiden door komma’s',
@@ -721,6 +770,29 @@ export default function BienvenuePage() {
             ) : campaign ? (
               <>
                 <p className="lead">{w('campaignLead', locale)}</p>
+                {/* Trois exemples FICTIFS (décision Alex, 06/11/2026) : zéro
+                    prospect réel avant la boîte mail, puisque la campagne
+                    part juste après — mais le principe se voit tout de suite.
+                    Marqués « Exemple » sur chaque carte. */}
+                <div className="panel ex-panel">
+                  <h2 className="q-text">{w('exTitle', locale)}</h2>
+                  <p className="lead">{w('exLead', locale)}</p>
+                  <div className="cards ex-cards">
+                    {w('ex', locale).map(([name, company, role]) => (
+                      <div className="card ex-card" key={name}>
+                        <span className="ex-tag">{w('exTag', locale)}</span>
+                        <strong>{name}</strong>
+                        <span className="ex-sub">{role} · {company}</span>
+                        <span className="ex-found"><Check size={12} aria-hidden="true" /> {w('exFound', locale)}</span>
+                      </div>
+                    ))}
+                    <div className="card ex-card ex-draft">
+                      <span className="ex-tag">{w('exTag', locale)}</span>
+                      <strong>{w('exDraftTitle', locale)}</strong>
+                      <p className="ex-mail">{w('exDraft', locale)}</p>
+                    </div>
+                  </div>
+                </div>
                 <div className="panel form">
                   <label>{w('zone', locale)}
                     <input value={campaign.zone_label} placeholder={w('zonePlaceholder', locale)} onChange={(e) => setCampaign({ ...campaign, zone_label: e.target.value })} />
@@ -846,6 +918,14 @@ export default function BienvenuePage() {
         .card-ic { display: inline-flex; width: 38px; height: 38px; border-radius: 10px; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
         .ok-ic { background: rgba(61, 163, 93, 0.16); color: #3DA35D; }
         .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.1rem; margin-top: 0.9rem; }
+        .ex-panel { margin-bottom: 0.4rem; }
+        .ex-cards { grid-template-columns: repeat(2, 1fr); }
+        .ex-card { display: flex; flex-direction: column; gap: 0.25rem; position: relative; padding-top: 1.6rem; }
+        .ex-tag { position: absolute; top: 0.55rem; right: 0.7rem; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; }
+        .ex-sub { color: var(--muted); font-size: 0.84rem; }
+        .ex-found { color: var(--accent-green, #3dd68c); font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; }
+        .ex-draft { grid-column: 1 / -1; }
+        .ex-mail { margin: 0.2rem 0 0; font-size: 0.86rem; line-height: 1.5; color: var(--text); }
         .panel.center { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; }
         .doc { display: flex; gap: 1rem; align-items: center; justify-content: space-between; border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; }
         .doc-text p { margin: 0 0 0.25rem; }
