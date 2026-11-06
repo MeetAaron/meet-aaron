@@ -1,0 +1,391 @@
+From ae2f61710609554e80b6867ef19b5fc28f721b5a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 07:05:43 +0000
+Subject: [PATCH] =?UTF-8?q?Onboarding=20:=2013e=20question=20=C2=AB=20ton?=
+ =?UTF-8?q?=20m=C3=A9tier=20=C2=BB=20en=20t=C3=AAte,=20trois=20exemples=20?=
+ =?UTF-8?q?fictifs,=20fiche=20avec=20section=20=C2=AB=20M=C3=A9tier=20et?=
+ =?UTF-8?q?=20mod=C3=A8le=20=C2=BB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/onboarding-questions.js + lib/i18n.js : chat.onboardingQ0 (fabricant,
+  revendeur/distributeur, prestataire, conseil, location) avec puces, 7 langues.
+- app/api/business-summary : nouvelle première section « Métier et modèle »
+  terminée par « Ne jamais démarcher : … » (ses concurrents).
+- app/api/campaigns/profile-suggestions : secteurs = métiers des clients,
+  jamais celui du commercial ni une taille.
+- app/app/bienvenue : à l'étape Campagne, trois fiches d'exemple inventées,
+  marquées « Exemple », et un premier email d'exemple — zéro prospect réel
+  avant la boîte mail (décision Alex, 06/11/2026).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/business-summary/route.ts             |  9 ++-
+ .../campaigns/profile-suggestions/route.ts    |  5 +-
+ app/app/bienvenue/page.jsx                    | 80 +++++++++++++++++++
+ lib/i18n.js                                   |  7 ++
+ lib/onboarding-questions.js                   | 54 +++++++++++++
+ 5 files changed, 153 insertions(+), 2 deletions(-)
+
+diff --git a/app/api/business-summary/route.ts b/app/api/business-summary/route.ts
+index 12aaf5f..63c1925 100644
+--- a/app/api/business-summary/route.ts
++++ b/app/api/business-summary/route.ts
+@@ -210,7 +210,14 @@ export async function POST(request: NextRequest) {
+     (description && !qaText ? `Description donnée à l'oral par le commercial :\n"""${description}"""\n\n` : '') +
+     `Rédige cette fiche profil d'entreprise sous forme de sections, chacune précédée d'un titre au format ` +
+     `Markdown "## Titre de la section" sur sa propre ligne, suivi d'un paragraphe rédigé en prose (pas de puces). ` +
+-    `Utilise autant que possible ces 8 sections, dans cet ordre :\n` +
++    `Utilise autant que possible ces 9 sections, dans cet ordre :\n` +
++    // Section ajoutée le 06/11/2026 : « mon métier » distinct de « ma cible ».
++    // C'est l'absence de cette distinction qui a fait démarcher les
++    // concurrents d'un client (post-mortem du 04/11).
++    `## Métier et modèle (ce que l'entreprise EST : fabricant, revendeur ou distributeur, prestataire, ` +
++    `conseil, location… ; ce qu'elle vend exactement, et les marques ou fournisseurs qu'elle porte s'il y en a. ` +
++    `Termine cette section par UNE phrase qui commence par "Ne jamais démarcher :" et nomme les métiers qui sont ` +
++    `ses CONCURRENTS directs, c'est-à-dire le même métier qu'elle)\n` +
+     `## Présentation de l'entreprise (secteur d'activité, ce qu'elle fait/vend, en une vue d'ensemble)\n` +
+     `## Clientèle cible (taille des clients visés, un profil homogène ou plusieurs profils distincts, ` +
+     `comportement/caractère de ces clients)\n` +
+diff --git a/app/api/campaigns/profile-suggestions/route.ts b/app/api/campaigns/profile-suggestions/route.ts
+index c215801..00bf970 100644
+--- a/app/api/campaigns/profile-suggestions/route.ts
++++ b/app/api/campaigns/profile-suggestions/route.ts
+@@ -92,7 +92,10 @@ export async function GET(request: NextRequest) {
+     `Déduis UNIQUEMENT de ces informations (n'invente pas de faits) :\n` +
+     `1) "prefill" : la première campagne la plus évidente pour trouver des CLIENTS de cette entreprise :\n` +
+     `   - "zone_label" : zone géographique (ville, région ou pays) où elle travaille, ou null si inconnue ;\n` +
+-    `   - "sector_keywords" : 1 à 3 secteurs d'activité des entreprises CLIENTES à démarcher (pas son propre secteur) ;\n` +
++    `   - "sector_keywords" : 1 à 3 MÉTIERS des entreprises CLIENTES à démarcher, tels qu'on les cherche dans un annuaire ` +
++    `(« agence événementielle », « cabinet d'expertise comptable »). JAMAIS le métier du commercial lui-même ni un ` +
++    `métier qui vend la même chose que lui (ce seraient ses concurrents — voir la section « Métier et modèle » et la ` +
++    `phrase « Ne jamais démarcher » de sa fiche), jamais une taille d'entreprise (« PME », « grand groupe ») ;\n` +
+     `   - "company_sizes" : parmi ${JSON.stringify(SIZE_KEYS)} ;\n` +
+     `   - "target_role" : le décideur à contacter parmi ${JSON.stringify(ROLE_KEYS)} ou null ;\n` +
+     `   - "context_notes" : une phrase utile pour Aaron (offre, argument principal), ou null.\n` +
+diff --git a/app/app/bienvenue/page.jsx b/app/app/bienvenue/page.jsx
+index e1648d3..adbf03f 100644
+--- a/app/app/bienvenue/page.jsx
++++ b/app/app/bienvenue/page.jsx
+@@ -48,6 +48,13 @@ const W = {
+     prefilled: 'Pré-rempli par Aaron d’après ton document', suggestions: 'Idées de réponse',
+     summarizing: 'Aaron rédige ta fiche entreprise…', summarizingHint: 'Ça prend une vingtaine de secondes.',
+     summaryError: 'La fiche n’a pas pu être générée. Tu pourras la relancer depuis Mon entreprise.',
++    exTitle: "À quoi ça ressemblera",
++    exLead: "Trois fiches d'exemple, inventées pour te montrer le principe : Aaron trouve l'entreprise, la bonne personne, et prépare le premier email. Les vraies arriveront dès le lancement.",
++    exTag: "Exemple",
++    exFound: "trouvée par Aaron",
++    exDraftTitle: "Exemple de premier email",
++    exDraft: "Bonjour Camille, j'ai vu que Dupont Menuiserie venait d'ouvrir un second atelier à Nantes. À ce stade, le suivi des devis devient vite le goulot — c'est exactement ce qu'on règle chez nos clients du bâtiment. Dix minutes mardi ou jeudi pour voir si ça vous concerne ?",
++    ex: [["Camille Rousseau", "Dupont Menuiserie", "Gérante"], ["Yann Lefebvre", "Atelier Lefebvre & Fils", "Directeur commercial"], ["Inès Martin", "Martin Agencement", "Responsable achats"]],
+     campaignTitle: 'Ta première campagne', campaignLead: 'Aaron l’a préparée d’après tes réponses. Vérifie, corrige si besoin, et choisis combien d’entreprises contacter.',
+     campaignLoading: 'Aaron prépare ta campagne…', hintTitle: 'En une phrase : tu vends quoi, et à qui ?', hintPlaceholder: 'Ex. : des portes de garage motorisées, à des promoteurs immobiliers en Gironde',
+     hintGo: 'Préparer ma campagne', zone: 'Zone', zonePlaceholder: 'Ville, région ou pays', sectors: 'Types d’entreprises à contacter', sectorsPlaceholder: 'Séparés par des virgules',
+@@ -83,6 +90,13 @@ const W = {
+     prefilled: 'Pre-filled by Aaron from your document', suggestions: 'Answer ideas',
+     summarizing: 'Aaron is writing your company profile…', summarizingHint: 'This takes about twenty seconds.',
+     summaryError: 'The profile could not be generated. You can retry from My company.',
++    exTitle: "What it will look like",
++    exLead: "Three example cards, made up to show the principle: Aaron finds the company, the right person, and drafts the first email. The real ones arrive as soon as you launch.",
++    exTag: "Example",
++    exFound: "found by Aaron",
++    exDraftTitle: "Example first email",
++    exDraft: "Hello Emma, I saw that Harper Joinery just opened a second workshop in Leeds. At that stage, quote follow-up quickly becomes the bottleneck — exactly what we fix for our clients in construction. Ten minutes on Tuesday or Thursday to see if it applies to you?",
++    ex: [["Emma Harper", "Harper Joinery", "Owner"], ["Liam Walker", "Walker & Sons Workshop", "Sales director"], ["Chloe Bennett", "Bennett Fit-outs", "Purchasing manager"]],
+     campaignTitle: 'Your first campaign', campaignLead: 'Aaron prepared it from your answers. Check it, edit if needed, and choose how many companies to contact.',
+     campaignLoading: 'Aaron is preparing your campaign…', hintTitle: 'In one sentence: what do you sell, and to whom?', hintPlaceholder: 'E.g. motorised garage doors, to property developers in Bristol',
+     hintGo: 'Prepare my campaign', zone: 'Area', zonePlaceholder: 'City, region or country', sectors: 'Types of companies to contact', sectorsPlaceholder: 'Comma-separated',
+@@ -118,6 +132,13 @@ const W = {
+     prefilled: 'Von Aaron aus Ihrem Dokument vorausgefüllt', suggestions: 'Antwortideen',
+     summarizing: 'Aaron schreibt Ihr Unternehmensprofil…', summarizingHint: 'Das dauert etwa zwanzig Sekunden.',
+     summaryError: 'Das Profil konnte nicht erstellt werden. Sie können es unter Mein Unternehmen erneut starten.',
++    exTitle: "So wird es aussehen",
++    exLead: "Drei Beispielkarten, erfunden, um das Prinzip zu zeigen: Aaron findet das Unternehmen, die richtige Person und bereitet die erste E-Mail vor. Die echten kommen ab dem Start.",
++    exTag: "Beispiel",
++    exFound: "von Aaron gefunden",
++    exDraftTitle: "Beispiel einer ersten E-Mail",
++    exDraft: "Guten Tag Frau Keller, ich habe gesehen, dass Keller Schreinerei gerade eine zweite Werkstatt in Köln eröffnet hat. In dieser Phase wird die Angebotsnachverfolgung schnell zum Engpass — genau das lösen wir für unsere Kunden im Bau. Zehn Minuten am Dienstag oder Donnerstag, um zu sehen, ob es Sie betrifft?",
++    ex: [["Anna Keller", "Keller Schreinerei", "Geschäftsführerin"], ["Jonas Weber", "Weber & Söhne Werkstatt", "Vertriebsleiter"], ["Lena Fischer", "Fischer Innenausbau", "Einkaufsleiterin"]],
+     campaignTitle: 'Ihre erste Kampagne', campaignLead: 'Aaron hat sie anhand Ihrer Antworten vorbereitet. Prüfen, bei Bedarf korrigieren und die Anzahl der Unternehmen wählen.',
+     campaignLoading: 'Aaron bereitet Ihre Kampagne vor…', hintTitle: 'In einem Satz: Was verkaufen Sie, und an wen?', hintPlaceholder: 'Z. B. motorisierte Garagentore an Bauträger in Bayern',
+     hintGo: 'Kampagne vorbereiten', zone: 'Gebiet', zonePlaceholder: 'Stadt, Region oder Land', sectors: 'Branchen, die kontaktiert werden', sectorsPlaceholder: 'Durch Kommas getrennt',
+@@ -153,6 +174,13 @@ const W = {
+     prefilled: 'Precompilato da Aaron dal tuo documento', suggestions: 'Idee di risposta',
+     summarizing: 'Aaron sta scrivendo la scheda della tua azienda…', summarizingHint: 'Ci vogliono una ventina di secondi.',
+     summaryError: 'Non è stato possibile generare la scheda. Potrai riprovare da La mia azienda.',
++    exTitle: "Come sarà",
++    exLead: "Tre schede di esempio, inventate per mostrare il principio: Aaron trova l'azienda, la persona giusta e prepara la prima email. Quelle vere arriveranno dal lancio.",
++    exTag: "Esempio",
++    exFound: "trovata da Aaron",
++    exDraftTitle: "Esempio di prima email",
++    exDraft: "Buongiorno Giulia, ho visto che Rossi Falegnameria ha appena aperto un secondo laboratorio a Torino. A questo punto il seguito dei preventivi diventa presto il collo di bottiglia — è esattamente ciò che risolviamo per i nostri clienti dell'edilizia. Dieci minuti martedì o giovedì per capire se vi riguarda?",
++    ex: [["Giulia Rossi", "Rossi Falegnameria", "Titolare"], ["Marco Bianchi", "Bianchi & Figli", "Direttore commerciale"], ["Sara Conti", "Conti Arredamenti", "Responsabile acquisti"]],
+     campaignTitle: 'La tua prima campagna', campaignLead: 'Aaron l’ha preparata dalle tue risposte. Controlla, correggi se serve e scegli quante aziende contattare.',
+     campaignLoading: 'Aaron sta preparando la campagna…', hintTitle: 'In una frase: cosa vendi, e a chi?', hintPlaceholder: 'Es.: porte da garage motorizzate, a costruttori immobiliari in Lombardia',
+     hintGo: 'Prepara la mia campagna', zone: 'Zona', zonePlaceholder: 'Città, regione o paese', sectors: 'Tipi di aziende da contattare', sectorsPlaceholder: 'Separati da virgole',
+@@ -188,6 +216,13 @@ const W = {
+     prefilled: 'Rellenado por Aaron a partir de tu documento', suggestions: 'Ideas de respuesta',
+     summarizing: 'Aaron está redactando la ficha de tu empresa…', summarizingHint: 'Tarda unos veinte segundos.',
+     summaryError: 'No se pudo generar la ficha. Podrás relanzarla desde Mi empresa.',
++    exTitle: "Así se verá",
++    exLead: "Tres fichas de ejemplo, inventadas para mostrar el principio: Aaron encuentra la empresa, la persona adecuada y prepara el primer correo. Las reales llegarán en cuanto lances.",
++    exTag: "Ejemplo",
++    exFound: "encontrada por Aaron",
++    exDraftTitle: "Ejemplo de primer correo",
++    exDraft: "Hola Lucía, he visto que Carpintería García acaba de abrir un segundo taller en Valencia. En esa etapa, el seguimiento de presupuestos se convierte rápido en el cuello de botella — justo lo que resolvemos para nuestros clientes de la construcción. ¿Diez minutos el martes o el jueves para ver si os aplica?",
++    ex: [["Lucía García", "Carpintería García", "Gerente"], ["Pablo Martín", "Taller Martín e Hijos", "Director comercial"], ["Marta López", "López Interiorismo", "Responsable de compras"]],
+     campaignTitle: 'Tu primera campaña', campaignLead: 'Aaron la ha preparado con tus respuestas. Revisa, corrige si hace falta y elige cuántas empresas contactar.',
+     campaignLoading: 'Aaron está preparando tu campaña…', hintTitle: 'En una frase: ¿qué vendes y a quién?', hintPlaceholder: 'Ej.: puertas de garaje motorizadas, a promotores inmobiliarios en Valencia',
+     hintGo: 'Preparar mi campaña', zone: 'Zona', zonePlaceholder: 'Ciudad, región o país', sectors: 'Tipos de empresas a contactar', sectorsPlaceholder: 'Separados por comas',
+@@ -223,6 +258,13 @@ const W = {
+     prefilled: 'Pré-preenchido pelo Aaron a partir do teu documento', suggestions: 'Ideias de resposta',
+     summarizing: 'O Aaron está a redigir a ficha da tua empresa…', summarizingHint: 'Demora cerca de vinte segundos.',
+     summaryError: 'Não foi possível gerar a ficha. Podes voltar a tentar em A minha empresa.',
++    exTitle: "Como vai ficar",
++    exLead: "Três fichas de exemplo, inventadas para mostrar o princípio: o Aaron encontra a empresa, a pessoa certa e prepara o primeiro email. As verdadeiras chegam assim que lançares.",
++    exTag: "Exemplo",
++    exFound: "encontrada pelo Aaron",
++    exDraftTitle: "Exemplo de primeiro email",
++    exDraft: "Olá Beatriz, vi que a Carpintaria Silva acabou de abrir uma segunda oficina no Porto. Nessa fase, o seguimento dos orçamentos torna-se rapidamente o estrangulamento — é exatamente o que resolvemos para os nossos clientes da construção. Dez minutos na terça ou na quinta para ver se vos diz respeito?",
++    ex: [["Beatriz Silva", "Carpintaria Silva", "Gerente"], ["Tiago Costa", "Oficina Costa & Filhos", "Diretor comercial"], ["Inês Pereira", "Pereira Interiores", "Responsável de compras"]],
+     campaignTitle: 'A tua primeira campanha', campaignLead: 'O Aaron preparou-a a partir das tuas respostas. Verifica, corrige se for preciso e escolhe quantas empresas contactar.',
+     campaignLoading: 'O Aaron está a preparar a tua campanha…', hintTitle: 'Numa frase: o que vendes, e a quem?', hintPlaceholder: 'Ex.: portões de garagem motorizados, a promotores imobiliários em Lisboa',
+     hintGo: 'Preparar a minha campanha', zone: 'Zona', zonePlaceholder: 'Cidade, região ou país', sectors: 'Tipos de empresas a contactar', sectorsPlaceholder: 'Separados por vírgulas',
+@@ -258,6 +300,13 @@ const W = {
+     prefilled: 'Door Aaron ingevuld op basis van je document', suggestions: 'Antwoordideeën',
+     summarizing: 'Aaron schrijft je bedrijfsprofiel…', summarizingHint: 'Dit duurt ongeveer twintig seconden.',
+     summaryError: 'Het profiel kon niet worden gemaakt. Je kunt het opnieuw starten via Mijn bedrijf.',
++    exTitle: "Zo gaat het eruitzien",
++    exLead: "Drie voorbeeldkaarten, verzonnen om het principe te tonen: Aaron vindt het bedrijf, de juiste persoon en bereidt de eerste e-mail voor. De echte komen zodra je start.",
++    exTag: "Voorbeeld",
++    exFound: "gevonden door Aaron",
++    exDraftTitle: "Voorbeeld van een eerste e-mail",
++    exDraft: "Hallo Sanne, ik zag dat De Vries Timmerwerken net een tweede werkplaats in Utrecht heeft geopend. In die fase wordt het opvolgen van offertes al snel de bottleneck — precies wat we oplossen voor onze klanten in de bouw. Tien minuten dinsdag of donderdag om te kijken of het voor jullie speelt?",
++    ex: [["Sanne de Vries", "De Vries Timmerwerken", "Eigenaar"], ["Daan Jansen", "Jansen & Zonen Werkplaats", "Commercieel directeur"], ["Lotte Bakker", "Bakker Interieurbouw", "Inkoopmanager"]],
+     campaignTitle: 'Je eerste campagne', campaignLead: 'Aaron heeft hem voorbereid op basis van je antwoorden. Controleer, pas aan waar nodig en kies hoeveel bedrijven je wilt benaderen.',
+     campaignLoading: 'Aaron bereidt je campagne voor…', hintTitle: 'In één zin: wat verkoop je, en aan wie?', hintPlaceholder: 'Bijv. gemotoriseerde garagedeuren, aan projectontwikkelaars in Utrecht',
+     hintGo: 'Mijn campagne voorbereiden', zone: 'Gebied', zonePlaceholder: 'Stad, regio of land', sectors: 'Soorten bedrijven om te benaderen', sectorsPlaceholder: 'Gescheiden door komma’s',
+@@ -721,6 +770,29 @@ export default function BienvenuePage() {
+             ) : campaign ? (
+               <>
+                 <p className="lead">{w('campaignLead', locale)}</p>
++                {/* Trois exemples FICTIFS (décision Alex, 06/11/2026) : zéro
++                    prospect réel avant la boîte mail, puisque la campagne
++                    part juste après — mais le principe se voit tout de suite.
++                    Marqués « Exemple » sur chaque carte. */}
++                <div className="panel ex-panel">
++                  <h2 className="q-text">{w('exTitle', locale)}</h2>
++                  <p className="lead">{w('exLead', locale)}</p>
++                  <div className="cards ex-cards">
++                    {w('ex', locale).map(([name, company, role]) => (
++                      <div className="card ex-card" key={name}>
++                        <span className="ex-tag">{w('exTag', locale)}</span>
++                        <strong>{name}</strong>
++                        <span className="ex-sub">{role} · {company}</span>
++                        <span className="ex-found"><Check size={12} aria-hidden="true" /> {w('exFound', locale)}</span>
++                      </div>
++                    ))}
++                    <div className="card ex-card ex-draft">
++                      <span className="ex-tag">{w('exTag', locale)}</span>
++                      <strong>{w('exDraftTitle', locale)}</strong>
++                      <p className="ex-mail">{w('exDraft', locale)}</p>
++                    </div>
++                  </div>
++                </div>
+                 <div className="panel form">
+                   <label>{w('zone', locale)}
+                     <input value={campaign.zone_label} placeholder={w('zonePlaceholder', locale)} onChange={(e) => setCampaign({ ...campaign, zone_label: e.target.value })} />
+@@ -846,6 +918,14 @@ export default function BienvenuePage() {
+         .card-ic { display: inline-flex; width: 38px; height: 38px; border-radius: 10px; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+         .ok-ic { background: rgba(61, 163, 93, 0.16); color: #3DA35D; }
+         .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.1rem; margin-top: 0.9rem; }
++        .ex-panel { margin-bottom: 0.4rem; }
++        .ex-cards { grid-template-columns: repeat(2, 1fr); }
++        .ex-card { display: flex; flex-direction: column; gap: 0.25rem; position: relative; padding-top: 1.6rem; }
++        .ex-tag { position: absolute; top: 0.55rem; right: 0.7rem; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; }
++        .ex-sub { color: var(--muted); font-size: 0.84rem; }
++        .ex-found { color: var(--accent-green, #3dd68c); font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; }
++        .ex-draft { grid-column: 1 / -1; }
++        .ex-mail { margin: 0.2rem 0 0; font-size: 0.86rem; line-height: 1.5; color: var(--text); }
+         .panel.center { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; }
+         .doc { display: flex; gap: 1rem; align-items: center; justify-content: space-between; border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; }
+         .doc-text p { margin: 0 0 0.25rem; }
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 6796415..dd5c835 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -1095,6 +1095,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Question {current} sur {total}',
+     'chat.resumeQuestionnaireIntro': 'On reprend là où on s\'était arrêtés — tu as déjà répondu à {done} questions sur {total}, je ne te les repose pas. La suite :',
+     'chat.questionnaireAlreadyComplete': 'Tu as déjà répondu à toutes les questions, je ne vais pas te les reposer. Dis-moi simplement ce qui a changé ou ce que tu veux corriger, et je mets ton profil d\'entreprise à jour.',
++    "chat.onboardingQ0": "Pour commencer, ton métier en une phrase : tu fabriques, tu revends ou distribues, tu réalises une prestation, tu conseilles ? Et quoi exactement, pour qui, avec quelles marques ou fournisseurs s'il y en a ? Ça m'évite de démarcher tes concurrents en croyant que ce sont tes clients.",
+     'chat.onboardingQ1': 'Pour commencer : dans quel secteur d\'activité travailles-tu le plus souvent ?',
+     'chat.onboardingQ1b': 'Et pour quelle taille d\'entreprise travailles-tu le plus souvent (TPE, PME, grand groupe...) ?',
+     'chat.onboardingQ2': 'Est-ce que tu as une seule famille de clients bien homogène, ou plusieurs profils bien distincts ?',
+@@ -3406,6 +3407,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Question {current} of {total}',
+     'chat.resumeQuestionnaireIntro': 'Picking up where we left off — you\'ve already answered {done} of {total} questions, so I won\'t ask those again. Next up:',
+     'chat.questionnaireAlreadyComplete': 'You\'ve already answered every question, so I won\'t ask them again. Just tell me what changed or what you\'d like to correct, and I\'ll update your business profile.',
++    "chat.onboardingQ0": "To start, your trade in one sentence: do you manufacture, resell or distribute, deliver a service, advise? And what exactly, for whom, with which brands or suppliers if any? It keeps me from prospecting your competitors thinking they are your clients.",
+     'chat.onboardingQ1': 'To start with: what industry do you work in most often?',
+     'chat.onboardingQ1b': 'And what size of company do you usually work with (small business, mid-size, large enterprise...)?',
+     'chat.onboardingQ2': 'Do you have a single, fairly homogeneous customer type, or several distinct profiles?',
+@@ -5540,6 +5542,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Frage {current} von {total}',
+     'chat.resumeQuestionnaireIntro': 'Wir machen dort weiter, wo wir aufgehört haben — du hast bereits {done} von {total} Fragen beantwortet, die stelle ich nicht erneut. Weiter geht\'s:',
+     'chat.questionnaireAlreadyComplete': 'Du hast bereits alle Fragen beantwortet, ich stelle sie nicht noch einmal. Sag mir einfach, was sich geändert hat oder was du korrigieren möchtest, und ich aktualisiere dein Unternehmensprofil.',
++    "chat.onboardingQ0": "Zum Einstieg dein Gewerbe in einem Satz: Stellst du her, vertreibst du, erbringst du eine Dienstleistung, berätst du? Und was genau, für wen, mit welchen Marken oder Lieferanten, falls vorhanden? So spreche ich nicht deine Konkurrenten an, weil ich sie für Kunden halte.",
+     'chat.onboardingQ1': 'Zum Einstieg: In welcher Branche arbeitest du am häufigsten?',
+     'chat.onboardingQ1b': 'Und mit welcher Unternehmensgröße arbeitest du meistens (Kleinunternehmen, Mittelstand, Großunternehmen...)?',
+     'chat.onboardingQ2': 'Hast du eine einzige, recht einheitliche Kundengruppe, oder mehrere klar unterschiedliche Profile?',
+@@ -7674,6 +7677,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Domanda {current} di {total}',
+     'chat.resumeQuestionnaireIntro': 'Riprendiamo da dove eravamo rimasti — hai già risposto a {done} domande su {total}, non te le ripropongo. Si prosegue:',
+     'chat.questionnaireAlreadyComplete': 'Hai già risposto a tutte le domande, non te le ripropongo. Dimmi solo cosa è cambiato o cosa vuoi correggere, e aggiorno il profilo della tua azienda.',
++    "chat.onboardingQ0": "Per iniziare, il tuo mestiere in una frase: produci, rivendi o distribuisci, esegui una prestazione, consigli? E cosa esattamente, per chi, con quali marche o fornitori se ce ne sono? Così evito di contattare i tuoi concorrenti credendo che siano tuoi clienti.",
+     'chat.onboardingQ1': 'Per iniziare: in quale settore lavori più spesso?',
+     'chat.onboardingQ1b': 'E con quale dimensione di azienda lavori più spesso (piccola impresa, PMI, grande azienda...)?',
+     'chat.onboardingQ2': 'Hai un\'unica tipologia di clienti abbastanza omogenea, o più profili ben distinti?',
+@@ -9808,6 +9812,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Pregunta {current} de {total}',
+     'chat.resumeQuestionnaireIntro': 'Retomamos donde lo dejamos — ya has respondido {done} de {total} preguntas, no te las repito. Seguimos:',
+     'chat.questionnaireAlreadyComplete': 'Ya has respondido a todas las preguntas, no te las voy a repetir. Solo dime qué ha cambiado o qué quieres corregir, y actualizo el perfil de tu empresa.',
++    "chat.onboardingQ0": "Para empezar, tu oficio en una frase: ¿fabricas, revendes o distribuyes, prestas un servicio, asesoras? ¿Y qué exactamente, para quién, con qué marcas o proveedores si los hay? Así evito contactar a tus competidores creyendo que son tus clientes.",
+     'chat.onboardingQ1': 'Para empezar: ¿en qué sector trabajas más a menudo?',
+     'chat.onboardingQ1b': '¿Y con qué tamaño de empresa trabajas más a menudo (pequeña empresa, pyme, gran empresa...)?',
+     'chat.onboardingQ2': '¿Tienes un único tipo de cliente bastante homogéneo, o varios perfiles bien diferenciados?',
+@@ -11942,6 +11947,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Pergunta {current} de {total}',
+     'chat.resumeQuestionnaireIntro': 'Retomamos onde ficámos — já respondeste a {done} de {total} perguntas, não as volto a fazer. A seguir:',
+     'chat.questionnaireAlreadyComplete': 'Já respondeste a todas as perguntas, não as vou repetir. Diz-me apenas o que mudou ou o que queres corrigir, e atualizo o perfil da tua empresa.',
++    "chat.onboardingQ0": "Para começar, o teu ofício numa frase: fabricas, revendes ou distribuis, prestas um serviço, aconselhas? E o quê exatamente, para quem, com que marcas ou fornecedores, se existirem? Assim evito contactar os teus concorrentes julgando que são teus clientes.",
+     'chat.onboardingQ1': 'Para começar: em que setor de atividade trabalhas mais frequentemente?',
+     'chat.onboardingQ1b': 'E com que dimensão de empresa trabalhas mais frequentemente (pequena empresa, PME, grande empresa...)?',
+     'chat.onboardingQ2': 'Tens apenas um tipo de cliente bastante homogéneo, ou vários perfis bem distintos?',
+@@ -14076,6 +14082,7 @@ export const DICT = {
+     'chat.questionnaireProgressCount': 'Vraag {current} van {total}',
+     'chat.resumeQuestionnaireIntro': 'We pakken de draad weer op — je hebt al {done} van de {total} vragen beantwoord, die stel ik niet opnieuw. Verder:',
+     'chat.questionnaireAlreadyComplete': 'Je hebt alle vragen al beantwoord, ik stel ze niet opnieuw. Zeg me gewoon wat er veranderd is of wat je wilt corrigeren, dan werk ik je bedrijfsprofiel bij.',
++    "chat.onboardingQ0": "Om te beginnen, je vak in één zin: produceer je, verkoop je door of distribueer je, lever je een dienst, adviseer je? En wat precies, voor wie, met welke merken of leveranciers als die er zijn? Zo benader ik je concurrenten niet in de veronderstelling dat het klanten zijn.",
+     'chat.onboardingQ1': 'Om te beginnen: in welke sector werk je meestal?',
+     'chat.onboardingQ1b': 'En met welke bedrijfsgrootte werk je meestal (kleine onderneming, mkb, groot bedrijf...)?',
+     'chat.onboardingQ2': 'Heb je één vrij homogene klantengroep, of meerdere duidelijk verschillende profielen?',
+diff --git a/lib/onboarding-questions.js b/lib/onboarding-questions.js
+index 1f6f3f4..caf9e1e 100644
+--- a/lib/onboarding-questions.js
++++ b/lib/onboarding-questions.js
+@@ -11,6 +11,11 @@ import { t } from './i18n';
+ // pour construire un vrai profil commercial "clé en main" plutôt qu'un simple
+ // pavé de texte libre. Les réponses alimentent /api/business-summary.
+ export const ONBOARDING_QUESTION_KEYS = [
++  // Q0 (06/11/2026, demande Alex) : ce que l'entreprise EST — fabricant,
++  // revendeur, distributeur, prestataire — et les marques qu'elle porte.
++  // Posée en premier : c'est « mon métier », à distinguer de « ma cible »
++  // (Q1 et suivantes). Voir le post-mortem du 04/11 (concurrents démarchés).
++  'chat.onboardingQ0',
+   'chat.onboardingQ1',
+   // Q1b (2026-08-27, demande Alex, docx "Modifs Aaron") : la Q1 posait 2
+   // questions en une (secteur d'activité ET taille d'entreprise) — scindée
+@@ -65,6 +70,13 @@ export function getOnboardingQuestions(locale) {
+ // mkb en NL) plutôt que traduites mot à mot.
+ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+   fr: {
++    'chat.onboardingQ0': [
++      { label: "Je fabrique", text: "Je suis fabricant : je conçois et produis ce que je vends." },
++      { label: "Je revends / distribue", text: "Je suis revendeur ou distributeur : je vends les produits de marques ou de fournisseurs que je représente." },
++      { label: "Je réalise une prestation", text: "Je suis prestataire de services : je réalise moi-même une prestation pour mes clients." },
++      { label: "Je conseille", text: "Je suis conseil ou agence : j'accompagne mes clients avec de l'expertise." },
++      { label: "Je loue", text: "Je loue du matériel ou des espaces à mes clients." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'BTP / Artisanat', text: 'Je travaille principalement dans le secteur du BTP et de l\'artisanat.' },
+       { label: 'Services aux entreprises', text: 'Je travaille dans les services aux entreprises (B2B).' },
+@@ -141,6 +153,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   en: {
++    'chat.onboardingQ0': [
++      { label: "I manufacture", text: "I am a manufacturer: I design and produce what I sell." },
++      { label: "I resell / distribute", text: "I am a reseller or distributor: I sell products from brands or suppliers I represent." },
++      { label: "I provide a service", text: "I am a service provider: I deliver a service to my clients myself." },
++      { label: "I advise", text: "I am a consultancy or agency: I support my clients with expertise." },
++      { label: "I rent out", text: "I rent equipment or spaces to my clients." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Construction / Trades', text: 'I mainly work in construction and skilled trades.' },
+       { label: 'Business services', text: 'I work in business services (B2B).' },
+@@ -217,6 +236,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   de: {
++    'chat.onboardingQ0': [
++      { label: "Ich stelle her", text: "Ich bin Hersteller: Ich entwickle und produziere, was ich verkaufe." },
++      { label: "Ich vertreibe", text: "Ich bin Händler oder Distributor: Ich verkaufe Produkte von Marken oder Lieferanten, die ich vertrete." },
++      { label: "Ich erbringe eine Dienstleistung", text: "Ich bin Dienstleister: Ich erbringe die Leistung für meine Kunden selbst." },
++      { label: "Ich berate", text: "Ich bin Beratung oder Agentur: Ich begleite meine Kunden mit Fachwissen." },
++      { label: "Ich vermiete", text: "Ich vermiete Geräte oder Räume an meine Kunden." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Bau / Handwerk', text: 'Ich arbeite hauptsächlich im Bau- und Handwerksbereich.' },
+       { label: 'Unternehmensdienstleistungen', text: 'Ich arbeite im Bereich Unternehmensdienstleistungen (B2B).' },
+@@ -293,6 +319,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   it: {
++    'chat.onboardingQ0': [
++      { label: "Produco", text: "Sono un produttore: progetto e realizzo ciò che vendo." },
++      { label: "Rivendo / distribuisco", text: "Sono un rivenditore o distributore: vendo i prodotti di marche o fornitori che rappresento." },
++      { label: "Eseguo una prestazione", text: "Sono un fornitore di servizi: realizzo io stesso una prestazione per i miei clienti." },
++      { label: "Consiglio", text: "Sono una società di consulenza o un'agenzia: accompagno i miei clienti con competenza." },
++      { label: "Noleggio", text: "Noleggio attrezzature o spazi ai miei clienti." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Edilizia / Artigianato', text: 'Lavoro principalmente nel settore dell\'edilizia e dell\'artigianato.' },
+       { label: 'Servizi alle imprese', text: 'Lavoro nei servizi alle imprese (B2B).' },
+@@ -369,6 +402,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   es: {
++    'chat.onboardingQ0': [
++      { label: "Fabrico", text: "Soy fabricante: diseño y produzco lo que vendo." },
++      { label: "Revendo / distribuyo", text: "Soy revendedor o distribuidor: vendo productos de marcas o proveedores a los que represento." },
++      { label: "Presto un servicio", text: "Soy prestador de servicios: realizo yo mismo un servicio para mis clientes." },
++      { label: "Asesoro", text: "Soy consultora o agencia: acompaño a mis clientes con experiencia." },
++      { label: "Alquilo", text: "Alquilo material o espacios a mis clientes." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Construcción / Artesanía', text: 'Trabajo principalmente en el sector de la construcción y la artesanía.' },
+       { label: 'Servicios a empresas', text: 'Trabajo en servicios a empresas (B2B).' },
+@@ -445,6 +485,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   pt: {
++    'chat.onboardingQ0': [
++      { label: "Fabrico", text: "Sou fabricante: concebo e produzo o que vendo." },
++      { label: "Revendo / distribuo", text: "Sou revendedor ou distribuidor: vendo produtos de marcas ou fornecedores que represento." },
++      { label: "Presto um serviço", text: "Sou prestador de serviços: realizo eu próprio um serviço para os meus clientes." },
++      { label: "Aconselho", text: "Sou consultoria ou agência: acompanho os meus clientes com competência." },
++      { label: "Alugo", text: "Alugo equipamento ou espaços aos meus clientes." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Construção / Artesanato', text: 'Trabalho principalmente no setor da construção e do artesanato.' },
+       { label: 'Serviços às empresas', text: 'Trabalho nos serviços às empresas (B2B).' },
+@@ -521,6 +568,13 @@ export const ONBOARDING_QUESTION_SUGGESTIONS = {
+     ],
+   },
+   nl: {
++    'chat.onboardingQ0': [
++      { label: "Ik produceer", text: "Ik ben fabrikant: ik ontwerp en produceer wat ik verkoop." },
++      { label: "Ik verkoop door / distribueer", text: "Ik ben wederverkoper of distributeur: ik verkoop producten van merken of leveranciers die ik vertegenwoordig." },
++      { label: "Ik lever een dienst", text: "Ik ben dienstverlener: ik voer zelf een dienst uit voor mijn klanten." },
++      { label: "Ik adviseer", text: "Ik ben adviesbureau of agentschap: ik begeleid mijn klanten met expertise." },
++      { label: "Ik verhuur", text: "Ik verhuur materiaal of ruimtes aan mijn klanten." },
++    ],
+     'chat.onboardingQ1': [
+       { label: 'Bouw / Ambacht', text: 'Ik werk vooral in de bouw en het ambacht.' },
+       { label: 'Zakelijke dienstverlening', text: 'Ik werk in de zakelijke dienstverlening (B2B).' },
+-- 
+2.43.0
+
