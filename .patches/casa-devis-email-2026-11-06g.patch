@@ -1,0 +1,708 @@
+From 086827631128e0573bc49ef0e9d891435450f422 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 11:11:13 +0000
+Subject: [PATCH] =?UTF-8?q?Rappel=20de=20la=20veille=20en=207=20langues=20?=
+ =?UTF-8?q?;=20vid=C3=A9o=20Australie=20;=20campagne=20recommand=C3=A9e=20?=
+ =?UTF-8?q?par=20Aaron=20;=20rail=20complet=20sur=20PC=20;=20Campagnes=20a?=
+ =?UTF-8?q?vant=20Contacts?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- cron prospect-appointment-reminders : langue du prospect, fuseau du
+  commercial (était français / Paris en dur).
+- public/landing.html + demo.html : AU → IU37vtHJ6pg, fuseaux Adelaide,
+  Hobart, Darwin, Auckland.
+- Campagnes : panneau « Aaron te recommande une campagne » (zone, métiers
+  de clients, taille, interlocuteur, nombre, notes) → lancement direct.
+- globals.css : le menu « … » du rail ne revient qu'en dessous de 700 px de
+  haut ; entrées resserrées entre 700 et 820 px.
+- Rail et tiroir : Campagnes avant Contacts sur les 12 pages.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ .../prospect-appointment-reminders/route.ts   |  47 +++--
+ app/app/agenda/page.jsx                       |   2 +-
+ app/app/campaigns/page.jsx                    | 166 +++++++++++++++++-
+ app/app/chat/page.jsx                         |   2 +-
+ app/app/connexions/page.jsx                   |   2 +-
+ app/app/customer/page.jsx                     |   2 +-
+ app/app/documents/page.jsx                    |   2 +-
+ app/app/products/page.jsx                     |   2 +-
+ app/app/prospects/page.jsx                    |   2 +-
+ app/app/resultats/page.jsx                    |   2 +-
+ app/app/suggestions/page.jsx                  |   2 +-
+ app/app/team/[id]/page.jsx                    |   2 +-
+ app/app/team/page.jsx                         |   2 +-
+ app/globals.css                               |   8 +
+ lib/i18n.js                                   | 105 +++++++++++
+ public/demo.html                              |   5 +-
+ public/landing.html                           |   5 +-
+ 17 files changed, 331 insertions(+), 27 deletions(-)
+
+diff --git a/app/api/cron/prospect-appointment-reminders/route.ts b/app/api/cron/prospect-appointment-reminders/route.ts
+index 9a59550..0f9eb17 100644
+--- a/app/api/cron/prospect-appointment-reminders/route.ts
++++ b/app/api/cron/prospect-appointment-reminders/route.ts
+@@ -8,6 +8,20 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendEmailForUser } from '@/lib/messaging';
+ import { serverError } from '@/lib/http';
++import { resolveProspectLocale } from '@/lib/prospect-locale';
++import { resolveUserTimeZone } from '@/lib/user-timezone';
++
++// Rappel de la veille au prospect, dans SA langue et au fuseau du commercial
++// (06/11/2026 — était français en dur, heure de Paris).
++const REMINDER_TEXTS: Record<string, { intl: string; subject: string; hello: string; body: string; link: string; reschedule: string; bye: string }> = {
++  fr: { intl: 'fr-FR', subject: 'Rappel : notre rendez-vous demain', hello: 'Bonjour {name},', body: 'Petit rappel : nous avons rendez-vous demain, le {date}.', link: 'Le lien pour nous rejoindre : {link}', reschedule: "N'hésitez pas à me répondre directement à cet email si vous avez besoin de le décaler.", bye: 'À demain,' },
++  en: { intl: 'en-GB', subject: 'Reminder: our meeting tomorrow', hello: 'Hello {name},', body: 'A quick reminder: we are meeting tomorrow, {date}.', link: 'The link to join: {link}', reschedule: 'Just reply to this email if you need to reschedule.', bye: 'See you tomorrow,' },
++  de: { intl: 'de-DE', subject: 'Erinnerung: unser Termin morgen', hello: 'Guten Tag {name},', body: 'Kurze Erinnerung: wir haben morgen einen Termin, {date}.', link: 'Der Link zur Teilnahme: {link}', reschedule: 'Antworten Sie einfach auf diese E-Mail, falls Sie verschieben müssen.', bye: 'Bis morgen,' },
++  it: { intl: 'it-IT', subject: 'Promemoria: il nostro appuntamento di domani', hello: 'Buongiorno {name},', body: 'Un breve promemoria: abbiamo appuntamento domani, {date}.', link: 'Il link per collegarsi: {link}', reschedule: 'Risponda pure a questa email se ha bisogno di spostarlo.', bye: 'A domani,' },
++  es: { intl: 'es-ES', subject: 'Recordatorio: nuestra reunión de mañana', hello: 'Hola {name},', body: 'Un breve recordatorio: tenemos reunión mañana, {date}.', link: 'El enlace para unirse: {link}', reschedule: 'Responda a este correo si necesita cambiar la fecha.', bye: 'Hasta mañana,' },
++  pt: { intl: 'pt-PT', subject: 'Lembrete: a nossa reunião de amanhã', hello: 'Olá {name},', body: 'Um pequeno lembrete: temos reunião amanhã, {date}.', link: 'O link para entrar: {link}', reschedule: 'Basta responder a este email se precisar de remarcar.', bye: 'Até amanhã,' },
++  nl: { intl: 'nl-NL', subject: 'Herinnering: onze afspraak morgen', hello: 'Hallo {name},', body: 'Even een herinnering: we hebben morgen een afspraak, {date}.', link: 'De link om deel te nemen: {link}', reschedule: 'Beantwoord gewoon deze e-mail als je moet verzetten.', bye: 'Tot morgen,' },
++};
+ 
+ const REMINDER_TYPE = 'prospect_appointment_reminder_24h';
+ const TARGET_HOURS_BEFORE = 24;
+@@ -30,7 +44,7 @@ export async function GET(request: NextRequest) {
+   // RDV validés dont l'heure tombe dans la fenêtre "~24h avant"
+   const { data: appointments, error } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, proposed_at, type, meet_link, user_id, users(id, full_name), prospects(id, full_name, email)')
++    .select('id, proposed_at, type, meet_link, user_id, users(id, full_name, locale, timezone, billing_country), prospects(id, full_name, email, prospect_companies(address, found_by_campaign_id))')
+     .eq('status', 'validé')
+     .gte('proposed_at', windowStart.toISOString())
+     .lte('proposed_at', windowEnd.toISOString());
+@@ -57,10 +71,23 @@ export async function GET(request: NextRequest) {
+ 
+       if (alreadySent && alreadySent.length > 0) return null;
+ 
+-      const dateStr = new Date(appt.proposed_at).toLocaleString('fr-FR', {
++      let campaignLocale: string | null = null;
++      const campaignId = prospect?.prospect_companies?.found_by_campaign_id;
++      if (campaignId) {
++        const { data: campaign } = await supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', campaignId).maybeSingle();
++        campaignLocale = campaign?.target_locale || null;
++      }
++      const loc = resolveProspectLocale({
++        campaignLocale,
++        address: prospect?.prospect_companies?.address || null,
++        email: prospect.email,
++        sellerLocale: commercial?.locale || null,
++      });
++      const T = REMINDER_TEXTS[loc] || REMINDER_TEXTS.fr;
++      const dateStr = new Date(appt.proposed_at).toLocaleString(T.intl, {
+         dateStyle: 'full',
+         timeStyle: 'short',
+-        timeZone: 'Europe/Paris',
++        timeZone: resolveUserTimeZone(commercial || {}),
+       });
+ 
+       try {
+@@ -69,18 +96,16 @@ export async function GET(request: NextRequest) {
+         // des semaines plus tôt est souvent introuvable. Voir
+         // lib/meeting-link.ts pour son origine (Meet, Teams ou salle
+         // permanente du commercial).
+-        const meetLine = (appt as any).meet_link
+-          ? `Le lien pour nous rejoindre : ${(appt as any).meet_link}\n\n`
+-          : '';
++        const meetLine = (appt as any).meet_link ? `${T.link.replace('{link}', (appt as any).meet_link)}\n\n` : '';
+         await sendEmailForUser(
+           appt.user_id,
+           prospect.email,
+-          'Rappel : notre rendez-vous demain',
+-          `Bonjour ${prospect.full_name},\n\n` +
+-            `Petit rappel : nous avons rendez-vous demain, le ${dateStr}.\n\n` +
++          T.subject,
++          `${T.hello.replace('{name}', prospect.full_name || '')}\n\n` +
++            `${T.body.replace('{date}', dateStr)}\n\n` +
+             meetLine +
+-            `N'hésitez pas à me répondre directement à cet email si vous avez besoin de le décaler.\n\n` +
+-            `À demain,\n${commercial?.full_name || ''}`
++            `${T.reschedule}\n\n` +
++            `${T.bye}\n${commercial?.full_name || ''}`
+         );
+ 
+         await supabaseAdmin.from('notifications_log').insert({
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index be698ce..ce8efbc 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -3440,8 +3440,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 71956ef..d126e50 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -157,6 +157,154 @@ function quickSectorsFor(locale) {
+   ];
+ }
+ 
++// Campagne recommandée par Aaron (demande Alex, 05/11 et 06/11/2026) : même
++// recommandation que celle du parcours d'accueil (/api/campaigns/
++// profile-suggestions), disponible à tout moment depuis l'accueil.
++const RECO_SIZE_KEYS = [
++  { key: 'artisan_tpe', labelKey: 'campaigns.sizeArtisanTpe' },
++  { key: 'pme', labelKey: 'campaigns.sizePme' },
++  { key: 'eti', labelKey: 'campaigns.sizeEti' },
++  { key: 'grand_compte', labelKey: 'campaigns.sizeGrandCompte' },
++];
++const RECO_ROLE_KEYS = [
++  { key: 'fondateur_dirigeant', labelKey: 'campaigns.roleFondateur' },
++  { key: 'responsable_commercial', labelKey: 'campaigns.roleCommercial' },
++  { key: 'responsable_achats', labelKey: 'campaigns.roleAchats' },
++  { key: 'rh', labelKey: 'campaigns.roleRh' },
++];
++const RECO_COUNTS = [20, 50, 100, 300];
++
++function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
++  const [open, setOpen] = useState(false);
++  const [loading, setLoading] = useState(false);
++  const [none, setNone] = useState(false);
++  const [form, setForm] = useState(null);
++  const [launching, setLaunching] = useState(false);
++  const [error, setError] = useState(null);
++
++  async function load() {
++    setOpen(true);
++    if (form || loading) return;
++    setLoading(true);
++    setNone(false);
++    try {
++      const res = await fetch('/api/campaigns/profile-suggestions');
++      const body = await res.json().catch(() => ({}));
++      const p = body.prefill;
++      if (!p) { setNone(true); setLoading(false); return; }
++      setForm({
++        zone_label: p.zone_label || '',
++        sectors: (p.sector_keywords || []).join(', '),
++        company_sizes: p.company_sizes || [],
++        target_role: p.target_role || '',
++        context_notes: p.context_notes || '',
++        target_count: 50,
++      });
++    } catch {
++      setNone(true);
++    }
++    setLoading(false);
++  }
++
++  async function launch() {
++    if (!form) return;
++    const sectors = form.sectors.split(',').map((x) => x.trim()).filter(Boolean);
++    const zone = form.zone_label.trim();
++    if (!zone || sectors.length === 0) return;
++    setLaunching(true);
++    setError(null);
++    const res = await fetch('/api/campaigns', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        company_id: companyId,
++        assigned_user_id: userId,
++        zone_label: zone,
++        zone_type: 'zone',
++        zone_codes: [zone],
++        sector_keywords: sectors,
++        company_sizes: form.company_sizes,
++        target_count: form.target_count,
++        context_notes: form.context_notes || null,
++        target_role: form.target_role || null,
++      }),
++    }).catch(() => null);
++    setLaunching(false);
++    if (!res || !res.ok) {
++      const body = res ? await res.json().catch(() => ({})) : {};
++      setError(body.error || t('campaigns.relaunchFailed', locale));
++      return;
++    }
++    setOpen(false);
++    setForm(null);
++    onLaunched?.();
++  }
++
++  return (
++    <section className="reco">
++      <div className="reco-head">
++        <div>
++          <p className="reco-title"><Ic name="sparkles" size={15} /> {t('campaigns.recoTitle', locale)}</p>
++          <p className="reco-hint">{t('campaigns.recoHint', locale)}</p>
++        </div>
++        {!open && (
++          <button type="button" className="camp-manage-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
++        )}
++      </div>
++      {open && loading && <p className="reco-hint">{t('campaigns.recoLoading', locale)}</p>}
++      {open && !loading && none && <p className="reco-hint">{t('campaigns.recoNone', locale)}</p>}
++      {open && !loading && form && (
++        <div className="reco-form">
++          <label>{t('campaigns.recoZone', locale)}
++            <input value={form.zone_label} onChange={(e) => setForm({ ...form, zone_label: e.target.value })} />
++          </label>
++          <label>{t('campaigns.recoSectors', locale)}
++            <input value={form.sectors} onChange={(e) => setForm({ ...form, sectors: e.target.value })} />
++          </label>
++          <div className="reco-field">
++            <span className="reco-lbl">{t('campaigns.recoSizes', locale)}</span>
++            <div className="reco-chips">
++              {RECO_SIZE_KEYS.map((sz) => {
++                const on = form.company_sizes.includes(sz.key);
++                return (
++                  <button type="button" key={sz.key} className={`reco-chip${on ? ' on' : ''}`} aria-pressed={on}
++                    onClick={() => setForm({ ...form, company_sizes: on ? form.company_sizes.filter((k) => k !== sz.key) : [...form.company_sizes, sz.key] })}>
++                    {t(sz.labelKey, locale)}
++                  </button>
++                );
++              })}
++            </div>
++          </div>
++          <label>{t('campaigns.recoRole', locale)}
++            <select value={form.target_role} onChange={(e) => setForm({ ...form, target_role: e.target.value })}>
++              <option value="">{t('campaigns.recoAnyRole', locale)}</option>
++              {RECO_ROLE_KEYS.map((r) => <option key={r.key} value={r.key}>{t(r.labelKey, locale)}</option>)}
++            </select>
++          </label>
++          <div className="reco-field">
++            <span className="reco-lbl">{t('campaigns.recoCount', locale)}</span>
++            <div className="reco-chips">
++              {RECO_COUNTS.map((n) => (
++                <button type="button" key={n} className={`reco-chip${form.target_count === n ? ' on' : ''}`} aria-pressed={form.target_count === n} onClick={() => setForm({ ...form, target_count: n })}>{n}</button>
++              ))}
++            </div>
++          </div>
++          <label>{t('campaigns.recoNotes', locale)}
++            <textarea rows={2} value={form.context_notes} onChange={(e) => setForm({ ...form, context_notes: e.target.value })} />
++          </label>
++          {error && <p className="reco-error">{error}</p>}
++          <div className="reco-actions">
++            <button type="button" className="btn-primary" disabled={launching || !form.zone_label.trim() || !form.sectors.trim()} onClick={launch}>
++              {launching ? t('campaigns.recoLaunching', locale) : t('campaigns.recoLaunch', locale)}
++            </button>
++            <button type="button" className="camp-manage-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
++          </div>
++        </div>
++      )}
++    </section>
++  );
++}
++
+ export default function CampaignsPage() {
+   // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
+   // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
+@@ -481,6 +629,9 @@ export default function CampaignsPage() {
+           />
+         </div>
+       )}
++      {userId && companyId && !loading && (
++        <RecommendedCampaign userId={userId} companyId={companyId} locale={locale} onLaunched={loadCampaigns} />
++      )}
+       {deliv && campaigns.some((c) => c.status !== 'terminee') && deliv.verdict === 'en_attente' && (
+         <div className="campaign-filter deliv-banner">
+           <span className="campaign-filter-ic"><Ic name="mail" size={14} /></span>
+@@ -903,6 +1054,19 @@ export default function CampaignsPage() {
+       )}
+ 
+       <style jsx>{`
++        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
++        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
++        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
++        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
++        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
++        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
++        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
++        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
++        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
++        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
++        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
++        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
++        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
+         .away-feed { margin-bottom: 1rem; }
+         /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
+            filtre de campagne de Contacts : une ligne, une icône, un texte. */
+@@ -3971,8 +4135,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 7a20207..c18164e 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -2584,8 +2584,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 29cf9cb..8977871 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -8718,8 +8718,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/customer/page.jsx b/app/app/customer/page.jsx
+index 08fcb1a..6837be7 100644
+--- a/app/app/customer/page.jsx
++++ b/app/app/customer/page.jsx
+@@ -1731,8 +1731,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/documents/page.jsx b/app/app/documents/page.jsx
+index 07756a7..4bbe14f 100644
+--- a/app/app/documents/page.jsx
++++ b/app/app/documents/page.jsx
+@@ -1344,8 +1344,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/products/page.jsx b/app/app/products/page.jsx
+index 28d410b..a5ace0e 100644
+--- a/app/app/products/page.jsx
++++ b/app/app/products/page.jsx
+@@ -395,8 +395,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index 38ae8b0..f06e375 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -2295,8 +2295,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/resultats/page.jsx b/app/app/resultats/page.jsx
+index aba2054..a166c6c 100644
+--- a/app/app/resultats/page.jsx
++++ b/app/app/resultats/page.jsx
+@@ -2586,8 +2586,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/suggestions/page.jsx b/app/app/suggestions/page.jsx
+index 7d931c0..197a2a1 100644
+--- a/app/app/suggestions/page.jsx
++++ b/app/app/suggestions/page.jsx
+@@ -386,8 +386,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/team/[id]/page.jsx b/app/app/team/[id]/page.jsx
+index 9d1c077..1501d14 100644
+--- a/app/app/team/[id]/page.jsx
++++ b/app/app/team/[id]/page.jsx
+@@ -419,8 +419,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/app/team/page.jsx b/app/app/team/page.jsx
+index 39202a7..ca71c10 100644
+--- a/app/app/team/page.jsx
++++ b/app/app/team/page.jsx
+@@ -1949,8 +1949,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   }
+ 
+   const NAV_ITEMS = [
+-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
++    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
+     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
+     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
+     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
+diff --git a/app/globals.css b/app/globals.css
+index 21398c6..f1f4115 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -1376,7 +1376,15 @@ html[data-theme='light']:root {
+    rail. Au-dessus de 820 px de haut, tout est visible directement et le
+    bouton « … » est masqué. Le seuil : 9 entrées × ~54 px + logo + bas du
+    rail ≈ 780 px ; en dessous, les entrées rares repassent dans le menu. */
++/* 06/11/2026 (retour d'Alex, capture : « on a largement la place ») : le
++   tableau de bord a disparu, le rail n'a plus que huit entrées. Entre 700 et
++   820 px de haut, on resserre les entrées pour tout afficher ; le menu « … »
++   ne revient qu'en dessous de 700 px. */
+ @media (min-width: 901px) and (max-height: 820px) {
++  .sidebar .nav-list li { padding: 0.38rem 0 !important; }
++  .sidebar .nav-icon { width: 2.3em !important; height: 2.3em !important; }
++}
++@media (min-width: 901px) and (max-height: 700px) {
+   .sidebar .nav-rare { display: none !important; }
+   .sidebar .rail-more {
+     display: flex;
+diff --git a/lib/i18n.js b/lib/i18n.js
+index dd5c835..4d939fa 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -252,6 +252,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Relire la réponse",
+     "stories.clientMessageExpand": "Voir la réponse en entier",
+     "stories.clientMessageDismiss": "Je réponds moi-même",
++    "campaigns.recoTitle": "Aaron te recommande une campagne",
++    "campaigns.recoHint": "D'après ta fiche entreprise : la zone, les métiers de clients à viser et la taille. Tu corriges, puis tu lances.",
++    "campaigns.recoShow": "Voir la recommandation",
++    "campaigns.recoLoading": "Aaron prépare sa recommandation…",
++    "campaigns.recoNone": "Aaron n'a pas assez d'éléments sur ton entreprise pour recommander une campagne. Complète ta fiche entreprise, ou lance une campagne avec le « + ».",
++    "campaigns.recoZone": "Zone",
++    "campaigns.recoSectors": "Métiers des clients à viser (séparés par des virgules)",
++    "campaigns.recoSizes": "Taille des entreprises",
++    "campaigns.recoRole": "Interlocuteur",
++    "campaigns.recoAnyRole": "Le bon interlocuteur, selon l'entreprise",
++    "campaigns.recoCount": "Nombre d'entreprises",
++    "campaigns.recoNotes": "Précisions pour Aaron",
++    "campaigns.recoLaunch": "Lancer cette campagne",
++    "campaigns.recoLaunching": "Lancement…",
++    "campaigns.recoClose": "Fermer",
+     "stories.type.delivrabilite": "Emails en spam",
+     "stories.delivLeadSpam": "Avant d'écrire à ton premier prospect, Aaron a envoyé un email de test depuis ta boîte. Il est tombé dans les spams. Tant que ce n'est pas réglé, aucun email de prospection ne part.",
+     "stories.delivLeadMissing": "Avant d'écrire à ton premier prospect, Aaron a envoyé un email de test depuis ta boîte. Il n'est jamais arrivé — refusé avant même la boîte de réception. Tant que ce n'est pas réglé, aucun email de prospection ne part.",
+@@ -2692,6 +2707,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Review the reply",
+     "stories.clientMessageExpand": "Show the full reply",
+     "stories.clientMessageDismiss": "I'll reply myself",
++    "campaigns.recoTitle": "Aaron recommends a campaign",
++    "campaigns.recoHint": "Based on your company profile: the area, the client trades to target and the size. Adjust, then launch.",
++    "campaigns.recoShow": "See the recommendation",
++    "campaigns.recoLoading": "Aaron is preparing its recommendation…",
++    "campaigns.recoNone": "Aaron does not know enough about your company to recommend a campaign. Complete your company profile, or launch one with the “+”.",
++    "campaigns.recoZone": "Area",
++    "campaigns.recoSectors": "Client trades to target (comma-separated)",
++    "campaigns.recoSizes": "Company size",
++    "campaigns.recoRole": "Contact person",
++    "campaigns.recoAnyRole": "The right person, depending on the company",
++    "campaigns.recoCount": "Number of companies",
++    "campaigns.recoNotes": "Notes for Aaron",
++    "campaigns.recoLaunch": "Launch this campaign",
++    "campaigns.recoLaunching": "Launching…",
++    "campaigns.recoClose": "Close",
+     "stories.type.delivrabilite": "Emails in spam",
+     "stories.delivLeadSpam": "Before writing to your first prospect, Aaron sent a test email from your mailbox. It landed in spam. Until this is fixed, no prospecting email goes out.",
+     "stories.delivLeadMissing": "Before writing to your first prospect, Aaron sent a test email from your mailbox. It never arrived — rejected before even reaching the inbox. Until this is fixed, no prospecting email goes out.",
+@@ -4827,6 +4857,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Antwort prüfen",
+     "stories.clientMessageExpand": "Ganze Antwort anzeigen",
+     "stories.clientMessageDismiss": "Ich antworte selbst",
++    "campaigns.recoTitle": "Aaron empfiehlt eine Kampagne",
++    "campaigns.recoHint": "Auf Basis deines Unternehmensprofils: Gebiet, Zielbranchen der Kunden und Größe. Anpassen, dann starten.",
++    "campaigns.recoShow": "Empfehlung ansehen",
++    "campaigns.recoLoading": "Aaron bereitet seine Empfehlung vor…",
++    "campaigns.recoNone": "Aaron weiß noch zu wenig über dein Unternehmen, um eine Kampagne zu empfehlen. Vervollständige dein Profil oder starte eine Kampagne mit „+“.",
++    "campaigns.recoZone": "Gebiet",
++    "campaigns.recoSectors": "Zielbranchen der Kunden (durch Kommas getrennt)",
++    "campaigns.recoSizes": "Unternehmensgröße",
++    "campaigns.recoRole": "Ansprechpartner",
++    "campaigns.recoAnyRole": "Die richtige Person, je nach Unternehmen",
++    "campaigns.recoCount": "Anzahl Unternehmen",
++    "campaigns.recoNotes": "Hinweise für Aaron",
++    "campaigns.recoLaunch": "Diese Kampagne starten",
++    "campaigns.recoLaunching": "Wird gestartet…",
++    "campaigns.recoClose": "Schließen",
+     "stories.type.delivrabilite": "E-Mails im Spam",
+     "stories.delivLeadSpam": "Bevor Aaron deinen ersten Interessenten anschreibt, hat er eine Test-E-Mail aus deinem Postfach gesendet. Sie ist im Spam gelandet. Bis das behoben ist, geht keine Akquise-E-Mail raus.",
+     "stories.delivLeadMissing": "Bevor Aaron deinen ersten Interessenten anschreibt, hat er eine Test-E-Mail aus deinem Postfach gesendet. Sie ist nie angekommen — abgewiesen, bevor sie das Postfach erreichte. Bis das behoben ist, geht keine Akquise-E-Mail raus.",
+@@ -6962,6 +7007,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Rileggi la risposta",
+     "stories.clientMessageExpand": "Mostra la risposta completa",
+     "stories.clientMessageDismiss": "Rispondo io",
++    "campaigns.recoTitle": "Aaron ti consiglia una campagna",
++    "campaigns.recoHint": "In base alla tua scheda azienda: la zona, i mestieri dei clienti da raggiungere e la dimensione. Correggi, poi lancia.",
++    "campaigns.recoShow": "Vedi il consiglio",
++    "campaigns.recoLoading": "Aaron sta preparando il suo consiglio…",
++    "campaigns.recoNone": "Aaron non ha abbastanza elementi sulla tua azienda per consigliare una campagna. Completa la scheda azienda, oppure lanciane una con il « + ».",
++    "campaigns.recoZone": "Zona",
++    "campaigns.recoSectors": "Mestieri dei clienti da raggiungere (separati da virgole)",
++    "campaigns.recoSizes": "Dimensione delle aziende",
++    "campaigns.recoRole": "Interlocutore",
++    "campaigns.recoAnyRole": "La persona giusta, secondo l'azienda",
++    "campaigns.recoCount": "Numero di aziende",
++    "campaigns.recoNotes": "Precisazioni per Aaron",
++    "campaigns.recoLaunch": "Lancia questa campagna",
++    "campaigns.recoLaunching": "Lancio…",
++    "campaigns.recoClose": "Chiudi",
+     "stories.type.delivrabilite": "Email nello spam",
+     "stories.delivLeadSpam": "Prima di scrivere al tuo primo contatto, Aaron ha inviato un'email di prova dalla tua casella. È finita nello spam. Finché non è risolto, nessuna email di prospezione parte.",
+     "stories.delivLeadMissing": "Prima di scrivere al tuo primo contatto, Aaron ha inviato un'email di prova dalla tua casella. Non è mai arrivata — rifiutata prima ancora della posta in arrivo. Finché non è risolto, nessuna email di prospezione parte.",
+@@ -9097,6 +9157,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Revisar la respuesta",
+     "stories.clientMessageExpand": "Ver la respuesta completa",
+     "stories.clientMessageDismiss": "Respondo yo mismo",
++    "campaigns.recoTitle": "Aaron te recomienda una campaña",
++    "campaigns.recoHint": "Según tu ficha de empresa: la zona, los oficios de los clientes a buscar y el tamaño. Corrige y lanza.",
++    "campaigns.recoShow": "Ver la recomendación",
++    "campaigns.recoLoading": "Aaron prepara su recomendación…",
++    "campaigns.recoNone": "Aaron no tiene suficientes elementos sobre tu empresa para recomendar una campaña. Completa tu ficha de empresa o lanza una con el « + ».",
++    "campaigns.recoZone": "Zona",
++    "campaigns.recoSectors": "Oficios de los clientes a buscar (separados por comas)",
++    "campaigns.recoSizes": "Tamaño de las empresas",
++    "campaigns.recoRole": "Interlocutor",
++    "campaigns.recoAnyRole": "La persona adecuada, según la empresa",
++    "campaigns.recoCount": "Número de empresas",
++    "campaigns.recoNotes": "Indicaciones para Aaron",
++    "campaigns.recoLaunch": "Lanzar esta campaña",
++    "campaigns.recoLaunching": "Lanzando…",
++    "campaigns.recoClose": "Cerrar",
+     "stories.type.delivrabilite": "Correos en spam",
+     "stories.delivLeadSpam": "Antes de escribir a tu primer contacto, Aaron envió un correo de prueba desde tu buzón. Cayó en spam. Hasta que se arregle, no sale ningún correo de prospección.",
+     "stories.delivLeadMissing": "Antes de escribir a tu primer contacto, Aaron envió un correo de prueba desde tu buzón. Nunca llegó — rechazado antes incluso de la bandeja de entrada. Hasta que se arregle, no sale ningún correo de prospección.",
+@@ -11232,6 +11307,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Reler a resposta",
+     "stories.clientMessageExpand": "Ver a resposta completa",
+     "stories.clientMessageDismiss": "Respondo eu",
++    "campaigns.recoTitle": "O Aaron recomenda-te uma campanha",
++    "campaigns.recoHint": "Com base na tua ficha de empresa: a zona, os ofícios dos clientes a visar e a dimensão. Corriges e lanças.",
++    "campaigns.recoShow": "Ver a recomendação",
++    "campaigns.recoLoading": "O Aaron está a preparar a recomendação…",
++    "campaigns.recoNone": "O Aaron não tem elementos suficientes sobre a tua empresa para recomendar uma campanha. Completa a ficha de empresa ou lança uma com o « + ».",
++    "campaigns.recoZone": "Zona",
++    "campaigns.recoSectors": "Ofícios dos clientes a visar (separados por vírgulas)",
++    "campaigns.recoSizes": "Dimensão das empresas",
++    "campaigns.recoRole": "Interlocutor",
++    "campaigns.recoAnyRole": "A pessoa certa, conforme a empresa",
++    "campaigns.recoCount": "Número de empresas",
++    "campaigns.recoNotes": "Indicações para o Aaron",
++    "campaigns.recoLaunch": "Lançar esta campanha",
++    "campaigns.recoLaunching": "A lançar…",
++    "campaigns.recoClose": "Fechar",
+     "stories.type.delivrabilite": "Emails no spam",
+     "stories.delivLeadSpam": "Antes de escrever ao teu primeiro contacto, o Aaron enviou um email de teste a partir da tua caixa. Caiu no spam. Enquanto não estiver resolvido, nenhum email de prospeção sai.",
+     "stories.delivLeadMissing": "Antes de escrever ao teu primeiro contacto, o Aaron enviou um email de teste a partir da tua caixa. Nunca chegou — recusado antes sequer da caixa de entrada. Enquanto não estiver resolvido, nenhum email de prospeção sai.",
+@@ -13367,6 +13457,21 @@ export const DICT = {
+     "stories.clientMessageOpen": "Antwoord nalezen",
+     "stories.clientMessageExpand": "Volledig antwoord tonen",
+     "stories.clientMessageDismiss": "Ik antwoord zelf",
++    "campaigns.recoTitle": "Aaron raadt je een campagne aan",
++    "campaigns.recoHint": "Op basis van je bedrijfsprofiel: het gebied, de vakgebieden van klanten om te benaderen en de grootte. Pas aan en start.",
++    "campaigns.recoShow": "Bekijk de aanbeveling",
++    "campaigns.recoLoading": "Aaron bereidt zijn aanbeveling voor…",
++    "campaigns.recoNone": "Aaron weet nog te weinig over je bedrijf om een campagne aan te raden. Vul je bedrijfsprofiel aan, of start er een met de « + ».",
++    "campaigns.recoZone": "Gebied",
++    "campaigns.recoSectors": "Vakgebieden van klanten om te benaderen (gescheiden door komma's)",
++    "campaigns.recoSizes": "Bedrijfsgrootte",
++    "campaigns.recoRole": "Contactpersoon",
++    "campaigns.recoAnyRole": "De juiste persoon, afhankelijk van het bedrijf",
++    "campaigns.recoCount": "Aantal bedrijven",
++    "campaigns.recoNotes": "Aanwijzingen voor Aaron",
++    "campaigns.recoLaunch": "Deze campagne starten",
++    "campaigns.recoLaunching": "Starten…",
++    "campaigns.recoClose": "Sluiten",
+     "stories.type.delivrabilite": "E-mails in spam",
+     "stories.delivLeadSpam": "Voordat Aaron je eerste prospect schrijft, heeft hij een test-e-mail vanuit je mailbox gestuurd. Die is in de spam beland. Zolang dit niet is opgelost, gaat er geen prospectie-e-mail uit.",
+     "stories.delivLeadMissing": "Voordat Aaron je eerste prospect schrijft, heeft hij een test-e-mail vanuit je mailbox gestuurd. Die is nooit aangekomen — geweigerd nog vóór de inbox. Zolang dit niet is opgelost, gaat er geen prospectie-e-mail uit.",
+diff --git a/public/demo.html b/public/demo.html
+index a2fd6df..2c645b5 100644
+--- a/public/demo.html
++++ b/public/demo.html
+@@ -144,7 +144,8 @@
+    existera, DEFAULT_COUNTRY passe à 'US'. */
+ var VIDEO_BY_COUNTRY = {
+   FR: 'V-r0IvDzZO8',   // France — officielle 16:9, euros
+-  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, livres
++  GB: 'VrIzWxGvlxs',   // Royaume-Uni — officielle 16:9, livres
++  AU: 'IU37vtHJ6pg'    // Australie — officielle 16:9, dollars australiens (06/11/2026)
+   // US: '...',        // à venir : deviendra le repli par défaut
+ };
+ var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
+@@ -157,7 +158,7 @@ var TZ_COUNTRY = {
+   'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
+   'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
+   'America/Toronto':'CA','America/Vancouver':'CA',
+-  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
++  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Hobart':'AU','Australia/Darwin':'AU','Pacific/Auckland':'NZ'
+ };
+ function detectCountry(){
+   try { var f = new URLSearchParams(window.location.search).get('pays'); if (f) return f.toUpperCase(); } catch(e){}
+diff --git a/public/landing.html b/public/landing.html
+index ef6ea78..beea291 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -945,7 +945,8 @@ window.addEventListener('appinstalled', () => {
+    ──────────────────────────────────────────────────────────────────────── */
+ var VIDEO_BY_COUNTRY = {
+   FR: 'V-r0IvDzZO8',   // France — officielle 16:9, prix en euros
+-  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, prix en livres
++  GB: 'VrIzWxGvlxs',   // Royaume-Uni — officielle 16:9, prix en livres
++  AU: 'IU37vtHJ6pg'    // Australie — officielle 16:9, prix en dollars australiens (06/11/2026)
+   // US: '...',        // à ajouter : deviendra le repli par défaut
+ };
+ var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
+@@ -959,7 +960,7 @@ var TZ_COUNTRY = {
+   'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
+   'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
+   'America/Toronto':'CA','America/Vancouver':'CA',
+-  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
++  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Hobart':'AU','Australia/Darwin':'AU','Pacific/Auckland':'NZ'
+ };
+ 
+ function detectCountry(){
+-- 
+2.43.0
+
