@@ -1376,7 +1376,15 @@ html[data-theme='light']:root {
    rail. Au-dessus de 820 px de haut, tout est visible directement et le
    bouton « … » est masqué. Le seuil : 9 entrées × ~54 px + logo + bas du
    rail ≈ 780 px ; en dessous, les entrées rares repassent dans le menu. */
+/* 06/11/2026 (retour d'Alex, capture : « on a largement la place ») : le
+   tableau de bord a disparu, le rail n'a plus que huit entrées. Entre 700 et
+   820 px de haut, on resserre les entrées pour tout afficher ; le menu « … »
+   ne revient qu'en dessous de 700 px. */
 @media (min-width: 901px) and (max-height: 820px) {
+  .sidebar .nav-list li { padding: 0.38rem 0 !important; }
+  .sidebar .nav-icon { width: 2.3em !important; height: 2.3em !important; }
+}
+@media (min-width: 901px) and (max-height: 700px) {
   .sidebar .nav-rare { display: none !important; }
   .sidebar .rail-more {
     display: flex;

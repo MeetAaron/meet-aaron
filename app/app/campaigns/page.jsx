@@ -157,6 +157,154 @@ function quickSectorsFor(locale) {
   ];
 }
 
+// Campagne recommandée par Aaron (demande Alex, 05/11 et 06/11/2026) : même
+// recommandation que celle du parcours d'accueil (/api/campaigns/
+// profile-suggestions), disponible à tout moment depuis l'accueil.
+const RECO_SIZE_KEYS = [
+  { key: 'artisan_tpe', labelKey: 'campaigns.sizeArtisanTpe' },
+  { key: 'pme', labelKey: 'campaigns.sizePme' },
+  { key: 'eti', labelKey: 'campaigns.sizeEti' },
+  { key: 'grand_compte', labelKey: 'campaigns.sizeGrandCompte' },
+];
+const RECO_ROLE_KEYS = [
+  { key: 'fondateur_dirigeant', labelKey: 'campaigns.roleFondateur' },
+  { key: 'responsable_commercial', labelKey: 'campaigns.roleCommercial' },
+  { key: 'responsable_achats', labelKey: 'campaigns.roleAchats' },
+  { key: 'rh', labelKey: 'campaigns.roleRh' },
+];
+const RECO_COUNTS = [20, 50, 100, 300];
+
+function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [none, setNone] = useState(false);
+  const [form, setForm] = useState(null);
+  const [launching, setLaunching] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function load() {
+    setOpen(true);
+    if (form || loading) return;
+    setLoading(true);
+    setNone(false);
+    try {
+      const res = await fetch('/api/campaigns/profile-suggestions');
+      const body = await res.json().catch(() => ({}));
+      const p = body.prefill;
+      if (!p) { setNone(true); setLoading(false); return; }
+      setForm({
+        zone_label: p.zone_label || '',
+        sectors: (p.sector_keywords || []).join(', '),
+        company_sizes: p.company_sizes || [],
+        target_role: p.target_role || '',
+        context_notes: p.context_notes || '',
+        target_count: 50,
+      });
+    } catch {
+      setNone(true);
+    }
+    setLoading(false);
+  }
+
+  async function launch() {
+    if (!form) return;
+    const sectors = form.sectors.split(',').map((x) => x.trim()).filter(Boolean);
+    const zone = form.zone_label.trim();
+    if (!zone || sectors.length === 0) return;
+    setLaunching(true);
+    setError(null);
+    const res = await fetch('/api/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: companyId,
+        assigned_user_id: userId,
+        zone_label: zone,
+        zone_type: 'zone',
+        zone_codes: [zone],
+        sector_keywords: sectors,
+        company_sizes: form.company_sizes,
+        target_count: form.target_count,
+        context_notes: form.context_notes || null,
+        target_role: form.target_role || null,
+      }),
+    }).catch(() => null);
+    setLaunching(false);
+    if (!res || !res.ok) {
+      const body = res ? await res.json().catch(() => ({})) : {};
+      setError(body.error || t('campaigns.relaunchFailed', locale));
+      return;
+    }
+    setOpen(false);
+    setForm(null);
+    onLaunched?.();
+  }
+
+  return (
+    <section className="reco">
+      <div className="reco-head">
+        <div>
+          <p className="reco-title"><Ic name="sparkles" size={15} /> {t('campaigns.recoTitle', locale)}</p>
+          <p className="reco-hint">{t('campaigns.recoHint', locale)}</p>
+        </div>
+        {!open && (
+          <button type="button" className="camp-manage-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
+        )}
+      </div>
+      {open && loading && <p className="reco-hint">{t('campaigns.recoLoading', locale)}</p>}
+      {open && !loading && none && <p className="reco-hint">{t('campaigns.recoNone', locale)}</p>}
+      {open && !loading && form && (
+        <div className="reco-form">
+          <label>{t('campaigns.recoZone', locale)}
+            <input value={form.zone_label} onChange={(e) => setForm({ ...form, zone_label: e.target.value })} />
+          </label>
+          <label>{t('campaigns.recoSectors', locale)}
+            <input value={form.sectors} onChange={(e) => setForm({ ...form, sectors: e.target.value })} />
+          </label>
+          <div className="reco-field">
+            <span className="reco-lbl">{t('campaigns.recoSizes', locale)}</span>
+            <div className="reco-chips">
+              {RECO_SIZE_KEYS.map((sz) => {
+                const on = form.company_sizes.includes(sz.key);
+                return (
+                  <button type="button" key={sz.key} className={`reco-chip${on ? ' on' : ''}`} aria-pressed={on}
+                    onClick={() => setForm({ ...form, company_sizes: on ? form.company_sizes.filter((k) => k !== sz.key) : [...form.company_sizes, sz.key] })}>
+                    {t(sz.labelKey, locale)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <label>{t('campaigns.recoRole', locale)}
+            <select value={form.target_role} onChange={(e) => setForm({ ...form, target_role: e.target.value })}>
+              <option value="">{t('campaigns.recoAnyRole', locale)}</option>
+              {RECO_ROLE_KEYS.map((r) => <option key={r.key} value={r.key}>{t(r.labelKey, locale)}</option>)}
+            </select>
+          </label>
+          <div className="reco-field">
+            <span className="reco-lbl">{t('campaigns.recoCount', locale)}</span>
+            <div className="reco-chips">
+              {RECO_COUNTS.map((n) => (
+                <button type="button" key={n} className={`reco-chip${form.target_count === n ? ' on' : ''}`} aria-pressed={form.target_count === n} onClick={() => setForm({ ...form, target_count: n })}>{n}</button>
+              ))}
+            </div>
+          </div>
+          <label>{t('campaigns.recoNotes', locale)}
+            <textarea rows={2} value={form.context_notes} onChange={(e) => setForm({ ...form, context_notes: e.target.value })} />
+          </label>
+          {error && <p className="reco-error">{error}</p>}
+          <div className="reco-actions">
+            <button type="button" className="btn-primary" disabled={launching || !form.zone_label.trim() || !form.sectors.trim()} onClick={launch}>
+              {launching ? t('campaigns.recoLaunching', locale) : t('campaigns.recoLaunch', locale)}
+            </button>
+            <button type="button" className="camp-manage-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function CampaignsPage() {
   // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
   // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
@@ -480,6 +628,9 @@ export default function CampaignsPage() {
             onOpenContact={(id) => { window.location.href = `/app/prospects?user_id=${userId}&contact=${id}`; }}
           />
         </div>
+      )}
+      {userId && companyId && !loading && (
+        <RecommendedCampaign userId={userId} companyId={companyId} locale={locale} onLaunched={loadCampaigns} />
       )}
       {deliv && campaigns.some((c) => c.status !== 'terminee') && deliv.verdict === 'en_attente' && (
         <div className="campaign-filter deliv-banner">
@@ -903,6 +1054,19 @@ export default function CampaignsPage() {
       )}
 
       <style jsx>{`
+        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
+        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
+        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
+        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
+        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
+        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
+        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
         .away-feed { margin-bottom: 1rem; }
         /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
            filtre de campagne de Contacts : une ligne, une icône, un texte. */
@@ -3971,8 +4135,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   }
 
   const NAV_ITEMS = [
-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
+    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },

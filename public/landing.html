@@ -945,7 +945,8 @@ window.addEventListener('appinstalled', () => {
    ──────────────────────────────────────────────────────────────────────── */
 var VIDEO_BY_COUNTRY = {
   FR: 'V-r0IvDzZO8',   // France — officielle 16:9, prix en euros
-  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, prix en livres
+  GB: 'VrIzWxGvlxs',   // Royaume-Uni — officielle 16:9, prix en livres
+  AU: 'IU37vtHJ6pg'    // Australie — officielle 16:9, prix en dollars australiens (06/11/2026)
   // US: '...',        // à ajouter : deviendra le repli par défaut
 };
 var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
@@ -959,7 +960,7 @@ var TZ_COUNTRY = {
   'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
   'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
   'America/Toronto':'CA','America/Vancouver':'CA',
-  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
+  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Hobart':'AU','Australia/Darwin':'AU','Pacific/Auckland':'NZ'
 };
 
 function detectCountry(){

@@ -144,7 +144,8 @@
    existera, DEFAULT_COUNTRY passe à 'US'. */
 var VIDEO_BY_COUNTRY = {
   FR: 'V-r0IvDzZO8',   // France — officielle 16:9, euros
-  GB: 'VrIzWxGvlxs'    // Royaume-Uni — officielle 16:9, livres
+  GB: 'VrIzWxGvlxs',   // Royaume-Uni — officielle 16:9, livres
+  AU: 'IU37vtHJ6pg'    // Australie — officielle 16:9, dollars australiens (06/11/2026)
   // US: '...',        // à venir : deviendra le repli par défaut
 };
 var DEFAULT_COUNTRY = 'GB';   // -> 'US' dès que la vidéo USA existe
@@ -157,7 +158,7 @@ var TZ_COUNTRY = {
   'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US',
   'America/Phoenix':'US','America/Anchorage':'US','Pacific/Honolulu':'US',
   'America/Toronto':'CA','America/Vancouver':'CA',
-  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU'
+  'Australia/Sydney':'AU','Australia/Melbourne':'AU','Australia/Brisbane':'AU','Australia/Perth':'AU','Australia/Adelaide':'AU','Australia/Hobart':'AU','Australia/Darwin':'AU','Pacific/Auckland':'NZ'
 };
 function detectCountry(){
   try { var f = new URLSearchParams(window.location.search).get('pays'); if (f) return f.toUpperCase(); } catch(e){}

@@ -395,8 +395,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   }
 
   const NAV_ITEMS = [
-    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.campaigns', locale), slug: 'campaigns', icon: '🚀', locked: lockedModules.prospect },
+    { label: t('nav.prospects', locale), slug: 'prospects', icon: '🎯', locked: lockedModules.prospect },
     { label: t('nav.agenda', locale), slug: 'agenda', icon: '📅' },
     { label: t('nav.results', locale), slug: 'resultats', icon: '📈' },
     { label: t('nav.chat', locale), slug: 'chat', icon: '💬' },
