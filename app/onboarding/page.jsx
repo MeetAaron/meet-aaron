@@ -49,6 +49,410 @@ const COUNTRY_SUGGESTIONS = [
   'Maroc', 'Tunisie', 'Sénégal', "Côte d'Ivoire", 'Brésil', 'Mexique',
 ];
 
+// Écran d'inscription en 7 langues (06/11/2026, retour Alex : « tout n'est pas traduit »).
+const SIGNUP_TEXT = {
+  "fr": {
+    "welcome": "Bienvenue sur Meet Aaron",
+    "who": "Pour commencer, dites-nous qui vous êtes.",
+    "rolePatron": "Je suis fondateur(trice) / dirigeant(e)",
+    "rolePatronDesc": "Je crée l'espace Meet Aaron de mon entreprise et je configure l'abonnement (carte bancaire). Pas besoin d'inviter toute mon équipe dès maintenant : je pourrai ajouter les sessions de mes employés plus tard directement depuis l'application, au même prix.",
+    "roleCommercial": "Je suis commercial(e)",
+    "roleCommercialDesc": "Je fais de la prospection/vente pour une entreprise — avec ou sans code transmis par mon employeur.",
+    "lastDetail": "Une dernière précision avant de continuer.",
+    "pathCode": "J'ai un code d'activation de mon entreprise",
+    "pathCodeDesc": "Mon entreprise a déjà un abonnement Meet Aaron actif et m'a transmis un code pour rejoindre son espace, sans payer individuellement.",
+    "pathOwn": "Je crée mon propre espace",
+    "pathOwnDesc": "Je n'ai pas de code : je configure mon propre abonnement (carte bancaire) pour utiliser Meet Aaron seul(e).",
+    "back": "← Retour",
+    "createTitle": "Créez votre espace Meet Aaron",
+    "createSub": "Quelques infos, puis direction le paiement pour activer votre compte.",
+    "firstName": "Prénom",
+    "lastName": "Nom",
+    "companyName": "Nom de votre société",
+    "companyHint": "Si vous êtes seul(e), indiquez simplement votre nom ou celui de votre activité.",
+    "country": "Pays de votre société",
+    "countryPh": "ex : France",
+    "subscription": "Votre abonnement",
+    "offerDesc": "300 prospects par mois. Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.",
+    "offerHint": "Sans engagement, résiliable à tout moment depuis l'application. Mises à jour et maintenance comprises.",
+    "attest": "Je certifie être autorisé(e) par mon entreprise à créer ce compte et à partager les documents commerciaux nécessaires au fonctionnement d'Aaron.",
+    "redirecting": "Redirection…",
+    "continuePay": "Continuer vers le paiement",
+    "joinTitle": "Rejoignez votre équipe",
+    "joinSub": "Entrez le code d'invitation transmis par votre dirigeant(e).",
+    "inviteCode": "Code d'invitation de votre entreprise",
+    "inviteHint": "Ce code vous a été transmis par votre dirigeant(e) ou responsable — il vous fait rejoindre l'abonnement déjà actif de votre entreprise, sans paiement de votre part.",
+    "connecting": "Connexion…",
+    "join": "Rejoindre mon équipe",
+    "noCode": "Vous n'avez pas de code ? Créez votre propre espace Meet Aaron →",
+    "loading": "Chargement…",
+    "selectModule": "Sélectionnez au moins un module Aaron avant de continuer.",
+    "attestFirst": "Merci de confirmer la case ci-dessous avant de continuer.",
+    "countries": [
+      "France",
+      "Belgique",
+      "Suisse",
+      "Luxembourg",
+      "Monaco",
+      "Canada",
+      "Royaume-Uni",
+      "Irlande",
+      "Australie",
+      "Nouvelle-Zélande",
+      "États-Unis",
+      "Allemagne",
+      "Autriche",
+      "Italie",
+      "Espagne",
+      "Portugal",
+      "Pays-Bas",
+      "Maroc",
+      "Tunisie",
+      "Sénégal",
+      "Côte d'Ivoire",
+      "Brésil",
+      "Mexique"
+    ]
+  },
+  "en": {
+    "welcome": "Welcome to Meet Aaron",
+    "who": "To start, tell us who you are.",
+    "rolePatron": "I'm a founder / business owner",
+    "rolePatronDesc": "I create my company's Meet Aaron space and set up the subscription (bank card). No need to invite my whole team right now: I can add my employees' seats later, straight from the app, at the same price.",
+    "roleCommercial": "I'm a salesperson",
+    "roleCommercialDesc": "I prospect or sell for a company — with or without a code from my employer.",
+    "lastDetail": "One last detail before we continue.",
+    "pathCode": "I have an activation code from my company",
+    "pathCodeDesc": "My company already has an active Meet Aaron subscription and gave me a code to join its space, without paying individually.",
+    "pathOwn": "I create my own space",
+    "pathOwnDesc": "I have no code: I set up my own subscription (bank card) to use Meet Aaron on my own.",
+    "back": "← Back",
+    "createTitle": "Create your Meet Aaron space",
+    "createSub": "A few details, then on to payment to activate your account.",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "companyName": "Your company name",
+    "companyHint": "If you work alone, simply enter your name or the name of your business.",
+    "country": "Your company's country",
+    "countryPh": "e.g. United Kingdom",
+    "subscription": "Your subscription",
+    "offerDesc": "300 prospects a month. Prospecting, follow-ups, meeting booking, opportunity tracking through to signature — everything included.",
+    "offerHint": "No commitment, cancel any time from the app. Updates and maintenance included.",
+    "attest": "I confirm that my company authorises me to create this account and to share the sales documents Aaron needs to work.",
+    "redirecting": "Redirecting…",
+    "continuePay": "Continue to payment",
+    "joinTitle": "Join your team",
+    "joinSub": "Enter the invitation code your manager gave you.",
+    "inviteCode": "Your company's invitation code",
+    "inviteHint": "This code was given to you by your manager — it adds you to your company's active subscription, with no payment on your side.",
+    "connecting": "Signing in…",
+    "join": "Join my team",
+    "noCode": "No code? Create your own Meet Aaron space →",
+    "loading": "Loading…",
+    "selectModule": "Select at least one Aaron module before continuing.",
+    "attestFirst": "Please tick the box below before continuing.",
+    "countries": [
+      "United Kingdom",
+      "Ireland",
+      "United States",
+      "Canada",
+      "Australia",
+      "New Zealand",
+      "France",
+      "Belgium",
+      "Switzerland",
+      "Luxembourg",
+      "Germany",
+      "Austria",
+      "Italy",
+      "Spain",
+      "Portugal",
+      "Netherlands",
+      "South Africa",
+      "Singapore",
+      "India",
+      "Morocco",
+      "Brazil",
+      "Mexico"
+    ]
+  },
+  "de": {
+    "welcome": "Willkommen bei Meet Aaron",
+    "who": "Sagen Sie uns zum Einstieg, wer Sie sind.",
+    "rolePatron": "Ich bin Gründer(in) / Geschäftsführer(in)",
+    "rolePatronDesc": "Ich lege den Meet-Aaron-Bereich meines Unternehmens an und richte das Abonnement ein (Bankkarte). Ich muss mein Team nicht sofort einladen: Ich kann die Plätze meiner Mitarbeiter später direkt in der App hinzufügen, zum gleichen Preis.",
+    "roleCommercial": "Ich bin im Vertrieb",
+    "roleCommercialDesc": "Ich akquiriere oder verkaufe für ein Unternehmen — mit oder ohne Code von meinem Arbeitgeber.",
+    "lastDetail": "Eine letzte Angabe, bevor es weitergeht.",
+    "pathCode": "Ich habe einen Aktivierungscode meines Unternehmens",
+    "pathCodeDesc": "Mein Unternehmen hat bereits ein aktives Meet-Aaron-Abonnement und mir einen Code gegeben, um seinem Bereich beizutreten, ohne selbst zu zahlen.",
+    "pathOwn": "Ich lege meinen eigenen Bereich an",
+    "pathOwnDesc": "Ich habe keinen Code: Ich richte mein eigenes Abonnement ein (Bankkarte), um Meet Aaron allein zu nutzen.",
+    "back": "← Zurück",
+    "createTitle": "Legen Sie Ihren Meet-Aaron-Bereich an",
+    "createSub": "Ein paar Angaben, dann geht es zur Zahlung, um Ihr Konto zu aktivieren.",
+    "firstName": "Vorname",
+    "lastName": "Nachname",
+    "companyName": "Name Ihres Unternehmens",
+    "companyHint": "Wenn Sie allein arbeiten, geben Sie einfach Ihren Namen oder den Ihrer Tätigkeit an.",
+    "country": "Land Ihres Unternehmens",
+    "countryPh": "z. B. Deutschland",
+    "subscription": "Ihr Abonnement",
+    "offerDesc": "300 Interessenten pro Monat. Akquise, Nachfassen, Terminvereinbarung, Begleitung der Verkaufschancen bis zur Unterschrift — alles inklusive.",
+    "offerHint": "Keine Bindung, jederzeit in der App kündbar. Updates und Wartung inklusive.",
+    "attest": "Ich bestätige, dass mein Unternehmen mich berechtigt, dieses Konto anzulegen und die für Aarons Arbeit nötigen Vertriebsunterlagen zu teilen.",
+    "redirecting": "Weiterleitung…",
+    "continuePay": "Weiter zur Zahlung",
+    "joinTitle": "Treten Sie Ihrem Team bei",
+    "joinSub": "Geben Sie den Einladungscode Ihrer Geschäftsführung ein.",
+    "inviteCode": "Einladungscode Ihres Unternehmens",
+    "inviteHint": "Diesen Code haben Sie von Ihrer Geschäftsführung erhalten — er fügt Sie dem aktiven Abonnement Ihres Unternehmens hinzu, ohne Zahlung Ihrerseits.",
+    "connecting": "Anmeldung…",
+    "join": "Meinem Team beitreten",
+    "noCode": "Kein Code? Legen Sie Ihren eigenen Meet-Aaron-Bereich an →",
+    "loading": "Wird geladen…",
+    "selectModule": "Wählen Sie mindestens ein Aaron-Modul, bevor Sie fortfahren.",
+    "attestFirst": "Bitte bestätigen Sie das Kästchen unten, bevor Sie fortfahren.",
+    "countries": [
+      "Deutschland",
+      "Österreich",
+      "Schweiz",
+      "Liechtenstein",
+      "Luxemburg",
+      "Frankreich",
+      "Belgien",
+      "Niederlande",
+      "Italien",
+      "Spanien",
+      "Portugal",
+      "Vereinigtes Königreich",
+      "Irland",
+      "USA",
+      "Kanada",
+      "Australien",
+      "Neuseeland"
+    ]
+  },
+  "it": {
+    "welcome": "Benvenuto su Meet Aaron",
+    "who": "Per iniziare, dicci chi sei.",
+    "rolePatron": "Sono fondatore / titolare",
+    "rolePatronDesc": "Creo lo spazio Meet Aaron della mia azienda e configuro l'abbonamento (carta bancaria). Non serve invitare subito tutto il team: potrò aggiungere i posti dei miei collaboratori più tardi, direttamente dall'app, allo stesso prezzo.",
+    "roleCommercial": "Sono un commerciale",
+    "roleCommercialDesc": "Faccio prospezione o vendita per un'azienda — con o senza un codice dato dal mio datore di lavoro.",
+    "lastDetail": "Un'ultima precisazione prima di continuare.",
+    "pathCode": "Ho un codice di attivazione della mia azienda",
+    "pathCodeDesc": "La mia azienda ha già un abbonamento Meet Aaron attivo e mi ha dato un codice per entrare nel suo spazio, senza pagare individualmente.",
+    "pathOwn": "Creo il mio spazio",
+    "pathOwnDesc": "Non ho un codice: configuro il mio abbonamento (carta bancaria) per usare Meet Aaron da solo.",
+    "back": "← Indietro",
+    "createTitle": "Crea il tuo spazio Meet Aaron",
+    "createSub": "Qualche informazione, poi il pagamento per attivare l'account.",
+    "firstName": "Nome",
+    "lastName": "Cognome",
+    "companyName": "Nome della tua azienda",
+    "companyHint": "Se lavori da solo, indica semplicemente il tuo nome o quello della tua attività.",
+    "country": "Paese della tua azienda",
+    "countryPh": "es. Italia",
+    "subscription": "Il tuo abbonamento",
+    "offerDesc": "300 potenziali clienti al mese. Prospezione, solleciti, appuntamenti, seguito delle opportunità fino alla firma — tutto incluso.",
+    "offerHint": "Senza vincoli, disdici quando vuoi dall'app. Aggiornamenti e manutenzione inclusi.",
+    "attest": "Confermo che la mia azienda mi autorizza a creare questo account e a condividere i documenti commerciali necessari al funzionamento di Aaron.",
+    "redirecting": "Reindirizzamento…",
+    "continuePay": "Continua verso il pagamento",
+    "joinTitle": "Unisciti al tuo team",
+    "joinSub": "Inserisci il codice di invito ricevuto dal tuo responsabile.",
+    "inviteCode": "Codice di invito della tua azienda",
+    "inviteHint": "Questo codice ti è stato dato dal tuo responsabile — ti aggiunge all'abbonamento già attivo della tua azienda, senza alcun pagamento da parte tua.",
+    "connecting": "Accesso…",
+    "join": "Unirmi al mio team",
+    "noCode": "Non hai un codice? Crea il tuo spazio Meet Aaron →",
+    "loading": "Caricamento…",
+    "selectModule": "Seleziona almeno un modulo Aaron prima di continuare.",
+    "attestFirst": "Conferma la casella qui sotto prima di continuare.",
+    "countries": [
+      "Italia",
+      "San Marino",
+      "Svizzera",
+      "Francia",
+      "Germania",
+      "Austria",
+      "Spagna",
+      "Portogallo",
+      "Belgio",
+      "Paesi Bassi",
+      "Lussemburgo",
+      "Regno Unito",
+      "Irlanda",
+      "Stati Uniti",
+      "Canada",
+      "Australia",
+      "Nuova Zelanda"
+    ]
+  },
+  "es": {
+    "welcome": "Bienvenido a Meet Aaron",
+    "who": "Para empezar, dinos quién eres.",
+    "rolePatron": "Soy fundador(a) / director(a)",
+    "rolePatronDesc": "Creo el espacio Meet Aaron de mi empresa y configuro la suscripción (tarjeta bancaria). No hace falta invitar a todo mi equipo ahora: podré añadir los puestos de mis empleados más tarde, directamente desde la aplicación, al mismo precio.",
+    "roleCommercial": "Soy comercial",
+    "roleCommercialDesc": "Hago prospección o venta para una empresa — con o sin un código de mi empleador.",
+    "lastDetail": "Una última precisión antes de continuar.",
+    "pathCode": "Tengo un código de activación de mi empresa",
+    "pathCodeDesc": "Mi empresa ya tiene una suscripción Meet Aaron activa y me ha dado un código para unirme a su espacio, sin pagar individualmente.",
+    "pathOwn": "Creo mi propio espacio",
+    "pathOwnDesc": "No tengo código: configuro mi propia suscripción (tarjeta bancaria) para usar Meet Aaron por mi cuenta.",
+    "back": "← Volver",
+    "createTitle": "Crea tu espacio Meet Aaron",
+    "createSub": "Unos datos y luego el pago para activar tu cuenta.",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "companyName": "Nombre de tu empresa",
+    "companyHint": "Si trabajas solo, indica simplemente tu nombre o el de tu actividad.",
+    "country": "País de tu empresa",
+    "countryPh": "ej. España",
+    "subscription": "Tu suscripción",
+    "offerDesc": "300 prospectos al mes. Prospección, seguimientos, citas, seguimiento de oportunidades hasta la firma — todo incluido.",
+    "offerHint": "Sin permanencia, cancela cuando quieras desde la aplicación. Actualizaciones y mantenimiento incluidos.",
+    "attest": "Confirmo que mi empresa me autoriza a crear esta cuenta y a compartir los documentos comerciales necesarios para el funcionamiento de Aaron.",
+    "redirecting": "Redirigiendo…",
+    "continuePay": "Continuar al pago",
+    "joinTitle": "Únete a tu equipo",
+    "joinSub": "Introduce el código de invitación que te ha dado tu responsable.",
+    "inviteCode": "Código de invitación de tu empresa",
+    "inviteHint": "Este código te lo ha dado tu responsable — te añade a la suscripción ya activa de tu empresa, sin ningún pago por tu parte.",
+    "connecting": "Conectando…",
+    "join": "Unirme a mi equipo",
+    "noCode": "¿No tienes código? Crea tu propio espacio Meet Aaron →",
+    "loading": "Cargando…",
+    "selectModule": "Selecciona al menos un módulo Aaron antes de continuar.",
+    "attestFirst": "Marca la casilla de abajo antes de continuar.",
+    "countries": [
+      "España",
+      "México",
+      "Argentina",
+      "Chile",
+      "Colombia",
+      "Perú",
+      "Francia",
+      "Portugal",
+      "Italia",
+      "Alemania",
+      "Reino Unido",
+      "Irlanda",
+      "Estados Unidos",
+      "Canadá",
+      "Australia"
+    ]
+  },
+  "pt": {
+    "welcome": "Bem-vindo ao Meet Aaron",
+    "who": "Para começar, diz-nos quem és.",
+    "rolePatron": "Sou fundador(a) / dirigente",
+    "rolePatronDesc": "Crio o espaço Meet Aaron da minha empresa e configuro a subscrição (cartão bancário). Não preciso de convidar já toda a equipa: posso adicionar os lugares dos meus colaboradores mais tarde, diretamente na aplicação, ao mesmo preço.",
+    "roleCommercial": "Sou comercial",
+    "roleCommercialDesc": "Faço prospeção ou venda para uma empresa — com ou sem código dado pelo meu empregador.",
+    "lastDetail": "Uma última precisão antes de continuar.",
+    "pathCode": "Tenho um código de ativação da minha empresa",
+    "pathCodeDesc": "A minha empresa já tem uma subscrição Meet Aaron ativa e deu-me um código para entrar no seu espaço, sem pagar individualmente.",
+    "pathOwn": "Crio o meu próprio espaço",
+    "pathOwnDesc": "Não tenho código: configuro a minha própria subscrição (cartão bancário) para usar o Meet Aaron sozinho.",
+    "back": "← Voltar",
+    "createTitle": "Cria o teu espaço Meet Aaron",
+    "createSub": "Alguns dados e depois o pagamento para ativar a tua conta.",
+    "firstName": "Nome",
+    "lastName": "Apelido",
+    "companyName": "Nome da tua empresa",
+    "companyHint": "Se trabalhas sozinho, indica simplesmente o teu nome ou o da tua atividade.",
+    "country": "País da tua empresa",
+    "countryPh": "ex.: Portugal",
+    "subscription": "A tua subscrição",
+    "offerDesc": "300 potenciais clientes por mês. Prospeção, seguimentos, marcação de reuniões, acompanhamento das oportunidades até à assinatura — tudo incluído.",
+    "offerHint": "Sem fidelização, cancelas quando quiseres na aplicação. Atualizações e manutenção incluídas.",
+    "attest": "Confirmo que a minha empresa me autoriza a criar esta conta e a partilhar os documentos comerciais necessários ao funcionamento do Aaron.",
+    "redirecting": "A redirecionar…",
+    "continuePay": "Continuar para o pagamento",
+    "joinTitle": "Junta-te à tua equipa",
+    "joinSub": "Introduz o código de convite que o teu responsável te deu.",
+    "inviteCode": "Código de convite da tua empresa",
+    "inviteHint": "Este código foi-te dado pelo teu responsável — junta-te à subscrição já ativa da tua empresa, sem qualquer pagamento da tua parte.",
+    "connecting": "A ligar…",
+    "join": "Juntar-me à minha equipa",
+    "noCode": "Não tens código? Cria o teu próprio espaço Meet Aaron →",
+    "loading": "A carregar…",
+    "selectModule": "Seleciona pelo menos um módulo Aaron antes de continuar.",
+    "attestFirst": "Confirma a caixa abaixo antes de continuar.",
+    "countries": [
+      "Portugal",
+      "Brasil",
+      "Angola",
+      "Moçambique",
+      "Cabo Verde",
+      "Espanha",
+      "França",
+      "Itália",
+      "Alemanha",
+      "Reino Unido",
+      "Irlanda",
+      "Estados Unidos",
+      "Canadá",
+      "Austrália"
+    ]
+  },
+  "nl": {
+    "welcome": "Welkom bij Meet Aaron",
+    "who": "Vertel ons om te beginnen wie je bent.",
+    "rolePatron": "Ik ben oprichter / bedrijfsleider",
+    "rolePatronDesc": "Ik maak de Meet Aaron-omgeving van mijn bedrijf aan en stel het abonnement in (bankkaart). Ik hoef mijn team niet meteen uit te nodigen: ik kan de plaatsen van mijn medewerkers later rechtstreeks in de app toevoegen, voor dezelfde prijs.",
+    "roleCommercial": "Ik ben verkoper",
+    "roleCommercialDesc": "Ik prospecteer of verkoop voor een bedrijf — met of zonder code van mijn werkgever.",
+    "lastDetail": "Nog één ding voordat we verdergaan.",
+    "pathCode": "Ik heb een activatiecode van mijn bedrijf",
+    "pathCodeDesc": "Mijn bedrijf heeft al een actief Meet Aaron-abonnement en gaf me een code om bij zijn omgeving aan te sluiten, zonder zelf te betalen.",
+    "pathOwn": "Ik maak mijn eigen omgeving aan",
+    "pathOwnDesc": "Ik heb geen code: ik stel mijn eigen abonnement in (bankkaart) om Meet Aaron alleen te gebruiken.",
+    "back": "← Terug",
+    "createTitle": "Maak je Meet Aaron-omgeving aan",
+    "createSub": "Een paar gegevens, daarna de betaling om je account te activeren.",
+    "firstName": "Voornaam",
+    "lastName": "Achternaam",
+    "companyName": "Naam van je bedrijf",
+    "companyHint": "Werk je alleen, vul dan gewoon je naam of die van je activiteit in.",
+    "country": "Land van je bedrijf",
+    "countryPh": "bv. Nederland",
+    "subscription": "Je abonnement",
+    "offerDesc": "300 prospects per maand. Prospectie, opvolging, afspraken, opvolging van kansen tot de handtekening — alles inbegrepen.",
+    "offerHint": "Zonder verplichting, op elk moment opzegbaar in de app. Updates en onderhoud inbegrepen.",
+    "attest": "Ik bevestig dat mijn bedrijf me toestaat dit account aan te maken en de commerciële documenten te delen die Aaron nodig heeft.",
+    "redirecting": "Doorsturen…",
+    "continuePay": "Doorgaan naar betaling",
+    "joinTitle": "Sluit je aan bij je team",
+    "joinSub": "Voer de uitnodigingscode in die je van je leidinggevende kreeg.",
+    "inviteCode": "Uitnodigingscode van je bedrijf",
+    "inviteHint": "Deze code kreeg je van je leidinggevende — hij voegt je toe aan het actieve abonnement van je bedrijf, zonder betaling van jouw kant.",
+    "connecting": "Aanmelden…",
+    "join": "Bij mijn team aansluiten",
+    "noCode": "Geen code? Maak je eigen Meet Aaron-omgeving aan →",
+    "loading": "Laden…",
+    "selectModule": "Kies minstens één Aaron-module voordat je verdergaat.",
+    "attestFirst": "Vink het vakje hieronder aan voordat je verdergaat.",
+    "countries": [
+      "Nederland",
+      "België",
+      "Luxemburg",
+      "Duitsland",
+      "Frankrijk",
+      "Verenigd Koninkrijk",
+      "Ierland",
+      "Verenigde Staten",
+      "Canada",
+      "Australië",
+      "Nieuw-Zeeland"
+    ]
+  }
+};
+const st = (key, locale) => (SIGNUP_TEXT[locale] || SIGNUP_TEXT.fr)[key] ?? SIGNUP_TEXT.fr[key];
+
 // Mensuel / annuel (06/11/2026). Textes locaux, comme ailleurs dans cette page.
 const BILLING_TEXT = {
   "fr": {
@@ -178,11 +582,11 @@ export default function OnboardingPage() {
   async function handlePatronSubmit(e) {
     e.preventDefault();
     if (selectedModules.length === 0) {
-      setError('Sélectionnez au moins un module Aaron avant de continuer.');
+      setError(st('selectModule', locale));
       return;
     }
     if (!attested) {
-      setError('Merci de confirmer la case ci-dessous avant de continuer.');
+      setError(st('attestFirst', locale));
       return;
     }
     setSubmitting(true);
@@ -254,7 +658,7 @@ export default function OnboardingPage() {
   if (checking) {
     return (
       <div className="wrap">
-        <p className="loading-text">Chargement…</p>
+        <p className="loading-text">{st('loading', locale)}</p>
         <style jsx>{`
           .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; }
           .loading-text { color: #8b90a8; font-family: 'Inter', sans-serif; }
@@ -274,31 +678,25 @@ export default function OnboardingPage() {
       <div className="wrap">
         <div className="card">
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
-          <h1>Bienvenue sur Meet Aaron</h1>
+          <h1>{st('welcome', locale)}</h1>
 
           {!askingSignupPath ? (
             <>
-              <p className="subtitle">Pour commencer, dites-nous qui vous êtes.</p>
+              <p className="subtitle">{st('who', locale)}</p>
 
               <button type="button" className="role-btn" onClick={() => setPersonRole('patron')}>
-                <span className="role-title">Je suis fondateur(trice) / dirigeant(e)</span>
-                <span className="role-desc">
-                  Je crée l'espace Meet Aaron de mon entreprise et je configure l'abonnement (carte bancaire). Pas
-                  besoin d'inviter toute mon équipe dès maintenant : je pourrai ajouter les sessions de mes employés
-                  plus tard directement depuis l'application, au même prix.
-                </span>
+                <span className="role-title">{st('rolePatron', locale)}</span>
+                <span className="role-desc">{st('rolePatronDesc', locale)}</span>
               </button>
 
               <button type="button" className="role-btn" onClick={() => setPersonRole('commercial')}>
-                <span className="role-title">Je suis commercial(e)</span>
-                <span className="role-desc">
-                  Je fais de la prospection/vente pour une entreprise — avec ou sans code transmis par mon employeur.
-                </span>
+                <span className="role-title">{st('roleCommercial', locale)}</span>
+                <span className="role-desc">{st('roleCommercialDesc', locale)}</span>
               </button>
             </>
           ) : (
             <>
-              <p className="subtitle">Une dernière précision avant de continuer.</p>
+              <p className="subtitle">{st('lastDetail', locale)}</p>
 
               {/* Distinct de "Je suis commercial(e)" ci-dessus : avant, ce
                   choix ÉTAIT la question "qui êtes-vous", ce qui empêchait
@@ -306,23 +704,17 @@ export default function OnboardingPage() {
                   simplement se déclarer commercial — il devait mentir et
                   se dire "dirigeant(e)" pour pouvoir payer. */}
               <button type="button" className="role-btn" onClick={() => setSignupPath('invite_code')}>
-                <span className="role-title">J'ai un code d'activation de mon entreprise</span>
-                <span className="role-desc">
-                  Mon entreprise a déjà un abonnement Meet Aaron actif et m'a transmis un code pour rejoindre son
-                  espace, sans payer individuellement.
-                </span>
+                <span className="role-title">{st('pathCode', locale)}</span>
+                <span className="role-desc">{st('pathCodeDesc', locale)}</span>
               </button>
 
               <button type="button" className="role-btn" onClick={() => setSignupPath('own_space')}>
-                <span className="role-title">Je crée mon propre espace</span>
-                <span className="role-desc">
-                  Je n'ai pas de code : je configure mon propre abonnement (carte bancaire) pour utiliser Meet Aaron
-                  seul(e).
-                </span>
+                <span className="role-title">{st('pathOwn', locale)}</span>
+                <span className="role-desc">{st('pathOwnDesc', locale)}</span>
               </button>
 
               <button type="button" className="link-back" onClick={() => setPersonRole(null)}>
-                ← Retour
+                {st('back', locale)}
               </button>
             </>
           )}
@@ -417,32 +809,32 @@ export default function OnboardingPage() {
       {signupPath !== 'invite_code' ? (
         <form className="card" onSubmit={handlePatronSubmit}>
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
-          <h1>Créez votre espace Meet Aaron</h1>
-          <p className="subtitle">Quelques infos, puis direction le paiement pour activer votre compte.</p>
+          <h1>{st('createTitle', locale)}</h1>
+          <p className="subtitle">{st('createSub', locale)}</p>
 
           <div className="name-row">
             <label>
-              Prénom
+              {st('firstName', locale)}
               <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Aaron" required />
             </label>
             <label>
-              Nom
+              {st('lastName', locale)}
               <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Martin" required />
             </label>
           </div>
 
           <label>
-            Nom de votre société
+            {st('companyName', locale)}
             <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ex: Dupont SARL" required />
           </label>
           {/* Précision ajoutée le 25/08 : un commercial solo qui découvre ce
               champ juste après avoir cliqué "Je crée mon espace Meet Aaron"
               peut se demander s'il a le droit de continuer alors qu'il n'a
               pas de société au sens juridique — on lève l'ambiguïté ici. */}
-          <p className="field-hint">Si vous êtes seul(e), indiquez simplement votre nom ou celui de votre activité.</p>
+          <p className="field-hint">{st('companyHint', locale)}</p>
 
           <label>
-            Pays de votre société
+            {st('country', locale)}
             <input
               value={country}
               onChange={(e) => {
@@ -456,12 +848,12 @@ export default function OnboardingPage() {
                 if (guessed && guessed !== locale) setLocale(guessed);
               }}
               list="country-suggestions"
-              placeholder="ex: France"
+              placeholder={st('countryPh', locale)}
               autoComplete="country-name"
               required
             />
             <datalist id="country-suggestions">
-              {COUNTRY_SUGGESTIONS.map((c) => (
+              {(st('countries', locale) || COUNTRY_SUGGESTIONS).map((c) => (
                 <option key={c} value={c} />
               ))}
             </datalist>
@@ -473,7 +865,7 @@ export default function OnboardingPage() {
               opportunités et suivi client. selectedModules reste ['AP']
               (le prix Aaron côté Stripe est l'ancien prix "AP"). */}
           <div className="modules-field">
-            <span className="modules-label">Votre abonnement</span>
+            <span className="modules-label">{st('subscription', locale)}</span>
             <div className="modules-grid">
               <div className="module-card selected">
                 <div className="module-toggle" aria-pressed="true">
@@ -482,9 +874,7 @@ export default function OnboardingPage() {
                     <span className="module-title-row">
                       <span className="module-title">Aaron</span>
                     </span>
-                    <span className="module-desc">
-                      300 prospects par mois. Prospection, relances, prise de rendez-vous, suivi des opportunités jusqu'à la signature — tout est inclus.
-                    </span>
+                    <span className="module-desc">{st('offerDesc', locale)}</span>
                   </span>
                   <span className="module-price">{billing === 'year' && yearlyOffered ? `${yearlyPerMonthLabel} ${t('onboarding.perMonth', locale)}` : `${monthlyPriceLabel} ${t('onboarding.perMonth', locale)}`}</span>
                 </div>
@@ -502,9 +892,7 @@ export default function OnboardingPage() {
                 </button>
               </div>
             )}
-            <p className="modules-hint">
-              Sans engagement, résiliable à tout moment depuis l'application. Mises à jour et maintenance comprises.
-            </p>
+            <p className="modules-hint">{st('offerHint', locale)}</p>
           </div>
 
           {/* Rassurance avant la case a cocher.
@@ -532,13 +920,13 @@ export default function OnboardingPage() {
 
           <label className="checkbox-row">
             <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
-            <span>Je certifie être autorisé(e) par mon entreprise à créer ce compte et à partager les documents commerciaux nécessaires au fonctionnement d'Aaron.</span>
+            <span>{st('attest', locale)}</span>
           </label>
 
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="btn-primary" disabled={submitting || selectedModules.length === 0}>
-            {submitting ? 'Redirection…' : 'Continuer vers le paiement'}
+            {submitting ? st('redirecting', locale) : st('continuePay', locale)}
           </button>
 
           <button
@@ -553,28 +941,28 @@ export default function OnboardingPage() {
               setError(null);
             }}
           >
-            ← Retour
+            {st('back', locale)}
           </button>
         </form>
       ) : (
         <form className="card" onSubmit={handleJoinCompany}>
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
-          <h1>Rejoignez votre équipe</h1>
-          <p className="subtitle">Entrez le code d'invitation transmis par votre dirigeant(e).</p>
+          <h1>{st('joinTitle', locale)}</h1>
+          <p className="subtitle">{st('joinSub', locale)}</p>
 
           <div className="name-row">
             <label>
-              Prénom
+              {st('firstName', locale)}
               <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="ex: Aaron" required />
             </label>
             <label>
-              Nom
+              {st('lastName', locale)}
               <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="ex: Martin" required />
             </label>
           </div>
 
           <label>
-            Code d'invitation de votre entreprise
+            {st('inviteCode', locale)}
             <input
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
@@ -586,15 +974,12 @@ export default function OnboardingPage() {
           {/* Précision ajoutée le 25/08 (retour Alex) : "code d'invitation"
               seul n'était pas assez explicite sur ce qu'il fait concrètement
               (rejoindre un abonnement déjà payé par l'entreprise). */}
-          <p className="field-hint">
-            Ce code vous a été transmis par votre dirigeant(e) ou responsable — il vous fait rejoindre l'abonnement
-            déjà actif de votre entreprise, sans paiement de votre part.
-          </p>
+          <p className="field-hint">{st('inviteHint', locale)}</p>
 
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="btn-primary" disabled={submitting}>
-            {submitting ? 'Connexion…' : 'Rejoindre mon équipe'}
+            {submitting ? st('connecting', locale) : st('join', locale)}
           </button>
 
           {/* Échappatoire ajoutée le 25/08 : avant, quelqu'un arrivant ici
@@ -602,11 +987,11 @@ export default function OnboardingPage() {
               d'entreprise) n'avait pas d'autre choix que "← Retour" puis
               redevine tout seul qu'il fallait cliquer l'autre bouton. */}
           <button type="button" className="link-secondary" onClick={() => { setSignupPath('own_space'); setError(null); }}>
-            Vous n'avez pas de code ? Créez votre propre espace Meet Aaron →
+            {st('noCode', locale)}
           </button>
 
           <button type="button" className="link-back" onClick={() => { setSignupPath(null); setError(null); }}>
-            ← Retour
+            {st('back', locale)}
           </button>
         </form>
       )}
