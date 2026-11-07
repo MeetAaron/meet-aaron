@@ -249,7 +249,7 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
           <p className="reco-hint">{t('campaigns.recoHint', locale)}</p>
         </div>
         {!open && (
-          <button type="button" className="camp-manage-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
+          <button type="button" className="reco-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
         )}
       </div>
       {open && loading && <p className="reco-hint">{t('campaigns.recoLoading', locale)}</p>}
@@ -298,10 +298,50 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
             <button type="button" className="btn-primary" disabled={launching || !form.zone_label.trim() || !form.sectors.trim()} onClick={launch}>
               {launching ? t('campaigns.recoLaunching', locale) : t('campaigns.recoLaunch', locale)}
             </button>
-            <button type="button" className="camp-manage-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
+            <button type="button" className="reco-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
           </div>
         </div>
       )}
+      {/* Les styles vivent ICI et pas dans CampaignsPage : styled-jsx ne
+          s'applique qu'aux éléments du composant qui déclare le <style>.
+          Dans CampaignsPage, ces règles n'atteignaient jamais ce panneau,
+          qui s'affichait en texte brut (capture d'Alex sur iPhone, 07/11). */}
+      <style jsx>{`
+        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
+        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
+        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
+        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
+        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
+        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
+        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
+        .reco-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          border-radius: var(--radius-md);
+          padding: 0.62rem 0.9rem;
+          font-size: 0.84rem;
+          font-weight: 600;
+          font-family: inherit;
+          background: transparent;
+          border: 1px solid var(--border);
+          color: var(--muted);
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .reco-btn:hover { border-color: var(--accent); color: var(--text); }
+        @media (max-width: 640px) {
+          .reco { padding: 0.8rem 0.85rem; }
+          .reco-head { flex-direction: column; align-items: stretch; }
+          .reco-btn { justify-content: center; }
+        }
+      `}</style>
     </section>
   );
 }
@@ -1055,19 +1095,6 @@ export default function CampaignsPage() {
       )}
 
       <style jsx>{`
-        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
-        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
-        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
-        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
-        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
-        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
-        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
-        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
-        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
-        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
-        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
-        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
         .away-feed { margin-bottom: 1rem; }
         /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
            filtre de campagne de Contacts : une ligne, une icône, un texte. */

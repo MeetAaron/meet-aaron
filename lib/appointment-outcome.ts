@@ -21,6 +21,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { callClaude, MonthlyCapExceededError } from './anthropic-client';
 import { localeInstruction, normalizeLocale } from './locale-instruction';
+import { resolveProspectLocale } from './prospect-locale';
 
 export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
 
@@ -391,6 +392,26 @@ export async function personalizeOutcomeNote(
 // depuis la boîte du commercial. Journalisé dans la conversation du prospect
 // (visible dans « Conversation »). Best-effort : renvoie false si rien n'a
 // été envoyé (pas d'email, plafond API, boîte non connectée...).
+// Email d'après rendez-vous (refonte 07/11/2026, demande Alex : « que le
+// retour de rendez-vous serve à relancer, à faire le brief du rendez-vous,
+// et à passer à l'étape supérieure »).
+//
+// Ce n'est plus un simple remerciement. À partir du bilan du commercial
+// (issue, ressenti, chips et contexte), Aaron écrit l'email que le
+// commercial enverra lui-même, avec une stratégie par issue :
+//   - devis / opportunité : brief de ce qui a été compris, les objections
+//     transformées en engagements (« j'ai bien noté votre attente sur les
+//     prix, ma proposition en tiendra compte »), annonce du devis avec un
+//     délai, et la question qui manque encore pour le chiffrer ;
+//   - à continuer : brief, puis UN pas concret vers l'étape suivante — le
+//     devis si l'échange le permet, sinon un second rendez-vous proposé
+//     clairement (Aaron sait ensuite traiter la réponse) ;
+//   - perdu : remercier, laisser la porte ouverte sans insister, un rendez-
+//     vous à plus tard ou un rappel dans quelques mois. On ne force rien.
+// Le ressenti du commercial (« c'était compliqué ») ne doit JAMAIS
+// transparaître : il sert seulement à choisir le ton et à anticiper.
+// Langue : celle du prospect (campagne, pays, extension de l'email), pas
+// celle du commercial.
 export async function sendThankYouEmail(
   appointmentId: string,
   outcome: AppointmentOutcome,
@@ -398,50 +419,104 @@ export async function sendThankYouEmail(
 ): Promise<{ sent: boolean; error?: string }> {
   const { data: appointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, proposed_at, type, prospect_id, prospects(id, full_name, email, company_id, assigned_user_id, users(id, full_name, first_name, locale, email))')
+    .select('id, proposed_at, type, prospect_id, prospects(id, full_name, job_title, email, company_id, assigned_user_id, users(id, full_name, first_name, locale, email), prospect_companies(name, address, found_by_campaign_id))')
     .eq('id', appointmentId)
     .single();
   const prospect = (appointment as any)?.prospects;
   const seller = prospect?.users;
   if (!appointment || !prospect?.email || !seller?.id) return { sent: false, error: 'prospect sans email' };
 
-  const locale = normalizeLocale(seller.locale);
-  const { data: company } = await supabaseAdmin
-    .from('companies')
-    .select('name, business_summary')
-    .eq('id', prospect.company_id)
-    .maybeSingle();
+  const sellerLocale = normalizeLocale(seller.locale);
+  const pc = prospect.prospect_companies || {};
+  const [{ data: company }, { data: campaign }] = await Promise.all([
+    supabaseAdmin.from('companies').select('name, business_summary, prospecting_goal').eq('id', prospect.company_id).maybeSingle(),
+    pc.found_by_campaign_id
+      ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', pc.found_by_campaign_id).maybeSingle()
+      : Promise.resolve({ data: null as any }),
+  ]);
+  const prospectLocale = resolveProspectLocale({
+    campaignLocale: (campaign as any)?.target_locale || null,
+    address: pc.address || null,
+    email: prospect.email,
+    sellerLocale,
+  });
 
-  const mentionsQuote = /devis|proposition|contrat|abonnement|tarif|quote|offer/i.test(details.context || '') || outcome === 'devis';
+  // Historique récent avec ce prospect : si lui écrit déjà dans une langue,
+  // elle prime (instruction dans le prompt), et Aaron peut rappeler un
+  // élément concret sans l'inventer.
+  const { data: conversation } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('prospect_id', prospect.id)
+    .eq('channel', 'email')
+    .maybeSingle();
+  let history: { direction: string; body: string }[] = [];
+  if (conversation) {
+    const { data: msgs } = await supabaseAdmin
+      .from('messages')
+      .select('direction, body')
+      .eq('conversation_id', conversation.id)
+      .order('sent_at', { ascending: false })
+      .limit(6);
+    history = (msgs || []).reverse().map((m: any) => ({ direction: m.direction, body: String(m.body || '').slice(0, 700) }));
+  }
+
+  const goal = (company as any)?.prospecting_goal || 'rdv';
+  const NEXT_STEP: Record<string, string> = {
+    rdv: "un devis (ou une proposition / un contrat)",
+    devis: "un devis",
+    essai_gratuit: "une inscription en ligne au service",
+    autre: "la prochaine étape convenue",
+  };
+  const STRATEGY: Record<AppointmentOutcome, string> = {
+    devis:
+      `Objectif de cet email : confirmer que ${NEXT_STEP[goal] || NEXT_STEP.rdv} arrive, avec un délai précis et réaliste (ex. « d'ici jeudi »), ` +
+      `résumer en 2 ou 3 phrases ce que tu as compris de son besoin (le brief du rendez-vous, vu de lui), et poser la seule question qui manque encore pour chiffrer juste, s'il y en a une.`,
+    opportunite:
+      `Objectif de cet email : transformer l'intérêt en étape concrète — annoncer ${NEXT_STEP[goal] || NEXT_STEP.rdv} avec un délai précis, ` +
+      `résumer en 2 ou 3 phrases ce que tu as compris de son besoin, et verrouiller le prochain contact (date ou créneau).`,
+    a_continuer:
+      `Objectif de cet email : faire avancer d'UNE étape. Résume en 2 ou 3 phrases ce que tu as compris de son besoin, puis propose un pas concret : ` +
+      `${NEXT_STEP[goal] || NEXT_STEP.rdv} si l'échange le permet (annonce-le avec un délai), sinon un second rendez-vous court, proposé clairement avec deux créneaux au choix la semaine prochaine (jours et heures ouvrés, sans préciser l'année). Une seule proposition, pas deux.`,
+    perdu:
+      `Objectif de cet email : remercier sincèrement, montrer que tu as compris sa position sans la contester, et laisser une porte ouverte précise ` +
+      `(un rendez-vous quand le moment sera meilleur, ou « je reviens vers vous dans trois mois »). Aucune insistance, aucune nouvelle argumentation, aucune proposition commerciale.`,
+  };
+  const MOOD_GUIDE: Record<string, string> = {
+    bien: "L'échange s'est bien passé : ton chaleureux et direct.",
+    moyen: "L'échange a été mitigé : reste simple et positif, reprends chaque réserve exprimée comme une attente dont tu tiens compte, sans jamais dire que c'était difficile.",
+    mal: "L'échange a été difficile pour le commercial : ton calme et respectueux, zéro pression, transforme les objections en engagements concrets (« j'ai bien noté votre attente sur les prix, ma proposition en tiendra compte »), sans jamais laisser transparaître le ressenti du commercial.",
+  };
 
   let subject = '';
   let body = '';
   try {
     const data = await callClaude(
       {
-        model: 'claude-haiku-4-5',
-        max_tokens: 500,
+        model: 'claude-sonnet-5',
+        max_tokens: 700,
         messages: [
           {
             role: 'user',
             content:
               `Tu es Aaron, l'assistant commercial de ${seller.first_name || seller.full_name || 'un commercial'}` +
               `${company?.name ? ` (société ${company.name})` : ''}. ` +
-              `Un rendez-vous ${appointment.type ? `(${appointment.type}) ` : ''}vient d'avoir lieu avec le prospect "${prospect.full_name || ''}".\n` +
-              `Issue du RDV selon le commercial : "${OUTCOME_LABELS[outcome]}".\n` +
-              (details.mood ? `Ressenti du commercial : ${MOOD_LABELS[details.mood]}.\n` : '') +
-              (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 800)}".\n` : '') +
+              `Un rendez-vous ${appointment.type ? `(${appointment.type}) ` : ''}vient d'avoir lieu avec "${prospect.full_name || ''}"${prospect.job_title ? `, ${prospect.job_title}` : ''}${pc.name ? ` (${pc.name})` : ''}.\n` +
+              `Issue du rendez-vous selon le commercial : "${OUTCOME_LABELS[outcome]}".\n` +
+              (details.mood ? `Ressenti du commercial (CONFIDENTIEL, ne jamais le mentionner) : ${MOOD_LABELS[details.mood]}. ${MOOD_GUIDE[details.mood] || ''}\n` : '') +
+              (details.context?.trim() ? `Ce que le commercial a noté sur le rendez-vous : "${details.context.trim().slice(0, 1200)}".\n` : '') +
               (company?.business_summary ? `Ce que vend la société (extrait) : ${company.business_summary.slice(0, 600)}\n` : '') +
-              `Rédige l'email de remerciement que le commercial enverra LUI-MÊME au prospect, à la première personne (je), ` +
-              `court (4 à 7 phrases), chaleureux et naturel, sans flatterie excessive, en reprenant 1 élément concret du contexte s'il y en a un ` +
-              `(un point commun personnel, un sujet abordé), et en confirmant la suite convenue` +
-              (mentionsQuote ? ` (le devis/la proposition sera envoyé(e) comme promis)` : '') +
-              `. Pas de formule "en tant qu'IA", pas de signature (elle est ajoutée automatiquement), pas de titre. ` +
-              `Réponds STRICTEMENT au format JSON : {"subject": "...", "body": "..."} ${localeInstruction(locale)}.`,
+              (history.length ? `Derniers échanges avec ce prospect (pour la langue et un éventuel élément concret) :\n${JSON.stringify(history)}\n` : '') +
+              `\n${STRATEGY[outcome]}\n\n` +
+              `Règles : écris à la première personne (je), comme le commercial. 5 à 9 phrases, en 2 ou 3 courts paragraphes. ` +
+              `N'invente aucun détail qui n'est pas dans les notes ; si les notes sont vides, reste général mais concret sur l'étape suivante. ` +
+              `Ne cite jamais le ressenti du commercial ni les mots « difficile », « compliqué », « tendu ». Pas de flatterie, pas de jargon, pas de titre, pas de signature (ajoutée automatiquement), pas de formule « en tant qu'IA ». ` +
+              `LANGUE : si les derniers échanges montrent que le prospect écrit dans une langue précise, écris dans cette langue ; sinon ${localeInstruction(prospectLocale)}. ` +
+              `Réponds STRICTEMENT au format JSON : {"subject": "...", "body": "..."}.`,
           },
         ],
       },
-      prospect.company_id, 'as'
+      prospect.company_id, 'as', seller.id, 'reponse'
     );
     const textBlock = data.content.find((b: any) => b.type === 'text');
     const raw = (textBlock?.text || '').trim();
@@ -451,7 +526,7 @@ export async function sendThankYouEmail(
     body = String(parsed.body || '').trim();
   } catch (err: any) {
     if (!(err instanceof MonthlyCapExceededError)) {
-      console.error('Erreur rédaction email de remerciement post-RDV:', err?.message || err);
+      console.error("Erreur rédaction email d'après rendez-vous:", err?.message || err);
     }
     return { sent: false, error: 'rédaction impossible' };
   }
@@ -467,12 +542,6 @@ export async function sendThankYouEmail(
   }
 
   // Journalise dans la conversation email du prospect (visible dans « Conversation »).
-  const { data: conversation } = await supabaseAdmin
-    .from('conversations')
-    .select('id')
-    .eq('prospect_id', prospect.id)
-    .eq('channel', 'email')
-    .maybeSingle();
   if (conversation) {
     await supabaseAdmin.from('messages').insert({
       conversation_id: conversation.id,

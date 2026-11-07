@@ -169,6 +169,11 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
     { key: summary.won > 0 ? 'won' : 'quotes', value: summary.won > 0 ? summary.won : summary.quotes, label: ht(summary.won > 0 ? 'won' : 'quotes', locale) },
   ];
 
+  // Lecture en échec : rien plutôt qu'une carte vide sous les stories
+  // (capture d'Alex sur iPhone, 07/11/2026). L'erreur est déjà dans la
+  // console serveur (serverError dans /api/activity).
+  if (error) return null;
+
   return (
     <section className="feed" aria-live="polite">
       <div className="feed-head">

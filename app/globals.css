@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  overflow-x: hidden;
+}
 html, body {
   margin: 0;
   padding: 0;
@@ -22,6 +25,12 @@ html, body {
      rail « ne descendait pas avec nous » (capture Alex, Mon compte). `clip`
      rogne exactement pareil mais ne crée pas de conteneur de défilement. */
   overflow-x: clip;
+  /* 07/11/2026 : Safari iOS laissait quand même « panner » la page vers la
+     gauche quand un élément débordait (capture Alex, Mon compte : le titre
+     coupé à gauche). overflow-x: hidden sur l'élément racine (html) ferme
+     la porte sans créer de conteneur de défilement intermédiaire — le
+     défilement vertical reste celui de la fenêtre, le sticky fonctionne. */
+  max-width: 100%;
   /* L'app est presque entièrement en thème sombre (voir les variables --bg
      etc. dans chaque page), mais sans cette déclaration, certains
      navigateurs (thème sombre automatique de Chrome/Android en particulier)

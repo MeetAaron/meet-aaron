@@ -485,7 +485,10 @@ function prospectingGoalOptionsFor(locale) {
     { value: 'rdv', label: t('preferences.prospectingGoal.rdv', locale) },
     { value: 'devis', label: t('preferences.prospectingGoal.devis', locale) },
     { value: 'essai_gratuit', label: t('preferences.prospectingGoal.essaiGratuit', locale) },
-    { value: 'autre', label: t('preferences.prospectingGoal.autre', locale) },
+    // « Autre chose » retiré (Alex, 07/11/2026) : personne ne savait quoi y
+    // mettre, et Aaron a besoin d'un appel à l'action concret. Une société
+    // qui l'avait choisi le voit encore (voir le rendu) jusqu'à ce qu'elle
+    // change.
   ];
 }
 
@@ -652,6 +655,37 @@ export default function ConnexionsPage() {
     // ci-dessus, le téléphone arrivait sur la liste et le QR ne menait nulle
     // part.
     if (params.get('setup') === 'push') setSetupFocus('push');
+  }, []);
+  // Retour arrière du téléphone (geste ou bouton) = retour à la liste
+  // « Mon compte », pas à la page précédente (demande Alex, 07/11/2026).
+  // Sur téléphone, ouvrir une rubrique pousse une entrée d'historique
+  // (?tab=…) ; la flèche « Mon compte » et le geste arrière font la même
+  // chose : history.back(). Sur grand écran, la liste reste visible, on ne
+  // touche pas à l'historique.
+  const phoneLayout = () => typeof window !== 'undefined' && !window.matchMedia('(min-width: 960px)').matches;
+  function openTab(key) {
+    if (phoneLayout()) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', key);
+      window.history.pushState({ accountTab: key }, '', url.toString());
+    }
+    setActiveTab(key);
+  }
+  function closeTab() {
+    if (phoneLayout() && window.history.state && window.history.state.accountTab) {
+      window.history.back();
+      return;
+    }
+    setActiveTab(null);
+  }
+  useEffect(() => {
+    function onPop(e) {
+      if (!phoneLayout()) return;
+      const key = e.state && e.state.accountTab;
+      setActiveTab(key || null);
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
   const [profileName, setProfileName] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -2499,7 +2533,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
             // 'marge' n'est pas un panneau de cette page mais un ecran a
             // part : on navigue au lieu de changer d'onglet.
             if (key === 'marge') { router.push('/app/marge'); return; }
-            setActiveTab(key);
+            openTab(key);
           }}
           locale={locale}
         />
@@ -2507,7 +2541,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         <div className="account-panel">
           {/* Retour à la liste — visible sur téléphone uniquement : sur grand
               écran la liste n'a jamais disparu, elle est à gauche. */}
-          <button type="button" className="panel-back" onClick={() => setActiveTab(null)}>
+          <button type="button" className="panel-back" onClick={closeTab}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 18-6-6 6-6" />
             </svg>
@@ -3619,7 +3653,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                     <label>{t('preferences.prospectingGoalLabel', locale)}</label>
                     <p className="field-hint">{t('preferences.prospectingGoalHint', locale)}</p>
                     <div className="options">
-                      {PROSPECTING_GOAL_OPTIONS.map((opt) => (
+                      {[...PROSPECTING_GOAL_OPTIONS, ...(prefs.prospecting_goal === 'autre' ? [{ value: 'autre', label: t('preferences.prospectingGoal.autre', locale) }] : [])].map((opt) => (
                         <button
                           key={opt.value}
                           type="button"
@@ -5196,7 +5230,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           border-radius: 999px;
           cursor: pointer;
           transition: background var(--fast), color var(--fast);
-          white-space: nowrap;
+          /* Un libellé long (« Aaron rédige automatiquement (par défaut) »)
+             doit se replier dans la pilule, pas faire déborder la carte
+             de l'écran (capture Alex iPhone, 07/11/2026). */
+          white-space: normal;
+          text-align: center;
+          min-width: 0;
+          max-width: 100%;
+          line-height: 1.3;
         }
         .seg button:hover {
           color: var(--text);
@@ -5250,7 +5291,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         }
         @media (max-width: 560px) {
           .pref-card .field {
-            grid-template-columns: 1fr;
+            /* minmax(0, 1fr) et non 1fr : « 1fr » vaut minmax(auto, 1fr),
+               la colonne s'élargit alors jusqu'au contenu le plus large et
+               la carte sort de l'écran. */
+            grid-template-columns: minmax(0, 1fr);
             padding: 1rem 1rem;
           }
           .field-ic {

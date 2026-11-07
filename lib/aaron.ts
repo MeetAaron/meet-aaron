@@ -161,7 +161,7 @@ async function buildContext(prospectId: string) {
   // libellé lisible passé au prompt système — voir la section "OBJECTIF DE
   // LA PROSPECTION" de lib/aaron_system_prompt.md pour comment c'est utilisé.
   const PROSPECTING_GOAL_LABELS: Record<string, string> = {
-    rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio)',
+    rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio), qui débouche ensuite sur un devis ou un contrat',
     devis: 'obtenir une demande de devis/chiffrage directe, sans passer par un rendez-vous',
     essai_gratuit: "faire s'inscrire ou s'abonner directement au produit/service (essai comme abonnement payant en auto-service), sans passer par un rendez-vous",
     autre: 'un autre objectif, précisé ci-dessous',
