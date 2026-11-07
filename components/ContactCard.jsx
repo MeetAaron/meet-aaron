@@ -34,6 +34,7 @@ import { ArrowLeftRight, FileText, AlertTriangle, Bot, PauseCircle, Pencil, Smar
 import ContactInfoEditor from '@/components/ContactInfoEditor';
 import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
+import Translated from '@/components/Translated';
 import { celebrateWin } from '@/components/WinCelebration';
 
 // Textes de la fiche refondue (maquette validée par Alex le 18/10/2026).
@@ -231,7 +232,7 @@ function OpinionBox({ opinion, loading, locale }) {
           {opinion.fit && (
             <span className="op-fit" style={{ color, borderColor: color, background: `${color}1A` }}>{it_(opinion.fit, locale)}</span>
           )}
-          <p className="op-tx">{frenchTypography(opinion.opinion)}</p>
+          <Translated as="p" className="op-tx" text={opinion.opinion} locale={locale} format={frenchTypography} />
         </>
       )}
       <style jsx>{`
@@ -768,7 +769,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                 <h3 className="next-t"><NextIcon size={20} strokeWidth={2.1} aria-hidden="true" /> {next.title}</h3>
                 {next.body && <p className="next-b">{next.body}</p>}
                 {prospect.aaron_advice && !position.lost && (
-                  <div className="tip"><Lightbulb size={15} strokeWidth={2.1} aria-hidden="true" /><span><b>{ct('advice', locale)} :</b> {frenchTypography(prospect.aaron_advice)}</span></div>
+                  <div className="tip"><Lightbulb size={15} strokeWidth={2.1} aria-hidden="true" /><span><b>{ct('advice', locale)} :</b> <Translated text={prospect.aaron_advice} locale={locale} format={frenchTypography} /></span></div>
                 )}
                 {(next.primary || next.secondary) && (
                   <div className="next-row">
@@ -791,7 +792,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                   {conviction != null ? (
                     <>
                       <div className="v">{conviction}<span className="bar"><span style={{ width: `${Math.max(0, Math.min(100, conviction))}%`, background: conviction >= 70 ? PIPELINE_COLORS.client : conviction >= 40 ? PIPELINE_COLORS.wonPending : PIPELINE_COLORS.lost }} /></span></div>
-                      <p className="tx">{convictionIsEstimate ? t('card.convictionEstimate', locale) : (convictionReason ? frenchTypography(convictionReason) : '')}</p>
+                      {convictionIsEstimate ? <p className="tx">{t('card.convictionEstimate', locale)}</p> : (convictionReason ? <Translated as="p" className="tx" text={convictionReason} locale={locale} format={frenchTypography} /> : <p className="tx" />)}
                     </>
                   ) : <p className="tx">{t('card.convictionNone', locale)}</p>}
                 </div>
@@ -800,7 +801,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                   {prospect.personality_type ? (
                     <>
                       <div className="v"><DiscBadge type={prospect.personality_type} locale={locale} /> {t(`personality.${prospect.personality_type}`, locale)}</div>
-                      {prospect.personality_notes && <p className="tx">{frenchTypography(prospect.personality_notes)}</p>}
+                      {prospect.personality_notes && <Translated as="p" className="tx" text={prospect.personality_notes} locale={locale} format={frenchTypography} />}
                     </>
                   ) : <p className="tx">{t('prospects.personalityNotYetDetected', locale)}</p>}
                 </div>
@@ -845,7 +846,10 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
                       {newDay && <div className="day">{dayKey(m.sent_at)}</div>}
                       <div className={`msg msg-${m.direction}`}>
                         <p className="msg-who">{m.direction === 'outbound' ? ct('you', locale) : prospect.full_name}<span>{m.direction === 'outbound' ? ` · ${ct('byAaron', locale)}` : ''}</span></p>
-                        <p className="msg-body">{m.body}</p>
+                        {/* Messages du prospect ET d'Aaron : traduits dans la
+                            langue de l'interface, l'original à un clic. L'email
+                            réellement envoyé, lui, reste dans la langue du prospect. */}
+                        <Translated as="p" className="msg-body" text={m.body} locale={locale} />
                         {d && <p className="msg-at">{fmtTime(d)}</p>}
                       </div>
                     </div>

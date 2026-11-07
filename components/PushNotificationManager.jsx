@@ -15,6 +15,29 @@
 import { useEffect, useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
 import Ic from '@/components/UiIcon';
+import { nativePushPlugin, requestNativePushToken } from '@/lib/native-app';
+
+// Application iOS (coque Capacitor, 07/11/2026) : la WKWebView n'a pas de
+// PushManager, Apple ne donne le Web Push qu'à Safari et aux PWA. Dans la
+// coque, le plugin natif fournit un jeton APNs ; on l'envoie à la même route
+// (/api/push/subscribe, champ apns_token) et lib/push.ts choisit le canal.
+const APNS_TOKEN_KEY = 'meetaaron_apns_token';
+
+function rememberedApnsToken() {
+  try {
+    return window.localStorage.getItem(APNS_TOKEN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+function rememberApnsToken(token) {
+  try {
+    if (token) window.localStorage.setItem(APNS_TOKEN_KEY, token);
+    else window.localStorage.removeItem(APNS_TOKEN_KEY);
+  } catch {
+    /* stockage indisponible : on fonctionne sans mémoire */
+  }
+}
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -46,6 +69,39 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    const native = nativePushPlugin();
+    if (native) {
+      // Dans l'app iOS : « abonné » = permission accordée ET jeton connu du
+      // serveur. On ré-envoie le jeton à chaque passage ici — Apple peut le
+      // changer, et l'upsert côté serveur est sans effet s'il est identique.
+      (async () => {
+        try {
+          const perm = await native.checkPermissions();
+          const state = perm && perm.receive;
+          setPermission(state === 'granted' ? 'granted' : state === 'denied' ? 'denied' : 'default');
+          if (state !== 'granted') {
+            setSubscribed(false);
+            return;
+          }
+          const token = await requestNativePushToken(native);
+          if (!token) return;
+          const res = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apns_token: token }),
+          });
+          if (res.ok) {
+            rememberApnsToken(token);
+            setSubscribed(true);
+          }
+        } catch {
+          setSubscribed(!!rememberedApnsToken());
+        }
+      })();
+      return;
+    }
+
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setSupported(false);
       return;
@@ -67,6 +123,27 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
     setBusy(true);
     setError(null);
     try {
+      const native = nativePushPlugin();
+      if (native) {
+        const perm = await native.requestPermissions();
+        const state = perm && perm.receive;
+        setPermission(state === 'granted' ? 'granted' : 'denied');
+        if (state !== 'granted') {
+          throw new Error(t('push.permissionRefused', locale));
+        }
+        const token = await requestNativePushToken(native);
+        if (!token) throw new Error(t('push.serverError', locale));
+        const res = await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apns_token: token }),
+        });
+        if (!res.ok) throw new Error(t('push.serverError', locale));
+        rememberApnsToken(token);
+        setSubscribed(true);
+        return;
+      }
+
       if (!VAPID_PUBLIC_KEY) {
         throw new Error(t('push.notConfigured', locale));
       }
@@ -102,6 +179,24 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
     setBusy(true);
     setError(null);
     try {
+      const native = nativePushPlugin();
+      if (native) {
+        const token = rememberedApnsToken();
+        if (token) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: `apns://${token.toLowerCase()}` }),
+          });
+        }
+        if (typeof native.unregister === 'function') {
+          await native.unregister().catch(() => {});
+        }
+        rememberApnsToken(null);
+        setSubscribed(false);
+        return;
+      }
+
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) {

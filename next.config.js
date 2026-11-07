@@ -104,6 +104,10 @@ const nextConfig = {
       // Android et Google lisent /.well-known/assetlinks.json ; la route qui
       // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
       { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
+      // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
+      // /.well-known/apple-app-site-association (sans extension), fabriqué
+      // par app/api/ios/aasa.
+      { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
     ];
   },
 };

@@ -27,7 +27,9 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const PACKAGE_NAME = 'app.meetaaron.twa';
+// Identifiant définitif de l'application (07/11/2026) — identique à
+// android/app/build.gradle et ios-app/capacitor.config.json.
+const PACKAGE_NAME = 'app.meetaaron.mobile';
 
 function fingerprints(): string[] {
   return (process.env.ANDROID_ASSETLINKS_SHA256 || '')

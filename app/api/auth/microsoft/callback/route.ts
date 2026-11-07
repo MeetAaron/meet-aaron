@@ -14,6 +14,16 @@ function redirectClearingCookie(url: string) {
   return response;
 }
 
+// Page d'arrivée après le consentement. Depuis l'application iOS (drapeau
+// « n » dans le cookie, posé par /api/auth/microsoft quand ?native=1), le flux
+// tourne dans Safari, qui n'a pas la session de l'app : on atterrit sur une
+// page publique (app/connexion-terminee) au lieu de /app/connexions.
+function connexionsUrl(request: NextRequest, query: string) {
+  const flag = (request.cookies.get('oauth_microsoft_state')?.value || '').split(':')[2];
+  if (flag === 'n') return `${process.env.APP_URL}/connexion-terminee?${query}&provider=microsoft`;
+  return `${process.env.APP_URL}/app/connexions?${query}&tab=connection`;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
@@ -26,9 +36,7 @@ export async function GET(request: NextRequest) {
   // Aaron pour toute l'entreprise, il ne reste au commercial qu'à cliquer
   // "Connecter" normalement.
   if (searchParams.get('admin_consent')) {
-    return redirectClearingCookie(
-      `${process.env.APP_URL}/app/connexions?admin_consent=${error ? 'refused' : 'granted'}&tab=connection`
-    );
+    return redirectClearingCookie(connexionsUrl(request, `admin_consent=${error ? 'refused' : 'granted'}`));
   }
 
   if (error) {
@@ -47,7 +55,7 @@ export async function GET(request: NextRequest) {
       error === 'consent_required' ||
       /AADSTS90094|AADSTS900941|admin(istrator)?[ _]?(approval|consent)|approbation de l'administrateur/i.test(description);
     const code = needsAdmin ? 'admin_consent_required' : error;
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${code}&tab=connection`);
+    return redirectClearingCookie(connexionsUrl(request, `oauth_error=${code}`));
   }
 
   if (!code || !returnedState) {
@@ -58,7 +66,7 @@ export async function GET(request: NextRequest) {
   const [cookieNonce, userId] = cookieValue?.split(':') || [];
 
   if (!cookieValue || cookieNonce !== returnedState || !userId) {
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch&tab=connection`);
+    return redirectClearingCookie(connexionsUrl(request, `oauth_error=state_mismatch`));
   }
 
   const redirectUri = `${process.env.APP_URL}/api/auth/microsoft/callback`;
@@ -78,7 +86,7 @@ export async function GET(request: NextRequest) {
   if (!tokenResponse.ok) {
     const errBody = await tokenResponse.text();
     console.error('Erreur échange token Microsoft:', errBody);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed&tab=connection`);
+    return redirectClearingCookie(connexionsUrl(request, `oauth_error=token_exchange_failed`));
   }
 
   const tokens = await tokenResponse.json();
@@ -108,7 +116,7 @@ export async function GET(request: NextRequest) {
 
   if (dbError) {
     console.error('Erreur stockage tokens Microsoft:', dbError);
-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error&tab=connection`);
+    return redirectClearingCookie(connexionsUrl(request, `oauth_error=db_error`));
   }
 
   // Fire-and-forget — voir même correctif côté Google callback et
@@ -119,5 +127,5 @@ export async function GET(request: NextRequest) {
     notifyIfDeliverabilityIssue(userId, microsoftEmail, 'microsoft').catch(() => {});
   }
 
-  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft&tab=connection`);
+  return redirectClearingCookie(connexionsUrl(request, `oauth_success=microsoft`));
 }

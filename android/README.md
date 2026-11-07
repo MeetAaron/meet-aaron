@@ -49,32 +49,39 @@ a disparu. Vérification possible sur
 `https://meetaaron.app/.well-known/assetlinks.json` — le JSON doit contenir
 l'empreinte.
 
-## 3. Publier sur le Play Store (quand les tests sont verts)
+## 3. Publier sur le Play Store
 
-1. **Compte développeur Google Play** : 25 $ une seule fois, sur
-   play.google.com/console. (Alex le crée lui-même.)
-2. **Clé d'upload** — créée par Alex, sur son PC, jamais dans le dépôt :
-   ```
-   keytool -genkeypair -v -keystore meet-aaron-upload.jks -alias upload \
-     -keyalg RSA -keysize 2048 -validity 10000
-   ```
-   Garder ce fichier et ses mots de passe en lieu sûr : sans eux, plus aucune
-   mise à jour de l'app n'est possible.
-3. **Secrets GitHub** (dépôt → Settings → Secrets and variables → Actions) :
-   - `ANDROID_KEYSTORE_BASE64` : le contenu du `.jks` encodé en base64
-     (`base64 -w0 meet-aaron-upload.jks` sous Linux/Mac,
-     `[Convert]::ToBase64String([IO.File]::ReadAllBytes("meet-aaron-upload.jks"))` sous PowerShell)
-   - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (= `upload`), `ANDROID_KEY_PASSWORD`
-4. Relancer le workflow : un second artefact `meet-aaron-release-aab` apparaît.
-   Déposer l'`.aab` dans la Play Console (Production → Créer une release).
+État au 07/11/2026 : compte développeur Google Play créé (compte personnel,
+ID 9183175798107331370), identifiant d'application **définitif**
+`app.meetaaron.mobile` (le même sur iOS), cible API 36 comme l'exige Google
+depuis le 31/08/2026.
+
+1. **Clé d'upload** : générée le 07/11/2026 et remise à Alex dans
+   `meet-aaron-cle-upload-android.zip` (keystore `.jks`, sa version base64 et
+   le fichier `SECRETS-GITHUB-a-poser.txt` avec les mots de passe). Jamais
+   dans le dépôt. Perdue, Google peut la réinitialiser (App integrity →
+   Request upload key reset), mais c'est une semaine de délai.
+2. **Secrets GitHub** (dépôt → Settings → Secrets and variables → Actions),
+   noms exacts : `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+   `ANDROID_KEY_ALIAS` (= `upload`), `ANDROID_KEY_PASSWORD`. Les valeurs sont
+   dans le fichier remis.
+3. Relancer le workflow : un second artefact `meet-aaron-release-aab` apparaît.
+4. **Compte personnel = test fermé obligatoire** : avant toute production,
+   l'app doit rester en test fermé avec au moins 12 testeurs inscrits pendant
+   14 jours consécutifs (liste dans la feuille « Testeurs Android » du fichier
+   des adresses). Play Console → Tester → Test fermé → créer une version avec
+   l'`.aab`, ajouter une liste d'adresses, copier le lien d'inscription aux
+   testeurs. Les testeurs se connectent avec le compte démo partagé
+   (société « Démo Meet Aaron », exemptée de facturation).
 5. **Empreinte de production** : la Play Console re-signe l'app avec SA propre
    clé (« Play App Signing »). Récupérer son empreinte SHA-256 dans
    Play Console → Configuration → Intégrité de l'application → *Certificat de
    clé de signature d'application*, et l'**ajouter** à
    `ANDROID_ASSETLINKS_SHA256` sur Vercel (virgule après l'empreinte debug).
    Sans ça, l'app du Store afficherait la barre d'adresse.
-6. Fiche Play : l'icône 512×512 est `public/icon.png` ; captures d'écran à
-   faire depuis l'app installée ; politique de confidentialité :
+6. Fiche Play : textes dans les 7 langues, questionnaire Sécurité des données
+   et captures dans le dossier `stores/` remis à Alex ; icône 512×512 =
+   `public/icon.png` ; politique de confidentialité
    `https://meetaaron.app/privacy`.
 
 Chaque nouvelle version : incrémenter `versionCode` (et `versionName`) dans

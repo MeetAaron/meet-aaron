@@ -33,6 +33,14 @@ File.write(entitlements_path, <<~XML)
   <dict>
     <key>aps-environment</key>
     <string>production</string>
+    <!-- Liens universels (07/11/2026) : https://meetaaron.app/... s'ouvre
+         dans l'app ; la moitié « site » est /.well-known/apple-app-site-association
+         (app/api/ios/aasa/route.ts). La capacité « Associated Domains » doit
+         être cochée sur l'identifiant d'app dans le portail développeur. -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+      <string>applinks:meetaaron.app</string>
+    </array>
   </dict>
   </plist>
 XML
@@ -53,7 +61,7 @@ target.build_configurations.each do |config|
   config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'App/App.entitlements'
   config.build_settings['MARKETING_VERSION']      = VERSION
   config.build_settings['CURRENT_PROJECT_VERSION'] = BUILD_NUM
-  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'app.meetaaron.twa'
+  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'app.meetaaron.mobile'
   # iPhone ET iPad ('1,2'), choix d'Alex du 01/10/2026 (j'avais propose
   # iPhone seul pour la v1, il a tranche l'inverse).
   #
@@ -65,7 +73,8 @@ target.build_configurations.each do |config|
   # de 1200 px de large qui s'etire sur un iPad en paysage peut valoir un
   # refus au titre de la regle 4.0 (Design).
   config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
-  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+  # Capacitor 8 (07/11/2026) exige iOS 15 au minimum.
+  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
 end
 project.save
 puts "projet Xcode mis a jour (version #{VERSION}, build #{BUILD_NUM})"

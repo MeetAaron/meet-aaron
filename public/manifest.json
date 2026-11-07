@@ -4,7 +4,7 @@
   "short_name": "Meet Aaron",
   "description": "Aaron, le copilote de votre commercial",
   "lang": "fr",
-  "start_url": "/app/dashboard",
+  "start_url": "/app/campaigns",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b0e1a",

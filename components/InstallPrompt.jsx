@@ -25,6 +25,7 @@
 
 import { useEffect, useState } from 'react';
 import { t } from '@/lib/i18n';
+import { isNativeApp } from '@/lib/native-app';
 import { Share, SquarePlus } from 'lucide-react';
 
 const DISMISS_KEY = 'meetaaron_install_dismissed_at';
@@ -35,7 +36,9 @@ function isStandalone() {
   if (typeof window === 'undefined') return true;
   return (
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
-    window.navigator.standalone === true
+    window.navigator.standalone === true ||
+    // Application iOS de l'App Store (coque Capacitor) : déjà « installée ».
+    isNativeApp()
   );
 }
 

@@ -22,6 +22,8 @@ import BusinessProfileSheet from '@/components/BusinessProfileSheet';
 import { inline } from '@/components/LegalPage';
 import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
+import { isNativeApp, openExternal } from '@/lib/native-app';
+import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
 import MfaSettings from '@/components/MfaSettings';
 import QRCode from 'qrcode';
 
@@ -658,6 +660,13 @@ export default function ConnexionsPage() {
   // Mode clair optionnel (tâche #129, piste 2) — préférence 100% locale au
   // navigateur (voir lib/theme.js), pas de champ base de données.
   const [theme, setTheme] = useState('dark');
+  // Traduction automatique des textes d'Aaron et des prospects dans la
+  // langue de l'interface (components/Translated.jsx, 07/11/2026). Réglage
+  // local au navigateur, lu après montage.
+  const [autoTranslate, setAutoTranslate] = useState(true);
+  useEffect(() => {
+    setAutoTranslate(autoTranslateEnabled());
+  }, []);
   useEffect(() => {
     setTheme(getStoredTheme());
   }, []);
@@ -1796,7 +1805,7 @@ export default function ConnexionsPage() {
       window.location.href = '/login';
       return;
     }
-    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
+    openExternal(`/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`);
   }
 
   async function handleDisconnectCrm(provider) {
@@ -2206,7 +2215,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
       window.location.href = '/login';
       return;
     }
-    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
+    // Application iOS : le consentement s'ouvre dans Safari (Google et
+    // Microsoft refusent les WebView) ; &native=1 fait atterrir la fin du
+    // flux sur /connexion-terminee (voir app/api/auth/google/route.ts).
+    openExternal(`/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}${isNativeApp() ? '&native=1' : ''}`);
   }
 
   // --- QR code de connexion depuis le téléphone (28/08/2026) ---
@@ -3460,6 +3472,22 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   </div>
                 </div>
 
+                <div className="field">
+                  <span className="field-ic"><Ic name="globe" size={18} /></span>
+                  <div className="field-body">
+                    <label>{t('translate.prefLabel', locale)}</label>
+                    <p className="field-hint">{t('translate.prefHint', locale)}</p>
+                    <div className="seg">
+                      <button type="button" className={autoTranslate ? 'active' : ''} onClick={() => { setAutoTranslate(true); setAutoTranslateEnabled(true); }}>
+                        {t('common.yes', locale)}
+                      </button>
+                      <button type="button" className={!autoTranslate ? 'active' : ''} onClick={() => { setAutoTranslate(false); setAutoTranslateEnabled(false); }}>
+                        {t('common.no', locale)}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* docx Modifs Aaron 30/08/2026 : le choix du canal et
                     l'activation des notifications push vivent dans la
                     checklist « Mise en route » de l'onglet Connexion — on
@@ -3818,7 +3846,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           </div>
         )
       ) : activeTab === 'subscription' ? (
-        loadError ? (
+        isNativeApp() ? (
+          // Application iOS de l'App Store (07/11/2026) : aucun achat, aucun
+          // lien de paiement dans l'app (règle Apple 3.1.1). L'abonnement et
+          // les crédits se gèrent sur le site, l'app se contente de le dire.
+          <div className="subscription-panel">
+            <p className="muted">{t('native.subscriptionManagedOnSite', locale)}</p>
+          </div>
+        ) : loadError ? (
           <div className="load-error">
             <p>{loadError}</p>
             <button type="button" className="btn-secondary" onClick={loadPrefs}>

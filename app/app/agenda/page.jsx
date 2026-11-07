@@ -12,6 +12,7 @@ import { Repeat, CalendarOff, Plus, X, Pencil, Trash2, RefreshCw, Phone, Handsha
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import { frenchTypography } from '@/lib/text-typography';
+import Translated from '@/components/Translated';
 
 // Textes ajoutés le 18/10/2026 (lib/i18n.js dépasse la taille acceptée par
 // l'envoi GitHub — même compromis que components/ContactCard.jsx).
@@ -2209,11 +2210,11 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
                 <div className="read-cell">
                   <span className="read-label">{t('card.personalityTitle', locale)}</span>
                   <span className="read-value small">{t(`personality.${prospect.personality_type}`, locale)}</span>
-                  {prospect.personality_notes && <span className="read-sub">{frenchTypography(prospect.personality_notes)}</span>}
+                  {prospect.personality_notes && <Translated className="read-sub" text={prospect.personality_notes} locale={locale} format={frenchTypography} />}
                 </div>
               )}
             </div>
-            {prospect.aaron_advice && <p className="advice">{frenchTypography(prospect.aaron_advice)}</p>}
+            {prospect.aaron_advice && <Translated as="p" className="advice" text={prospect.aaron_advice} locale={locale} format={frenchTypography} />}
           </section>
         )}
         {!hasProspect && (

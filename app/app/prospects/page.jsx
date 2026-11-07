@@ -21,6 +21,18 @@ import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline
 import PipelineIcon from '@/components/PipelineIcon';
 import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2 } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
+import { useTranslation } from '@/components/Translated';
+
+// Texte de la colonne « prochaine étape ». Un conseil d'Aaron (next.translate)
+// est traduit dans la langue de l'interface (demande Alex, 07/11/2026 : « tout
+// doit pouvoir être traduit »), puis raccourci à 70 caractères.
+function NextText({ next, locale }) {
+  const tr = useTranslation(next.translate ? next.text : null, locale);
+  if (!next.translate) return next.text;
+  const full = (tr && tr.text) || next.text;
+  const short = full.length > 70 ? `${full.slice(0, 70).trimEnd()}…` : full;
+  return frenchTypography(short);
+}
 
 // Refonte visuelle 17/10/2026 (maquettes validées par Alex) : la liste se
 // lit en trois groupes — ce qui attend une décision, ce qui avance, les
@@ -505,8 +517,9 @@ export default function ProspectsPage() {
       return { text: `${t('pipeline.riskLabel', locale)}${days != null ? ` · ${lt('riskSince', locale).replace('{n}', days)}` : ''}`, level: 'urgent', Icon: AlertTriangle };
     }
     if (p.aaron_advice) {
-      const short = p.aaron_advice.length > 70 ? `${p.aaron_advice.slice(0, 70).trimEnd()}…` : p.aaron_advice;
-      return { text: frenchTypography(short), level: 'muted', Icon: Bot };
+      // Conseil d'Aaron, traduit dans la langue de l'interface par la ligne
+      // (voir NextText) puis raccourci — ne pas raccourcir avant de traduire.
+      return { text: p.aaron_advice, translate: true, level: 'muted', Icon: Bot };
     }
     return { text: t(PIPELINE_STAGES[stageOrder(position.stage)].hintKey, locale), level: 'muted', Icon: Bot };
   }
@@ -825,7 +838,7 @@ export default function ProspectsPage() {
                         {/* Prochaine étape : symbole du type + texte. */}
                         <div className={`mcard-next ${next.level}`}>
                           <span className="next-ic" aria-hidden="true"><NextIcon size={13} strokeWidth={2.2} /></span>
-                          <span className="next-txt">{next.text}</span>
+                          <span className="next-txt"><NextText next={next} locale={locale} /></span>
                         </div>
                       </div>
                       <div className="mcard-right">

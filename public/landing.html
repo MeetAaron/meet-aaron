@@ -434,6 +434,10 @@
         <span class="badge live">Aaron</span>
       </div>
       <div class="price"><span id="priceAmount">59 € HT</span> <span data-i18n="price.per">/ mois</span></div>
+      <!-- Tarif annuel (06-07/11/2026) : dix mois au prix de douze, Price Stripe
+           STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY, affiche a l'inscription quand
+           NEXT_PUBLIC_YEARLY_PLAN vaut 1. A tenir synchronise avec lib/boost-tiers.ts. -->
+      <p class="price-yearly" data-i18n="price.yearly" style="margin:-0.3rem 0 0.9rem;color:var(--muted,#8b90a8);font-size:0.92rem;">ou 590 € HT par an — deux mois offerts</p>
       <p class="desc" data-i18n="price.desc">Votre commercial IA, du premier contact à la signature.</p>
       <ul>
         <li data-i18n="price.f1">Recherche et contact de nouveaux prospects</li>
@@ -516,7 +520,7 @@ var I18N = {
   'c4.desc':"L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
   'price.eyebrow':'Tarifs','price.title':'Un seul abonnement, tout inclus',
   'price.sub':"Aaron prospecte, relance, prend vos rendez-vous et suit vos opportunités jusqu'à la signature — pour un prix unique, sans engagement.",
-  'price.per':'/ mois','price.desc':'Votre commercial IA, du premier contact à la signature.',
+  'price.yearly':'ou 590 € HT par an — deux mois offerts','price.per':'/ mois','price.desc':'Votre commercial IA, du premier contact à la signature.',
   'price.f1':'Recherche et contact de nouveaux prospects',
   'price.f2':'Relances automatiques des sans-réponse',
   'price.f3':'Prise de rendez-vous dans votre agenda',
@@ -561,7 +565,7 @@ var I18N = {
   'c4.desc':'The native Android app is under review by Google. Scan to be redirected to the listing as soon as it goes live.',
   'price.eyebrow':'Pricing','price.title':'One subscription, everything included',
   'price.sub':'Aaron prospects, follows up, books your meetings and tracks your deals through to signature — one price, no commitment.',
-  'price.per':'/ month','price.desc':'Your AI salesperson, from first contact to signature.',
+  'price.yearly':'or €590 excl. VAT per year — two months free','price.per':'/ month','price.desc':'Your AI salesperson, from first contact to signature.',
   'price.f1':'Finds and contacts new prospects',
   'price.f2':'Automatic follow-ups for non-responders',
   'price.f3':'Books meetings straight into your calendar',
@@ -606,7 +610,7 @@ var I18N = {
   'c4.desc':'Die native Android-App wird gerade von Google geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
   'price.eyebrow':'Preise','price.title':'Ein Abo, alles inklusive',
   'price.sub':'Aaron akquiriert, hakt nach, vereinbart Ihre Termine und begleitet Ihre Chancen bis zur Unterschrift — ein Preis, keine Bindung.',
-  'price.per':'/ Monat','price.desc':'Ihr KI-Vertriebler, vom ersten Kontakt bis zur Unterschrift.',
+  'price.yearly':'oder 590 € zzgl. MwSt. pro Jahr — zwei Monate geschenkt','price.per':'/ Monat','price.desc':'Ihr KI-Vertriebler, vom ersten Kontakt bis zur Unterschrift.',
   'price.f1':'Findet und kontaktiert neue Interessenten',
   'price.f2':'Automatische Nachfassaktionen bei Nichtantwort',
   'price.f3':'Termine direkt in Ihrem Kalender',
@@ -651,7 +655,7 @@ var I18N = {
   'c4.desc':'L’app nativa Android è in convalida presso Google. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
   'price.eyebrow':'Prezzi','price.title':'Un solo abbonamento, tutto incluso',
   'price.sub':'Aaron cerca clienti, ricontatta, fissa i tuoi appuntamenti e segue le opportunità fino alla firma — un prezzo unico, senza vincoli.',
-  'price.per':'/ mese','price.desc':'Il tuo commerciale IA, dal primo contatto alla firma.',
+  'price.yearly':'oppure 590 € + IVA all\'anno — due mesi gratis','price.per':'/ mese','price.desc':'Il tuo commerciale IA, dal primo contatto alla firma.',
   'price.f1':'Ricerca e contatto di nuovi potenziali clienti',
   'price.f2':'Solleciti automatici a chi non risponde',
   'price.f3':'Appuntamenti fissati direttamente in agenda',
@@ -696,7 +700,7 @@ var I18N = {
   'c4.desc':'La app nativa de Android está en revisión por Google. Escanea para ir directamente a la ficha en cuanto se publique.',
   'price.eyebrow':'Precios','price.title':'Una sola suscripción, todo incluido',
   'price.sub':'Aaron prospecta, hace seguimiento, concierta tus citas y acompaña tus oportunidades hasta la firma — un precio único, sin permanencia.',
-  'price.per':'/ mes','price.desc':'Tu comercial IA, del primer contacto a la firma.',
+  'price.yearly':'o 590 € + IVA al año — dos meses gratis','price.per':'/ mes','price.desc':'Tu comercial IA, del primer contacto a la firma.',
   'price.f1':'Busca y contacta nuevos posibles clientes',
   'price.f2':'Seguimientos automáticos de quienes no responden',
   'price.f3':'Citas concertadas directamente en tu agenda',
@@ -741,7 +745,7 @@ var I18N = {
   'c4.desc':'A aplicação nativa Android está em validação pela Google. Lê o código para seres encaminhado para a ficha assim que for publicada.',
   'price.eyebrow':'Preços','price.title':'Uma só subscrição, tudo incluído',
   'price.sub':'O Aaron prospeta, faz seguimento, marca as tuas reuniões e acompanha as oportunidades até à assinatura — um preço único, sem fidelização.',
-  'price.per':'/ mês','price.desc':'O teu comercial IA, do primeiro contacto à assinatura.',
+  'price.yearly':'ou 590 € + IVA por ano — dois meses grátis','price.per':'/ mês','price.desc':'O teu comercial IA, do primeiro contacto à assinatura.',
   'price.f1':'Procura e contacta novos potenciais clientes',
   'price.f2':'Seguimentos automáticos de quem não responde',
   'price.f3':'Reuniões marcadas diretamente na tua agenda',
@@ -786,7 +790,7 @@ var I18N = {
   'c4.desc':'De native Android-app wordt momenteel beoordeeld door Google. Scan om automatisch naar de pagina te gaan zodra die online staat.',
   'price.eyebrow':'Tarieven','price.title':'Eén abonnement, alles inbegrepen',
   'price.sub':'Aaron prospecteert, volgt op, plant je afspraken en volgt je kansen tot de handtekening — één prijs, zonder verplichting.',
-  'price.per':'/ maand','price.desc':'Je AI-verkoper, van eerste contact tot handtekening.',
+  'price.yearly':'of € 590 excl. btw per jaar — twee maanden gratis','price.per':'/ maand','price.desc':'Je AI-verkoper, van eerste contact tot handtekening.',
   'price.f1':'Zoekt en benadert nieuwe prospects',
   'price.f2':'Automatische opvolging van wie niet antwoordt',
   'price.f3':'Afspraken rechtstreeks in je agenda',

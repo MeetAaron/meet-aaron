@@ -78,7 +78,12 @@ export async function GET(request: NextRequest) {
       state: nonce,
     }).toString()}`
   );
-  redirectResponse.cookies.set('oauth_microsoft_state', `${nonce}:${authedUser.id}`, {
+  // Application iOS (07/11/2026) : le consentement s'ouvre dans Safari (le
+  // WKWebView est refusé par les fournisseurs OAuth), donc à la fin le
+  // navigateur n'a pas la session de l'app : on le renvoie vers une page
+  // publique « c'est connecté, reviens dans l'app » plutôt que vers /app.
+  const native = searchParams.get('native') === '1' ? ':n' : '';
+  redirectResponse.cookies.set('oauth_microsoft_state', `${nonce}:${authedUser.id}${native}`, {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',

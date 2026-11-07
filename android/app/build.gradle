@@ -22,13 +22,19 @@ plugins {
 }
 
 android {
-    namespace 'app.meetaaron.twa'
-    compileSdk 34
+    // Identifiant DÉFINITIF (07/11/2026, avant toute publication) : le même
+    // sur Android et iOS. « twa » était un terme technique Android qui n'avait
+    // rien à faire dans un identifiant iOS ; il devient immuable au premier
+    // envoi sur un store, c'était le dernier moment pour le changer.
+    namespace 'app.meetaaron.mobile'
+    // API 36 (Android 16) : exigé par Google Play pour toute nouvelle appli
+    // depuis le 31/08/2026.
+    compileSdk 36
 
     defaultConfig {
-        applicationId 'app.meetaaron.twa'
+        applicationId 'app.meetaaron.mobile'
         minSdk 23
-        targetSdk 34
+        targetSdk 36
         versionCode 1
         versionName '1.0.0'
     }
@@ -74,5 +80,5 @@ dependencies {
     // Bibliothèque officielle Google pour les TWA (LauncherActivity,
     // DelegationService pour les notifications, repli WebView si aucun
     // navigateur compatible n'est installé).
-    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
 }

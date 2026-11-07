@@ -16,6 +16,7 @@ import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
+import Translated from '@/components/Translated';
 import CsvImportModal from '@/components/CsvImportModal';
 import { FileText } from 'lucide-react';
 
@@ -881,7 +882,7 @@ export default function CampaignsPage() {
                     <span className="camp-who">Aaron{c.advice ? ' :' : ''}</span>{' '}
                     {c.advice ? (
                       <>
-                        {frenchTypography(c.advice)}{' '}
+                        <Translated text={c.advice} locale={locale} format={frenchTypography} />{' '}
                         <button
                           type="button"
                           className="link-btn"
@@ -3734,7 +3735,7 @@ function MarketingCampaignsPanel({ userId, companyId, locale, customerModuleActi
                 <p className="advice-label"><Ic name="bot" /> {t('campaigns.adviceTitle', locale)}</p>
                 {campaign.advice ? (
                   <>
-                    <p className="advice-text">{frenchTypography(campaign.advice)}</p>
+                    <Translated as="p" className="advice-text" text={campaign.advice} locale={locale} format={frenchTypography} />
                     <button type="button" className="link-btn" disabled={adviceGenerating} onClick={generateCampaignAdvice}>
                       {adviceGenerating ? t('campaigns.adviceGenerating', locale) : t('campaigns.adviceRegenerate', locale)}
                     </button>

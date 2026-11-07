@@ -1,10 +1,10 @@
 {
-  "appId": "app.meetaaron.twa",
+  "appId": "app.meetaaron.mobile",
   "appName": "Meet Aaron",
   "webDir": "www",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://meetaaron.app/app/dashboard",
+    "url": "https://meetaaron.app/app/campaigns",
     "hostname": "meetaaron.app",
     "androidScheme": "https",
     "iosScheme": "https",

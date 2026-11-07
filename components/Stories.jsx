@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/lib/i18n';
 import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
+import Translated from '@/components/Translated';
 import { DiscBadge } from '@/components/ContactCard';
 
 const RING = {
@@ -934,7 +935,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">{t('stories.risqueLead', locale).replace('{name}', item.prospect_name)}</p>
-          {item.meta?.advice && <p className="advice"><Ic name="message" /> {frenchTypography(item.meta.advice)}</p>}
+          {item.meta?.advice && <p className="advice"><Ic name="message" /> <Translated text={item.meta.advice} locale={locale} format={frenchTypography} /></p>}
           {planCall && (
             <div className="plan-row">
               <input type="datetime-local" value={planAt} onChange={(e) => setPlanAt(e.target.value)} className="plan-input" />

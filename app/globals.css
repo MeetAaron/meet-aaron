@@ -1481,3 +1481,28 @@ html[data-theme='light']:root {
   from { opacity: 0; transform: translateX(-4px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ------------------------------------------------------------------
+   Traduction à la demande (components/Translated.jsx, 07/11/2026) : lien
+   « Afficher l'original » sous un texte traduit dans la langue de
+   l'interface. Discret, même ton que les mentions secondaires.
+   ------------------------------------------------------------------ */
+.tr-toggle {
+  display: inline-block;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.tr-toggle:hover,
+.tr-toggle:focus-visible {
+  opacity: 1;
+  outline: none;
+}

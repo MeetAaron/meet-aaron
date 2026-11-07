@@ -2,6 +2,7 @@ import "./globals.css";
 import React from "react";
 import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
 import TimeZoneReporter from "@/components/TimeZoneReporter";
+import NativeAppBridge from "@/components/NativeAppBridge";
 import WinCelebration from "@/components/WinCelebration";
 import HelpLayer from "@/components/HelpLayer";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -76,6 +77,9 @@ export default function RootLayout({ children }) {
             // Remonte le fuseau horaire du navigateur (users.timezone) pour que
             // le rapport de resultats parte a minuit chez le commercial.
             React.createElement(TimeZoneReporter, null),
+            // Application iOS (coque Capacitor) : marquage du document et
+            // ouverture des notifications touchees (07/11/2026).
+            React.createElement(NativeAppBridge, null),
             // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
             // point 3) : écoute un événement, n'affiche rien sinon.
             React.createElement(WinCelebration, null),

@@ -13,6 +13,7 @@
 
 import webpush from 'web-push';
 import { supabaseAdmin } from './supabase-admin';
+import { apnsConfigured, apnsTokenFromEndpoint, isApnsEndpoint, sendApns } from './apns';
 
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -53,12 +54,12 @@ type PushPayload = {
 
 // Envoie une notification push à TOUS les appareils abonnés d'un utilisateur
 // (un commercial peut être abonné depuis son téléphone ET son ordinateur).
+// Deux canaux selon l'endpoint (07/11/2026) : `apns://<token>` = application
+// iOS de l'App Store (lib/apns.ts) ; tout le reste = Web Push.
 // Best-effort : un échec sur un abonnement (navigateur désinstallé, permission
 // retirée, etc.) ne bloque ni les autres abonnements ni l'appelant — cette
 // fonction n'est jamais dans le chemin critique d'un cron ou d'une route API.
 export async function sendPushNotification(userId: string, payload: PushPayload) {
-  if (!ensureConfigured()) return;
-
   const { data: subscriptions } = await supabaseAdmin
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth')
@@ -67,9 +68,21 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
   if (!subscriptions || subscriptions.length === 0) return;
 
   const body = JSON.stringify(payload);
+  const webConfigured = ensureConfigured();
 
   await Promise.all(
     subscriptions.map(async (sub) => {
+      if (isApnsEndpoint(sub.endpoint)) {
+        if (!apnsConfigured()) return;
+        const r = await sendApns(apnsTokenFromEndpoint(sub.endpoint), payload);
+        if (r.gone) {
+          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+        } else if (!r.ok) {
+          console.error(`Erreur envoi APNs (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
+        }
+        return;
+      }
+      if (!webConfigured) return;
       try {
         await webpush.sendNotification(
           {

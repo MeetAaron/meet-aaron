@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { readJsonBody } from '@/lib/http';
+import { APNS_ENDPOINT_PREFIX, isValidApnsToken } from '@/lib/apns';
 
 // Colonne ajoutée par migration_push_user_agent_2026-08-31.sql. Tant que la
 // migration n'a pas été exécutée, Postgres renvoie 42703 (undefined_column) :
@@ -61,17 +62,29 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const { subscription } = await readJsonBody(request);
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-    return NextResponse.json({ error: 'Abonnement push invalide' }, { status: 400 });
-  }
+  const { subscription, apns_token } = await readJsonBody(request);
 
-  const base = {
-    user_id: authedUser.id,
-    endpoint: subscription.endpoint,
-    p256dh: subscription.keys.p256dh,
-    auth: subscription.keys.auth,
-  };
+  // Application iOS (coque Capacitor) : pas d'abonnement Web Push mais un
+  // « device token » APNs (voir lib/apns.ts). Même table, endpoint préfixé ;
+  // p256dh/auth n'ont pas de sens pour ce canal (colonnes non nulles).
+  let base: { user_id: string; endpoint: string; p256dh: string; auth: string };
+  if (typeof apns_token === 'string') {
+    const token = apns_token.trim();
+    if (!isValidApnsToken(token)) {
+      return NextResponse.json({ error: 'Jeton APNs invalide' }, { status: 400 });
+    }
+    base = { user_id: authedUser.id, endpoint: `${APNS_ENDPOINT_PREFIX}${token.toLowerCase()}`, p256dh: 'apns', auth: 'apns' };
+  } else {
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return NextResponse.json({ error: 'Abonnement push invalide' }, { status: 400 });
+    }
+    base = {
+      user_id: authedUser.id,
+      endpoint: subscription.endpoint,
+      p256dh: subscription.keys.p256dh,
+      auth: subscription.keys.auth,
+    };
+  }
   const userAgent = (request.headers.get('user-agent') || '').slice(0, 500) || null;
 
   let { error } = await supabaseAdmin

@@ -7,6 +7,7 @@ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
 import { useLocale, localeForCountry, t } from '@/lib/i18n';
 import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
 import Ic from '@/components/UiIcon';
+import { isNativeApp } from '@/lib/native-app';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
 // seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
@@ -511,6 +512,13 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
   const [checking, setChecking] = useState(true);
+  // Application iOS (coque Capacitor) : pas d'inscription ni de paiement
+  // dans l'app (règle Apple 3.1.1). Détecté après montage : au rendu serveur
+  // on ne sait pas encore d'où vient la page.
+  const [native, setNative] = useState(false);
+  useEffect(() => {
+    setNative(isNativeApp());
+  }, []);
   const [session, setSession] = useState(null);
   // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
   // avec un 2e compte) : QUI la personne est (personRole — fondateur/
@@ -662,6 +670,29 @@ export default function OnboardingPage() {
         <style jsx>{`
           .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; }
           .loading-text { color: #8b90a8; font-family: 'Inter', sans-serif; }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (native) {
+    return (
+      <div className="wrap">
+        <div className="card">
+          <img src="/icon.png" alt="Meet Aaron" className="logo" />
+          <h1>{st('welcome', locale)}</h1>
+          <p className="subtitle">{t('native.signupNotInApp', locale)}</p>
+          <button type="button" className="role-btn" onClick={() => router.push('/login')}>
+            <span className="role-title">{t('auth.signIn', locale)}</span>
+          </button>
+        </div>
+        <style jsx>{`
+          .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; padding: 1.5rem; }
+          .card { max-width: 420px; width: 100%; text-align: center; background: #141a2e; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2rem 1.5rem; color: #f3f4f8; font-family: 'Inter', sans-serif; }
+          .logo { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 1rem; }
+          h1 { font-size: 1.3rem; margin: 0 0 0.6rem; }
+          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.4rem; }
+          .role-btn { width: 100%; background: #5b6cff; border: none; color: #fff; border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
         `}</style>
       </div>
     );
