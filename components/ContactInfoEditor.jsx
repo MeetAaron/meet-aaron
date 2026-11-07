@@ -265,7 +265,7 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
         }
         @media (max-width: 480px) {
           .fields-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
       `}</style>

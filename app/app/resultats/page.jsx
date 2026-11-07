@@ -1500,7 +1500,7 @@ export default function ResultatsPage() {
            mécanique que Mon compte, voir app/app/connexions/page.jsx). ── */
         .account-layout {
           display: grid;
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
           gap: 1.4rem;
         }
         .account-panel {
@@ -2064,7 +2064,7 @@ export default function ResultatsPage() {
         }
         @media (max-width: 620px) {
           .value-row {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
         @media (max-width: 900px) {
@@ -2962,7 +2962,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
         }
         @media (max-width: 900px) {
           .shell {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
           .mobile-menu-btn {
             display: flex;

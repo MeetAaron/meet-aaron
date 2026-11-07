@@ -1615,7 +1615,7 @@ export default function CustomerPage() {
         }
         @media (max-width: 1100px) {
           .board-layout {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
           .detail {
             position: static;
@@ -1642,7 +1642,7 @@ export default function CustomerPage() {
           }
           .detail-close { display: inline-flex; }
           .support-list {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
       `}</style>
@@ -2107,7 +2107,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
         }
         @media (max-width: 900px) {
           .shell {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
           .mobile-menu-btn {
             display: flex;
@@ -2394,7 +2394,7 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
         }
         @media (max-width: 480px) {
           .company-fields {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
         input {

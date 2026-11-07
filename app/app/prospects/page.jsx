@@ -1741,7 +1741,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
         }
         @media (max-width: 480px) {
           .company-fields {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
       `}</style>
@@ -2684,7 +2684,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
         }
         @media (max-width: 900px) {
           .shell {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
           .mobile-menu-btn {
             display: flex;

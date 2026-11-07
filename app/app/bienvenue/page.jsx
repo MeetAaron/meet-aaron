@@ -964,7 +964,7 @@ export default function BienvenuePage() {
         :global(.spin) { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 560px) {
-          .cards { grid-template-columns: 1fr; }
+          .cards { grid-template-columns: minmax(0, 1fr); }
           .doc { flex-direction: column; align-items: flex-start; }
           h1 { font-size: 1.3rem; }
         }

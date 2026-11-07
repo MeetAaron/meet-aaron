@@ -154,7 +154,7 @@ export default function SendInsightsCard({ userId, locale, compact = false }) {
         .sic-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
         .sic-track i { display: block; width: 100%; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, var(--accent-light), var(--accent)); min-height: 2px; }
         .sic-x { font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
-        @media (max-width: 700px) { .sic-grids { grid-template-columns: 1fr; } }
+        @media (max-width: 700px) { .sic-grids { grid-template-columns: minmax(0, 1fr); } }
       `}</style>
     </section>
   );

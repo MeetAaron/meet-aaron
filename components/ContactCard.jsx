@@ -1193,7 +1193,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
           .msg { max-width: 92%; }
         }
         @media (max-width: 400px) {
-          .read { grid-template-columns: 1fr; }
+          .read { grid-template-columns: minmax(0, 1fr); }
         }
       `}</style>
     </div>

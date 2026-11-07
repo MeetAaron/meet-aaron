@@ -4211,7 +4211,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
            page à maintenir — c'est la même liste. */
         .account-layout {
           display: grid;
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
           gap: 1.4rem;
         }
         /* Meme garde-fou que dans components/AccountNav.jsx : sans
@@ -4387,7 +4387,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
            ~140px de large dans .collab-panel (max-width: 640px). */
         @media (max-width: 600px) {
           .collab-options {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
         .collab-card {
@@ -5043,7 +5043,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
         }
         @media (max-width: 600px) {
           .legal-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
 
@@ -5252,6 +5252,15 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           display: flex;
           flex-wrap: wrap;
           gap: 0.5rem;
+        }
+        /* Les pilules de choix (objectif de prospection…) portent des
+           libellés longs : elles se replient dans la largeur de l'écran au
+           lieu d'en sortir (07/11/2026). */
+        .options .chip {
+          white-space: normal;
+          max-width: 100%;
+          text-align: left;
+          line-height: 1.3;
         }
         .cap-wrap {
           display: inline-flex;
@@ -9173,7 +9182,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
         }
         @media (max-width: 900px) {
           .shell {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
           .mobile-menu-btn {
             display: flex;
