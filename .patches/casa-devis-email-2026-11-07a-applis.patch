@@ -1,0 +1,1766 @@
+From ddec13761c64f5198cfbcfdce9b73410d04409d7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 06:49:43 +0000
+Subject: [PATCH] =?UTF-8?q?Applis=20iOS=20et=20Android=20:=20identifiant?=
+ =?UTF-8?q?=20d=C3=A9finitif=20app.meetaaron.mobile,=20API=2036,=20Capacit?=
+ =?UTF-8?q?or=208,=20notifications=20APNs,=20consentements=20OAuth=20dans?=
+ =?UTF-8?q?=20Safari,=20liens=20universels,=20pas=20d'achat=20dans=20l'app?=
+ =?UTF-8?q?=20;=20ligne=20annuelle=20sur=20le=20site?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- android/ : namespace et applicationId app.meetaaron.mobile, compileSdk/targetSdk 36 (exigence Play depuis le 31/08/2026), AGP 8.13.2, Gradle 8.14, androidbrowserhelper 2.7.3, URL de lancement /app/campaigns ; README (clé d'upload remise, test fermé 12 testeurs).
+- ios-app/ : Capacitor 8 (Xcode 26, iOS 15), bundle app.meetaaron.mobile, habilitation Associated Domains ; codemagic.yaml : numéro de build sans doublon, prérequis documentés.
+- lib/apns.ts (nouveau) : envoi APNs HTTP/2 + JWT ES256 sans dépendance ; lib/push.ts choisit le canal selon l'endpoint apns:// ; /api/push/subscribe accepte apns_token.
+- lib/native-app.js, components/NativeAppBridge.jsx : détection de la coque, ouverture des notifications touchées, retour de Safari ; PushNotificationManager : chemin natif ; InstallPrompt masqué dans l'app.
+- Consentements Gmail/Outlook : ouverts dans Safari depuis l'app (?native=1), page publique /connexion-terminee à la fin.
+- Règle Apple 3.1.1 : onglet Abonnement et inscription remplacés par un message dans l'app (i18n native.* ×7).
+- /.well-known/apple-app-site-association (app/api/ios/aasa) ; manifest start_url /app/campaigns.
+- Landing : ligne « ou 590 € HT par an — deux mois offerts » ×7.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ .github/workflows/android.yml               |   2 +-
+ android/README.md                           |  47 +++--
+ android/app/build.gradle                    |  16 +-
+ android/app/src/main/res/values/strings.xml |   4 +-
+ android/build.gradle                        |   2 +-
+ app/api/android/assetlinks/route.ts         |   4 +-
+ app/api/auth/google/callback/route.ts       |  20 +-
+ app/api/auth/google/route.ts                |   7 +-
+ app/api/auth/microsoft/callback/route.ts    |  24 ++-
+ app/api/auth/microsoft/route.ts             |   7 +-
+ app/api/ios/aasa/route.ts                   |  54 ++++++
+ app/api/push/subscribe/route.ts             |  33 +++-
+ app/app/connexions/page.jsx                 |  17 +-
+ app/connexion-terminee/page.jsx             | 102 ++++++++++
+ app/layout.jsx                              |   4 +
+ app/onboarding/page.jsx                     |  31 ++++
+ codemagic.yaml                              |  31 +++-
+ components/InstallPrompt.jsx                |   5 +-
+ components/NativeAppBridge.jsx              |  81 ++++++++
+ components/PushNotificationManager.jsx      |  95 ++++++++++
+ ios-app/README.md                           |  62 +++++--
+ ios-app/capacitor.config.json               |   4 +-
+ ios-app/package.json                        |  16 +-
+ ios-app/patch-ios.rb                        |  13 +-
+ lib/apns.ts                                 | 195 ++++++++++++++++++++
+ lib/i18n.js                                 |  49 +++++
+ lib/native-app.js                           |  90 +++++++++
+ lib/push.ts                                 |  17 +-
+ next.config.js                              |   4 +
+ public/landing.html                         |  18 +-
+ public/manifest.json                        |   2 +-
+ 31 files changed, 951 insertions(+), 105 deletions(-)
+ create mode 100644 app/api/ios/aasa/route.ts
+ create mode 100644 app/connexion-terminee/page.jsx
+ create mode 100644 components/NativeAppBridge.jsx
+ create mode 100644 lib/apns.ts
+ create mode 100644 lib/native-app.js
+
+diff --git a/.github/workflows/android.yml b/.github/workflows/android.yml
+index 17fffba..e7e54c0 100644
+--- a/.github/workflows/android.yml
++++ b/.github/workflows/android.yml
+@@ -46,7 +46,7 @@ jobs:
+ 
+       - uses: gradle/actions/setup-gradle@v4
+         with:
+-          gradle-version: '8.9'
++          gradle-version: '8.14'
+ 
+       - name: APK de test (signature debug)
+         run: gradle :app:assembleDebug --no-daemon
+diff --git a/android/README.md b/android/README.md
+index 9751ac0..a899d89 100644
+--- a/android/README.md
++++ b/android/README.md
+@@ -49,32 +49,39 @@ a disparu. Vérification possible sur
+ `https://meetaaron.app/.well-known/assetlinks.json` — le JSON doit contenir
+ l'empreinte.
+ 
+-## 3. Publier sur le Play Store (quand les tests sont verts)
+-
+-1. **Compte développeur Google Play** : 25 $ une seule fois, sur
+-   play.google.com/console. (Alex le crée lui-même.)
+-2. **Clé d'upload** — créée par Alex, sur son PC, jamais dans le dépôt :
+-   ```
+-   keytool -genkeypair -v -keystore meet-aaron-upload.jks -alias upload \
+-     -keyalg RSA -keysize 2048 -validity 10000
+-   ```
+-   Garder ce fichier et ses mots de passe en lieu sûr : sans eux, plus aucune
+-   mise à jour de l'app n'est possible.
+-3. **Secrets GitHub** (dépôt → Settings → Secrets and variables → Actions) :
+-   - `ANDROID_KEYSTORE_BASE64` : le contenu du `.jks` encodé en base64
+-     (`base64 -w0 meet-aaron-upload.jks` sous Linux/Mac,
+-     `[Convert]::ToBase64String([IO.File]::ReadAllBytes("meet-aaron-upload.jks"))` sous PowerShell)
+-   - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (= `upload`), `ANDROID_KEY_PASSWORD`
+-4. Relancer le workflow : un second artefact `meet-aaron-release-aab` apparaît.
+-   Déposer l'`.aab` dans la Play Console (Production → Créer une release).
++## 3. Publier sur le Play Store
++
++État au 07/11/2026 : compte développeur Google Play créé (compte personnel,
++ID 9183175798107331370), identifiant d'application **définitif**
++`app.meetaaron.mobile` (le même sur iOS), cible API 36 comme l'exige Google
++depuis le 31/08/2026.
++
++1. **Clé d'upload** : générée le 07/11/2026 et remise à Alex dans
++   `meet-aaron-cle-upload-android.zip` (keystore `.jks`, sa version base64 et
++   le fichier `SECRETS-GITHUB-a-poser.txt` avec les mots de passe). Jamais
++   dans le dépôt. Perdue, Google peut la réinitialiser (App integrity →
++   Request upload key reset), mais c'est une semaine de délai.
++2. **Secrets GitHub** (dépôt → Settings → Secrets and variables → Actions),
++   noms exacts : `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
++   `ANDROID_KEY_ALIAS` (= `upload`), `ANDROID_KEY_PASSWORD`. Les valeurs sont
++   dans le fichier remis.
++3. Relancer le workflow : un second artefact `meet-aaron-release-aab` apparaît.
++4. **Compte personnel = test fermé obligatoire** : avant toute production,
++   l'app doit rester en test fermé avec au moins 12 testeurs inscrits pendant
++   14 jours consécutifs (liste dans la feuille « Testeurs Android » du fichier
++   des adresses). Play Console → Tester → Test fermé → créer une version avec
++   l'`.aab`, ajouter une liste d'adresses, copier le lien d'inscription aux
++   testeurs. Les testeurs se connectent avec le compte démo partagé
++   (société « Démo Meet Aaron », exemptée de facturation).
+ 5. **Empreinte de production** : la Play Console re-signe l'app avec SA propre
+    clé (« Play App Signing »). Récupérer son empreinte SHA-256 dans
+    Play Console → Configuration → Intégrité de l'application → *Certificat de
+    clé de signature d'application*, et l'**ajouter** à
+    `ANDROID_ASSETLINKS_SHA256` sur Vercel (virgule après l'empreinte debug).
+    Sans ça, l'app du Store afficherait la barre d'adresse.
+-6. Fiche Play : l'icône 512×512 est `public/icon.png` ; captures d'écran à
+-   faire depuis l'app installée ; politique de confidentialité :
++6. Fiche Play : textes dans les 7 langues, questionnaire Sécurité des données
++   et captures dans le dossier `stores/` remis à Alex ; icône 512×512 =
++   `public/icon.png` ; politique de confidentialité
+    `https://meetaaron.app/privacy`.
+ 
+ Chaque nouvelle version : incrémenter `versionCode` (et `versionName`) dans
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index a6ef873..632be0e 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -22,13 +22,19 @@ plugins {
+ }
+ 
+ android {
+-    namespace 'app.meetaaron.twa'
+-    compileSdk 34
++    // Identifiant DÉFINITIF (07/11/2026, avant toute publication) : le même
++    // sur Android et iOS. « twa » était un terme technique Android qui n'avait
++    // rien à faire dans un identifiant iOS ; il devient immuable au premier
++    // envoi sur un store, c'était le dernier moment pour le changer.
++    namespace 'app.meetaaron.mobile'
++    // API 36 (Android 16) : exigé par Google Play pour toute nouvelle appli
++    // depuis le 31/08/2026.
++    compileSdk 36
+ 
+     defaultConfig {
+-        applicationId 'app.meetaaron.twa'
++        applicationId 'app.meetaaron.mobile'
+         minSdk 23
+-        targetSdk 34
++        targetSdk 36
+         versionCode 1
+         versionName '1.0.0'
+     }
+@@ -74,5 +80,5 @@ dependencies {
+     // Bibliothèque officielle Google pour les TWA (LauncherActivity,
+     // DelegationService pour les notifications, repli WebView si aucun
+     // navigateur compatible n'est installé).
+-    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
++    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+ }
+diff --git a/android/app/src/main/res/values/strings.xml b/android/app/src/main/res/values/strings.xml
+index 15ae0a5..c9c7f51 100644
+--- a/android/app/src/main/res/values/strings.xml
++++ b/android/app/src/main/res/values/strings.xml
+@@ -1,9 +1,9 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+     <string name="app_name">Meet Aaron</string>
+-    <string name="launch_url">https://meetaaron.app/app/dashboard</string>
++    <string name="launch_url">https://meetaaron.app/app/campaigns</string>
+     <string name="web_manifest_url">https://meetaaron.app/manifest.json</string>
+-    <string name="provider_authority">app.meetaaron.twa.fileprovider</string>
++    <string name="provider_authority">app.meetaaron.mobile.fileprovider</string>
+     <!-- Doit correspondre au site ; Android le confronte à
+          https://meetaaron.app/.well-known/assetlinks.json -->
+     <string name="asset_statements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://meetaaron.app\" } }]</string>
+diff --git a/android/build.gradle b/android/build.gradle
+index 4897847..eba031a 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -1,3 +1,3 @@
+ plugins {
+-    id 'com.android.application' version '8.5.2' apply false
++    id 'com.android.application' version '8.13.2' apply false
+ }
+diff --git a/app/api/android/assetlinks/route.ts b/app/api/android/assetlinks/route.ts
+index 4e658da..8c1b03d 100644
+--- a/app/api/android/assetlinks/route.ts
++++ b/app/api/android/assetlinks/route.ts
+@@ -27,7 +27,9 @@ import { NextResponse } from 'next/server';
+ export const runtime = 'nodejs';
+ export const dynamic = 'force-dynamic';
+ 
+-const PACKAGE_NAME = 'app.meetaaron.twa';
++// Identifiant définitif de l'application (07/11/2026) — identique à
++// android/app/build.gradle et ios-app/capacitor.config.json.
++const PACKAGE_NAME = 'app.meetaaron.mobile';
+ 
+ function fingerprints(): string[] {
+   return (process.env.ANDROID_ASSETLINKS_SHA256 || '')
+diff --git a/app/api/auth/google/callback/route.ts b/app/api/auth/google/callback/route.ts
+index 844ab75..1d14bb1 100644
+--- a/app/api/auth/google/callback/route.ts
++++ b/app/api/auth/google/callback/route.ts
+@@ -15,6 +15,16 @@ function redirectClearingCookie(url: string) {
+   return response;
+ }
+ 
++// Page d'arrivée après le consentement. Depuis l'application iOS (drapeau
++// « n » dans le cookie, posé par /api/auth/google quand ?native=1), le flux
++// tourne dans Safari, qui n'a pas la session de l'app : on atterrit sur une
++// page publique (app/connexion-terminee) au lieu de /app/connexions.
++function connexionsUrl(request: NextRequest, query: string) {
++  const flag = (request.cookies.get('oauth_google_state')?.value || '').split(':')[2];
++  if (flag === 'n') return `${process.env.APP_URL}/connexion-terminee?${query}&provider=google`;
++  return `${process.env.APP_URL}/app/connexions?${query}&tab=connection`;
++}
++
+ export async function GET(request: NextRequest) {
+   const searchParams = request.nextUrl.searchParams;
+   const code = searchParams.get('code');
+@@ -22,7 +32,7 @@ export async function GET(request: NextRequest) {
+   const error = searchParams.get('error');
+ 
+   if (error) {
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${error}&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=${error}`));
+   }
+ 
+   if (!code || !returnedState) {
+@@ -36,7 +46,7 @@ export async function GET(request: NextRequest) {
+   const [cookieNonce, userId] = cookieValue?.split(':') || [];
+ 
+   if (!cookieValue || cookieNonce !== returnedState || !userId) {
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=state_mismatch`));
+   }
+ 
+   const redirectUri = `${process.env.APP_URL}/api/auth/google/callback`;
+@@ -57,7 +67,7 @@ export async function GET(request: NextRequest) {
+   if (!tokenResponse.ok) {
+     const errBody = await tokenResponse.text();
+     console.error('Erreur échange token Google:', errBody);
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=token_exchange_failed`));
+   }
+ 
+   const tokens = await tokenResponse.json();
+@@ -89,7 +99,7 @@ export async function GET(request: NextRequest) {
+ 
+   if (dbError) {
+     console.error('Erreur stockage tokens Google:', dbError);
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=db_error`));
+   }
+ 
+   // Fire-and-forget (demande Alex, 27/08/2026, suite à un domaine pro sans
+@@ -101,5 +111,5 @@ export async function GET(request: NextRequest) {
+     notifyIfDeliverabilityIssue(userId, profile.email, 'google').catch(() => {});
+   }
+ 
+-  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=google&tab=connection`);
++  return redirectClearingCookie(connexionsUrl(request, `oauth_success=google`));
+ }
+diff --git a/app/api/auth/google/route.ts b/app/api/auth/google/route.ts
+index 9a29dcf..a240be7 100644
+--- a/app/api/auth/google/route.ts
++++ b/app/api/auth/google/route.ts
+@@ -95,7 +95,12 @@ export async function GET(request: NextRequest) {
+       state: nonce,
+     }).toString()}`
+   );
+-  redirectResponse.cookies.set('oauth_google_state', `${nonce}:${authedUser.id}`, {
++  // Application iOS (07/11/2026) : le consentement s'ouvre dans Safari (le
++  // WKWebView est refusé par les fournisseurs OAuth), donc à la fin le
++  // navigateur n'a pas la session de l'app : on le renvoie vers une page
++  // publique « c'est connecté, reviens dans l'app » plutôt que vers /app.
++  const native = searchParams.get('native') === '1' ? ':n' : '';
++  redirectResponse.cookies.set('oauth_google_state', `${nonce}:${authedUser.id}${native}`, {
+     httpOnly: true,
+     secure: true,
+     sameSite: 'lax',
+diff --git a/app/api/auth/microsoft/callback/route.ts b/app/api/auth/microsoft/callback/route.ts
+index 67d434a..ab699e3 100644
+--- a/app/api/auth/microsoft/callback/route.ts
++++ b/app/api/auth/microsoft/callback/route.ts
+@@ -14,6 +14,16 @@ function redirectClearingCookie(url: string) {
+   return response;
+ }
+ 
++// Page d'arrivée après le consentement. Depuis l'application iOS (drapeau
++// « n » dans le cookie, posé par /api/auth/microsoft quand ?native=1), le flux
++// tourne dans Safari, qui n'a pas la session de l'app : on atterrit sur une
++// page publique (app/connexion-terminee) au lieu de /app/connexions.
++function connexionsUrl(request: NextRequest, query: string) {
++  const flag = (request.cookies.get('oauth_microsoft_state')?.value || '').split(':')[2];
++  if (flag === 'n') return `${process.env.APP_URL}/connexion-terminee?${query}&provider=microsoft`;
++  return `${process.env.APP_URL}/app/connexions?${query}&tab=connection`;
++}
++
+ export async function GET(request: NextRequest) {
+   const searchParams = request.nextUrl.searchParams;
+   const code = searchParams.get('code');
+@@ -26,9 +36,7 @@ export async function GET(request: NextRequest) {
+   // Aaron pour toute l'entreprise, il ne reste au commercial qu'à cliquer
+   // "Connecter" normalement.
+   if (searchParams.get('admin_consent')) {
+-    return redirectClearingCookie(
+-      `${process.env.APP_URL}/app/connexions?admin_consent=${error ? 'refused' : 'granted'}&tab=connection`
+-    );
++    return redirectClearingCookie(connexionsUrl(request, `admin_consent=${error ? 'refused' : 'granted'}`));
+   }
+ 
+   if (error) {
+@@ -47,7 +55,7 @@ export async function GET(request: NextRequest) {
+       error === 'consent_required' ||
+       /AADSTS90094|AADSTS900941|admin(istrator)?[ _]?(approval|consent)|approbation de l'administrateur/i.test(description);
+     const code = needsAdmin ? 'admin_consent_required' : error;
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=${code}&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=${code}`));
+   }
+ 
+   if (!code || !returnedState) {
+@@ -58,7 +66,7 @@ export async function GET(request: NextRequest) {
+   const [cookieNonce, userId] = cookieValue?.split(':') || [];
+ 
+   if (!cookieValue || cookieNonce !== returnedState || !userId) {
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=state_mismatch&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=state_mismatch`));
+   }
+ 
+   const redirectUri = `${process.env.APP_URL}/api/auth/microsoft/callback`;
+@@ -78,7 +86,7 @@ export async function GET(request: NextRequest) {
+   if (!tokenResponse.ok) {
+     const errBody = await tokenResponse.text();
+     console.error('Erreur échange token Microsoft:', errBody);
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=token_exchange_failed&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=token_exchange_failed`));
+   }
+ 
+   const tokens = await tokenResponse.json();
+@@ -108,7 +116,7 @@ export async function GET(request: NextRequest) {
+ 
+   if (dbError) {
+     console.error('Erreur stockage tokens Microsoft:', dbError);
+-    return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_error=db_error&tab=connection`);
++    return redirectClearingCookie(connexionsUrl(request, `oauth_error=db_error`));
+   }
+ 
+   // Fire-and-forget — voir même correctif côté Google callback et
+@@ -119,5 +127,5 @@ export async function GET(request: NextRequest) {
+     notifyIfDeliverabilityIssue(userId, microsoftEmail, 'microsoft').catch(() => {});
+   }
+ 
+-  return redirectClearingCookie(`${process.env.APP_URL}/app/connexions?oauth_success=microsoft&tab=connection`);
++  return redirectClearingCookie(connexionsUrl(request, `oauth_success=microsoft`));
+ }
+diff --git a/app/api/auth/microsoft/route.ts b/app/api/auth/microsoft/route.ts
+index 4302c05..418735d 100644
+--- a/app/api/auth/microsoft/route.ts
++++ b/app/api/auth/microsoft/route.ts
+@@ -78,7 +78,12 @@ export async function GET(request: NextRequest) {
+       state: nonce,
+     }).toString()}`
+   );
+-  redirectResponse.cookies.set('oauth_microsoft_state', `${nonce}:${authedUser.id}`, {
++  // Application iOS (07/11/2026) : le consentement s'ouvre dans Safari (le
++  // WKWebView est refusé par les fournisseurs OAuth), donc à la fin le
++  // navigateur n'a pas la session de l'app : on le renvoie vers une page
++  // publique « c'est connecté, reviens dans l'app » plutôt que vers /app.
++  const native = searchParams.get('native') === '1' ? ':n' : '';
++  redirectResponse.cookies.set('oauth_microsoft_state', `${nonce}:${authedUser.id}${native}`, {
+     httpOnly: true,
+     secure: true,
+     sameSite: 'lax',
+diff --git a/app/api/ios/aasa/route.ts b/app/api/ios/aasa/route.ts
+new file mode 100644
+index 0000000..d9dc113
+--- /dev/null
++++ b/app/api/ios/aasa/route.ts
+@@ -0,0 +1,54 @@
++// app/api/ios/aasa/route.ts
++//
++// Servi à /.well-known/apple-app-site-association par une réécriture dans
++// next.config.js (même détour que assetlinks.json : GitHub refuse les
++// dossiers de ce nom dans son interface d'envoi).
++//
++// Moitié « site » des liens universels de l'application iOS (dossier
++// ios-app/) : avec ce fichier, et l'habilitation Associated Domains posée par
++// ios-app/patch-ios.rb, un lien https://meetaaron.app/… touché dans un email
++// ou une notification s'ouvre dans l'app plutôt que dans Safari — et la page
++// /connexion-terminee peut ramener dans l'app après un consentement Gmail.
++//
++// L'identifiant d'app Apple = <Team ID>.<bundle id>. Le Team ID (10
++// caractères, developer.apple.com/account) vient de APPLE_TEAM_ID — ou, à
++// défaut, d'APNS_TEAM_ID, c'est le même. Absent → fichier vide mais valide.
++
++import { NextResponse } from 'next/server';
++
++export const runtime = 'nodejs';
++export const dynamic = 'force-dynamic';
++
++const BUNDLE_ID = process.env.APNS_BUNDLE_ID || 'app.meetaaron.mobile';
++
++export async function GET() {
++  const teamId = (process.env.APPLE_TEAM_ID || process.env.APNS_TEAM_ID || '').trim();
++  const appIds = /^[A-Z0-9]{10}$/.test(teamId) ? [`${teamId}.${BUNDLE_ID}`] : [];
++  const body = {
++    applinks: {
++      apps: [],
++      details: appIds.length
++        ? [
++            {
++              appIDs: appIds,
++              components: [
++                // Tout le site sauf les routes techniques et les pages
++                // légales (qu'on préfère laisser lisibles dans Safari).
++                { '/': '/api/*', exclude: true },
++                { '/': '/privacy*', exclude: true },
++                { '/': '/terms*', exclude: true },
++                { '/': '/*' },
++              ],
++            },
++          ]
++        : [],
++    },
++    webcredentials: { apps: appIds },
++  };
++  return NextResponse.json(body, {
++    headers: {
++      'Content-Type': 'application/json',
++      'Cache-Control': 'public, max-age=3600',
++    },
++  });
++}
+diff --git a/app/api/push/subscribe/route.ts b/app/api/push/subscribe/route.ts
+index b645dd0..7d6a181 100644
+--- a/app/api/push/subscribe/route.ts
++++ b/app/api/push/subscribe/route.ts
+@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { readJsonBody } from '@/lib/http';
++import { APNS_ENDPOINT_PREFIX, isValidApnsToken } from '@/lib/apns';
+ 
+ // Colonne ajoutée par migration_push_user_agent_2026-08-31.sql. Tant que la
+ // migration n'a pas été exécutée, Postgres renvoie 42703 (undefined_column) :
+@@ -61,17 +62,29 @@ export async function POST(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+ 
+-  const { subscription } = await readJsonBody(request);
+-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+-    return NextResponse.json({ error: 'Abonnement push invalide' }, { status: 400 });
++  const { subscription, apns_token } = await readJsonBody(request);
++
++  // Application iOS (coque Capacitor) : pas d'abonnement Web Push mais un
++  // « device token » APNs (voir lib/apns.ts). Même table, endpoint préfixé ;
++  // p256dh/auth n'ont pas de sens pour ce canal (colonnes non nulles).
++  let base: { user_id: string; endpoint: string; p256dh: string; auth: string };
++  if (typeof apns_token === 'string') {
++    const token = apns_token.trim();
++    if (!isValidApnsToken(token)) {
++      return NextResponse.json({ error: 'Jeton APNs invalide' }, { status: 400 });
++    }
++    base = { user_id: authedUser.id, endpoint: `${APNS_ENDPOINT_PREFIX}${token.toLowerCase()}`, p256dh: 'apns', auth: 'apns' };
++  } else {
++    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
++      return NextResponse.json({ error: 'Abonnement push invalide' }, { status: 400 });
++    }
++    base = {
++      user_id: authedUser.id,
++      endpoint: subscription.endpoint,
++      p256dh: subscription.keys.p256dh,
++      auth: subscription.keys.auth,
++    };
+   }
+-
+-  const base = {
+-    user_id: authedUser.id,
+-    endpoint: subscription.endpoint,
+-    p256dh: subscription.keys.p256dh,
+-    auth: subscription.keys.auth,
+-  };
+   const userAgent = (request.headers.get('user-agent') || '').slice(0, 500) || null;
+ 
+   let { error } = await supabaseAdmin
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 8977871..08bc78b 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -22,6 +22,7 @@ import BusinessProfileSheet from '@/components/BusinessProfileSheet';
+ import { inline } from '@/components/LegalPage';
+ import AccountNav from '@/components/AccountNav';
+ import PushNotificationManager from '@/components/PushNotificationManager';
++import { isNativeApp, openExternal } from '@/lib/native-app';
+ import MfaSettings from '@/components/MfaSettings';
+ import QRCode from 'qrcode';
+ 
+@@ -1796,7 +1797,7 @@ export default function ConnexionsPage() {
+       window.location.href = '/login';
+       return;
+     }
+-    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
++    openExternal(`/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`);
+   }
+ 
+   async function handleDisconnectCrm(provider) {
+@@ -2206,7 +2207,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+       window.location.href = '/login';
+       return;
+     }
+-    window.location.href = `/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}`;
++    // Application iOS : le consentement s'ouvre dans Safari (Google et
++    // Microsoft refusent les WebView) ; &native=1 fait atterrir la fin du
++    // flux sur /connexion-terminee (voir app/api/auth/google/route.ts).
++    openExternal(`/api/auth/${provider}?qr=${encodeURIComponent(handoff.token)}${isNativeApp() ? '&native=1' : ''}`);
+   }
+ 
+   // --- QR code de connexion depuis le téléphone (28/08/2026) ---
+@@ -3818,7 +3822,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           </div>
+         )
+       ) : activeTab === 'subscription' ? (
+-        loadError ? (
++        isNativeApp() ? (
++          // Application iOS de l'App Store (07/11/2026) : aucun achat, aucun
++          // lien de paiement dans l'app (règle Apple 3.1.1). L'abonnement et
++          // les crédits se gèrent sur le site, l'app se contente de le dire.
++          <div className="subscription-panel">
++            <p className="muted">{t('native.subscriptionManagedOnSite', locale)}</p>
++          </div>
++        ) : loadError ? (
+           <div className="load-error">
+             <p>{loadError}</p>
+             <button type="button" className="btn-secondary" onClick={loadPrefs}>
+diff --git a/app/connexion-terminee/page.jsx b/app/connexion-terminee/page.jsx
+new file mode 100644
+index 0000000..086a8fa
+--- /dev/null
++++ b/app/connexion-terminee/page.jsx
+@@ -0,0 +1,102 @@
++'use client';
++// app/connexion-terminee/page.jsx
++//
++// Page PUBLIQUE d'arrivée après un consentement Gmail / Outlook lancé depuis
++// l'application iOS (coque Capacitor, dossier ios-app/). Google et Microsoft
++// refusent leurs écrans de consentement dans une WebView : l'app les ouvre
++// donc dans Safari (lib/native-app.js, openExternal). À la fin, Safari n'a
++// pas la session de l'app — renvoyer vers /app/connexions afficherait l'écran
++// de connexion. On atterrit ici, et on dit simplement de revenir dans l'app ;
++// l'app, elle, recharge Connexions quand Safari se ferme
++// (components/NativeAppBridge.jsx).
++//
++// Paramètres (posés par app/api/auth/{google,microsoft}/callback) :
++//   oauth_success=<provider>  ou  oauth_error=<code>
++
++import { useEffect, useState } from 'react';
++import { t, useLocale } from '@/lib/i18n';
++import Ic from '@/components/UiIcon';
++
++export default function ConnexionTermineePage() {
++  const [locale] = useLocale();
++  const [ok, setOk] = useState(true);
++
++  useEffect(() => {
++    try {
++      const params = new URLSearchParams(window.location.search);
++      setOk(!params.get('oauth_error'));
++    } catch {
++      setOk(true);
++    }
++  }, []);
++
++  return (
++    <main className="done">
++      <div className="card">
++        <div className={`mark${ok ? '' : ' ko'}`}>
++          <Ic name={ok ? 'check' : 'x'} />
++        </div>
++        <h1>{t(ok ? 'native.doneTitle' : 'native.errorTitle', locale)}</h1>
++        <p>{t(ok ? 'native.doneBody' : 'native.errorBody', locale)}</p>
++        {/* Lien universel : si l'app est installée et le domaine associé, iOS
++            l'ouvre directement ; sinon le site s'ouvre, sans rien casser. */}
++        <a className="back" href="https://meetaaron.app/app/connexions?tab=connection">
++          {t('native.backToApp', locale)}
++        </a>
++      </div>
++      <style jsx>{`
++        .done {
++          min-height: 100dvh;
++          display: flex;
++          align-items: center;
++          justify-content: center;
++          padding: 1.5rem;
++          background: var(--bg, #0b0e1a);
++          color: var(--text, #f3f4f8);
++        }
++        .card {
++          max-width: 420px;
++          width: 100%;
++          text-align: center;
++          background: var(--card, #141a2e);
++          border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
++          border-radius: 16px;
++          padding: 2rem 1.5rem;
++        }
++        .mark {
++          width: 56px;
++          height: 56px;
++          border-radius: 50%;
++          margin: 0 auto 1rem;
++          display: grid;
++          place-items: center;
++          background: rgba(46, 204, 113, 0.15);
++          color: var(--accent-green, #2ecc71);
++        }
++        .mark.ko {
++          background: rgba(229, 72, 77, 0.15);
++          color: #e5484d;
++        }
++        h1 {
++          font-size: 1.3rem;
++          margin: 0 0 0.6rem;
++        }
++        p {
++          color: var(--muted, #a3a9c2);
++          font-size: 0.95rem;
++          line-height: 1.5;
++          margin: 0 0 1.4rem;
++        }
++        .back {
++          display: inline-block;
++          background: var(--accent, #5b6cff);
++          color: #fff;
++          text-decoration: none;
++          border-radius: 10px;
++          padding: 0.7rem 1.2rem;
++          font-weight: 600;
++        }
++      `}</style>
++    </main>
++  );
++}
+diff --git a/app/layout.jsx b/app/layout.jsx
+index 7e51172..bb96f78 100644
+--- a/app/layout.jsx
++++ b/app/layout.jsx
+@@ -2,6 +2,7 @@ import "./globals.css";
+ import React from "react";
+ import AuthFetchInterceptor from "@/components/AuthFetchInterceptor";
+ import TimeZoneReporter from "@/components/TimeZoneReporter";
++import NativeAppBridge from "@/components/NativeAppBridge";
+ import WinCelebration from "@/components/WinCelebration";
+ import HelpLayer from "@/components/HelpLayer";
+ import { THEME_INIT_SCRIPT } from "@/lib/theme";
+@@ -76,6 +77,9 @@ export default function RootLayout({ children }) {
+             // Remonte le fuseau horaire du navigateur (users.timezone) pour que
+             // le rapport de resultats parte a minuit chez le commercial.
+             React.createElement(TimeZoneReporter, null),
++            // Application iOS (coque Capacitor) : marquage du document et
++            // ouverture des notifications touchees (07/11/2026).
++            React.createElement(NativeAppBridge, null),
+             // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
+             // point 3) : écoute un événement, n'affiche rien sinon.
+             React.createElement(WinCelebration, null),
+diff --git a/app/onboarding/page.jsx b/app/onboarding/page.jsx
+index fe20d9b..deb1c8f 100644
+--- a/app/onboarding/page.jsx
++++ b/app/onboarding/page.jsx
+@@ -7,6 +7,7 @@ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
+ import { useLocale, localeForCountry, t } from '@/lib/i18n';
+ import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
+ import Ic from '@/components/UiIcon';
++import { isNativeApp } from '@/lib/native-app';
+ 
+ // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
+ // seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
+@@ -511,6 +512,13 @@ export default function OnboardingPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+   const [checking, setChecking] = useState(true);
++  // Application iOS (coque Capacitor) : pas d'inscription ni de paiement
++  // dans l'app (règle Apple 3.1.1). Détecté après montage : au rendu serveur
++  // on ne sait pas encore d'où vient la page.
++  const [native, setNative] = useState(false);
++  useEffect(() => {
++    setNative(isNativeApp());
++  }, []);
+   const [session, setSession] = useState(null);
+   // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
+   // avec un 2e compte) : QUI la personne est (personRole — fondateur/
+@@ -667,6 +675,29 @@ export default function OnboardingPage() {
+     );
+   }
+ 
++  if (native) {
++    return (
++      <div className="wrap">
++        <div className="card">
++          <img src="/icon.png" alt="Meet Aaron" className="logo" />
++          <h1>{st('welcome', locale)}</h1>
++          <p className="subtitle">{t('native.signupNotInApp', locale)}</p>
++          <button type="button" className="role-btn" onClick={() => router.push('/login')}>
++            <span className="role-title">{t('auth.signIn', locale)}</span>
++          </button>
++        </div>
++        <style jsx>{`
++          .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b0e1a; padding: 1.5rem; }
++          .card { max-width: 420px; width: 100%; text-align: center; background: #141a2e; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2rem 1.5rem; color: #f3f4f8; font-family: 'Inter', sans-serif; }
++          .logo { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 1rem; }
++          h1 { font-size: 1.3rem; margin: 0 0 0.6rem; }
++          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.4rem; }
++          .role-btn { width: 100%; background: #5b6cff; border: none; color: #fff; border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
++        `}</style>
++      </div>
++    );
++  }
++
+   if (!personRole || (personRole === 'commercial' && !signupPath)) {
+     // Deux questions successives (retour Alex 25/08) : d'abord QUI (fondateur/
+     // dirigeant(e) vs commercial(e) — détermine le rôle en base, donc si "Mon
+diff --git a/codemagic.yaml b/codemagic.yaml
+index 6735842..b6dd6e4 100644
+--- a/codemagic.yaml
++++ b/codemagic.yaml
+@@ -17,7 +17,14 @@
+ #     (Codemagic → Teams → Integrations → App Store Connect → Add key).
+ #     C'est elle qui genere et renouvelle les certificats tout seule : c'est
+ #     la partie qui fait perdre des journees quand on la fait a la main.
+-#   - rien d'autre. Pas de certificat a telecharger, pas de profil a creer.
++#   - le groupe de variables appstore_credentials (voir plus bas).
++#   - dans le portail developpeur Apple (Identifiers → app.meetaaron.mobile),
++#     les capacites Push Notifications et Associated Domains cochees : le
++#     profil de provisionnement doit couvrir les habilitations que pose
++#     ios-app/patch-ios.rb, sinon la signature echoue.
++#   - dans App Store Connect, la fiche de l'app creee (Apps → + → Nouvelle
++#     app, bundle app.meetaaron.mobile) : TestFlight n'accepte un build que
++#     pour une app existante.
+ 
+ workflows:
+   ios-release:
+@@ -25,12 +32,13 @@ workflows:
+     instance_type: mac_mini_m2
+     max_build_duration: 45
+     environment:
+-      xcode: latest
++      # Capacitor 8 exige Xcode 26 et Node 22 (mise a jour du 07/11/2026).
++      xcode: 26.0
+       cocoapods: default
+-      node: 20
++      node: 22
+       ios_signing:
+         distribution_type: app_store
+-        bundle_identifier: app.meetaaron.twa
++        bundle_identifier: app.meetaaron.mobile
+       vars:
+         APP_VERSION: '1.0.0'
+       groups:
+@@ -38,6 +46,9 @@ workflows:
+         #   APP_STORE_CONNECT_ISSUER_ID
+         #   APP_STORE_CONNECT_KEY_IDENTIFIER
+         #   APP_STORE_CONNECT_PRIVATE_KEY
++        #   APP_STORE_APP_ID   (identifiant numerique de l'app dans App Store
++        #                       Connect, visible dans l'URL de sa fiche — sert a
++        #                       numeroter les builds a la suite de TestFlight)
+         - appstore_credentials
+ 
+     scripts:
+@@ -64,7 +75,15 @@ workflows:
+         script: |
+           cd ios-app
+           gem install xcodeproj plist --no-document
+-          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID" 2>/dev/null || echo 0) + 1))
++          # Numero de build : le dernier de TestFlight + 1 ; sans
++          # APP_STORE_APP_ID, le compteur de builds Codemagic (jamais deux
++          # fois le meme numero, sinon App Store Connect refuse l'envoi).
++          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID" 2>/dev/null || true)
++          if [ -n "$LATEST" ] && [ "$LATEST" -eq "$LATEST" ] 2>/dev/null; then
++            BUILD_NUMBER=$((LATEST + 1))
++          else
++            BUILD_NUMBER=$((${BUILD_NUMBER:-0} + 100))
++          fi
+           echo "BUILD_NUMBER=$BUILD_NUMBER"
+           APP_VERSION="$APP_VERSION" BUILD_NUMBER="$BUILD_NUMBER" ruby patch-ios.rb
+ 
+@@ -77,7 +96,7 @@ workflows:
+         script: |
+           cd ios-app/ios/App
+           keychain initialize
+-          app-store-connect fetch-signing-files app.meetaaron.twa --type IOS_APP_STORE --create
++          app-store-connect fetch-signing-files app.meetaaron.mobile --type IOS_APP_STORE --create
+           keychain add-certificates
+           xcode-project use-profiles
+ 
+diff --git a/components/InstallPrompt.jsx b/components/InstallPrompt.jsx
+index fd2295c..90126b3 100644
+--- a/components/InstallPrompt.jsx
++++ b/components/InstallPrompt.jsx
+@@ -25,6 +25,7 @@
+ 
+ import { useEffect, useState } from 'react';
+ import { t } from '@/lib/i18n';
++import { isNativeApp } from '@/lib/native-app';
+ import { Share, SquarePlus } from 'lucide-react';
+ 
+ const DISMISS_KEY = 'meetaaron_install_dismissed_at';
+@@ -35,7 +36,9 @@ function isStandalone() {
+   if (typeof window === 'undefined') return true;
+   return (
+     window.matchMedia?.('(display-mode: standalone)')?.matches ||
+-    window.navigator.standalone === true
++    window.navigator.standalone === true ||
++    // Application iOS de l'App Store (coque Capacitor) : déjà « installée ».
++    isNativeApp()
+   );
+ }
+ 
+diff --git a/components/NativeAppBridge.jsx b/components/NativeAppBridge.jsx
+new file mode 100644
+index 0000000..0d9ee33
+--- /dev/null
++++ b/components/NativeAppBridge.jsx
+@@ -0,0 +1,81 @@
++// components/NativeAppBridge.jsx
++// Pont avec l'application iOS (coque Capacitor, dossier ios-app/). Monté une
++// fois pour toutes dans app/layout.jsx ; ne rend rien et ne fait rien hors de
++// la coque (voir lib/native-app.js).
++//
++// Deux rôles :
++//   1. marquer le document (`html.native-app`, `data-native-platform`) pour
++//      que le CSS et les composants sachent qu'ils tournent dans l'app ;
++//   2. ouvrir la bonne page quand le commercial touche une notification
++//      (lib/apns.ts met l'URL cible dans le champ `url` de la charge utile),
++//      ou un lien universel https://meetaaron.app/… reçu par l'app.
++
++'use client';
++
++import { useEffect } from 'react';
++import { getCapacitor, nativePlatform, nativePushPlugin } from '@/lib/native-app';
++
++function openInternalUrl(raw) {
++  if (!raw || typeof raw !== 'string') return;
++  let path = raw;
++  try {
++    if (/^https?:\/\//i.test(raw)) {
++      const u = new URL(raw);
++      if (u.hostname !== 'meetaaron.app' && u.hostname !== 'www.meetaaron.app') return;
++      path = u.pathname + u.search + u.hash;
++    }
++  } catch {
++    return;
++  }
++  // Uniquement des chemins internes : jamais un site tiers depuis une
++  // notification (un jeton volé ne doit pas pouvoir faire ouvrir n'importe quoi).
++  if (!path.startsWith('/') || path.startsWith('//')) return;
++  window.location.assign(path);
++}
++
++export default function NativeAppBridge() {
++  useEffect(() => {
++    const cap = getCapacitor();
++    if (!cap) return;
++
++    const platform = nativePlatform() || 'native';
++    document.documentElement.classList.add('native-app');
++    document.documentElement.dataset.nativePlatform = platform;
++
++    const handles = [];
++    const push = nativePushPlugin();
++    if (push) {
++      handles.push(
++        push.addListener('pushNotificationActionPerformed', (action) => {
++          const data = action && action.notification && action.notification.data;
++          openInternalUrl(data && data.url);
++        })
++      );
++    }
++    // Retour de Safari (consentement Gmail/Outlook, voir lib/native-app.js
++    // openExternal) : la page Connexions se recharge pour afficher la boîte
++    // tout juste reliée.
++    const browser = cap.Plugins && cap.Plugins.Browser;
++    if (browser && typeof browser.addListener === 'function') {
++      handles.push(
++        browser.addListener('browserFinished', () => {
++          if (window.location.pathname.startsWith('/app/connexions')) window.location.reload();
++        })
++      );
++    }
++    const app = cap.Plugins && cap.Plugins.App;
++    if (app && typeof app.addListener === 'function') {
++      handles.push(app.addListener('appUrlOpen', (event) => openInternalUrl(event && event.url)));
++    }
++
++    return () => {
++      handles.forEach((h) => {
++        Promise.resolve(h)
++          .then((x) => x && typeof x.remove === 'function' && x.remove())
++          .catch(() => {});
++      });
++    };
++  }, []);
++
++  return null;
++}
+diff --git a/components/PushNotificationManager.jsx b/components/PushNotificationManager.jsx
+index 47b91d3..d38ad33 100644
+--- a/components/PushNotificationManager.jsx
++++ b/components/PushNotificationManager.jsx
+@@ -15,6 +15,29 @@
+ import { useEffect, useState } from 'react';
+ import { t, useLocale } from '@/lib/i18n';
+ import Ic from '@/components/UiIcon';
++import { nativePushPlugin, requestNativePushToken } from '@/lib/native-app';
++
++// Application iOS (coque Capacitor, 07/11/2026) : la WKWebView n'a pas de
++// PushManager, Apple ne donne le Web Push qu'à Safari et aux PWA. Dans la
++// coque, le plugin natif fournit un jeton APNs ; on l'envoie à la même route
++// (/api/push/subscribe, champ apns_token) et lib/push.ts choisit le canal.
++const APNS_TOKEN_KEY = 'meetaaron_apns_token';
++
++function rememberedApnsToken() {
++  try {
++    return window.localStorage.getItem(APNS_TOKEN_KEY) || null;
++  } catch {
++    return null;
++  }
++}
++function rememberApnsToken(token) {
++  try {
++    if (token) window.localStorage.setItem(APNS_TOKEN_KEY, token);
++    else window.localStorage.removeItem(APNS_TOKEN_KEY);
++  } catch {
++    /* stockage indisponible : on fonctionne sans mémoire */
++  }
++}
+ 
+ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+ 
+@@ -46,6 +69,39 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
+ 
+   useEffect(() => {
+     if (typeof window === 'undefined') return;
++
++    const native = nativePushPlugin();
++    if (native) {
++      // Dans l'app iOS : « abonné » = permission accordée ET jeton connu du
++      // serveur. On ré-envoie le jeton à chaque passage ici — Apple peut le
++      // changer, et l'upsert côté serveur est sans effet s'il est identique.
++      (async () => {
++        try {
++          const perm = await native.checkPermissions();
++          const state = perm && perm.receive;
++          setPermission(state === 'granted' ? 'granted' : state === 'denied' ? 'denied' : 'default');
++          if (state !== 'granted') {
++            setSubscribed(false);
++            return;
++          }
++          const token = await requestNativePushToken(native);
++          if (!token) return;
++          const res = await fetch('/api/push/subscribe', {
++            method: 'POST',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify({ apns_token: token }),
++          });
++          if (res.ok) {
++            rememberApnsToken(token);
++            setSubscribed(true);
++          }
++        } catch {
++          setSubscribed(!!rememberedApnsToken());
++        }
++      })();
++      return;
++    }
++
+     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+       setSupported(false);
+       return;
+@@ -67,6 +123,27 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
+     setBusy(true);
+     setError(null);
+     try {
++      const native = nativePushPlugin();
++      if (native) {
++        const perm = await native.requestPermissions();
++        const state = perm && perm.receive;
++        setPermission(state === 'granted' ? 'granted' : 'denied');
++        if (state !== 'granted') {
++          throw new Error(t('push.permissionRefused', locale));
++        }
++        const token = await requestNativePushToken(native);
++        if (!token) throw new Error(t('push.serverError', locale));
++        const res = await fetch('/api/push/subscribe', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ apns_token: token }),
++        });
++        if (!res.ok) throw new Error(t('push.serverError', locale));
++        rememberApnsToken(token);
++        setSubscribed(true);
++        return;
++      }
++
+       if (!VAPID_PUBLIC_KEY) {
+         throw new Error(t('push.notConfigured', locale));
+       }
+@@ -102,6 +179,24 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
+     setBusy(true);
+     setError(null);
+     try {
++      const native = nativePushPlugin();
++      if (native) {
++        const token = rememberedApnsToken();
++        if (token) {
++          await fetch('/api/push/subscribe', {
++            method: 'DELETE',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify({ endpoint: `apns://${token.toLowerCase()}` }),
++          });
++        }
++        if (typeof native.unregister === 'function') {
++          await native.unregister().catch(() => {});
++        }
++        rememberApnsToken(null);
++        setSubscribed(false);
++        return;
++      }
++
+       const registration = await navigator.serviceWorker.ready;
+       const subscription = await registration.pushManager.getSubscription();
+       if (subscription) {
+diff --git a/ios-app/README.md b/ios-app/README.md
+index 0987258..a4a1e2d 100644
+--- a/ios-app/README.md
++++ b/ios-app/README.md
+@@ -18,30 +18,56 @@ Il est genere a chaque compilation par `npx cap add ios`, puis retouche par
+ 
+ ## Ce que fait la coque
+ 
+-- charge `https://meetaaron.app/app/dashboard` (voir `capacitor.config.json`) ;
++- charge `https://meetaaron.app/app/campaigns` (voir `capacitor.config.json`) ;
+ - affiche `www/index.html` uniquement s'il n'y a pas de reseau au lancement ;
+ - fond `#0D0F20` sous l'encoche et la barre d'accueil, pour ne pas voir une
+   bande blanche autour de la page ;
+ - ecran de lancement et icones generes depuis `assets/icon.png`, qui est
+   `public/icon.png` — une seule source de verite pour l'icone.
+ 
+-## Notifications — la limite a connaitre
+-
+-**Le Web Push ne fonctionne PAS dans une WKWebView.** Apple ne l'autorise que
+-dans Safari et dans une PWA installee depuis l'ecran d'accueil. Concretement :
+-la PWA iOS actuelle recoit les notifications, cette coque non.
+-
+-`@capacitor/push-notifications` est deja declare et l'habilitation
+-`aps-environment` est posee par `patch-ios.rb`, donc la partie telephone est
+-prete. Il manque la partie serveur : `lib/push.ts` envoie du Web Push
+-(VAPID), et APNs est un autre protocole. Il faudra :
+-
+-1. une cle APNs `.p8` depuis le compte Apple (Certificates → Keys) ;
+-2. une route qui enregistre le jeton APNs du telephone ;
+-3. un envoi APNs dans `lib/push.ts`, choisi selon le type d'abonnement.
+-
+-Ce n'est pas bloquant pour une premiere mise en ligne, mais il faut le savoir
+-avant de promettre les notifications a un client sur iPhone.
++## Notifications — APNs, implemente le 07/11/2026
++
++**Le Web Push ne fonctionne PAS dans une WKWebView** (Apple ne l'autorise que
++dans Safari et dans une PWA installee depuis l'ecran d'accueil). La coque
++passe donc par le canal natif d'Apple, APNs :
++
++- telephone : `@capacitor/push-notifications` donne un jeton d'appareil, que
++  `components/PushNotificationManager.jsx` envoie a `/api/push/subscribe`
++  (champ `apns_token`) — meme bouton « Activer les notifications » que sur le
++  web, le composant detecte la coque via `lib/native-app.js` ;
++- serveur : `lib/apns.ts` (HTTP/2 + JWT ES256, zero dependance) ; `lib/push.ts`
++  choisit le canal d'apres l'endpoint (`apns://<token>` = iOS natif) ;
++- toucher une notification ouvre la bonne page (`components/NativeAppBridge.jsx`).
++
++A poser sur Vercel : `APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY`
++(contenu du `.p8` cree dans developer.apple.com → Certificates, Identifiers &
++Profiles → Keys, case « Apple Push Notifications service »). Sans elles, les
++autres canaux continuent et l'iPhone ne recoit simplement rien.
++
++## Consentements Gmail / Outlook et liens universels
++
++Google et Microsoft refusent leurs ecrans de consentement dans une WebView.
++Dans la coque, `lib/native-app.js` (`openExternal`) les ouvre dans Safari ;
++la fin du flux atterrit sur la page publique `/connexion-terminee`
++(`?native=1` pose un drapeau dans le cookie anti-CSRF), et la coque recharge
++Connexions quand Safari se ferme.
++
++Liens universels : `patch-ios.rb` pose l'habilitation Associated Domains
++(`applinks:meetaaron.app`), et le site sert
++`/.well-known/apple-app-site-association` (`app/api/ios/aasa/route.ts`, qui a
++besoin de `APPLE_TEAM_ID` sur Vercel — ou d'`APNS_TEAM_ID`, c'est le meme).
++**Dans le portail developpeur, les capacites Push Notifications et Associated
++Domains doivent etre cochees sur l'identifiant `app.meetaaron.mobile`**, sinon
++le profil de provisionnement genere par Codemagic ne couvrira pas les
++habilitations et la signature echouera.
++
++## Pas d'achat dans l'application
++
++Regle Apple 3.1.1 : l'onglet Abonnement (credits, carte, portail de
++facturation) et l'inscription payante sont remplaces par un simple message
++dans la coque (`isNativeApp()` dans `app/app/connexions/page.jsx` et
++`app/onboarding/page.jsx`). La connexion d'un commercial invite (code
++d'activation) reste possible : ce n'est pas un achat.
+ 
+ ## iPhone et iPad
+ 
+diff --git a/ios-app/capacitor.config.json b/ios-app/capacitor.config.json
+index ebbd1ac..211a5d6 100644
+--- a/ios-app/capacitor.config.json
++++ b/ios-app/capacitor.config.json
+@@ -1,10 +1,10 @@
+ {
+-  "appId": "app.meetaaron.twa",
++  "appId": "app.meetaaron.mobile",
+   "appName": "Meet Aaron",
+   "webDir": "www",
+   "bundledWebRuntime": false,
+   "server": {
+-    "url": "https://meetaaron.app/app/dashboard",
++    "url": "https://meetaaron.app/app/campaigns",
+     "hostname": "meetaaron.app",
+     "androidScheme": "https",
+     "iosScheme": "https",
+diff --git a/ios-app/package.json b/ios-app/package.json
+index b0402e0..2ea7ba9 100644
+--- a/ios-app/package.json
++++ b/ios-app/package.json
+@@ -9,16 +9,16 @@
+     "assets": "capacitor-assets generate --ios --assetPath assets"
+   },
+   "dependencies": {
+-    "@capacitor/core": "^6.1.2",
+-    "@capacitor/ios": "^6.1.2",
+-    "@capacitor/app": "^6.0.1",
+-    "@capacitor/browser": "^6.0.3",
+-    "@capacitor/push-notifications": "^6.0.2",
+-    "@capacitor/splash-screen": "^6.0.2",
+-    "@capacitor/status-bar": "^6.0.1"
++    "@capacitor/core": "^8.0.0",
++    "@capacitor/ios": "^8.0.0",
++    "@capacitor/app": "^8.0.0",
++    "@capacitor/browser": "^8.0.0",
++    "@capacitor/push-notifications": "^8.0.0",
++    "@capacitor/splash-screen": "^8.0.0",
++    "@capacitor/status-bar": "^8.0.0"
+   },
+   "devDependencies": {
+-    "@capacitor/cli": "^6.1.2",
++    "@capacitor/cli": "^8.0.0",
+     "@capacitor/assets": "^3.0.5"
+   }
+ }
+diff --git a/ios-app/patch-ios.rb b/ios-app/patch-ios.rb
+index 649e7d1..9207e24 100644
+--- a/ios-app/patch-ios.rb
++++ b/ios-app/patch-ios.rb
+@@ -33,6 +33,14 @@ File.write(entitlements_path, <<~XML)
+   <dict>
+     <key>aps-environment</key>
+     <string>production</string>
++    <!-- Liens universels (07/11/2026) : https://meetaaron.app/... s'ouvre
++         dans l'app ; la moitié « site » est /.well-known/apple-app-site-association
++         (app/api/ios/aasa/route.ts). La capacité « Associated Domains » doit
++         être cochée sur l'identifiant d'app dans le portail développeur. -->
++    <key>com.apple.developer.associated-domains</key>
++    <array>
++      <string>applinks:meetaaron.app</string>
++    </array>
+   </dict>
+   </plist>
+ XML
+@@ -53,7 +61,7 @@ target.build_configurations.each do |config|
+   config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'App/App.entitlements'
+   config.build_settings['MARKETING_VERSION']      = VERSION
+   config.build_settings['CURRENT_PROJECT_VERSION'] = BUILD_NUM
+-  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'app.meetaaron.twa'
++  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'app.meetaaron.mobile'
+   # iPhone ET iPad ('1,2'), choix d'Alex du 01/10/2026 (j'avais propose
+   # iPhone seul pour la v1, il a tranche l'inverse).
+   #
+@@ -65,7 +73,8 @@ target.build_configurations.each do |config|
+   # de 1200 px de large qui s'etire sur un iPad en paysage peut valoir un
+   # refus au titre de la regle 4.0 (Design).
+   config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
+-  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
++  # Capacitor 8 (07/11/2026) exige iOS 15 au minimum.
++  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+ end
+ project.save
+ puts "projet Xcode mis a jour (version #{VERSION}, build #{BUILD_NUM})"
+diff --git a/lib/apns.ts b/lib/apns.ts
+new file mode 100644
+index 0000000..1d6814d
+--- /dev/null
++++ b/lib/apns.ts
+@@ -0,0 +1,195 @@
++// lib/apns.ts
++// Envoi de notifications à l'APPLICATION iOS (coque Capacitor, dossier
++// ios-app/) par le protocole APNs d'Apple — HTTP/2 + jeton JWT signé ES256.
++//
++// Pourquoi ce fichier existe (07/11/2026) : le Web Push (lib/push.ts) ne
++// fonctionne pas dans une WKWebView, Apple ne l'autorise que dans Safari et
++// dans une PWA installée depuis l'écran d'accueil. L'app de l'App Store doit
++// donc recevoir ses notifications par APNs, le canal natif d'Apple. Côté
++// téléphone, @capacitor/push-notifications donne un « device token » que
++// components/PushNotificationManager.jsx envoie à /api/push/subscribe ; il
++// est rangé dans push_subscriptions avec l'endpoint `apns://<token>`, et
++// lib/push.ts choisit le canal d'après ce préfixe.
++//
++// Aucune dépendance : le module http2 de Node suffit, et le JWT tient en
++// vingt lignes de crypto. Pas de Firebase, pas de OneSignal : le contenu des
++// notifications (nom d'un prospect, heure d'un rendez-vous) ne transite que
++// chez Apple, qui est de toute façon incontournable sur iPhone.
++//
++// Variables d'environnement (Vercel) :
++//   APNS_TEAM_ID      identifiant d'équipe Apple (10 caractères, en haut à
++//                     droite de developer.apple.com/account)
++//   APNS_KEY_ID       identifiant de la clé (Certificates, Identifiers &
++//                     Profiles → Keys → clé avec « Apple Push Notifications
++//                     service » coché)
++//   APNS_PRIVATE_KEY  contenu du fichier .p8 téléchargé à la création de la
++//                     clé (téléchargeable UNE seule fois), sauts de ligne
++//                     réels ou « \n »
++//   APNS_BUNDLE_ID    défaut app.meetaaron.mobile
++//   APNS_ENV          'production' (défaut — TestFlight et App Store) ou
++//                     'sandbox' (build Xcode de développement)
++// Variables absentes → APNs désactivé, les autres canaux continuent.
++
++import http2 from 'http2';
++import crypto from 'crypto';
++
++const TEAM_ID = process.env.APNS_TEAM_ID || '';
++const KEY_ID = process.env.APNS_KEY_ID || '';
++const PRIVATE_KEY = (process.env.APNS_PRIVATE_KEY || '').replace(/\\n/g, '\n');
++export const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || 'app.meetaaron.mobile';
++const HOST = process.env.APNS_ENV === 'sandbox' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
++
++export const APNS_ENDPOINT_PREFIX = 'apns://';
++
++export function apnsConfigured(): boolean {
++  return !!(TEAM_ID && KEY_ID && PRIVATE_KEY);
++}
++
++export function isApnsEndpoint(endpoint: string): boolean {
++  return endpoint.startsWith(APNS_ENDPOINT_PREFIX);
++}
++
++export function apnsTokenFromEndpoint(endpoint: string): string {
++  return endpoint.slice(APNS_ENDPOINT_PREFIX.length);
++}
++
++// Un device token APNs est une suite hexadécimale (64 caractères aujourd'hui,
++// Apple se réserve d'allonger). On refuse tout ce qui n'y ressemble pas :
++// c'est ce qui part dans l'URL de la requête à Apple.
++export function isValidApnsToken(token: string): boolean {
++  return /^[0-9a-fA-F]{32,200}$/.test(token);
++}
++
++function base64url(input: Buffer | string): string {
++  return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
++}
++
++// Apple refuse un jeton de plus d'une heure et demande de ne pas en
++// régénérer plus d'un toutes les 20 minutes : on le garde 50 minutes.
++let cachedJwt: { value: string; issuedAt: number } | null = null;
++function providerToken(): string {
++  const now = Math.floor(Date.now() / 1000);
++  if (cachedJwt && now - cachedJwt.issuedAt < 50 * 60) return cachedJwt.value;
++  const header = base64url(JSON.stringify({ alg: 'ES256', kid: KEY_ID }));
++  const claims = base64url(JSON.stringify({ iss: TEAM_ID, iat: now }));
++  const signingInput = `${header}.${claims}`;
++  // dsaEncoding 'ieee-p1363' = la forme r||s que JOSE attend (le DER par
++  // défaut serait refusé par Apple).
++  const signature = crypto.sign('sha256', Buffer.from(signingInput), {
++    key: PRIVATE_KEY,
++    dsaEncoding: 'ieee-p1363',
++  });
++  const value = `${signingInput}.${base64url(signature)}`;
++  cachedJwt = { value, issuedAt: now };
++  return value;
++}
++
++export type ApnsPayload = {
++  title: string;
++  body: string;
++  url?: string;
++  tag?: string;
++};
++
++export type ApnsResult = {
++  ok: boolean;
++  status: number;
++  reason: string | null;
++  // true quand Apple dit que ce jeton ne vaut plus rien : l'appelant doit le
++  // supprimer (app désinstallée, jeton d'un autre environnement…).
++  gone: boolean;
++};
++
++const GONE_REASONS = new Set(['BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic', 'ExpiredToken']);
++
++// Envoie UNE notification à UN appareil. Ne lève jamais : renvoie un résultat
++// que lib/push.ts interprète (suppression du jeton si `gone`).
++export function sendApns(deviceToken: string, payload: ApnsPayload): Promise<ApnsResult> {
++  if (!apnsConfigured()) {
++    return Promise.resolve({ ok: false, status: 0, reason: 'NotConfigured', gone: false });
++  }
++  if (!isValidApnsToken(deviceToken)) {
++    return Promise.resolve({ ok: true, status: 0, reason: 'InvalidTokenFormat', gone: true });
++  }
++
++  const body = JSON.stringify({
++    aps: {
++      alert: { title: payload.title, body: payload.body },
++      sound: 'default',
++      // Même rôle que le `tag` Web Push : regroupe les notifications d'un
++      // même objet dans le centre de notifications.
++      ...(payload.tag ? { 'thread-id': payload.tag } : {}),
++    },
++    // Lu par components/NativeAppBridge.jsx au toucher de la notification.
++    url: payload.url || '/app/campaigns',
++  });
++
++  return new Promise<ApnsResult>((resolve) => {
++    let settled = false;
++    const done = (r: ApnsResult) => {
++      if (settled) return;
++      settled = true;
++      try {
++        client.close();
++      } catch {
++        /* déjà fermé */
++      }
++      resolve(r);
++    };
++
++    const client = http2.connect(HOST);
++    client.on('error', (err: Error) => done({ ok: false, status: 0, reason: err.message, gone: false }));
++    // Une connexion qui traîne ne doit jamais bloquer un cron.
++    const timer = setTimeout(() => done({ ok: false, status: 0, reason: 'Timeout', gone: false }), 8000);
++
++    let req: http2.ClientHttp2Stream;
++    try {
++      req = client.request({
++        ':method': 'POST',
++        ':path': `/3/device/${deviceToken}`,
++        authorization: `bearer ${providerToken()}`,
++        'apns-topic': APNS_BUNDLE_ID,
++        'apns-push-type': 'alert',
++        'apns-priority': '10',
++        // Apple garde la notification 24 h si le téléphone est hors ligne.
++        'apns-expiration': String(Math.floor(Date.now() / 1000) + 24 * 3600),
++        ...(payload.tag ? { 'apns-collapse-id': payload.tag.slice(0, 64) } : {}),
++        'content-type': 'application/json',
++      });
++    } catch (err: any) {
++      clearTimeout(timer);
++      return done({ ok: false, status: 0, reason: err?.message || 'RequestError', gone: false });
++    }
++
++    let status = 0;
++    let data = '';
++    req.setEncoding('utf8');
++    req.on('response', (headers) => {
++      status = Number(headers[':status'] || 0);
++    });
++    req.on('data', (chunk) => {
++      data += chunk;
++    });
++    req.on('error', (err: Error) => {
++      clearTimeout(timer);
++      done({ ok: false, status, reason: err.message, gone: false });
++    });
++    req.on('end', () => {
++      clearTimeout(timer);
++      let reason: string | null = null;
++      if (data) {
++        try {
++          reason = JSON.parse(data).reason || null;
++        } catch {
++          reason = data.slice(0, 100);
++        }
++      }
++      const ok = status === 200;
++      const gone = status === 410 || (status === 400 && !!reason && GONE_REASONS.has(reason));
++      // Un jeton de fournisseur refusé se régénère au prochain appel.
++      if (status === 403 && (reason === 'ExpiredProviderToken' || reason === 'InvalidProviderToken')) cachedJwt = null;
++      done({ ok, status, reason, gone });
++    });
++    req.end(body);
++  });
++}
+diff --git a/lib/i18n.js b/lib/i18n.js
+index ffe7506..2fe437e 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -1541,6 +1541,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'Dans Safari, appuie sur Partager (le carré avec une flèche) puis « Sur l\'écran d\'accueil ».',
+     'push.unsupportedStep2': 'Ouvre Aaron depuis la nouvelle icône sur ton écran d\'accueil.',
+     'push.unsupportedStep3': 'Reviens ici (Mon compte → Connexion) et appuie sur « Activer les notifications sur cet appareil ».',
++    'native.subscriptionManagedOnSite': 'L\'abonnement et les crédits ne se gèrent pas depuis cette application. Rien n\'est à régler ici : tout ce que tu as souscrit est actif.',
++    'native.signupNotInApp': 'La création d\'un espace Meet Aaron ne se fait pas depuis cette application. Si tu as déjà un compte, connecte-toi.',
++    'native.doneTitle': 'C\'est connecté',
++    'native.doneBody': 'Ta boîte est reliée à Meet Aaron. Tu peux fermer cette fenêtre et revenir dans l\'application.',
++    'native.errorTitle': 'La connexion n\'a pas abouti',
++    'native.errorBody': 'Ferme cette fenêtre, reviens dans l\'application et réessaie depuis Mon compte → Connexion.',
++    'native.backToApp': 'Revenir dans Meet Aaron',
+     'disponibilites.syncedBadge': 'Synchronisé',
+     'disponibilites.syncedHint': 'Remonté automatiquement depuis ton calendrier Google/Outlook — non modifiable ici.',
+     'disponibilites.dayMonday': 'Lundi',
+@@ -3817,6 +3824,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'In Safari, tap Share (the square with an arrow) then “Add to Home Screen”.',
+     'push.unsupportedStep2': 'Open Aaron from the new icon on your Home Screen.',
+     'push.unsupportedStep3': 'Come back here (My account → Connection) and tap “Enable notifications on this device”.',
++    'native.subscriptionManagedOnSite': 'Your subscription and credits are not managed from this app. There is nothing to do here: everything you have subscribed to is active.',
++    'native.signupNotInApp': 'Creating a Meet Aaron workspace is not done from this app. If you already have an account, sign in.',
++    'native.doneTitle': 'Connected',
++    'native.doneBody': 'Your mailbox is linked to Meet Aaron. You can close this window and go back to the app.',
++    'native.errorTitle': 'The connection did not go through',
++    'native.errorBody': 'Close this window, go back to the app and try again from My account → Connection.',
++    'native.backToApp': 'Back to Meet Aaron',
+     'disponibilites.syncedBadge': 'Synced',
+     'disponibilites.syncedHint': 'Automatically pulled from your Google/Outlook calendar — not editable here.',
+     'disponibilites.dayMonday': 'Monday',
+@@ -5967,6 +5981,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'Tippe in Safari auf Teilen (Quadrat mit Pfeil) und dann auf „Zum Home-Bildschirm“.',
+     'push.unsupportedStep2': 'Öffne Aaron über das neue Symbol auf deinem Home-Bildschirm.',
+     'push.unsupportedStep3': 'Komm hierher zurück (Mein Konto → Verbindung) und tippe auf „Benachrichtigungen auf diesem Gerät aktivieren“.',
++    'native.subscriptionManagedOnSite': 'Abonnement und Guthaben werden nicht in dieser App verwaltet. Hier ist nichts zu tun: alles, was du abonniert hast, ist aktiv.',
++    'native.signupNotInApp': 'Ein Meet-Aaron-Konto wird nicht in dieser App angelegt. Wenn du schon ein Konto hast, melde dich an.',
++    'native.doneTitle': 'Verbunden',
++    'native.doneBody': 'Dein Postfach ist mit Meet Aaron verknüpft. Du kannst dieses Fenster schließen und zur App zurückkehren.',
++    'native.errorTitle': 'Die Verbindung ist nicht zustande gekommen',
++    'native.errorBody': 'Schließe dieses Fenster, kehre zur App zurück und versuche es erneut unter Mein Konto → Verbindung.',
++    'native.backToApp': 'Zurück zu Meet Aaron',
+     'disponibilites.syncedBadge': 'Synchronisiert',
+     'disponibilites.syncedHint': 'Automatisch aus deinem Google-/Outlook-Kalender übernommen — hier nicht bearbeitbar.',
+     'disponibilites.dayMonday': 'Montag',
+@@ -8117,6 +8138,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'In Safari, tocca Condividi (il quadrato con la freccia) e poi « Aggiungi alla schermata Home ».',
+     'push.unsupportedStep2': 'Apri Aaron dalla nuova icona nella schermata Home.',
+     'push.unsupportedStep3': 'Torna qui (Il mio account → Connessione) e tocca « Attiva le notifiche su questo dispositivo ».',
++    'native.subscriptionManagedOnSite': 'L\'abbonamento e i crediti non si gestiscono da questa app. Qui non c\'è nulla da fare: tutto ciò che hai sottoscritto è attivo.',
++    'native.signupNotInApp': 'La creazione di uno spazio Meet Aaron non avviene da questa app. Se hai già un account, accedi.',
++    'native.doneTitle': 'Collegato',
++    'native.doneBody': 'La tua casella è collegata a Meet Aaron. Puoi chiudere questa finestra e tornare nell\'app.',
++    'native.errorTitle': 'Il collegamento non è riuscito',
++    'native.errorBody': 'Chiudi questa finestra, torna nell\'app e riprova da Il mio account → Connessione.',
++    'native.backToApp': 'Torna a Meet Aaron',
+     'disponibilites.syncedBadge': 'Sincronizzato',
+     'disponibilites.syncedHint': 'Recuperato automaticamente dal tuo calendario Google/Outlook — non modificabile qui.',
+     'disponibilites.dayMonday': 'Lunedì',
+@@ -10267,6 +10295,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'En Safari, pulsa Compartir (el cuadrado con una flecha) y luego « Añadir a pantalla de inicio ».',
+     'push.unsupportedStep2': 'Abre Aaron desde el nuevo icono en tu pantalla de inicio.',
+     'push.unsupportedStep3': 'Vuelve aquí (Mi cuenta → Conexión) y pulsa « Activar las notificaciones en este dispositivo ».',
++    'native.subscriptionManagedOnSite': 'La suscripción y los créditos no se gestionan desde esta aplicación. Aquí no hay nada que hacer: todo lo que has contratado está activo.',
++    'native.signupNotInApp': 'La creación de un espacio Meet Aaron no se hace desde esta aplicación. Si ya tienes una cuenta, inicia sesión.',
++    'native.doneTitle': 'Conectado',
++    'native.doneBody': 'Tu buzón está vinculado a Meet Aaron. Puedes cerrar esta ventana y volver a la aplicación.',
++    'native.errorTitle': 'La conexión no se ha completado',
++    'native.errorBody': 'Cierra esta ventana, vuelve a la aplicación e inténtalo de nuevo desde Mi cuenta → Conexión.',
++    'native.backToApp': 'Volver a Meet Aaron',
+     'disponibilites.syncedBadge': 'Sincronizado',
+     'disponibilites.syncedHint': 'Recuperado automáticamente de tu calendario Google/Outlook — no editable aquí.',
+     'disponibilites.dayMonday': 'Lunes',
+@@ -12417,6 +12452,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'No Safari, toca em Partilhar (o quadrado com a seta) e depois em « Adicionar ao ecrã principal ».',
+     'push.unsupportedStep2': 'Abre o Aaron a partir do novo ícone no ecrã principal.',
+     'push.unsupportedStep3': 'Volta aqui (A minha conta → Ligação) e toca em « Ativar as notificações neste dispositivo ».',
++    'native.subscriptionManagedOnSite': 'A subscrição e os créditos não se gerem a partir desta aplicação. Não há nada a fazer aqui: tudo o que subscreveste está ativo.',
++    'native.signupNotInApp': 'A criação de um espaço Meet Aaron não se faz a partir desta aplicação. Se já tens uma conta, inicia sessão.',
++    'native.doneTitle': 'Ligado',
++    'native.doneBody': 'A tua caixa de correio está ligada ao Meet Aaron. Podes fechar esta janela e voltar à aplicação.',
++    'native.errorTitle': 'A ligação não foi concluída',
++    'native.errorBody': 'Fecha esta janela, volta à aplicação e tenta de novo em A minha conta → Ligação.',
++    'native.backToApp': 'Voltar ao Meet Aaron',
+     'disponibilites.syncedBadge': 'Sincronizado',
+     'disponibilites.syncedHint': 'Obtido automaticamente do teu calendário Google/Outlook — não editável aqui.',
+     'disponibilites.dayMonday': 'Segunda-feira',
+@@ -14567,6 +14609,13 @@ export const DICT = {
+     'push.unsupportedStep1': 'Tik in Safari op Delen (het vierkant met een pijl) en dan op „Zet op beginscherm”.',
+     'push.unsupportedStep2': 'Open Aaron via het nieuwe icoon op je beginscherm.',
+     'push.unsupportedStep3': 'Kom hier terug (Mijn account → Koppeling) en tik op „Meldingen op dit apparaat inschakelen”.',
++    'native.subscriptionManagedOnSite': 'Het abonnement en de credits worden niet in deze app beheerd. Hier is niets te doen: alles waarop je geabonneerd bent, is actief.',
++    'native.signupNotInApp': 'Een Meet Aaron-account aanmaken gebeurt niet in deze app. Heb je al een account, log dan in.',
++    'native.doneTitle': 'Gekoppeld',
++    'native.doneBody': 'Je mailbox is gekoppeld aan Meet Aaron. Je kunt dit venster sluiten en teruggaan naar de app.',
++    'native.errorTitle': 'De koppeling is niet gelukt',
++    'native.errorBody': 'Sluit dit venster, ga terug naar de app en probeer het opnieuw via Mijn account → Koppeling.',
++    'native.backToApp': 'Terug naar Meet Aaron',
+     'disponibilites.syncedBadge': 'Gesynchroniseerd',
+     'disponibilites.syncedHint': 'Automatisch opgehaald uit je Google-/Outlook-agenda — hier niet bewerkbaar.',
+     'disponibilites.dayMonday': 'Maandag',
+diff --git a/lib/native-app.js b/lib/native-app.js
+new file mode 100644
+index 0000000..e4dd3a6
+--- /dev/null
++++ b/lib/native-app.js
+@@ -0,0 +1,90 @@
++// lib/native-app.js
++// Détection de l'application iOS (coque Capacitor, dossier ios-app/) depuis
++// le site. Capacitor injecte `window.Capacitor` dans la page quand elle est
++// chargée dans la coque — y compris quand la page vient du serveur
++// (server.url dans capacitor.config.json), ce qui est notre cas : le site
++// reste le même pour tout le monde, seules quelques décisions changent
++// (notifications par APNs plutôt que Web Push, pas d'invitation « ajouter à
++// l'écran d'accueil », ouverture des notifications dans l'app).
++//
++// La coque Android (dossier android/, Trusted Web Activity) n'injecte rien :
++// c'est le vrai Chrome, le site s'y comporte comme dans un navigateur.
++
++export function getCapacitor() {
++  if (typeof window === 'undefined') return null;
++  const cap = window.Capacitor;
++  if (!cap || typeof cap.isNativePlatform !== 'function') return null;
++  try {
++    return cap.isNativePlatform() ? cap : null;
++  } catch {
++    return null;
++  }
++}
++
++export function isNativeApp() {
++  return !!getCapacitor();
++}
++
++// 'ios' | 'android' | null
++export function nativePlatform() {
++  const cap = getCapacitor();
++  if (!cap) return null;
++  try {
++    return typeof cap.getPlatform === 'function' ? cap.getPlatform() : null;
++  } catch {
++    return null;
++  }
++}
++
++// Le plugin natif de notifications, s'il est embarqué dans la coque.
++export function nativePushPlugin() {
++  const cap = getCapacitor();
++  const plugin = cap && cap.Plugins && cap.Plugins.PushNotifications;
++  return plugin && typeof plugin.register === 'function' ? plugin : null;
++}
++
++// Demande le jeton APNs de l'appareil : `register()` répond par un événement
++// `registration` (ou `registrationError`), jamais par une valeur de retour.
++// On attend au plus `timeoutMs`.
++export function requestNativePushToken(plugin, timeoutMs = 15000) {
++  return new Promise((resolve, reject) => {
++    let settled = false;
++    const handles = [];
++    const cleanup = () => {
++      handles.forEach((h) => {
++        Promise.resolve(h)
++          .then((x) => x && typeof x.remove === 'function' && x.remove())
++          .catch(() => {});
++      });
++    };
++    const finish = (fn, value) => {
++      if (settled) return;
++      settled = true;
++      clearTimeout(timer);
++      cleanup();
++      fn(value);
++    };
++    const timer = setTimeout(() => finish(reject, new Error('timeout')), timeoutMs);
++    handles.push(plugin.addListener('registration', (token) => finish(resolve, token && token.value)));
++    handles.push(plugin.addListener('registrationError', (err) => finish(reject, new Error((err && err.error) || 'registrationError'))));
++    Promise.resolve(plugin.register()).catch((err) => finish(reject, err));
++  });
++}
++
++// Ouvre une URL « hors de la page » : dans l'application iOS, dans Safari
++// (SFSafariViewController via le plugin Browser — Google et Microsoft
++// refusent leurs écrans de consentement dans une WebView) ; ailleurs, simple
++// navigation. Les URL relatives sont résolues sur le site courant.
++export function openExternal(url) {
++  if (typeof window === 'undefined') return;
++  const absolute = new URL(url, window.location.origin).toString();
++  const cap = getCapacitor();
++  const browser = cap && cap.Plugins && cap.Plugins.Browser;
++  if (browser && typeof browser.open === 'function') {
++    Promise.resolve(browser.open({ url: absolute, presentationStyle: 'popover' })).catch(() => {
++      window.location.href = absolute;
++    });
++    return;
++  }
++  window.location.href = absolute;
++}
+diff --git a/lib/push.ts b/lib/push.ts
+index c6a8d0b..512b4cc 100644
+--- a/lib/push.ts
++++ b/lib/push.ts
+@@ -13,6 +13,7 @@
+ 
+ import webpush from 'web-push';
+ import { supabaseAdmin } from './supabase-admin';
++import { apnsConfigured, apnsTokenFromEndpoint, isApnsEndpoint, sendApns } from './apns';
+ 
+ const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+ const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+@@ -53,12 +54,12 @@ type PushPayload = {
+ 
+ // Envoie une notification push à TOUS les appareils abonnés d'un utilisateur
+ // (un commercial peut être abonné depuis son téléphone ET son ordinateur).
++// Deux canaux selon l'endpoint (07/11/2026) : `apns://<token>` = application
++// iOS de l'App Store (lib/apns.ts) ; tout le reste = Web Push.
+ // Best-effort : un échec sur un abonnement (navigateur désinstallé, permission
+ // retirée, etc.) ne bloque ni les autres abonnements ni l'appelant — cette
+ // fonction n'est jamais dans le chemin critique d'un cron ou d'une route API.
+ export async function sendPushNotification(userId: string, payload: PushPayload) {
+-  if (!ensureConfigured()) return;
+-
+   const { data: subscriptions } = await supabaseAdmin
+     .from('push_subscriptions')
+     .select('id, endpoint, p256dh, auth')
+@@ -67,9 +68,21 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
+   if (!subscriptions || subscriptions.length === 0) return;
+ 
+   const body = JSON.stringify(payload);
++  const webConfigured = ensureConfigured();
+ 
+   await Promise.all(
+     subscriptions.map(async (sub) => {
++      if (isApnsEndpoint(sub.endpoint)) {
++        if (!apnsConfigured()) return;
++        const r = await sendApns(apnsTokenFromEndpoint(sub.endpoint), payload);
++        if (r.gone) {
++          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
++        } else if (!r.ok) {
++          console.error(`Erreur envoi APNs (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
++        }
++        return;
++      }
++      if (!webConfigured) return;
+       try {
+         await webpush.sendNotification(
+           {
+diff --git a/next.config.js b/next.config.js
+index d2cb568..a946513 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -104,6 +104,10 @@ const nextConfig = {
+       // Android et Google lisent /.well-known/assetlinks.json ; la route qui
+       // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
+       { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
++      // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
++      // /.well-known/apple-app-site-association (sans extension), fabriqué
++      // par app/api/ios/aasa.
++      { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
+     ];
+   },
+ };
+diff --git a/public/landing.html b/public/landing.html
+index beea291..6a78a62 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -434,6 +434,10 @@
+         <span class="badge live">Aaron</span>
+       </div>
+       <div class="price"><span id="priceAmount">59 € HT</span> <span data-i18n="price.per">/ mois</span></div>
++      <!-- Tarif annuel (06-07/11/2026) : dix mois au prix de douze, Price Stripe
++           STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY, affiche a l'inscription quand
++           NEXT_PUBLIC_YEARLY_PLAN vaut 1. A tenir synchronise avec lib/boost-tiers.ts. -->
++      <p class="price-yearly" data-i18n="price.yearly" style="margin:-0.3rem 0 0.9rem;color:var(--muted,#8b90a8);font-size:0.92rem;">ou 590 € HT par an — deux mois offerts</p>
+       <p class="desc" data-i18n="price.desc">Votre commercial IA, du premier contact à la signature.</p>
+       <ul>
+         <li data-i18n="price.f1">Recherche et contact de nouveaux prospects</li>
+@@ -516,7 +520,7 @@ var I18N = {
+   'c4.desc':"L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+   'price.eyebrow':'Tarifs','price.title':'Un seul abonnement, tout inclus',
+   'price.sub':"Aaron prospecte, relance, prend vos rendez-vous et suit vos opportunités jusqu'à la signature — pour un prix unique, sans engagement.",
+-  'price.per':'/ mois','price.desc':'Votre commercial IA, du premier contact à la signature.',
++  'price.yearly':'ou 590 € HT par an — deux mois offerts','price.per':'/ mois','price.desc':'Votre commercial IA, du premier contact à la signature.',
+   'price.f1':'Recherche et contact de nouveaux prospects',
+   'price.f2':'Relances automatiques des sans-réponse',
+   'price.f3':'Prise de rendez-vous dans votre agenda',
+@@ -561,7 +565,7 @@ var I18N = {
+   'c4.desc':'The native Android app is under review by Google. Scan to be redirected to the listing as soon as it goes live.',
+   'price.eyebrow':'Pricing','price.title':'One subscription, everything included',
+   'price.sub':'Aaron prospects, follows up, books your meetings and tracks your deals through to signature — one price, no commitment.',
+-  'price.per':'/ month','price.desc':'Your AI salesperson, from first contact to signature.',
++  'price.yearly':'or €590 excl. VAT per year — two months free','price.per':'/ month','price.desc':'Your AI salesperson, from first contact to signature.',
+   'price.f1':'Finds and contacts new prospects',
+   'price.f2':'Automatic follow-ups for non-responders',
+   'price.f3':'Books meetings straight into your calendar',
+@@ -606,7 +610,7 @@ var I18N = {
+   'c4.desc':'Die native Android-App wird gerade von Google geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+   'price.eyebrow':'Preise','price.title':'Ein Abo, alles inklusive',
+   'price.sub':'Aaron akquiriert, hakt nach, vereinbart Ihre Termine und begleitet Ihre Chancen bis zur Unterschrift — ein Preis, keine Bindung.',
+-  'price.per':'/ Monat','price.desc':'Ihr KI-Vertriebler, vom ersten Kontakt bis zur Unterschrift.',
++  'price.yearly':'oder 590 € zzgl. MwSt. pro Jahr — zwei Monate geschenkt','price.per':'/ Monat','price.desc':'Ihr KI-Vertriebler, vom ersten Kontakt bis zur Unterschrift.',
+   'price.f1':'Findet und kontaktiert neue Interessenten',
+   'price.f2':'Automatische Nachfassaktionen bei Nichtantwort',
+   'price.f3':'Termine direkt in Ihrem Kalender',
+@@ -651,7 +655,7 @@ var I18N = {
+   'c4.desc':'L’app nativa Android è in convalida presso Google. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+   'price.eyebrow':'Prezzi','price.title':'Un solo abbonamento, tutto incluso',
+   'price.sub':'Aaron cerca clienti, ricontatta, fissa i tuoi appuntamenti e segue le opportunità fino alla firma — un prezzo unico, senza vincoli.',
+-  'price.per':'/ mese','price.desc':'Il tuo commerciale IA, dal primo contatto alla firma.',
++  'price.yearly':'oppure 590 € + IVA all\'anno — due mesi gratis','price.per':'/ mese','price.desc':'Il tuo commerciale IA, dal primo contatto alla firma.',
+   'price.f1':'Ricerca e contatto di nuovi potenziali clienti',
+   'price.f2':'Solleciti automatici a chi non risponde',
+   'price.f3':'Appuntamenti fissati direttamente in agenda',
+@@ -696,7 +700,7 @@ var I18N = {
+   'c4.desc':'La app nativa de Android está en revisión por Google. Escanea para ir directamente a la ficha en cuanto se publique.',
+   'price.eyebrow':'Precios','price.title':'Una sola suscripción, todo incluido',
+   'price.sub':'Aaron prospecta, hace seguimiento, concierta tus citas y acompaña tus oportunidades hasta la firma — un precio único, sin permanencia.',
+-  'price.per':'/ mes','price.desc':'Tu comercial IA, del primer contacto a la firma.',
++  'price.yearly':'o 590 € + IVA al año — dos meses gratis','price.per':'/ mes','price.desc':'Tu comercial IA, del primer contacto a la firma.',
+   'price.f1':'Busca y contacta nuevos posibles clientes',
+   'price.f2':'Seguimientos automáticos de quienes no responden',
+   'price.f3':'Citas concertadas directamente en tu agenda',
+@@ -741,7 +745,7 @@ var I18N = {
+   'c4.desc':'A aplicação nativa Android está em validação pela Google. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+   'price.eyebrow':'Preços','price.title':'Uma só subscrição, tudo incluído',
+   'price.sub':'O Aaron prospeta, faz seguimento, marca as tuas reuniões e acompanha as oportunidades até à assinatura — um preço único, sem fidelização.',
+-  'price.per':'/ mês','price.desc':'O teu comercial IA, do primeiro contacto à assinatura.',
++  'price.yearly':'ou 590 € + IVA por ano — dois meses grátis','price.per':'/ mês','price.desc':'O teu comercial IA, do primeiro contacto à assinatura.',
+   'price.f1':'Procura e contacta novos potenciais clientes',
+   'price.f2':'Seguimentos automáticos de quem não responde',
+   'price.f3':'Reuniões marcadas diretamente na tua agenda',
+@@ -786,7 +790,7 @@ var I18N = {
+   'c4.desc':'De native Android-app wordt momenteel beoordeeld door Google. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+   'price.eyebrow':'Tarieven','price.title':'Eén abonnement, alles inbegrepen',
+   'price.sub':'Aaron prospecteert, volgt op, plant je afspraken en volgt je kansen tot de handtekening — één prijs, zonder verplichting.',
+-  'price.per':'/ maand','price.desc':'Je AI-verkoper, van eerste contact tot handtekening.',
++  'price.yearly':'of € 590 excl. btw per jaar — twee maanden gratis','price.per':'/ maand','price.desc':'Je AI-verkoper, van eerste contact tot handtekening.',
+   'price.f1':'Zoekt en benadert nieuwe prospects',
+   'price.f2':'Automatische opvolging van wie niet antwoordt',
+   'price.f3':'Afspraken rechtstreeks in je agenda',
+diff --git a/public/manifest.json b/public/manifest.json
+index 632fcf9..e423eb5 100644
+--- a/public/manifest.json
++++ b/public/manifest.json
+@@ -4,7 +4,7 @@
+   "short_name": "Meet Aaron",
+   "description": "Aaron, le copilote de votre commercial",
+   "lang": "fr",
+-  "start_url": "/app/dashboard",
++  "start_url": "/app/campaigns",
+   "scope": "/",
+   "display": "standalone",
+   "background_color": "#0b0e1a",
+-- 
+2.43.0
+
