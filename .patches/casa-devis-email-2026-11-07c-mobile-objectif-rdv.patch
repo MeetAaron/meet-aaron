@@ -1,0 +1,558 @@
+From b45bf2adcb0792861c11694ccba8588261c00df7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 07:40:39 +0000
+Subject: [PATCH] =?UTF-8?q?T=C3=A9l=C3=A9phone=20:=20panneau=20=C2=AB=20ca?=
+ =?UTF-8?q?mpagne=20recommand=C3=A9e=20=C2=BB=20styl=C3=A9,=20pilules=20qu?=
+ =?UTF-8?q?i=20se=20replient,=20page=20qui=20ne=20sort=20plus=20du=20cadre?=
+ =?UTF-8?q?,=20retour=20arri=C3=A8re=20vers=20Mon=20compte=20;=20objectif?=
+ =?UTF-8?q?=20de=20prospection=20en=203=20choix=20=C3=977=20;=20email=20d'?=
+ =?UTF-8?q?apr=C3=A8s=20rendez-vous=20strat=C3=A9gique?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Campagnes : les styles .reco-* vivaient dans CampaignsPage, styled-jsx ne les appliquait pas au composant RecommendedCampaign (texte brut sur iPhone) → déplacés dans le composant, boutons .reco-btn, empilement sous 640 px.
+- Mon compte : .seg button peut se replier (white-space normal) ; grille des réglages minmax(0,1fr) sur téléphone ; html { overflow-x: hidden } contre le panoramique de Safari iOS.
+- Mon compte : ouvrir une rubrique pousse une entrée d'historique sur téléphone (?tab=), la flèche et le geste arrière reviennent à la liste (popstate).
+- ActivityFeed : rien plutôt qu'une carte vide si la lecture échoue.
+- Objectif de prospection : « Un rendez-vous, puis un devis » (défaut), « Un devis direct, sans rendez-vous », « Une inscription en ligne » ; « Autre chose » retiré des choix (encore affiché si déjà choisi) ; libellés et aide traduits ×7 (étaient en français partout) ; libellé prompt rdv → « qui débouche ensuite sur un devis ou un contrat ».
+- Email d'après rendez-vous (lib/appointment-outcome.ts sendThankYouEmail) : Sonnet, langue du prospect (campagne/pays/email), stratégie par issue (devis/opportunité : brief + délai + question manquante ; à continuer : un pas vers l'étape suivante ou second rendez-vous avec deux créneaux ; perdu : porte ouverte sans insister), ressenti du commercial confidentiel et transformé en engagements, historique récent pour la langue et un élément concret.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/campaigns/page.jsx  |  57 ++++++++++++-----
+ app/app/connexions/page.jsx |  56 ++++++++++++++--
+ app/globals.css             |   9 +++
+ components/ActivityFeed.jsx |   5 ++
+ lib/aaron.ts                |   2 +-
+ lib/appointment-outcome.ts  | 123 ++++++++++++++++++++++++++++--------
+ lib/i18n.js                 |  32 ++++++++--
+ 7 files changed, 231 insertions(+), 53 deletions(-)
+
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index c0732cb..601e9bf 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -249,7 +249,7 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
+           <p className="reco-hint">{t('campaigns.recoHint', locale)}</p>
+         </div>
+         {!open && (
+-          <button type="button" className="camp-manage-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
++          <button type="button" className="reco-btn" onClick={load}>{t('campaigns.recoShow', locale)} <Ic name="arrowRight" size={13} /></button>
+         )}
+       </div>
+       {open && loading && <p className="reco-hint">{t('campaigns.recoLoading', locale)}</p>}
+@@ -298,10 +298,50 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
+             <button type="button" className="btn-primary" disabled={launching || !form.zone_label.trim() || !form.sectors.trim()} onClick={launch}>
+               {launching ? t('campaigns.recoLaunching', locale) : t('campaigns.recoLaunch', locale)}
+             </button>
+-            <button type="button" className="camp-manage-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
++            <button type="button" className="reco-btn" onClick={() => setOpen(false)}>{t('campaigns.recoClose', locale)}</button>
+           </div>
+         </div>
+       )}
++      {/* Les styles vivent ICI et pas dans CampaignsPage : styled-jsx ne
++          s'applique qu'aux éléments du composant qui déclare le <style>.
++          Dans CampaignsPage, ces règles n'atteignaient jamais ce panneau,
++          qui s'affichait en texte brut (capture d'Alex sur iPhone, 07/11). */}
++      <style jsx>{`
++        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
++        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
++        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
++        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
++        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
++        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
++        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
++        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
++        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
++        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
++        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
++        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
++        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
++        .reco-btn {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.4rem;
++          border-radius: var(--radius-md);
++          padding: 0.62rem 0.9rem;
++          font-size: 0.84rem;
++          font-weight: 600;
++          font-family: inherit;
++          background: transparent;
++          border: 1px solid var(--border);
++          color: var(--muted);
++          cursor: pointer;
++          white-space: nowrap;
++        }
++        .reco-btn:hover { border-color: var(--accent); color: var(--text); }
++        @media (max-width: 640px) {
++          .reco { padding: 0.8rem 0.85rem; }
++          .reco-head { flex-direction: column; align-items: stretch; }
++          .reco-btn { justify-content: center; }
++        }
++      `}</style>
+     </section>
+   );
+ }
+@@ -1055,19 +1095,6 @@ export default function CampaignsPage() {
+       )}
+ 
+       <style jsx>{`
+-        .reco { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; }
+-        .reco-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+-        .reco-title { margin: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
+-        .reco-hint { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+-        .reco-form { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.9rem; }
+-        .reco-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
+-        .reco-form input, .reco-form select, .reco-form textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; }
+-        .reco-lbl { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
+-        .reco-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+-        .reco-chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+-        .reco-chip.on { border-color: var(--accent); background: rgba(75, 57, 239, 0.14); }
+-        .reco-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+-        .reco-error { color: var(--accent-red, #ef4459); font-size: 0.84rem; margin: 0; }
+         .away-feed { margin-bottom: 1rem; }
+         /* Bandeau du test de délivrabilité (06/11/2026). Même forme que le
+            filtre de campagne de Contacts : une ligne, une icône, un texte. */
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index eb7035f..0d90124 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -485,7 +485,10 @@ function prospectingGoalOptionsFor(locale) {
+     { value: 'rdv', label: t('preferences.prospectingGoal.rdv', locale) },
+     { value: 'devis', label: t('preferences.prospectingGoal.devis', locale) },
+     { value: 'essai_gratuit', label: t('preferences.prospectingGoal.essaiGratuit', locale) },
+-    { value: 'autre', label: t('preferences.prospectingGoal.autre', locale) },
++    // « Autre chose » retiré (Alex, 07/11/2026) : personne ne savait quoi y
++    // mettre, et Aaron a besoin d'un appel à l'action concret. Une société
++    // qui l'avait choisi le voit encore (voir le rendu) jusqu'à ce qu'elle
++    // change.
+   ];
+ }
+ 
+@@ -653,6 +656,37 @@ export default function ConnexionsPage() {
+     // part.
+     if (params.get('setup') === 'push') setSetupFocus('push');
+   }, []);
++  // Retour arrière du téléphone (geste ou bouton) = retour à la liste
++  // « Mon compte », pas à la page précédente (demande Alex, 07/11/2026).
++  // Sur téléphone, ouvrir une rubrique pousse une entrée d'historique
++  // (?tab=…) ; la flèche « Mon compte » et le geste arrière font la même
++  // chose : history.back(). Sur grand écran, la liste reste visible, on ne
++  // touche pas à l'historique.
++  const phoneLayout = () => typeof window !== 'undefined' && !window.matchMedia('(min-width: 960px)').matches;
++  function openTab(key) {
++    if (phoneLayout()) {
++      const url = new URL(window.location.href);
++      url.searchParams.set('tab', key);
++      window.history.pushState({ accountTab: key }, '', url.toString());
++    }
++    setActiveTab(key);
++  }
++  function closeTab() {
++    if (phoneLayout() && window.history.state && window.history.state.accountTab) {
++      window.history.back();
++      return;
++    }
++    setActiveTab(null);
++  }
++  useEffect(() => {
++    function onPop(e) {
++      if (!phoneLayout()) return;
++      const key = e.state && e.state.accountTab;
++      setActiveTab(key || null);
++    }
++    window.addEventListener('popstate', onPop);
++    return () => window.removeEventListener('popstate', onPop);
++  }, []);
+   const [profileName, setProfileName] = useState('');
+   const [profileSaving, setProfileSaving] = useState(false);
+   const [profileSaved, setProfileSaved] = useState(false);
+@@ -2499,7 +2533,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+             // 'marge' n'est pas un panneau de cette page mais un ecran a
+             // part : on navigue au lieu de changer d'onglet.
+             if (key === 'marge') { router.push('/app/marge'); return; }
+-            setActiveTab(key);
++            openTab(key);
+           }}
+           locale={locale}
+         />
+@@ -2507,7 +2541,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+         <div className="account-panel">
+           {/* Retour à la liste — visible sur téléphone uniquement : sur grand
+               écran la liste n'a jamais disparu, elle est à gauche. */}
+-          <button type="button" className="panel-back" onClick={() => setActiveTab(null)}>
++          <button type="button" className="panel-back" onClick={closeTab}>
+             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+               <path d="m15 18-6-6 6-6" />
+             </svg>
+@@ -3619,7 +3653,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+                     <label>{t('preferences.prospectingGoalLabel', locale)}</label>
+                     <p className="field-hint">{t('preferences.prospectingGoalHint', locale)}</p>
+                     <div className="options">
+-                      {PROSPECTING_GOAL_OPTIONS.map((opt) => (
++                      {[...PROSPECTING_GOAL_OPTIONS, ...(prefs.prospecting_goal === 'autre' ? [{ value: 'autre', label: t('preferences.prospectingGoal.autre', locale) }] : [])].map((opt) => (
+                         <button
+                           key={opt.value}
+                           type="button"
+@@ -5196,7 +5230,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           border-radius: 999px;
+           cursor: pointer;
+           transition: background var(--fast), color var(--fast);
+-          white-space: nowrap;
++          /* Un libellé long (« Aaron rédige automatiquement (par défaut) »)
++             doit se replier dans la pilule, pas faire déborder la carte
++             de l'écran (capture Alex iPhone, 07/11/2026). */
++          white-space: normal;
++          text-align: center;
++          min-width: 0;
++          max-width: 100%;
++          line-height: 1.3;
+         }
+         .seg button:hover {
+           color: var(--text);
+@@ -5250,7 +5291,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+         }
+         @media (max-width: 560px) {
+           .pref-card .field {
+-            grid-template-columns: 1fr;
++            /* minmax(0, 1fr) et non 1fr : « 1fr » vaut minmax(auto, 1fr),
++               la colonne s'élargit alors jusqu'au contenu le plus large et
++               la carte sort de l'écran. */
++            grid-template-columns: minmax(0, 1fr);
+             padding: 1rem 1rem;
+           }
+           .field-ic {
+diff --git a/app/globals.css b/app/globals.css
+index 1b1c8b1..c3d2ca4 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -2,6 +2,9 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
++html {
++  overflow-x: hidden;
++}
+ html, body {
+   margin: 0;
+   padding: 0;
+@@ -22,6 +25,12 @@ html, body {
+      rail « ne descendait pas avec nous » (capture Alex, Mon compte). `clip`
+      rogne exactement pareil mais ne crée pas de conteneur de défilement. */
+   overflow-x: clip;
++  /* 07/11/2026 : Safari iOS laissait quand même « panner » la page vers la
++     gauche quand un élément débordait (capture Alex, Mon compte : le titre
++     coupé à gauche). overflow-x: hidden sur l'élément racine (html) ferme
++     la porte sans créer de conteneur de défilement intermédiaire — le
++     défilement vertical reste celui de la fenêtre, le sticky fonctionne. */
++  max-width: 100%;
+   /* L'app est presque entièrement en thème sombre (voir les variables --bg
+      etc. dans chaque page), mais sans cette déclaration, certains
+      navigateurs (thème sombre automatique de Chrome/Android en particulier)
+diff --git a/components/ActivityFeed.jsx b/components/ActivityFeed.jsx
+index c44fcd1..e047fef 100644
+--- a/components/ActivityFeed.jsx
++++ b/components/ActivityFeed.jsx
+@@ -169,6 +169,11 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
+     { key: summary.won > 0 ? 'won' : 'quotes', value: summary.won > 0 ? summary.won : summary.quotes, label: ht(summary.won > 0 ? 'won' : 'quotes', locale) },
+   ];
+ 
++  // Lecture en échec : rien plutôt qu'une carte vide sous les stories
++  // (capture d'Alex sur iPhone, 07/11/2026). L'erreur est déjà dans la
++  // console serveur (serverError dans /api/activity).
++  if (error) return null;
++
+   return (
+     <section className="feed" aria-live="polite">
+       <div className="feed-head">
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 3ad8d8a..e2f8c77 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -161,7 +161,7 @@ async function buildContext(prospectId: string) {
+   // libellé lisible passé au prompt système — voir la section "OBJECTIF DE
+   // LA PROSPECTION" de lib/aaron_system_prompt.md pour comment c'est utilisé.
+   const PROSPECTING_GOAL_LABELS: Record<string, string> = {
+-    rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio)',
++    rdv: 'obtenir un rendez-vous qualifié (téléphonique, physique ou visio), qui débouche ensuite sur un devis ou un contrat',
+     devis: 'obtenir une demande de devis/chiffrage directe, sans passer par un rendez-vous',
+     essai_gratuit: "faire s'inscrire ou s'abonner directement au produit/service (essai comme abonnement payant en auto-service), sans passer par un rendez-vous",
+     autre: 'un autre objectif, précisé ci-dessous',
+diff --git a/lib/appointment-outcome.ts b/lib/appointment-outcome.ts
+index baa0215..0145ee6 100644
+--- a/lib/appointment-outcome.ts
++++ b/lib/appointment-outcome.ts
+@@ -21,6 +21,7 @@
+ import { supabaseAdmin } from './supabase-admin';
+ import { callClaude, MonthlyCapExceededError } from './anthropic-client';
+ import { localeInstruction, normalizeLocale } from './locale-instruction';
++import { resolveProspectLocale } from './prospect-locale';
+ 
+ export type AppointmentOutcome = 'a_continuer' | 'opportunite' | 'devis' | 'perdu';
+ 
+@@ -391,6 +392,26 @@ export async function personalizeOutcomeNote(
+ // depuis la boîte du commercial. Journalisé dans la conversation du prospect
+ // (visible dans « Conversation »). Best-effort : renvoie false si rien n'a
+ // été envoyé (pas d'email, plafond API, boîte non connectée...).
++// Email d'après rendez-vous (refonte 07/11/2026, demande Alex : « que le
++// retour de rendez-vous serve à relancer, à faire le brief du rendez-vous,
++// et à passer à l'étape supérieure »).
++//
++// Ce n'est plus un simple remerciement. À partir du bilan du commercial
++// (issue, ressenti, chips et contexte), Aaron écrit l'email que le
++// commercial enverra lui-même, avec une stratégie par issue :
++//   - devis / opportunité : brief de ce qui a été compris, les objections
++//     transformées en engagements (« j'ai bien noté votre attente sur les
++//     prix, ma proposition en tiendra compte »), annonce du devis avec un
++//     délai, et la question qui manque encore pour le chiffrer ;
++//   - à continuer : brief, puis UN pas concret vers l'étape suivante — le
++//     devis si l'échange le permet, sinon un second rendez-vous proposé
++//     clairement (Aaron sait ensuite traiter la réponse) ;
++//   - perdu : remercier, laisser la porte ouverte sans insister, un rendez-
++//     vous à plus tard ou un rappel dans quelques mois. On ne force rien.
++// Le ressenti du commercial (« c'était compliqué ») ne doit JAMAIS
++// transparaître : il sert seulement à choisir le ton et à anticiper.
++// Langue : celle du prospect (campagne, pays, extension de l'email), pas
++// celle du commercial.
+ export async function sendThankYouEmail(
+   appointmentId: string,
+   outcome: AppointmentOutcome,
+@@ -398,50 +419,104 @@ export async function sendThankYouEmail(
+ ): Promise<{ sent: boolean; error?: string }> {
+   const { data: appointment } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, proposed_at, type, prospect_id, prospects(id, full_name, email, company_id, assigned_user_id, users(id, full_name, first_name, locale, email))')
++    .select('id, proposed_at, type, prospect_id, prospects(id, full_name, job_title, email, company_id, assigned_user_id, users(id, full_name, first_name, locale, email), prospect_companies(name, address, found_by_campaign_id))')
+     .eq('id', appointmentId)
+     .single();
+   const prospect = (appointment as any)?.prospects;
+   const seller = prospect?.users;
+   if (!appointment || !prospect?.email || !seller?.id) return { sent: false, error: 'prospect sans email' };
+ 
+-  const locale = normalizeLocale(seller.locale);
+-  const { data: company } = await supabaseAdmin
+-    .from('companies')
+-    .select('name, business_summary')
+-    .eq('id', prospect.company_id)
++  const sellerLocale = normalizeLocale(seller.locale);
++  const pc = prospect.prospect_companies || {};
++  const [{ data: company }, { data: campaign }] = await Promise.all([
++    supabaseAdmin.from('companies').select('name, business_summary, prospecting_goal').eq('id', prospect.company_id).maybeSingle(),
++    pc.found_by_campaign_id
++      ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', pc.found_by_campaign_id).maybeSingle()
++      : Promise.resolve({ data: null as any }),
++  ]);
++  const prospectLocale = resolveProspectLocale({
++    campaignLocale: (campaign as any)?.target_locale || null,
++    address: pc.address || null,
++    email: prospect.email,
++    sellerLocale,
++  });
++
++  // Historique récent avec ce prospect : si lui écrit déjà dans une langue,
++  // elle prime (instruction dans le prompt), et Aaron peut rappeler un
++  // élément concret sans l'inventer.
++  const { data: conversation } = await supabaseAdmin
++    .from('conversations')
++    .select('id')
++    .eq('prospect_id', prospect.id)
++    .eq('channel', 'email')
+     .maybeSingle();
++  let history: { direction: string; body: string }[] = [];
++  if (conversation) {
++    const { data: msgs } = await supabaseAdmin
++      .from('messages')
++      .select('direction, body')
++      .eq('conversation_id', conversation.id)
++      .order('sent_at', { ascending: false })
++      .limit(6);
++    history = (msgs || []).reverse().map((m: any) => ({ direction: m.direction, body: String(m.body || '').slice(0, 700) }));
++  }
+ 
+-  const mentionsQuote = /devis|proposition|contrat|abonnement|tarif|quote|offer/i.test(details.context || '') || outcome === 'devis';
++  const goal = (company as any)?.prospecting_goal || 'rdv';
++  const NEXT_STEP: Record<string, string> = {
++    rdv: "un devis (ou une proposition / un contrat)",
++    devis: "un devis",
++    essai_gratuit: "une inscription en ligne au service",
++    autre: "la prochaine étape convenue",
++  };
++  const STRATEGY: Record<AppointmentOutcome, string> = {
++    devis:
++      `Objectif de cet email : confirmer que ${NEXT_STEP[goal] || NEXT_STEP.rdv} arrive, avec un délai précis et réaliste (ex. « d'ici jeudi »), ` +
++      `résumer en 2 ou 3 phrases ce que tu as compris de son besoin (le brief du rendez-vous, vu de lui), et poser la seule question qui manque encore pour chiffrer juste, s'il y en a une.`,
++    opportunite:
++      `Objectif de cet email : transformer l'intérêt en étape concrète — annoncer ${NEXT_STEP[goal] || NEXT_STEP.rdv} avec un délai précis, ` +
++      `résumer en 2 ou 3 phrases ce que tu as compris de son besoin, et verrouiller le prochain contact (date ou créneau).`,
++    a_continuer:
++      `Objectif de cet email : faire avancer d'UNE étape. Résume en 2 ou 3 phrases ce que tu as compris de son besoin, puis propose un pas concret : ` +
++      `${NEXT_STEP[goal] || NEXT_STEP.rdv} si l'échange le permet (annonce-le avec un délai), sinon un second rendez-vous court, proposé clairement avec deux créneaux au choix la semaine prochaine (jours et heures ouvrés, sans préciser l'année). Une seule proposition, pas deux.`,
++    perdu:
++      `Objectif de cet email : remercier sincèrement, montrer que tu as compris sa position sans la contester, et laisser une porte ouverte précise ` +
++      `(un rendez-vous quand le moment sera meilleur, ou « je reviens vers vous dans trois mois »). Aucune insistance, aucune nouvelle argumentation, aucune proposition commerciale.`,
++  };
++  const MOOD_GUIDE: Record<string, string> = {
++    bien: "L'échange s'est bien passé : ton chaleureux et direct.",
++    moyen: "L'échange a été mitigé : reste simple et positif, reprends chaque réserve exprimée comme une attente dont tu tiens compte, sans jamais dire que c'était difficile.",
++    mal: "L'échange a été difficile pour le commercial : ton calme et respectueux, zéro pression, transforme les objections en engagements concrets (« j'ai bien noté votre attente sur les prix, ma proposition en tiendra compte »), sans jamais laisser transparaître le ressenti du commercial.",
++  };
+ 
+   let subject = '';
+   let body = '';
+   try {
+     const data = await callClaude(
+       {
+-        model: 'claude-haiku-4-5',
+-        max_tokens: 500,
++        model: 'claude-sonnet-5',
++        max_tokens: 700,
+         messages: [
+           {
+             role: 'user',
+             content:
+               `Tu es Aaron, l'assistant commercial de ${seller.first_name || seller.full_name || 'un commercial'}` +
+               `${company?.name ? ` (société ${company.name})` : ''}. ` +
+-              `Un rendez-vous ${appointment.type ? `(${appointment.type}) ` : ''}vient d'avoir lieu avec le prospect "${prospect.full_name || ''}".\n` +
+-              `Issue du RDV selon le commercial : "${OUTCOME_LABELS[outcome]}".\n` +
+-              (details.mood ? `Ressenti du commercial : ${MOOD_LABELS[details.mood]}.\n` : '') +
+-              (details.context?.trim() ? `Contexte donné par le commercial : "${details.context.trim().slice(0, 800)}".\n` : '') +
++              `Un rendez-vous ${appointment.type ? `(${appointment.type}) ` : ''}vient d'avoir lieu avec "${prospect.full_name || ''}"${prospect.job_title ? `, ${prospect.job_title}` : ''}${pc.name ? ` (${pc.name})` : ''}.\n` +
++              `Issue du rendez-vous selon le commercial : "${OUTCOME_LABELS[outcome]}".\n` +
++              (details.mood ? `Ressenti du commercial (CONFIDENTIEL, ne jamais le mentionner) : ${MOOD_LABELS[details.mood]}. ${MOOD_GUIDE[details.mood] || ''}\n` : '') +
++              (details.context?.trim() ? `Ce que le commercial a noté sur le rendez-vous : "${details.context.trim().slice(0, 1200)}".\n` : '') +
+               (company?.business_summary ? `Ce que vend la société (extrait) : ${company.business_summary.slice(0, 600)}\n` : '') +
+-              `Rédige l'email de remerciement que le commercial enverra LUI-MÊME au prospect, à la première personne (je), ` +
+-              `court (4 à 7 phrases), chaleureux et naturel, sans flatterie excessive, en reprenant 1 élément concret du contexte s'il y en a un ` +
+-              `(un point commun personnel, un sujet abordé), et en confirmant la suite convenue` +
+-              (mentionsQuote ? ` (le devis/la proposition sera envoyé(e) comme promis)` : '') +
+-              `. Pas de formule "en tant qu'IA", pas de signature (elle est ajoutée automatiquement), pas de titre. ` +
+-              `Réponds STRICTEMENT au format JSON : {"subject": "...", "body": "..."} ${localeInstruction(locale)}.`,
++              (history.length ? `Derniers échanges avec ce prospect (pour la langue et un éventuel élément concret) :\n${JSON.stringify(history)}\n` : '') +
++              `\n${STRATEGY[outcome]}\n\n` +
++              `Règles : écris à la première personne (je), comme le commercial. 5 à 9 phrases, en 2 ou 3 courts paragraphes. ` +
++              `N'invente aucun détail qui n'est pas dans les notes ; si les notes sont vides, reste général mais concret sur l'étape suivante. ` +
++              `Ne cite jamais le ressenti du commercial ni les mots « difficile », « compliqué », « tendu ». Pas de flatterie, pas de jargon, pas de titre, pas de signature (ajoutée automatiquement), pas de formule « en tant qu'IA ». ` +
++              `LANGUE : si les derniers échanges montrent que le prospect écrit dans une langue précise, écris dans cette langue ; sinon ${localeInstruction(prospectLocale)}. ` +
++              `Réponds STRICTEMENT au format JSON : {"subject": "...", "body": "..."}.`,
+           },
+         ],
+       },
+-      prospect.company_id, 'as'
++      prospect.company_id, 'as', seller.id, 'reponse'
+     );
+     const textBlock = data.content.find((b: any) => b.type === 'text');
+     const raw = (textBlock?.text || '').trim();
+@@ -451,7 +526,7 @@ export async function sendThankYouEmail(
+     body = String(parsed.body || '').trim();
+   } catch (err: any) {
+     if (!(err instanceof MonthlyCapExceededError)) {
+-      console.error('Erreur rédaction email de remerciement post-RDV:', err?.message || err);
++      console.error("Erreur rédaction email d'après rendez-vous:", err?.message || err);
+     }
+     return { sent: false, error: 'rédaction impossible' };
+   }
+@@ -467,12 +542,6 @@ export async function sendThankYouEmail(
+   }
+ 
+   // Journalise dans la conversation email du prospect (visible dans « Conversation »).
+-  const { data: conversation } = await supabaseAdmin
+-    .from('conversations')
+-    .select('id')
+-    .eq('prospect_id', prospect.id)
+-    .eq('channel', 'email')
+-    .maybeSingle();
+   if (conversation) {
+     await supabaseAdmin.from('messages').insert({
+       conversation_id: conversation.id,
+diff --git a/lib/i18n.js b/lib/i18n.js
+index de38ba7..52b72de 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -1728,12 +1728,12 @@ export const DICT = {
+     // Alex, 2026-08-26) — clés FR uniquement pour l'instant, même pattern que
+     // dash.onboardingTitle plus haut dans ce fichier.
+     'preferences.prospectingGoalLabel': 'Ce qu\'Aaron doit chercher à obtenir',
+-    'preferences.prospectingGoal.rdv': 'Un rendez-vous',
+-    'preferences.prospectingGoal.devis': 'Une demande de devis directe',
+-    'preferences.prospectingGoal.essaiGratuit': 'Une inscription ou un abonnement direct',
++    'preferences.prospectingGoal.rdv': 'Un rendez-vous, puis un devis',
++    'preferences.prospectingGoal.devis': 'Un devis direct, sans rendez-vous',
++    'preferences.prospectingGoal.essaiGratuit': 'Une inscription en ligne (abonnement, essai)',
+     'preferences.prospectingGoal.autre': 'Autre chose',
+     'preferences.prospectingGoalDetailsPlaceholder': 'Précise ce qu\'Aaron doit viser (ex: un essai gratuit de 14 jours sans CB)',
+-    'preferences.prospectingGoalHint': 'Change le call-to-action de tous les emails d\'Aaron (premier contact et relances) — par défaut, Aaron cherche à obtenir un rendez-vous.',
++    'preferences.prospectingGoalHint': 'Change le call-to-action de tous les emails d\'Aaron (premier contact et relances). Par défaut, Aaron cherche un rendez-vous, qui débouche sur un devis ou un contrat.',
+     'preferences.defaultFirstEmailLabel': 'Email de premier contact',
+     'preferences.groupDisplay': 'Affichage & rappels',
+     'preferences.changeSaved': 'Changement enregistré',
+@@ -3828,6 +3828,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'In Safari, tap Share (the square with an arrow) then “Add to Home Screen”.',
+     'push.unsupportedStep2': 'Open Aaron from the new icon on your Home Screen.',
+     'push.unsupportedStep3': 'Come back here (My account → Connection) and tap “Enable notifications on this device”.',
++    'preferences.prospectingGoal.rdv': 'A meeting, then a quote',
++    'preferences.prospectingGoal.devis': 'A direct quote request, no meeting',
++    'preferences.prospectingGoal.essaiGratuit': 'An online sign-up (subscription, trial)',
++    'preferences.prospectingGoalHint': 'Changes the call to action of every email Aaron writes (first contact and follow-ups). By default Aaron goes for a meeting, which leads to a quote or a contract.',
+     'translate.showOriginal': 'Show original',
+     'translate.showTranslation': 'Show translation',
+     'translate.prefLabel': 'Automatically translate into the interface language',
+@@ -5989,6 +5993,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'Tippe in Safari auf Teilen (Quadrat mit Pfeil) und dann auf „Zum Home-Bildschirm“.',
+     'push.unsupportedStep2': 'Öffne Aaron über das neue Symbol auf deinem Home-Bildschirm.',
+     'push.unsupportedStep3': 'Komm hierher zurück (Mein Konto → Verbindung) und tippe auf „Benachrichtigungen auf diesem Gerät aktivieren“.',
++    'preferences.prospectingGoal.rdv': 'Ein Termin, dann ein Angebot',
++    'preferences.prospectingGoal.devis': 'Eine direkte Angebotsanfrage, ohne Termin',
++    'preferences.prospectingGoal.essaiGratuit': 'Eine Online-Anmeldung (Abo, Test)',
++    'preferences.prospectingGoalHint': 'Ändert die Handlungsaufforderung in allen E-Mails von Aaron (Erstkontakt und Nachfassen). Standardmäßig strebt Aaron einen Termin an, der zu einem Angebot oder Vertrag führt.',
+     'translate.showOriginal': 'Original anzeigen',
+     'translate.showTranslation': 'Übersetzung anzeigen',
+     'translate.prefLabel': 'Automatisch in die Sprache der Oberfläche übersetzen',
+@@ -8150,6 +8158,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'In Safari, tocca Condividi (il quadrato con la freccia) e poi « Aggiungi alla schermata Home ».',
+     'push.unsupportedStep2': 'Apri Aaron dalla nuova icona nella schermata Home.',
+     'push.unsupportedStep3': 'Torna qui (Il mio account → Connessione) e tocca « Attiva le notifiche su questo dispositivo ».',
++    'preferences.prospectingGoal.rdv': 'Un appuntamento, poi un preventivo',
++    'preferences.prospectingGoal.devis': 'Una richiesta di preventivo diretta, senza appuntamento',
++    'preferences.prospectingGoal.essaiGratuit': 'Un\'iscrizione online (abbonamento, prova)',
++    'preferences.prospectingGoalHint': 'Cambia la call to action di tutte le email di Aaron (primo contatto e solleciti). Per impostazione predefinita Aaron punta a un appuntamento, che porta a un preventivo o a un contratto.',
+     'translate.showOriginal': 'Mostra l\'originale',
+     'translate.showTranslation': 'Mostra la traduzione',
+     'translate.prefLabel': 'Tradurre automaticamente nella lingua dell\'interfaccia',
+@@ -10311,6 +10323,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'En Safari, pulsa Compartir (el cuadrado con una flecha) y luego « Añadir a pantalla de inicio ».',
+     'push.unsupportedStep2': 'Abre Aaron desde el nuevo icono en tu pantalla de inicio.',
+     'push.unsupportedStep3': 'Vuelve aquí (Mi cuenta → Conexión) y pulsa « Activar las notificaciones en este dispositivo ».',
++    'preferences.prospectingGoal.rdv': 'Una reunión, luego un presupuesto',
++    'preferences.prospectingGoal.devis': 'Una solicitud de presupuesto directa, sin reunión',
++    'preferences.prospectingGoal.essaiGratuit': 'Un registro en línea (suscripción, prueba)',
++    'preferences.prospectingGoalHint': 'Cambia la llamada a la acción de todos los correos de Aaron (primer contacto y seguimientos). Por defecto, Aaron busca una reunión, que desemboca en un presupuesto o un contrato.',
+     'translate.showOriginal': 'Mostrar el original',
+     'translate.showTranslation': 'Mostrar la traducción',
+     'translate.prefLabel': 'Traducir automáticamente al idioma de la interfaz',
+@@ -12472,6 +12488,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'No Safari, toca em Partilhar (o quadrado com a seta) e depois em « Adicionar ao ecrã principal ».',
+     'push.unsupportedStep2': 'Abre o Aaron a partir do novo ícone no ecrã principal.',
+     'push.unsupportedStep3': 'Volta aqui (A minha conta → Ligação) e toca em « Ativar as notificações neste dispositivo ».',
++    'preferences.prospectingGoal.rdv': 'Uma reunião, depois um orçamento',
++    'preferences.prospectingGoal.devis': 'Um pedido de orçamento direto, sem reunião',
++    'preferences.prospectingGoal.essaiGratuit': 'Uma inscrição online (subscrição, teste)',
++    'preferences.prospectingGoalHint': 'Muda a chamada à ação de todos os emails do Aaron (primeiro contacto e follow-ups). Por defeito, o Aaron procura uma reunião, que leva a um orçamento ou a um contrato.',
+     'translate.showOriginal': 'Mostrar o original',
+     'translate.showTranslation': 'Mostrar a tradução',
+     'translate.prefLabel': 'Traduzir automaticamente para a língua da interface',
+@@ -14633,6 +14653,10 @@ export const DICT = {
+     'push.unsupportedStep1': 'Tik in Safari op Delen (het vierkant met een pijl) en dan op „Zet op beginscherm”.',
+     'push.unsupportedStep2': 'Open Aaron via het nieuwe icoon op je beginscherm.',
+     'push.unsupportedStep3': 'Kom hier terug (Mijn account → Koppeling) en tik op „Meldingen op dit apparaat inschakelen”.',
++    'preferences.prospectingGoal.rdv': 'Een afspraak, daarna een offerte',
++    'preferences.prospectingGoal.devis': 'Een directe offerteaanvraag, zonder afspraak',
++    'preferences.prospectingGoal.essaiGratuit': 'Een online inschrijving (abonnement, proef)',
++    'preferences.prospectingGoalHint': 'Verandert de call-to-action van alle e-mails van Aaron (eerste contact en opvolging). Standaard mikt Aaron op een afspraak, die uitmondt in een offerte of een contract.',
+     'translate.showOriginal': 'Origineel tonen',
+     'translate.showTranslation': 'Vertaling tonen',
+     'translate.prefLabel': 'Automatisch vertalen naar de taal van de interface',
+-- 
+2.43.0
+
