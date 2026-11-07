@@ -1,0 +1,371 @@
+From 2a06658e74b2119067d293bb31a8c86453d5ee62 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 07:42:22 +0000
+Subject: [PATCH] =?UTF-8?q?T=C3=A9l=C3=A9phone=20:=20grilles=20minmax(0,1f?=
+ =?UTF-8?q?r)=20sur=20toutes=20les=20pages,=20pilules=20de=20choix=20qui?=
+ =?UTF-8?q?=20se=20replient?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/agenda/page.jsx          |  4 ++--
+ app/app/bienvenue/page.jsx       |  2 +-
+ app/app/campaigns/page.jsx       |  2 +-
+ app/app/chat/page.jsx            |  2 +-
+ app/app/connexions/page.jsx      | 17 +++++++++++++----
+ app/app/customer/page.jsx        |  8 ++++----
+ app/app/documents/page.jsx       |  2 +-
+ app/app/products/page.jsx        |  2 +-
+ app/app/prospects/page.jsx       |  4 ++--
+ app/app/resultats/page.jsx       |  6 +++---
+ app/app/suggestions/page.jsx     |  2 +-
+ app/app/team/[id]/page.jsx       |  2 +-
+ app/app/team/page.jsx            |  4 ++--
+ components/CompanyInfoEditor.jsx |  2 +-
+ components/ContactCard.jsx       |  2 +-
+ components/ContactInfoEditor.jsx |  2 +-
+ components/SendInsightsCard.jsx  |  2 +-
+ 17 files changed, 37 insertions(+), 28 deletions(-)
+
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index 352950b..c481c2e 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -1589,7 +1589,7 @@ export default function AgendaPage() {
+         }
+         .side-hint { margin: 0.6rem 0 0; }
+         @media (max-width: 900px) {
+-          .calendar-layout { grid-template-columns: 1fr; }
++          .calendar-layout { grid-template-columns: minmax(0, 1fr); }
+           .day-detail { margin-top: 1.2rem; }
+         }
+ 
+@@ -3825,7 +3825,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+            une colonne d'un caractere de large. */
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/bienvenue/page.jsx b/app/app/bienvenue/page.jsx
+index adbf03f..4c9eda9 100644
+--- a/app/app/bienvenue/page.jsx
++++ b/app/app/bienvenue/page.jsx
+@@ -964,7 +964,7 @@ export default function BienvenuePage() {
+         :global(.spin) { animation: spin 1s linear infinite; }
+         @keyframes spin { to { transform: rotate(360deg); } }
+         @media (max-width: 560px) {
+-          .cards { grid-template-columns: 1fr; }
++          .cards { grid-template-columns: minmax(0, 1fr); }
+           .doc { flex-direction: column; align-items: flex-start; }
+           h1 { font-size: 1.3rem; }
+         }
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 601e9bf..483f596 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -4542,7 +4542,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index c18164e..9025aa2 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -2960,7 +2960,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 0d90124..5325e9b 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -4211,7 +4211,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+            page à maintenir — c'est la même liste. */
+         .account-layout {
+           display: grid;
+-          grid-template-columns: 1fr;
++          grid-template-columns: minmax(0, 1fr);
+           gap: 1.4rem;
+         }
+         /* Meme garde-fou que dans components/AccountNav.jsx : sans
+@@ -4387,7 +4387,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+            ~140px de large dans .collab-panel (max-width: 640px). */
+         @media (max-width: 600px) {
+           .collab-options {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+         .collab-card {
+@@ -5043,7 +5043,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+         }
+         @media (max-width: 600px) {
+           .legal-grid {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+ 
+@@ -5253,6 +5253,15 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           flex-wrap: wrap;
+           gap: 0.5rem;
+         }
++        /* Les pilules de choix (objectif de prospection…) portent des
++           libellés longs : elles se replient dans la largeur de l'écran au
++           lieu d'en sortir (07/11/2026). */
++        .options .chip {
++          white-space: normal;
++          max-width: 100%;
++          text-align: left;
++          line-height: 1.3;
++        }
+         .cap-wrap {
+           display: inline-flex;
+           align-items: center;
+@@ -9173,7 +9182,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/customer/page.jsx b/app/app/customer/page.jsx
+index 6837be7..f5f3e22 100644
+--- a/app/app/customer/page.jsx
++++ b/app/app/customer/page.jsx
+@@ -1615,7 +1615,7 @@ export default function CustomerPage() {
+         }
+         @media (max-width: 1100px) {
+           .board-layout {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .detail {
+             position: static;
+@@ -1642,7 +1642,7 @@ export default function CustomerPage() {
+           }
+           .detail-close { display: inline-flex; }
+           .support-list {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+       `}</style>
+@@ -2107,7 +2107,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+@@ -2394,7 +2394,7 @@ function AddClientModal({ userId, companyId, onClose, onCreated }) {
+         }
+         @media (max-width: 480px) {
+           .company-fields {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+         input {
+diff --git a/app/app/documents/page.jsx b/app/app/documents/page.jsx
+index 4bbe14f..8152963 100644
+--- a/app/app/documents/page.jsx
++++ b/app/app/documents/page.jsx
+@@ -1720,7 +1720,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/products/page.jsx b/app/app/products/page.jsx
+index a5ace0e..a12477f 100644
+--- a/app/app/products/page.jsx
++++ b/app/app/products/page.jsx
+@@ -771,7 +771,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index 6089ef2..bcd1b66 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -1741,7 +1741,7 @@ function AddProspectModal({ userId, companyId, onClose, onCreated, onFirstContac
+         }
+         @media (max-width: 480px) {
+           .company-fields {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+       `}</style>
+@@ -2684,7 +2684,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/resultats/page.jsx b/app/app/resultats/page.jsx
+index a166c6c..830a26e 100644
+--- a/app/app/resultats/page.jsx
++++ b/app/app/resultats/page.jsx
+@@ -1500,7 +1500,7 @@ export default function ResultatsPage() {
+            mécanique que Mon compte, voir app/app/connexions/page.jsx). ── */
+         .account-layout {
+           display: grid;
+-          grid-template-columns: 1fr;
++          grid-template-columns: minmax(0, 1fr);
+           gap: 1.4rem;
+         }
+         .account-panel {
+@@ -2064,7 +2064,7 @@ export default function ResultatsPage() {
+         }
+         @media (max-width: 620px) {
+           .value-row {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+         @media (max-width: 900px) {
+@@ -2962,7 +2962,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/suggestions/page.jsx b/app/app/suggestions/page.jsx
+index 197a2a1..beafaf4 100644
+--- a/app/app/suggestions/page.jsx
++++ b/app/app/suggestions/page.jsx
+@@ -762,7 +762,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/team/[id]/page.jsx b/app/app/team/[id]/page.jsx
+index 1501d14..9f699d6 100644
+--- a/app/app/team/[id]/page.jsx
++++ b/app/app/team/[id]/page.jsx
+@@ -794,7 +794,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/app/app/team/page.jsx b/app/app/team/page.jsx
+index ca71c10..fbea154 100644
+--- a/app/app/team/page.jsx
++++ b/app/app/team/page.jsx
+@@ -1594,7 +1594,7 @@ function AddTeamSeatModal({ seat, locale, onClose, onSaved }) {
+             padding: 1.2rem 1rem;
+           }
+           .name-row {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+         .seat-plan-line {
+@@ -2325,7 +2325,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+         }
+         @media (max-width: 900px) {
+           .shell {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+           .mobile-menu-btn {
+             display: flex;
+diff --git a/components/CompanyInfoEditor.jsx b/components/CompanyInfoEditor.jsx
+index 05804c3..6c46775 100644
+--- a/components/CompanyInfoEditor.jsx
++++ b/components/CompanyInfoEditor.jsx
+@@ -261,7 +261,7 @@ export default function CompanyInfoEditor({ prospect, locale, onSaved }) {
+         }
+         @media (max-width: 480px) {
+           .fields-grid {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+       `}</style>
+diff --git a/components/ContactCard.jsx b/components/ContactCard.jsx
+index 7c9497e..afc3dc5 100644
+--- a/components/ContactCard.jsx
++++ b/components/ContactCard.jsx
+@@ -1193,7 +1193,7 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
+           .msg { max-width: 92%; }
+         }
+         @media (max-width: 400px) {
+-          .read { grid-template-columns: 1fr; }
++          .read { grid-template-columns: minmax(0, 1fr); }
+         }
+       `}</style>
+     </div>
+diff --git a/components/ContactInfoEditor.jsx b/components/ContactInfoEditor.jsx
+index ff5fe4b..5fdef37 100644
+--- a/components/ContactInfoEditor.jsx
++++ b/components/ContactInfoEditor.jsx
+@@ -265,7 +265,7 @@ export default function ContactInfoEditor({ prospect, locale, onSaved }) {
+         }
+         @media (max-width: 480px) {
+           .fields-grid {
+-            grid-template-columns: 1fr;
++            grid-template-columns: minmax(0, 1fr);
+           }
+         }
+       `}</style>
+diff --git a/components/SendInsightsCard.jsx b/components/SendInsightsCard.jsx
+index 30ea2cb..7f3a6e7 100644
+--- a/components/SendInsightsCard.jsx
++++ b/components/SendInsightsCard.jsx
+@@ -154,7 +154,7 @@ export default function SendInsightsCard({ userId, locale, compact = false }) {
+         .sic-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+         .sic-track i { display: block; width: 100%; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, var(--accent-light), var(--accent)); min-height: 2px; }
+         .sic-x { font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
+-        @media (max-width: 700px) { .sic-grids { grid-template-columns: 1fr; } }
++        @media (max-width: 700px) { .sic-grids { grid-template-columns: minmax(0, 1fr); } }
+       `}</style>
+     </section>
+   );
+-- 
+2.43.0
+
