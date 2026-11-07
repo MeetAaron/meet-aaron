@@ -9,7 +9,10 @@
 #     signé avec la clé d'upload d'Alex, prêt à déposer dans la Play Console.
 #
 # Se lance à chaque modification de android/ ou à la main (bouton
-# « Run workflow » dans l'onglet Actions).
+# « Run workflow » dans l'onglet Actions). ATTENTION : un patch appliqué par
+# le robot (workflow Apply patch) ne déclenche PAS ce workflow — GitHub ignore
+# les pushes faits avec le jeton d'un autre workflow. Après un patch qui
+# touche android/, lancer « Run workflow » à la main.
 
 name: Android
 
@@ -37,12 +40,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # SDK Android : celui préinstallé sur le runner (ANDROID_HOME). L'action
+      # android-actions/setup-android téléchargeait d'anciens outils en ligne
+      # de commande et échouait sur l'acceptation des licences (07/11/2026).
+      - name: SDK Android (API 36)
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0" "platform-tools" >/dev/null
 
       - uses: gradle/actions/setup-gradle@v4
         with:
