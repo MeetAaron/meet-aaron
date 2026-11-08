@@ -9,6 +9,7 @@ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
 import { sendSystemEmail } from '@/lib/google';
 import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { serverError } from '@/lib/http';
+import { isDemoCompany } from '@/lib/demo-guard';
 
 // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
 // la durée de l'abonnement le client ne pourra plus accéder à rien. Il
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
       await supabaseAdmin.from('users').update({ email }).eq('id', alreadyLinked.id);
       alreadyLinked.email = email;
     }
-    return NextResponse.json({ user: alreadyLinked });
+    return NextResponse.json({ user: { ...alreadyLinked, is_demo: await isDemoCompany(alreadyLinked.company_id) } });
   }
 
   const { data: byEmail } = await supabaseAdmin
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
     if (inactiveError) {
       return NextResponse.json({ error: inactiveError }, { status: 403 });
     }
-    return NextResponse.json({ user: updated });
+    return NextResponse.json({ user: { ...updated, is_demo: await isDemoCompany(updated.company_id) } });
   }
 
   return NextResponse.json(

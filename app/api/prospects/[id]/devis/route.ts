@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 import { summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
 import { sendEmailForUser } from '@/lib/messaging';
 import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
   // Seul un devis DÉPOSÉ par le commercial part (25/10/2026) : Aaron ne
   // rédige pas de devis, il prépare seulement l'email qui l'accompagne.
@@ -148,7 +150,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   {
     const { error: resetError } = await supabaseAdmin
       .from('prospects')
-      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null })
+      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null, devis_open_nudge_at: null })
       .eq('id', prospectId);
     if (resetError) {
       const { error: tokenError } = await supabaseAdmin

@@ -8,6 +8,7 @@ import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/
 import { localeInstruction } from '@/lib/locale-instruction';
 import { summarizeDocument } from '@/lib/document-summary';
 import { readJsonBody, serverError } from '@/lib/http';
+import { isDemoCompany } from '@/lib/demo-guard';
 
 const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
 Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
@@ -439,6 +440,11 @@ async function executeTool(
   companyId: string | null,
   locale: string
 ) {
+  // Compte de démonstration (lib/demo-guard.ts) : Aaron répond, mais ne
+  // modifie pas la fiche entreprise partagée et n'enregistre pas de document.
+  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise' || toolName === 'recherche_prospects')) {
+    return { success: false, error: 'Compte de démonstration : cette action est désactivée.' };
+  }
   switch (toolName) {
     case 'recherche_prospects':
       return runRechercheProspects(userId, toolInput?.query || '');

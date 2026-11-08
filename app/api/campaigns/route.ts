@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { selectInChunks } from '@/lib/chunked-in';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 import { canViewUserData } from '@/lib/user-access';
 import { LOCALE_NAMES } from '@/lib/locale-instruction';
 import { readJsonBody, serverError } from '@/lib/http';
@@ -151,6 +152,7 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
   // Quota de nouveaux prospects du mois (08/09/2026). On ne bloque que si
   // plus RIEN n'est disponible : une campagne dont l'objectif dépasse le

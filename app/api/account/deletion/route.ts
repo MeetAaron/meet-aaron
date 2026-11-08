@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 import { serverError } from '@/lib/http';
 
 const DELAY_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
   const { data: existing } = await supabaseAdmin
     .from('users')

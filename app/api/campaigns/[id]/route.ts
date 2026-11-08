@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 import { readJsonBody } from '@/lib/http';
 
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -36,6 +37,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== campaign.assigned_user_id) return forbiddenResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
   if (campaign.status === 'terminee') {
     return NextResponse.json({ error: 'Cette campagne est déjà terminée' }, { status: 400 });

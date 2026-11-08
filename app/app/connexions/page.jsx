@@ -311,6 +311,7 @@ const BILLING_OWNER_ONLY = {
 function useAuthedUser() {
   const router = useRouter();
   const [userId, setUserId] = useState(null);
+  const [isDemo, setIsDemo] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
@@ -376,6 +377,7 @@ function useAuthedUser() {
       }
 
       setUserId(body.user.id);
+      setIsDemo(body.user.is_demo === true);
       setAuthLoading(false);
     }
 
@@ -383,7 +385,7 @@ function useAuthedUser() {
     return () => { cancelled = true; };
   }, [router]);
 
-  return { userId, authLoading, authError };
+  return { userId, authLoading, authError, isDemo };
 }
 
 function providerMetaFor(locale) {
@@ -510,7 +512,7 @@ function offersFor(locale) {
 }
 
 export default function ConnexionsPage() {
-  const { userId, authLoading, authError } = useAuthedUser();
+  const { userId, authLoading, authError, isDemo } = useAuthedUser();
   // useAuthedUser a son propre router, hors de portee ici : la rubrique
   // « Marge par client » ouvre un ecran a part (/app/marge) plutot qu'un
   // panneau de cette page, donc il en faut un dans ce composant aussi.
@@ -2571,6 +2573,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               (Supabase Auth envoie le lien de confirmation) et
               handleChangePassword (ré-authentification par mot de passe
               actuel avant d'autoriser le changement). */}
+          {/* Compte de démonstration partagé (lib/demo-guard.ts) : pas de
+              changement d'email ni de mot de passe, sinon un testeur
+              verrouillerait tous les autres. */}
+          {!isDemo && (<>
           <div className="profile-section">
             <label className="profile-label">{t('connexions.emailSectionLabel', locale)}</label>
             <p className="profile-current-value">{currentEmail || '—'}</p>
@@ -2626,6 +2632,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
               {passwordChangeSaving ? t('connexions.passwordChangeSaving', locale) : t('connexions.passwordChangeButton', locale)}
             </button>
           </div>
+          </>)}
 
           {/* Double authentification (CASA 3.3.1) : obligatoire pour le
               compte fondateur (écrans d'administration), recommandée pour
@@ -4195,7 +4202,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           </div>
         )
       ) : activeTab === 'delete' ? (
-        <AccountDeletionPanel locale={locale} />
+        isDemo ? <p className="muted">{t('connexions.demoLocked', locale)}</p> : <AccountDeletionPanel locale={locale} />
       ) : null}
         </div>
       </div>

@@ -21,6 +21,7 @@ import { localeInstruction } from '@/lib/locale-instruction';
 // d'une ancienne version) — voir lib/business-summary-store.ts.
 import { backupThenReplaceBusinessSummary } from '@/lib/business-summary-store';
 import { readJsonBody, serverError } from '@/lib/http';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 
 // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
 // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== user_id) return forbiddenResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
   const { data: user, error: userError } = await supabaseAdmin
     .from('users')

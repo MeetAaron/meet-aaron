@@ -660,7 +660,11 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       body = (
         <>
           <p className="lead">
-            {t(item.meta?.reading_now ? 'stories.devisOpenLeadNow' : 'stories.devisOpenLead', locale)
+            {(item.meta?.reading_now
+              ? t('stories.devisOpenLeadNow', locale)
+              : (item.meta?.minutes_since > 30 && item.meta?.minutes_since <= 180)
+                ? t('stories.devisOpenLeadLate', locale).replace('{m}', String(item.meta.minutes_since))
+                : t('stories.devisOpenLead', locale))
               .replace('{name}', item.prospect_name)}
           </p>
           {opened && (

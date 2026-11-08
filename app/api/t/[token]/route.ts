@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendPushNotification } from '@/lib/push';
+import { devisOpenTexts } from '@/lib/devis-open-texts';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +60,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
 
     const { data: prospect } = await supabaseAdmin
       .from('prospects')
-      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at')
+      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, users:assigned_user_id(locale)')
       .eq('devis_track_token', token)
       .maybeSingle();
 
@@ -86,9 +87,13 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
     // leçon des quatorze notifications du 13/10 : chaque push de trop coûte
     // la crédibilité de tous les suivants.
     if (isFirstOpen && !prospect.devis_call_done_at) {
+      // Dans la langue du commercial (Alex, 08/11/2026) : « appelle dans les
+      // 30 minutes ». La relance « appelle quand même » après 30 min est
+      // dans app/api/cron/devis-open-nudge.
+      const T = devisOpenTexts((prospect as any).users?.locale);
       await sendPushNotification(prospect.assigned_user_id, {
-        title: 'Devis ouvert',
-        body: `${prospect.full_name} est en train de lire ton devis. Appelle-le.`,
+        title: T.openTitle,
+        body: T.openBody.replace('{name}', prospect.full_name || ''),
         url: `/app/prospects?contact=${prospect.id}`,
         // Un tag par prospect : si un second devis était suivi pour la même
         // personne, la notification remplacerait la précédente au lieu de

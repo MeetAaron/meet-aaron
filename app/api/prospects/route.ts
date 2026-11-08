@@ -10,6 +10,7 @@ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { sendPushNotification } from '@/lib/push';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 import { canViewUserData } from '@/lib/user-access';
 import { isGenericEmailDomain } from '@/lib/csv-import';
 import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
@@ -173,6 +174,7 @@ export async function POST(request: NextRequest) {
 
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
+  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
   // Société absente (24/10/2026) : la page l'obtient par un appel séparé ;
   // si cet appel avait échoué, l'ajout et l'import CSV renvoyaient « Champs
   // requis manquants ». La société de l'utilisateur connecté fait foi.

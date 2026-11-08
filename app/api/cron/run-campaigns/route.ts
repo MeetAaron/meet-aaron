@@ -25,6 +25,7 @@ import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnab
 import { hasReachedProspectingCap, effectiveProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
 import { getPacing } from '@/lib/anthropic-client';
 import { deliverabilityGate } from '@/lib/deliverability-test';
+import { isDemoCompany } from '@/lib/demo-guard';
 
 function isAuthorized(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -310,6 +311,8 @@ export async function GET(request: NextRequest) {
   const quotaBySociety = new Map<string, number>();
   const runnable: { id: string; assigned_user_id: string }[] = [];
   for (const c of activeCampaigns || []) {
+    // Société de démonstration : jamais exécutée (lib/demo-guard.ts).
+    if (await isDemoCompany(c.company_id)) continue;
     if (c.status !== 'en_pause') {
       runnable.push(c);
       continue;
