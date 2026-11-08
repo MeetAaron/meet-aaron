@@ -5,7 +5,28 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext, revokeStaleSessionOnLoginPage } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
-import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
+import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage, passwordChecks, passwordRuleLabels } from '@/lib/password-policy';
+
+// Liste des règles sous le champ mot de passe (inscription et réinitialisation),
+// cochées au fur et à mesure de la saisie ; rouge seulement après un refus.
+function PasswordRules({ password, confirm, showConfirm, attempted, locale }) {
+  const c = passwordChecks(password);
+  const L = passwordRuleLabels(locale);
+  const rows = [
+    ['length', c.length], ['lower', c.lower], ['upper', c.upper], ['digit', c.digit], ['spaces', c.spaces],
+    ...(showConfirm ? [['match', !!password && password === confirm]] : []),
+  ];
+  return (
+    <ul className="pw-rules" aria-live="polite">
+      {rows.map(([key, ok]) => (
+        <li key={key} className={ok ? 'ok' : attempted ? 'ko' : ''}>
+          <span className="pw-dot" aria-hidden="true">{ok ? '✓' : '·'}</span>
+          {L[key]}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const MFA_TEXT = {
   fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
@@ -26,6 +47,7 @@ export default function LoginPage() {
   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
   const [resetToken, setResetToken] = useState(null);
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [pwAttempted, setPwAttempted] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
@@ -238,7 +260,14 @@ export default function LoginPage() {
       // même règle à l'inscription, à la réinitialisation et au changement,
       // et la même est imposée côté Supabase Auth.
       if (passwordPolicyError(password)) {
+        setPwAttempted(true);
         setError(passwordPolicyMessage(locale));
+        setLoading(false);
+        return;
+      }
+      if (password !== passwordConfirm) {
+        setPwAttempted(true);
+        setError(t('auth.resetMismatch', locale));
         setLoading(false);
         return;
       }
@@ -255,7 +284,7 @@ export default function LoginPage() {
         const res = await fetch('/api/auth/send-verification', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auth_user_id: data.user.id, email }),
+          body: JSON.stringify({ auth_user_id: data.user.id, email, locale }),
         });
         if (!res.ok) {
           setMessage(t('auth.signupPartialError', locale));
@@ -273,7 +302,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/resend-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: unconfirmedEmail }),
+        body: JSON.stringify({ email: unconfirmedEmail, locale }),
       });
       if (!res.ok) {
         setResendMessage(t('auth.resendError', locale));
@@ -296,7 +325,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/request-password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, locale }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -314,10 +343,12 @@ export default function LoginPage() {
   async function handleResetSubmit(e) {
     e.preventDefault();
     if (passwordPolicyError(password)) {
+      setPwAttempted(true);
       setError(passwordPolicyMessage(locale));
       return;
     }
     if (password !== passwordConfirm) {
+      setPwAttempted(true);
       setError(t('auth.resetMismatch', locale));
       return;
     }
@@ -427,6 +458,7 @@ export default function LoginPage() {
               required
               minLength={PASSWORD_MIN_LENGTH}
             />
+            <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? t('common.loading', locale) : t('auth.resetSubmit', locale)}
             </button>
@@ -475,6 +507,22 @@ export default function LoginPage() {
             required
             minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : 6}
           />
+          {mode === 'signup' && (
+            <>
+              {/* Saisie en double et règles visibles pendant la frappe
+                  (demande Alex, 08/11/2026). */}
+              <input
+                type="password"
+                placeholder={t('auth.resetConfirmPassword', locale)}
+                value={passwordConfirm}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
+                autoComplete="new-password"
+                required
+                minLength={PASSWORD_MIN_LENGTH}
+              />
+              <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
+            </>
+          )}
           {mode === 'signin' && (
             <label className="remember-row">
               <input
@@ -628,6 +676,19 @@ export default function LoginPage() {
           gap: 0.6rem;
           margin-bottom: 0.8rem;
         }
+        .pw-rules {
+          list-style: none;
+          margin: -0.2rem 0 0.2rem;
+          padding: 0;
+          display: grid;
+          gap: 0.15rem;
+          font-size: 0.78rem;
+          color: var(--muted, #8b90a8);
+        }
+        .pw-rules li { display: flex; align-items: center; gap: 0.4rem; }
+        .pw-rules li.ok { color: var(--accent-green, #3DA35D); }
+        .pw-rules li.ko { color: #e5484d; }
+        .pw-dot { display: inline-block; width: 1em; text-align: center; font-weight: 700; }
         .form input {
           background: #0b0e1a;
           border: 1px solid #232744;

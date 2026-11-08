@@ -8,6 +8,7 @@ import { type UsageFeature, callClaude, CACHE_TTL_1H } from './anthropic-client'
 import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
 import { resolveProspectLocale } from './prospect-locale';
 import { aaronVideoConfigured } from './meeting-link';
+import { computeFreeSlots, AUTO_CONFIRM_MIN_HOURS } from './appointment-flow';
 import { readFileSync } from 'fs';
 import path from 'path';
 
@@ -287,6 +288,24 @@ async function buildContext(prospectId: string) {
     canProvideVideoLink = true;
   }
 
+  // Créneaux où le commercial est réellement disponible (08/11/2026, décision
+  // Alex : « Aaron se base uniquement sur l'agenda et propose de lui-même
+  // des dispos »). Jusqu'à 6 créneaux sur 10 jours, dans le fuseau et la
+  // langue du commercial — voir lib/appointment-flow.ts et la section
+  // CRÉNEAUX du prompt système. Tolérant : liste vide en cas de souci.
+  let freeSlots: { label: string; debut: string }[] = [];
+  let slotsTimeZone: string | null = null;
+  try {
+    const sellerId = prospect.assigned_user_id || prospect.user_id;
+    if (sellerId) {
+      const computed = await computeFreeSlots(sellerId, { locale: normalizeLocale(prospect.users?.locale) });
+      freeSlots = computed.slots.map((sl) => ({ label: sl.label, debut: sl.startISO }));
+      slotsTimeZone = computed.timeZone;
+    }
+  } catch {
+    freeSlots = [];
+  }
+
   return {
     company_id: prospect.company_id,
     // Imputation de l'appel API au commercial du prospect (jauge Mon équipe,
@@ -320,6 +339,10 @@ async function buildContext(prospectId: string) {
       // doit pas mettre la visio en avant, plutôt que de promettre un
       // rendez-vous en ligne dont personne ne recevra le lien.
       peut_fournir_lien_visio: canProvideVideoLink,
+      // Créneaux libres à proposer, et seulement ceux-là (section CRÉNEAUX).
+      creneaux_disponibles: freeSlots,
+      fuseau_horaire: slotsTimeZone,
+      confirmation_automatique_au_dela_de_heures: AUTO_CONFIRM_MIN_HOURS,
     },
     prospect: {
       nom: prospect.full_name,

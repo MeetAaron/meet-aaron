@@ -128,7 +128,7 @@ export function useTranslation(text, locale) {
   return tr;
 }
 
-export default function Translated({ text, locale, as: Tag = 'span', className, format, children, toggleClassName }) {
+export default function Translated({ text, locale, as: Tag = 'span', className, style, format, children, toggleClassName }) {
   const tr = useTranslation(text, locale);
   const [showOriginal, setShowOriginal] = useState(false);
   useEffect(() => {
@@ -140,7 +140,7 @@ export default function Translated({ text, locale, as: Tag = 'span', className, 
   const shown = tr && !showOriginal ? tr.text : text;
   return (
     <>
-      <Tag className={className}>
+      <Tag className={className} style={style}>
         {children}
         {fmt(shown)}
       </Tag>

@@ -24,6 +24,12 @@ const AGENDA_TEXT = {
   h: { fr: 'h', en: 'h', de: 'Std.', it: 'h', es: 'h', pt: 'h', nl: 'u' },
   aaronRead: { fr: "Lecture d'Aaron", en: "Aaron's read", de: 'Aarons Einschätzung', it: 'Lettura di Aaron', es: 'Lectura de Aaron', pt: 'Leitura do Aaron', nl: 'Inschatting van Aaron' },
   cancelAsk: { fr: 'Annuler ce rendez-vous ? Le prospect recevra un email de ta part pour le prévenir, et il sera retiré de ton calendrier.', en: 'Cancel this meeting? The prospect gets an email from you, and it is removed from your calendar.', de: 'Diesen Termin absagen? Der Interessent erhält eine E-Mail von Ihnen, und der Termin wird aus Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Il prospect riceverà una tua email e sarà rimosso dal calendario.', es: '¿Cancelar esta cita? El prospecto recibirá un email tuyo y se eliminará de tu calendario.', pt: 'Cancelar esta reunião? O prospect recebe um email teu e ela é removida do teu calendário.', nl: 'Deze afspraak annuleren? De prospect krijgt een e-mail van jou en de afspraak verdwijnt uit je agenda.' },
+  cancelDraftTitle: { fr: "L'email qu'Aaron a préparé pour prévenir le prospect — relis, corrige si besoin, puis envoie.", en: 'The email Aaron prepared to let the prospect know — read it, edit if needed, then send.', de: 'Die E-Mail, die Aaron zur Information des Interessenten vorbereitet hat — lesen, ggf. anpassen, dann senden.', it: "L'email che Aaron ha preparato per avvisare il prospect — rileggi, correggi se serve, poi invia.", es: 'El correo que Aaron ha preparado para avisar al prospecto — revísalo, corrígelo si hace falta y envíalo.', pt: 'O email que o Aaron preparou para avisar o prospeto — relê, corrige se for preciso e envia.', nl: 'De e-mail die Aaron heeft voorbereid om de prospect te informeren — lees, pas zo nodig aan en verstuur.' },
+  cancelSend: { fr: "Envoyer et annuler le rendez-vous", en: 'Send and cancel the meeting', de: 'Senden und Termin absagen', it: "Invia e annulla l'appuntamento", es: 'Enviar y cancelar la cita', pt: 'Enviar e cancelar a reunião', nl: 'Versturen en afspraak annuleren' },
+  cancelSilent: { fr: 'Annuler sans prévenir', en: 'Cancel without notifying', de: 'Absagen ohne Benachrichtigung', it: 'Annulla senza avvisare', es: 'Cancelar sin avisar', pt: 'Cancelar sem avisar', nl: 'Annuleren zonder bericht' },
+  reschedule: { fr: 'Reporter', en: 'Reschedule', de: 'Verschieben', it: 'Rimanda', es: 'Posponer', pt: 'Adiar', nl: 'Verzetten' },
+  rescheduleHint: { fr: "Choisis le nouveau créneau. L'ancien est retiré de ton agenda, le nouveau y est créé, et le prospect reçoit la nouvelle date avec le lien ou l'adresse.", en: 'Pick the new time. The old one is removed from your calendar, the new one is created, and the prospect receives the new date with the link or address.', de: 'Wähle den neuen Termin. Der alte wird aus deinem Kalender entfernt, der neue angelegt, und der Interessent erhält das neue Datum mit Link oder Adresse.', it: 'Scegli il nuovo orario. Il vecchio viene rimosso dalla tua agenda, il nuovo creato, e il prospect riceve la nuova data con il link o l’indirizzo.', es: 'Elige el nuevo horario. El anterior se elimina de tu agenda, el nuevo se crea y el prospecto recibe la nueva fecha con el enlace o la dirección.', pt: 'Escolhe o novo horário. O antigo é removido da tua agenda, o novo é criado e o prospeto recebe a nova data com o link ou a morada.', nl: 'Kies het nieuwe tijdstip. Het oude verdwijnt uit je agenda, het nieuwe wordt aangemaakt en de prospect ontvangt de nieuwe datum met link of adres.' },
+  rescheduleConfirm: { fr: 'Confirmer le report', en: 'Confirm the new time', de: 'Verschiebung bestätigen', it: 'Conferma il rinvio', es: 'Confirmar el cambio', pt: 'Confirmar o adiamento', nl: 'Verzetten bevestigen' },
   cancelAskPerso: { fr: 'Annuler ce rendez-vous ? Il sera retiré de ton agenda et de ton calendrier.', en: 'Cancel this meeting? It is removed from your agenda and your calendar.', de: 'Diesen Termin absagen? Er wird aus Ihrer Agenda und Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Sarà rimosso dalla tua agenda e dal calendario.', es: '¿Cancelar esta cita? Se eliminará de tu agenda y de tu calendario.', pt: 'Cancelar esta reunião? Será removida da tua agenda e do teu calendário.', nl: 'Deze afspraak annuleren? Hij verdwijnt uit je agenda en je kalender.' },
   persoNote: { fr: "Contact ajouté à la main : Aaron ne suit pas ses échanges, il n'y a donc ni brief ni historique.", en: 'Contact added by hand: Aaron does not follow its exchanges, so there is no brief or history.', de: 'Von Hand hinzugefügter Kontakt: Aaron verfolgt den Austausch nicht, daher gibt es weder Briefing noch Verlauf.', it: 'Contatto aggiunto a mano: Aaron non segue gli scambi, quindi non ci sono brief né storico.', es: 'Contacto añadido a mano: Aaron no sigue sus intercambios, así que no hay brief ni historial.', pt: 'Contacto adicionado à mão: o Aaron não acompanha as trocas, por isso não há brief nem histórico.', nl: 'Handmatig toegevoegd contact: Aaron volgt de uitwisselingen niet, dus geen briefing of geschiedenis.' },
 };
@@ -330,12 +336,12 @@ export default function AgendaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  async function handleAction(appointmentId, action, force = false) {
+  async function handleAction(appointmentId, action, force = false, extra = {}) {
     setActingOn(appointmentId);
     const res = await fetch(`/api/appointments/${appointmentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, force }),
+      body: JSON.stringify({ action, force, ...extra }),
     });
     setActingOn(null);
 
@@ -649,7 +655,8 @@ export default function AgendaPage() {
           typeLabels={TYPE_LABELS}
           statusMeta={STATUS_META}
           acting={actingOn === detailAppointment.id}
-          onCancel={async () => { await handleAction(detailAppointment.id, 'annuler'); setDetailAppointment(null); }}
+          onCancel={async (extra) => { await handleAction(detailAppointment.id, 'annuler', false, extra || {}); setDetailAppointment(null); }}
+          onReschedule={async (newISO) => { await handleAction(detailAppointment.id, 'reporter', true, { new_proposed_at: newISO }); setDetailAppointment(null); }}
           onClose={() => setDetailAppointment(null)}
         />
       )}
@@ -801,17 +808,20 @@ export default function AgendaPage() {
                       >
                         {t('agenda.actionValidate', locale)}
                       </button>
+                      {/* Report et annulation passent par la fiche du RDV
+                          (08/11/2026) : choix du nouveau créneau, email
+                          d'annulation relu avant envoi. */}
                       <button
                         className="btn-neutral"
                         disabled={actingOn === a.id}
-                        onClick={() => handleAction(a.id, 'reporter')}
+                        onClick={() => setDetailAppointment(a)}
                       >
                         {t('agenda.actionPostpone', locale)}
                       </button>
                       <button
                         className="btn-danger"
                         disabled={actingOn === a.id}
-                        onClick={() => handleAction(a.id, 'annuler')}
+                        onClick={() => setDetailAppointment(a)}
                       >
                         {t('common.cancel', locale)}
                       </button>
@@ -2090,7 +2100,7 @@ export default function AgendaPage() {
 // l'historique brut des échanges (GET /api/prospects/[id]), pour que le
 // commercial ait tout sous la main avant/après le RDV sans repasser par
 // Aaron Sales ou Prospects.
-function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, acting, onCancel, onClose }) {
+function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, acting, onCancel, onReschedule, onClose }) {
   const [locale] = useLocale();
   const [messages, setMessages] = useState([]);
   const [prospect, setProspect] = useState(null);
@@ -2099,7 +2109,31 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
   const [briefLoading, setBriefLoading] = useState(!!appointment.prospect_id);
   const [briefError, setBriefError] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // Annulation en deux temps (Alex, 08/11/2026) : confirmation, puis l'email
+  // d'Aaron relu et envoyé par le commercial. Report : nouveau créneau.
+  const [cancelDraft, setCancelDraft] = useState(null); // { subject, body }
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [newWhen, setNewWhen] = useState('');
   const hasProspect = !!appointment.prospect_id;
+
+  async function startCancel() {
+    setConfirmCancel(false);
+    if (!hasProspect) { onCancel({}); return; }
+    setCancelBusy(true);
+    try {
+      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'annuler', preview: true }) });
+      const body = await res.json().catch(() => ({}));
+      if (body.already_past || !body.draft) { onCancel({ skip_email: true }); return; }
+      setCancelDraft(body.draft);
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+  function toLocalInputValue(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
   const start = new Date(appointment.proposed_at);
   const durationMin = Number(appointment.duration_minutes) >= 15 ? Number(appointment.duration_minutes) : 60;
   const end = new Date(start.getTime() + durationMin * 60 * 1000);
@@ -2181,16 +2215,41 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
           {isPast && hasProspect && appointment.status !== 'annulé' && (
             <a className="btn-secondary" href={`/app/agenda/rdv/${appointment.id}/bilan`}>{appointment.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}</a>
           )}
-          {!isPast && appointment.status !== 'annulé' && !confirmCancel && (
-            <button type="button" className="btn-danger-ghost" onClick={() => setConfirmCancel(true)}>{t('stories.cancelRdv', locale)}</button>
+          {!isPast && appointment.status !== 'annulé' && !rescheduling && !cancelDraft && (
+            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); }}>{tx('reschedule')}</button>
+          )}
+          {!isPast && appointment.status !== 'annulé' && !confirmCancel && !cancelDraft && (
+            <button type="button" className="btn-danger-ghost" onClick={() => { setConfirmCancel(true); setRescheduling(false); }}>{t('stories.cancelRdv', locale)}</button>
           )}
         </div>
+        {rescheduling && (
+          <div className="confirm-box neutral">
+            <p>{tx('rescheduleHint')}</p>
+            <input type="datetime-local" className="when-input" value={newWhen} onChange={(e) => setNewWhen(e.target.value)} />
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setRescheduling(false)} disabled={acting}>{t('common.back', locale)}</button>
+              <button type="button" className="btn-primary" disabled={acting || !newWhen} onClick={() => onReschedule(new Date(newWhen).toISOString())}>{acting ? '…' : tx('rescheduleConfirm')}</button>
+            </div>
+          </div>
+        )}
         {confirmCancel && (
           <div className="confirm-box">
             <p>{hasProspect ? tx('cancelAsk') : tx('cancelAskPerso')}</p>
             <div className="confirm-actions">
-              <button type="button" className="btn-secondary" onClick={() => setConfirmCancel(false)} disabled={acting}>{t('common.back', locale)}</button>
-              <button type="button" className="btn-danger" onClick={onCancel} disabled={acting}>{acting ? '…' : t('stories.cancelRdv', locale)}</button>
+              <button type="button" className="btn-secondary" onClick={() => setConfirmCancel(false)} disabled={acting || cancelBusy}>{t('common.back', locale)}</button>
+              <button type="button" className="btn-danger" onClick={startCancel} disabled={acting || cancelBusy}>{acting || cancelBusy ? '…' : t('stories.cancelRdv', locale)}</button>
+            </div>
+          </div>
+        )}
+        {cancelDraft && (
+          <div className="confirm-box">
+            <p>{tx('cancelDraftTitle')}</p>
+            <input className="when-input" value={cancelDraft.subject} onChange={(e) => setCancelDraft({ ...cancelDraft, subject: e.target.value })} />
+            <textarea className="draft-area" rows={7} value={cancelDraft.body} onChange={(e) => setCancelDraft({ ...cancelDraft, body: e.target.value })} />
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setCancelDraft(null)} disabled={acting}>{t('common.back', locale)}</button>
+              <button type="button" className="btn-secondary" onClick={() => onCancel({ skip_email: true })} disabled={acting}>{tx('cancelSilent')}</button>
+              <button type="button" className="btn-danger" onClick={() => onCancel({ subject: cancelDraft.subject, body: cancelDraft.body })} disabled={acting}>{acting ? '…' : tx('cancelSend')}</button>
             </div>
           </div>
         )}
@@ -2326,7 +2385,10 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
         .btn-danger-ghost { background: transparent; color: var(--accent-red); border: 1px solid rgba(239, 68, 89, 0.5); margin-left: auto; }
         .confirm-box { border: 1px solid rgba(239, 68, 89, 0.4); background: rgba(239, 68, 89, 0.08); border-radius: var(--radius-md); padding: 0.8rem 0.9rem; margin-bottom: 0.8rem; font-size: 0.86rem; }
         .confirm-box p { margin: 0 0 0.6rem; }
-        .confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+        .confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; }
+        .confirm-box.neutral { border-color: var(--border); background: var(--surface); }
+        .when-input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; margin: 0.5rem 0; }
+        .draft-area { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.7rem; color: var(--text); font: inherit; font-size: 0.86rem; line-height: 1.45; resize: vertical; margin-bottom: 0.5rem; }
         .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; }
         .read-cell { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.15rem; }
         .read-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }

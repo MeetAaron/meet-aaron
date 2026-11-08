@@ -22,6 +22,7 @@ import { isDeliverabilityTestSubject } from '@/lib/deliverability-test';
 import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
 import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
 import { sendPushNotification } from '@/lib/push';
+import { autoConfirmIfPossible, AUTO_CONFIRM_MIN_HOURS } from '@/lib/appointment-flow';
 import { sendSystemEmail } from '@/lib/google';
 
 function isAuthorized(request: NextRequest) {
@@ -1227,39 +1228,64 @@ export async function GET(request: NextRequest) {
         if (existingAppointment && existingAppointment.status === 'validé' && sameDate) {
           // Le client reconfirme simplement une date déjà validée par le
           // commercial : rien à faire, on évite de recréer une ligne "à valider".
-        } else if (existingAppointment && existingAppointment.status === 'proposé') {
-          // Un rendez-vous est déjà en cours de discussion pour ce prospect :
-          // on met à jour la date/le type au lieu d'ajouter une deuxième ligne.
-          await supabaseAdmin
-            .from('appointments')
-            .update({
-              type: aaronOutput.appointment_proposal.type,
-              proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
-            })
-            .eq('id', existingAppointment.id);
-
-          await sendPushNotification(connection.user_id, {
-            title: 'Nouveau rendez-vous à valider',
-            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
-            url: `/app/agenda?user_id=${connection.user_id}`,
-          });
         } else {
-          // Aucune ligne en cours (ou date différente d'un rendez-vous déjà
-          // validé, ex: le client redemande à changer un RDV déjà confirmé) :
-          // nouvelle ligne.
-          await supabaseAdmin.from('appointments').insert({
-            prospect_id: prospect.id,
-            user_id: connection.user_id,
-            type: aaronOutput.appointment_proposal.type,
-            proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
-            status: 'proposé',
-          });
+          let appointmentId: string | null = null;
+          if (existingAppointment && existingAppointment.status === 'proposé') {
+            // Un rendez-vous est déjà en cours de discussion pour ce prospect :
+            // on met à jour la date/le type au lieu d'ajouter une deuxième ligne.
+            await supabaseAdmin
+              .from('appointments')
+              .update({
+                type: aaronOutput.appointment_proposal.type,
+                proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+              })
+              .eq('id', existingAppointment.id);
+            appointmentId = existingAppointment.id;
+          } else {
+            // Aucune ligne en cours (ou date différente d'un rendez-vous déjà
+            // validé, ex: le client redemande à changer un RDV déjà confirmé) :
+            // nouvelle ligne.
+            const { data: created } = await supabaseAdmin
+              .from('appointments')
+              .insert({
+                prospect_id: prospect.id,
+                user_id: connection.user_id,
+                type: aaronOutput.appointment_proposal.type,
+                proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+                status: 'proposé',
+              })
+              .select('id')
+              .single();
+            appointmentId = created?.id || null;
+          }
 
-          await sendPushNotification(connection.user_id, {
-            title: 'Nouveau rendez-vous à valider',
-            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
-            url: `/app/agenda?user_id=${connection.user_id}`,
-          });
+          // CONFIRMATION AUTOMATIQUE (décision Alex, 08/11/2026 — voir
+          // lib/appointment-flow.ts) : le créneau est dans les disponibilités
+          // et à plus de 24 h → invitation + confirmation partent tout de
+          // suite, le commercial est seulement prévenu. Sinon la story
+          // « Rendez-vous à valider » reste, avec la raison.
+          const auto = appointmentId ? await autoConfirmIfPossible(appointmentId, connection.user_id) : { result: 'error' as const };
+          const whenLabel = new Date(aaronOutput.appointment_proposal.proposed_datetime).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short', timeZone: await (async () => { try { const r: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', connection.user_id).maybeSingle(); return resolveUserTimeZone(r.data || {}); } catch { return 'Europe/Paris'; } })() });
+          if (auto.result === 'confirmed') {
+            await sendPushNotification(connection.user_id, {
+              title: 'Rendez-vous confirmé',
+              body: `${prospect.full_name} : ${whenLabel}. Invitation et confirmation envoyées.`,
+              url: `/app/agenda?user_id=${connection.user_id}`,
+              tag: `rdv:${appointmentId}`,
+            });
+          } else {
+            const why = auto.result === 'too_soon'
+              ? `Dans moins de ${AUTO_CONFIRM_MIN_HOURS} h : à valider par toi.`
+              : auto.result === 'unavailable'
+                ? `Hors de tes disponibilités (${(auto.reasons || [])[0] || 'conflit'}) : à valider ou à reporter.`
+                : 'À valider dans ton agenda.';
+            await sendPushNotification(connection.user_id, {
+              title: 'Rendez-vous à valider',
+              body: `${prospect.full_name} propose ${whenLabel}. ${why}`,
+              url: `/app/agenda?user_id=${connection.user_id}`,
+              tag: `rdv:${appointmentId}`,
+            });
+          }
         }
       }
 

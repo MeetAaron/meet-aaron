@@ -173,6 +173,11 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
   // (capture d'Alex sur iPhone, 07/11/2026). L'erreur est déjà dans la
   // console serveur (serverError dans /api/activity).
   if (error) return null;
+  // Compte sans aucune activité sur la période (nouveau compte) : rien non
+  // plus — la checklist et la campagne recommandée disent déjà quoi faire,
+  // une carte « rien pour l'instant » n'ajoute qu'un cadre (capture Alex,
+  // 07/11/2026).
+  if (Array.isArray(events) && events.length === 0) return null;
 
   return (
     <section className="feed" aria-live="polite">

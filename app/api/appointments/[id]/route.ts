@@ -21,92 +21,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { createGoogleCalendarEvent } from '@/lib/google';
-import { createOutlookCalendarEvent } from '@/lib/microsoft';
 import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
-import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
-import { resolveMeetingLink } from '@/lib/meeting-link';
-import { resolveProspectLocale } from '@/lib/prospect-locale';
-import { resolveUserTimeZone } from '@/lib/user-timezone';
+import { sendEmailForUser } from '@/lib/messaging';
+import { confirmAppointment, rescheduleAppointment, cancellationDraft } from '@/lib/appointment-flow';
 
-// Email de confirmation de rendez-vous, dans la langue du prospect (06/11/2026).
-const CONFIRMATION_TEXTS: Record<string, { intl: string; subject: string; hello: string; confirmed: string; types: Record<'visio' | 'telephonique' | 'physique', string>; link: string; linkLater: string; invite: string; reschedule: string; bye: string }> = {
-  fr: { intl: 'fr-FR', subject: "C'est confirmé pour notre rendez-vous", hello: 'Bonjour {name},', confirmed: "C'est confirmé pour notre rendez-vous {type}, le {date}.", types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, link: 'Voici le lien pour nous rejoindre : {link}', linkLater: 'Je vous envoie le lien de connexion dans un second email.', invite: 'Vous recevrez également une invitation pour votre agenda.', reschedule: 'Si vous avez besoin de décaler, répondez simplement à cet email.', bye: 'À très vite,' },
-  en: { intl: 'en-GB', subject: 'Our meeting is confirmed', hello: 'Hello {name},', confirmed: 'Our meeting {type} is confirmed for {date}.', types: { visio: 'by video call', telephonique: 'by phone', physique: 'in person' }, link: 'Here is the link to join: {link}', linkLater: 'I will send you the connection link in a second email.', invite: 'You will also receive a calendar invitation.', reschedule: 'If you need to reschedule, just reply to this email.', bye: 'Speak soon,' },
-  de: { intl: 'de-DE', subject: 'Unser Termin ist bestätigt', hello: 'Guten Tag {name},', confirmed: 'Unser Termin {type} ist bestätigt: {date}.', types: { visio: 'per Videoanruf', telephonique: 'per Telefon', physique: 'vor Ort' }, link: 'Hier ist der Link zur Teilnahme: {link}', linkLater: 'Den Zugangslink sende ich Ihnen in einer zweiten E-Mail.', invite: 'Sie erhalten außerdem eine Kalendereinladung.', reschedule: 'Falls Sie verschieben müssen, antworten Sie einfach auf diese E-Mail.', bye: 'Bis bald,' },
-  it: { intl: 'it-IT', subject: 'Il nostro appuntamento è confermato', hello: 'Buongiorno {name},', confirmed: 'Il nostro appuntamento {type} è confermato per {date}.', types: { visio: 'in videochiamata', telephonique: 'per telefono', physique: 'di persona' }, link: 'Ecco il link per collegarsi: {link}', linkLater: 'Le invierò il link di collegamento in una seconda email.', invite: 'Riceverà anche un invito per la sua agenda.', reschedule: 'Se ha bisogno di spostarlo, risponda semplicemente a questa email.', bye: 'A presto,' },
-  es: { intl: 'es-ES', subject: 'Nuestra reunión está confirmada', hello: 'Hola {name},', confirmed: 'Nuestra reunión {type} está confirmada para el {date}.', types: { visio: 'por videollamada', telephonique: 'por teléfono', physique: 'presencial' }, link: 'Aquí tiene el enlace para unirse: {link}', linkLater: 'Le enviaré el enlace de conexión en un segundo correo.', invite: 'También recibirá una invitación para su agenda.', reschedule: 'Si necesita cambiar la fecha, responda simplemente a este correo.', bye: 'Hasta pronto,' },
-  pt: { intl: 'pt-PT', subject: 'A nossa reunião está confirmada', hello: 'Olá {name},', confirmed: 'A nossa reunião {type} está confirmada para {date}.', types: { visio: 'por videochamada', telephonique: 'por telefone', physique: 'presencial' }, link: 'Aqui está o link para entrar: {link}', linkLater: 'Envio-lhe o link de ligação num segundo email.', invite: 'Receberá também um convite para a sua agenda.', reschedule: 'Se precisar de remarcar, basta responder a este email.', bye: 'Até breve,' },
-  nl: { intl: 'nl-NL', subject: 'Onze afspraak is bevestigd', hello: 'Hallo {name},', confirmed: 'Onze afspraak {type} is bevestigd voor {date}.', types: { visio: 'via videogesprek', telephonique: 'telefonisch', physique: 'ter plaatse' }, link: 'Hier is de link om deel te nemen: {link}', linkLater: 'De verbindingslink stuur ik je in een tweede e-mail.', invite: 'Je ontvangt ook een agenda-uitnodiging.', reschedule: 'Moet je verzetten? Beantwoord dan gewoon deze e-mail.', bye: 'Tot snel,' },
-};
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { canAccessAppointment } from '@/lib/appointment-access';
 import { runInBackground } from '@/lib/background';
 import { readJsonBody, serverError } from '@/lib/http';
-
-// Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
-// le calendrier et pour la vérification de conflit. Avant, une durée fixe de
-// 30 min était utilisée pour TOUS les types, y compris les RDV physiques
-// (largement sous-estimés en pratique).
-const APPOINTMENT_DURATION_MINUTES: Record<string, number> = {
-  telephonique: 30,
-  visio: 60,
-  physique: 120,
-};
-
-// 18/10/2026 (Alex : « de base ça se met sur 1 h ») : la durée saisie
-// (appointments.duration_minutes) prime ; sinon 60 min par défaut, et le
-// barème par type ci-dessus ne sert plus que si on le demande explicitement.
-function durationMinutesForType(type: string, stored?: number | null): number {
-  if (Number.isFinite(Number(stored)) && Number(stored) >= 15) return Number(stored);
-  return 60;
-}
-
-// Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
-//  - une indisponibilité ponctuelle déclarée (availability_blocks)
-//  - les créneaux récurrents déclarés (availability_rules), s'il y en a
-//  - le calendrier réel du commercial (freebusy Google et/ou Microsoft), s'il est connecté
-// Retourne la liste des raisons de conflit (vide = aucun conflit détecté).
-async function detectSchedulingConflicts(userId: string, startISO: string, endISO: string) {
-  const reasons: string[] = [];
-  const start = new Date(startISO);
-  const end = new Date(endISO);
-
-  const { data: blocks } = await supabaseAdmin
-    .from('availability_blocks')
-    .select('start_at, end_at, reason')
-    .eq('user_id', userId)
-    .lt('start_at', endISO)
-    .gt('end_at', startISO);
-
-  if (blocks && blocks.length > 0) {
-    reasons.push(`Chevauche une indisponibilité déclarée${blocks[0].reason ? ` (${blocks[0].reason})` : ''}.`);
-  }
-
-  const { data: rules } = await supabaseAdmin
-    .from('availability_rules')
-    .select('day_of_week, start_time, end_time')
-    .eq('user_id', userId);
-
-  if (rules && rules.length > 0) {
-    const dayOfWeek = start.getDay();
-    const timeStr = start.toTimeString().slice(0, 8); // HH:MM:SS
-    const withinAnyRule = rules.some(
-      (r) => r.day_of_week === dayOfWeek && timeStr >= r.start_time && timeStr < r.end_time
-    );
-    if (!withinAnyRule) {
-      reasons.push("En dehors des créneaux de disponibilité déclarés.");
-    }
-  }
-
-  const busy = await getFreeBusyForUser(userId, startISO, endISO);
-  const overlaps = busy.some((b) => new Date(b.start) < end && new Date(b.end) > start);
-  if (overlaps) {
-    reasons.push('Chevauche un événement déjà présent sur votre agenda (Google ou Outlook).');
-  }
-
-  return reasons;
-}
 
 // GET -> détails minimaux d'un RDV, utilisé par la page de bilan post-RDV
 // (app/app/agenda/rdv/[id]/bilan) pour afficher le nom du prospect et savoir
@@ -159,7 +81,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
 
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
-  const { action, force } = await readJsonBody(request);
+  const { action, force, preview, subject, body, skip_email, new_proposed_at } = await readJsonBody(request);
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin
@@ -188,161 +110,37 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   const userId = authedUser.id;
 
   if (action === 'valider') {
-    const { data: connections } = await supabaseAdmin
-      .from('oauth_connections')
-      .select('provider')
-      .eq('user_id', userId);
+    // Même parcours que la confirmation automatique (lib/appointment-flow.ts,
+    // 08/11/2026) : conflits sauf `force`, agenda, lien visio, email dans la
+    // langue du prospect, prospect en bleu.
+    const r = await confirmAppointment(appointmentId, userId, { force: !!force });
+    if (!r.ok) return NextResponse.json({ conflict: true, reasons: r.reasons }, { status: 409 });
+    return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.calendarWarning });
+  }
 
-    const hasGoogle = connections?.some((c) => c.provider === 'google');
-    const hasMicrosoft = connections?.some((c) => c.provider === 'microsoft');
-
-    const startISO = appointment.proposed_at;
-    const endISO = new Date(
-      new Date(startISO).getTime() + durationMinutesForType(appointment.type, (appointment as any).duration_minutes) * 60 * 1000
-    ).toISOString();
-
-    if (!force) {
-      const conflicts = await detectSchedulingConflicts(userId, startISO, endISO);
-      if (conflicts.length > 0) {
-        return NextResponse.json({ conflict: true, reasons: conflicts }, { status: 409 });
-      }
+  if (action === 'reporter' && new_proposed_at) {
+    // Report avec une nouvelle date choisie par le commercial (08/11/2026) :
+    // l'ancien événement est retiré, le nouveau créé, le prospect prévenu
+    // (« j'ai dû décaler… ») dans sa langue. Pas de contrôle de conflit : le
+    // commercial a choisi lui-même le créneau.
+    const when = new Date(new_proposed_at);
+    if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() - 60000) {
+      return NextResponse.json({ error: 'Date de report invalide' }, { status: 400 });
     }
-
-    let calendarEvent: any = null;
-    let calendarProvider: 'google' | 'microsoft' | null = null;
-    // Avertissement renvoye au frontend quand le RDV est bien valide mais que
-    // l'invitation d'agenda n'a pas pu etre creee (jeton Google/Microsoft
-    // expire, par ex.). On ne fait PAS echouer la validation pour autant
-    // (meme principe qu'une boite sans agenda, voir plus bas) : le RDV reste
-    // valide, le commercial est juste prevenu, et le flux ICS fera quand meme
-    // apparaitre le RDV. DECLARATION AJOUTEE LE 20/10/2026 : cette variable
-    // etait referencee plus bas (calendar_warning) sans jamais exister, ce qui
-    // cassait le build TypeScript de TOUTE la production depuis plus d'un jour
-    // (aucun deploiement ne passait, le site tournait sur une vieille version).
-    let calendarWarning: string | null = null;
-
-    if (hasGoogle) {
-      try {
-        calendarEvent = await createGoogleCalendarEvent(userId, {
-          title: `RDV avec ${appointment.prospects.full_name}`,
-          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
-          startISO,
-          endISO,
-          attendeeEmail: appointment.prospects.email,
-          wantsMeetLink: appointment.type === 'visio',
-        });
-        calendarProvider = 'google';
-      } catch (calErr: any) {
-        console.error('Erreur creation evenement Google Calendar:', calErr?.message);
-        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Google n'a pas pu etre creee. Verifiez la connexion Google dans Mon compte.";
-      }
-    } else if (hasMicrosoft) {
-      try {
-        calendarEvent = await createOutlookCalendarEvent(userId, {
-          title: `RDV avec ${appointment.prospects.full_name}`,
-          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
-          startISO,
-          endISO,
-          attendeeEmail: appointment.prospects.email,
-          wantsMeetLink: appointment.type === 'visio',
-        });
-        calendarProvider = 'microsoft';
-      } catch (calErr: any) {
-        console.error('Erreur creation evenement Outlook Calendar:', calErr?.message);
-        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Outlook n'a pas pu etre creee. Verifiez la connexion Microsoft dans Mon compte.";
-      }
-    }
-    // Aucun agenda connecté (boîte « Autre boîte mail » / IMAP, 10/09/2026) :
-    // on ne refuse PLUS la validation. Avant, un commercial chez OVH ne
-    // pouvait tout simplement pas valider un RDV — le parcours entier
-    // s'arrêtait là. Le RDV est donc validé côté Aaron, sans événement
-    // externe (le flux ICS le fera apparaître dans son téléphone), et c'est
-    // Aaron lui-même qui envoie la confirmation au prospect, puisqu'aucune
-    // invitation Google/Microsoft ne partira.
-
-    // Lien de visio (10/09/2026) : salle permanente du commercial en priorité
-    // (Préférences), sinon le lien Meet/Teams généré ci-dessus. Voir
-    // lib/meeting-link.ts.
-    const meetLink =
-      appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink, startISO) : null;
-
-    await supabaseAdmin
-      .from('appointments')
-      .update({
-        status: 'validé',
-        calendar_provider: calendarProvider,
-        calendar_event_id: calendarEvent?.id || null,
-        meet_link: meetLink,
-      })
-      .eq('id', appointmentId);
-
-    // Confirmation envoyée par Aaron À CHAQUE FOIS depuis le 11/09/2026.
-    //
-    // Jusqu'ici elle ne partait qu'en l'absence d'agenda connecté, en
-    // supposant que l'invitation Google/Microsoft suffisait. Les tests
-    // d'Alex du 11/09 ont montré le contraire, sur les deux boîtes
-    // Microsoft comme sur Google : « l'invitation n'est pas arrivée de
-    // suite, il a fallu que je demande ». Une invitation d'agenda peut
-    // tarder, atterrir dans les indésirables, ou être ignorée par un
-    // client de messagerie qui ne sait pas la lire — et le prospect se
-    // retrouve avec un rendez-vous confirmé sans savoir où se connecter.
-    //
-    // Un email de confirmation lisible, qui porte le lien en clair, coûte
-    // un message de plus quand l'invitation arrive bien. C'est un prix
-    // très inférieur à celui d'un rendez-vous manqué.
-    if (appointment.prospects?.email) {
-      // LANGUE DU PROSPECT ET FUSEAU DU COMMERCIAL (06/11/2026). Jusqu'ici :
-      // français en dur, date à l'heure de Paris — pour un prospect de Perth
-      // écrit en anglais, c'était une confirmation en français avec une
-      // heure fausse de sept heures. Même détermination de langue que le
-      // premier email (lib/prospect-locale.ts), et le fuseau est celui du
-      // commercial, puisque le créneau a été proposé dans son agenda.
-      const [{ data: seller }, { data: campaign }] = await Promise.all([
-        supabaseAdmin.from('users').select('timezone, billing_country, locale').eq('id', userId).maybeSingle(),
-        (appointment.prospects as any)?.prospect_companies?.found_by_campaign_id
-          ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', (appointment.prospects as any).prospect_companies.found_by_campaign_id).maybeSingle()
-          : Promise.resolve({ data: null as any }),
-      ]);
-      const prospectLocale = resolveProspectLocale({
-        campaignLocale: campaign?.target_locale || null,
-        address: (appointment.prospects as any)?.prospect_companies?.address || null,
-        email: appointment.prospects.email,
-        sellerLocale: (seller as any)?.locale || null,
-      });
-      const tz = resolveUserTimeZone((seller as any) || {});
-      const T = CONFIRMATION_TEXTS[prospectLocale] || CONFIRMATION_TEXTS.fr;
-      const dateStr = new Date(startISO).toLocaleString(T.intl, { dateStyle: 'full', timeStyle: 'short', timeZone: tz });
-      const typeLabel = T.types[appointment.type as 'visio' | 'telephonique' | 'physique'] || T.types.physique;
-      const lines = [T.hello.replace('{name}', appointment.prospects.full_name || ''), '', T.confirmed.replace('{type}', typeLabel).replace('{date}', dateStr)];
-      if (meetLink) {
-        lines.push('', T.link.replace('{link}', meetLink));
-      } else if (appointment.type === 'visio') {
-        // Aucun lien disponible au moment de la confirmation : on le dit,
-        // plutôt que de laisser le prospect chercher.
-        lines.push('', T.linkLater);
-      }
-      if (calendarProvider) {
-        // L'invitation d'agenda part aussi : on l'annonce pour que le
-        // prospect ne prenne pas le second message pour un doublon.
-        lines.push('', T.invite);
-      }
-      lines.push('', T.reschedule, '', T.bye);
-      const confirmationSubject = T.subject;
-      // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
-      // n'attend pas la boîte mail. Un échec reste dans les journaux.
-      runInBackground(`confirmation RDV ${appointmentId}`, () =>
-        sendEmailForUser(userId, appointment.prospects.email, confirmationSubject, lines.join('\n'))
-      );
-    }
-
-    await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
-
-    return NextResponse.json({ success: true, status: 'validé', calendar_warning: calendarWarning });
+    const r = await rescheduleAppointment(appointmentId, userId, when.toISOString());
+    return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.ok ? r.calendarWarning : null });
   }
 
   if (action === 'reporter') {
     await supabaseAdmin.from('appointments').update({ status: 'reporté' }).eq('id', appointmentId);
     return NextResponse.json({ success: true, status: 'reporté' });
+  }
+
+  if (action === 'annuler' && preview) {
+    // Aaron prépare l'email d'annulation, le commercial le relit et l'envoie
+    // lui-même (décision Alex, 08/11/2026). Rien n'est modifié ici.
+    const draft = await cancellationDraft(appointmentId, userId);
+    return NextResponse.json({ draft, already_past: new Date(appointment.proposed_at) < new Date() });
   }
 
   if (action === 'annuler') {
@@ -370,15 +168,15 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     // ce cas on ne prévient pas le prospect ici ; le commercial choisira lui-
     // même de relancer (action "relancer", voir plus bas) via la notif moins
     // urgente qui apparaît désormais au tableau de bord pour ce cas.
-    if (!alreadyPast && appointment.prospects?.email) {
-      runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
-        sendEmailForUser(
-          userId,
-          appointment.prospects.email,
-          'Concernant notre rendez-vous',
-          `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
-        )
-      );
+    if (!alreadyPast && appointment.prospects?.email && !skip_email) {
+      // Texte relu par le commercial (subject/body envoyés par la page),
+      // sinon le brouillon d'Aaron dans la langue du prospect.
+      const draft = typeof body === 'string' && body.trim() ? { subject: (typeof subject === 'string' && subject.trim()) || 'Concernant notre rendez-vous', body } : await cancellationDraft(appointmentId, userId);
+      if (draft) {
+        runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
+          sendEmailForUser(userId, appointment.prospects.email, draft.subject, draft.body)
+        );
+      }
     }
 
     if (appointment.prospect_id) {

@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { t, useLocale } from '@/lib/i18n';
+import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { ONBOARDING_QUESTION_KEYS, suggestionsFor } from '@/lib/onboarding-questions';
 import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft, Sparkles, Loader2, FileText } from 'lucide-react';
 
@@ -32,6 +32,8 @@ import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft,
 // de GitHub), comme components/ContactCard.jsx.
 const W = {
   fr: {
+    chatSend: 'Envoyer', chatConfirm: 'Oui, c\'est ça', chatAdd: 'Compléter…', chatThinking: 'Aaron réfléchit…', chatFromDoc: 'D\'après ton document, voici ce que je comprends :', chatIntro: 'Réponds avec tes mots, ou pose-moi une question si quelque chose n\'est pas clair.', chatErr: 'Aaron n\'a pas pu répondre, réessaie.',
+    availTitle: 'Quand es-tu disponible pour un rendez-vous ?', availLead: 'Aaron ne proposera que ces créneaux à tes prospects, et confirmera les rendez-vous tout seul quand ils tombent dedans. Tu pourras les changer à tout moment dans l\'Agenda.', availTypes: 'Types de rendez-vous que tu acceptes', availSave: 'Enregistrer mes disponibilités', availSaving: 'Enregistrement…', availFrom: 'de', availTo: 'à', typeVisio: 'Visio', typeTel: 'Téléphone', typePhysique: 'Sur place', availErr: 'Impossible d\'enregistrer, réessaie.',
     stepOf: 'Étape {n} sur {total}', skip: 'Passer', later: 'Reprendre plus tard', next: 'Suivant', back: 'Précédent', start: "C'est parti",
     introTitle: 'Bienvenue{name} ! Voici comment Aaron travaille pour toi', introLead: 'Trois minutes de réglages, puis Aaron prend le relais.',
     c1t: 'Aaron trouve', c1b: 'Il cherche les entreprises qui correspondent à tes clients idéaux.',
@@ -74,6 +76,8 @@ const W = {
     saveError: 'Connexion perdue : ta réponse n’a pas été enregistrée. Réessaie.',
   },
   en: {
+    chatSend: 'Send', chatConfirm: 'Yes, that\'s it', chatAdd: 'Add something…', chatThinking: 'Aaron is thinking…', chatFromDoc: 'From your document, here is what I understand:', chatIntro: 'Answer in your own words, or ask me a question if something is unclear.', chatErr: 'Aaron could not answer, please try again.',
+    availTitle: 'When are you available for a meeting?', availLead: 'Aaron will only offer these time slots to your prospects, and will confirm meetings on his own when they fall inside them. You can change them any time in the Calendar.', availTypes: 'Meeting types you accept', availSave: 'Save my availability', availSaving: 'Saving…', availFrom: 'from', availTo: 'to', typeVisio: 'Video call', typeTel: 'Phone', typePhysique: 'In person', availErr: 'Could not save, please try again.',
     stepOf: 'Step {n} of {total}', skip: 'Skip', later: 'Continue later', next: 'Next', back: 'Back', start: "Let's go",
     introTitle: 'Welcome{name}! Here is how Aaron works for you', introLead: 'Three minutes of setup, then Aaron takes over.',
     c1t: 'Aaron finds', c1b: 'He looks for companies that match your ideal clients.',
@@ -116,6 +120,8 @@ const W = {
     saveError: 'Connection lost: your answer was not saved. Please try again.',
   },
   de: {
+    chatSend: 'Senden', chatConfirm: 'Ja, genau', chatAdd: 'Ergänzen…', chatThinking: 'Aaron überlegt…', chatFromDoc: 'Aus deinem Dokument verstehe ich Folgendes:', chatIntro: 'Antworte in deinen Worten oder stell mir eine Frage, wenn etwas unklar ist.', chatErr: 'Aaron konnte nicht antworten, bitte versuche es erneut.',
+    availTitle: 'Wann sind Sie für einen Termin erreichbar?', availLead: 'Aaron schlägt Ihren Interessenten nur diese Zeitfenster vor und bestätigt Termine selbstständig, wenn sie hineinfallen. Sie können sie jederzeit im Kalender ändern.', availTypes: 'Terminarten, die Sie akzeptieren', availSave: 'Verfügbarkeit speichern', availSaving: 'Wird gespeichert…', availFrom: 'von', availTo: 'bis', typeVisio: 'Videoanruf', typeTel: 'Telefon', typePhysique: 'Vor Ort', availErr: 'Speichern nicht möglich, bitte erneut versuchen.',
     stepOf: 'Schritt {n} von {total}', skip: 'Überspringen', later: 'Später fortsetzen', next: 'Weiter', back: 'Zurück', start: 'Los geht’s',
     introTitle: 'Willkommen{name}! So arbeitet Aaron für Sie', introLead: 'Drei Minuten Einrichtung, dann übernimmt Aaron.',
     c1t: 'Aaron findet', c1b: 'Er sucht Unternehmen, die zu Ihren idealen Kunden passen.',
@@ -158,6 +164,8 @@ const W = {
     saveError: 'Verbindung verloren: Ihre Antwort wurde nicht gespeichert. Bitte erneut versuchen.',
   },
   it: {
+    chatSend: 'Invia', chatConfirm: 'Sì, è così', chatAdd: 'Aggiungi qualcosa…', chatThinking: 'Aaron sta pensando…', chatFromDoc: 'Dal tuo documento, ecco cosa capisco:', chatIntro: 'Rispondi con parole tue, o fammi una domanda se qualcosa non è chiaro.', chatErr: 'Aaron non ha potuto rispondere, riprova.',
+    availTitle: 'Quando sei disponibile per un appuntamento?', availLead: 'Aaron proporrà ai tuoi prospect solo queste fasce orarie e confermerà da solo gli appuntamenti che vi rientrano. Potrai cambiarle in qualsiasi momento nell\'Agenda.', availTypes: 'Tipi di appuntamento che accetti', availSave: 'Salva le mie disponibilità', availSaving: 'Salvataggio…', availFrom: 'dalle', availTo: 'alle', typeVisio: 'Videochiamata', typeTel: 'Telefono', typePhysique: 'Di persona', availErr: 'Impossibile salvare, riprova.',
     stepOf: 'Passo {n} di {total}', skip: 'Salta', later: 'Riprendi più tardi', next: 'Avanti', back: 'Indietro', start: 'Iniziamo',
     introTitle: 'Benvenuto{name}! Ecco come lavora Aaron per te', introLead: 'Tre minuti di impostazioni, poi ci pensa Aaron.',
     c1t: 'Aaron trova', c1b: 'Cerca le aziende che corrispondono ai tuoi clienti ideali.',
@@ -200,6 +208,8 @@ const W = {
     saveError: 'Connessione persa: la risposta non è stata salvata. Riprova.',
   },
   es: {
+    chatSend: 'Enviar', chatConfirm: 'Sí, es eso', chatAdd: 'Añadir algo…', chatThinking: 'Aaron está pensando…', chatFromDoc: 'Según tu documento, esto es lo que entiendo:', chatIntro: 'Responde con tus palabras o hazme una pregunta si algo no está claro.', chatErr: 'Aaron no ha podido responder, inténtalo de nuevo.',
+    availTitle: '¿Cuándo estás disponible para una reunión?', availLead: 'Aaron solo propondrá estos horarios a tus prospectos y confirmará las reuniones por sí mismo cuando caigan dentro. Puedes cambiarlos en cualquier momento en la Agenda.', availTypes: 'Tipos de reunión que aceptas', availSave: 'Guardar mi disponibilidad', availSaving: 'Guardando…', availFrom: 'de', availTo: 'a', typeVisio: 'Videollamada', typeTel: 'Teléfono', typePhysique: 'Presencial', availErr: 'No se ha podido guardar, inténtalo de nuevo.',
     stepOf: 'Paso {n} de {total}', skip: 'Omitir', later: 'Continuar más tarde', next: 'Siguiente', back: 'Atrás', start: 'Empezar',
     introTitle: '¡Bienvenido{name}! Así trabaja Aaron para ti', introLead: 'Tres minutos de ajustes y Aaron toma el relevo.',
     c1t: 'Aaron encuentra', c1b: 'Busca las empresas que encajan con tus clientes ideales.',
@@ -242,6 +252,8 @@ const W = {
     saveError: 'Conexión perdida: tu respuesta no se guardó. Inténtalo de nuevo.',
   },
   pt: {
+    chatSend: 'Enviar', chatConfirm: 'Sim, é isso', chatAdd: 'Acrescentar…', chatThinking: 'O Aaron está a pensar…', chatFromDoc: 'Pelo teu documento, é isto que percebo:', chatIntro: 'Responde com as tuas palavras, ou faz-me uma pergunta se algo não estiver claro.', chatErr: 'O Aaron não conseguiu responder, tenta de novo.',
+    availTitle: 'Quando estás disponível para uma reunião?', availLead: 'O Aaron só vai propor estes horários aos teus prospetos e confirma as reuniões sozinho quando caem dentro deles. Podes alterá-los a qualquer momento na Agenda.', availTypes: 'Tipos de reunião que aceitas', availSave: 'Guardar a minha disponibilidade', availSaving: 'A guardar…', availFrom: 'das', availTo: 'às', typeVisio: 'Videochamada', typeTel: 'Telefone', typePhysique: 'Presencial', availErr: 'Não foi possível guardar, tenta de novo.',
     stepOf: 'Passo {n} de {total}', skip: 'Saltar', later: 'Continuar mais tarde', next: 'Seguinte', back: 'Anterior', start: 'Vamos lá',
     introTitle: 'Bem-vindo{name}! Eis como o Aaron trabalha para ti', introLead: 'Três minutos de configuração, depois o Aaron trata do resto.',
     c1t: 'O Aaron encontra', c1b: 'Procura as empresas que correspondem aos teus clientes ideais.',
@@ -284,6 +296,8 @@ const W = {
     saveError: 'Ligação perdida: a resposta não foi guardada. Tenta outra vez.',
   },
   nl: {
+    chatSend: 'Versturen', chatConfirm: 'Ja, dat klopt', chatAdd: 'Aanvullen…', chatThinking: 'Aaron denkt na…', chatFromDoc: 'Uit je document begrijp ik het volgende:', chatIntro: 'Antwoord in je eigen woorden, of stel me een vraag als iets niet duidelijk is.', chatErr: 'Aaron kon niet antwoorden, probeer het opnieuw.',
+    availTitle: 'Wanneer ben je beschikbaar voor een afspraak?', availLead: 'Aaron stelt je prospects alleen deze tijdsloten voor en bevestigt afspraken zelf wanneer ze erin vallen. Je kunt ze altijd aanpassen in de Agenda.', availTypes: 'Soorten afspraken die je accepteert', availSave: 'Mijn beschikbaarheid opslaan', availSaving: 'Opslaan…', availFrom: 'van', availTo: 'tot', typeVisio: 'Videogesprek', typeTel: 'Telefoon', typePhysique: 'Ter plaatse', availErr: 'Opslaan mislukt, probeer het opnieuw.',
     stepOf: 'Stap {n} van {total}', skip: 'Overslaan', later: 'Later verdergaan', next: 'Volgende', back: 'Terug', start: 'Aan de slag',
     introTitle: 'Welkom{name}! Zo werkt Aaron voor je', introLead: 'Drie minuten instellen, daarna neemt Aaron het over.',
     c1t: 'Aaron zoekt', c1b: 'Hij zoekt bedrijven die passen bij je ideale klanten.',
@@ -345,12 +359,14 @@ const RETURN_FLAG = 'aaron-welcome-return';
 const LATER_FLAG = 'aaron-welcome-later';
 
 function stepsFor(invited) {
-  return invited ? ['intro', 'mailbox', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'end'];
+  // 'availability' (08/11/2026, demande Alex) : plages du lundi au dimanche et
+  // types de rendez-vous, saisis ici plutôt qu'en renvoyant vers l'Agenda.
+  return invited ? ['intro', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'availability', 'end'];
 }
 
 export default function BienvenuePage() {
   const router = useRouter();
-  const [locale] = useLocale();
+  const [locale, setLocale] = useLocale();
   const [me, setMe] = useState(null); // { id, company_id }
   const [state, setState] = useState(null); // réponse de GET /api/welcome
   const [step, setStep] = useState('intro');
@@ -366,6 +382,16 @@ export default function BienvenuePage() {
   const docSaveRef = useRef(null);
   const [current, setCurrent] = useState('');
   const [savingAnswer, setSavingAnswer] = useState(false);
+  // Conversation avec Aaron sur la question en cours (08/11/2026) :
+  // thread = [{ role: 'user'|'aaron', content }], proposal = la réponse
+  // nettoyée qu'Aaron propose d'enregistrer, à confirmer ou compléter.
+  const [thread, setThread] = useState([]);
+  const [proposal, setProposal] = useState(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const threadEndRef = useRef(null);
+  useEffect(() => {
+    try { threadEndRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+  }, [thread, proposal, chatBusy]);
   const [docStatus, setDocStatus] = useState(null); // null | 'reading' | { filled, total } | 'none' | 'error'
   const [summarizing, setSummarizing] = useState(false);
   const fileRef = useRef(null);
@@ -447,6 +473,41 @@ export default function BienvenuePage() {
     goTo(steps[Math.min(steps.length - 1, i + 1)]);
   }
 
+  // ---- Disponibilités ----
+  const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '18:00' }])));
+  const [availTypes, setAvailTypes] = useState({ visio: true, telephonique: true, physique: true });
+  const [availSaving, setAvailSaving] = useState(false);
+  const dayName = (d) => new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, { weekday: 'long', timeZone: 'UTC' });
+  async function saveAvailability() {
+    if (!me?.id) { nextStep(); return; }
+    setAvailSaving(true);
+    setError(null);
+    try {
+      const types = Object.keys(availTypes).filter((k) => availTypes[k]);
+      const allTypes = types.length === 3 || types.length === 0;
+      const calls = [];
+      for (const d of DAY_ORDER) {
+        const row = avail[d];
+        if (!row.on || row.start >= row.end) continue;
+        for (const type of allTypes ? [null] : types) {
+          calls.push(fetch('/api/availability/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: me.id, day_of_week: d, start_time: `${row.start}:00`, end_time: `${row.end}:00`, appointment_type: type }),
+          }));
+        }
+      }
+      const results = await Promise.all(calls);
+      if (results.some((r) => !r.ok)) throw new Error('save');
+      nextStep();
+    } catch (e) {
+      setError(w('availErr', locale));
+    } finally {
+      setAvailSaving(false);
+    }
+  }
+
   function later() {
     try { window.sessionStorage.setItem(LATER_FLAG, '1'); } catch (e) {}
     router.push(`/app/campaigns?user_id=${me?.id || ''}`);
@@ -456,13 +517,58 @@ export default function BienvenuePage() {
   function showQuestion(i) {
     const key = ONBOARDING_QUESTION_KEYS[i];
     setQIndex(i);
-    setCurrent(answers[key] ?? drafts[key] ?? '');
+    setCurrent('');
+    resetThread(key);
     save({ question: i }).catch(() => {});
+  }
+
+  // Nouveau fil pour une question : une réponse déjà enregistrée ou tirée du
+  // document est proposée d'emblée (à confirmer ou à compléter).
+  function resetThread(key) {
+    const known = answers[key] ?? drafts[key] ?? '';
+    setThread([]);
+    setProposal(known ? known : null);
+  }
+
+  async function sendToAaron(text) {
+    const q = questions[qIndex];
+    const msg = (text || current).trim();
+    if (!msg || !q) return;
+    const nextThread = [...thread, { role: 'user', content: msg }];
+    setThread(nextThread);
+    setCurrent('');
+    setChatBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/onboarding/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question_key: q.key,
+          question: q.text,
+          history: proposal && thread.length === 0 ? [{ role: 'aaron', content: proposal }] : thread,
+          message: msg,
+          locale,
+          draft: drafts[q.key] || null,
+          company_name: state?.company_name || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.message) throw new Error(body.error || 'chat');
+      setThread([...nextThread, { role: 'aaron', content: body.message }]);
+      setProposal(body.kind === 'propose' ? body.proposed_answer : null);
+    } catch (e) {
+      setError(w('chatErr', locale));
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   async function validateAnswer(skip = false) {
     const q = questions[qIndex];
-    const text = skip ? '' : current.trim();
+    // Ce qui est enregistré : la reformulation d'Aaron confirmée, sinon ce
+    // que l'utilisateur a tapé (secours si Aaron n'a rien proposé).
+    const text = skip ? '' : (proposal || current).trim();
     setSavingAnswer(true);
     setError(null);
     try {
@@ -479,7 +585,9 @@ export default function BienvenuePage() {
     if (qIndex + 1 < questions.length) {
       const key = ONBOARDING_QUESTION_KEYS[qIndex + 1];
       setQIndex(qIndex + 1);
-      setCurrent(nextAnswers[key] ?? drafts[key] ?? '');
+      setCurrent('');
+      setThread([]);
+      setProposal(nextAnswers[key] ?? drafts[key] ?? null);
     } else {
       finishCompany(nextAnswers);
     }
@@ -539,7 +647,9 @@ export default function BienvenuePage() {
   }
 
   function addChip(text) {
-    setCurrent((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+    // Une suggestion cliquée est une réponse : elle part à Aaron, qui la
+    // reformule et demande confirmation (08/11/2026).
+    sendToAaron(text);
   }
 
   // ---- Campagne ----
@@ -650,7 +760,7 @@ export default function BienvenuePage() {
   const firstName = state.first_name ? ` ${state.first_name}` : '';
   const q = questions[qIndex];
   const chips = q ? suggestionsFor(locale, q.key) : [];
-  const fromDoc = q && !answers[q.key] && drafts[q.key] && current === drafts[q.key];
+  const fromDoc = q && !answers[q.key] && drafts[q.key] && thread.length === 0 && proposal === drafts[q.key];
 
   return (
     <div className="wl">
@@ -660,6 +770,23 @@ export default function BienvenuePage() {
           <span className="wl-step">{w('stepOf', locale).replace('{n}', String(stepNo)).replace('{total}', String(steps.length))}</span>
           <span className="wl-bar"><span style={{ width: `${(stepNo / steps.length) * 100}%` }} /></span>
         </div>
+        {/* Langue changeable dès la première connexion (demande Alex,
+            08/11/2026 : « dans la démo il faut pouvoir changer la langue »).
+            Synchronisée côté serveur comme dans Mon compte. */}
+        <select
+          className="wl-lang"
+          value={locale}
+          onChange={(e) => {
+            const next = e.target.value;
+            setLocale(next);
+            fetch('/api/user/locale', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locale: next }) }).catch(() => {});
+          }}
+          aria-label={t('common.language', locale)}
+        >
+          {LOCALES.map((l) => (
+            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
+          ))}
+        </select>
       </header>
 
       <main className="wl-main">
@@ -727,16 +854,47 @@ export default function BienvenuePage() {
                       ))}
                     </span>
                   </div>
-                  <h2 className="q-text">{q.text}</h2>
-                  {chips.length > 0 && (
+                  {/* Conversation avec Aaron (08/11/2026) : la question est
+                      son premier message ; l'utilisateur répond ou demande
+                      une précision ; Aaron reformule et propose la réponse
+                      à enregistrer, que l'on confirme ou que l'on complète. */}
+                  <div className="thread">
+                    <div className="bubble aaron"><span className="who">Aaron</span>{q.text}</div>
+                    {thread.length === 0 && !proposal && <p className="muted small thread-hint">{w('chatIntro', locale)}</p>}
+                    {thread.length === 0 && proposal && (
+                      <div className="bubble aaron"><span className="who">Aaron</span>{fromDoc ? w('chatFromDoc', locale) : ''} {proposal}</div>
+                    )}
+                    {thread.map((m, i) => (
+                      <div key={i} className={`bubble ${m.role}`}><span className="who">{m.role === 'aaron' ? 'Aaron' : (state?.first_name || firstName || '')}</span>{m.content}</div>
+                    ))}
+                    {chatBusy && <div className="bubble aaron muted"><span className="who">Aaron</span>{w('chatThinking', locale)}</div>}
+                    <div ref={threadEndRef} />
+                  </div>
+                  {proposal && !chatBusy && (
+                    <div className="proposal">
+                      <p className="proposal-text">{proposal}</p>
+                      <button type="button" className="btn-primary" disabled={savingAnswer} onClick={() => validateAnswer(false)}>
+                        <Check size={15} aria-hidden="true" /> {w('chatConfirm', locale)}
+                      </button>
+                    </div>
+                  )}
+                  {chips.length > 0 && thread.length === 0 && !proposal && (
                     <div className="chips" aria-label={w('suggestions', locale)}>
                       {chips.map((c) => (
-                        <button type="button" key={c.label} className="chip" onClick={() => addChip(c.text)}>{c.label}</button>
+                        <button type="button" key={c.label} className="chip" disabled={chatBusy} onClick={() => addChip(c.text)}>{c.label}</button>
                       ))}
                     </div>
                   )}
-                  <textarea rows={4} value={current} placeholder={w('placeholder', locale)} onChange={(e) => setCurrent(e.target.value)} />
-                  {fromDoc && <p className="muted small">{w('prefilled', locale)}</p>}
+                  <div className="composer">
+                    <textarea
+                      rows={2}
+                      value={current}
+                      placeholder={proposal ? w('chatAdd', locale) : w('placeholder', locale)}
+                      onChange={(e) => setCurrent(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !chatBusy) { e.preventDefault(); sendToAaron(); } }}
+                    />
+                    <button type="button" className="btn-secondary" disabled={chatBusy || !current.trim()} onClick={() => sendToAaron()}>{w('chatSend', locale)}</button>
+                  </div>
                   {error && <p className="err">{error}</p>}
                   <div className="q-actions">
                     <button type="button" className="btn-ghost" disabled={qIndex === 0 || savingAnswer} onClick={() => showQuestion(qIndex - 1)}>
@@ -744,9 +902,6 @@ export default function BienvenuePage() {
                     </button>
                     <span className="grow" />
                     <button type="button" className="btn-ghost" disabled={savingAnswer} onClick={() => validateAnswer(true)}>{w('skipQuestion', locale)}</button>
-                    <button type="button" className="btn-primary" disabled={savingAnswer || !current.trim()} onClick={() => validateAnswer(false)}>
-                      {w('validate', locale)} <ArrowRight size={15} aria-hidden="true" />
-                    </button>
                   </div>
                 </div>
               </>
@@ -873,6 +1028,43 @@ export default function BienvenuePage() {
           </section>
         )}
 
+        {step === 'availability' && (
+          <section>
+            <h1>{w('availTitle', locale)}</h1>
+            <p className="lead">{w('availLead', locale)}</p>
+            <div className="panel">
+              <div className="avail-grid">
+                {DAY_ORDER.map((d) => (
+                  <div key={d} className={`avail-row${avail[d].on ? '' : ' off'}`}>
+                    <label className="avail-day">
+                      <input type="checkbox" checked={avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], on: e.target.checked } })} />
+                      <span>{dayName(d)}</span>
+                    </label>
+                    <div className="avail-times">
+                      <span className="muted small">{w('availFrom', locale)}</span>
+                      <input type="time" value={avail[d].start} disabled={!avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], start: e.target.value } })} />
+                      <span className="muted small">{w('availTo', locale)}</span>
+                      <input type="time" value={avail[d].end} disabled={!avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], end: e.target.value } })} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <span className="lbl" style={{ marginTop: '1rem' }}>{w('availTypes', locale)}</span>
+              <div className="chips">
+                {[['visio', 'typeVisio'], ['telephonique', 'typeTel'], ['physique', 'typePhysique']].map(([key, lk]) => (
+                  <button type="button" key={key} className={`chip${availTypes[key] ? ' on' : ''}`} aria-pressed={availTypes[key]} onClick={() => setAvailTypes({ ...availTypes, [key]: !availTypes[key] })}>{w(lk, locale)}</button>
+                ))}
+              </div>
+              {error && <p className="err">{error}</p>}
+              <div className="row-end">
+                <button type="button" className="btn-primary" disabled={availSaving} onClick={saveAvailability}>
+                  {availSaving ? w('availSaving', locale) : w('availSave', locale)} <ArrowRight size={15} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         {step === 'end' && (
           <section>
             <h1>{w('endTitle', locale)}</h1>
@@ -904,6 +1096,7 @@ export default function BienvenuePage() {
         .wl { min-height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
         .wl-top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 5; }
         .wl-logo { width: 32px; height: 32px; border-radius: 8px; }
+        .wl-lang { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.35rem 0.5rem; font-size: 0.76rem; font-family: inherit; cursor: pointer; max-width: 110px; }
         .wl-progress { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; max-width: 520px; }
         .wl-step { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
         .wl-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; display: block; }
@@ -912,6 +1105,14 @@ export default function BienvenuePage() {
         h1 { font-family: var(--font-display); font-size: 1.55rem; line-height: 1.25; margin: 0.4rem 0 0.5rem; }
         .lead { color: var(--muted); font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.2rem; }
         .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
+        .avail-grid { display: grid; gap: 0.45rem; }
+        .avail-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+        .avail-row:last-child { border-bottom: 0; }
+        .avail-row.off .avail-times { opacity: 0.45; }
+        .avail-day { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; text-transform: capitalize; min-width: 9rem; cursor: pointer; }
+        .avail-day input { width: 16px; height: 16px; accent-color: var(--accent); }
+        .avail-times { display: inline-flex; align-items: center; gap: 0.4rem; }
+        .avail-times input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.45rem; color: var(--text); font: inherit; font-size: 0.86rem; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; }
         .card h3 { margin: 0.6rem 0 0.3rem; font-size: 1rem; }
         .card p { margin: 0; color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
@@ -948,6 +1149,17 @@ export default function BienvenuePage() {
         textarea, input, select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; color: var(--text); font-size: 0.92rem; font-family: inherit; }
         textarea { resize: vertical; }
         .q-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
+        .thread { display: flex; flex-direction: column; gap: 0.55rem; margin: 0.6rem 0 0.8rem; max-height: 46vh; overflow-y: auto; padding-right: 0.2rem; }
+        .bubble { position: relative; max-width: 92%; padding: 0.65rem 0.8rem 0.6rem; border-radius: 14px; font-size: 0.93rem; line-height: 1.45; white-space: pre-line; }
+        .bubble .who { display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.2rem; }
+        .bubble.aaron { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+        .bubble.user { align-self: flex-end; background: rgba(75, 57, 239, 0.16); border: 1px solid rgba(124, 110, 245, 0.45); border-bottom-right-radius: 4px; }
+        .bubble.muted { color: var(--muted); font-style: italic; }
+        .thread-hint { margin: 0; }
+        .proposal { display: flex; align-items: flex-start; gap: 0.7rem; flex-wrap: wrap; background: rgba(61, 163, 93, 0.1); border: 1px solid rgba(61, 163, 93, 0.45); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; margin-bottom: 0.7rem; }
+        .proposal-text { flex: 1 1 220px; margin: 0; font-size: 0.9rem; line-height: 1.45; }
+        .composer { display: flex; gap: 0.5rem; align-items: flex-end; }
+        .composer textarea { flex: 1; margin: 0; }
         .grow { flex: 1; }
         .form { display: flex; flex-direction: column; gap: 0.85rem; }
         .form label, .field { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem; color: var(--muted); font-weight: 600; }

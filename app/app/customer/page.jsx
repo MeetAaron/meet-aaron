@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import Translated from '@/components/Translated';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import RailMore, { railLinkClass } from '@/components/RailMore';
 import MobileChrome from '@/components/MobileChrome';
@@ -903,7 +904,7 @@ export default function CustomerPage() {
                         <>
                           <p><strong>{t('customer.scoreLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_score != null ? `${selectedCustomer.latest_checkin.response_score}/10` : t('customer.notProvided', locale)}</p>
                           {selectedCustomer.latest_checkin.response_comment && (
-                            <p><strong>{t('customer.commentLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_comment}</p>
+                            <p><strong>{t('customer.commentLabel', locale)}</strong> <Translated text={selectedCustomer.latest_checkin.response_comment} locale={locale} /></p>
                           )}
                         </>
                       ) : (
@@ -917,7 +918,7 @@ export default function CustomerPage() {
                   <section className="block">
                     <h3>{t('customer.upsellTitle', locale)}</h3>
                     <div className="brief-box">
-                      <p>{selectedCustomer.upsell_suggestion}</p>
+                      <Translated as="p" text={selectedCustomer.upsell_suggestion} locale={locale} />
                     </div>
                     <button className="btn-secondary" onClick={() => handleDismissUpsell(selectedCustomer.id)}>
                       {t('customer.dismiss', locale)}
@@ -948,7 +949,7 @@ export default function CustomerPage() {
                       ) : selectedCustomer.renewal_email_subject ? (
                         <div className="email-preview">
                           <p className="email-subject">{selectedCustomer.renewal_email_subject}</p>
-                          <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.renewal_email_body}</p>
+                          <Translated as="p" className="email-body" style={{ whiteSpace: 'pre-line' }} text={selectedCustomer.renewal_email_body} locale={locale} />
                           {renewalError && <p className="error">{renewalError}</p>}
                           <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, true)} disabled={renewalLoading}>
                             {renewalLoading ? t('customer.regenerating', locale) : t('customer.regenerate', locale)}

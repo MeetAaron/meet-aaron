@@ -19,12 +19,14 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+import { passwordResetEmail } from '@/lib/account-emails';
+import { normalizeLocale } from '@/lib/locale-instruction';
 import { readJsonBody } from '@/lib/http';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
 
 export async function POST(request: NextRequest) {
-  const { email } = await readJsonBody(request);
+  const { email, locale } = await readJsonBody(request);
 
   // Limitation de débit (15/10/2026, audit CASA). Deux compteurs, parce
   // qu'ils arrêtent deux abus différents : par IP, quelqu'un qui balaye des
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('id, auth_user_id, first_name, email')
+    .select('id, auth_user_id, first_name, email, locale')
     .ilike('email', normalized)
     .not('auth_user_id', 'is', null)
     .maybeSingle();
@@ -68,14 +70,12 @@ export async function POST(request: NextRequest) {
 
     const origin = request.nextUrl.origin;
     const link = `${origin}/login?reset=${token}`;
-    const body =
-      `Bonjour${user.first_name ? ' ' + user.first_name : ''},\n\n` +
-      `Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :\n\n` +
-      `${link}\n\n` +
-      `Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.\n\n` +
-      `Aaron`;
+    // Langue : celle du compte (users.locale), sinon celle envoyée par la
+    // page de connexion, sinon le français (08/11/2026).
+    const lang = normalizeLocale((user as any).locale || (typeof locale === 'string' ? locale : null));
+    const mail = passwordResetEmail(lang, link, user.first_name);
     try {
-      await sendSystemEmail(user.email || normalized, 'Réinitialise ton mot de passe Meet Aaron', body);
+      await sendSystemEmail(user.email || normalized, mail.subject, mail.body, lang);
     } catch (err: any) {
       console.error('Email de réinitialisation non envoyé:', err?.message || err);
       return NextResponse.json({ error: "Impossible d'envoyer le lien pour le moment — écris-nous à aaron@meetaaron.app" }, { status: 502 });

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
-import { useLocale, localeForCountry, t } from '@/lib/i18n';
+import { useLocale, localeForCountry, t, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
 import Ic from '@/components/UiIcon';
 import { isNativeApp } from '@/lib/native-app';
@@ -508,6 +508,24 @@ const BILLING_TEXT = {
 };
 const bt = (key, locale) => (BILLING_TEXT[locale] || BILLING_TEXT.fr)[key] || BILLING_TEXT.fr[key];
 
+// Choix de la langue sur chaque écran d'inscription (demande Alex,
+// 08/11/2026) — même sélecteur que la page de connexion.
+function LangPicker({ locale, setLocale }) {
+  return (
+    <select
+      className="ob-lang"
+      value={locale}
+      onChange={(e) => setLocale(e.target.value)}
+      aria-label={t('common.language', locale)}
+      style={{ background: '#0b0e1a', border: '1px solid #232744', color: '#8b90a8', borderRadius: 8, padding: '0.35rem 0.5rem', fontSize: '0.76rem', fontFamily: 'inherit', marginBottom: '0.9rem', cursor: 'pointer' }}
+    >
+      {LOCALES.map((l) => (
+        <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
+      ))}
+    </select>
+  );
+}
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
@@ -708,6 +726,7 @@ export default function OnboardingPage() {
     return (
       <div className="wrap">
         <div className="card">
+          <LangPicker locale={locale} setLocale={setLocale} />
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>{st('welcome', locale)}</h1>
 
@@ -839,6 +858,7 @@ export default function OnboardingPage() {
     <div className="wrap">
       {signupPath !== 'invite_code' ? (
         <form className="card" onSubmit={handlePatronSubmit}>
+          <LangPicker locale={locale} setLocale={setLocale} />
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>{st('createTitle', locale)}</h1>
           <p className="subtitle">{st('createSub', locale)}</p>
@@ -977,6 +997,7 @@ export default function OnboardingPage() {
         </form>
       ) : (
         <form className="card" onSubmit={handleJoinCompany}>
+          <LangPicker locale={locale} setLocale={setLocale} />
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>{st('joinTitle', locale)}</h1>
           <p className="subtitle">{st('joinSub', locale)}</p>

@@ -15,9 +15,12 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendSystemEmail } from '@/lib/google';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 import { readJsonBody, serverError } from '@/lib/http';
+import { verificationEmail } from '@/lib/account-emails';
+import { normalizeLocale } from '@/lib/locale-instruction';
 
 export async function POST(request: NextRequest) {
-  const { email } = await readJsonBody(request);
+  const { email, locale } = await readJsonBody(request);
+  const lang = normalizeLocale(typeof locale === 'string' ? locale : null);
 
   // Limitation de débit (15/10/2026, audit CASA). Plus permissive que les
   // deux autres, à dessein : cette route existe précisément pour quelqu'un
@@ -70,11 +73,8 @@ export async function POST(request: NextRequest) {
   const verifyUrl = `${origin}/api/auth/verify-email?token=${token}`;
 
   try {
-    await sendSystemEmail(
-      email,
-      'Confirmez votre adresse email — Meet Aaron',
-      `Voici un nouveau lien pour confirmer votre adresse email et activer votre compte Meet Aaron :\n${verifyUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez simplement cet email.`
-    );
+    const mail = verificationEmail(lang, verifyUrl, true);
+    await sendSystemEmail(email, mail.subject, mail.body, lang);
   } catch (err: any) {
     // Même cause possible que le premier envoi (voir sendSystemEmail) — on
     // le signale clairement plutôt que de renvoyer un faux succès, et on
