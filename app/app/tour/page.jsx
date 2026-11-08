@@ -1,11 +1,15 @@
 // app/app/tour/page.jsx
+// Visite guidée depuis le menu Aide (et le chat) : le scénario validé par
+// Alex le 08/11/2026 (components/GuidedTour.jsx), le même que dans le
+// parcours Bienvenue. L'ancienne visite « une diapositive par page » est
+// remplacée : la description de chaque page vit dans l'Aide.
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { t, useLocale } from '@/lib/i18n';
-import { NavIcon } from '@/components/NavIcon';
+import { useLocale } from '@/lib/i18n';
+import GuidedTour from '@/components/GuidedTour';
 
 function useAuthedUser() {
   const router = useRouter();
@@ -71,379 +75,33 @@ function useAuthedUser() {
   return { userId, role, authLoading, authError };
 }
 
-function slidesFor(locale) {
-  return [
-    // Le tableau de bord n'existe plus (06/11/2026) : Campagnes est
-    // l'accueil, et c'est la première diapo.
-    {
-      slug: 'campaigns',
-      icon: '🚀',
-      title: t('tour.slide.campaigns.title', locale),
-      text: t('tour.slide.campaigns.text', locale),
-    },
-    {
-      slug: 'prospects',
-      icon: '🎯',
-      title: t('tour.slide.prospects.title', locale),
-      text: t('tour.slide.prospects.text', locale),
-    },
-    {
-      slug: 'agenda',
-      icon: '📅',
-      title: t('tour.slide.agenda.title', locale),
-      text: t('tour.slide.agenda.text', locale),
-    },
-    {
-      slug: 'resultats',
-      icon: '📈',
-      title: t('tour.slide.resultats.title', locale),
-      text: t('tour.slide.resultats.text', locale),
-    },
-    {
-      slug: 'documents',
-      icon: '📁',
-      title: t('tour.slide.documents.title', locale),
-      text: t('tour.slide.documents.text', locale),
-    },
-    // Règle de la boîte mail (demande Alex, 01/09/2026 : « préviens juste
-    // l'utilisateur lors de la création du compte »). Placée avant le chat :
-    // c'est la seule consigne de la visite où mal faire a une conséquence
-    // réelle (un email supprimé = un suivi de contact cassé), donc elle mérite
-    // sa propre étape plutôt qu'une ligne noyée ailleurs.
-    {
-      slug: 'mailbox',
-      icon: '📬',
-      title: t('tour.slide.mailbox.title', locale),
-      text: t('tour.slide.mailbox.text', locale),
-    },
-    {
-      slug: 'chat',
-      icon: '💬',
-      title: t('tour.slide.chat.title', locale),
-      text: t('tour.slide.chat.text', locale),
-    },
-    // docx item 7 (2026-08-27) : la visite guidée référençait encore
-    // l'ancienne structure "Préférences" à 3 onglets (entreprise,
-    // notifications, abonnement) en tant que page séparée — obsolète depuis
-    // la fusion "Mon compte" du 25/08 (voir daf8d67 et
-    // app/app/preferences/page.jsx, qui n'est plus qu'une redirection). La
-    // slide "preferences" dédiée a été supprimée (100% redondante avec
-    // celle-ci) et ce texte couvre maintenant les 6 onglets réels de "Mon
-    // compte" (profil, entreprise, connexion, CRM, préférences, abonnement).
-    {
-      slug: 'connexions',
-      icon: '🔗',
-      title: t('tour.slide.connexions.title', locale),
-      // Le rappel "active les notifications push" (ajouté le 27/08/2026,
-      // push_subscriptions restait vide malgré la préférence "Push" cochée
-      // dans Mon compte > Préférences, voir PushNotificationManager.jsx)
-      // vivait d'abord dans une slide "push" séparée — mais la notification
-      // push n'est pas une rubrique à part entière du menu (retour Alex,
-      // 27/08/2026, docx "Modifs Aaron") : elle vit DANS l'onglet
-      // Préférences de "Mon compte". Le rappel est désormais fondu dans le
-      // texte de cette slide (voir tour.slide.connexions.text, lib/i18n.js)
-      // plutôt que présenté comme une rubrique de menu qui n'existe pas.
-      text: t('tour.slide.connexions.text', locale),
-    },
-    {
-      slug: 'team',
-      icon: '👥',
-      title: t('tour.slide.team.title', locale),
-      text: t('tour.slide.team.text', locale),
-      role: 'patron',
-    },
-    {
-      slug: 'suggestions',
-      icon: '💡',
-      title: t('tour.slide.suggestions.title', locale),
-      text: t('tour.slide.suggestions.text', locale),
-      role: 'patron',
-    },
-  ];
-}
-
 export default function TourPage() {
+  const router = useRouter();
   const [locale] = useLocale();
   const { userId, role, authLoading, authError } = useAuthedUser();
-  const [step, setStep] = useState(0);
   const [markedSeen, setMarkedSeen] = useState(false);
 
-  const slides = slidesFor(locale).filter((s) => !s.role || s.role === role);
-  const current = slides[step];
+  function finish() {
+    if (userId && !markedSeen) {
+      setMarkedSeen(true);
+      fetch('/api/tour-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) }).catch(() => {});
+    }
+    router.push(`/app/campaigns${userId ? `?user_id=${userId}` : ''}`);
+  }
 
-  // Lot 3 de la refonte de l'onboarding (22/10/2026) : la visite est marquée
-  // « vue » quand on atteint la DERNIÈRE diapositive, plus à l'ouverture de
-  // la page (une visite ouverte puis abandonnée comptait comme vue).
-  const reachedLast = slides.length > 0 && step === slides.length - 1;
-  useEffect(() => {
-    if (!userId || markedSeen || !reachedLast) return;
-    fetch('/api/tour-seen', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId }),
-    });
-    setMarkedSeen(true);
-  }, [userId, markedSeen, reachedLast]);
-
-  if (authLoading) return <div className="loading">Connexion…</div>;
+  if (authLoading) return <div className="loading">…</div>;
   if (authError) return <div className="loading error">{authError}</div>;
-  if (!current) return null;
-
-  const isLast = step === slides.length - 1;
 
   return (
     <div className="tour-wrap">
-      <nav className="tour-sidebar">
-        <div className="brand">
-          <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
-          <span>Meet Aaron</span>
-        </div>
-        <ul className="nav-list">
-          {slides.map((s, i) => (
-            <li
-              key={s.slug}
-              className={i === step ? 'active' : ''}
-              onClick={() => setStep(i)}
-            >
-              <span className="nav-icon"><NavIcon slug={s.slug} size={15} /></span>
-              {s.title}
-            </li>
-          ))}
-        </ul>
-      </nav>
-
       <div className="tour-card">
-        <p className="tour-progress">{step + 1} / {slides.length}</p>
-        <div className="tour-icon-badge">
-          <NavIcon slug={current.slug} size={40} />
-        </div>
-        <h1>{current.title}</h1>
-        <p className="tour-text">{current.text}</p>
-
-        <div className="tour-dots">
-          {slides.map((s, i) => (
-            <span key={s.slug} className={i === step ? 'dot active' : 'dot'} />
-          ))}
-        </div>
-
-        <div className="tour-actions">
-          {step > 0 ? (
-            <button className="btn-secondary" onClick={() => setStep(step - 1)}>← {t('tour.previous', locale)}</button>
-          ) : (
-            <span />
-          )}
-          {isLast ? (
-            // docx item 9 (2026-08-27) : après la dernière étape de la visite
-            // guidée, on redirige vers l'onglet Connexion de "Mon compte"
-            // (plutôt que directement le dashboard) pour enchaîner tout de
-            // suite sur la connexion de la boîte email — étape suivante
-            // naturelle de l'onboarding. La checklist du dashboard (déjà en
-            // place) prend ensuite le relais pour guider vers le premier
-            // prospect/la première campagne. "Passer" ci-dessous continue
-            // d'aller directement au dashboard, pour respecter le choix
-            // explicite de l'utilisateur de sauter la visite.
-            // 22/10/2026 (lot 3 de la refonte de l'onboarding) : fin de visite →
-            // tableau de bord, plus Connexions. La boîte mail est liée dans le
-            // parcours /app/bienvenue ; ce renvoi donnait l'impression d'être
-            // poussé à lier sa boîte en relançant une simple visite.
-            <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
-              {t('tour.finish', locale)}
-            </a>
-          ) : (
-            <button className="btn-primary" onClick={() => setStep(step + 1)}>{t('tour.next', locale)} →</button>
-          )}
-        </div>
-
-        <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="skip">
-          {t('tour.skip', locale)}
-        </a>
+        <GuidedTour locale={locale} invited={role === 'commercial'} onDone={finish} onSkip={finish} />
       </div>
-
       <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap');
-        .loading {
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--bg);
-          color: var(--muted);
-          font-family: 'Inter', sans-serif;
-        }
-        .loading.error {
-          color: var(--accent-red);
-          text-align: center;
-          padding: 2rem;
-        }
-        .tour-wrap {
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 1.5rem;
-          background: var(--bg);
-          font-family: 'Inter', sans-serif;
-          padding: 1.5rem;
-        }
-        .tour-sidebar {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 18px;
-          padding: 1.4rem 1rem;
-          width: 240px;
-          flex-shrink: 0;
-          align-self: stretch;
-          max-height: 640px;
-          overflow-y: auto;
-        }
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          padding: 0 0.4rem;
-          margin-bottom: 1.4rem;
-        }
-        .brand-mark {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-        }
-        .brand span {
-          font-family: 'Space Grotesk', sans-serif;
-          color: var(--text);
-          font-weight: 600;
-          font-size: 0.94rem;
-        }
-        .nav-list {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 0.15rem;
-        }
-        .nav-list li {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          padding: 0.6rem 0.7rem;
-          border-radius: 8px;
-          font-size: 0.86rem;
-          color: var(--muted);
-          cursor: pointer;
-          transition: background 0.15s ease, color 0.15s ease;
-        }
-        .nav-list li:hover {
-          color: var(--text);
-        }
-        .nav-list li.active {
-          background: rgba(75, 57, 239, 0.18);
-          color: var(--text);
-          font-weight: 500;
-        }
-        .nav-icon {
-          width: 1.7em;
-          height: 1.7em;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 8px;
-          background: var(--tint-4);
-          flex-shrink: 0;
-        }
-        .tour-card {
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: 18px;
-          padding: 2.6rem 2.2rem;
-          width: 460px;
-          max-width: 100%;
-          text-align: center;
-        }
-        .tour-progress {
-          color: var(--muted);
-          font-size: 0.76rem;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-          margin: 0 0 1.2rem;
-        }
-        .tour-icon-badge {
-          width: 84px;
-          height: 84px;
-          border-radius: 50%;
-          margin: 0 auto 1.2rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--text);
-          background: radial-gradient(circle at 32% 28%, #6a5bf5, #4b39ef 55%, #362a9e);
-          box-shadow: 0 10px 28px rgba(75, 57, 239, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-        }
-        h1 {
-          font-family: 'Space Grotesk', sans-serif;
-          color: var(--text);
-          font-size: 1.5rem;
-          margin: 0 0 0.8rem;
-        }
-        .tour-text {
-          color: var(--text);
-          font-size: 0.94rem;
-          line-height: 1.6;
-          margin: 0 0 1.6rem;
-        }
-        .tour-dots {
-          display: flex;
-          justify-content: center;
-          gap: 0.35rem;
-          margin-bottom: 1.8rem;
-        }
-        .dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: var(--border);
-        }
-        .dot.active {
-          background: var(--accent);
-          width: 18px;
-          border-radius: 4px;
-        }
-        .tour-actions {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 0.8rem;
-        }
-        .btn-primary, .btn-secondary {
-          border-radius: 10px;
-          padding: 0.7rem 1.3rem;
-          font-size: 0.88rem;
-          font-weight: 600;
-          cursor: pointer;
-          text-decoration: none;
-          border: none;
-        }
-        .btn-primary {
-          background: var(--accent);
-          color: #fff;
-        }
-        .btn-secondary {
-          background: transparent;
-          color: var(--muted);
-          border: 1px solid var(--border);
-        }
-        .skip {
-          display: inline-block;
-          margin-top: 1.4rem;
-          color: var(--muted);
-          font-size: 0.8rem;
-          text-decoration: underline;
-        }
-        @media (max-width: 860px) {
-          .tour-sidebar {
-            display: none;
-          }
-        }
+        .tour-wrap { min-height: 100vh; background: var(--bg); color: var(--text); padding: 1.25rem 1rem 3rem; box-sizing: border-box; }
+        .tour-card { max-width: 860px; margin: 0 auto; }
+        .loading { padding: 3rem; text-align: center; color: var(--muted); }
+        .loading.error { color: var(--danger, #c0392b); }
       `}</style>
     </div>
   );

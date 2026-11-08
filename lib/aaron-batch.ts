@@ -24,6 +24,7 @@
 // (pendingBatchProspectIds), sinon ils les resoumettraient à chaque passage.
 
 import { supabaseAdmin } from './supabase-admin';
+import { mustApproveFirstEmail } from './first-email-approval';
 import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel, type AaronOutput } from './aaron';
 import { recordUsage, usageFromApi } from './anthropic-client';
 import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
@@ -348,7 +349,12 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
     // est stocké comme brouillon et part au prochain créneau via
     // app/api/cron/retry-uncontacted-prospects (sendDeferredFirstEmails).
     // Pas de notification : rien n'est demandé au commercial.
-    if (owner?.require_first_email_approval !== true && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
+    // Tout premier email du compte toujours relu (lib/first-email-approval.ts,
+    // règle Alex 08/11/2026) ; ensuite seulement sur option. Calculé AVANT le
+    // report de créneau : un tout premier email lancé un dimanche doit
+    // attendre le commercial, pas partir seul lundi matin.
+    const approval = await mustApproveFirstEmail(prospect.assigned_user_id, owner?.require_first_email_approval);
+    if (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
       await supabaseAdmin
         .from('prospects')
         .update({
@@ -360,7 +366,7 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
         .eq('id', prospect.id);
       return;
     }
-    if (owner?.require_first_email_approval === true) {
+    if (approval.approve) {
       await supabaseAdmin
         .from('prospects')
         .update({
@@ -372,9 +378,11 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
         .eq('id', prospect.id);
       try {
         await sendPushNotification(prospect.assigned_user_id, {
-          title: 'Premier email prêt à valider',
+          title: approval.reason === 'first_ever' ? 'Ton tout premier email est prêt' : 'Premier email prêt à valider',
           // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
-          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+          body: approval.reason === 'first_ever'
+            ? `Aaron a écrit le premier email pour ${prospect.full_name}. Relis-le une fois : les suivants partiront seuls.`
+            : `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
           tag: `premier_email:${prospect.id}`,
           // Lien profond : fiche + modale de validation ouvertes d'emblée.
           url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,

@@ -29,6 +29,10 @@ const AGENDA_TEXT = {
   cancelSilent: { fr: 'Annuler sans prévenir', en: 'Cancel without notifying', de: 'Absagen ohne Benachrichtigung', it: 'Annulla senza avvisare', es: 'Cancelar sin avisar', pt: 'Cancelar sem avisar', nl: 'Annuleren zonder bericht' },
   reschedule: { fr: 'Reporter', en: 'Reschedule', de: 'Verschieben', it: 'Rimanda', es: 'Posponer', pt: 'Adiar', nl: 'Verzetten' },
   rescheduleHint: { fr: "Choisis le nouveau créneau. L'ancien est retiré de ton agenda, le nouveau y est créé, et le prospect reçoit la nouvelle date avec le lien ou l'adresse.", en: 'Pick the new time. The old one is removed from your calendar, the new one is created, and the prospect receives the new date with the link or address.', de: 'Wähle den neuen Termin. Der alte wird aus deinem Kalender entfernt, der neue angelegt, und der Interessent erhält das neue Datum mit Link oder Adresse.', it: 'Scegli il nuovo orario. Il vecchio viene rimosso dalla tua agenda, il nuovo creato, e il prospect riceve la nuova data con il link o l’indirizzo.', es: 'Elige el nuevo horario. El anterior se elimina de tu agenda, el nuevo se crea y el prospecto recibe la nueva fecha con el enlace o la dirección.', pt: 'Escolhe o novo horário. O antigo é removido da tua agenda, o novo é criado e o prospeto recebe a nova data com o link ou a morada.', nl: 'Kies het nieuwe tijdstip. Het oude verdwijnt uit je agenda, het nieuwe wordt aangemaakt en de prospect ontvangt de nieuwe datum met link of adres.' },
+  late: { fr: 'Je suis en retard', en: 'I am running late', de: 'Ich verspäte mich', it: 'Sono in ritardo', es: 'Voy con retraso', pt: 'Estou atrasado', nl: 'Ik ben verlaat' },
+  lateHint: { fr: 'Aaron prévient le prospect tout de suite, dans sa langue : un petit imprévu te retarde, le rendez-vous tient bien, merci pour sa patience. De combien ?', en: 'Aaron lets the prospect know right away, in their language: something unexpected is delaying you, the meeting still stands, thanks for their patience. By how much?', de: 'Aaron informiert den Interessenten sofort in seiner Sprache: etwas Unvorhergesehenes verzögert dich, der Termin findet statt, danke für die Geduld. Um wie viel?', it: 'Aaron avvisa subito il prospect, nella sua lingua: un imprevisto ti fa ritardare, l’appuntamento è confermato, grazie per la pazienza. Di quanto?', es: 'Aaron avisa al prospecto ahora mismo, en su idioma: un imprevisto te retrasa, la reunión se mantiene, gracias por su paciencia. ¿Cuánto?', pt: 'O Aaron avisa já o prospeto, na sua língua: um imprevisto atrasa-te, a reunião mantém-se, obrigado pela paciência. Quanto?', nl: 'Aaron laat de prospect meteen weten, in zijn taal: iets onverwachts vertraagt je, de afspraak gaat door, bedankt voor het geduld. Hoeveel?' },
+  lateMin: { fr: '{n} min', en: '{n} min', de: '{n} Min.', it: '{n} min', es: '{n} min', pt: '{n} min', nl: '{n} min' },
+  lateSent: { fr: 'Le prospect est prévenu.', en: 'The prospect has been told.', de: 'Der Interessent ist informiert.', it: 'Il prospect è stato avvisato.', es: 'El prospecto está avisado.', pt: 'O prospeto foi avisado.', nl: 'De prospect is op de hoogte.' },
   rescheduleConfirm: { fr: 'Confirmer le report', en: 'Confirm the new time', de: 'Verschiebung bestätigen', it: 'Conferma il rinvio', es: 'Confirmar el cambio', pt: 'Confirmar o adiamento', nl: 'Verzetten bevestigen' },
   cancelAskPerso: { fr: 'Annuler ce rendez-vous ? Il sera retiré de ton agenda et de ton calendrier.', en: 'Cancel this meeting? It is removed from your agenda and your calendar.', de: 'Diesen Termin absagen? Er wird aus Ihrer Agenda und Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Sarà rimosso dalla tua agenda e dal calendario.', es: '¿Cancelar esta cita? Se eliminará de tu agenda y de tu calendario.', pt: 'Cancelar esta reunião? Será removida da tua agenda e do teu calendário.', nl: 'Deze afspraak annuleren? Hij verdwijnt uit je agenda en je kalender.' },
   persoNote: { fr: "Contact ajouté à la main : Aaron ne suit pas ses échanges, il n'y a donc ni brief ni historique.", en: 'Contact added by hand: Aaron does not follow its exchanges, so there is no brief or history.', de: 'Von Hand hinzugefügter Kontakt: Aaron verfolgt den Austausch nicht, daher gibt es weder Briefing noch Verlauf.', it: 'Contatto aggiunto a mano: Aaron non segue gli scambi, quindi non ci sono brief né storico.', es: 'Contacto añadido a mano: Aaron no sigue sus intercambios, así que no hay brief ni historial.', pt: 'Contacto adicionado à mão: o Aaron não acompanha as trocas, por isso não há brief nem histórico.', nl: 'Handmatig toegevoegd contact: Aaron volgt de uitwisselingen niet, dus geen briefing of geschiedenis.' },
@@ -313,8 +317,17 @@ export default function AgendaPage() {
   async function load() {
     setLoading(true);
     const res = await fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json());
-    setAppointments(res.appointments || []);
+    const list = res.appointments || [];
+    setAppointments(list);
     setLoading(false);
+    // Lien profond depuis une notification (?rdv=<id>) : ouvre la fiche.
+    try {
+      const wanted = new URLSearchParams(window.location.search).get('rdv');
+      if (wanted) {
+        const found = list.find((a) => a.id === wanted);
+        if (found) setDetailAppointment(found);
+      }
+    } catch {}
   }
 
   function loadAvailability() {
@@ -2115,7 +2128,23 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
   const [cancelBusy, setCancelBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
   const [newWhen, setNewWhen] = useState('');
+  // « Je suis en retard » (Alex, 08/11/2026) : visible de 2 h avant le
+  // rendez-vous jusqu'à 30 min après, pour un rendez-vous validé avec prospect.
+  const [lateOpen, setLateOpen] = useState(false);
+  const [lateState, setLateState] = useState(null); // 'sending' | 'sent' | 'error'
   const hasProspect = !!appointment.prospect_id;
+  const minutesToStart = (new Date(appointment.proposed_at).getTime() - Date.now()) / 60000;
+  const canSayLate = hasProspect && appointment.status === 'validé' && !!appointment.prospects?.email && minutesToStart <= 120 && minutesToStart >= -30;
+
+  async function sayLate(minutes) {
+    setLateState('sending');
+    try {
+      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'retard', late_minutes: minutes }) });
+      setLateState(res.ok ? 'sent' : 'error');
+    } catch {
+      setLateState('error');
+    }
+  }
 
   async function startCancel() {
     setConfirmCancel(false);
@@ -2215,13 +2244,29 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
           {isPast && hasProspect && appointment.status !== 'annulé' && (
             <a className="btn-secondary" href={`/app/agenda/rdv/${appointment.id}/bilan`}>{appointment.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}</a>
           )}
+          {canSayLate && !lateOpen && lateState !== 'sent' && (
+            <button type="button" className="btn-secondary" onClick={() => { setLateOpen(true); setRescheduling(false); setConfirmCancel(false); }}>{tx('late')}</button>
+          )}
           {!isPast && appointment.status !== 'annulé' && !rescheduling && !cancelDraft && (
-            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); }}>{tx('reschedule')}</button>
+            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); setLateOpen(false); }}>{tx('reschedule')}</button>
           )}
           {!isPast && appointment.status !== 'annulé' && !confirmCancel && !cancelDraft && (
             <button type="button" className="btn-danger-ghost" onClick={() => { setConfirmCancel(true); setRescheduling(false); }}>{t('stories.cancelRdv', locale)}</button>
           )}
         </div>
+        {lateOpen && lateState !== 'sent' && (
+          <div className="confirm-box neutral">
+            <p>{tx('lateHint')}</p>
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setLateOpen(false)} disabled={lateState === 'sending'}>{t('common.back', locale)}</button>
+              {[10, 20, 30].map((n) => (
+                <button key={n} type="button" className="btn-primary" disabled={lateState === 'sending'} onClick={() => sayLate(n)}>{lateState === 'sending' ? '…' : tx('lateMin').replace('{n}', String(n))}</button>
+              ))}
+            </div>
+            {lateState === 'error' && <p className="error">{t('common.error', locale)}</p>}
+          </div>
+        )}
+        {lateState === 'sent' && <p className="muted small">{tx('lateSent')}</p>}
         {rescheduling && (
           <div className="confirm-box neutral">
             <p>{tx('rescheduleHint')}</p>

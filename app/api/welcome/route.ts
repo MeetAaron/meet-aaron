@@ -15,7 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { readJsonBody, serverError } from '@/lib/http';
 
-const WELCOME_STEPS = ['intro', 'company', 'campaign', 'mailbox', 'end'] as const;
+const WELCOME_STEPS = ['intro', 'company', 'tour', 'campaign', 'mailbox', 'availability', 'end'] as const;
 type WelcomeStep = (typeof WELCOME_STEPS)[number];
 
 function isMissingColumn(error: any): boolean {

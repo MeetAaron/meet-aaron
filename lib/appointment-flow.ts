@@ -37,6 +37,7 @@ import { resolveMeetingLink } from './meeting-link';
 import { resolveProspectLocale } from './prospect-locale';
 import { resolveUserTimeZone } from './user-timezone';
 import { runInBackground } from './background';
+import { lateEmail } from './reminder-texts';
 
 export const AUTO_CONFIRM_MIN_HOURS = 24;
 
@@ -87,9 +88,19 @@ function localToUtc(ymd: string, hhmm: string, tz: string): Date {
 type Rule = { day_of_week: number; start_time: string; end_time: string; appointment_type: string | null };
 
 // Plages par défaut quand aucune règle n'est déclarée : lundi–vendredi
-// 08:00–19:00 (avant : « disponible en permanence », donc aussi le dimanche à
-// 3 h du matin si un prospect le proposait).
-const DEFAULT_RULES: Rule[] = [1, 2, 3, 4, 5].map((dow) => ({ day_of_week: dow, start_time: '08:00:00', end_time: '19:00:00', appointment_type: null }));
+// 09:00–17:00 (avant : « disponible en permanence », donc aussi le dimanche à
+// 3 h du matin si un prospect le proposait) — « il faut laisser de l'espace
+// pour Aaron » (Alex).
+const DEFAULT_RULES: Rule[] = [1, 2, 3, 4, 5].map((dow) => ({ day_of_week: dow, start_time: '09:00:00', end_time: '17:00:00', appointment_type: null }));
+
+// Pause entre deux rendez-vous (décision Alex, 08/11/2026 : « pas deux
+// rendez-vous téléphoniques à la suite ») : 30 min après un appel ou une
+// visio, 2 h après ou avant un rendez-vous physique (déplacement). La pause
+// retenue entre deux rendez-vous est la plus grande des deux.
+export const BUFFER_MINUTES: Record<string, number> = { telephonique: 30, visio: 30, physique: 120 };
+export function bufferBetween(typeA: string | null | undefined, typeB: string | null | undefined): number {
+  return Math.max(BUFFER_MINUTES[typeA || ''] ?? 30, BUFFER_MINUTES[typeB || ''] ?? 30);
+}
 
 function ruleMatchesType(rule: Rule, type?: string | null): boolean {
   if (!rule.appointment_type || !type) return true;
@@ -135,17 +146,22 @@ export async function schedulingConflicts(userId: string, startISO: string, endI
 
   const { data: taken } = await supabaseAdmin
     .from('appointments')
-    .select('id, proposed_at, duration_minutes')
+    .select('id, proposed_at, duration_minutes, type')
     .eq('user_id', userId)
     .eq('status', 'validé')
-    .gte('proposed_at', new Date(start.getTime() - 4 * 3600 * 1000).toISOString())
-    .lte('proposed_at', endISO);
-  const clash = (taken || []).some((a: any) => {
+    .gte('proposed_at', new Date(start.getTime() - 6 * 3600 * 1000).toISOString())
+    .lte('proposed_at', new Date(end.getTime() + 3 * 3600 * 1000).toISOString());
+  let clash = false;
+  let tooClose = false;
+  for (const a of (taken || []) as any[]) {
     const s = new Date(a.proposed_at).getTime();
     const e = s + durationMinutesFor(a.duration_minutes) * 60000;
-    return s < end.getTime() && e > start.getTime();
-  });
+    if (s < end.getTime() && e > start.getTime()) { clash = true; continue; }
+    const pad = bufferBetween(a.type, type) * 60000;
+    if (s < end.getTime() + pad && e + pad > start.getTime()) tooClose = true;
+  }
   if (clash) reasons.push('Chevauche un rendez-vous déjà confirmé.');
+  else if (tooClose) reasons.push('Trop proche d\'un autre rendez-vous (pause de 30 min entre deux appels, 2 h autour d\'un rendez-vous physique).');
 
   try {
     const busy = await getFreeBusyForUser(userId, startISO, endISO);
@@ -184,7 +200,7 @@ export async function computeFreeSlots(
 
   const [{ data: blocks }, { data: taken }] = await Promise.all([
     supabaseAdmin.from('availability_blocks').select('start_at, end_at').eq('user_id', userId).lt('start_at', horizon.toISOString()).gt('end_at', now.toISOString()),
-    supabaseAdmin.from('appointments').select('proposed_at, duration_minutes').eq('user_id', userId).eq('status', 'validé').gte('proposed_at', now.toISOString()).lte('proposed_at', horizon.toISOString()),
+    supabaseAdmin.from('appointments').select('proposed_at, duration_minutes, type').eq('user_id', userId).eq('status', 'validé').gte('proposed_at', now.toISOString()).lte('proposed_at', horizon.toISOString()),
   ]);
   let busy: { start: string; end: string }[] = [];
   try {
@@ -194,7 +210,12 @@ export async function computeFreeSlots(
   }
   const blocked = [
     ...(blocks || []).map((b: any) => [new Date(b.start_at).getTime(), new Date(b.end_at).getTime()]),
-    ...(taken || []).map((a: any) => [new Date(a.proposed_at).getTime(), new Date(a.proposed_at).getTime() + durationMinutesFor(a.duration_minutes) * 60000]),
+    // Rendez-vous confirmés élargis de la pause (lib : bufferBetween) :
+    // Aaron ne propose jamais un créneau collé à un autre rendez-vous.
+    ...(taken || []).map((a: any) => {
+      const pad = bufferBetween(a.type, options.type) * 60000;
+      return [new Date(a.proposed_at).getTime() - pad, new Date(a.proposed_at).getTime() + durationMinutesFor(a.duration_minutes) * 60000 + pad];
+    }),
     ...busy.map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()]),
   ];
   const isFree = (s: number, e: number) => !blocked.some(([bs, be]) => bs < e && be > s);
@@ -435,4 +456,12 @@ export async function rescheduleAppointment(appointmentId: string, userId: strin
     .update({ proposed_at: newStartISO, status: 'proposé', calendar_event_id: null, calendar_provider: null, meet_link: null })
     .eq('id', appointmentId);
   return confirmAppointment(appointmentId, userId, { force: true, moved: true });
+}
+
+// Email « je suis en retard » dans la langue du prospect (lib/reminder-texts.ts).
+export async function lateNoticeEmail(appointmentId: string, userId: string, minutes: number): Promise<{ subject: string; body: string } | null> {
+  const appointment = await loadAppointment(appointmentId);
+  if (!appointment || !appointment.prospects?.email) return null;
+  const { locale } = await prospectLanguageAndZone(appointment, userId);
+  return lateEmail(locale, appointment.prospects.full_name || '', minutes);
 }

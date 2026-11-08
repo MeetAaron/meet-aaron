@@ -10,11 +10,13 @@
 //   1. Entreprise  — les 12 questions (puces + réponse libre), encouragements
 //                    à la 6e et à la 10e, dépôt d'un document en haut pour
 //                    pré-remplir. Fin : Aaron rédige la fiche entreprise.
-//   2. Campagne    — ZÉRO question nouvelle : pré-remplie depuis les réponses,
-//                    on confirme ou corrige, on choisit le nombre.
+//   2. Visite      — la visite guidée en 11 écrans (components/GuidedTour.jsx).
 //   3. Boîte mail  — Google / Microsoft (agenda inclus) ou autre boîte.
+//   4. Disponibilités — plages par défaut lundi–vendredi 9h–17h, types de RDV.
+//   5. Campagne    — ZÉRO question nouvelle : pré-remplie depuis les réponses,
+//                    on confirme ou corrige, on choisit le nombre.
 //   Fin            — ce qui part maintenant, ce qui attend encore.
-// Commercial invité par code (profil d'entreprise déjà fait) : 0, 3 et Fin.
+// Commercial invité par code (profil d'entreprise déjà fait) : 0, 2, 3, 4 et Fin.
 //
 // Reprise EXACTE : écran, question et réponses sont enregistrés en base à
 // chaque pas (/api/welcome) — jamais dans le navigateur. « Reprendre plus
@@ -27,11 +29,14 @@ import { supabaseBrowser } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { ONBOARDING_QUESTION_KEYS, suggestionsFor } from '@/lib/onboarding-questions';
 import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft, Sparkles, Loader2, FileText } from 'lucide-react';
+import GuidedTour from '@/components/GuidedTour';
 
 // Textes du parcours, gardés ici (lib/i18n.js est trop lourd pour l'envoi web
 // de GitHub), comme components/ContactCard.jsx.
 const W = {
   fr: {
+    tourDone: 'Passer aux réglages',
+    availDefault: 'Par défaut : du lundi au vendredi, 9h–17h, pour les trois types de rendez-vous. Ajuste si besoin.',
     chatSend: 'Envoyer', chatConfirm: 'Oui, c\'est ça', chatAdd: 'Compléter…', chatThinking: 'Aaron réfléchit…', chatFromDoc: 'D\'après ton document, voici ce que je comprends :', chatIntro: 'Réponds avec tes mots, ou pose-moi une question si quelque chose n\'est pas clair.', chatErr: 'Aaron n\'a pas pu répondre, réessaie.',
     availTitle: 'Quand es-tu disponible pour un rendez-vous ?', availLead: 'Aaron ne proposera que ces créneaux à tes prospects, et confirmera les rendez-vous tout seul quand ils tombent dedans. Tu pourras les changer à tout moment dans l\'Agenda.', availTypes: 'Types de rendez-vous que tu acceptes', availSave: 'Enregistrer mes disponibilités', availSaving: 'Enregistrement…', availFrom: 'de', availTo: 'à', typeVisio: 'Visio', typeTel: 'Téléphone', typePhysique: 'Sur place', availErr: 'Impossible d\'enregistrer, réessaie.',
     stepOf: 'Étape {n} sur {total}', skip: 'Passer', later: 'Reprendre plus tard', next: 'Suivant', back: 'Précédent', start: "C'est parti",
@@ -76,6 +81,8 @@ const W = {
     saveError: 'Connexion perdue : ta réponse n’a pas été enregistrée. Réessaie.',
   },
   en: {
+    tourDone: 'Go to the settings',
+    availDefault: 'Default: Monday to Friday, 9am–5pm, for the three meeting types. Adjust if needed.',
     chatSend: 'Send', chatConfirm: 'Yes, that\'s it', chatAdd: 'Add something…', chatThinking: 'Aaron is thinking…', chatFromDoc: 'From your document, here is what I understand:', chatIntro: 'Answer in your own words, or ask me a question if something is unclear.', chatErr: 'Aaron could not answer, please try again.',
     availTitle: 'When are you available for a meeting?', availLead: 'Aaron will only offer these time slots to your prospects, and will confirm meetings on his own when they fall inside them. You can change them any time in the Calendar.', availTypes: 'Meeting types you accept', availSave: 'Save my availability', availSaving: 'Saving…', availFrom: 'from', availTo: 'to', typeVisio: 'Video call', typeTel: 'Phone', typePhysique: 'In person', availErr: 'Could not save, please try again.',
     stepOf: 'Step {n} of {total}', skip: 'Skip', later: 'Continue later', next: 'Next', back: 'Back', start: "Let's go",
@@ -120,6 +127,8 @@ const W = {
     saveError: 'Connection lost: your answer was not saved. Please try again.',
   },
   de: {
+    tourDone: 'Zu den Einstellungen',
+    availDefault: 'Standard: Montag bis Freitag, 9–17 Uhr, für alle drei Terminarten. Bei Bedarf anpassen.',
     chatSend: 'Senden', chatConfirm: 'Ja, genau', chatAdd: 'Ergänzen…', chatThinking: 'Aaron überlegt…', chatFromDoc: 'Aus deinem Dokument verstehe ich Folgendes:', chatIntro: 'Antworte in deinen Worten oder stell mir eine Frage, wenn etwas unklar ist.', chatErr: 'Aaron konnte nicht antworten, bitte versuche es erneut.',
     availTitle: 'Wann sind Sie für einen Termin erreichbar?', availLead: 'Aaron schlägt Ihren Interessenten nur diese Zeitfenster vor und bestätigt Termine selbstständig, wenn sie hineinfallen. Sie können sie jederzeit im Kalender ändern.', availTypes: 'Terminarten, die Sie akzeptieren', availSave: 'Verfügbarkeit speichern', availSaving: 'Wird gespeichert…', availFrom: 'von', availTo: 'bis', typeVisio: 'Videoanruf', typeTel: 'Telefon', typePhysique: 'Vor Ort', availErr: 'Speichern nicht möglich, bitte erneut versuchen.',
     stepOf: 'Schritt {n} von {total}', skip: 'Überspringen', later: 'Später fortsetzen', next: 'Weiter', back: 'Zurück', start: 'Los geht’s',
@@ -164,6 +173,8 @@ const W = {
     saveError: 'Verbindung verloren: Ihre Antwort wurde nicht gespeichert. Bitte erneut versuchen.',
   },
   it: {
+    tourDone: 'Vai alle impostazioni',
+    availDefault: 'Predefinito: dal lunedì al venerdì, 9–17, per i tre tipi di appuntamento. Modifica se necessario.',
     chatSend: 'Invia', chatConfirm: 'Sì, è così', chatAdd: 'Aggiungi qualcosa…', chatThinking: 'Aaron sta pensando…', chatFromDoc: 'Dal tuo documento, ecco cosa capisco:', chatIntro: 'Rispondi con parole tue, o fammi una domanda se qualcosa non è chiaro.', chatErr: 'Aaron non ha potuto rispondere, riprova.',
     availTitle: 'Quando sei disponibile per un appuntamento?', availLead: 'Aaron proporrà ai tuoi prospect solo queste fasce orarie e confermerà da solo gli appuntamenti che vi rientrano. Potrai cambiarle in qualsiasi momento nell\'Agenda.', availTypes: 'Tipi di appuntamento che accetti', availSave: 'Salva le mie disponibilità', availSaving: 'Salvataggio…', availFrom: 'dalle', availTo: 'alle', typeVisio: 'Videochiamata', typeTel: 'Telefono', typePhysique: 'Di persona', availErr: 'Impossibile salvare, riprova.',
     stepOf: 'Passo {n} di {total}', skip: 'Salta', later: 'Riprendi più tardi', next: 'Avanti', back: 'Indietro', start: 'Iniziamo',
@@ -208,6 +219,8 @@ const W = {
     saveError: 'Connessione persa: la risposta non è stata salvata. Riprova.',
   },
   es: {
+    tourDone: 'Ir a los ajustes',
+    availDefault: 'Por defecto: de lunes a viernes, de 9 a 17 h, para los tres tipos de reunión. Ajústalo si hace falta.',
     chatSend: 'Enviar', chatConfirm: 'Sí, es eso', chatAdd: 'Añadir algo…', chatThinking: 'Aaron está pensando…', chatFromDoc: 'Según tu documento, esto es lo que entiendo:', chatIntro: 'Responde con tus palabras o hazme una pregunta si algo no está claro.', chatErr: 'Aaron no ha podido responder, inténtalo de nuevo.',
     availTitle: '¿Cuándo estás disponible para una reunión?', availLead: 'Aaron solo propondrá estos horarios a tus prospectos y confirmará las reuniones por sí mismo cuando caigan dentro. Puedes cambiarlos en cualquier momento en la Agenda.', availTypes: 'Tipos de reunión que aceptas', availSave: 'Guardar mi disponibilidad', availSaving: 'Guardando…', availFrom: 'de', availTo: 'a', typeVisio: 'Videollamada', typeTel: 'Teléfono', typePhysique: 'Presencial', availErr: 'No se ha podido guardar, inténtalo de nuevo.',
     stepOf: 'Paso {n} de {total}', skip: 'Omitir', later: 'Continuar más tarde', next: 'Siguiente', back: 'Atrás', start: 'Empezar',
@@ -252,6 +265,8 @@ const W = {
     saveError: 'Conexión perdida: tu respuesta no se guardó. Inténtalo de nuevo.',
   },
   pt: {
+    tourDone: 'Ir para as definições',
+    availDefault: 'Por defeito: de segunda a sexta, 9h–17h, para os três tipos de reunião. Ajusta se necessário.',
     chatSend: 'Enviar', chatConfirm: 'Sim, é isso', chatAdd: 'Acrescentar…', chatThinking: 'O Aaron está a pensar…', chatFromDoc: 'Pelo teu documento, é isto que percebo:', chatIntro: 'Responde com as tuas palavras, ou faz-me uma pergunta se algo não estiver claro.', chatErr: 'O Aaron não conseguiu responder, tenta de novo.',
     availTitle: 'Quando estás disponível para uma reunião?', availLead: 'O Aaron só vai propor estes horários aos teus prospetos e confirma as reuniões sozinho quando caem dentro deles. Podes alterá-los a qualquer momento na Agenda.', availTypes: 'Tipos de reunião que aceitas', availSave: 'Guardar a minha disponibilidade', availSaving: 'A guardar…', availFrom: 'das', availTo: 'às', typeVisio: 'Videochamada', typeTel: 'Telefone', typePhysique: 'Presencial', availErr: 'Não foi possível guardar, tenta de novo.',
     stepOf: 'Passo {n} de {total}', skip: 'Saltar', later: 'Continuar mais tarde', next: 'Seguinte', back: 'Anterior', start: 'Vamos lá',
@@ -296,6 +311,8 @@ const W = {
     saveError: 'Ligação perdida: a resposta não foi guardada. Tenta outra vez.',
   },
   nl: {
+    tourDone: 'Naar de instellingen',
+    availDefault: 'Standaard: maandag tot vrijdag, 9–17 uur, voor de drie soorten afspraken. Pas aan indien nodig.',
     chatSend: 'Versturen', chatConfirm: 'Ja, dat klopt', chatAdd: 'Aanvullen…', chatThinking: 'Aaron denkt na…', chatFromDoc: 'Uit je document begrijp ik het volgende:', chatIntro: 'Antwoord in je eigen woorden, of stel me een vraag als iets niet duidelijk is.', chatErr: 'Aaron kon niet antwoorden, probeer het opnieuw.',
     availTitle: 'Wanneer ben je beschikbaar voor een afspraak?', availLead: 'Aaron stelt je prospects alleen deze tijdsloten voor en bevestigt afspraken zelf wanneer ze erin vallen. Je kunt ze altijd aanpassen in de Agenda.', availTypes: 'Soorten afspraken die je accepteert', availSave: 'Mijn beschikbaarheid opslaan', availSaving: 'Opslaan…', availFrom: 'van', availTo: 'tot', typeVisio: 'Videogesprek', typeTel: 'Telefoon', typePhysique: 'Ter plaatse', availErr: 'Opslaan mislukt, probeer het opnieuw.',
     stepOf: 'Stap {n} van {total}', skip: 'Overslaan', later: 'Later verdergaan', next: 'Volgende', back: 'Terug', start: 'Aan de slag',
@@ -361,7 +378,10 @@ const LATER_FLAG = 'aaron-welcome-later';
 function stepsFor(invited) {
   // 'availability' (08/11/2026, demande Alex) : plages du lundi au dimanche et
   // types de rendez-vous, saisis ici plutôt qu'en renvoyant vers l'Agenda.
-  return invited ? ['intro', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'availability', 'end'];
+  // 'tour' (08/11/2026, visite guidée validée par Alex) : après la fiche
+  // entreprise, avant les réglages ; la campagne se lance en dernier, comme
+  // le dit la visite (« on la lancera ensemble à la fin »).
+  return invited ? ['intro', 'tour', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'tour', 'mailbox', 'availability', 'campaign', 'end'];
 }
 
 export default function BienvenuePage() {
@@ -475,7 +495,7 @@ export default function BienvenuePage() {
 
   // ---- Disponibilités ----
   const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '18:00' }])));
+  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '17:00' }])));
   const [availTypes, setAvailTypes] = useState({ visio: true, telephonique: true, physique: true });
   const [availSaving, setAvailSaving] = useState(false);
   const dayName = (d) => new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, { weekday: 'long', timeZone: 'UTC' });
@@ -814,6 +834,12 @@ export default function BienvenuePage() {
           </section>
         )}
 
+        {step === 'tour' && (
+          <section>
+            <GuidedTour locale={locale} invited={!!state?.invited} onDone={nextStep} onSkip={nextStep} doneLabel={w('tourDone', locale)} />
+          </section>
+        )}
+
         {step === 'company' && (
           <section>
             <h1>{w('companyTitle', locale)}</h1>
@@ -1033,6 +1059,7 @@ export default function BienvenuePage() {
             <h1>{w('availTitle', locale)}</h1>
             <p className="lead">{w('availLead', locale)}</p>
             <div className="panel">
+              <p className="muted small" style={{ marginTop: 0 }}>{w('availDefault', locale)}</p>
               <div className="avail-grid">
                 {DAY_ORDER.map((d) => (
                   <div key={d} className={`avail-row${avail[d].on ? '' : ' off'}`}>
@@ -1088,7 +1115,7 @@ export default function BienvenuePage() {
       {step !== 'end' && (
         <footer className="wl-foot">
           <button type="button" className="btn-ghost" onClick={later}>{w('later', locale)}</button>
-          <button type="button" className="btn-ghost" disabled={summarizing || launching} onClick={nextStep}>{w('skip', locale)}</button>
+          {step !== 'tour' && <button type="button" className="btn-ghost" disabled={summarizing || launching} onClick={nextStep}>{w('skip', locale)}</button>}
         </footer>
       )}
 

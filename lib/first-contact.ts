@@ -6,6 +6,7 @@
 // sans que l'import attende 20 à 40 s par ligne.
 
 import { supabaseAdmin } from './supabase-admin';
+import { mustApproveFirstEmail } from './first-email-approval';
 import { generateAaronResponse, convictionColumns } from './aaron';
 import {
   sendEmailForUser,
@@ -176,7 +177,9 @@ export async function runFirstContact(prospect: FirstContactProspect) {
       return;
     }
 
-    if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
+    // Tout premier email du compte : toujours relu (lib/first-email-approval.ts).
+    const approval = hasEmailToSend ? await mustApproveFirstEmail(prospect.assigned_user_id, sender?.require_first_email_approval) : { approve: false, reason: null };
+    if (hasEmailToSend && (approval.approve || truncated)) {
       await supabaseAdmin
         .from('prospects')
         .update({
@@ -188,7 +191,9 @@ export async function runFirstContact(prospect: FirstContactProspect) {
 
       emailWarning = truncated
         ? "Prospect ajouté — le premier email a été coupé pendant sa rédaction, il t'attend pour relecture avant envoi."
-        : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+        : approval.reason === 'first_ever'
+          ? "Prospect ajouté — c'est le tout premier email de ton compte : Aaron te le montre avant de l'envoyer, les suivants partiront seuls."
+          : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
       emailWarningCode = truncated ? 'truncatedDraft' : 'pendingApproval';
 
       try {

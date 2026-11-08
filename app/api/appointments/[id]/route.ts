@@ -23,7 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
 import { sendEmailForUser } from '@/lib/messaging';
-import { confirmAppointment, rescheduleAppointment, cancellationDraft } from '@/lib/appointment-flow';
+import { confirmAppointment, rescheduleAppointment, cancellationDraft, lateNoticeEmail } from '@/lib/appointment-flow';
 
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { canAccessAppointment } from '@/lib/appointment-access';
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
 
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
-  const { action, force, preview, subject, body, skip_email, new_proposed_at } = await readJsonBody(request);
+  const { action, force, preview, subject, body, skip_email, new_proposed_at, late_minutes } = await readJsonBody(request);
   const appointmentId = params.id;
 
   const { data: appointment, error } = await supabaseAdmin
@@ -116,6 +116,17 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     const r = await confirmAppointment(appointmentId, userId, { force: !!force });
     if (!r.ok) return NextResponse.json({ conflict: true, reasons: r.reasons }, { status: 409 });
     return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.calendarWarning });
+  }
+
+  if (action === 'retard') {
+    // « Je suis en retard » (Alex, 08/11/2026) : Aaron prévient le prospect
+    // dans sa langue — le rendez-vous tient, merci de votre patience.
+    if (!appointment.prospects?.email) return NextResponse.json({ error: "Pas d'adresse email pour ce contact." }, { status: 400 });
+    const minutes = Math.min(120, Math.max(5, Number(late_minutes) || 10));
+    const mail = await lateNoticeEmail(appointmentId, userId, minutes);
+    if (!mail) return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
+    runInBackground(`retard RDV ${appointmentId}`, () => sendEmailForUser(userId, appointment.prospects.email, mail.subject, mail.body));
+    return NextResponse.json({ success: true, status: appointment.status, late_minutes: minutes });
   }
 
   if (action === 'reporter' && new_proposed_at) {

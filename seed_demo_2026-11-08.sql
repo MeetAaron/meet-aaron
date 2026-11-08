@@ -53,10 +53,10 @@ begin
           'Traiteur événementiel lyonnais fondé en 2009, 18 salariés, mariages et séminaires d''entreprise, cuisine de saison.',
           'Cible idéale : un traiteur qui organise des séminaires d''entreprise a exactement le besoin que vous couvrez, et la taille (18 salariés) permet une décision rapide par la gérante.', 'strong', 'fr', now() - interval '10 days')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, created_at)
   values (v_company, v_user, v_pc, 'Claire Delorme', 'claire.delorme@maison-delorme.example.fr', '+33 4 72 00 00 11', 'Gérante', 'bleu', 'amene_par_aaron',
           'Elle a demandé un devis pour la saison des séminaires : envoyez-le avant jeudi, elle compare deux prestataires.', 'dominant',
-          'Réponses courtes et directes, décide vite. Parlez résultats et délais, pas détails.', 72, 'Rendez-vous fait, devis demandé spontanément, délai de décision annoncé.', 'rdv_fait', now() - interval '2 days', now() - interval '2 days', now() - interval '10 days')
+          'Réponses courtes et directes, décide vite. Parlez résultats et délais, pas détails.', 72, 'Rendez-vous fait, devis demandé spontanément, délai de décision annoncé.', 'rdv_fait', now() - interval '2 days', now() - interval '10 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -73,10 +73,10 @@ begin
           'Bistrot de quartier, 40 couverts, équipe de 6, ouvert midi et soir, clientèle de bureaux le midi.',
           'Bonne cible : clientèle de bureaux le midi, donc intérêt réel pour les repas d''équipe et les privatisations. Décideur unique, le chef-propriétaire.', 'medium', 'fr', now() - interval '9 days')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
   values (v_company, v_user, v_pc, 'Julien Mercier', 'julien.mercier@bistrot-les-tilleuls.example.fr', '+33 4 78 00 00 22', 'Chef-propriétaire', 'vert', 'amene_par_aaron',
           'Il a demandé des exemples concrets : répondez avec deux cas clients proches de son bistrot, pas une plaquette.', 'influent',
-          'Chaleureux, aime les anecdotes et les exemples. Soignez le relationnel avant les chiffres.', 55, 'A répondu avec intérêt, pose des questions, pas encore de rendez-vous.', now() - interval '1 day', now() - interval '9 days')
+          'Chaleureux, aime les anecdotes et les exemples. Soignez le relationnel avant les chiffres.', 55, 'A répondu avec intérêt, pose des questions, pas encore de rendez-vous.', now() - interval '9 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -88,9 +88,9 @@ begin
   values (v_company, 'patisserie-rozier.example.fr', 'Pâtisserie Rozier', v_camp_fr, 'https://patisserie-rozier.example.fr', '27 cours Vitton, 69006 Lyon', 'Pâtisserie',
           'Pâtisserie-chocolaterie familiale, deux boutiques, commandes d''entreprise en fin d''année.')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
   values (v_company, v_user, v_pc, 'Sophie Rozier', 'sophie.rozier@patisserie-rozier.example.fr', 'Co-gérante', 'jaune', 'amene_par_aaron',
-          'Pas de réponse au premier email : Aaron relance jeudi avec un angle « coffrets de fin d''année pour entreprises ».', now() - interval '5 days', now() - interval '6 days')
+          'Pas de réponse au premier email : Aaron relance jeudi avec un angle « coffrets de fin d''année pour entreprises ».', now() - interval '6 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -101,9 +101,9 @@ begin
   values (v_company, 'brasserie-du-parc.example.fr', 'Brasserie du Parc', v_camp_fr, 'https://brasserie-du-parc.example.fr', '1 boulevard des Belges, 69006 Lyon', 'Brasserie',
           'Brasserie de 120 couverts face au parc de la Tête d''Or, salle privatisable, 25 salariés.')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, is_won, won_at, first_order_confirmed_at, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, is_won, won_at, first_order_confirmed_at, created_at)
   values (v_company, v_user, v_pc, 'Marc Vidal', 'marc.vidal@brasserie-du-parc.example.fr', '+33 4 72 00 00 44', 'Directeur', 'bleu', 'amene_par_aaron',
-          'Client signé : Aaron lui demandera dans 30 jours s''il connaît d''autres restaurateurs intéressés.', 'stable', 90, 'Devis signé le mois dernier.', 'signe', now() - interval '20 days', true, now() - interval '20 days', now() - interval '20 days', now() - interval '20 days', now() - interval '11 days')
+          'Client signé : Aaron lui demandera dans 30 jours s''il connaît d''autres restaurateurs intéressés.', 'stable', 90, 'Devis signé le mois dernier.', 'signe', now() - interval '20 days', true, now() - interval '20 days', now() - interval '20 days', now() - interval '11 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -117,9 +117,9 @@ begin
   insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry)
   values (v_company, 'auberge-monts-dor.example.fr', 'Auberge des Monts d''Or', v_camp_fr, 'https://auberge-monts-dor.example.fr', 'Route de la Croix, 69450 Saint-Cyr-au-Mont-d''Or', 'Restaurant gastronomique')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, deal_stage, deal_stage_updated_at, created_at)
   values (v_company, v_user, v_pc, 'Hélène Garnier', 'helene.garnier@auberge-monts-dor.example.fr', 'Propriétaire', 'rouge', 'amene_par_aaron',
-          'Déjà équipée et satisfaite : Aaron arrête le contact et reviendra dans six mois.', 'perdu', now() - interval '3 days', now() - interval '3 days', now() - interval '8 days')
+          'Déjà équipée et satisfaite : Aaron arrête le contact et reviendra dans six mois.', 'perdu', now() - interval '3 days', now() - interval '8 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -130,10 +130,10 @@ begin
   insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
   values (v_company, 'comptoir-ainay.example.fr', 'Le Comptoir d''Ainay', v_camp_fr, 'https://comptoir-ainay.example.fr', '8 rue Vaubecour, 69002 Lyon', 'Restaurant', 'Restaurant bistronomique, 50 couverts, chef passé par deux maisons étoilées, ouvert depuis 2021.')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
   values (v_company, v_user, v_pc, 'Thomas Renard', 'thomas.renard@comptoir-ainay.example.fr', '+33 4 78 00 00 66', 'Chef et associé', 'vert', 'amene_par_aaron',
           'Visio mardi prochain : il veut comprendre le fonctionnement en 20 minutes. Préparez deux exemples de restaurants bistronomiques.', 'consciencieux',
-          'Précis, veut des chiffres et un déroulé clair. Évitez les superlatifs.', 60, 'Rendez-vous accepté, questions précises sur le fonctionnement.', now() - interval '1 day', now() - interval '7 days')
+          'Précis, veut des chiffres et un déroulé clair. Évitez les superlatifs.', 60, 'Rendez-vous accepté, questions précises sur le fonctionnement.', now() - interval '7 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -154,10 +154,10 @@ begin
           'Residential and commercial plumbing, 9 staff, emergency call-outs, strata contracts.',
           'Strong fit: strata contracts mean recurring business, and the owner answers emails himself.', 'strong', 'en', now() - interval '5 days')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
   values (v_company, v_user, v_pc, 'James Harper', 'james@swanriverplumbing.example.com.au', '+61 8 9000 0011', 'Owner', 'vert', 'amene_par_aaron',
           'He asked for a call before 7am: Aaron proposed Thursday 6:45. Keep it under 10 minutes.', 'dominant',
-          'Blunt and fast. Lead with the outcome, skip the preamble.', 58, 'Replied within a day and asked for a call.', now() - interval '1 day', now() - interval '5 days')
+          'Blunt and fast. Lead with the outcome, skip the preamble.', 58, 'Replied within a day and asked for a call.', now() - interval '5 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -170,9 +170,9 @@ begin
   values (v_company, 'fremantleelectrical.example.com.au', 'Fremantle Electrical Co', v_camp_en, 'https://fremantleelectrical.example.com.au', '45 High Street, Fremantle WA 6160', 'Electrical contractor',
           'Electrical contractor, 14 staff, solar installations and commercial fit-outs.')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
   values (v_company, v_user, v_pc, 'Charlotte Bennett', 'charlotte@fremantleelectrical.example.com.au', 'Director', 'jaune', 'amene_par_aaron',
-          'No reply yet: Aaron follows up Monday with the solar-installations angle.', now() - interval '3 days', now() - interval '4 days')
+          'No reply yet: Aaron follows up Monday with the solar-installations angle.', now() - interval '4 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
@@ -182,9 +182,9 @@ begin
   values (v_company, 'harperjoinery.example.com.au', 'Harper Joinery', v_camp_en, 'https://harperjoinery.example.com.au', '8 Belmont Avenue, Belmont WA 6104', 'Joinery',
           'Custom joinery for kitchens and offices, 6 staff, family business since 1998.')
   returning id into v_pc;
-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
+  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
   values (v_company, v_user, v_pc, 'Matt Walker', 'matt@harperjoinery.example.com.au', 'Sales director', 'jaune', 'amene_par_aaron',
-          'First email sent yesterday. Nothing to do: Aaron watches the inbox.', now() - interval '1 day', now() - interval '2 days')
+          'First email sent yesterday. Nothing to do: Aaron watches the inbox.', now() - interval '2 days')
   returning id into v_p;
   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values

@@ -22,6 +22,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/tomorrow-digest",
+      "schedule": "5 * * * *"
+    },
+    {
       "path": "/api/cron/run-campaigns",
       "schedule": "*/10 * * * *"
     },
