@@ -1,0 +1,1969 @@
+From f23aa0d44bc832e9677c58396d746f8e9063234f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 06:44:57 +0000
+Subject: [PATCH] =?UTF-8?q?Visite=20guid=C3=A9e=20en=2011=20=C3=A9crans,?=
+ =?UTF-8?q?=20premier=20email=20du=20compte=20valid=C3=A9=20une=20fois,=20?=
+ =?UTF-8?q?rappels=20(veille=2020h=20+=20juste=20avant),=20=C2=AB=20je=20s?=
+ =?UTF-8?q?uis=20en=20retard=20=C2=BB,=20pauses=20entre=20rendez-vous,=20d?=
+ =?UTF-8?q?isponibilit=C3=A9s=209h=E2=80=9317h=20par=20d=C3=A9faut?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Docx v7 d'Alex (08/11/2026) :
+- components/GuidedTour.jsx : le scénario validé, exemples localisés par
+  langue (noms, villes, sociétés), écran « Mes documents », conseil
+  signature + logo dans les préférences, email d'après rendez-vous
+  « je reviens vers vous prochainement avec notre offre ». Affichée dans
+  Bienvenue (étape 'tour' après la fiche entreprise ; la campagne se
+  lance en dernier) et sur /app/tour (menu Aide).
+- lib/first-email-approval.ts : par défaut Aaron envoie lui-même ; seul le
+  tout premier email du compte attend la validation (ou chaque premier
+  email si la préférence est cochée). Branché dans first-contact et
+  aaron-batch.
+- Rappels : lib/reminder-texts.ts ×7 ; appointment-reminders réécrit
+  (30 min appel/visio, 1 h physique, rattrapage 15 min, lien visio) ;
+  nouveau cron tomorrow-digest (« ta journée de demain », 20h locales,
+  email + push).
+- « Je suis en retard » : action PATCH 'retard' (email au prospect dans sa
+  langue) + bouton dans la fiche du rendez-vous (de 2 h avant à 30 min
+  après) ; ?rdv=<id> ouvre la fiche depuis une notification.
+- lib/appointment-flow.ts : 30 min de pause entre deux appels/visios, 2 h
+  autour d'un rendez-vous physique ; plages par défaut lundi–vendredi
+  9h–17h (Bienvenue aussi, avec la mention « par défaut »).
+- /api/welcome accepte les étapes 'tour' et 'availability'.
+- seed_demo_2026-11-08.sql : colonne last_contact_at retirée (n'existe pas).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/route.ts          |  15 +-
+ app/api/cron/appointment-reminders/route.ts | 122 +++--
+ app/api/cron/tomorrow-digest/route.ts       | 105 +++++
+ app/api/welcome/route.ts                    |   2 +-
+ app/app/agenda/page.jsx                     |  49 +-
+ app/app/bienvenue/page.jsx                  |  39 +-
+ app/app/tour/page.jsx                       | 382 +--------------
+ components/GuidedTour.jsx                   | 498 ++++++++++++++++++++
+ lib/aaron-batch.ts                          |  16 +-
+ lib/appointment-flow.ts                     |  51 +-
+ lib/first-contact.ts                        |   9 +-
+ lib/first-email-approval.ts                 |  45 ++
+ lib/reminder-texts.ts                       |  63 +++
+ seed_demo_2026-11-08.sql                    |  36 +-
+ vercel.json                                 |   4 +
+ 15 files changed, 959 insertions(+), 477 deletions(-)
+ create mode 100644 app/api/cron/tomorrow-digest/route.ts
+ create mode 100644 components/GuidedTour.jsx
+ create mode 100644 lib/first-email-approval.ts
+ create mode 100644 lib/reminder-texts.ts
+
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index 3058447..12d32e3 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -23,7 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
+ import { sendEmailForUser } from '@/lib/messaging';
+-import { confirmAppointment, rescheduleAppointment, cancellationDraft } from '@/lib/appointment-flow';
++import { confirmAppointment, rescheduleAppointment, cancellationDraft, lateNoticeEmail } from '@/lib/appointment-flow';
+ 
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { canAccessAppointment } from '@/lib/appointment-access';
+@@ -81,7 +81,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+ 
+ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+-  const { action, force, preview, subject, body, skip_email, new_proposed_at } = await readJsonBody(request);
++  const { action, force, preview, subject, body, skip_email, new_proposed_at, late_minutes } = await readJsonBody(request);
+   const appointmentId = params.id;
+ 
+   const { data: appointment, error } = await supabaseAdmin
+@@ -118,6 +118,17 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.calendarWarning });
+   }
+ 
++  if (action === 'retard') {
++    // « Je suis en retard » (Alex, 08/11/2026) : Aaron prévient le prospect
++    // dans sa langue — le rendez-vous tient, merci de votre patience.
++    if (!appointment.prospects?.email) return NextResponse.json({ error: "Pas d'adresse email pour ce contact." }, { status: 400 });
++    const minutes = Math.min(120, Math.max(5, Number(late_minutes) || 10));
++    const mail = await lateNoticeEmail(appointmentId, userId, minutes);
++    if (!mail) return NextResponse.json({ error: 'RDV introuvable' }, { status: 404 });
++    runInBackground(`retard RDV ${appointmentId}`, () => sendEmailForUser(userId, appointment.prospects.email, mail.subject, mail.body));
++    return NextResponse.json({ success: true, status: appointment.status, late_minutes: minutes });
++  }
++
+   if (action === 'reporter' && new_proposed_at) {
+     // Report avec une nouvelle date choisie par le commercial (08/11/2026) :
+     // l'ancien événement est retiré, le nouveau créé, le prospect prévenu
+diff --git a/app/api/cron/appointment-reminders/route.ts b/app/api/cron/appointment-reminders/route.ts
+index 231a3fb..5abc5a1 100644
+--- a/app/api/cron/appointment-reminders/route.ts
++++ b/app/api/cron/appointment-reminders/route.ts
+@@ -1,101 +1,85 @@
+ // app/api/cron/appointment-reminders/route.ts
+ // Exécuté toutes les minutes via Vercel Cron.
+-// Cherche les RDV validés dont l'heure de rappel (proposed_at - X minutes) vient
+-// d'être atteinte, et envoie la notification selon la préférence du commercial
+-// (email, push, ou les deux). Évite les doublons via notifications_log.
++// Rappel « juste avant » au commercial : 30 min avant un appel ou une visio
++// (ou sa préférence notify_before_appointment_minutes), 1 h avant un
++// rendez-vous physique — décision Alex, 08/11/2026 (lib/reminder-texts.ts).
++// Dans la langue du commercial, avec le lien visio. Évite les doublons via
++// notifications_log, et rattrape un passage manqué : un rappel dont l'heure
++// est passée depuis moins de 15 minutes part quand même (avant, une minute
++// de retard du cron faisait sauter le rappel pour de bon).
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendEmailForUser } from '@/lib/messaging';
+ import { sendPushNotification } from '@/lib/push';
++import { resolveUserTimeZone } from '@/lib/user-timezone';
++import { reminderLeadMinutes, reminderTexts, typeLabel, fmtTime } from '@/lib/reminder-texts';
+ 
+ function isAuthorized(request: NextRequest) {
+   const authHeader = request.headers.get('authorization');
+   return authHeader === `Bearer ${process.env.CRON_SECRET}`;
+ }
+ 
++const CATCH_UP_MS = 15 * 60 * 1000;
++
+ export async function GET(request: NextRequest) {
+   if (!isAuthorized(request)) {
+     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+   }
+ 
+   const now = new Date();
+-
+-  // Récupère tous les RDV validés à venir avec les préférences du commercial
++  // Fenêtre : rendez-vous dans les deux prochaines heures (le plus long délai
++  // de rappel est 1 h, plus le rattrapage).
+   const { data: appointments } = await supabaseAdmin
+     .from('appointments')
+-    .select('*, users(id, full_name, email, notify_before_appointment_minutes, notify_channel), prospects(full_name)')
++    .select('id, proposed_at, type, meet_link, contact_name, users(id, full_name, email, locale, timezone, billing_country, notify_before_appointment_minutes, notify_channel), prospects(full_name, prospect_companies(name))')
+     .eq('status', 'validé')
+-    .gt('proposed_at', now.toISOString());
+-
+-  const notified = [];
+-
+-  for (const appt of appointments || []) {
+-   try {
+-    const reminderMinutes = appt.users.notify_before_appointment_minutes;
+-    const reminderTime = new Date(new Date(appt.proposed_at).getTime() - reminderMinutes * 60 * 1000);
++    .gt('proposed_at', new Date(now.getTime() - CATCH_UP_MS).toISOString())
++    .lt('proposed_at', new Date(now.getTime() + 2 * 3600 * 1000).toISOString());
+ 
+-    // La fenêtre du cron tourne toutes les minutes : on vérifie qu'on est dans la bonne minute
+-    const diffMs = Math.abs(now.getTime() - reminderTime.getTime());
+-    if (diffMs > 60_000) continue; // pas encore le moment (ou déjà passé)
++  const notified: string[] = [];
+ 
+-    // Vérifie qu'on n'a pas déjà notifié pour ce RDV
+-    const { data: alreadySent } = await supabaseAdmin
+-      .from('notifications_log')
+-      .select('id')
+-      .eq('appointment_id', appt.id)
+-      .eq('type', 'appointment_reminder');
++  for (const appt of (appointments || []) as any[]) {
++    try {
++      const user = appt.users;
++      if (!user) continue;
++      const lead = reminderLeadMinutes(appt.type, user.notify_before_appointment_minutes);
++      const reminderTime = new Date(new Date(appt.proposed_at).getTime() - lead * 60 * 1000);
++      const late = now.getTime() - reminderTime.getTime();
++      if (late < 0 || late > CATCH_UP_MS) continue;
+ 
+-    if (alreadySent && alreadySent.length > 0) continue;
++      const locale = user.locale || 'fr';
++      const tz = resolveUserTimeZone(user);
++      const T = reminderTexts(locale);
++      const name = appt.prospects?.full_name || appt.contact_name || '';
++      const minutesLeft = Math.max(1, Math.round((new Date(appt.proposed_at).getTime() - now.getTime()) / 60000));
++      const title = T.reminderTitle.replace('{minutes}', String(minutesLeft));
++      const body = T.reminderBody.replace('{name}', name).replace('{type}', typeLabel(locale, appt.type)).replace('{time}', fmtTime(appt.proposed_at, locale, tz));
++      const emailBody = appt.meet_link ? `${body}\n\n${T.reminderLink.replace('{link}', appt.meet_link)}` : body;
+ 
+-    const channel = appt.users.notify_channel; // 'email' | 'push' | 'both'
+-    const message = `Rappel : RDV avec ${appt.prospects.full_name} dans ${reminderMinutes} minutes.`;
+-
+-    if (channel === 'email' || channel === 'both') {
+-      // La contrainte unique (appointment_id, type, channel) sur notifications_log (voir
+-      // migration_notifications_unique_2026-08-12.sql) fait qu'un doublon lève une
+-      // erreur d'insertion plutôt que de créer une 2e ligne — on l'ignore silencieusement
+-      // pour ne pas renvoyer un 2e email si deux exécutions du cron se chevauchent.
+-      const { error: logError } = await supabaseAdmin.from('notifications_log').insert({
+-        user_id: appt.users.id,
+-        appointment_id: appt.id,
+-        channel: 'email',
+-        type: 'appointment_reminder',
+-      });
+-      if (logError) {
+-        if (logError.code === '23505') continue; // déjà notifié par une exécution concurrente
+-        console.error('Erreur log notification (email):', logError.message);
+-      } else {
+-        await sendEmailForUser(appt.users.id, appt.users.email, 'Rappel de rendez-vous', message);
++      const channel = user.notify_channel || 'both';
++      if (channel === 'email' || channel === 'both') {
++        const { error: logError } = await supabaseAdmin.from('notifications_log').insert({ user_id: user.id, appointment_id: appt.id, channel: 'email', type: 'appointment_reminder' });
++        if (!logError) {
++          await sendEmailForUser(user.id, user.email, title, emailBody);
++        } else if (logError.code !== '23505') {
++          console.error('Erreur log notification (email):', logError.message);
++        }
+       }
+-    }
+-
+-    if (channel === 'push' || channel === 'both') {
+-      const { error: logError } = await supabaseAdmin.from('notifications_log').insert({
+-        user_id: appt.users.id,
+-        appointment_id: appt.id,
+-        channel: 'push',
+-        type: 'appointment_reminder',
+-      });
+-      if (logError) {
+-        if (logError.code === '23505') continue; // déjà notifié par une exécution concurrente
+-        console.error('Erreur log notification (push):', logError.message);
+-      } else {
+-        await sendPushNotification(appt.users.id, {
+-          title: 'Rappel de rendez-vous',
+-          body: message,
+-          url: `/app/agenda?user_id=${appt.users.id}`,
+-          tag: `rappel_rdv:${appt.id}`,
+-        });
++      if (channel === 'push' || channel === 'both') {
++        const { error: logError } = await supabaseAdmin.from('notifications_log').insert({ user_id: user.id, appointment_id: appt.id, channel: 'push', type: 'appointment_reminder' });
++        if (!logError) {
++          await sendPushNotification(user.id, { title, body, url: `/app/agenda?user_id=${user.id}&rdv=${appt.id}`, tag: `rappel_rdv:${appt.id}` });
++        } else if (logError.code !== '23505') {
++          console.error('Erreur log notification (push):', logError.message);
++        }
+       }
++      notified.push(appt.id);
++    } catch (err: any) {
++      // Un échec sur UN rappel (boîte déconnectée…) ne doit pas empêcher les
++      // autres rappels de ce cycle.
++      console.error(`Erreur envoi rappel RDV ${appt.id}:`, err?.message || err);
+     }
+-
+-    notified.push(appt.id);
+-   } catch (err: any) {
+-     // Un échec sur UN rappel (mailbox déconnectée, etc.) ne doit pas empêcher
+-     // les rappels des autres commerciaux dans ce même cycle.
+-     console.error(`Erreur envoi rappel RDV ${appt.id}:`, err.message);
+-   }
+   }
+ 
+   return NextResponse.json({ notified: notified.length });
+diff --git a/app/api/cron/tomorrow-digest/route.ts b/app/api/cron/tomorrow-digest/route.ts
+new file mode 100644
+index 0000000..bf3280a
+--- /dev/null
++++ b/app/api/cron/tomorrow-digest/route.ts
+@@ -0,0 +1,105 @@
++// app/api/cron/tomorrow-digest/route.ts
++// Exécuté toutes les heures (vercel.json). « Ta journée de demain » : à 20 h
++// dans le fuseau du commercial, un email et une notification listant ses
++// rendez-vous du lendemain — le premier des deux rappels voulus par Alex
++// (docx 08/11/2026 ; le second est appointment-reminders, juste avant).
++// Rien n'est envoyé quand il n'y a aucun rendez-vous demain.
++//
++// Sans migration : la déduplication s'appuie sur notifications_log
++// (type 'tomorrow_digest', un enregistrement par rendez-vous de la liste) —
++// un rendez-vous confirmé après 20 h sera couvert par le rappel juste avant.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { sendEmailForUser } from '@/lib/messaging';
++import { sendPushNotification } from '@/lib/push';
++import { resolveUserTimeZone } from '@/lib/user-timezone';
++import { reminderTexts, typeLabel, fmtTime, fmtDay, DIGEST_HOUR } from '@/lib/reminder-texts';
++
++function isAuthorized(request: NextRequest) {
++  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
++}
++
++function localHour(d: Date, tz: string): number {
++  const h = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }).format(d);
++  return Number(h) % 24;
++}
++
++// Début et fin du jour « demain » dans le fuseau, en ISO UTC.
++function tomorrowBounds(now: Date, tz: string): { start: string; end: string } {
++  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
++  const [y, m, d] = ymd.split('-').map(Number);
++  const probe = new Date(Date.UTC(y, m - 1, d + 1, 12, 0, 0));
++  const offsetMin = (() => {
++    const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(probe);
++    const hh = Number(p.find((x) => x.type === 'hour')?.value || 0) % 24;
++    const mm = Number(p.find((x) => x.type === 'minute')?.value || 0);
++    return hh * 60 + mm - 12 * 60;
++  })();
++  const startLocalMidnight = Date.UTC(y, m - 1, d + 1, 0, 0, 0) - offsetMin * 60000;
++  return { start: new Date(startLocalMidnight).toISOString(), end: new Date(startLocalMidnight + 24 * 3600 * 1000).toISOString() };
++}
++
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++
++  const now = new Date();
++  let usersRes: any = await supabaseAdmin.from('users').select('id, first_name, full_name, email, locale, timezone, billing_country, notify_channel');
++  if (usersRes.error) return NextResponse.json({ error: usersRes.error.message }, { status: 500 });
++
++  const sent: string[] = [];
++  for (const user of (usersRes.data || []) as any[]) {
++    try {
++      const tz = resolveUserTimeZone(user);
++      if (localHour(now, tz) !== DIGEST_HOUR) continue;
++      const { start, end } = tomorrowBounds(now, tz);
++      const { data: appts } = await supabaseAdmin
++        .from('appointments')
++        .select('id, proposed_at, type, meet_link, contact_name, prospects(full_name, prospect_companies(name))')
++        .eq('user_id', user.id)
++        .eq('status', 'validé')
++        .gte('proposed_at', start)
++        .lt('proposed_at', end)
++        .order('proposed_at', { ascending: true });
++      if (!appts || appts.length === 0) continue;
++
++      // Déduplication : on tente d'enregistrer chaque rendez-vous ; si aucun
++      // n'est nouveau, le récap est déjà parti.
++      let fresh = 0;
++      for (const a of appts) {
++        const { error } = await supabaseAdmin.from('notifications_log').insert({ user_id: user.id, appointment_id: a.id, channel: 'email', type: 'tomorrow_digest' });
++        if (!error) fresh++;
++        else if (error.code !== '23505') console.error('[tomorrow-digest] log:', error.message);
++      }
++      if (fresh === 0) continue;
++
++      const locale = user.locale || 'fr';
++      const T = reminderTexts(locale);
++      const lines = (appts as any[]).map((a) =>
++        T.digestLine
++          .replace('{time}', fmtTime(a.proposed_at, locale, tz))
++          .replace('{name}', a.prospects?.full_name || a.contact_name || '')
++          .replace('{company}', a.prospects?.prospect_companies?.name || '—')
++          .replace('{type}', typeLabel(locale, a.type)) + (a.meet_link ? ` · ${a.meet_link}` : '')
++      );
++      const first = user.first_name || (user.full_name || '').split(' ')[0] || '';
++      const body = [T.digestIntro.replace('{first}', first).replace('{date}', fmtDay(appts[0].proposed_at, locale, tz)), '', ...lines, '', T.digestFoot].join('\n');
++      const channel = user.notify_channel || 'both';
++      if (channel === 'email' || channel === 'both') {
++        await sendEmailForUser(user.id, user.email, T.digestSubject, body);
++      }
++      if (channel === 'push' || channel === 'both') {
++        await sendPushNotification(user.id, {
++          title: T.digestTitle,
++          body: T.digestPush.replace('{n}', String(appts.length)).replace('{first_line}', lines[0].split(' · ').slice(0, 2).join(' · ')),
++          url: `/app/agenda?user_id=${user.id}`,
++          tag: `digest:${start.slice(0, 10)}`,
++        });
++      }
++      sent.push(user.id);
++    } catch (err: any) {
++      console.error(`[tomorrow-digest] ${user.id}:`, err?.message || err);
++    }
++  }
++  return NextResponse.json({ sent: sent.length });
++}
+diff --git a/app/api/welcome/route.ts b/app/api/welcome/route.ts
+index 981ca17..eb6ade0 100644
+--- a/app/api/welcome/route.ts
++++ b/app/api/welcome/route.ts
+@@ -15,7 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+-const WELCOME_STEPS = ['intro', 'company', 'campaign', 'mailbox', 'end'] as const;
++const WELCOME_STEPS = ['intro', 'company', 'tour', 'campaign', 'mailbox', 'availability', 'end'] as const;
+ type WelcomeStep = (typeof WELCOME_STEPS)[number];
+ 
+ function isMissingColumn(error: any): boolean {
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index 6223489..27a08ab 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -29,6 +29,10 @@ const AGENDA_TEXT = {
+   cancelSilent: { fr: 'Annuler sans prévenir', en: 'Cancel without notifying', de: 'Absagen ohne Benachrichtigung', it: 'Annulla senza avvisare', es: 'Cancelar sin avisar', pt: 'Cancelar sem avisar', nl: 'Annuleren zonder bericht' },
+   reschedule: { fr: 'Reporter', en: 'Reschedule', de: 'Verschieben', it: 'Rimanda', es: 'Posponer', pt: 'Adiar', nl: 'Verzetten' },
+   rescheduleHint: { fr: "Choisis le nouveau créneau. L'ancien est retiré de ton agenda, le nouveau y est créé, et le prospect reçoit la nouvelle date avec le lien ou l'adresse.", en: 'Pick the new time. The old one is removed from your calendar, the new one is created, and the prospect receives the new date with the link or address.', de: 'Wähle den neuen Termin. Der alte wird aus deinem Kalender entfernt, der neue angelegt, und der Interessent erhält das neue Datum mit Link oder Adresse.', it: 'Scegli il nuovo orario. Il vecchio viene rimosso dalla tua agenda, il nuovo creato, e il prospect riceve la nuova data con il link o l’indirizzo.', es: 'Elige el nuevo horario. El anterior se elimina de tu agenda, el nuevo se crea y el prospecto recibe la nueva fecha con el enlace o la dirección.', pt: 'Escolhe o novo horário. O antigo é removido da tua agenda, o novo é criado e o prospeto recebe a nova data com o link ou a morada.', nl: 'Kies het nieuwe tijdstip. Het oude verdwijnt uit je agenda, het nieuwe wordt aangemaakt en de prospect ontvangt de nieuwe datum met link of adres.' },
++  late: { fr: 'Je suis en retard', en: 'I am running late', de: 'Ich verspäte mich', it: 'Sono in ritardo', es: 'Voy con retraso', pt: 'Estou atrasado', nl: 'Ik ben verlaat' },
++  lateHint: { fr: 'Aaron prévient le prospect tout de suite, dans sa langue : un petit imprévu te retarde, le rendez-vous tient bien, merci pour sa patience. De combien ?', en: 'Aaron lets the prospect know right away, in their language: something unexpected is delaying you, the meeting still stands, thanks for their patience. By how much?', de: 'Aaron informiert den Interessenten sofort in seiner Sprache: etwas Unvorhergesehenes verzögert dich, der Termin findet statt, danke für die Geduld. Um wie viel?', it: 'Aaron avvisa subito il prospect, nella sua lingua: un imprevisto ti fa ritardare, l’appuntamento è confermato, grazie per la pazienza. Di quanto?', es: 'Aaron avisa al prospecto ahora mismo, en su idioma: un imprevisto te retrasa, la reunión se mantiene, gracias por su paciencia. ¿Cuánto?', pt: 'O Aaron avisa já o prospeto, na sua língua: um imprevisto atrasa-te, a reunião mantém-se, obrigado pela paciência. Quanto?', nl: 'Aaron laat de prospect meteen weten, in zijn taal: iets onverwachts vertraagt je, de afspraak gaat door, bedankt voor het geduld. Hoeveel?' },
++  lateMin: { fr: '{n} min', en: '{n} min', de: '{n} Min.', it: '{n} min', es: '{n} min', pt: '{n} min', nl: '{n} min' },
++  lateSent: { fr: 'Le prospect est prévenu.', en: 'The prospect has been told.', de: 'Der Interessent ist informiert.', it: 'Il prospect è stato avvisato.', es: 'El prospecto está avisado.', pt: 'O prospeto foi avisado.', nl: 'De prospect is op de hoogte.' },
+   rescheduleConfirm: { fr: 'Confirmer le report', en: 'Confirm the new time', de: 'Verschiebung bestätigen', it: 'Conferma il rinvio', es: 'Confirmar el cambio', pt: 'Confirmar o adiamento', nl: 'Verzetten bevestigen' },
+   cancelAskPerso: { fr: 'Annuler ce rendez-vous ? Il sera retiré de ton agenda et de ton calendrier.', en: 'Cancel this meeting? It is removed from your agenda and your calendar.', de: 'Diesen Termin absagen? Er wird aus Ihrer Agenda und Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Sarà rimosso dalla tua agenda e dal calendario.', es: '¿Cancelar esta cita? Se eliminará de tu agenda y de tu calendario.', pt: 'Cancelar esta reunião? Será removida da tua agenda e do teu calendário.', nl: 'Deze afspraak annuleren? Hij verdwijnt uit je agenda en je kalender.' },
+   persoNote: { fr: "Contact ajouté à la main : Aaron ne suit pas ses échanges, il n'y a donc ni brief ni historique.", en: 'Contact added by hand: Aaron does not follow its exchanges, so there is no brief or history.', de: 'Von Hand hinzugefügter Kontakt: Aaron verfolgt den Austausch nicht, daher gibt es weder Briefing noch Verlauf.', it: 'Contatto aggiunto a mano: Aaron non segue gli scambi, quindi non ci sono brief né storico.', es: 'Contacto añadido a mano: Aaron no sigue sus intercambios, así que no hay brief ni historial.', pt: 'Contacto adicionado à mão: o Aaron não acompanha as trocas, por isso não há brief nem histórico.', nl: 'Handmatig toegevoegd contact: Aaron volgt de uitwisselingen niet, dus geen briefing of geschiedenis.' },
+@@ -313,8 +317,17 @@ export default function AgendaPage() {
+   async function load() {
+     setLoading(true);
+     const res = await fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json());
+-    setAppointments(res.appointments || []);
++    const list = res.appointments || [];
++    setAppointments(list);
+     setLoading(false);
++    // Lien profond depuis une notification (?rdv=<id>) : ouvre la fiche.
++    try {
++      const wanted = new URLSearchParams(window.location.search).get('rdv');
++      if (wanted) {
++        const found = list.find((a) => a.id === wanted);
++        if (found) setDetailAppointment(found);
++      }
++    } catch {}
+   }
+ 
+   function loadAvailability() {
+@@ -2115,7 +2128,23 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
+   const [cancelBusy, setCancelBusy] = useState(false);
+   const [rescheduling, setRescheduling] = useState(false);
+   const [newWhen, setNewWhen] = useState('');
++  // « Je suis en retard » (Alex, 08/11/2026) : visible de 2 h avant le
++  // rendez-vous jusqu'à 30 min après, pour un rendez-vous validé avec prospect.
++  const [lateOpen, setLateOpen] = useState(false);
++  const [lateState, setLateState] = useState(null); // 'sending' | 'sent' | 'error'
+   const hasProspect = !!appointment.prospect_id;
++  const minutesToStart = (new Date(appointment.proposed_at).getTime() - Date.now()) / 60000;
++  const canSayLate = hasProspect && appointment.status === 'validé' && !!appointment.prospects?.email && minutesToStart <= 120 && minutesToStart >= -30;
++
++  async function sayLate(minutes) {
++    setLateState('sending');
++    try {
++      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'retard', late_minutes: minutes }) });
++      setLateState(res.ok ? 'sent' : 'error');
++    } catch {
++      setLateState('error');
++    }
++  }
+ 
+   async function startCancel() {
+     setConfirmCancel(false);
+@@ -2215,13 +2244,29 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
+           {isPast && hasProspect && appointment.status !== 'annulé' && (
+             <a className="btn-secondary" href={`/app/agenda/rdv/${appointment.id}/bilan`}>{appointment.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}</a>
+           )}
++          {canSayLate && !lateOpen && lateState !== 'sent' && (
++            <button type="button" className="btn-secondary" onClick={() => { setLateOpen(true); setRescheduling(false); setConfirmCancel(false); }}>{tx('late')}</button>
++          )}
+           {!isPast && appointment.status !== 'annulé' && !rescheduling && !cancelDraft && (
+-            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); }}>{tx('reschedule')}</button>
++            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); setLateOpen(false); }}>{tx('reschedule')}</button>
+           )}
+           {!isPast && appointment.status !== 'annulé' && !confirmCancel && !cancelDraft && (
+             <button type="button" className="btn-danger-ghost" onClick={() => { setConfirmCancel(true); setRescheduling(false); }}>{t('stories.cancelRdv', locale)}</button>
+           )}
+         </div>
++        {lateOpen && lateState !== 'sent' && (
++          <div className="confirm-box neutral">
++            <p>{tx('lateHint')}</p>
++            <div className="confirm-actions">
++              <button type="button" className="btn-secondary" onClick={() => setLateOpen(false)} disabled={lateState === 'sending'}>{t('common.back', locale)}</button>
++              {[10, 20, 30].map((n) => (
++                <button key={n} type="button" className="btn-primary" disabled={lateState === 'sending'} onClick={() => sayLate(n)}>{lateState === 'sending' ? '…' : tx('lateMin').replace('{n}', String(n))}</button>
++              ))}
++            </div>
++            {lateState === 'error' && <p className="error">{t('common.error', locale)}</p>}
++          </div>
++        )}
++        {lateState === 'sent' && <p className="muted small">{tx('lateSent')}</p>}
+         {rescheduling && (
+           <div className="confirm-box neutral">
+             <p>{tx('rescheduleHint')}</p>
+diff --git a/app/app/bienvenue/page.jsx b/app/app/bienvenue/page.jsx
+index c7d3074..47b36fb 100644
+--- a/app/app/bienvenue/page.jsx
++++ b/app/app/bienvenue/page.jsx
+@@ -10,11 +10,13 @@
+ //   1. Entreprise  — les 12 questions (puces + réponse libre), encouragements
+ //                    à la 6e et à la 10e, dépôt d'un document en haut pour
+ //                    pré-remplir. Fin : Aaron rédige la fiche entreprise.
+-//   2. Campagne    — ZÉRO question nouvelle : pré-remplie depuis les réponses,
+-//                    on confirme ou corrige, on choisit le nombre.
++//   2. Visite      — la visite guidée en 11 écrans (components/GuidedTour.jsx).
+ //   3. Boîte mail  — Google / Microsoft (agenda inclus) ou autre boîte.
++//   4. Disponibilités — plages par défaut lundi–vendredi 9h–17h, types de RDV.
++//   5. Campagne    — ZÉRO question nouvelle : pré-remplie depuis les réponses,
++//                    on confirme ou corrige, on choisit le nombre.
+ //   Fin            — ce qui part maintenant, ce qui attend encore.
+-// Commercial invité par code (profil d'entreprise déjà fait) : 0, 3 et Fin.
++// Commercial invité par code (profil d'entreprise déjà fait) : 0, 2, 3, 4 et Fin.
+ //
+ // Reprise EXACTE : écran, question et réponses sont enregistrés en base à
+ // chaque pas (/api/welcome) — jamais dans le navigateur. « Reprendre plus
+@@ -27,11 +29,14 @@ import { supabaseBrowser } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+ import { ONBOARDING_QUESTION_KEYS, suggestionsFor } from '@/lib/onboarding-questions';
+ import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft, Sparkles, Loader2, FileText } from 'lucide-react';
++import GuidedTour from '@/components/GuidedTour';
+ 
+ // Textes du parcours, gardés ici (lib/i18n.js est trop lourd pour l'envoi web
+ // de GitHub), comme components/ContactCard.jsx.
+ const W = {
+   fr: {
++    tourDone: 'Passer aux réglages',
++    availDefault: 'Par défaut : du lundi au vendredi, 9h–17h, pour les trois types de rendez-vous. Ajuste si besoin.',
+     chatSend: 'Envoyer', chatConfirm: 'Oui, c\'est ça', chatAdd: 'Compléter…', chatThinking: 'Aaron réfléchit…', chatFromDoc: 'D\'après ton document, voici ce que je comprends :', chatIntro: 'Réponds avec tes mots, ou pose-moi une question si quelque chose n\'est pas clair.', chatErr: 'Aaron n\'a pas pu répondre, réessaie.',
+     availTitle: 'Quand es-tu disponible pour un rendez-vous ?', availLead: 'Aaron ne proposera que ces créneaux à tes prospects, et confirmera les rendez-vous tout seul quand ils tombent dedans. Tu pourras les changer à tout moment dans l\'Agenda.', availTypes: 'Types de rendez-vous que tu acceptes', availSave: 'Enregistrer mes disponibilités', availSaving: 'Enregistrement…', availFrom: 'de', availTo: 'à', typeVisio: 'Visio', typeTel: 'Téléphone', typePhysique: 'Sur place', availErr: 'Impossible d\'enregistrer, réessaie.',
+     stepOf: 'Étape {n} sur {total}', skip: 'Passer', later: 'Reprendre plus tard', next: 'Suivant', back: 'Précédent', start: "C'est parti",
+@@ -76,6 +81,8 @@ const W = {
+     saveError: 'Connexion perdue : ta réponse n’a pas été enregistrée. Réessaie.',
+   },
+   en: {
++    tourDone: 'Go to the settings',
++    availDefault: 'Default: Monday to Friday, 9am–5pm, for the three meeting types. Adjust if needed.',
+     chatSend: 'Send', chatConfirm: 'Yes, that\'s it', chatAdd: 'Add something…', chatThinking: 'Aaron is thinking…', chatFromDoc: 'From your document, here is what I understand:', chatIntro: 'Answer in your own words, or ask me a question if something is unclear.', chatErr: 'Aaron could not answer, please try again.',
+     availTitle: 'When are you available for a meeting?', availLead: 'Aaron will only offer these time slots to your prospects, and will confirm meetings on his own when they fall inside them. You can change them any time in the Calendar.', availTypes: 'Meeting types you accept', availSave: 'Save my availability', availSaving: 'Saving…', availFrom: 'from', availTo: 'to', typeVisio: 'Video call', typeTel: 'Phone', typePhysique: 'In person', availErr: 'Could not save, please try again.',
+     stepOf: 'Step {n} of {total}', skip: 'Skip', later: 'Continue later', next: 'Next', back: 'Back', start: "Let's go",
+@@ -120,6 +127,8 @@ const W = {
+     saveError: 'Connection lost: your answer was not saved. Please try again.',
+   },
+   de: {
++    tourDone: 'Zu den Einstellungen',
++    availDefault: 'Standard: Montag bis Freitag, 9–17 Uhr, für alle drei Terminarten. Bei Bedarf anpassen.',
+     chatSend: 'Senden', chatConfirm: 'Ja, genau', chatAdd: 'Ergänzen…', chatThinking: 'Aaron überlegt…', chatFromDoc: 'Aus deinem Dokument verstehe ich Folgendes:', chatIntro: 'Antworte in deinen Worten oder stell mir eine Frage, wenn etwas unklar ist.', chatErr: 'Aaron konnte nicht antworten, bitte versuche es erneut.',
+     availTitle: 'Wann sind Sie für einen Termin erreichbar?', availLead: 'Aaron schlägt Ihren Interessenten nur diese Zeitfenster vor und bestätigt Termine selbstständig, wenn sie hineinfallen. Sie können sie jederzeit im Kalender ändern.', availTypes: 'Terminarten, die Sie akzeptieren', availSave: 'Verfügbarkeit speichern', availSaving: 'Wird gespeichert…', availFrom: 'von', availTo: 'bis', typeVisio: 'Videoanruf', typeTel: 'Telefon', typePhysique: 'Vor Ort', availErr: 'Speichern nicht möglich, bitte erneut versuchen.',
+     stepOf: 'Schritt {n} von {total}', skip: 'Überspringen', later: 'Später fortsetzen', next: 'Weiter', back: 'Zurück', start: 'Los geht’s',
+@@ -164,6 +173,8 @@ const W = {
+     saveError: 'Verbindung verloren: Ihre Antwort wurde nicht gespeichert. Bitte erneut versuchen.',
+   },
+   it: {
++    tourDone: 'Vai alle impostazioni',
++    availDefault: 'Predefinito: dal lunedì al venerdì, 9–17, per i tre tipi di appuntamento. Modifica se necessario.',
+     chatSend: 'Invia', chatConfirm: 'Sì, è così', chatAdd: 'Aggiungi qualcosa…', chatThinking: 'Aaron sta pensando…', chatFromDoc: 'Dal tuo documento, ecco cosa capisco:', chatIntro: 'Rispondi con parole tue, o fammi una domanda se qualcosa non è chiaro.', chatErr: 'Aaron non ha potuto rispondere, riprova.',
+     availTitle: 'Quando sei disponibile per un appuntamento?', availLead: 'Aaron proporrà ai tuoi prospect solo queste fasce orarie e confermerà da solo gli appuntamenti che vi rientrano. Potrai cambiarle in qualsiasi momento nell\'Agenda.', availTypes: 'Tipi di appuntamento che accetti', availSave: 'Salva le mie disponibilità', availSaving: 'Salvataggio…', availFrom: 'dalle', availTo: 'alle', typeVisio: 'Videochiamata', typeTel: 'Telefono', typePhysique: 'Di persona', availErr: 'Impossibile salvare, riprova.',
+     stepOf: 'Passo {n} di {total}', skip: 'Salta', later: 'Riprendi più tardi', next: 'Avanti', back: 'Indietro', start: 'Iniziamo',
+@@ -208,6 +219,8 @@ const W = {
+     saveError: 'Connessione persa: la risposta non è stata salvata. Riprova.',
+   },
+   es: {
++    tourDone: 'Ir a los ajustes',
++    availDefault: 'Por defecto: de lunes a viernes, de 9 a 17 h, para los tres tipos de reunión. Ajústalo si hace falta.',
+     chatSend: 'Enviar', chatConfirm: 'Sí, es eso', chatAdd: 'Añadir algo…', chatThinking: 'Aaron está pensando…', chatFromDoc: 'Según tu documento, esto es lo que entiendo:', chatIntro: 'Responde con tus palabras o hazme una pregunta si algo no está claro.', chatErr: 'Aaron no ha podido responder, inténtalo de nuevo.',
+     availTitle: '¿Cuándo estás disponible para una reunión?', availLead: 'Aaron solo propondrá estos horarios a tus prospectos y confirmará las reuniones por sí mismo cuando caigan dentro. Puedes cambiarlos en cualquier momento en la Agenda.', availTypes: 'Tipos de reunión que aceptas', availSave: 'Guardar mi disponibilidad', availSaving: 'Guardando…', availFrom: 'de', availTo: 'a', typeVisio: 'Videollamada', typeTel: 'Teléfono', typePhysique: 'Presencial', availErr: 'No se ha podido guardar, inténtalo de nuevo.',
+     stepOf: 'Paso {n} de {total}', skip: 'Omitir', later: 'Continuar más tarde', next: 'Siguiente', back: 'Atrás', start: 'Empezar',
+@@ -252,6 +265,8 @@ const W = {
+     saveError: 'Conexión perdida: tu respuesta no se guardó. Inténtalo de nuevo.',
+   },
+   pt: {
++    tourDone: 'Ir para as definições',
++    availDefault: 'Por defeito: de segunda a sexta, 9h–17h, para os três tipos de reunião. Ajusta se necessário.',
+     chatSend: 'Enviar', chatConfirm: 'Sim, é isso', chatAdd: 'Acrescentar…', chatThinking: 'O Aaron está a pensar…', chatFromDoc: 'Pelo teu documento, é isto que percebo:', chatIntro: 'Responde com as tuas palavras, ou faz-me uma pergunta se algo não estiver claro.', chatErr: 'O Aaron não conseguiu responder, tenta de novo.',
+     availTitle: 'Quando estás disponível para uma reunião?', availLead: 'O Aaron só vai propor estes horários aos teus prospetos e confirma as reuniões sozinho quando caem dentro deles. Podes alterá-los a qualquer momento na Agenda.', availTypes: 'Tipos de reunião que aceitas', availSave: 'Guardar a minha disponibilidade', availSaving: 'A guardar…', availFrom: 'das', availTo: 'às', typeVisio: 'Videochamada', typeTel: 'Telefone', typePhysique: 'Presencial', availErr: 'Não foi possível guardar, tenta de novo.',
+     stepOf: 'Passo {n} de {total}', skip: 'Saltar', later: 'Continuar mais tarde', next: 'Seguinte', back: 'Anterior', start: 'Vamos lá',
+@@ -296,6 +311,8 @@ const W = {
+     saveError: 'Ligação perdida: a resposta não foi guardada. Tenta outra vez.',
+   },
+   nl: {
++    tourDone: 'Naar de instellingen',
++    availDefault: 'Standaard: maandag tot vrijdag, 9–17 uur, voor de drie soorten afspraken. Pas aan indien nodig.',
+     chatSend: 'Versturen', chatConfirm: 'Ja, dat klopt', chatAdd: 'Aanvullen…', chatThinking: 'Aaron denkt na…', chatFromDoc: 'Uit je document begrijp ik het volgende:', chatIntro: 'Antwoord in je eigen woorden, of stel me een vraag als iets niet duidelijk is.', chatErr: 'Aaron kon niet antwoorden, probeer het opnieuw.',
+     availTitle: 'Wanneer ben je beschikbaar voor een afspraak?', availLead: 'Aaron stelt je prospects alleen deze tijdsloten voor en bevestigt afspraken zelf wanneer ze erin vallen. Je kunt ze altijd aanpassen in de Agenda.', availTypes: 'Soorten afspraken die je accepteert', availSave: 'Mijn beschikbaarheid opslaan', availSaving: 'Opslaan…', availFrom: 'van', availTo: 'tot', typeVisio: 'Videogesprek', typeTel: 'Telefoon', typePhysique: 'Ter plaatse', availErr: 'Opslaan mislukt, probeer het opnieuw.',
+     stepOf: 'Stap {n} van {total}', skip: 'Overslaan', later: 'Later verdergaan', next: 'Volgende', back: 'Terug', start: 'Aan de slag',
+@@ -361,7 +378,10 @@ const LATER_FLAG = 'aaron-welcome-later';
+ function stepsFor(invited) {
+   // 'availability' (08/11/2026, demande Alex) : plages du lundi au dimanche et
+   // types de rendez-vous, saisis ici plutôt qu'en renvoyant vers l'Agenda.
+-  return invited ? ['intro', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'availability', 'end'];
++  // 'tour' (08/11/2026, visite guidée validée par Alex) : après la fiche
++  // entreprise, avant les réglages ; la campagne se lance en dernier, comme
++  // le dit la visite (« on la lancera ensemble à la fin »).
++  return invited ? ['intro', 'tour', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'tour', 'mailbox', 'availability', 'campaign', 'end'];
+ }
+ 
+ export default function BienvenuePage() {
+@@ -475,7 +495,7 @@ export default function BienvenuePage() {
+ 
+   // ---- Disponibilités ----
+   const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+-  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '18:00' }])));
++  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '17:00' }])));
+   const [availTypes, setAvailTypes] = useState({ visio: true, telephonique: true, physique: true });
+   const [availSaving, setAvailSaving] = useState(false);
+   const dayName = (d) => new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, { weekday: 'long', timeZone: 'UTC' });
+@@ -814,6 +834,12 @@ export default function BienvenuePage() {
+           </section>
+         )}
+ 
++        {step === 'tour' && (
++          <section>
++            <GuidedTour locale={locale} invited={!!state?.invited} onDone={nextStep} onSkip={nextStep} doneLabel={w('tourDone', locale)} />
++          </section>
++        )}
++
+         {step === 'company' && (
+           <section>
+             <h1>{w('companyTitle', locale)}</h1>
+@@ -1033,6 +1059,7 @@ export default function BienvenuePage() {
+             <h1>{w('availTitle', locale)}</h1>
+             <p className="lead">{w('availLead', locale)}</p>
+             <div className="panel">
++              <p className="muted small" style={{ marginTop: 0 }}>{w('availDefault', locale)}</p>
+               <div className="avail-grid">
+                 {DAY_ORDER.map((d) => (
+                   <div key={d} className={`avail-row${avail[d].on ? '' : ' off'}`}>
+@@ -1088,7 +1115,7 @@ export default function BienvenuePage() {
+       {step !== 'end' && (
+         <footer className="wl-foot">
+           <button type="button" className="btn-ghost" onClick={later}>{w('later', locale)}</button>
+-          <button type="button" className="btn-ghost" disabled={summarizing || launching} onClick={nextStep}>{w('skip', locale)}</button>
++          {step !== 'tour' && <button type="button" className="btn-ghost" disabled={summarizing || launching} onClick={nextStep}>{w('skip', locale)}</button>}
+         </footer>
+       )}
+ 
+diff --git a/app/app/tour/page.jsx b/app/app/tour/page.jsx
+index c4ba773..d438b31 100644
+--- a/app/app/tour/page.jsx
++++ b/app/app/tour/page.jsx
+@@ -1,11 +1,15 @@
+ // app/app/tour/page.jsx
++// Visite guidée depuis le menu Aide (et le chat) : le scénario validé par
++// Alex le 08/11/2026 (components/GuidedTour.jsx), le même que dans le
++// parcours Bienvenue. L'ancienne visite « une diapositive par page » est
++// remplacée : la description de chaque page vit dans l'Aide.
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser } from '@/lib/supabase-browser';
+-import { t, useLocale } from '@/lib/i18n';
+-import { NavIcon } from '@/components/NavIcon';
++import { useLocale } from '@/lib/i18n';
++import GuidedTour from '@/components/GuidedTour';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+@@ -71,379 +75,33 @@ function useAuthedUser() {
+   return { userId, role, authLoading, authError };
+ }
+ 
+-function slidesFor(locale) {
+-  return [
+-    // Le tableau de bord n'existe plus (06/11/2026) : Campagnes est
+-    // l'accueil, et c'est la première diapo.
+-    {
+-      slug: 'campaigns',
+-      icon: '🚀',
+-      title: t('tour.slide.campaigns.title', locale),
+-      text: t('tour.slide.campaigns.text', locale),
+-    },
+-    {
+-      slug: 'prospects',
+-      icon: '🎯',
+-      title: t('tour.slide.prospects.title', locale),
+-      text: t('tour.slide.prospects.text', locale),
+-    },
+-    {
+-      slug: 'agenda',
+-      icon: '📅',
+-      title: t('tour.slide.agenda.title', locale),
+-      text: t('tour.slide.agenda.text', locale),
+-    },
+-    {
+-      slug: 'resultats',
+-      icon: '📈',
+-      title: t('tour.slide.resultats.title', locale),
+-      text: t('tour.slide.resultats.text', locale),
+-    },
+-    {
+-      slug: 'documents',
+-      icon: '📁',
+-      title: t('tour.slide.documents.title', locale),
+-      text: t('tour.slide.documents.text', locale),
+-    },
+-    // Règle de la boîte mail (demande Alex, 01/09/2026 : « préviens juste
+-    // l'utilisateur lors de la création du compte »). Placée avant le chat :
+-    // c'est la seule consigne de la visite où mal faire a une conséquence
+-    // réelle (un email supprimé = un suivi de contact cassé), donc elle mérite
+-    // sa propre étape plutôt qu'une ligne noyée ailleurs.
+-    {
+-      slug: 'mailbox',
+-      icon: '📬',
+-      title: t('tour.slide.mailbox.title', locale),
+-      text: t('tour.slide.mailbox.text', locale),
+-    },
+-    {
+-      slug: 'chat',
+-      icon: '💬',
+-      title: t('tour.slide.chat.title', locale),
+-      text: t('tour.slide.chat.text', locale),
+-    },
+-    // docx item 7 (2026-08-27) : la visite guidée référençait encore
+-    // l'ancienne structure "Préférences" à 3 onglets (entreprise,
+-    // notifications, abonnement) en tant que page séparée — obsolète depuis
+-    // la fusion "Mon compte" du 25/08 (voir daf8d67 et
+-    // app/app/preferences/page.jsx, qui n'est plus qu'une redirection). La
+-    // slide "preferences" dédiée a été supprimée (100% redondante avec
+-    // celle-ci) et ce texte couvre maintenant les 6 onglets réels de "Mon
+-    // compte" (profil, entreprise, connexion, CRM, préférences, abonnement).
+-    {
+-      slug: 'connexions',
+-      icon: '🔗',
+-      title: t('tour.slide.connexions.title', locale),
+-      // Le rappel "active les notifications push" (ajouté le 27/08/2026,
+-      // push_subscriptions restait vide malgré la préférence "Push" cochée
+-      // dans Mon compte > Préférences, voir PushNotificationManager.jsx)
+-      // vivait d'abord dans une slide "push" séparée — mais la notification
+-      // push n'est pas une rubrique à part entière du menu (retour Alex,
+-      // 27/08/2026, docx "Modifs Aaron") : elle vit DANS l'onglet
+-      // Préférences de "Mon compte". Le rappel est désormais fondu dans le
+-      // texte de cette slide (voir tour.slide.connexions.text, lib/i18n.js)
+-      // plutôt que présenté comme une rubrique de menu qui n'existe pas.
+-      text: t('tour.slide.connexions.text', locale),
+-    },
+-    {
+-      slug: 'team',
+-      icon: '👥',
+-      title: t('tour.slide.team.title', locale),
+-      text: t('tour.slide.team.text', locale),
+-      role: 'patron',
+-    },
+-    {
+-      slug: 'suggestions',
+-      icon: '💡',
+-      title: t('tour.slide.suggestions.title', locale),
+-      text: t('tour.slide.suggestions.text', locale),
+-      role: 'patron',
+-    },
+-  ];
+-}
+-
+ export default function TourPage() {
++  const router = useRouter();
+   const [locale] = useLocale();
+   const { userId, role, authLoading, authError } = useAuthedUser();
+-  const [step, setStep] = useState(0);
+   const [markedSeen, setMarkedSeen] = useState(false);
+ 
+-  const slides = slidesFor(locale).filter((s) => !s.role || s.role === role);
+-  const current = slides[step];
+-
+-  // Lot 3 de la refonte de l'onboarding (22/10/2026) : la visite est marquée
+-  // « vue » quand on atteint la DERNIÈRE diapositive, plus à l'ouverture de
+-  // la page (une visite ouverte puis abandonnée comptait comme vue).
+-  const reachedLast = slides.length > 0 && step === slides.length - 1;
+-  useEffect(() => {
+-    if (!userId || markedSeen || !reachedLast) return;
+-    fetch('/api/tour-seen', {
+-      method: 'POST',
+-      headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ user_id: userId }),
+-    });
+-    setMarkedSeen(true);
+-  }, [userId, markedSeen, reachedLast]);
++  function finish() {
++    if (userId && !markedSeen) {
++      setMarkedSeen(true);
++      fetch('/api/tour-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) }).catch(() => {});
++    }
++    router.push(`/app/campaigns${userId ? `?user_id=${userId}` : ''}`);
++  }
+ 
+-  if (authLoading) return <div className="loading">Connexion…</div>;
++  if (authLoading) return <div className="loading">…</div>;
+   if (authError) return <div className="loading error">{authError}</div>;
+-  if (!current) return null;
+-
+-  const isLast = step === slides.length - 1;
+ 
+   return (
+     <div className="tour-wrap">
+-      <nav className="tour-sidebar">
+-        <div className="brand">
+-          <img src="/icon.png" alt="Meet Aaron" className="brand-mark" />
+-          <span>Meet Aaron</span>
+-        </div>
+-        <ul className="nav-list">
+-          {slides.map((s, i) => (
+-            <li
+-              key={s.slug}
+-              className={i === step ? 'active' : ''}
+-              onClick={() => setStep(i)}
+-            >
+-              <span className="nav-icon"><NavIcon slug={s.slug} size={15} /></span>
+-              {s.title}
+-            </li>
+-          ))}
+-        </ul>
+-      </nav>
+-
+       <div className="tour-card">
+-        <p className="tour-progress">{step + 1} / {slides.length}</p>
+-        <div className="tour-icon-badge">
+-          <NavIcon slug={current.slug} size={40} />
+-        </div>
+-        <h1>{current.title}</h1>
+-        <p className="tour-text">{current.text}</p>
+-
+-        <div className="tour-dots">
+-          {slides.map((s, i) => (
+-            <span key={s.slug} className={i === step ? 'dot active' : 'dot'} />
+-          ))}
+-        </div>
+-
+-        <div className="tour-actions">
+-          {step > 0 ? (
+-            <button className="btn-secondary" onClick={() => setStep(step - 1)}>← {t('tour.previous', locale)}</button>
+-          ) : (
+-            <span />
+-          )}
+-          {isLast ? (
+-            // docx item 9 (2026-08-27) : après la dernière étape de la visite
+-            // guidée, on redirige vers l'onglet Connexion de "Mon compte"
+-            // (plutôt que directement le dashboard) pour enchaîner tout de
+-            // suite sur la connexion de la boîte email — étape suivante
+-            // naturelle de l'onboarding. La checklist du dashboard (déjà en
+-            // place) prend ensuite le relais pour guider vers le premier
+-            // prospect/la première campagne. "Passer" ci-dessous continue
+-            // d'aller directement au dashboard, pour respecter le choix
+-            // explicite de l'utilisateur de sauter la visite.
+-            // 22/10/2026 (lot 3 de la refonte de l'onboarding) : fin de visite →
+-            // tableau de bord, plus Connexions. La boîte mail est liée dans le
+-            // parcours /app/bienvenue ; ce renvoi donnait l'impression d'être
+-            // poussé à lier sa boîte en relançant une simple visite.
+-            <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="btn-primary">
+-              {t('tour.finish', locale)}
+-            </a>
+-          ) : (
+-            <button className="btn-primary" onClick={() => setStep(step + 1)}>{t('tour.next', locale)} →</button>
+-          )}
+-        </div>
+-
+-        <a href={`/app/campaigns${userId ? `?user_id=${userId}` : ''}`} className="skip">
+-          {t('tour.skip', locale)}
+-        </a>
++        <GuidedTour locale={locale} invited={role === 'commercial'} onDone={finish} onSkip={finish} />
+       </div>
+-
+       <style jsx>{`
+-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap');
+-        .loading {
+-          min-height: 100vh;
+-          display: flex;
+-          align-items: center;
+-          justify-content: center;
+-          background: var(--bg);
+-          color: var(--muted);
+-          font-family: 'Inter', sans-serif;
+-        }
+-        .loading.error {
+-          color: var(--accent-red);
+-          text-align: center;
+-          padding: 2rem;
+-        }
+-        .tour-wrap {
+-          min-height: 100vh;
+-          display: flex;
+-          align-items: center;
+-          justify-content: center;
+-          gap: 1.5rem;
+-          background: var(--bg);
+-          font-family: 'Inter', sans-serif;
+-          padding: 1.5rem;
+-        }
+-        .tour-sidebar {
+-          background: var(--surface);
+-          border: 1px solid var(--border);
+-          border-radius: 18px;
+-          padding: 1.4rem 1rem;
+-          width: 240px;
+-          flex-shrink: 0;
+-          align-self: stretch;
+-          max-height: 640px;
+-          overflow-y: auto;
+-        }
+-        .brand {
+-          display: flex;
+-          align-items: center;
+-          gap: 0.6rem;
+-          padding: 0 0.4rem;
+-          margin-bottom: 1.4rem;
+-        }
+-        .brand-mark {
+-          width: 28px;
+-          height: 28px;
+-          border-radius: 8px;
+-        }
+-        .brand span {
+-          font-family: 'Space Grotesk', sans-serif;
+-          color: var(--text);
+-          font-weight: 600;
+-          font-size: 0.94rem;
+-        }
+-        .nav-list {
+-          list-style: none;
+-          margin: 0;
+-          padding: 0;
+-          display: flex;
+-          flex-direction: column;
+-          gap: 0.15rem;
+-        }
+-        .nav-list li {
+-          display: flex;
+-          align-items: center;
+-          gap: 0.6rem;
+-          padding: 0.6rem 0.7rem;
+-          border-radius: 8px;
+-          font-size: 0.86rem;
+-          color: var(--muted);
+-          cursor: pointer;
+-          transition: background 0.15s ease, color 0.15s ease;
+-        }
+-        .nav-list li:hover {
+-          color: var(--text);
+-        }
+-        .nav-list li.active {
+-          background: rgba(75, 57, 239, 0.18);
+-          color: var(--text);
+-          font-weight: 500;
+-        }
+-        .nav-icon {
+-          width: 1.7em;
+-          height: 1.7em;
+-          display: inline-flex;
+-          align-items: center;
+-          justify-content: center;
+-          border-radius: 8px;
+-          background: var(--tint-4);
+-          flex-shrink: 0;
+-        }
+-        .tour-card {
+-          background: var(--surface);
+-          border: 1px solid var(--border);
+-          border-radius: 18px;
+-          padding: 2.6rem 2.2rem;
+-          width: 460px;
+-          max-width: 100%;
+-          text-align: center;
+-        }
+-        .tour-progress {
+-          color: var(--muted);
+-          font-size: 0.76rem;
+-          text-transform: uppercase;
+-          letter-spacing: 0.1em;
+-          margin: 0 0 1.2rem;
+-        }
+-        .tour-icon-badge {
+-          width: 84px;
+-          height: 84px;
+-          border-radius: 50%;
+-          margin: 0 auto 1.2rem;
+-          display: flex;
+-          align-items: center;
+-          justify-content: center;
+-          color: var(--text);
+-          background: radial-gradient(circle at 32% 28%, #6a5bf5, #4b39ef 55%, #362a9e);
+-          box-shadow: 0 10px 28px rgba(75, 57, 239, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+-        }
+-        h1 {
+-          font-family: 'Space Grotesk', sans-serif;
+-          color: var(--text);
+-          font-size: 1.5rem;
+-          margin: 0 0 0.8rem;
+-        }
+-        .tour-text {
+-          color: var(--text);
+-          font-size: 0.94rem;
+-          line-height: 1.6;
+-          margin: 0 0 1.6rem;
+-        }
+-        .tour-dots {
+-          display: flex;
+-          justify-content: center;
+-          gap: 0.35rem;
+-          margin-bottom: 1.8rem;
+-        }
+-        .dot {
+-          width: 6px;
+-          height: 6px;
+-          border-radius: 50%;
+-          background: var(--border);
+-        }
+-        .dot.active {
+-          background: var(--accent);
+-          width: 18px;
+-          border-radius: 4px;
+-        }
+-        .tour-actions {
+-          display: flex;
+-          justify-content: space-between;
+-          align-items: center;
+-          gap: 0.8rem;
+-        }
+-        .btn-primary, .btn-secondary {
+-          border-radius: 10px;
+-          padding: 0.7rem 1.3rem;
+-          font-size: 0.88rem;
+-          font-weight: 600;
+-          cursor: pointer;
+-          text-decoration: none;
+-          border: none;
+-        }
+-        .btn-primary {
+-          background: var(--accent);
+-          color: #fff;
+-        }
+-        .btn-secondary {
+-          background: transparent;
+-          color: var(--muted);
+-          border: 1px solid var(--border);
+-        }
+-        .skip {
+-          display: inline-block;
+-          margin-top: 1.4rem;
+-          color: var(--muted);
+-          font-size: 0.8rem;
+-          text-decoration: underline;
+-        }
+-        @media (max-width: 860px) {
+-          .tour-sidebar {
+-            display: none;
+-          }
+-        }
++        .tour-wrap { min-height: 100vh; background: var(--bg); color: var(--text); padding: 1.25rem 1rem 3rem; box-sizing: border-box; }
++        .tour-card { max-width: 860px; margin: 0 auto; }
++        .loading { padding: 3rem; text-align: center; color: var(--muted); }
++        .loading.error { color: var(--danger, #c0392b); }
+       `}</style>
+     </div>
+   );
+diff --git a/components/GuidedTour.jsx b/components/GuidedTour.jsx
+new file mode 100644
+index 0000000..5bd708d
+--- /dev/null
++++ b/components/GuidedTour.jsx
+@@ -0,0 +1,498 @@
++// components/GuidedTour.jsx
++'use client';
++
++// Visite guidée « un scénario, pas une liste de pages » — maquette validée
++// par Alex le 08/11/2026 (« Je valide ta presentation visite guidée »), avec
++// ses corrections :
++//   • par défaut Aaron envoie lui-même ; seul le TOUT PREMIER email du compte
++//     attend la validation (option « je valide chaque premier email » dans
++//     les préférences) ;
++//   • dans les préférences : « je te conseille d'y mettre ta signature et
++//     ton logo d'entreprise » ;
++//   • les exemples (noms, villes, sociétés) sont dans la langue affichée :
++//     anglais pour l'anglais, portugais pour le portugais… ;
++//   • après « devis demandé », Aaron écrit « je reviens vers vous
++//     prochainement avec notre offre » ;
++//   • écran « Mes documents » ajouté.
++// Affichée dans le parcours Bienvenue (après la fiche entreprise, avant les
++// réglages) et sur /app/tour depuis le menu Aide. Aucune donnée réelle :
++// les écrans sont des illustrations fixes.
++
++import { useEffect, useState } from 'react';
++import { ArrowLeft, ArrowRight, Check, Megaphone, Users, CalendarDays, MessageCircle, MoreHorizontal, FileText, Bell } from 'lucide-react';
++
++// ---- Exemples localisés -----------------------------------------------------
++const EX = {
++  fr: { f1: 'Claire', zone: 'Lyon et alentours', sector: 'restaurants, traiteurs', n: '20 entreprises', who: 'Gérant ou chef', c1: 'Maison Delorme Traiteur', p1: 'Claire Delorme', r1: 'gérante', c2: 'Bistrot Les Tilleuls', r2: 'chef-propriétaire', c3: 'Pâtisserie Rozier', r3: 'co-gérante', p3: 'Sophie Rozier', reply: 'Julien Mercier', client: 'Marc Vidal', clientCo: 'Brasserie du Parc', early: 'James Harper', doc1: 'Plaquette 2026.pdf', doc2: 'Tarifs séminaires.xlsx', doc3: 'Devis type.docx' },
++  en: { f1: 'Emma', zone: 'Manchester and around', sector: 'restaurants, caterers', n: '20 companies', who: 'Owner or head chef', c1: 'Harper & Co Catering', p1: 'Emma Harper', r1: 'owner', c2: 'The Oak Bistro', r2: 'chef-owner', c3: 'Rowan Bakery', r3: 'co-owner', p3: 'Sophie Rowan', reply: 'James Walker', client: 'Daniel Price', clientCo: 'Riverside Brasserie', early: 'Liam Carter', doc1: 'Brochure 2026.pdf', doc2: 'Event pricing.xlsx', doc3: 'Quote template.docx' },
++  de: { f1: 'Katrin', zone: 'München und Umgebung', sector: 'Restaurants, Caterer', n: '20 Unternehmen', who: 'Inhaber oder Küchenchef', c1: 'Feinkost Brandt Catering', p1: 'Katrin Brandt', r1: 'Geschäftsführerin', c2: 'Gasthaus Zur Linde', r2: 'Inhaber und Koch', c3: 'Konditorei Weber', r3: 'Mitinhaberin', p3: 'Sabine Weber', reply: 'Jonas Keller', client: 'Markus Vogel', clientCo: 'Brasserie am Park', early: 'Tobias Lang', doc1: 'Broschüre 2026.pdf', doc2: 'Preise Seminare.xlsx', doc3: 'Angebotsvorlage.docx' },
++  it: { f1: 'Chiara', zone: 'Milano e dintorni', sector: 'ristoranti, catering', n: '20 aziende', who: 'Titolare o chef', c1: 'Delizie Moretti Catering', p1: 'Chiara Moretti', r1: 'titolare', c2: 'Trattoria I Tigli', r2: 'chef e titolare', c3: 'Pasticceria Rinaldi', r3: 'cotitolare', p3: 'Sofia Rinaldi', reply: 'Luca Ferrari', client: 'Marco Conti', clientCo: 'Brasserie del Parco', early: 'Andrea Galli', doc1: 'Brochure 2026.pdf', doc2: 'Tariffe eventi.xlsx', doc3: 'Preventivo tipo.docx' },
++  es: { f1: 'Clara', zone: 'Valencia y alrededores', sector: 'restaurantes, catering', n: '20 empresas', who: 'Gerente o chef', c1: 'Casa Delgado Catering', p1: 'Clara Delgado', r1: 'gerente', c2: 'Bistró Los Tilos', r2: 'chef propietario', c3: 'Pastelería Romero', r3: 'cogerente', p3: 'Sofía Romero', reply: 'Javier Martín', client: 'Marcos Vidal', clientCo: 'Brasería del Parque', early: 'Diego Serrano', doc1: 'Folleto 2026.pdf', doc2: 'Tarifas eventos.xlsx', doc3: 'Presupuesto tipo.docx' },
++  pt: { f1: 'Carla', zone: 'Porto e arredores', sector: 'restaurantes, catering', n: '20 empresas', who: 'Gerente ou chef', c1: 'Casa Duarte Catering', p1: 'Carla Duarte', r1: 'gerente', c2: 'Tasca das Tílias', r2: 'chef e proprietário', c3: 'Pastelaria Rocha', r3: 'cogerente', p3: 'Sofia Rocha', reply: 'João Mendes', client: 'Marco Vidal', clientCo: 'Brasserie do Parque', early: 'Tiago Nunes', doc1: 'Brochura 2026.pdf', doc2: 'Tarifas eventos.xlsx', doc3: 'Orçamento tipo.docx' },
++  nl: { f1: 'Claire', zone: 'Utrecht en omgeving', sector: 'restaurants, cateraars', n: '20 bedrijven', who: 'Eigenaar of chef', c1: 'Van Dijk Catering', p1: 'Claire van Dijk', r1: 'eigenaar', c2: 'Bistro De Linde', r2: 'chef-eigenaar', c3: 'Bakkerij Roos', r3: 'mede-eigenaar', p3: 'Sophie Roos', reply: 'Jeroen Mulder', client: 'Mark Visser', clientCo: 'Brasserie aan het Park', early: 'Daan Bakker', doc1: 'Brochure 2026.pdf', doc2: 'Tarieven events.xlsx', doc3: 'Offerte sjabloon.docx' },
++};
++
++// ---- Textes -----------------------------------------------------------------
++// s = slides : t titre, l texte, n note, y « Toi », a « Aaron », m textes de
++// l'écran illustré. Les {clés} sont remplacées par EX[locale].
++const T = {
++  fr: {
++    prev: 'Précédent', next: 'Suivant', done: 'C’est parti', skip: 'Passer la visite', counter: 'Visite guidée · {i} sur {n}', you: 'Toi', aaron: 'Aaron',
++    nav: ['Campagnes', 'Contacts', 'Agenda', 'Chat', 'Plus'],
++    s: [
++      { t: 'Tout commence par une campagne', l: 'Tu dis à Aaron qui tu veux comme clients et où. Pas de fichier à acheter, pas de liste à préparer : il part de ta fiche entreprise et te propose une première campagne déjà pré-remplie.', n: 'On la lancera ensemble à la fin de cette visite.', y: 'Tu corriges la zone, les métiers visés, le nombre d’entreprises.', a: 'Il cherche les entreprises, trouve la bonne personne, écrit le premier email.',
++        m: { h: 'Campagnes', reco: 'Aaron te recommande une campagne', line: '{zone} · {sector} · {n}', sizes: ['TPE', 'PME', 'ETI'], who: '{who}', whoSub: 'La personne à contacter', btn: 'Lancer la campagne' } },
++      { t: 'Aaron cherche, lit, puis écrit', l: 'Pour chaque entreprise, il lit le site, identifie l’interlocuteur et rédige un premier email personnalisé, dans la langue du prospect, depuis ta boîte mail.', n: 'Seul le tout premier email de ton compte attend ta validation, pour vérifier ensemble le ton. Tous les suivants partent seuls. Si tu préfères relire chaque premier email, l’option existe dans tes préférences.', y: 'Tu valides le tout premier email, une seule fois.', a: 'Il envoie tous les autres, au bon rythme, sans jamais saturer ta boîte.',
++        m: { h: 'Ton tout premier email', sub: '{c1} · {p1}, {r1}', body: 'Bonjour {f1}, j’ai vu que {c1} organise de plus en plus de séminaires d’entreprise. Nous aidons les traiteurs à remplir leur calendrier hors saison des mariages…', ok: 'Valider et envoyer', edit: 'Modifier', found: 'trouvé', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'Les réponses arrivent, Aaron répond', l: 'Une question sur le prix, une demande d’exemple, un « rappelez-moi en janvier » : Aaron lit chaque réponse et répond lui-même, comme toi. Les sans-réponse sont relancés au bon moment.', n: 'Tu es prévenu sur ton téléphone et sur ton ordinateur dès qu’un prospect répond.', y: 'Rien. Tu lis si tu veux.', a: 'Il répond, relance, et arrête net si on lui demande.',
++        m: { h: '{reply} a répondu', q: 'Bonjour, pourquoi pas. Vous avez des exemples de restaurants qui l’ont fait ? Combien ça coûte ?', r: 'Bien sûr {reply}. Deux bistrots comparables au vôtre remplissent leurs mardis et mercredis depuis septembre…', notif: '{reply} a répondu · Aaron s’en occupe' } },
++      { t: 'Le rendez-vous se prend tout seul', l: 'Aaron ne propose que tes créneaux libres. Quand le prospect dit « mardi 10h », le rendez-vous est confirmé : invitation d’agenda, email de confirmation, lien visio ou adresse.', n: 'Tu n’interviens que si le rendez-vous est dans moins de 24 heures. La veille à 20h, tu reçois ta journée de demain ; puis un rappel 30 min avant (1 h pour un rendez-vous sur place). Un imprévu ? « Je suis en retard » prévient le prospect en un clic.', y: 'Tu te présentes au rendez-vous, briefé.', a: 'Il cale, confirme, rappelle le prospect la veille et toi juste avant.',
++        m: { h: 'Agenda', when: 'Mardi 11 · 10h00 · téléphone', who: '{p1}, {c1}', status: 'Confirmé', b1: 'Reporter', b2: 'Je suis en retard', notif: 'Rendez-vous confirmé · {p1}, mardi 10h. Invitation envoyée.' } },
++      { t: 'Avant le rendez-vous, la fiche', l: 'Chaque contact a sa fiche : l’avis d’Aaron sur l’entreprise, le profil de la personne, son conseil pour toi, et toute la conversation. Tu arrives au rendez-vous en sachant à qui tu parles.', n: '', y: 'Tu lis deux minutes avant d’appeler.', a: 'Il a préparé le brief : besoin, personnalité, point de vigilance.',
++        m: { h: '{p1}', tag: 'Opportunité', k1: 'Avis d’Aaron sur l’entreprise', v1: 'Cible idéale : traiteur de séminaires, 18 salariés, décision rapide par la gérante.', k2: 'Conseil', v2: 'Elle compare deux prestataires d’ici jeudi : envoyez le devis avant.', k3: 'Personnalité · dominante', v3: 'Réponses courtes, décide vite. Résultats et délais, pas de détails.' } },
++      { t: 'Après le rendez-vous, deux clics', l: 'Aaron te demande comment ça s’est passé. Tu touches « bien » ou « compliqué », l’issue, un mot si tu veux. Il écrit l’email d’après rendez-vous : le brief de ce qu’il a compris, et le pas vers le devis.', n: 'Si c’était tendu, le prospect ne le saura jamais : les objections deviennent des engagements.', y: 'Deux chips et un mot.', a: 'Le bilan, l’email, la suite.',
++        m: { h: 'Bilan du rendez-vous', q1: 'Comment ça s’est passé ?', c1: ['Bien', 'Mitigé', 'Difficile'], q2: 'Et ensuite ?', c2: ['Devis demandé', 'À continuer', 'Perdu'], mailT: 'Aaron envoie l’email d’après rendez-vous', mail: '« Merci pour cet échange… j’ai bien noté vos attentes, je reviens vers vous prochainement avec notre offre. »', btn: 'Enregistrer le bilan' } },
++      { t: 'De prospect à client, sans ressaisie', l: 'Prospect, rendez-vous, opportunité, devis, client : chaque contact avance tout seul dans le parcours, à partir de ce qui se passe réellement dans les emails et tes bilans. Tu déposes ton devis, Aaron le vérifie et l’envoie.', n: 'Quand un client signe, Aaron s’arrête. Il revient une fois, trente jours plus tard, pour lui demander s’il connaît quelqu’un que ton service intéresserait.', y: 'Tu signes.', a: 'Il range, il suit, il demande une recommandation.',
++        m: { h: 'Contacts', stats: [['4', 'contactés'], ['2', 'rendez-vous'], ['1', 'devis'], ['1', 'client']], rows: [['{p1} · {c1}', 'Devis demandé'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Relance jeudi']], foot: 'Dans 30 jours : Aaron demande à {client} des contacts intéressés.' } },
++      { t: 'Ce qui t’attend, et rien d’autre', l: 'Les actions qui ont besoin de toi apparaissent en haut de l’écran, comme des stories : ton tout premier email à valider, un rendez-vous dans moins de 24 h, un bilan à faire, une demande de devis.', n: 'Pas de story, rien à faire. C’est aussi simple que ça.', y: 'Tu traites les stories, quand tu as cinq minutes.', a: 'Il ne te dérange que quand il ne peut pas décider seul.',
++        m: { stories: [['1', 'Email à valider'], ['1', 'Bilan à faire'], ['1', 'Devis demandé']], t1: '{p1} demande un devis', b1: 'Pour la saison des séminaires, avant jeudi.', a1: 'Ouvrir la fiche', a2: 'Plus tard', t2: 'Rendez-vous demain 6h45 · à valider', b2: '{early} propose un appel avant 7h. Dans moins de 24 h : à toi de confirmer.' } },
++      { t: 'Mes documents : ce qu’Aaron a sous la main', l: 'Dépose ta plaquette, tes tarifs, un devis type, des exemples de réalisations. Aaron les lit et s’en sert pour répondre juste, et les joint quand un prospect les demande.', n: 'Tu choisis, document par document, ce qu’Aaron peut utiliser et pour qui : prospects, opportunités ou clients.', y: 'Tu déposes les fichiers que tu enverrais toi-même.', a: 'Il cite les bons chiffres et joint le bon document.',
++        m: { h: 'Mes documents', rows: [['{doc1}', 'Pris en compte · Prospects'], ['{doc2}', 'Pris en compte · Opportunités'], ['{doc3}', 'Pris en compte · Opportunités']], foot: '« {reply} demande des exemples : je lui joins la plaquette. »' } },
++      { t: 'Cinq endroits, c’est tout', l: 'Campagnes : ce qu’Aaron cherche pour toi. Contacts : chaque personne, sa fiche, sa conversation. Agenda : tes rendez-vous et tes disponibilités. Chat : une question, une idée, un doute, Aaron répond. Plus : résultats, documents, équipe, Mon compte et les préférences.', n: 'Dans les préférences, je te conseille d’y mettre ta signature et ton logo d’entreprise : Aaron écrit depuis ta boîte, autant que ce soit à ton image.', y: 'Tu changes un réglage dans Mon compte quand tu veux.', a: 'Il s’adapte à chaque changement, sans redémarrer.',
++        m: { h: 'Chat avec Aaron', u1: 'Je préfère les rendez-vous en visio le matin seulement.', a1: 'C’est noté : je ne proposerai plus de visio l’après-midi. Tu peux aussi le régler dans Agenda → Disponibilités.', u2: 'Et pour les traiteurs, insiste plus sur les séminaires que sur les mariages.', a2: 'Compris, je l’applique dès le prochain email.' } },
++      { t: 'Trois réglages, puis on lance', l: 'Aaron a besoin de ta boîte mail (il écrit depuis chez toi), de tes disponibilités (il ne propose que ces créneaux), et de l’autorisation de te prévenir. Deux minutes, puis ta première campagne part.', n: 'Ta fiche entreprise est déjà faite : c’est la conversation que tu viens d’avoir avec Aaron.', nInvited: 'Ta fiche entreprise est déjà faite par ton équipe.', y: '', a: '',
++        m: { h: 'Avant de lancer', rows: ['Fiche entreprise · faite avec Aaron', 'Boîte mail · Gmail, Outlook ou autre', 'Disponibilités · lundi–vendredi 9h–17h par défaut', 'Notifications · sur ce téléphone', 'Signature et logo · dans les préférences (conseillé)'], btn: 'Lancer ma première campagne' } },
++    ],
++  },
++  en: {
++    prev: 'Back', next: 'Next', done: 'Let’s go', skip: 'Skip the tour', counter: 'Guided tour · {i} of {n}', you: 'You', aaron: 'Aaron',
++    nav: ['Campaigns', 'Contacts', 'Calendar', 'Chat', 'More'],
++    s: [
++      { t: 'It all starts with a campaign', l: 'You tell Aaron who you want as clients and where. No file to buy, no list to prepare: he starts from your company profile and suggests a first campaign, already pre-filled.', n: 'We will launch it together at the end of this tour.', y: 'You adjust the area, the trades, the number of companies.', a: 'He finds the companies, the right person, and writes the first email.',
++        m: { h: 'Campaigns', reco: 'Aaron recommends a campaign', line: '{zone} · {sector} · {n}', sizes: ['Micro', 'SME', 'Mid-size'], who: '{who}', whoSub: 'The person to contact', btn: 'Launch the campaign' } },
++      { t: 'Aaron searches, reads, then writes', l: 'For each company he reads the website, identifies the right contact and writes a personalised first email, in the prospect’s language, from your mailbox.', n: 'Only the very first email of your account waits for your approval, so we check the tone together. All the following ones go out on their own. If you prefer to review every first email, the option is in your preferences.', y: 'You approve the very first email, once.', a: 'He sends all the others, at the right pace, without ever flooding your mailbox.',
++        m: { h: 'Your very first email', sub: '{c1} · {p1}, {r1}', body: 'Hello {f1}, I noticed {c1} is catering more and more corporate events. We help caterers fill their calendar outside the wedding season…', ok: 'Approve and send', edit: 'Edit', found: 'found', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'Replies come in, Aaron answers', l: 'A question about price, a request for examples, a “call me back in January”: Aaron reads every reply and answers himself, as you would. Those who do not reply are followed up at the right time.', n: 'You are notified on your phone and your computer as soon as a prospect replies.', y: 'Nothing. You read if you want to.', a: 'He answers, follows up, and stops at once if asked.',
++        m: { h: '{reply} replied', q: 'Hello, why not. Do you have examples of restaurants that did it? How much does it cost?', r: 'Of course {reply}. Two bistros comparable to yours have been filling their Tuesdays and Wednesdays since September…', notif: '{reply} replied · Aaron is on it' } },
++      { t: 'The meeting books itself', l: 'Aaron only offers your free slots. When the prospect says “Tuesday 10am”, the meeting is confirmed: calendar invitation, confirmation email, video link or address.', n: 'You only step in if the meeting is less than 24 hours away. The evening before at 8pm you receive your day tomorrow; then a reminder 30 min before (1 hour for an in-person meeting). Something unexpected? “I am running late” tells the prospect in one tap.', y: 'You show up to the meeting, briefed.', a: 'He books, confirms, reminds the prospect the day before and you just before.',
++        m: { h: 'Calendar', when: 'Tuesday 11 · 10:00 · phone', who: '{p1}, {c1}', status: 'Confirmed', b1: 'Reschedule', b2: 'I am running late', notif: 'Meeting confirmed · {p1}, Tuesday 10am. Invitation sent.' } },
++      { t: 'Before the meeting, the card', l: 'Every contact has a card: Aaron’s view of the company, the person’s profile, his advice for you, and the whole conversation. You arrive knowing who you are talking to.', n: '', y: 'You read for two minutes before calling.', a: 'He prepared the brief: need, personality, point of attention.',
++        m: { h: '{p1}', tag: 'Opportunity', k1: 'Aaron’s view of the company', v1: 'Ideal target: corporate-event caterer, 18 staff, quick decisions by the owner.', k2: 'Advice', v2: 'She is comparing two providers by Thursday: send the quote before.', k3: 'Personality · dominant', v3: 'Short answers, decides fast. Results and deadlines, no details.' } },
++      { t: 'After the meeting, two taps', l: 'Aaron asks how it went. You tap “good” or “tricky”, the outcome, a word if you like. He writes the follow-up email: a brief of what he understood, and the step towards the quote.', n: 'If it was tense, the prospect will never know: objections become commitments.', y: 'Two chips and a word.', a: 'The debrief, the email, the next step.',
++        m: { h: 'Meeting debrief', q1: 'How did it go?', c1: ['Good', 'Mixed', 'Difficult'], q2: 'What next?', c2: ['Quote requested', 'Keep going', 'Lost'], mailT: 'Aaron sends the follow-up email', mail: '“Thank you for our conversation… I have noted your expectations and will get back to you shortly with our offer.”', btn: 'Save the debrief' } },
++      { t: 'From prospect to client, nothing to re-enter', l: 'Prospect, meeting, opportunity, quote, client: every contact moves along the journey on its own, based on what really happens in the emails and your debriefs. You upload your quote, Aaron checks it and sends it.', n: 'When a client signs, Aaron stops. He comes back once, thirty days later, to ask whether they know someone your service would interest.', y: 'You sign.', a: 'He files, follows up, and asks for a referral.',
++        m: { h: 'Contacts', stats: [['4', 'contacted'], ['2', 'meetings'], ['1', 'quote'], ['1', 'client']], rows: [['{p1} · {c1}', 'Quote requested'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Follow-up Thursday']], foot: 'In 30 days: Aaron asks {client} for interested contacts.' } },
++      { t: 'What needs you, and nothing else', l: 'The actions that need you appear at the top of the screen, like stories: your very first email to approve, a meeting less than 24 hours away, a debrief to do, a quote request.', n: 'No story, nothing to do. It is that simple.', y: 'You handle the stories when you have five minutes.', a: 'He only interrupts you when he cannot decide alone.',
++        m: { stories: [['1', 'Email to approve'], ['1', 'Debrief to do'], ['1', 'Quote requested']], t1: '{p1} requests a quote', b1: 'For the corporate-event season, before Thursday.', a1: 'Open the card', a2: 'Later', t2: 'Meeting tomorrow 6:45 · to approve', b2: '{early} suggests a call before 7am. Less than 24 hours away: your call.' } },
++      { t: 'My documents: what Aaron has at hand', l: 'Upload your brochure, your prices, a quote template, examples of your work. Aaron reads them and uses them to answer accurately, and attaches them when a prospect asks.', n: 'You choose, document by document, what Aaron may use and for whom: prospects, opportunities or clients.', y: 'You upload the files you would send yourself.', a: 'He quotes the right figures and attaches the right document.',
++        m: { h: 'My documents', rows: [['{doc1}', 'In use · Prospects'], ['{doc2}', 'In use · Opportunities'], ['{doc3}', 'In use · Opportunities']], foot: '“{reply} asks for examples: I am attaching the brochure.”' } },
++      { t: 'Five places, that is all', l: 'Campaigns: what Aaron is searching for you. Contacts: each person, their card, their conversation. Calendar: your meetings and your availability. Chat: a question, an idea, a doubt, Aaron answers. More: results, documents, team, My account and preferences.', n: 'In the preferences, I advise you to add your signature and your company logo: Aaron writes from your mailbox, so it should look like you.', y: 'You change a setting in My account whenever you want.', a: 'He adapts to every change, no restart.',
++        m: { h: 'Chat with Aaron', u1: 'I prefer video meetings in the morning only.', a1: 'Noted: I will no longer offer video calls in the afternoon. You can also set it in Calendar → Availability.', u2: 'And for caterers, push corporate events more than weddings.', a2: 'Understood, I will apply it from the next email.' } },
++      { t: 'Three settings, then we launch', l: 'Aaron needs your mailbox (he writes from your address), your availability (he only offers those slots), and permission to notify you. Two minutes, then your first campaign goes out.', n: 'Your company profile is already done: it is the conversation you just had with Aaron.', nInvited: 'Your company profile has already been done by your team.', y: '', a: '',
++        m: { h: 'Before launching', rows: ['Company profile · done with Aaron', 'Mailbox · Gmail, Outlook or other', 'Availability · Monday–Friday 9am–5pm by default', 'Notifications · on this phone', 'Signature and logo · in preferences (recommended)'], btn: 'Launch my first campaign' } },
++    ],
++  },
++  de: {
++    prev: 'Zurück', next: 'Weiter', done: 'Los geht’s', skip: 'Tour überspringen', counter: 'Rundgang · {i} von {n}', you: 'Du', aaron: 'Aaron',
++    nav: ['Kampagnen', 'Kontakte', 'Kalender', 'Chat', 'Mehr'],
++    s: [
++      { t: 'Alles beginnt mit einer Kampagne', l: 'Du sagst Aaron, wen du als Kunden willst und wo. Keine Datei zu kaufen, keine Liste vorzubereiten: Er geht von deinem Unternehmensprofil aus und schlägt dir eine erste, bereits vorausgefüllte Kampagne vor.', n: 'Wir starten sie gemeinsam am Ende dieses Rundgangs.', y: 'Du korrigierst Region, Branchen und Anzahl der Unternehmen.', a: 'Er sucht die Unternehmen, findet die richtige Person, schreibt die erste E-Mail.',
++        m: { h: 'Kampagnen', reco: 'Aaron empfiehlt dir eine Kampagne', line: '{zone} · {sector} · {n}', sizes: ['Kleinst', 'KMU', 'Mittelstand'], who: '{who}', whoSub: 'Die Ansprechperson', btn: 'Kampagne starten' } },
++      { t: 'Aaron sucht, liest, dann schreibt er', l: 'Für jedes Unternehmen liest er die Website, findet den Ansprechpartner und verfasst eine persönliche erste E-Mail, in der Sprache des Interessenten, aus deinem Postfach.', n: 'Nur die allererste E-Mail deines Kontos wartet auf deine Freigabe, damit wir den Ton gemeinsam prüfen. Alle weiteren gehen von selbst raus. Wenn du jede erste E-Mail lieber gegenliest, gibt es die Option in deinen Einstellungen.', y: 'Du gibst die allererste E-Mail frei, ein einziges Mal.', a: 'Er sendet alle anderen, im richtigen Rhythmus, ohne dein Postfach zu überlasten.',
++        m: { h: 'Deine allererste E-Mail', sub: '{c1} · {p1}, {r1}', body: 'Guten Tag Frau Brandt, ich habe gesehen, dass {c1} immer mehr Firmenseminare ausrichtet. Wir helfen Caterern, ihren Kalender außerhalb der Hochzeitssaison zu füllen…', ok: 'Freigeben und senden', edit: 'Bearbeiten', found: 'gefunden', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'Antworten kommen, Aaron antwortet', l: 'Eine Preisfrage, der Wunsch nach Beispielen, ein „melden Sie sich im Januar“: Aaron liest jede Antwort und antwortet selbst, wie du es tun würdest. Wer nicht antwortet, wird zum richtigen Zeitpunkt erinnert.', n: 'Du wirst auf Handy und Computer benachrichtigt, sobald ein Interessent antwortet.', y: 'Nichts. Du liest mit, wenn du willst.', a: 'Er antwortet, erinnert, und hört sofort auf, wenn man ihn darum bittet.',
++        m: { h: '{reply} hat geantwortet', q: 'Guten Tag, warum nicht. Haben Sie Beispiele von Restaurants, die das gemacht haben? Was kostet es?', r: 'Gern, Herr Keller. Zwei mit Ihrem vergleichbare Gasthäuser füllen seit September ihre Dienstage und Mittwoche…', notif: '{reply} hat geantwortet · Aaron kümmert sich' } },
++      { t: 'Der Termin vereinbart sich von selbst', l: 'Aaron bietet nur deine freien Zeiten an. Sagt der Interessent „Dienstag 10 Uhr“, ist der Termin bestätigt: Kalendereinladung, Bestätigungs-E-Mail, Video-Link oder Adresse.', n: 'Du greifst nur ein, wenn der Termin in weniger als 24 Stunden liegt. Am Vorabend um 20 Uhr bekommst du deinen Tag morgen; dann eine Erinnerung 30 Min. vorher (1 Std. bei einem Termin vor Ort). Etwas dazwischengekommen? „Ich verspäte mich“ informiert den Interessenten mit einem Klick.', y: 'Du erscheinst zum Termin, vorbereitet.', a: 'Er plant, bestätigt, erinnert den Interessenten am Vortag und dich kurz davor.',
++        m: { h: 'Kalender', when: 'Dienstag 11. · 10:00 · Telefon', who: '{p1}, {c1}', status: 'Bestätigt', b1: 'Verschieben', b2: 'Ich verspäte mich', notif: 'Termin bestätigt · {p1}, Dienstag 10 Uhr. Einladung gesendet.' } },
++      { t: 'Vor dem Termin: die Karte', l: 'Jeder Kontakt hat seine Karte: Aarons Einschätzung des Unternehmens, das Profil der Person, sein Rat für dich und das gesamte Gespräch. Du kommst zum Termin und weißt, mit wem du sprichst.', n: '', y: 'Du liest zwei Minuten, bevor du anrufst.', a: 'Er hat das Briefing vorbereitet: Bedarf, Persönlichkeit, Achtungspunkt.',
++        m: { h: '{p1}', tag: 'Chance', k1: 'Aarons Einschätzung des Unternehmens', v1: 'Idealer Zielkunde: Seminar-Caterer, 18 Mitarbeitende, schnelle Entscheidung durch die Geschäftsführerin.', k2: 'Rat', v2: 'Sie vergleicht bis Donnerstag zwei Anbieter: Angebot vorher senden.', k3: 'Persönlichkeit · dominant', v3: 'Kurze Antworten, entscheidet schnell. Ergebnisse und Fristen, keine Details.' } },
++      { t: 'Nach dem Termin: zwei Klicks', l: 'Aaron fragt dich, wie es gelaufen ist. Du tippst „gut“ oder „schwierig“, das Ergebnis, ein Wort, wenn du willst. Er schreibt die E-Mail nach dem Termin: das Briefing dessen, was er verstanden hat, und der Schritt zum Angebot.', n: 'War es angespannt, erfährt der Interessent es nie: Einwände werden zu Zusagen.', y: 'Zwei Chips und ein Wort.', a: 'Die Bilanz, die E-Mail, der nächste Schritt.',
++        m: { h: 'Terminbilanz', q1: 'Wie ist es gelaufen?', c1: ['Gut', 'Gemischt', 'Schwierig'], q2: 'Und jetzt?', c2: ['Angebot gewünscht', 'Weiter dran', 'Verloren'], mailT: 'Aaron sendet die E-Mail nach dem Termin', mail: '„Vielen Dank für das Gespräch… ich habe Ihre Erwartungen notiert und komme in Kürze mit unserem Angebot auf Sie zu.“', btn: 'Bilanz speichern' } },
++      { t: 'Vom Interessenten zum Kunden, ohne Neueingabe', l: 'Interessent, Termin, Chance, Angebot, Kunde: Jeder Kontakt rückt von selbst vor, auf Basis dessen, was in den E-Mails und deinen Bilanzen wirklich passiert. Du lädst dein Angebot hoch, Aaron prüft und sendet es.', n: 'Unterschreibt ein Kunde, hört Aaron auf. Er kommt einmal wieder, dreißig Tage später, und fragt, ob er jemanden kennt, den dein Angebot interessieren könnte.', y: 'Du unterschreibst.', a: 'Er sortiert, begleitet und bittet um eine Empfehlung.',
++        m: { h: 'Kontakte', stats: [['4', 'kontaktiert'], ['2', 'Termine'], ['1', 'Angebot'], ['1', 'Kunde']], rows: [['{p1} · {c1}', 'Angebot gewünscht'], ['{client} · {clientCo}', 'Kunde'], ['{p3} · {c3}', 'Erinnerung Donnerstag']], foot: 'In 30 Tagen: Aaron fragt {client} nach interessierten Kontakten.' } },
++      { t: 'Was auf dich wartet, und sonst nichts', l: 'Was dich braucht, erscheint oben am Bildschirm, wie Stories: deine allererste E-Mail zur Freigabe, ein Termin in weniger als 24 Std., eine Bilanz, eine Angebotsanfrage.', n: 'Keine Story, nichts zu tun. So einfach ist das.', y: 'Du bearbeitest die Stories, wenn du fünf Minuten hast.', a: 'Er stört dich nur, wenn er nicht allein entscheiden kann.',
++        m: { stories: [['1', 'E-Mail freigeben'], ['1', 'Bilanz fällig'], ['1', 'Angebot gewünscht']], t1: '{p1} wünscht ein Angebot', b1: 'Für die Seminarsaison, vor Donnerstag.', a1: 'Karte öffnen', a2: 'Später', t2: 'Termin morgen 6:45 · freizugeben', b2: '{early} schlägt ein Telefonat vor 7 Uhr vor. Weniger als 24 Std.: du entscheidest.' } },
++      { t: 'Meine Dokumente: was Aaron zur Hand hat', l: 'Lade deine Broschüre, deine Preise, eine Angebotsvorlage, Referenzen hoch. Aaron liest sie, antwortet damit präzise und hängt sie an, wenn ein Interessent danach fragt.', n: 'Du bestimmst Dokument für Dokument, was Aaron nutzen darf und für wen: Interessenten, Chancen oder Kunden.', y: 'Du lädst die Dateien hoch, die du selbst senden würdest.', a: 'Er nennt die richtigen Zahlen und hängt das richtige Dokument an.',
++        m: { h: 'Meine Dokumente', rows: [['{doc1}', 'In Nutzung · Interessenten'], ['{doc2}', 'In Nutzung · Chancen'], ['{doc3}', 'In Nutzung · Chancen']], foot: '„{reply} bittet um Beispiele: ich hänge die Broschüre an.“' } },
++      { t: 'Fünf Orte, das ist alles', l: 'Kampagnen: was Aaron für dich sucht. Kontakte: jede Person, ihre Karte, ihr Gespräch. Kalender: deine Termine und Verfügbarkeiten. Chat: eine Frage, eine Idee, ein Zweifel, Aaron antwortet. Mehr: Ergebnisse, Dokumente, Team, Mein Konto und Einstellungen.', n: 'In den Einstellungen rate ich dir, deine Signatur und dein Firmenlogo zu hinterlegen: Aaron schreibt aus deinem Postfach, da soll es nach dir aussehen.', y: 'Du änderst eine Einstellung in Mein Konto, wann du willst.', a: 'Er passt sich jeder Änderung an, ohne Neustart.',
++        m: { h: 'Chat mit Aaron', u1: 'Ich bevorzuge Videotermine nur vormittags.', a1: 'Notiert: Ich biete nachmittags keine Videoanrufe mehr an. Du kannst es auch unter Kalender → Verfügbarkeit einstellen.', u2: 'Und bei Caterern mehr auf Seminare setzen als auf Hochzeiten.', a2: 'Verstanden, ab der nächsten E-Mail.' } },
++      { t: 'Drei Einstellungen, dann starten wir', l: 'Aaron braucht dein Postfach (er schreibt von deiner Adresse), deine Verfügbarkeiten (er bietet nur diese Zeiten an) und die Erlaubnis, dich zu benachrichtigen. Zwei Minuten, dann geht deine erste Kampagne raus.', n: 'Dein Unternehmensprofil steht schon: Es ist das Gespräch, das du gerade mit Aaron geführt hast.', nInvited: 'Dein Unternehmensprofil wurde bereits von deinem Team erstellt.', y: '', a: '',
++        m: { h: 'Vor dem Start', rows: ['Unternehmensprofil · mit Aaron erstellt', 'Postfach · Gmail, Outlook oder anderes', 'Verfügbarkeit · Montag–Freitag 9–17 Uhr standardmäßig', 'Benachrichtigungen · auf diesem Telefon', 'Signatur und Logo · in den Einstellungen (empfohlen)'], btn: 'Meine erste Kampagne starten' } },
++    ],
++  },
++  it: {
++    prev: 'Indietro', next: 'Avanti', done: 'Si parte', skip: 'Salta la visita', counter: 'Visita guidata · {i} di {n}', you: 'Tu', aaron: 'Aaron',
++    nav: ['Campagne', 'Contatti', 'Agenda', 'Chat', 'Altro'],
++    s: [
++      { t: 'Tutto comincia con una campagna', l: 'Dici ad Aaron chi vuoi come clienti e dove. Nessun file da comprare, nessuna lista da preparare: parte dalla tua scheda azienda e ti propone una prima campagna già precompilata.', n: 'La lanceremo insieme alla fine di questa visita.', y: 'Correggi la zona, i mestieri, il numero di aziende.', a: 'Cerca le aziende, trova la persona giusta, scrive la prima email.',
++        m: { h: 'Campagne', reco: 'Aaron ti consiglia una campagna', line: '{zone} · {sector} · {n}', sizes: ['Micro', 'PMI', 'Medie'], who: '{who}', whoSub: 'La persona da contattare', btn: 'Lancia la campagna' } },
++      { t: 'Aaron cerca, legge, poi scrive', l: 'Per ogni azienda legge il sito, individua l’interlocutore e redige una prima email personalizzata, nella lingua del prospect, dalla tua casella di posta.', n: 'Solo la primissima email del tuo account attende la tua approvazione, per verificare insieme il tono. Tutte le seguenti partono da sole. Se preferisci rileggere ogni prima email, l’opzione è nelle tue preferenze.', y: 'Approvi la primissima email, una sola volta.', a: 'Invia tutte le altre, al ritmo giusto, senza mai saturare la tua casella.',
++        m: { h: 'La tua primissima email', sub: '{c1} · {p1}, {r1}', body: 'Buongiorno {f1}, ho visto che {c1} organizza sempre più eventi aziendali. Aiutiamo i catering a riempire il calendario fuori dalla stagione dei matrimoni…', ok: 'Approva e invia', edit: 'Modifica', found: 'trovato', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'Arrivano le risposte, Aaron risponde', l: 'Una domanda sul prezzo, una richiesta di esempi, un «richiamatemi a gennaio»: Aaron legge ogni risposta e risponde lui stesso, come faresti tu. Chi non risponde viene ricontattato al momento giusto.', n: 'Sei avvisato sul telefono e sul computer appena un prospect risponde.', y: 'Niente. Leggi se vuoi.', a: 'Risponde, ricontatta, e si ferma subito se glielo chiedono.',
++        m: { h: '{reply} ha risposto', q: 'Buongiorno, perché no. Avete esempi di ristoranti che l’hanno fatto? Quanto costa?', r: 'Certo {reply}. Due trattorie simili alla vostra riempiono i martedì e i mercoledì da settembre…', notif: '{reply} ha risposto · Aaron se ne occupa' } },
++      { t: 'L’appuntamento si fissa da solo', l: 'Aaron propone solo i tuoi orari liberi. Quando il prospect dice «martedì alle 10», l’appuntamento è confermato: invito in agenda, email di conferma, link video o indirizzo.', n: 'Intervieni solo se l’appuntamento è a meno di 24 ore. La sera prima alle 20 ricevi la tua giornata di domani; poi un promemoria 30 min prima (1 ora per un appuntamento di persona). Un imprevisto? «Sono in ritardo» avvisa il prospect con un tocco.', y: 'Ti presenti all’appuntamento, preparato.', a: 'Fissa, conferma, ricorda al prospect il giorno prima e a te poco prima.',
++        m: { h: 'Agenda', when: 'Martedì 11 · 10:00 · telefono', who: '{p1}, {c1}', status: 'Confermato', b1: 'Rinvia', b2: 'Sono in ritardo', notif: 'Appuntamento confermato · {p1}, martedì alle 10. Invito inviato.' } },
++      { t: 'Prima dell’appuntamento, la scheda', l: 'Ogni contatto ha la sua scheda: il parere di Aaron sull’azienda, il profilo della persona, il suo consiglio per te e tutta la conversazione. Arrivi all’appuntamento sapendo con chi parli.', n: '', y: 'Leggi due minuti prima di chiamare.', a: 'Ha preparato il brief: bisogno, personalità, punto di attenzione.',
++        m: { h: '{p1}', tag: 'Opportunità', k1: 'Parere di Aaron sull’azienda', v1: 'Target ideale: catering per eventi aziendali, 18 dipendenti, decisione rapida della titolare.', k2: 'Consiglio', v2: 'Confronta due fornitori entro giovedì: invia il preventivo prima.', k3: 'Personalità · dominante', v3: 'Risposte brevi, decide in fretta. Risultati e tempi, niente dettagli.' } },
++      { t: 'Dopo l’appuntamento, due tocchi', l: 'Aaron ti chiede com’è andata. Tocchi «bene» o «difficile», l’esito, una parola se vuoi. Scrive l’email post-appuntamento: il brief di ciò che ha capito e il passo verso il preventivo.', n: 'Se è stato teso, il prospect non lo saprà mai: le obiezioni diventano impegni.', y: 'Due chip e una parola.', a: 'Il bilancio, l’email, il seguito.',
++        m: { h: 'Bilancio dell’appuntamento', q1: 'Com’è andata?', c1: ['Bene', 'Così così', 'Difficile'], q2: 'E poi?', c2: ['Preventivo richiesto', 'Da continuare', 'Perso'], mailT: 'Aaron invia l’email post-appuntamento', mail: '«Grazie per lo scambio… ho preso nota delle vostre aspettative, tornerò da voi a breve con la nostra offerta.»', btn: 'Salva il bilancio' } },
++      { t: 'Da prospect a cliente, senza reinserire nulla', l: 'Prospect, appuntamento, opportunità, preventivo, cliente: ogni contatto avanza da solo nel percorso, in base a ciò che accade davvero nelle email e nei tuoi bilanci. Carichi il tuo preventivo, Aaron lo verifica e lo invia.', n: 'Quando un cliente firma, Aaron si ferma. Torna una volta, trenta giorni dopo, per chiedergli se conosce qualcuno a cui il tuo servizio interesserebbe.', y: 'Tu firmi.', a: 'Lui archivia, segue, chiede una raccomandazione.',
++        m: { h: 'Contatti', stats: [['4', 'contattati'], ['2', 'appuntamenti'], ['1', 'preventivo'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Preventivo richiesto'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Follow-up giovedì']], foot: 'Tra 30 giorni: Aaron chiede a {client} contatti interessati.' } },
++      { t: 'Ciò che ti aspetta, e nient’altro', l: 'Le azioni che hanno bisogno di te appaiono in alto, come storie: la tua primissima email da approvare, un appuntamento a meno di 24 ore, un bilancio da fare, una richiesta di preventivo.', n: 'Nessuna storia, niente da fare. Semplice così.', y: 'Gestisci le storie quando hai cinque minuti.', a: 'Ti disturba solo quando non può decidere da solo.',
++        m: { stories: [['1', 'Email da approvare'], ['1', 'Bilancio da fare'], ['1', 'Preventivo richiesto']], t1: '{p1} chiede un preventivo', b1: 'Per la stagione degli eventi aziendali, entro giovedì.', a1: 'Apri la scheda', a2: 'Più tardi', t2: 'Appuntamento domani 6:45 · da approvare', b2: '{early} propone una chiamata prima delle 7. Meno di 24 ore: decidi tu.' } },
++      { t: 'I miei documenti: ciò che Aaron ha a portata di mano', l: 'Carica la tua brochure, i tuoi prezzi, un preventivo tipo, esempi di lavori. Aaron li legge e li usa per rispondere con precisione, e li allega quando un prospect li chiede.', n: 'Scegli, documento per documento, cosa Aaron può usare e per chi: prospect, opportunità o clienti.', y: 'Carichi i file che invieresti tu stesso.', a: 'Cita le cifre giuste e allega il documento giusto.',
++        m: { h: 'I miei documenti', rows: [['{doc1}', 'In uso · Prospect'], ['{doc2}', 'In uso · Opportunità'], ['{doc3}', 'In uso · Opportunità']], foot: '«{reply} chiede esempi: allego la brochure.»' } },
++      { t: 'Cinque posti, tutto qui', l: 'Campagne: ciò che Aaron cerca per te. Contatti: ogni persona, la sua scheda, la sua conversazione. Agenda: i tuoi appuntamenti e le tue disponibilità. Chat: una domanda, un’idea, un dubbio, Aaron risponde. Altro: risultati, documenti, team, Il mio account e le preferenze.', n: 'Nelle preferenze ti consiglio di inserire la tua firma e il logo dell’azienda: Aaron scrive dalla tua casella, meglio che sia a tua immagine.', y: 'Cambi un’impostazione in Il mio account quando vuoi.', a: 'Si adatta a ogni cambiamento, senza riavviare.',
++        m: { h: 'Chat con Aaron', u1: 'Preferisco le videochiamate solo la mattina.', a1: 'Annotato: non proporrò più videochiamate al pomeriggio. Puoi impostarlo anche in Agenda → Disponibilità.', u2: 'E per i catering, insisti più sugli eventi aziendali che sui matrimoni.', a2: 'Capito, lo applico dalla prossima email.' } },
++      { t: 'Tre impostazioni, poi si parte', l: 'Aaron ha bisogno della tua casella di posta (scrive dal tuo indirizzo), delle tue disponibilità (propone solo quegli orari) e dell’autorizzazione ad avvisarti. Due minuti, poi la tua prima campagna parte.', n: 'La tua scheda azienda è già fatta: è la conversazione che hai appena avuto con Aaron.', nInvited: 'La tua scheda azienda è già stata fatta dal tuo team.', y: '', a: '',
++        m: { h: 'Prima di lanciare', rows: ['Scheda azienda · fatta con Aaron', 'Casella di posta · Gmail, Outlook o altro', 'Disponibilità · lunedì–venerdì 9–17 per impostazione predefinita', 'Notifiche · su questo telefono', 'Firma e logo · nelle preferenze (consigliato)'], btn: 'Lancia la mia prima campagna' } },
++    ],
++  },
++  es: {
++    prev: 'Anterior', next: 'Siguiente', done: 'Vamos', skip: 'Saltar la visita', counter: 'Visita guiada · {i} de {n}', you: 'Tú', aaron: 'Aaron',
++    nav: ['Campañas', 'Contactos', 'Agenda', 'Chat', 'Más'],
++    s: [
++      { t: 'Todo empieza con una campaña', l: 'Le dices a Aaron a quién quieres como clientes y dónde. Sin archivos que comprar ni listas que preparar: parte de tu ficha de empresa y te propone una primera campaña ya rellenada.', n: 'La lanzaremos juntos al final de esta visita.', y: 'Corriges la zona, los oficios, el número de empresas.', a: 'Busca las empresas, encuentra a la persona adecuada, escribe el primer correo.',
++        m: { h: 'Campañas', reco: 'Aaron te recomienda una campaña', line: '{zone} · {sector} · {n}', sizes: ['Micro', 'PYME', 'Mediana'], who: '{who}', whoSub: 'La persona a contactar', btn: 'Lanzar la campaña' } },
++      { t: 'Aaron busca, lee y luego escribe', l: 'Para cada empresa lee la web, identifica al interlocutor y redacta un primer correo personalizado, en el idioma del prospecto, desde tu buzón.', n: 'Solo el primerísimo correo de tu cuenta espera tu validación, para comprobar juntos el tono. Todos los siguientes salen solos. Si prefieres releer cada primer correo, la opción está en tus preferencias.', y: 'Validas el primerísimo correo, una sola vez.', a: 'Envía todos los demás, al ritmo adecuado, sin saturar nunca tu buzón.',
++        m: { h: 'Tu primerísimo correo', sub: '{c1} · {p1}, {r1}', body: 'Hola {f1}, he visto que {c1} organiza cada vez más eventos de empresa. Ayudamos a los caterings a llenar su calendario fuera de la temporada de bodas…', ok: 'Validar y enviar', edit: 'Editar', found: 'encontrado', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'Llegan las respuestas, Aaron responde', l: 'Una pregunta sobre el precio, una petición de ejemplos, un «llámeme en enero»: Aaron lee cada respuesta y responde él mismo, como tú. A los que no responden se les hace seguimiento en el momento adecuado.', n: 'Te avisamos en el teléfono y en el ordenador en cuanto un prospecto responde.', y: 'Nada. Lees si quieres.', a: 'Responde, hace seguimiento y se detiene en seco si se lo piden.',
++        m: { h: '{reply} ha respondido', q: 'Hola, por qué no. ¿Tienen ejemplos de restaurantes que lo hayan hecho? ¿Cuánto cuesta?', r: 'Claro {reply}. Dos bistrós comparables al suyo llenan sus martes y miércoles desde septiembre…', notif: '{reply} ha respondido · Aaron se ocupa' } },
++      { t: 'La reunión se concierta sola', l: 'Aaron solo propone tus huecos libres. Cuando el prospecto dice «martes a las 10», la reunión queda confirmada: invitación de agenda, correo de confirmación, enlace de vídeo o dirección.', n: 'Solo intervienes si la reunión es en menos de 24 horas. La víspera a las 20 h recibes tu día de mañana; después un recordatorio 30 min antes (1 h para una reunión presencial). ¿Un imprevisto? «Voy con retraso» avisa al prospecto con un toque.', y: 'Te presentas a la reunión, con el brief leído.', a: 'Concierta, confirma, recuerda al prospecto la víspera y a ti justo antes.',
++        m: { h: 'Agenda', when: 'Martes 11 · 10:00 · teléfono', who: '{p1}, {c1}', status: 'Confirmada', b1: 'Aplazar', b2: 'Voy con retraso', notif: 'Reunión confirmada · {p1}, martes a las 10. Invitación enviada.' } },
++      { t: 'Antes de la reunión, la ficha', l: 'Cada contacto tiene su ficha: la opinión de Aaron sobre la empresa, el perfil de la persona, su consejo para ti y toda la conversación. Llegas a la reunión sabiendo con quién hablas.', n: '', y: 'Lees dos minutos antes de llamar.', a: 'Ha preparado el brief: necesidad, personalidad, punto de atención.',
++        m: { h: '{p1}', tag: 'Oportunidad', k1: 'Opinión de Aaron sobre la empresa', v1: 'Objetivo ideal: catering de eventos de empresa, 18 empleados, decisión rápida de la gerente.', k2: 'Consejo', v2: 'Compara dos proveedores antes del jueves: envía el presupuesto antes.', k3: 'Personalidad · dominante', v3: 'Respuestas cortas, decide rápido. Resultados y plazos, sin detalles.' } },
++      { t: 'Después de la reunión, dos toques', l: 'Aaron te pregunta cómo ha ido. Tocas «bien» o «complicado», el resultado, una palabra si quieres. Él escribe el correo posterior: el resumen de lo que ha entendido y el paso hacia el presupuesto.', n: 'Si fue tenso, el prospecto nunca lo sabrá: las objeciones se convierten en compromisos.', y: 'Dos chips y una palabra.', a: 'El balance, el correo, el siguiente paso.',
++        m: { h: 'Balance de la reunión', q1: '¿Cómo ha ido?', c1: ['Bien', 'Regular', 'Difícil'], q2: '¿Y ahora?', c2: ['Presupuesto solicitado', 'Seguir', 'Perdido'], mailT: 'Aaron envía el correo posterior a la reunión', mail: '«Gracias por la conversación… he tomado nota de sus expectativas y volveré a contactarle próximamente con nuestra oferta.»', btn: 'Guardar el balance' } },
++      { t: 'De prospecto a cliente, sin volver a teclear', l: 'Prospecto, reunión, oportunidad, presupuesto, cliente: cada contacto avanza solo en el recorrido, según lo que pasa realmente en los correos y en tus balances. Subes tu presupuesto, Aaron lo comprueba y lo envía.', n: 'Cuando un cliente firma, Aaron se detiene. Vuelve una vez, treinta días después, para preguntarle si conoce a alguien a quien le interese tu servicio.', y: 'Tú firmas.', a: 'Él ordena, hace seguimiento y pide una recomendación.',
++        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniones'], ['1', 'presupuesto'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Presupuesto solicitado'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Seguimiento jueves']], foot: 'En 30 días: Aaron pide a {client} contactos interesados.' } },
++      { t: 'Lo que te espera, y nada más', l: 'Las acciones que te necesitan aparecen arriba, como historias: tu primerísimo correo por validar, una reunión en menos de 24 h, un balance pendiente, una solicitud de presupuesto.', n: 'Sin historia, nada que hacer. Así de simple.', y: 'Atiendes las historias cuando tienes cinco minutos.', a: 'Solo te molesta cuando no puede decidir solo.',
++        m: { stories: [['1', 'Correo por validar'], ['1', 'Balance pendiente'], ['1', 'Presupuesto solicitado']], t1: '{p1} solicita un presupuesto', b1: 'Para la temporada de eventos, antes del jueves.', a1: 'Abrir la ficha', a2: 'Más tarde', t2: 'Reunión mañana 6:45 · por validar', b2: '{early} propone una llamada antes de las 7. Menos de 24 h: tú decides.' } },
++      { t: 'Mis documentos: lo que Aaron tiene a mano', l: 'Sube tu folleto, tus tarifas, un presupuesto tipo, ejemplos de trabajos. Aaron los lee y los usa para responder con precisión, y los adjunta cuando un prospecto los pide.', n: 'Eliges, documento por documento, qué puede usar Aaron y para quién: prospectos, oportunidades o clientes.', y: 'Subes los archivos que enviarías tú mismo.', a: 'Cita las cifras correctas y adjunta el documento adecuado.',
++        m: { h: 'Mis documentos', rows: [['{doc1}', 'En uso · Prospectos'], ['{doc2}', 'En uso · Oportunidades'], ['{doc3}', 'En uso · Oportunidades']], foot: '«{reply} pide ejemplos: le adjunto el folleto.»' } },
++      { t: 'Cinco sitios, nada más', l: 'Campañas: lo que Aaron busca para ti. Contactos: cada persona, su ficha, su conversación. Agenda: tus reuniones y tu disponibilidad. Chat: una pregunta, una idea, una duda, Aaron responde. Más: resultados, documentos, equipo, Mi cuenta y las preferencias.', n: 'En las preferencias te aconsejo poner tu firma y el logo de tu empresa: Aaron escribe desde tu buzón, mejor que sea a tu imagen.', y: 'Cambias un ajuste en Mi cuenta cuando quieras.', a: 'Se adapta a cada cambio, sin reiniciar.',
++        m: { h: 'Chat con Aaron', u1: 'Prefiero las videollamadas solo por la mañana.', a1: 'Anotado: ya no propondré videollamadas por la tarde. También puedes ajustarlo en Agenda → Disponibilidad.', u2: 'Y con los caterings, insiste más en los eventos de empresa que en las bodas.', a2: 'Entendido, lo aplico desde el próximo correo.' } },
++      { t: 'Tres ajustes y lanzamos', l: 'Aaron necesita tu buzón (escribe desde tu dirección), tu disponibilidad (solo propone esos huecos) y permiso para avisarte. Dos minutos, y tu primera campaña sale.', n: 'Tu ficha de empresa ya está hecha: es la conversación que acabas de tener con Aaron.', nInvited: 'Tu ficha de empresa ya la ha hecho tu equipo.', y: '', a: '',
++        m: { h: 'Antes de lanzar', rows: ['Ficha de empresa · hecha con Aaron', 'Buzón · Gmail, Outlook u otro', 'Disponibilidad · lunes–viernes 9–17 h por defecto', 'Notificaciones · en este teléfono', 'Firma y logo · en las preferencias (recomendado)'], btn: 'Lanzar mi primera campaña' } },
++    ],
++  },
++  pt: {
++    prev: 'Anterior', next: 'Seguinte', done: 'Vamos', skip: 'Saltar a visita', counter: 'Visita guiada · {i} de {n}', you: 'Tu', aaron: 'Aaron',
++    nav: ['Campanhas', 'Contactos', 'Agenda', 'Chat', 'Mais'],
++    s: [
++      { t: 'Tudo começa com uma campanha', l: 'Dizes ao Aaron quem queres como clientes e onde. Nenhum ficheiro a comprar, nenhuma lista a preparar: ele parte da tua ficha de empresa e propõe-te uma primeira campanha já preenchida.', n: 'Vamos lançá-la juntos no fim desta visita.', y: 'Corriges a zona, as profissões, o número de empresas.', a: 'Ele procura as empresas, encontra a pessoa certa, escreve o primeiro email.',
++        m: { h: 'Campanhas', reco: 'O Aaron recomenda-te uma campanha', line: '{zone} · {sector} · {n}', sizes: ['Micro', 'PME', 'Média'], who: '{who}', whoSub: 'A pessoa a contactar', btn: 'Lançar a campanha' } },
++      { t: 'O Aaron procura, lê e depois escreve', l: 'Para cada empresa, lê o site, identifica o interlocutor e redige um primeiro email personalizado, na língua do prospeto, a partir da tua caixa de correio.', n: 'Só o primeiríssimo email da tua conta espera pela tua validação, para verificarmos o tom juntos. Todos os seguintes partem sozinhos. Se preferires reler cada primeiro email, a opção está nas tuas preferências.', y: 'Validas o primeiríssimo email, uma só vez.', a: 'Ele envia todos os outros, ao ritmo certo, sem nunca saturar a tua caixa.',
++        m: { h: 'O teu primeiríssimo email', sub: '{c1} · {p1}, {r1}', body: 'Olá {f1}, vi que a {c1} organiza cada vez mais eventos de empresa. Ajudamos os caterings a preencher o calendário fora da época dos casamentos…', ok: 'Validar e enviar', edit: 'Editar', found: 'encontrado', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'As respostas chegam, o Aaron responde', l: 'Uma pergunta sobre o preço, um pedido de exemplos, um «ligue-me em janeiro»: o Aaron lê cada resposta e responde ele próprio, como tu. Quem não responde é relembrado no momento certo.', n: 'És avisado no telemóvel e no computador assim que um prospeto responde.', y: 'Nada. Lês se quiseres.', a: 'Responde, insiste, e para de imediato se lhe pedirem.',
++        m: { h: '{reply} respondeu', q: 'Olá, porque não. Têm exemplos de restaurantes que o fizeram? Quanto custa?', r: 'Claro {reply}. Duas tascas comparáveis à vossa enchem as terças e quartas desde setembro…', notif: '{reply} respondeu · O Aaron trata disso' } },
++      { t: 'A reunião marca-se sozinha', l: 'O Aaron só propõe os teus horários livres. Quando o prospeto diz «terça às 10», a reunião fica confirmada: convite de agenda, email de confirmação, link de vídeo ou morada.', n: 'Só intervéns se a reunião for daqui a menos de 24 horas. Na véspera às 20h recebes o teu dia de amanhã; depois um lembrete 30 min antes (1 h para uma reunião presencial). Um imprevisto? «Estou atrasado» avisa o prospeto com um toque.', y: 'Apareces na reunião, preparado.', a: 'Marca, confirma, lembra o prospeto na véspera e a ti mesmo antes.',
++        m: { h: 'Agenda', when: 'Terça 11 · 10:00 · telefone', who: '{p1}, {c1}', status: 'Confirmada', b1: 'Adiar', b2: 'Estou atrasado', notif: 'Reunião confirmada · {p1}, terça às 10. Convite enviado.' } },
++      { t: 'Antes da reunião, a ficha', l: 'Cada contacto tem a sua ficha: a opinião do Aaron sobre a empresa, o perfil da pessoa, o seu conselho para ti e toda a conversa. Chegas à reunião a saber com quem falas.', n: '', y: 'Lês dois minutos antes de ligar.', a: 'Preparou o brief: necessidade, personalidade, ponto de atenção.',
++        m: { h: '{p1}', tag: 'Oportunidade', k1: 'Opinião do Aaron sobre a empresa', v1: 'Alvo ideal: catering de eventos de empresa, 18 colaboradores, decisão rápida pela gerente.', k2: 'Conselho', v2: 'Compara dois fornecedores até quinta: envia o orçamento antes.', k3: 'Personalidade · dominante', v3: 'Respostas curtas, decide depressa. Resultados e prazos, sem detalhes.' } },
++      { t: 'Depois da reunião, dois toques', l: 'O Aaron pergunta-te como correu. Tocas em «bem» ou «complicado», o resultado, uma palavra se quiseres. Ele escreve o email pós-reunião: o resumo do que percebeu e o passo para o orçamento.', n: 'Se foi tenso, o prospeto nunca saberá: as objeções tornam-se compromissos.', y: 'Dois chips e uma palavra.', a: 'O balanço, o email, o que vem a seguir.',
++        m: { h: 'Balanço da reunião', q1: 'Como correu?', c1: ['Bem', 'Assim-assim', 'Difícil'], q2: 'E a seguir?', c2: ['Orçamento pedido', 'Continuar', 'Perdido'], mailT: 'O Aaron envia o email pós-reunião', mail: '«Obrigado pela conversa… tomei nota das suas expectativas e volto a contactá-lo brevemente com a nossa oferta.»', btn: 'Guardar o balanço' } },
++      { t: 'De prospeto a cliente, sem voltar a escrever', l: 'Prospeto, reunião, oportunidade, orçamento, cliente: cada contacto avança sozinho no percurso, a partir do que acontece realmente nos emails e nos teus balanços. Carregas o teu orçamento, o Aaron verifica-o e envia-o.', n: 'Quando um cliente assina, o Aaron para. Volta uma vez, trinta dias depois, para lhe perguntar se conhece alguém a quem o teu serviço interesse.', y: 'Tu assinas.', a: 'Ele arruma, acompanha, pede uma recomendação.',
++        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniões'], ['1', 'orçamento'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Orçamento pedido'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Lembrete quinta']], foot: 'Daqui a 30 dias: o Aaron pede a {client} contactos interessados.' } },
++      { t: 'O que te espera, e nada mais', l: 'As ações que precisam de ti aparecem no topo do ecrã, como stories: o teu primeiríssimo email a validar, uma reunião daqui a menos de 24 h, um balanço por fazer, um pedido de orçamento.', n: 'Sem story, nada a fazer. É simples assim.', y: 'Tratas das stories quando tens cinco minutos.', a: 'Só te incomoda quando não pode decidir sozinho.',
++        m: { stories: [['1', 'Email a validar'], ['1', 'Balanço por fazer'], ['1', 'Orçamento pedido']], t1: '{p1} pede um orçamento', b1: 'Para a época dos eventos, antes de quinta.', a1: 'Abrir a ficha', a2: 'Mais tarde', t2: 'Reunião amanhã 6:45 · a validar', b2: '{early} propõe uma chamada antes das 7. Menos de 24 h: decides tu.' } },
++      { t: 'Os meus documentos: o que o Aaron tem à mão', l: 'Carrega a tua brochura, os teus preços, um orçamento tipo, exemplos de trabalhos. O Aaron lê-os e usa-os para responder com precisão, e anexa-os quando um prospeto os pede.', n: 'Escolhes, documento a documento, o que o Aaron pode usar e para quem: prospetos, oportunidades ou clientes.', y: 'Carregas os ficheiros que enviarias tu próprio.', a: 'Cita os números certos e anexa o documento certo.',
++        m: { h: 'Os meus documentos', rows: [['{doc1}', 'Em uso · Prospetos'], ['{doc2}', 'Em uso · Oportunidades'], ['{doc3}', 'Em uso · Oportunidades']], foot: '«{reply} pede exemplos: anexo a brochura.»' } },
++      { t: 'Cinco sítios, e mais nada', l: 'Campanhas: o que o Aaron procura para ti. Contactos: cada pessoa, a sua ficha, a sua conversa. Agenda: as tuas reuniões e disponibilidades. Chat: uma pergunta, uma ideia, uma dúvida, o Aaron responde. Mais: resultados, documentos, equipa, A minha conta e as preferências.', n: 'Nas preferências, aconselho-te a pôr a tua assinatura e o logótipo da empresa: o Aaron escreve a partir da tua caixa, mais vale que seja à tua imagem.', y: 'Mudas uma definição em A minha conta quando quiseres.', a: 'Adapta-se a cada mudança, sem reiniciar.',
++        m: { h: 'Chat com o Aaron', u1: 'Prefiro as videochamadas só de manhã.', a1: 'Anotado: deixo de propor videochamadas à tarde. Também podes definir em Agenda → Disponibilidades.', u2: 'E para os caterings, insiste mais nos eventos de empresa do que nos casamentos.', a2: 'Entendido, aplico a partir do próximo email.' } },
++      { t: 'Três definições, e lançamos', l: 'O Aaron precisa da tua caixa de correio (escreve a partir do teu endereço), das tuas disponibilidades (só propõe esses horários) e da autorização para te avisar. Dois minutos, e a tua primeira campanha parte.', n: 'A tua ficha de empresa já está feita: é a conversa que acabaste de ter com o Aaron.', nInvited: 'A tua ficha de empresa já foi feita pela tua equipa.', y: '', a: '',
++        m: { h: 'Antes de lançar', rows: ['Ficha de empresa · feita com o Aaron', 'Caixa de correio · Gmail, Outlook ou outra', 'Disponibilidades · segunda–sexta 9h–17h por defeito', 'Notificações · neste telemóvel', 'Assinatura e logótipo · nas preferências (aconselhado)'], btn: 'Lançar a minha primeira campanha' } },
++    ],
++  },
++  nl: {
++    prev: 'Vorige', next: 'Volgende', done: 'Aan de slag', skip: 'Rondleiding overslaan', counter: 'Rondleiding · {i} van {n}', you: 'Jij', aaron: 'Aaron',
++    nav: ['Campagnes', 'Contacten', 'Agenda', 'Chat', 'Meer'],
++    s: [
++      { t: 'Alles begint met een campagne', l: 'Je vertelt Aaron wie je als klant wilt en waar. Geen bestand te kopen, geen lijst voor te bereiden: hij vertrekt van je bedrijfsprofiel en stelt een eerste, al ingevulde campagne voor.', n: 'Die lanceren we samen aan het einde van deze rondleiding.', y: 'Jij past de regio, de beroepen en het aantal bedrijven aan.', a: 'Hij zoekt de bedrijven, vindt de juiste persoon en schrijft de eerste e-mail.',
++        m: { h: 'Campagnes', reco: 'Aaron beveelt je een campagne aan', line: '{zone} · {sector} · {n}', sizes: ['Micro', 'MKB', 'Middelgroot'], who: '{who}', whoSub: 'De persoon om te benaderen', btn: 'Campagne starten' } },
++      { t: 'Aaron zoekt, leest en schrijft dan', l: 'Voor elk bedrijf leest hij de website, vindt de juiste contactpersoon en schrijft een persoonlijke eerste e-mail, in de taal van de prospect, vanuit jouw mailbox.', n: 'Alleen de allereerste e-mail van je account wacht op jouw goedkeuring, zodat we de toon samen controleren. Alle volgende gaan vanzelf. Wil je liever elke eerste e-mail nalezen, dan staat die optie in je voorkeuren.', y: 'Jij keurt de allereerste e-mail goed, één keer.', a: 'Hij verstuurt alle andere, in het juiste tempo, zonder je mailbox ooit te overbelasten.',
++        m: { h: 'Je allereerste e-mail', sub: '{c1} · {p1}, {r1}', body: 'Hallo {f1}, ik zag dat {c1} steeds meer bedrijfsevenementen verzorgt. Wij helpen cateraars hun agenda te vullen buiten het bruiloftseizoen…', ok: 'Goedkeuren en versturen', edit: 'Bewerken', found: 'gevonden', rows: [['{c2}', '{r2}'], ['{c3}', '{r3}']] } },
++      { t: 'De antwoorden komen, Aaron antwoordt', l: 'Een vraag over de prijs, een verzoek om voorbeelden, een „bel me in januari”: Aaron leest elk antwoord en antwoordt zelf, zoals jij zou doen. Wie niet reageert, krijgt op het juiste moment een herinnering.', n: 'Je krijgt een melding op je telefoon en computer zodra een prospect antwoordt.', y: 'Niets. Je leest mee als je wilt.', a: 'Hij antwoordt, herinnert, en stopt meteen als men dat vraagt.',
++        m: { h: '{reply} heeft geantwoord', q: 'Hallo, waarom niet. Hebben jullie voorbeelden van restaurants die het gedaan hebben? Wat kost het?', r: 'Zeker {reply}. Twee bistro’s vergelijkbaar met de uwe vullen sinds september hun dinsdagen en woensdagen…', notif: '{reply} heeft geantwoord · Aaron regelt het' } },
++      { t: 'De afspraak maakt zichzelf', l: 'Aaron biedt alleen jouw vrije momenten aan. Zegt de prospect „dinsdag 10 uur”, dan is de afspraak bevestigd: agenda-uitnodiging, bevestigingsmail, videolink of adres.', n: 'Je komt alleen tussenbeide als de afspraak binnen 24 uur valt. De avond ervoor om 20 uur krijg je je dag van morgen; dan een herinnering 30 min vooraf (1 uur voor een afspraak ter plaatse). Iets onverwachts? „Ik ben verlaat” waarschuwt de prospect met één tik.', y: 'Jij verschijnt op de afspraak, goed voorbereid.', a: 'Hij plant, bevestigt, herinnert de prospect de dag ervoor en jou vlak voordien.',
++        m: { h: 'Agenda', when: 'Dinsdag 11 · 10:00 · telefoon', who: '{p1}, {c1}', status: 'Bevestigd', b1: 'Verzetten', b2: 'Ik ben verlaat', notif: 'Afspraak bevestigd · {p1}, dinsdag 10 uur. Uitnodiging verstuurd.' } },
++      { t: 'Vóór de afspraak: de kaart', l: 'Elk contact heeft zijn kaart: Aarons kijk op het bedrijf, het profiel van de persoon, zijn advies voor jou en het hele gesprek. Je komt op de afspraak en weet met wie je praat.', n: '', y: 'Je leest twee minuten voordat je belt.', a: 'Hij heeft de briefing klaar: behoefte, persoonlijkheid, aandachtspunt.',
++        m: { h: '{p1}', tag: 'Kans', k1: 'Aarons kijk op het bedrijf', v1: 'Ideaal doelwit: cateraar voor bedrijfsevenementen, 18 medewerkers, snelle beslissing door de eigenaar.', k2: 'Advies', v2: 'Ze vergelijkt twee aanbieders tegen donderdag: stuur de offerte eerder.', k3: 'Persoonlijkheid · dominant', v3: 'Korte antwoorden, beslist snel. Resultaten en termijnen, geen details.' } },
++      { t: 'Na de afspraak: twee tikken', l: 'Aaron vraagt hoe het ging. Je tikt „goed” of „moeilijk”, de uitkomst, een woord als je wilt. Hij schrijft de e-mail na de afspraak: de samenvatting van wat hij begrepen heeft, en de stap naar de offerte.', n: 'Was het gespannen, dan komt de prospect dat nooit te weten: bezwaren worden toezeggingen.', y: 'Twee chips en een woord.', a: 'De balans, de e-mail, het vervolg.',
++        m: { h: 'Balans van de afspraak', q1: 'Hoe ging het?', c1: ['Goed', 'Gemengd', 'Moeilijk'], q2: 'En dan?', c2: ['Offerte gevraagd', 'Doorgaan', 'Verloren'], mailT: 'Aaron verstuurt de e-mail na de afspraak', mail: '„Bedankt voor het gesprek… ik heb uw verwachtingen genoteerd en kom binnenkort bij u terug met ons aanbod.”', btn: 'Balans opslaan' } },
++      { t: 'Van prospect naar klant, zonder overtypen', l: 'Prospect, afspraak, kans, offerte, klant: elk contact schuift vanzelf op in het traject, op basis van wat er echt gebeurt in de e-mails en jouw balansen. Jij laadt je offerte op, Aaron controleert en verstuurt ze.', n: 'Tekent een klant, dan stopt Aaron. Hij komt één keer terug, dertig dagen later, om te vragen of hij iemand kent voor wie jouw dienst interessant is.', y: 'Jij tekent.', a: 'Hij ordent, volgt op en vraagt om een aanbeveling.',
++        m: { h: 'Contacten', stats: [['4', 'benaderd'], ['2', 'afspraken'], ['1', 'offerte'], ['1', 'klant']], rows: [['{p1} · {c1}', 'Offerte gevraagd'], ['{client} · {clientCo}', 'Klant'], ['{p3} · {c3}', 'Herinnering donderdag']], foot: 'Over 30 dagen: Aaron vraagt {client} naar geïnteresseerde contacten.' } },
++      { t: 'Wat op je wacht, en niets anders', l: 'De acties die jou nodig hebben verschijnen bovenaan het scherm, als stories: je allereerste e-mail om goed te keuren, een afspraak binnen 24 uur, een balans die nog moet, een offerteaanvraag.', n: 'Geen story, niets te doen. Zo simpel is het.', y: 'Jij handelt de stories af als je vijf minuten hebt.', a: 'Hij stoort je alleen als hij niet alleen kan beslissen.',
++        m: { stories: [['1', 'E-mail goedkeuren'], ['1', 'Balans te doen'], ['1', 'Offerte gevraagd']], t1: '{p1} vraagt een offerte', b1: 'Voor het evenementenseizoen, vóór donderdag.', a1: 'Kaart openen', a2: 'Later', t2: 'Afspraak morgen 6:45 · goed te keuren', b2: '{early} stelt een gesprek voor 7 uur voor. Binnen 24 uur: jij beslist.' } },
++      { t: 'Mijn documenten: wat Aaron bij de hand heeft', l: 'Laad je brochure, je tarieven, een offertesjabloon, voorbeelden van je werk op. Aaron leest ze, gebruikt ze om precies te antwoorden en voegt ze toe als een prospect erom vraagt.', n: 'Jij kiest, document per document, wat Aaron mag gebruiken en voor wie: prospects, kansen of klanten.', y: 'Jij laadt de bestanden op die je zelf zou sturen.', a: 'Hij noemt de juiste cijfers en voegt het juiste document toe.',
++        m: { h: 'Mijn documenten', rows: [['{doc1}', 'In gebruik · Prospects'], ['{doc2}', 'In gebruik · Kansen'], ['{doc3}', 'In gebruik · Kansen']], foot: '„{reply} vraagt voorbeelden: ik voeg de brochure toe.”' } },
++      { t: 'Vijf plekken, meer niet', l: 'Campagnes: wat Aaron voor je zoekt. Contacten: elke persoon, zijn kaart, zijn gesprek. Agenda: je afspraken en beschikbaarheid. Chat: een vraag, een idee, een twijfel, Aaron antwoordt. Meer: resultaten, documenten, team, Mijn account en de voorkeuren.', n: 'In de voorkeuren raad ik je aan je handtekening en bedrijfslogo toe te voegen: Aaron schrijft vanuit jouw mailbox, dus laat het op jou lijken.', y: 'Jij wijzigt een instelling in Mijn account wanneer je wilt.', a: 'Hij past zich aan elke wijziging aan, zonder herstart.',
++        m: { h: 'Chat met Aaron', u1: 'Ik heb liever alleen ’s ochtends videogesprekken.', a1: 'Genoteerd: ik bied ’s middags geen videogesprekken meer aan. Je kunt het ook instellen bij Agenda → Beschikbaarheid.', u2: 'En bij cateraars: leg meer nadruk op bedrijfsevenementen dan op bruiloften.', a2: 'Begrepen, ik pas het toe vanaf de volgende e-mail.' } },
++      { t: 'Drie instellingen, dan lanceren we', l: 'Aaron heeft je mailbox nodig (hij schrijft vanuit jouw adres), je beschikbaarheid (hij biedt alleen die momenten aan) en toestemming om je te waarschuwen. Twee minuten, en je eerste campagne vertrekt.', n: 'Je bedrijfsprofiel is al klaar: dat is het gesprek dat je net met Aaron had.', nInvited: 'Je bedrijfsprofiel is al door je team gemaakt.', y: '', a: '',
++        m: { h: 'Vóór de start', rows: ['Bedrijfsprofiel · gemaakt met Aaron', 'Mailbox · Gmail, Outlook of andere', 'Beschikbaarheid · maandag–vrijdag 9–17 uur standaard', 'Meldingen · op deze telefoon', 'Handtekening en logo · in de voorkeuren (aanbevolen)'], btn: 'Mijn eerste campagne starten' } },
++    ],
++  },
++};
++
++export const GUIDED_TOUR_SLIDE_COUNT = T.fr.s.length;
++
++function fill(str, ex) {
++  if (typeof str !== 'string') return str;
++  return str.replace(/\{(\w+)\}/g, (m, k) => (ex[k] != null ? ex[k] : m));
++}
++function deepFill(v, ex) {
++  if (Array.isArray(v)) return v.map((x) => deepFill(x, ex));
++  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deepFill(x, ex)]));
++  return fill(v, ex);
++}
++
++const NAV_ICONS = [Megaphone, Users, CalendarDays, MessageCircle, MoreHorizontal];
++
++function Phone({ children, nav, active }) {
++  return (
++    <div className="gt-phone" aria-hidden="true">
++      <div className="gt-screen">{children}</div>
++      {nav && (
++        <div className="gt-nav">
++          {nav.map((label, i) => {
++            const Icon = NAV_ICONS[i];
++            return <span key={label} className={i === active ? 'on' : ''}><Icon size={14} strokeWidth={2} />{label}</span>;
++          })}
++        </div>
++      )}
++    </div>
++  );
++}
++
++function Notif({ text }) {
++  return <div className="gt-notif"><span className="gt-a">A</span><span><b>Meet Aaron</b><br />{text}</span></div>;
++}
++
++function Mock({ index, m, nav }) {
++  switch (index) {
++    case 0: return (
++      <Phone nav={nav} active={0}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-card">
++          <div className="gt-k">{m.reco}</div>
++          <div className="gt-strong">{m.line}</div>
++          <div className="gt-chips">{m.sizes.map((s, i) => <span key={s} className={i === 1 ? 'on' : ''}>{s}</span>)}</div>
++          <div className="gt-strong" style={{ marginTop: 8 }}>{m.who}</div>
++          <div className="gt-sub">{m.whoSub}</div>
++          <div className="gt-btn">{m.btn}</div>
++        </div>
++      </Phone>
++    );
++    case 1: return (
++      <Phone nav={nav} active={1}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-card">
++          <div className="gt-k">{m.sub}</div>
++          <p className="gt-p">{m.body}</p>
++          <div className="gt-row2"><span className="gt-btn">{m.ok}</span><span className="gt-btn ghost">{m.edit}</span></div>
++        </div>
++        {m.rows.map(([c, r]) => <div key={c} className="gt-line"><b>{c}</b><span className="gt-sub">{m.found} · {r}</span></div>)}
++      </Phone>
++    );
++    case 2: return (
++      <Phone nav={nav} active={1}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-bubble them">{m.q}</div>
++        <div className="gt-bubble me">{m.r}</div>
++        <Notif text={m.notif} />
++      </Phone>
++    );
++    case 3: return (
++      <Phone nav={nav} active={2}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-cal">{Array.from({ length: 14 }, (_, i) => <span key={i} className={i === 1 ? 'on' : ''}>{10 + i}</span>)}</div>
++        <div className="gt-card">
++          <div className="gt-k">{m.when}</div>
++          <div className="gt-strong">{m.who}</div>
++          <div className="gt-chips"><span className="ok">{m.status}</span><span>{m.b1}</span><span>{m.b2}</span></div>
++        </div>
++        <Notif text={m.notif} />
++      </Phone>
++    );
++    case 4: return (
++      <Phone nav={nav} active={1}>
++        <div className="gt-h">{m.h} <span className="gt-tag">{m.tag}</span></div>
++        <div className="gt-card"><div className="gt-k">{m.k1}</div><p className="gt-p">{m.v1}</p></div>
++        <div className="gt-card"><div className="gt-k">{m.k2}</div><p className="gt-p">{m.v2}</p></div>
++        <div className="gt-card"><div className="gt-k">{m.k3}</div><p className="gt-p">{m.v3}</p></div>
++      </Phone>
++    );
++    case 5: return (
++      <Phone>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-k">{m.q1}</div>
++        <div className="gt-chips">{m.c1.map((c, i) => <span key={c} className={i === 0 ? 'on' : ''}>{c}</span>)}</div>
++        <div className="gt-k" style={{ marginTop: 8 }}>{m.q2}</div>
++        <div className="gt-chips">{m.c2.map((c, i) => <span key={c} className={i === 0 ? 'on' : ''}>{c}</span>)}</div>
++        <div className="gt-card" style={{ marginTop: 8 }}><div className="gt-k">{m.mailT}</div><p className="gt-p">{m.mail}</p></div>
++        <div className="gt-btn">{m.btn}</div>
++      </Phone>
++    );
++    case 6: return (
++      <Phone nav={nav} active={1}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-stats">{m.stats.map(([n, l]) => <span key={l}><b>{n}</b>{l}</span>)}</div>
++        {m.rows.map(([a, b]) => <div key={a} className="gt-line"><b>{a}</b><span className="gt-pill">{b}</span></div>)}
++        <p className="gt-sub">{m.foot}</p>
++      </Phone>
++    );
++    case 7: return (
++      <Phone nav={nav} active={0}>
++        <div className="gt-stories">{m.stories.map(([n, l]) => <span key={l}><i>{n}</i>{l}</span>)}</div>
++        <div className="gt-card"><div className="gt-strong">{m.t1}</div><p className="gt-p">{m.b1}</p><div className="gt-row2"><span className="gt-btn">{m.a1}</span><span className="gt-btn ghost">{m.a2}</span></div></div>
++        <div className="gt-card"><div className="gt-strong">{m.t2}</div><p className="gt-p">{m.b2}</p></div>
++      </Phone>
++    );
++    case 8: return (
++      <Phone nav={nav} active={4}>
++        <div className="gt-h">{m.h}</div>
++        {m.rows.map(([a, b]) => <div key={a} className="gt-line"><b><FileText size={12} strokeWidth={2} /> {a}</b><span className="gt-sub">{b}</span></div>)}
++        <div className="gt-bubble me">{m.foot}</div>
++      </Phone>
++    );
++    case 9: return (
++      <Phone nav={nav} active={3}>
++        <div className="gt-h">{m.h}</div>
++        <div className="gt-bubble them">{m.u1}</div>
++        <div className="gt-bubble me">{m.a1}</div>
++        <div className="gt-bubble them">{m.u2}</div>
++        <div className="gt-bubble me">{m.a2}</div>
++      </Phone>
++    );
++    default: return (
++      <Phone nav={nav} active={0}>
++        <div className="gt-h">{m.h}</div>
++        {m.rows.map((r, i) => <div key={r} className="gt-line"><b><span className={`gt-check${i === 0 ? ' done' : ''}`}><Check size={10} strokeWidth={3} /></span> {r}</b></div>)}
++        <div className="gt-btn">{m.btn}</div>
++      </Phone>
++    );
++  }
++}
++
++// Props : locale ; invited (fiche entreprise faite par l'équipe) ; onDone ;
++// onSkip (facultatif, sinon = onDone) ; doneLabel (facultatif).
++export default function GuidedTour({ locale = 'fr', invited = false, onDone, onSkip, doneLabel }) {
++  const L = T[locale] || T.fr;
++  const ex = EX[locale] || EX.fr;
++  const [i, setI] = useState(0);
++  const n = L.s.length;
++  const slide = deepFill(L.s[i], ex);
++  const last = i === n - 1;
++
++  useEffect(() => {
++    try { window.scrollTo({ top: 0 }); } catch (e) {}
++  }, [i]);
++
++  useEffect(() => {
++    function onKey(e) {
++      if (e.key === 'ArrowRight' && !last) setI((v) => Math.min(n - 1, v + 1));
++      if (e.key === 'ArrowLeft') setI((v) => Math.max(0, v - 1));
++    }
++    window.addEventListener('keydown', onKey);
++    return () => window.removeEventListener('keydown', onKey);
++  }, [last, n]);
++
++  return (
++    <div className="gt">
++      <div className="gt-top">
++        <span className="gt-counter">{L.counter.replace('{i}', String(i + 1)).replace('{n}', String(n))}</span>
++        <div className="gt-dots" aria-hidden="true">{L.s.map((_, k) => <button key={k} type="button" className={k === i ? 'on' : k < i ? 'seen' : ''} onClick={() => setI(k)} tabIndex={-1} />)}</div>
++        <button type="button" className="gt-skip" onClick={onSkip || onDone}>{L.skip}</button>
++      </div>
++
++      <div className="gt-body">
++        <div className="gt-text">
++          <h1>{slide.t}</h1>
++          <p className="gt-lead">{slide.l}</p>
++          {(invited && slide.nInvited ? slide.nInvited : slide.n) && <p className="gt-note">{invited && slide.nInvited ? slide.nInvited : slide.n}</p>}
++          {(slide.y || slide.a) && (
++            <div className="gt-split">
++              {slide.y && <div><span className="gt-who">{L.you}</span><p>{slide.y}</p></div>}
++              {slide.a && <div className="aaron"><span className="gt-who">{L.aaron}</span><p>{slide.a}</p></div>}
++            </div>
++          )}
++        </div>
++        <div className="gt-mock">
++          <Mock index={i} m={slide.m} nav={L.nav} />
++        </div>
++      </div>
++
++      <div className="gt-foot">
++        <button type="button" className="btn-secondary" disabled={i === 0} onClick={() => setI(i - 1)}><ArrowLeft size={15} aria-hidden="true" /> {L.prev}</button>
++        {last
++          ? <button type="button" className="btn-primary" onClick={onDone}>{doneLabel || L.done} <ArrowRight size={15} aria-hidden="true" /></button>
++          : <button type="button" className="btn-primary" onClick={() => setI(i + 1)}>{L.next} <ArrowRight size={15} aria-hidden="true" /></button>}
++      </div>
++
++      <style jsx>{`
++        .gt { display: flex; flex-direction: column; gap: 1rem; }
++        .gt-top { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
++        .gt-counter { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
++        .gt-dots { display: flex; gap: 4px; flex: 1; min-width: 120px; }
++        .gt-dots button { flex: 1; height: 4px; border: 0; border-radius: 999px; background: var(--border); padding: 0; cursor: pointer; }
++        .gt-dots button.seen { background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
++        .gt-dots button.on { background: var(--accent); }
++        .gt-skip { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 0.8rem; cursor: pointer; font-family: inherit; text-decoration: underline; }
++        .gt-body { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 1.5rem; align-items: start; }
++        @media (max-width: 720px) { .gt-body { grid-template-columns: 1fr; } }
++        h1 { font-family: var(--font-display); font-size: 1.5rem; line-height: 1.25; margin: 0.2rem 0 0.5rem; }
++        .gt-lead { color: var(--text); font-size: 0.95rem; line-height: 1.55; margin: 0 0 0.8rem; }
++        .gt-note { color: var(--muted); font-size: 0.88rem; line-height: 1.5; margin: 0 0 1rem; padding-left: 0.75rem; border-left: 3px solid var(--accent); }
++        .gt-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
++        .gt-split > div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.7rem 0.8rem; }
++        .gt-split > div.aaron { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
++        .gt-who { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; margin-bottom: 0.25rem; }
++        .gt-split p { margin: 0; font-size: 0.86rem; line-height: 1.45; }
++        .gt-mock { display: flex; justify-content: center; }
++        .gt-phone { width: 100%; max-width: 300px; border: 1px solid var(--border); border-radius: 22px; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
++        .gt-screen { padding: 0.85rem 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 300px; font-size: 0.74rem; line-height: 1.4; }
++        .gt-nav { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border); padding: 0.4rem 0.2rem; background: var(--surface); }
++        .gt-nav span { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.56rem; color: var(--muted); }
++        .gt-nav span.on { color: var(--accent); font-weight: 700; }
++        .gt-h { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
++        .gt-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.65rem; display: flex; flex-direction: column; gap: 0.3rem; }
++        .gt-k { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
++        .gt-strong { font-weight: 600; }
++        .gt-sub { color: var(--muted); font-size: 0.68rem; }
++        .gt-p { margin: 0; color: var(--text); }
++        .gt-chips { display: flex; gap: 0.3rem; flex-wrap: wrap; }
++        .gt-chips span { border: 1px solid var(--border); border-radius: 999px; padding: 0.15rem 0.5rem; font-size: 0.66rem; color: var(--muted); }
++        .gt-chips span.on { background: var(--accent); color: #fff; border-color: var(--accent); }
++        .gt-chips span.ok { color: var(--accent); border-color: var(--accent); font-weight: 600; }
++        .gt-btn { display: inline-block; background: var(--accent); color: #fff; border-radius: 8px; padding: 0.35rem 0.6rem; font-weight: 600; font-size: 0.7rem; text-align: center; margin-top: 0.3rem; }
++        .gt-btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
++        .gt-row2 { display: flex; gap: 0.4rem; flex-wrap: wrap; }
++        .gt-line { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.4rem 0.2rem; border-bottom: 1px solid var(--border); }
++        .gt-line b { font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem; }
++        .gt-pill { border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.45rem; font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
++        .gt-bubble { max-width: 92%; border-radius: 14px; padding: 0.5rem 0.65rem; }
++        .gt-bubble.them { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; }
++        .gt-bubble.me { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); align-self: flex-end; }
++        .gt-notif { margin-top: auto; display: flex; gap: 0.5rem; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem 0.55rem; font-size: 0.68rem; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
++        .gt-a { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
++        .gt-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
++        .gt-cal span { text-align: center; padding: 0.2rem 0; border-radius: 6px; font-size: 0.66rem; color: var(--muted); }
++        .gt-cal span.on { background: var(--accent); color: #fff; font-weight: 700; }
++        .gt-tag { font-size: 0.6rem; border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 0.05rem 0.4rem; font-family: var(--font-body, inherit); font-weight: 600; }
++        .gt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem; }
++        .gt-stats span { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.35rem 0.2rem; display: flex; flex-direction: column; align-items: center; font-size: 0.58rem; color: var(--muted); }
++        .gt-stats b { font-size: 0.95rem; color: var(--text); }
++        .gt-stories { display: flex; gap: 0.5rem; }
++        .gt-stories span { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; font-size: 0.58rem; color: var(--muted); text-align: center; width: 64px; }
++        .gt-stories i { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--accent); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 700; color: var(--text); background: var(--surface); }
++        .gt-check { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: transparent; flex-shrink: 0; }
++        .gt-check.done { background: var(--accent); border-color: var(--accent); color: #fff; }
++        .gt-foot { display: flex; justify-content: space-between; gap: 0.75rem; padding-top: 0.5rem; }
++        .btn-primary, .btn-secondary { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 10px; padding: 0.6rem 1rem; font-weight: 600; font-size: 0.9rem; cursor: pointer; font-family: inherit; }
++        .btn-primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
++        .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
++        .btn-secondary:disabled { opacity: 0.4; cursor: default; }
++      `}</style>
++    </div>
++  );
++}
+diff --git a/lib/aaron-batch.ts b/lib/aaron-batch.ts
+index 8ffae20..50e1954 100644
+--- a/lib/aaron-batch.ts
++++ b/lib/aaron-batch.ts
+@@ -24,6 +24,7 @@
+ // (pendingBatchProspectIds), sinon ils les resoumettraient à chaque passage.
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { mustApproveFirstEmail } from './first-email-approval';
+ import { buildAaronRequest, parseAaronOutput, convictionColumns, type AaronModel, type AaronOutput } from './aaron';
+ import { recordUsage, usageFromApi } from './anthropic-client';
+ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
+@@ -348,7 +349,12 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
+     // est stocké comme brouillon et part au prochain créneau via
+     // app/api/cron/retry-uncontacted-prospects (sendDeferredFirstEmails).
+     // Pas de notification : rien n'est demandé au commercial.
+-    if (owner?.require_first_email_approval !== true && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
++    // Tout premier email du compte toujours relu (lib/first-email-approval.ts,
++    // règle Alex 08/11/2026) ; ensuite seulement sur option. Calculé AVANT le
++    // report de créneau : un tout premier email lancé un dimanche doit
++    // attendre le commercial, pas partir seul lundi matin.
++    const approval = await mustApproveFirstEmail(prospect.assigned_user_id, owner?.require_first_email_approval);
++    if (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+@@ -360,7 +366,7 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
+         .eq('id', prospect.id);
+       return;
+     }
+-    if (owner?.require_first_email_approval === true) {
++    if (approval.approve) {
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+@@ -372,9 +378,11 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
+         .eq('id', prospect.id);
+       try {
+         await sendPushNotification(prospect.assigned_user_id, {
+-          title: 'Premier email prêt à valider',
++          title: approval.reason === 'first_ever' ? 'Ton tout premier email est prêt' : 'Premier email prêt à valider',
+           // Le NOM, pas l'adresse email : plus lisible sur un écran verrouillé.
+-          body: `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
++          body: approval.reason === 'first_ever'
++            ? `Aaron a écrit le premier email pour ${prospect.full_name}. Relis-le une fois : les suivants partiront seuls.`
++            : `Aaron a préparé le premier email pour ${prospect.full_name}. À relire avant envoi.`,
+           tag: `premier_email:${prospect.id}`,
+           // Lien profond : fiche + modale de validation ouvertes d'emblée.
+           url: `/app/prospects?user_id=${prospect.assigned_user_id}&contact=${prospect.id}&action=valider_email`,
+diff --git a/lib/appointment-flow.ts b/lib/appointment-flow.ts
+index 233d4a8..6f00a6d 100644
+--- a/lib/appointment-flow.ts
++++ b/lib/appointment-flow.ts
+@@ -37,6 +37,7 @@ import { resolveMeetingLink } from './meeting-link';
+ import { resolveProspectLocale } from './prospect-locale';
+ import { resolveUserTimeZone } from './user-timezone';
+ import { runInBackground } from './background';
++import { lateEmail } from './reminder-texts';
+ 
+ export const AUTO_CONFIRM_MIN_HOURS = 24;
+ 
+@@ -87,9 +88,19 @@ function localToUtc(ymd: string, hhmm: string, tz: string): Date {
+ type Rule = { day_of_week: number; start_time: string; end_time: string; appointment_type: string | null };
+ 
+ // Plages par défaut quand aucune règle n'est déclarée : lundi–vendredi
+-// 08:00–19:00 (avant : « disponible en permanence », donc aussi le dimanche à
+-// 3 h du matin si un prospect le proposait).
+-const DEFAULT_RULES: Rule[] = [1, 2, 3, 4, 5].map((dow) => ({ day_of_week: dow, start_time: '08:00:00', end_time: '19:00:00', appointment_type: null }));
++// 09:00–17:00 (avant : « disponible en permanence », donc aussi le dimanche à
++// 3 h du matin si un prospect le proposait) — « il faut laisser de l'espace
++// pour Aaron » (Alex).
++const DEFAULT_RULES: Rule[] = [1, 2, 3, 4, 5].map((dow) => ({ day_of_week: dow, start_time: '09:00:00', end_time: '17:00:00', appointment_type: null }));
++
++// Pause entre deux rendez-vous (décision Alex, 08/11/2026 : « pas deux
++// rendez-vous téléphoniques à la suite ») : 30 min après un appel ou une
++// visio, 2 h après ou avant un rendez-vous physique (déplacement). La pause
++// retenue entre deux rendez-vous est la plus grande des deux.
++export const BUFFER_MINUTES: Record<string, number> = { telephonique: 30, visio: 30, physique: 120 };
++export function bufferBetween(typeA: string | null | undefined, typeB: string | null | undefined): number {
++  return Math.max(BUFFER_MINUTES[typeA || ''] ?? 30, BUFFER_MINUTES[typeB || ''] ?? 30);
++}
+ 
+ function ruleMatchesType(rule: Rule, type?: string | null): boolean {
+   if (!rule.appointment_type || !type) return true;
+@@ -135,17 +146,22 @@ export async function schedulingConflicts(userId: string, startISO: string, endI
+ 
+   const { data: taken } = await supabaseAdmin
+     .from('appointments')
+-    .select('id, proposed_at, duration_minutes')
++    .select('id, proposed_at, duration_minutes, type')
+     .eq('user_id', userId)
+     .eq('status', 'validé')
+-    .gte('proposed_at', new Date(start.getTime() - 4 * 3600 * 1000).toISOString())
+-    .lte('proposed_at', endISO);
+-  const clash = (taken || []).some((a: any) => {
++    .gte('proposed_at', new Date(start.getTime() - 6 * 3600 * 1000).toISOString())
++    .lte('proposed_at', new Date(end.getTime() + 3 * 3600 * 1000).toISOString());
++  let clash = false;
++  let tooClose = false;
++  for (const a of (taken || []) as any[]) {
+     const s = new Date(a.proposed_at).getTime();
+     const e = s + durationMinutesFor(a.duration_minutes) * 60000;
+-    return s < end.getTime() && e > start.getTime();
+-  });
++    if (s < end.getTime() && e > start.getTime()) { clash = true; continue; }
++    const pad = bufferBetween(a.type, type) * 60000;
++    if (s < end.getTime() + pad && e + pad > start.getTime()) tooClose = true;
++  }
+   if (clash) reasons.push('Chevauche un rendez-vous déjà confirmé.');
++  else if (tooClose) reasons.push('Trop proche d\'un autre rendez-vous (pause de 30 min entre deux appels, 2 h autour d\'un rendez-vous physique).');
+ 
+   try {
+     const busy = await getFreeBusyForUser(userId, startISO, endISO);
+@@ -184,7 +200,7 @@ export async function computeFreeSlots(
+ 
+   const [{ data: blocks }, { data: taken }] = await Promise.all([
+     supabaseAdmin.from('availability_blocks').select('start_at, end_at').eq('user_id', userId).lt('start_at', horizon.toISOString()).gt('end_at', now.toISOString()),
+-    supabaseAdmin.from('appointments').select('proposed_at, duration_minutes').eq('user_id', userId).eq('status', 'validé').gte('proposed_at', now.toISOString()).lte('proposed_at', horizon.toISOString()),
++    supabaseAdmin.from('appointments').select('proposed_at, duration_minutes, type').eq('user_id', userId).eq('status', 'validé').gte('proposed_at', now.toISOString()).lte('proposed_at', horizon.toISOString()),
+   ]);
+   let busy: { start: string; end: string }[] = [];
+   try {
+@@ -194,7 +210,12 @@ export async function computeFreeSlots(
+   }
+   const blocked = [
+     ...(blocks || []).map((b: any) => [new Date(b.start_at).getTime(), new Date(b.end_at).getTime()]),
+-    ...(taken || []).map((a: any) => [new Date(a.proposed_at).getTime(), new Date(a.proposed_at).getTime() + durationMinutesFor(a.duration_minutes) * 60000]),
++    // Rendez-vous confirmés élargis de la pause (lib : bufferBetween) :
++    // Aaron ne propose jamais un créneau collé à un autre rendez-vous.
++    ...(taken || []).map((a: any) => {
++      const pad = bufferBetween(a.type, options.type) * 60000;
++      return [new Date(a.proposed_at).getTime() - pad, new Date(a.proposed_at).getTime() + durationMinutesFor(a.duration_minutes) * 60000 + pad];
++    }),
+     ...busy.map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()]),
+   ];
+   const isFree = (s: number, e: number) => !blocked.some(([bs, be]) => bs < e && be > s);
+@@ -436,3 +457,11 @@ export async function rescheduleAppointment(appointmentId: string, userId: strin
+     .eq('id', appointmentId);
+   return confirmAppointment(appointmentId, userId, { force: true, moved: true });
+ }
++
++// Email « je suis en retard » dans la langue du prospect (lib/reminder-texts.ts).
++export async function lateNoticeEmail(appointmentId: string, userId: string, minutes: number): Promise<{ subject: string; body: string } | null> {
++  const appointment = await loadAppointment(appointmentId);
++  if (!appointment || !appointment.prospects?.email) return null;
++  const { locale } = await prospectLanguageAndZone(appointment, userId);
++  return lateEmail(locale, appointment.prospects.full_name || '', minutes);
++}
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index 2a56438..347e9a5 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -6,6 +6,7 @@
+ // sans que l'import attende 20 à 40 s par ligne.
+ 
+ import { supabaseAdmin } from './supabase-admin';
++import { mustApproveFirstEmail } from './first-email-approval';
+ import { generateAaronResponse, convictionColumns } from './aaron';
+ import {
+   sendEmailForUser,
+@@ -176,7 +177,9 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+       return;
+     }
+ 
+-    if (hasEmailToSend && (sender?.require_first_email_approval || truncated)) {
++    // Tout premier email du compte : toujours relu (lib/first-email-approval.ts).
++    const approval = hasEmailToSend ? await mustApproveFirstEmail(prospect.assigned_user_id, sender?.require_first_email_approval) : { approve: false, reason: null };
++    if (hasEmailToSend && (approval.approve || truncated)) {
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+@@ -188,7 +191,9 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+ 
+       emailWarning = truncated
+         ? "Prospect ajouté — le premier email a été coupé pendant sa rédaction, il t'attend pour relecture avant envoi."
+-        : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
++        : approval.reason === 'first_ever'
++          ? "Prospect ajouté — c'est le tout premier email de ton compte : Aaron te le montre avant de l'envoyer, les suivants partiront seuls."
++          : "Prospect ajouté — le premier email est prêt et t'attend pour validation avant envoi.";
+       emailWarningCode = truncated ? 'truncatedDraft' : 'pendingApproval';
+ 
+       try {
+diff --git a/lib/first-email-approval.ts b/lib/first-email-approval.ts
+new file mode 100644
+index 0000000..bae4047
+--- /dev/null
++++ b/lib/first-email-approval.ts
+@@ -0,0 +1,45 @@
++// lib/first-email-approval.ts
++//
++// QUAND LE PREMIER EMAIL ATTEND LE COMMERCIAL.
++//
++// Règle d'Alex (docx du 08/11/2026) : « par défaut Aaron envoie de lui-même,
++// sauf vraiment le tout premier email » — celui du tout premier prospect du
++// compte, pour être certain que la fiche entreprise et le ton sont bons. Les
++// suivants partent seuls, à moins que le commercial n'ait coché « je valide
++// chaque premier email » dans Préférences (users.require_first_email_approval).
++//
++// « Tout premier » = aucun email de prospection jamais parti depuis ce compte
++// ET aucun brouillon déjà en attente de validation (sinon un lot de 20
++// prospects traité d'un coup produirait 20 brouillons « tout premiers »).
++
++import { supabaseAdmin } from './supabase-admin';
++
++export async function mustApproveFirstEmail(userId: string, requireApprovalPref: boolean | null | undefined): Promise<{ approve: boolean; reason: 'preference' | 'first_ever' | null }> {
++  if (requireApprovalPref === true) return { approve: true, reason: 'preference' };
++  try {
++    const { data: pending } = await supabaseAdmin
++      .from('prospects')
++      .select('id')
++      .eq('assigned_user_id', userId)
++      .not('pending_first_email_subject', 'is', null)
++      .limit(1);
++    if (pending && pending.length) return { approve: false, reason: null };
++
++    const { data: sent, error } = await supabaseAdmin
++      .from('messages')
++      .select('id, conversations!inner(prospects!inner(assigned_user_id))')
++      .eq('direction', 'outbound')
++      .eq('conversations.prospects.assigned_user_id', userId)
++      .limit(1);
++    if (error) {
++      // Filtre imbriqué refusé (schéma différent) : on ne bloque personne.
++      console.error('[first-email-approval] lecture impossible:', error.message);
++      return { approve: false, reason: null };
++    }
++    if (!sent || sent.length === 0) return { approve: true, reason: 'first_ever' };
++    return { approve: false, reason: null };
++  } catch (err: any) {
++    console.error('[first-email-approval]', err?.message || err);
++    return { approve: false, reason: null };
++  }
++}
+diff --git a/lib/reminder-texts.ts b/lib/reminder-texts.ts
+new file mode 100644
+index 0000000..c86928e
+--- /dev/null
++++ b/lib/reminder-texts.ts
+@@ -0,0 +1,63 @@
++// lib/reminder-texts.ts
++// Textes des rappels de rendez-vous adressés AU COMMERCIAL (sa langue) et de
++// l'email « je suis en retard » adressé AU PROSPECT (sa langue). Décision Alex
++// (docx 08/11/2026) : deux rappels par rendez-vous — le récap de la veille à
++// 20 h (« ta journée de demain », email + notification), puis le rappel juste
++// avant : 30 min pour un appel ou une visio, 1 h pour un rendez-vous physique.
++
++import { normalizeLocale } from './locale-instruction';
++
++export type ApptType = 'visio' | 'telephonique' | 'physique';
++
++// Délai de rappel avant le rendez-vous selon le type ; la préférence du
++// commercial (notify_before_appointment_minutes) s'applique aux appels et
++// visios, le physique ne descend jamais sous 60 min (temps de déplacement).
++export function reminderLeadMinutes(type: string, pref: number | null | undefined): number {
++  const base = Number.isFinite(Number(pref)) && Number(pref) > 0 ? Number(pref) : 30;
++  if (type === 'physique') return Math.max(base, 60);
++  return base;
++}
++
++export const DIGEST_HOUR = 20;
++
++const T: Record<string, {
++  intl: string;
++  types: Record<ApptType, string>;
++  reminderTitle: string; reminderBody: string; // {name} {minutes} {type} {time}
++  reminderLink: string;
++  digestSubject: string; digestTitle: string; digestIntro: string; digestLine: string; digestNone: string; digestFoot: string; digestPush: string;
++  lateSubject: string; lateBody: string; lateBye: string; hello: string;
++}> = {
++  fr: { intl: 'fr-FR', types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, reminderTitle: 'Rendez-vous dans {minutes} min', reminderBody: '{name} {type}, à {time}.', reminderLink: 'Lien visio : {link}', digestSubject: 'Ta journée de demain', digestTitle: 'Ta journée de demain', digestIntro: 'Bonjour {first}, voici tes rendez-vous de demain, {date} :', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: "Tout est confirmé côté prospects. Je te rappelle chacun juste avant. Bonne soirée,\nAaron", digestPush: '{n} rendez-vous demain : {first_line}', hello: 'Bonjour {name},', lateSubject: 'Petit retard pour notre rendez-vous', lateBody: "Un petit imprévu me retarde d'environ {minutes} minutes. Notre rendez-vous tient bien, j'arrive au plus vite. Merci pour votre patience.", lateBye: 'À tout de suite,' },
++  en: { intl: 'en-GB', types: { visio: 'video call', telephonique: 'phone call', physique: 'in person' }, reminderTitle: 'Meeting in {minutes} min', reminderBody: '{name}, {type} at {time}.', reminderLink: 'Video link: {link}', digestSubject: 'Your day tomorrow', digestTitle: 'Your day tomorrow', digestIntro: 'Hi {first}, here are your meetings tomorrow, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Everything is confirmed on the prospects’ side. I will remind you just before each one. Have a good evening,\nAaron', digestPush: '{n} meetings tomorrow: {first_line}', hello: 'Hello {name},', lateSubject: 'Running slightly late for our meeting', lateBody: 'Something unexpected is delaying me by about {minutes} minutes. Our meeting still stands, I will be with you as soon as possible. Thank you for your patience.', lateBye: 'See you very soon,' },
++  de: { intl: 'de-DE', types: { visio: 'Videoanruf', telephonique: 'Telefonat', physique: 'vor Ort' }, reminderTitle: 'Termin in {minutes} Min.', reminderBody: '{name}, {type} um {time}.', reminderLink: 'Video-Link: {link}', digestSubject: 'Dein Tag morgen', digestTitle: 'Dein Tag morgen', digestIntro: 'Hallo {first}, hier sind deine Termine morgen, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Alles ist bei den Interessenten bestätigt. Ich erinnere dich kurz vor jedem Termin. Schönen Abend,\nAaron', digestPush: '{n} Termine morgen: {first_line}', hello: 'Guten Tag {name},', lateSubject: 'Kleine Verspätung zu unserem Termin', lateBody: 'Ein unvorhergesehener Umstand verzögert mich um etwa {minutes} Minuten. Unser Termin findet statt, ich bin so schnell wie möglich bei Ihnen. Vielen Dank für Ihre Geduld.', lateBye: 'Bis gleich,' },
++  it: { intl: 'it-IT', types: { visio: 'videochiamata', telephonique: 'telefonata', physique: 'di persona' }, reminderTitle: 'Appuntamento tra {minutes} min', reminderBody: '{name}, {type} alle {time}.', reminderLink: 'Link video: {link}', digestSubject: 'La tua giornata di domani', digestTitle: 'La tua giornata di domani', digestIntro: 'Ciao {first}, ecco i tuoi appuntamenti di domani, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Tutto è confermato lato prospect. Ti ricordo ciascuno poco prima. Buona serata,\nAaron', digestPush: '{n} appuntamenti domani: {first_line}', hello: 'Buongiorno {name},', lateSubject: 'Piccolo ritardo per il nostro appuntamento', lateBody: 'Un imprevisto mi fa ritardare di circa {minutes} minuti. Il nostro appuntamento è confermato, arrivo il prima possibile. Grazie per la pazienza.', lateBye: 'A tra poco,' },
++  es: { intl: 'es-ES', types: { visio: 'videollamada', telephonique: 'llamada', physique: 'presencial' }, reminderTitle: 'Reunión en {minutes} min', reminderBody: '{name}, {type} a las {time}.', reminderLink: 'Enlace de vídeo: {link}', digestSubject: 'Tu día de mañana', digestTitle: 'Tu día de mañana', digestIntro: 'Hola {first}, estas son tus reuniones de mañana, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Todo está confirmado por parte de los prospectos. Te lo recordaré justo antes de cada una. Buenas noches,\nAaron', digestPush: '{n} reuniones mañana: {first_line}', hello: 'Hola {name},', lateSubject: 'Pequeño retraso para nuestra reunión', lateBody: 'Un imprevisto me retrasa unos {minutes} minutos. Nuestra reunión se mantiene, llego lo antes posible. Gracias por su paciencia.', lateBye: 'Hasta ahora,' },
++  pt: { intl: 'pt-PT', types: { visio: 'videochamada', telephonique: 'chamada', physique: 'presencial' }, reminderTitle: 'Reunião daqui a {minutes} min', reminderBody: '{name}, {type} às {time}.', reminderLink: 'Link de vídeo: {link}', digestSubject: 'O teu dia de amanhã', digestTitle: 'O teu dia de amanhã', digestIntro: 'Olá {first}, aqui estão as tuas reuniões de amanhã, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Está tudo confirmado do lado dos prospetos. Lembro-te de cada uma mesmo antes. Boa noite,\nAaron', digestPush: '{n} reuniões amanhã: {first_line}', hello: 'Olá {name},', lateSubject: 'Pequeno atraso para a nossa reunião', lateBody: 'Um imprevisto atrasa-me cerca de {minutes} minutos. A nossa reunião mantém-se, chego o mais depressa possível. Obrigado pela sua paciência.', lateBye: 'Até já,' },
++  nl: { intl: 'nl-NL', types: { visio: 'videogesprek', telephonique: 'telefoongesprek', physique: 'ter plaatse' }, reminderTitle: 'Afspraak over {minutes} min', reminderBody: '{name}, {type} om {time}.', reminderLink: 'Videolink: {link}', digestSubject: 'Je dag van morgen', digestTitle: 'Je dag van morgen', digestIntro: 'Hallo {first}, dit zijn je afspraken van morgen, {date}:', digestLine: '{time} · {name} ({company}) · {type}', digestNone: '', digestFoot: 'Alles is bevestigd aan de kant van de prospects. Ik herinner je vlak voor elke afspraak. Fijne avond,\nAaron', digestPush: '{n} afspraken morgen: {first_line}', hello: 'Hallo {name},', lateSubject: 'Kleine vertraging voor onze afspraak', lateBody: 'Door een onverwachte omstandigheid ben ik ongeveer {minutes} minuten later. Onze afspraak gaat gewoon door, ik ben er zo snel mogelijk. Bedankt voor je geduld.', lateBye: 'Tot zo,' },
++};
++
++export function reminderTexts(locale: string | null | undefined) {
++  return T[normalizeLocale(locale)] || T.fr;
++}
++
++export function typeLabel(locale: string | null | undefined, type: string): string {
++  const t = reminderTexts(locale);
++  return t.types[type as ApptType] || t.types.physique;
++}
++
++export function fmtTime(iso: string, locale: string | null | undefined, tz: string): string {
++  return new Date(iso).toLocaleTimeString(reminderTexts(locale).intl, { hour: '2-digit', minute: '2-digit', timeZone: tz });
++}
++
++export function fmtDay(iso: string, locale: string | null | undefined, tz: string): string {
++  return new Date(iso).toLocaleDateString(reminderTexts(locale).intl, { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz });
++}
++
++export function lateEmail(locale: string | null | undefined, prospectName: string, minutes: number): { subject: string; body: string } {
++  const t = reminderTexts(locale);
++  return {
++    subject: t.lateSubject,
++    body: [t.hello.replace('{name}', prospectName), '', t.lateBody.replace('{minutes}', String(minutes)), '', t.lateBye].join('\n'),
++  };
++}
+diff --git a/seed_demo_2026-11-08.sql b/seed_demo_2026-11-08.sql
+index 2094312..6d6d18d 100644
+--- a/seed_demo_2026-11-08.sql
++++ b/seed_demo_2026-11-08.sql
+@@ -53,10 +53,10 @@ begin
+           'Traiteur événementiel lyonnais fondé en 2009, 18 salariés, mariages et séminaires d''entreprise, cuisine de saison.',
+           'Cible idéale : un traiteur qui organise des séminaires d''entreprise a exactement le besoin que vous couvrez, et la taille (18 salariés) permet une décision rapide par la gérante.', 'strong', 'fr', now() - interval '10 days')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, created_at)
+   values (v_company, v_user, v_pc, 'Claire Delorme', 'claire.delorme@maison-delorme.example.fr', '+33 4 72 00 00 11', 'Gérante', 'bleu', 'amene_par_aaron',
+           'Elle a demandé un devis pour la saison des séminaires : envoyez-le avant jeudi, elle compare deux prestataires.', 'dominant',
+-          'Réponses courtes et directes, décide vite. Parlez résultats et délais, pas détails.', 72, 'Rendez-vous fait, devis demandé spontanément, délai de décision annoncé.', 'rdv_fait', now() - interval '2 days', now() - interval '2 days', now() - interval '10 days')
++          'Réponses courtes et directes, décide vite. Parlez résultats et délais, pas détails.', 72, 'Rendez-vous fait, devis demandé spontanément, délai de décision annoncé.', 'rdv_fait', now() - interval '2 days', now() - interval '10 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -73,10 +73,10 @@ begin
+           'Bistrot de quartier, 40 couverts, équipe de 6, ouvert midi et soir, clientèle de bureaux le midi.',
+           'Bonne cible : clientèle de bureaux le midi, donc intérêt réel pour les repas d''équipe et les privatisations. Décideur unique, le chef-propriétaire.', 'medium', 'fr', now() - interval '9 days')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
+   values (v_company, v_user, v_pc, 'Julien Mercier', 'julien.mercier@bistrot-les-tilleuls.example.fr', '+33 4 78 00 00 22', 'Chef-propriétaire', 'vert', 'amene_par_aaron',
+           'Il a demandé des exemples concrets : répondez avec deux cas clients proches de son bistrot, pas une plaquette.', 'influent',
+-          'Chaleureux, aime les anecdotes et les exemples. Soignez le relationnel avant les chiffres.', 55, 'A répondu avec intérêt, pose des questions, pas encore de rendez-vous.', now() - interval '1 day', now() - interval '9 days')
++          'Chaleureux, aime les anecdotes et les exemples. Soignez le relationnel avant les chiffres.', 55, 'A répondu avec intérêt, pose des questions, pas encore de rendez-vous.', now() - interval '9 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -88,9 +88,9 @@ begin
+   values (v_company, 'patisserie-rozier.example.fr', 'Pâtisserie Rozier', v_camp_fr, 'https://patisserie-rozier.example.fr', '27 cours Vitton, 69006 Lyon', 'Pâtisserie',
+           'Pâtisserie-chocolaterie familiale, deux boutiques, commandes d''entreprise en fin d''année.')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
+   values (v_company, v_user, v_pc, 'Sophie Rozier', 'sophie.rozier@patisserie-rozier.example.fr', 'Co-gérante', 'jaune', 'amene_par_aaron',
+-          'Pas de réponse au premier email : Aaron relance jeudi avec un angle « coffrets de fin d''année pour entreprises ».', now() - interval '5 days', now() - interval '6 days')
++          'Pas de réponse au premier email : Aaron relance jeudi avec un angle « coffrets de fin d''année pour entreprises ».', now() - interval '6 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -101,9 +101,9 @@ begin
+   values (v_company, 'brasserie-du-parc.example.fr', 'Brasserie du Parc', v_camp_fr, 'https://brasserie-du-parc.example.fr', '1 boulevard des Belges, 69006 Lyon', 'Brasserie',
+           'Brasserie de 120 couverts face au parc de la Tête d''Or, salle privatisable, 25 salariés.')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, is_won, won_at, first_order_confirmed_at, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, is_won, won_at, first_order_confirmed_at, created_at)
+   values (v_company, v_user, v_pc, 'Marc Vidal', 'marc.vidal@brasserie-du-parc.example.fr', '+33 4 72 00 00 44', 'Directeur', 'bleu', 'amene_par_aaron',
+-          'Client signé : Aaron lui demandera dans 30 jours s''il connaît d''autres restaurateurs intéressés.', 'stable', 90, 'Devis signé le mois dernier.', 'signe', now() - interval '20 days', true, now() - interval '20 days', now() - interval '20 days', now() - interval '20 days', now() - interval '11 days')
++          'Client signé : Aaron lui demandera dans 30 jours s''il connaît d''autres restaurateurs intéressés.', 'stable', 90, 'Devis signé le mois dernier.', 'signe', now() - interval '20 days', true, now() - interval '20 days', now() - interval '20 days', now() - interval '11 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -117,9 +117,9 @@ begin
+   insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry)
+   values (v_company, 'auberge-monts-dor.example.fr', 'Auberge des Monts d''Or', v_camp_fr, 'https://auberge-monts-dor.example.fr', 'Route de la Croix, 69450 Saint-Cyr-au-Mont-d''Or', 'Restaurant gastronomique')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, deal_stage, deal_stage_updated_at, created_at)
+   values (v_company, v_user, v_pc, 'Hélène Garnier', 'helene.garnier@auberge-monts-dor.example.fr', 'Propriétaire', 'rouge', 'amene_par_aaron',
+-          'Déjà équipée et satisfaite : Aaron arrête le contact et reviendra dans six mois.', 'perdu', now() - interval '3 days', now() - interval '3 days', now() - interval '8 days')
++          'Déjà équipée et satisfaite : Aaron arrête le contact et reviendra dans six mois.', 'perdu', now() - interval '3 days', now() - interval '8 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -130,10 +130,10 @@ begin
+   insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
+   values (v_company, 'comptoir-ainay.example.fr', 'Le Comptoir d''Ainay', v_camp_fr, 'https://comptoir-ainay.example.fr', '8 rue Vaubecour, 69002 Lyon', 'Restaurant', 'Restaurant bistronomique, 50 couverts, chef passé par deux maisons étoilées, ouvert depuis 2021.')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
+   values (v_company, v_user, v_pc, 'Thomas Renard', 'thomas.renard@comptoir-ainay.example.fr', '+33 4 78 00 00 66', 'Chef et associé', 'vert', 'amene_par_aaron',
+           'Visio mardi prochain : il veut comprendre le fonctionnement en 20 minutes. Préparez deux exemples de restaurants bistronomiques.', 'consciencieux',
+-          'Précis, veut des chiffres et un déroulé clair. Évitez les superlatifs.', 60, 'Rendez-vous accepté, questions précises sur le fonctionnement.', now() - interval '1 day', now() - interval '7 days')
++          'Précis, veut des chiffres et un déroulé clair. Évitez les superlatifs.', 60, 'Rendez-vous accepté, questions précises sur le fonctionnement.', now() - interval '7 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -154,10 +154,10 @@ begin
+           'Residential and commercial plumbing, 9 staff, emergency call-outs, strata contracts.',
+           'Strong fit: strata contracts mean recurring business, and the owner answers emails himself.', 'strong', 'en', now() - interval '5 days')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, created_at)
+   values (v_company, v_user, v_pc, 'James Harper', 'james@swanriverplumbing.example.com.au', '+61 8 9000 0011', 'Owner', 'vert', 'amene_par_aaron',
+           'He asked for a call before 7am: Aaron proposed Thursday 6:45. Keep it under 10 minutes.', 'dominant',
+-          'Blunt and fast. Lead with the outcome, skip the preamble.', 58, 'Replied within a day and asked for a call.', now() - interval '1 day', now() - interval '5 days')
++          'Blunt and fast. Lead with the outcome, skip the preamble.', 58, 'Replied within a day and asked for a call.', now() - interval '5 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -170,9 +170,9 @@ begin
+   values (v_company, 'fremantleelectrical.example.com.au', 'Fremantle Electrical Co', v_camp_en, 'https://fremantleelectrical.example.com.au', '45 High Street, Fremantle WA 6160', 'Electrical contractor',
+           'Electrical contractor, 14 staff, solar installations and commercial fit-outs.')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
+   values (v_company, v_user, v_pc, 'Charlotte Bennett', 'charlotte@fremantleelectrical.example.com.au', 'Director', 'jaune', 'amene_par_aaron',
+-          'No reply yet: Aaron follows up Monday with the solar-installations angle.', now() - interval '3 days', now() - interval '4 days')
++          'No reply yet: Aaron follows up Monday with the solar-installations angle.', now() - interval '4 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+@@ -182,9 +182,9 @@ begin
+   values (v_company, 'harperjoinery.example.com.au', 'Harper Joinery', v_camp_en, 'https://harperjoinery.example.com.au', '8 Belmont Avenue, Belmont WA 6104', 'Joinery',
+           'Custom joinery for kitchens and offices, 6 staff, family business since 1998.')
+   returning id into v_pc;
+-  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, created_at)
+   values (v_company, v_user, v_pc, 'Matt Walker', 'matt@harperjoinery.example.com.au', 'Sales director', 'jaune', 'amene_par_aaron',
+-          'First email sent yesterday. Nothing to do: Aaron watches the inbox.', now() - interval '1 day', now() - interval '2 days')
++          'First email sent yesterday. Nothing to do: Aaron watches the inbox.', now() - interval '2 days')
+   returning id into v_p;
+   insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
+   insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
+diff --git a/vercel.json b/vercel.json
+index e696e53..447dd10 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -21,6 +21,10 @@
+       "path": "/api/cron/appointment-reminders",
+       "schedule": "* * * * *"
+     },
++    {
++      "path": "/api/cron/tomorrow-digest",
++      "schedule": "5 * * * *"
++    },
+     {
+       "path": "/api/cron/run-campaigns",
+       "schedule": "*/10 * * * *"
+-- 
+2.43.0
+
