@@ -1,0 +1,883 @@
+From d790bb3d1346844cebf6ac80f5df3702b2f12112 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 07:28:37 +0000
+Subject: [PATCH] =?UTF-8?q?Devis=20ouvert=20:=20push=20localis=C3=A9=20?=
+ =?UTF-8?q?=C2=AB=20appelle=20dans=20les=2030=20min=20=C2=BB=20+=20relance?=
+ =?UTF-8?q?=20=C2=AB=20appelle=20quand=20m=C3=AAme=20=C2=BB=20;=20mode=20d?=
+ =?UTF-8?q?=C3=A9mo=20(soci=C3=A9t=C3=A9=20is=5Fdemo)=20;=20visite=20guid?=
+ =?UTF-8?q?=C3=A9e=20et=20landing?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Docx v8 d'Alex (08/11/2026) :
+- Ouverture du devis (le pixel existait depuis le 15/10) : push dans la
+  langue du commercial « Devis ouvert — appelle maintenant, dans les 30
+  minutes » ; nouveau cron devis-open-nudge (toutes les 5 min) qui relance
+  une fois après 30 min sans « Appel fait » : « appelle quand même, un
+  devis lu se négocie encore » (colonne prospects.devis_open_nudge_at,
+  migration_devis_open_nudge_2026-11-08.sql). Story « devis ouvert »
+  adaptée au-delà de 30 min. Visite guidée (écran prospect → client) et
+  landing (price.f6 ×7) en parlent.
+- Mode démo (lib/demo-guard.ts, companies.is_demo,
+  migration_demo_company_2026-11-08.sql) : sur la société « Démo Meet
+  Aaron » partagée avec les testeurs Google Play, pas de création ni de
+  relance de campagne, jamais exécutée par run-campaigns, pas d'ajout ni
+  d'import de prospect, pas d'envoi de devis, pas de régénération de la
+  fiche entreprise, outils du chat qui écrivent désactivés, suppression
+  du compte refusée, changement d'email et de mot de passe masqués.
+  /api/auth/link renvoie is_demo.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/account/deletion/route.ts         |  2 +
+ app/api/auth/link/route.ts                |  5 +-
+ app/api/business-summary/route.ts         |  2 +
+ app/api/campaigns/[id]/route.ts           |  2 +
+ app/api/campaigns/route.ts                |  2 +
+ app/api/chat/route.ts                     |  6 +++
+ app/api/cron/devis-open-nudge/route.ts    | 55 +++++++++++++++++++++
+ app/api/cron/run-campaigns/route.ts       |  3 ++
+ app/api/prospects/[id]/devis/route.ts     |  4 +-
+ app/api/prospects/route.ts                |  2 +
+ app/api/t/[token]/route.ts                | 11 +++--
+ app/app/connexions/page.jsx               | 13 +++--
+ components/GuidedTour.jsx                 | 29 ++++++------
+ components/Stories.jsx                    |  6 ++-
+ lib/demo-guard.ts                         | 58 +++++++++++++++++++++++
+ lib/devis-open-texts.ts                   | 21 ++++++++
+ lib/i18n.js                               | 14 ++++++
+ migration_demo_company_2026-11-08.sql     | 38 +++++++++++++++
+ migration_devis_open_nudge_2026-11-08.sql |  5 ++
+ public/landing.html                       |  8 ++++
+ vercel.json                               |  4 ++
+ 21 files changed, 266 insertions(+), 24 deletions(-)
+ create mode 100644 app/api/cron/devis-open-nudge/route.ts
+ create mode 100644 lib/demo-guard.ts
+ create mode 100644 lib/devis-open-texts.ts
+ create mode 100644 migration_demo_company_2026-11-08.sql
+ create mode 100644 migration_devis_open_nudge_2026-11-08.sql
+
+diff --git a/app/api/account/deletion/route.ts b/app/api/account/deletion/route.ts
+index f85cb36..dfdfab6 100644
+--- a/app/api/account/deletion/route.ts
++++ b/app/api/account/deletion/route.ts
+@@ -20,6 +20,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ import { serverError } from '@/lib/http';
+ 
+ const DELAY_MS = 24 * 60 * 60 * 1000;
+@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
+ export async function POST(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
+   const { data: existing } = await supabaseAdmin
+     .from('users')
+diff --git a/app/api/auth/link/route.ts b/app/api/auth/link/route.ts
+index 661551c..f93fccd 100644
+--- a/app/api/auth/link/route.ts
++++ b/app/api/auth/link/route.ts
+@@ -9,6 +9,7 @@ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { sendSystemEmail } from '@/lib/google';
+ import { resolveUserTimeZone } from '@/lib/user-timezone';
+ import { serverError } from '@/lib/http';
++import { isDemoCompany } from '@/lib/demo-guard';
+ 
+ // CHANGEMENTS A FAIRE (2026-08-16, item 31 + section STRIPE) : "A la fin de
+ // la durée de l'abonnement le client ne pourra plus accéder à rien. Il
+@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
+       await supabaseAdmin.from('users').update({ email }).eq('id', alreadyLinked.id);
+       alreadyLinked.email = email;
+     }
+-    return NextResponse.json({ user: alreadyLinked });
++    return NextResponse.json({ user: { ...alreadyLinked, is_demo: await isDemoCompany(alreadyLinked.company_id) } });
+   }
+ 
+   const { data: byEmail } = await supabaseAdmin
+@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
+     if (inactiveError) {
+       return NextResponse.json({ error: inactiveError }, { status: 403 });
+     }
+-    return NextResponse.json({ user: updated });
++    return NextResponse.json({ user: { ...updated, is_demo: await isDemoCompany(updated.company_id) } });
+   }
+ 
+   return NextResponse.json(
+diff --git a/app/api/business-summary/route.ts b/app/api/business-summary/route.ts
+index 63c1925..ff8009e 100644
+--- a/app/api/business-summary/route.ts
++++ b/app/api/business-summary/route.ts
+@@ -21,6 +21,7 @@ import { localeInstruction } from '@/lib/locale-instruction';
+ // d'une ancienne version) — voir lib/business-summary-store.ts.
+ import { backupThenReplaceBusinessSummary } from '@/lib/business-summary-store';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ 
+ // GET -> relit le résumé métier déjà généré, pour qu'un commercial puisse le
+ // retrouver et le consulter à tout moment depuis "Préférences" (pas seulement
+@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== user_id) return forbiddenResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
+   const { data: user, error: userError } = await supabaseAdmin
+     .from('users')
+diff --git a/app/api/campaigns/[id]/route.ts b/app/api/campaigns/[id]/route.ts
+index 698a854..a003d00 100644
+--- a/app/api/campaigns/[id]/route.ts
++++ b/app/api/campaigns/[id]/route.ts
+@@ -16,6 +16,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ import { readJsonBody } from '@/lib/http';
+ 
+ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+@@ -36,6 +37,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== campaign.assigned_user_id) return forbiddenResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
+   if (campaign.status === 'terminee') {
+     return NextResponse.json({ error: 'Cette campagne est déjà terminée' }, { status: 400 });
+diff --git a/app/api/campaigns/route.ts b/app/api/campaigns/route.ts
+index 190b8e8..01849a1 100644
+--- a/app/api/campaigns/route.ts
++++ b/app/api/campaigns/route.ts
+@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { selectInChunks } from '@/lib/chunked-in';
+ import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ import { canViewUserData } from '@/lib/user-access';
+ import { LOCALE_NAMES } from '@/lib/locale-instruction';
+ import { readJsonBody, serverError } from '@/lib/http';
+@@ -151,6 +152,7 @@ export async function POST(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== assigned_user_id || authedUser.company_id !== company_id) return forbiddenResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
+   // Quota de nouveaux prospects du mois (08/09/2026). On ne bloque que si
+   // plus RIEN n'est disponible : une campagne dont l'objectif dépasse le
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index 291c570..b77873e 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -8,6 +8,7 @@ import { callClaude, MonthlyCapExceededError, withCacheBreakpoint } from '@/lib/
+ import { localeInstruction } from '@/lib/locale-instruction';
+ import { summarizeDocument } from '@/lib/document-summary';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { isDemoCompany } from '@/lib/demo-guard';
+ 
+ const CHAT_SYSTEM_PROMPT = `Tu es Aaron, le copilote commercial IA du commercial avec qui tu discutes ici directement (pas un prospect — c'est bien ton utilisateur principal).
+ Tu es chaleureux, direct, et tu le tutoies. Tu es comme son meilleur allié dans la vente : disponible, honnête, jamais condescendant.
+@@ -439,6 +440,11 @@ async function executeTool(
+   companyId: string | null,
+   locale: string
+ ) {
++  // Compte de démonstration (lib/demo-guard.ts) : Aaron répond, mais ne
++  // modifie pas la fiche entreprise partagée et n'enregistre pas de document.
++  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise' || toolName === 'recherche_prospects')) {
++    return { success: false, error: 'Compte de démonstration : cette action est désactivée.' };
++  }
+   switch (toolName) {
+     case 'recherche_prospects':
+       return runRechercheProspects(userId, toolInput?.query || '');
+diff --git a/app/api/cron/devis-open-nudge/route.ts b/app/api/cron/devis-open-nudge/route.ts
+new file mode 100644
+index 0000000..cd88cf6
+--- /dev/null
++++ b/app/api/cron/devis-open-nudge/route.ts
+@@ -0,0 +1,55 @@
++// app/api/cron/devis-open-nudge/route.ts
++// Toutes les 5 minutes (vercel.json). Décision Alex (docx 08/11/2026) : si
++// le devis a été ouvert il y a plus de 30 minutes et que le commercial n'a
++// pas cliqué « Appel fait », on le relance UNE fois : « appelle quand même ».
++// Fenêtre 30 min → 3 h : au-delà, la story du devis ouvert suffit, un push
++// de plus ne ferait que du bruit. devis_open_nudge_at évite les doublons
++// (migration_devis_open_nudge_2026-11-08.sql).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { sendPushNotification } from '@/lib/push';
++import { devisOpenTexts } from '@/lib/devis-open-texts';
++
++function isAuthorized(request: NextRequest) {
++  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`;
++}
++
++export async function GET(request: NextRequest) {
++  if (!isAuthorized(request)) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
++
++  const now = Date.now();
++  const { data: prospects, error } = await supabaseAdmin
++    .from('prospects')
++    .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, users:assigned_user_id(locale)')
++    .not('devis_opened_at', 'is', null)
++    .is('devis_call_done_at', null)
++    .is('devis_open_nudge_at', null)
++    .lt('devis_opened_at', new Date(now - 30 * 60 * 1000).toISOString())
++    .gt('devis_opened_at', new Date(now - 3 * 3600 * 1000).toISOString());
++  if (error) {
++    // Colonne absente (migration pas passée) : on ne casse rien.
++    console.error('[devis-open-nudge]', error.message);
++    return NextResponse.json({ nudged: 0, error: error.message });
++  }
++
++  let nudged = 0;
++  for (const p of (prospects || []) as any[]) {
++    try {
++      const minutes = Math.round((now - new Date(p.devis_opened_at).getTime()) / 60000);
++      const T = devisOpenTexts(p.users?.locale);
++      const { error: upErr } = await supabaseAdmin.from('prospects').update({ devis_open_nudge_at: new Date().toISOString() }).eq('id', p.id).is('devis_open_nudge_at', null);
++      if (upErr) continue;
++      await sendPushNotification(p.assigned_user_id, {
++        title: T.nudgeTitle.replace('{name}', p.full_name || ''),
++        body: T.nudgeBody.replace('{minutes}', String(minutes)),
++        url: `/app/prospects?contact=${p.id}`,
++        tag: `devis_ouvert:${p.id}`,
++      });
++      nudged++;
++    } catch (err: any) {
++      console.error(`[devis-open-nudge] ${p.id}:`, err?.message || err);
++    }
++  }
++  return NextResponse.json({ nudged });
++}
+diff --git a/app/api/cron/run-campaigns/route.ts b/app/api/cron/run-campaigns/route.ts
+index 17a07b6..0b095c2 100644
+--- a/app/api/cron/run-campaigns/route.ts
++++ b/app/api/cron/run-campaigns/route.ts
+@@ -25,6 +25,7 @@ import { enqueueAaronBatch, applyAaronOutput, pendingBatchProspectIds, batchEnab
+ import { hasReachedProspectingCap, effectiveProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
+ import { getPacing } from '@/lib/anthropic-client';
+ import { deliverabilityGate } from '@/lib/deliverability-test';
++import { isDemoCompany } from '@/lib/demo-guard';
+ 
+ function isAuthorized(request: NextRequest) {
+   const authHeader = request.headers.get('authorization');
+@@ -310,6 +311,8 @@ export async function GET(request: NextRequest) {
+   const quotaBySociety = new Map<string, number>();
+   const runnable: { id: string; assigned_user_id: string }[] = [];
+   for (const c of activeCampaigns || []) {
++    // Société de démonstration : jamais exécutée (lib/demo-guard.ts).
++    if (await isDemoCompany(c.company_id)) continue;
+     if (c.status !== 'en_pause') {
+       runnable.push(c);
+       continue;
+diff --git a/app/api/prospects/[id]/devis/route.ts b/app/api/prospects/[id]/devis/route.ts
+index 135b90d..915c1c2 100644
+--- a/app/api/prospects/[id]/devis/route.ts
++++ b/app/api/prospects/[id]/devis/route.ts
+@@ -15,6 +15,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ import { summarizeDevisRecap, DevisLineItem } from '@/lib/aaron-sales';
+ import { sendEmailForUser } from '@/lib/messaging';
+ import { newDevisTrackToken, devisPixelHtml } from '@/lib/devis-tracking';
+@@ -93,6 +94,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== prospect.assigned_user_id) return forbiddenResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
+   // Seul un devis DÉPOSÉ par le commercial part (25/10/2026) : Aaron ne
+   // rédige pas de devis, il prépare seulement l'email qui l'accompagne.
+@@ -148,7 +150,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
+   {
+     const { error: resetError } = await supabaseAdmin
+       .from('prospects')
+-      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null })
++      .update({ devis_track_token: trackToken, devis_opened_at: null, devis_last_opened_at: null, devis_open_count: 0, devis_call_done_at: null, devis_open_nudge_at: null })
+       .eq('id', prospectId);
+     if (resetError) {
+       const { error: tokenError } = await supabaseAdmin
+diff --git a/app/api/prospects/route.ts b/app/api/prospects/route.ts
+index 28cfbce..b8dad60 100644
+--- a/app/api/prospects/route.ts
++++ b/app/api/prospects/route.ts
+@@ -10,6 +10,7 @@ import { generateAaronResponse, convictionColumns } from '@/lib/aaron';
+ import { sendEmailForUser, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from '@/lib/messaging';
+ import { sendPushNotification } from '@/lib/push';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ import { canViewUserData } from '@/lib/user-access';
+ import { isGenericEmailDomain } from '@/lib/csv-import';
+ import { assertProspectQuotaAllows, ProspectQuotaExceededError } from '@/lib/prospect-quota';
+@@ -173,6 +174,7 @@ export async function POST(request: NextRequest) {
+ 
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
++  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+   // Société absente (24/10/2026) : la page l'obtient par un appel séparé ;
+   // si cet appel avait échoué, l'ajout et l'import CSV renvoyaient « Champs
+   // requis manquants ». La société de l'utilisateur connecté fait foi.
+diff --git a/app/api/t/[token]/route.ts b/app/api/t/[token]/route.ts
+index 6a2f1ef..7c5d2e0 100644
+--- a/app/api/t/[token]/route.ts
++++ b/app/api/t/[token]/route.ts
+@@ -18,6 +18,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendPushNotification } from '@/lib/push';
++import { devisOpenTexts } from '@/lib/devis-open-texts';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+@@ -59,7 +60,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
+ 
+     const { data: prospect } = await supabaseAdmin
+       .from('prospects')
+-      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at')
++      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, users:assigned_user_id(locale)')
+       .eq('devis_track_token', token)
+       .maybeSingle();
+ 
+@@ -86,9 +87,13 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
+     // leçon des quatorze notifications du 13/10 : chaque push de trop coûte
+     // la crédibilité de tous les suivants.
+     if (isFirstOpen && !prospect.devis_call_done_at) {
++      // Dans la langue du commercial (Alex, 08/11/2026) : « appelle dans les
++      // 30 minutes ». La relance « appelle quand même » après 30 min est
++      // dans app/api/cron/devis-open-nudge.
++      const T = devisOpenTexts((prospect as any).users?.locale);
+       await sendPushNotification(prospect.assigned_user_id, {
+-        title: 'Devis ouvert',
+-        body: `${prospect.full_name} est en train de lire ton devis. Appelle-le.`,
++        title: T.openTitle,
++        body: T.openBody.replace('{name}', prospect.full_name || ''),
+         url: `/app/prospects?contact=${prospect.id}`,
+         // Un tag par prospect : si un second devis était suivi pour la même
+         // personne, la notification remplacerait la précédente au lieu de
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 5325e9b..f537a77 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -311,6 +311,7 @@ const BILLING_OWNER_ONLY = {
+ function useAuthedUser() {
+   const router = useRouter();
+   const [userId, setUserId] = useState(null);
++  const [isDemo, setIsDemo] = useState(false);
+   const [authLoading, setAuthLoading] = useState(true);
+   const [authError, setAuthError] = useState(null);
+ 
+@@ -376,6 +377,7 @@ function useAuthedUser() {
+       }
+ 
+       setUserId(body.user.id);
++      setIsDemo(body.user.is_demo === true);
+       setAuthLoading(false);
+     }
+ 
+@@ -383,7 +385,7 @@ function useAuthedUser() {
+     return () => { cancelled = true; };
+   }, [router]);
+ 
+-  return { userId, authLoading, authError };
++  return { userId, authLoading, authError, isDemo };
+ }
+ 
+ function providerMetaFor(locale) {
+@@ -510,7 +512,7 @@ function offersFor(locale) {
+ }
+ 
+ export default function ConnexionsPage() {
+-  const { userId, authLoading, authError } = useAuthedUser();
++  const { userId, authLoading, authError, isDemo } = useAuthedUser();
+   // useAuthedUser a son propre router, hors de portee ici : la rubrique
+   // « Marge par client » ouvre un ecran a part (/app/marge) plutot qu'un
+   // panneau de cette page, donc il en faut un dans ce composant aussi.
+@@ -2571,6 +2573,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+               (Supabase Auth envoie le lien de confirmation) et
+               handleChangePassword (ré-authentification par mot de passe
+               actuel avant d'autoriser le changement). */}
++          {/* Compte de démonstration partagé (lib/demo-guard.ts) : pas de
++              changement d'email ni de mot de passe, sinon un testeur
++              verrouillerait tous les autres. */}
++          {!isDemo && (<>
+           <div className="profile-section">
+             <label className="profile-label">{t('connexions.emailSectionLabel', locale)}</label>
+             <p className="profile-current-value">{currentEmail || '—'}</p>
+@@ -2626,6 +2632,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+               {passwordChangeSaving ? t('connexions.passwordChangeSaving', locale) : t('connexions.passwordChangeButton', locale)}
+             </button>
+           </div>
++          </>)}
+ 
+           {/* Double authentification (CASA 3.3.1) : obligatoire pour le
+               compte fondateur (écrans d'administration), recommandée pour
+@@ -4195,7 +4202,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           </div>
+         )
+       ) : activeTab === 'delete' ? (
+-        <AccountDeletionPanel locale={locale} />
++        isDemo ? <p className="muted">{t('connexions.demoLocked', locale)}</p> : <AccountDeletionPanel locale={locale} />
+       ) : null}
+         </div>
+       </div>
+diff --git a/components/GuidedTour.jsx b/components/GuidedTour.jsx
+index 5bd708d..943b1fb 100644
+--- a/components/GuidedTour.jsx
++++ b/components/GuidedTour.jsx
+@@ -52,8 +52,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Opportunité', k1: 'Avis d’Aaron sur l’entreprise', v1: 'Cible idéale : traiteur de séminaires, 18 salariés, décision rapide par la gérante.', k2: 'Conseil', v2: 'Elle compare deux prestataires d’ici jeudi : envoyez le devis avant.', k3: 'Personnalité · dominante', v3: 'Réponses courtes, décide vite. Résultats et délais, pas de détails.' } },
+       { t: 'Après le rendez-vous, deux clics', l: 'Aaron te demande comment ça s’est passé. Tu touches « bien » ou « compliqué », l’issue, un mot si tu veux. Il écrit l’email d’après rendez-vous : le brief de ce qu’il a compris, et le pas vers le devis.', n: 'Si c’était tendu, le prospect ne le saura jamais : les objections deviennent des engagements.', y: 'Deux chips et un mot.', a: 'Le bilan, l’email, la suite.',
+         m: { h: 'Bilan du rendez-vous', q1: 'Comment ça s’est passé ?', c1: ['Bien', 'Mitigé', 'Difficile'], q2: 'Et ensuite ?', c2: ['Devis demandé', 'À continuer', 'Perdu'], mailT: 'Aaron envoie l’email d’après rendez-vous', mail: '« Merci pour cet échange… j’ai bien noté vos attentes, je reviens vers vous prochainement avec notre offre. »', btn: 'Enregistrer le bilan' } },
+-      { t: 'De prospect à client, sans ressaisie', l: 'Prospect, rendez-vous, opportunité, devis, client : chaque contact avance tout seul dans le parcours, à partir de ce qui se passe réellement dans les emails et tes bilans. Tu déposes ton devis, Aaron le vérifie et l’envoie.', n: 'Quand un client signe, Aaron s’arrête. Il revient une fois, trente jours plus tard, pour lui demander s’il connaît quelqu’un que ton service intéresserait.', y: 'Tu signes.', a: 'Il range, il suit, il demande une recommandation.',
+-        m: { h: 'Contacts', stats: [['4', 'contactés'], ['2', 'rendez-vous'], ['1', 'devis'], ['1', 'client']], rows: [['{p1} · {c1}', 'Devis demandé'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Relance jeudi']], foot: 'Dans 30 jours : Aaron demande à {client} des contacts intéressés.' } },
++      { t: 'De prospect à client, sans ressaisie', l: 'Prospect, rendez-vous, opportunité, devis, client : chaque contact avance tout seul dans le parcours, à partir de ce qui se passe réellement dans les emails et tes bilans. Tu déposes ton devis, Aaron le vérifie, l’envoie, et te prévient à la seconde où le client l’ouvre : c’est le moment d’appeler, dans les 30 minutes.', n: 'Quand un client signe, Aaron s’arrête. Il revient une fois, trente jours plus tard, pour lui demander s’il connaît quelqu’un que ton service intéresserait.', y: 'Tu signes.', a: 'Il range, il suit, il demande une recommandation.',
++        m: { h: 'Contacts', stats: [['4', 'contactés'], ['2', 'rendez-vous'], ['1', 'devis'], ['1', 'client']], rows: [['{p1} · {c1}', 'Devis demandé'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Relance jeudi']], foot: 'Dans 30 jours : Aaron demande à {client} des contacts intéressés.', notif: 'Devis ouvert — {p1} est en train de lire ton devis. Appelle maintenant.' } },
+       { t: 'Ce qui t’attend, et rien d’autre', l: 'Les actions qui ont besoin de toi apparaissent en haut de l’écran, comme des stories : ton tout premier email à valider, un rendez-vous dans moins de 24 h, un bilan à faire, une demande de devis.', n: 'Pas de story, rien à faire. C’est aussi simple que ça.', y: 'Tu traites les stories, quand tu as cinq minutes.', a: 'Il ne te dérange que quand il ne peut pas décider seul.',
+         m: { stories: [['1', 'Email à valider'], ['1', 'Bilan à faire'], ['1', 'Devis demandé']], t1: '{p1} demande un devis', b1: 'Pour la saison des séminaires, avant jeudi.', a1: 'Ouvrir la fiche', a2: 'Plus tard', t2: 'Rendez-vous demain 6h45 · à valider', b2: '{early} propose un appel avant 7h. Dans moins de 24 h : à toi de confirmer.' } },
+       { t: 'Mes documents : ce qu’Aaron a sous la main', l: 'Dépose ta plaquette, tes tarifs, un devis type, des exemples de réalisations. Aaron les lit et s’en sert pour répondre juste, et les joint quand un prospect les demande.', n: 'Tu choisis, document par document, ce qu’Aaron peut utiliser et pour qui : prospects, opportunités ou clients.', y: 'Tu déposes les fichiers que tu enverrais toi-même.', a: 'Il cite les bons chiffres et joint le bon document.',
+@@ -80,8 +80,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Opportunity', k1: 'Aaron’s view of the company', v1: 'Ideal target: corporate-event caterer, 18 staff, quick decisions by the owner.', k2: 'Advice', v2: 'She is comparing two providers by Thursday: send the quote before.', k3: 'Personality · dominant', v3: 'Short answers, decides fast. Results and deadlines, no details.' } },
+       { t: 'After the meeting, two taps', l: 'Aaron asks how it went. You tap “good” or “tricky”, the outcome, a word if you like. He writes the follow-up email: a brief of what he understood, and the step towards the quote.', n: 'If it was tense, the prospect will never know: objections become commitments.', y: 'Two chips and a word.', a: 'The debrief, the email, the next step.',
+         m: { h: 'Meeting debrief', q1: 'How did it go?', c1: ['Good', 'Mixed', 'Difficult'], q2: 'What next?', c2: ['Quote requested', 'Keep going', 'Lost'], mailT: 'Aaron sends the follow-up email', mail: '“Thank you for our conversation… I have noted your expectations and will get back to you shortly with our offer.”', btn: 'Save the debrief' } },
+-      { t: 'From prospect to client, nothing to re-enter', l: 'Prospect, meeting, opportunity, quote, client: every contact moves along the journey on its own, based on what really happens in the emails and your debriefs. You upload your quote, Aaron checks it and sends it.', n: 'When a client signs, Aaron stops. He comes back once, thirty days later, to ask whether they know someone your service would interest.', y: 'You sign.', a: 'He files, follows up, and asks for a referral.',
+-        m: { h: 'Contacts', stats: [['4', 'contacted'], ['2', 'meetings'], ['1', 'quote'], ['1', 'client']], rows: [['{p1} · {c1}', 'Quote requested'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Follow-up Thursday']], foot: 'In 30 days: Aaron asks {client} for interested contacts.' } },
++      { t: 'From prospect to client, nothing to re-enter', l: 'Prospect, meeting, opportunity, quote, client: every contact moves along the journey on its own, based on what really happens in the emails and your debriefs. You upload your quote, Aaron checks it, sends it, and tells you the second the client opens it: that is the moment to call, within 30 minutes.', n: 'When a client signs, Aaron stops. He comes back once, thirty days later, to ask whether they know someone your service would interest.', y: 'You sign.', a: 'He files, follows up, and asks for a referral.',
++        m: { h: 'Contacts', stats: [['4', 'contacted'], ['2', 'meetings'], ['1', 'quote'], ['1', 'client']], rows: [['{p1} · {c1}', 'Quote requested'], ['{client} · {clientCo}', 'Client'], ['{p3} · {c3}', 'Follow-up Thursday']], foot: 'In 30 days: Aaron asks {client} for interested contacts.', notif: 'Quote opened — {p1} is reading your quote. Call now.' } },
+       { t: 'What needs you, and nothing else', l: 'The actions that need you appear at the top of the screen, like stories: your very first email to approve, a meeting less than 24 hours away, a debrief to do, a quote request.', n: 'No story, nothing to do. It is that simple.', y: 'You handle the stories when you have five minutes.', a: 'He only interrupts you when he cannot decide alone.',
+         m: { stories: [['1', 'Email to approve'], ['1', 'Debrief to do'], ['1', 'Quote requested']], t1: '{p1} requests a quote', b1: 'For the corporate-event season, before Thursday.', a1: 'Open the card', a2: 'Later', t2: 'Meeting tomorrow 6:45 · to approve', b2: '{early} suggests a call before 7am. Less than 24 hours away: your call.' } },
+       { t: 'My documents: what Aaron has at hand', l: 'Upload your brochure, your prices, a quote template, examples of your work. Aaron reads them and uses them to answer accurately, and attaches them when a prospect asks.', n: 'You choose, document by document, what Aaron may use and for whom: prospects, opportunities or clients.', y: 'You upload the files you would send yourself.', a: 'He quotes the right figures and attaches the right document.',
+@@ -108,8 +108,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Chance', k1: 'Aarons Einschätzung des Unternehmens', v1: 'Idealer Zielkunde: Seminar-Caterer, 18 Mitarbeitende, schnelle Entscheidung durch die Geschäftsführerin.', k2: 'Rat', v2: 'Sie vergleicht bis Donnerstag zwei Anbieter: Angebot vorher senden.', k3: 'Persönlichkeit · dominant', v3: 'Kurze Antworten, entscheidet schnell. Ergebnisse und Fristen, keine Details.' } },
+       { t: 'Nach dem Termin: zwei Klicks', l: 'Aaron fragt dich, wie es gelaufen ist. Du tippst „gut“ oder „schwierig“, das Ergebnis, ein Wort, wenn du willst. Er schreibt die E-Mail nach dem Termin: das Briefing dessen, was er verstanden hat, und der Schritt zum Angebot.', n: 'War es angespannt, erfährt der Interessent es nie: Einwände werden zu Zusagen.', y: 'Zwei Chips und ein Wort.', a: 'Die Bilanz, die E-Mail, der nächste Schritt.',
+         m: { h: 'Terminbilanz', q1: 'Wie ist es gelaufen?', c1: ['Gut', 'Gemischt', 'Schwierig'], q2: 'Und jetzt?', c2: ['Angebot gewünscht', 'Weiter dran', 'Verloren'], mailT: 'Aaron sendet die E-Mail nach dem Termin', mail: '„Vielen Dank für das Gespräch… ich habe Ihre Erwartungen notiert und komme in Kürze mit unserem Angebot auf Sie zu.“', btn: 'Bilanz speichern' } },
+-      { t: 'Vom Interessenten zum Kunden, ohne Neueingabe', l: 'Interessent, Termin, Chance, Angebot, Kunde: Jeder Kontakt rückt von selbst vor, auf Basis dessen, was in den E-Mails und deinen Bilanzen wirklich passiert. Du lädst dein Angebot hoch, Aaron prüft und sendet es.', n: 'Unterschreibt ein Kunde, hört Aaron auf. Er kommt einmal wieder, dreißig Tage später, und fragt, ob er jemanden kennt, den dein Angebot interessieren könnte.', y: 'Du unterschreibst.', a: 'Er sortiert, begleitet und bittet um eine Empfehlung.',
+-        m: { h: 'Kontakte', stats: [['4', 'kontaktiert'], ['2', 'Termine'], ['1', 'Angebot'], ['1', 'Kunde']], rows: [['{p1} · {c1}', 'Angebot gewünscht'], ['{client} · {clientCo}', 'Kunde'], ['{p3} · {c3}', 'Erinnerung Donnerstag']], foot: 'In 30 Tagen: Aaron fragt {client} nach interessierten Kontakten.' } },
++      { t: 'Vom Interessenten zum Kunden, ohne Neueingabe', l: 'Interessent, Termin, Chance, Angebot, Kunde: Jeder Kontakt rückt von selbst vor, auf Basis dessen, was in den E-Mails und deinen Bilanzen wirklich passiert. Du lädst dein Angebot hoch, Aaron prüft es, sendet es und meldet dir sofort, wenn der Kunde es öffnet: dann anrufen, innerhalb von 30 Minuten.', n: 'Unterschreibt ein Kunde, hört Aaron auf. Er kommt einmal wieder, dreißig Tage später, und fragt, ob er jemanden kennt, den dein Angebot interessieren könnte.', y: 'Du unterschreibst.', a: 'Er sortiert, begleitet und bittet um eine Empfehlung.',
++        m: { h: 'Kontakte', stats: [['4', 'kontaktiert'], ['2', 'Termine'], ['1', 'Angebot'], ['1', 'Kunde']], rows: [['{p1} · {c1}', 'Angebot gewünscht'], ['{client} · {clientCo}', 'Kunde'], ['{p3} · {c3}', 'Erinnerung Donnerstag']], foot: 'In 30 Tagen: Aaron fragt {client} nach interessierten Kontakten.', notif: 'Angebot geöffnet — {p1} liest gerade dein Angebot. Jetzt anrufen.' } },
+       { t: 'Was auf dich wartet, und sonst nichts', l: 'Was dich braucht, erscheint oben am Bildschirm, wie Stories: deine allererste E-Mail zur Freigabe, ein Termin in weniger als 24 Std., eine Bilanz, eine Angebotsanfrage.', n: 'Keine Story, nichts zu tun. So einfach ist das.', y: 'Du bearbeitest die Stories, wenn du fünf Minuten hast.', a: 'Er stört dich nur, wenn er nicht allein entscheiden kann.',
+         m: { stories: [['1', 'E-Mail freigeben'], ['1', 'Bilanz fällig'], ['1', 'Angebot gewünscht']], t1: '{p1} wünscht ein Angebot', b1: 'Für die Seminarsaison, vor Donnerstag.', a1: 'Karte öffnen', a2: 'Später', t2: 'Termin morgen 6:45 · freizugeben', b2: '{early} schlägt ein Telefonat vor 7 Uhr vor. Weniger als 24 Std.: du entscheidest.' } },
+       { t: 'Meine Dokumente: was Aaron zur Hand hat', l: 'Lade deine Broschüre, deine Preise, eine Angebotsvorlage, Referenzen hoch. Aaron liest sie, antwortet damit präzise und hängt sie an, wenn ein Interessent danach fragt.', n: 'Du bestimmst Dokument für Dokument, was Aaron nutzen darf und für wen: Interessenten, Chancen oder Kunden.', y: 'Du lädst die Dateien hoch, die du selbst senden würdest.', a: 'Er nennt die richtigen Zahlen und hängt das richtige Dokument an.',
+@@ -136,8 +136,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Opportunità', k1: 'Parere di Aaron sull’azienda', v1: 'Target ideale: catering per eventi aziendali, 18 dipendenti, decisione rapida della titolare.', k2: 'Consiglio', v2: 'Confronta due fornitori entro giovedì: invia il preventivo prima.', k3: 'Personalità · dominante', v3: 'Risposte brevi, decide in fretta. Risultati e tempi, niente dettagli.' } },
+       { t: 'Dopo l’appuntamento, due tocchi', l: 'Aaron ti chiede com’è andata. Tocchi «bene» o «difficile», l’esito, una parola se vuoi. Scrive l’email post-appuntamento: il brief di ciò che ha capito e il passo verso il preventivo.', n: 'Se è stato teso, il prospect non lo saprà mai: le obiezioni diventano impegni.', y: 'Due chip e una parola.', a: 'Il bilancio, l’email, il seguito.',
+         m: { h: 'Bilancio dell’appuntamento', q1: 'Com’è andata?', c1: ['Bene', 'Così così', 'Difficile'], q2: 'E poi?', c2: ['Preventivo richiesto', 'Da continuare', 'Perso'], mailT: 'Aaron invia l’email post-appuntamento', mail: '«Grazie per lo scambio… ho preso nota delle vostre aspettative, tornerò da voi a breve con la nostra offerta.»', btn: 'Salva il bilancio' } },
+-      { t: 'Da prospect a cliente, senza reinserire nulla', l: 'Prospect, appuntamento, opportunità, preventivo, cliente: ogni contatto avanza da solo nel percorso, in base a ciò che accade davvero nelle email e nei tuoi bilanci. Carichi il tuo preventivo, Aaron lo verifica e lo invia.', n: 'Quando un cliente firma, Aaron si ferma. Torna una volta, trenta giorni dopo, per chiedergli se conosce qualcuno a cui il tuo servizio interesserebbe.', y: 'Tu firmi.', a: 'Lui archivia, segue, chiede una raccomandazione.',
+-        m: { h: 'Contatti', stats: [['4', 'contattati'], ['2', 'appuntamenti'], ['1', 'preventivo'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Preventivo richiesto'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Follow-up giovedì']], foot: 'Tra 30 giorni: Aaron chiede a {client} contatti interessati.' } },
++      { t: 'Da prospect a cliente, senza reinserire nulla', l: 'Prospect, appuntamento, opportunità, preventivo, cliente: ogni contatto avanza da solo nel percorso, in base a ciò che accade davvero nelle email e nei tuoi bilanci. Carichi il tuo preventivo, Aaron lo verifica, lo invia e ti avvisa nell’istante in cui il cliente lo apre: è il momento di chiamare, entro 30 minuti.', n: 'Quando un cliente firma, Aaron si ferma. Torna una volta, trenta giorni dopo, per chiedergli se conosce qualcuno a cui il tuo servizio interesserebbe.', y: 'Tu firmi.', a: 'Lui archivia, segue, chiede una raccomandazione.',
++        m: { h: 'Contatti', stats: [['4', 'contattati'], ['2', 'appuntamenti'], ['1', 'preventivo'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Preventivo richiesto'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Follow-up giovedì']], foot: 'Tra 30 giorni: Aaron chiede a {client} contatti interessati.', notif: 'Preventivo aperto — {p1} sta leggendo il tuo preventivo. Chiama ora.' } },
+       { t: 'Ciò che ti aspetta, e nient’altro', l: 'Le azioni che hanno bisogno di te appaiono in alto, come storie: la tua primissima email da approvare, un appuntamento a meno di 24 ore, un bilancio da fare, una richiesta di preventivo.', n: 'Nessuna storia, niente da fare. Semplice così.', y: 'Gestisci le storie quando hai cinque minuti.', a: 'Ti disturba solo quando non può decidere da solo.',
+         m: { stories: [['1', 'Email da approvare'], ['1', 'Bilancio da fare'], ['1', 'Preventivo richiesto']], t1: '{p1} chiede un preventivo', b1: 'Per la stagione degli eventi aziendali, entro giovedì.', a1: 'Apri la scheda', a2: 'Più tardi', t2: 'Appuntamento domani 6:45 · da approvare', b2: '{early} propone una chiamata prima delle 7. Meno di 24 ore: decidi tu.' } },
+       { t: 'I miei documenti: ciò che Aaron ha a portata di mano', l: 'Carica la tua brochure, i tuoi prezzi, un preventivo tipo, esempi di lavori. Aaron li legge e li usa per rispondere con precisione, e li allega quando un prospect li chiede.', n: 'Scegli, documento per documento, cosa Aaron può usare e per chi: prospect, opportunità o clienti.', y: 'Carichi i file che invieresti tu stesso.', a: 'Cita le cifre giuste e allega il documento giusto.',
+@@ -164,8 +164,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Oportunidad', k1: 'Opinión de Aaron sobre la empresa', v1: 'Objetivo ideal: catering de eventos de empresa, 18 empleados, decisión rápida de la gerente.', k2: 'Consejo', v2: 'Compara dos proveedores antes del jueves: envía el presupuesto antes.', k3: 'Personalidad · dominante', v3: 'Respuestas cortas, decide rápido. Resultados y plazos, sin detalles.' } },
+       { t: 'Después de la reunión, dos toques', l: 'Aaron te pregunta cómo ha ido. Tocas «bien» o «complicado», el resultado, una palabra si quieres. Él escribe el correo posterior: el resumen de lo que ha entendido y el paso hacia el presupuesto.', n: 'Si fue tenso, el prospecto nunca lo sabrá: las objeciones se convierten en compromisos.', y: 'Dos chips y una palabra.', a: 'El balance, el correo, el siguiente paso.',
+         m: { h: 'Balance de la reunión', q1: '¿Cómo ha ido?', c1: ['Bien', 'Regular', 'Difícil'], q2: '¿Y ahora?', c2: ['Presupuesto solicitado', 'Seguir', 'Perdido'], mailT: 'Aaron envía el correo posterior a la reunión', mail: '«Gracias por la conversación… he tomado nota de sus expectativas y volveré a contactarle próximamente con nuestra oferta.»', btn: 'Guardar el balance' } },
+-      { t: 'De prospecto a cliente, sin volver a teclear', l: 'Prospecto, reunión, oportunidad, presupuesto, cliente: cada contacto avanza solo en el recorrido, según lo que pasa realmente en los correos y en tus balances. Subes tu presupuesto, Aaron lo comprueba y lo envía.', n: 'Cuando un cliente firma, Aaron se detiene. Vuelve una vez, treinta días después, para preguntarle si conoce a alguien a quien le interese tu servicio.', y: 'Tú firmas.', a: 'Él ordena, hace seguimiento y pide una recomendación.',
+-        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniones'], ['1', 'presupuesto'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Presupuesto solicitado'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Seguimiento jueves']], foot: 'En 30 días: Aaron pide a {client} contactos interesados.' } },
++      { t: 'De prospecto a cliente, sin volver a teclear', l: 'Prospecto, reunión, oportunidad, presupuesto, cliente: cada contacto avanza solo en el recorrido, según lo que pasa realmente en los correos y en tus balances. Subes tu presupuesto, Aaron lo comprueba, lo envía y te avisa en el segundo en que el cliente lo abre: es el momento de llamar, en los 30 minutos siguientes.', n: 'Cuando un cliente firma, Aaron se detiene. Vuelve una vez, treinta días después, para preguntarle si conoce a alguien a quien le interese tu servicio.', y: 'Tú firmas.', a: 'Él ordena, hace seguimiento y pide una recomendación.',
++        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniones'], ['1', 'presupuesto'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Presupuesto solicitado'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Seguimiento jueves']], foot: 'En 30 días: Aaron pide a {client} contactos interesados.', notif: 'Presupuesto abierto — {p1} está leyendo tu presupuesto. Llama ahora.' } },
+       { t: 'Lo que te espera, y nada más', l: 'Las acciones que te necesitan aparecen arriba, como historias: tu primerísimo correo por validar, una reunión en menos de 24 h, un balance pendiente, una solicitud de presupuesto.', n: 'Sin historia, nada que hacer. Así de simple.', y: 'Atiendes las historias cuando tienes cinco minutos.', a: 'Solo te molesta cuando no puede decidir solo.',
+         m: { stories: [['1', 'Correo por validar'], ['1', 'Balance pendiente'], ['1', 'Presupuesto solicitado']], t1: '{p1} solicita un presupuesto', b1: 'Para la temporada de eventos, antes del jueves.', a1: 'Abrir la ficha', a2: 'Más tarde', t2: 'Reunión mañana 6:45 · por validar', b2: '{early} propone una llamada antes de las 7. Menos de 24 h: tú decides.' } },
+       { t: 'Mis documentos: lo que Aaron tiene a mano', l: 'Sube tu folleto, tus tarifas, un presupuesto tipo, ejemplos de trabajos. Aaron los lee y los usa para responder con precisión, y los adjunta cuando un prospecto los pide.', n: 'Eliges, documento por documento, qué puede usar Aaron y para quién: prospectos, oportunidades o clientes.', y: 'Subes los archivos que enviarías tú mismo.', a: 'Cita las cifras correctas y adjunta el documento adecuado.',
+@@ -192,8 +192,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Oportunidade', k1: 'Opinião do Aaron sobre a empresa', v1: 'Alvo ideal: catering de eventos de empresa, 18 colaboradores, decisão rápida pela gerente.', k2: 'Conselho', v2: 'Compara dois fornecedores até quinta: envia o orçamento antes.', k3: 'Personalidade · dominante', v3: 'Respostas curtas, decide depressa. Resultados e prazos, sem detalhes.' } },
+       { t: 'Depois da reunião, dois toques', l: 'O Aaron pergunta-te como correu. Tocas em «bem» ou «complicado», o resultado, uma palavra se quiseres. Ele escreve o email pós-reunião: o resumo do que percebeu e o passo para o orçamento.', n: 'Se foi tenso, o prospeto nunca saberá: as objeções tornam-se compromissos.', y: 'Dois chips e uma palavra.', a: 'O balanço, o email, o que vem a seguir.',
+         m: { h: 'Balanço da reunião', q1: 'Como correu?', c1: ['Bem', 'Assim-assim', 'Difícil'], q2: 'E a seguir?', c2: ['Orçamento pedido', 'Continuar', 'Perdido'], mailT: 'O Aaron envia o email pós-reunião', mail: '«Obrigado pela conversa… tomei nota das suas expectativas e volto a contactá-lo brevemente com a nossa oferta.»', btn: 'Guardar o balanço' } },
+-      { t: 'De prospeto a cliente, sem voltar a escrever', l: 'Prospeto, reunião, oportunidade, orçamento, cliente: cada contacto avança sozinho no percurso, a partir do que acontece realmente nos emails e nos teus balanços. Carregas o teu orçamento, o Aaron verifica-o e envia-o.', n: 'Quando um cliente assina, o Aaron para. Volta uma vez, trinta dias depois, para lhe perguntar se conhece alguém a quem o teu serviço interesse.', y: 'Tu assinas.', a: 'Ele arruma, acompanha, pede uma recomendação.',
+-        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniões'], ['1', 'orçamento'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Orçamento pedido'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Lembrete quinta']], foot: 'Daqui a 30 dias: o Aaron pede a {client} contactos interessados.' } },
++      { t: 'De prospeto a cliente, sem voltar a escrever', l: 'Prospeto, reunião, oportunidade, orçamento, cliente: cada contacto avança sozinho no percurso, a partir do que acontece realmente nos emails e nos teus balanços. Carregas o teu orçamento, o Aaron verifica-o, envia-o e avisa-te no segundo em que o cliente o abre: é o momento de ligar, nos 30 minutos seguintes.', n: 'Quando um cliente assina, o Aaron para. Volta uma vez, trinta dias depois, para lhe perguntar se conhece alguém a quem o teu serviço interesse.', y: 'Tu assinas.', a: 'Ele arruma, acompanha, pede uma recomendação.',
++        m: { h: 'Contactos', stats: [['4', 'contactados'], ['2', 'reuniões'], ['1', 'orçamento'], ['1', 'cliente']], rows: [['{p1} · {c1}', 'Orçamento pedido'], ['{client} · {clientCo}', 'Cliente'], ['{p3} · {c3}', 'Lembrete quinta']], foot: 'Daqui a 30 dias: o Aaron pede a {client} contactos interessados.', notif: 'Orçamento aberto — {p1} está a ler o teu orçamento. Liga agora.' } },
+       { t: 'O que te espera, e nada mais', l: 'As ações que precisam de ti aparecem no topo do ecrã, como stories: o teu primeiríssimo email a validar, uma reunião daqui a menos de 24 h, um balanço por fazer, um pedido de orçamento.', n: 'Sem story, nada a fazer. É simples assim.', y: 'Tratas das stories quando tens cinco minutos.', a: 'Só te incomoda quando não pode decidir sozinho.',
+         m: { stories: [['1', 'Email a validar'], ['1', 'Balanço por fazer'], ['1', 'Orçamento pedido']], t1: '{p1} pede um orçamento', b1: 'Para a época dos eventos, antes de quinta.', a1: 'Abrir a ficha', a2: 'Mais tarde', t2: 'Reunião amanhã 6:45 · a validar', b2: '{early} propõe uma chamada antes das 7. Menos de 24 h: decides tu.' } },
+       { t: 'Os meus documentos: o que o Aaron tem à mão', l: 'Carrega a tua brochura, os teus preços, um orçamento tipo, exemplos de trabalhos. O Aaron lê-os e usa-os para responder com precisão, e anexa-os quando um prospeto os pede.', n: 'Escolhes, documento a documento, o que o Aaron pode usar e para quem: prospetos, oportunidades ou clientes.', y: 'Carregas os ficheiros que enviarias tu próprio.', a: 'Cita os números certos e anexa o documento certo.',
+@@ -220,8 +220,8 @@ const T = {
+         m: { h: '{p1}', tag: 'Kans', k1: 'Aarons kijk op het bedrijf', v1: 'Ideaal doelwit: cateraar voor bedrijfsevenementen, 18 medewerkers, snelle beslissing door de eigenaar.', k2: 'Advies', v2: 'Ze vergelijkt twee aanbieders tegen donderdag: stuur de offerte eerder.', k3: 'Persoonlijkheid · dominant', v3: 'Korte antwoorden, beslist snel. Resultaten en termijnen, geen details.' } },
+       { t: 'Na de afspraak: twee tikken', l: 'Aaron vraagt hoe het ging. Je tikt „goed” of „moeilijk”, de uitkomst, een woord als je wilt. Hij schrijft de e-mail na de afspraak: de samenvatting van wat hij begrepen heeft, en de stap naar de offerte.', n: 'Was het gespannen, dan komt de prospect dat nooit te weten: bezwaren worden toezeggingen.', y: 'Twee chips en een woord.', a: 'De balans, de e-mail, het vervolg.',
+         m: { h: 'Balans van de afspraak', q1: 'Hoe ging het?', c1: ['Goed', 'Gemengd', 'Moeilijk'], q2: 'En dan?', c2: ['Offerte gevraagd', 'Doorgaan', 'Verloren'], mailT: 'Aaron verstuurt de e-mail na de afspraak', mail: '„Bedankt voor het gesprek… ik heb uw verwachtingen genoteerd en kom binnenkort bij u terug met ons aanbod.”', btn: 'Balans opslaan' } },
+-      { t: 'Van prospect naar klant, zonder overtypen', l: 'Prospect, afspraak, kans, offerte, klant: elk contact schuift vanzelf op in het traject, op basis van wat er echt gebeurt in de e-mails en jouw balansen. Jij laadt je offerte op, Aaron controleert en verstuurt ze.', n: 'Tekent een klant, dan stopt Aaron. Hij komt één keer terug, dertig dagen later, om te vragen of hij iemand kent voor wie jouw dienst interessant is.', y: 'Jij tekent.', a: 'Hij ordent, volgt op en vraagt om een aanbeveling.',
+-        m: { h: 'Contacten', stats: [['4', 'benaderd'], ['2', 'afspraken'], ['1', 'offerte'], ['1', 'klant']], rows: [['{p1} · {c1}', 'Offerte gevraagd'], ['{client} · {clientCo}', 'Klant'], ['{p3} · {c3}', 'Herinnering donderdag']], foot: 'Over 30 dagen: Aaron vraagt {client} naar geïnteresseerde contacten.' } },
++      { t: 'Van prospect naar klant, zonder overtypen', l: 'Prospect, afspraak, kans, offerte, klant: elk contact schuift vanzelf op in het traject, op basis van wat er echt gebeurt in de e-mails en jouw balansen. Jij laadt je offerte op, Aaron controleert ze, verstuurt ze en waarschuwt je op de seconde dat de klant ze opent: hét moment om te bellen, binnen 30 minuten.', n: 'Tekent een klant, dan stopt Aaron. Hij komt één keer terug, dertig dagen later, om te vragen of hij iemand kent voor wie jouw dienst interessant is.', y: 'Jij tekent.', a: 'Hij ordent, volgt op en vraagt om een aanbeveling.',
++        m: { h: 'Contacten', stats: [['4', 'benaderd'], ['2', 'afspraken'], ['1', 'offerte'], ['1', 'klant']], rows: [['{p1} · {c1}', 'Offerte gevraagd'], ['{client} · {clientCo}', 'Klant'], ['{p3} · {c3}', 'Herinnering donderdag']], foot: 'Over 30 dagen: Aaron vraagt {client} naar geïnteresseerde contacten.', notif: 'Offerte geopend — {p1} leest je offerte. Bel nu.' } },
+       { t: 'Wat op je wacht, en niets anders', l: 'De acties die jou nodig hebben verschijnen bovenaan het scherm, als stories: je allereerste e-mail om goed te keuren, een afspraak binnen 24 uur, een balans die nog moet, een offerteaanvraag.', n: 'Geen story, niets te doen. Zo simpel is het.', y: 'Jij handelt de stories af als je vijf minuten hebt.', a: 'Hij stoort je alleen als hij niet alleen kan beslissen.',
+         m: { stories: [['1', 'E-mail goedkeuren'], ['1', 'Balans te doen'], ['1', 'Offerte gevraagd']], t1: '{p1} vraagt een offerte', b1: 'Voor het evenementenseizoen, vóór donderdag.', a1: 'Kaart openen', a2: 'Later', t2: 'Afspraak morgen 6:45 · goed te keuren', b2: '{early} stelt een gesprek voor 7 uur voor. Binnen 24 uur: jij beslist.' } },
+       { t: 'Mijn documenten: wat Aaron bij de hand heeft', l: 'Laad je brochure, je tarieven, een offertesjabloon, voorbeelden van je werk op. Aaron leest ze, gebruikt ze om precies te antwoorden en voegt ze toe als een prospect erom vraagt.', n: 'Jij kiest, document per document, wat Aaron mag gebruiken en voor wie: prospects, kansen of klanten.', y: 'Jij laadt de bestanden op die je zelf zou sturen.', a: 'Hij noemt de juiste cijfers en voegt het juiste document toe.',
+@@ -339,6 +339,7 @@ function Mock({ index, m, nav }) {
+         <div className="gt-stats">{m.stats.map(([n, l]) => <span key={l}><b>{n}</b>{l}</span>)}</div>
+         {m.rows.map(([a, b]) => <div key={a} className="gt-line"><b>{a}</b><span className="gt-pill">{b}</span></div>)}
+         <p className="gt-sub">{m.foot}</p>
++        <Notif text={m.notif} />
+       </Phone>
+     );
+     case 7: return (
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index 7744086..f43d1a0 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -660,7 +660,11 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+       body = (
+         <>
+           <p className="lead">
+-            {t(item.meta?.reading_now ? 'stories.devisOpenLeadNow' : 'stories.devisOpenLead', locale)
++            {(item.meta?.reading_now
++              ? t('stories.devisOpenLeadNow', locale)
++              : (item.meta?.minutes_since > 30 && item.meta?.minutes_since <= 180)
++                ? t('stories.devisOpenLeadLate', locale).replace('{m}', String(item.meta.minutes_since))
++                : t('stories.devisOpenLead', locale))
+               .replace('{name}', item.prospect_name)}
+           </p>
+           {opened && (
+diff --git a/lib/demo-guard.ts b/lib/demo-guard.ts
+new file mode 100644
+index 0000000..5a836e2
+--- /dev/null
++++ b/lib/demo-guard.ts
+@@ -0,0 +1,58 @@
++// lib/demo-guard.ts
++// Compte de DÉMONSTRATION (société « Démo Meet Aaron », companies.is_demo) :
++// partagé avec les testeurs Google Play, la revue Apple, les captures
++// d'écran. Décision Alex (08/11/2026) : « ils ne vont pas lancer une
++// campagne j'espère, ça va me coûter un bras ». Donc, sur une société démo,
++// tout ce qui coûte ou qui casse est désactivé : campagnes (création,
++// relance, exécution par le cron), ajout et import de prospects, envoi de
++// devis, modification du profil entreprise par le chat, suppression du
++// compte. Le reste (lire, naviguer, discuter avec Aaron sous plafond API)
++// reste ouvert : c'est ce qui fait la démo.
++//
++// migration_demo_company_2026-11-08.sql ajoute la colonne ; sans elle,
++// personne n'est démo (lecture tolérante).
++
++import { NextResponse } from 'next/server';
++import { supabaseAdmin } from './supabase-admin';
++
++const cache = new Map<string, { demo: boolean; at: number }>();
++const TTL_MS = 60 * 1000;
++
++export async function isDemoCompany(companyId: string | null | undefined): Promise<boolean> {
++  if (!companyId) return false;
++  const hit = cache.get(companyId);
++  if (hit && Date.now() - hit.at < TTL_MS) return hit.demo;
++  try {
++    const { data, error } = await supabaseAdmin.from('companies').select('is_demo').eq('id', companyId).maybeSingle();
++    const demo = !error && (data as any)?.is_demo === true;
++    cache.set(companyId, { demo, at: Date.now() });
++    return demo;
++  } catch {
++    return false;
++  }
++}
++
++export async function isDemoUser(userId: string | null | undefined): Promise<boolean> {
++  if (!userId) return false;
++  try {
++    const { data } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).maybeSingle();
++    return isDemoCompany((data as any)?.company_id);
++  } catch {
++    return false;
++  }
++}
++
++export const DEMO_BLOCKED_MESSAGE: Record<string, string> = {
++  fr: 'Compte de démonstration : cette action est désactivée. Créez votre propre compte pour l’utiliser.',
++  en: 'Demo account: this action is disabled. Create your own account to use it.',
++  de: 'Demokonto: Diese Aktion ist deaktiviert. Erstellen Sie ein eigenes Konto, um sie zu nutzen.',
++  it: 'Account demo: questa azione è disattivata. Crea il tuo account per usarla.',
++  es: 'Cuenta de demostración: esta acción está desactivada. Crea tu propia cuenta para usarla.',
++  pt: 'Conta de demonstração: esta ação está desativada. Cria a tua própria conta para a usar.',
++  nl: 'Demo-account: deze actie is uitgeschakeld. Maak je eigen account aan om ze te gebruiken.',
++};
++
++export function demoBlockedResponse(locale?: string | null) {
++  const key = String(locale || 'fr').slice(0, 2).toLowerCase();
++  return NextResponse.json({ error: DEMO_BLOCKED_MESSAGE[key] || DEMO_BLOCKED_MESSAGE.fr, demo: true }, { status: 403 });
++}
+diff --git a/lib/devis-open-texts.ts b/lib/devis-open-texts.ts
+new file mode 100644
+index 0000000..76cf88f
+--- /dev/null
++++ b/lib/devis-open-texts.ts
+@@ -0,0 +1,21 @@
++// lib/devis-open-texts.ts
++// Textes des notifications « devis ouvert » dans la langue DU COMMERCIAL.
++// Décision Alex (docx 08/11/2026) : à l'ouverture du devis, prévenir le
++// commercial qu'il doit appeler tout de suite, idéalement dans les 30 min ;
++// passé ce délai, le relancer une fois : « appelle quand même ».
++
++import { normalizeLocale } from './locale-instruction';
++
++const T: Record<string, { openTitle: string; openBody: string; nudgeTitle: string; nudgeBody: string }> = {
++  fr: { openTitle: 'Devis ouvert — appelle maintenant', openBody: '{name} est en train de lire ton devis. Appelle dans les 30 minutes : c’est le moment où il décide.', nudgeTitle: 'Tu n’as pas encore appelé {name}', nudgeBody: 'Le devis a été ouvert il y a {minutes} min. Appelle quand même : un devis lu se négocie encore, un devis oublié non.' },
++  en: { openTitle: 'Quote opened — call now', openBody: '{name} is reading your quote right now. Call within 30 minutes: this is when they decide.', nudgeTitle: 'You have not called {name} yet', nudgeBody: 'The quote was opened {minutes} min ago. Call anyway: a quote that was read can still be negotiated, a forgotten one cannot.' },
++  de: { openTitle: 'Angebot geöffnet — jetzt anrufen', openBody: '{name} liest gerade Ihr Angebot. Rufen Sie innerhalb von 30 Minuten an: jetzt wird entschieden.', nudgeTitle: 'Sie haben {name} noch nicht angerufen', nudgeBody: 'Das Angebot wurde vor {minutes} Min. geöffnet. Rufen Sie trotzdem an: ein gelesenes Angebot lässt sich noch verhandeln, ein vergessenes nicht.' },
++  it: { openTitle: 'Preventivo aperto — chiama ora', openBody: '{name} sta leggendo il tuo preventivo. Chiama entro 30 minuti: è il momento in cui decide.', nudgeTitle: 'Non hai ancora chiamato {name}', nudgeBody: 'Il preventivo è stato aperto {minutes} min fa. Chiama comunque: un preventivo letto si negozia ancora, uno dimenticato no.' },
++  es: { openTitle: 'Presupuesto abierto — llama ahora', openBody: '{name} está leyendo tu presupuesto. Llama en los próximos 30 minutos: es el momento en que decide.', nudgeTitle: 'Aún no has llamado a {name}', nudgeBody: 'El presupuesto se abrió hace {minutes} min. Llama de todos modos: un presupuesto leído todavía se negocia, uno olvidado no.' },
++  pt: { openTitle: 'Orçamento aberto — liga agora', openBody: '{name} está a ler o teu orçamento. Liga nos próximos 30 minutos: é agora que decide.', nudgeTitle: 'Ainda não ligaste a {name}', nudgeBody: 'O orçamento foi aberto há {minutes} min. Liga na mesma: um orçamento lido ainda se negoceia, um esquecido não.' },
++  nl: { openTitle: 'Offerte geopend — bel nu', openBody: '{name} leest op dit moment je offerte. Bel binnen 30 minuten: dit is het moment waarop hij beslist.', nudgeTitle: 'Je hebt {name} nog niet gebeld', nudgeBody: 'De offerte is {minutes} min geleden geopend. Bel toch: over een gelezen offerte valt nog te onderhandelen, over een vergeten offerte niet.' },
++};
++
++export function devisOpenTexts(locale: string | null | undefined) {
++  return T[normalizeLocale(locale)] || T.fr;
++}
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 52b72de..5c0f6e2 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -305,6 +305,7 @@ export const DICT = {
+     "stories.openCardQuote": "Ouvrir la fiche et faire le devis",
+     "stories.devisOpenLeadNow": "{name} est en train de lire ton devis. Appelle-le.",
+     "stories.devisOpenLead": "{name} a ouvert ton devis. Appelle-le.",
++    "stories.devisOpenLeadLate": "{name} a ouvert ton devis il y a {m} min. Appelle quand même : un devis lu se négocie encore.",
+     "stories.devisOpenCount": "ouvert {n} fois",
+     "stories.devisOpenNoPhone": "Pas de numéro sur sa fiche — ajoute-le pour pouvoir appeler d'un geste.",
+     "stories.devisOpenCall": "Appeler",
+@@ -2048,6 +2049,7 @@ export const DICT = {
+     'connexions.navStatusToComplete': 'À compléter',
+     'connexions.navStatusNoCrm': 'Aucun',
+     'connexions.emailSectionLabel': 'Adresse email',
++    'connexions.demoLocked': "Compte de démonstration : cette action est désactivée.",
+     'connexions.emailCurrentLabel': 'Adresse actuelle',
+     'connexions.emailNewLabel': 'Nouvelle adresse',
+     'connexions.emailNewPlaceholder': 'nouvelle@adresse.com',
+@@ -2433,6 +2435,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Preferences",
+     "connexions.tabSubscription": "Subscription",
+     "connexions.emailSectionLabel": "Email address",
++    "connexions.demoLocked": "Demo account: this action is disabled.",
+     "connexions.emailCurrentLabel": "Current address",
+     "connexions.emailNewLabel": "New address",
+     "connexions.emailNewPlaceholder": "new@address.com",
+@@ -2771,6 +2774,7 @@ export const DICT = {
+     "stories.openCardQuote": "Open card and do the quote",
+     "stories.devisOpenLeadNow": "{name} is reading your quote right now. Call them.",
+     "stories.devisOpenLead": "{name} opened your quote. Call them.",
++    "stories.devisOpenLeadLate": "{name} opened your quote {m} min ago. Call anyway: a quote that was read can still be negotiated.",
+     "stories.devisOpenCount": "opened {n} times",
+     "stories.devisOpenNoPhone": "No number on their card — add one to call in a single tap.",
+     "stories.devisOpenCall": "Call",
+@@ -4598,6 +4602,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Einstellungen",
+     "connexions.tabSubscription": "Abo",
+     "connexions.emailSectionLabel": "E-Mail-Adresse",
++    "connexions.demoLocked": "Demokonto: Diese Aktion ist deaktiviert.",
+     "connexions.emailCurrentLabel": "Aktuelle Adresse",
+     "connexions.emailNewLabel": "Neue Adresse",
+     "connexions.emailNewPlaceholder": "neue@adresse.com",
+@@ -4936,6 +4941,7 @@ export const DICT = {
+     "stories.openCardQuote": "Karte öffnen und Angebot machen",
+     "stories.devisOpenLeadNow": "{name} liest gerade Ihr Angebot. Rufen Sie an.",
+     "stories.devisOpenLead": "{name} hat Ihr Angebot geöffnet. Rufen Sie an.",
++    "stories.devisOpenLeadLate": "{name} hat Ihr Angebot vor {m} Min. geöffnet. Rufen Sie trotzdem an: ein gelesenes Angebot lässt sich noch verhandeln.",
+     "stories.devisOpenCount": "{n}-mal geöffnet",
+     "stories.devisOpenNoPhone": "Keine Nummer in der Karte — fügen Sie eine hinzu, um direkt anzurufen.",
+     "stories.devisOpenCall": "Anrufen",
+@@ -6763,6 +6769,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Preferenze",
+     "connexions.tabSubscription": "Abbonamento",
+     "connexions.emailSectionLabel": "Indirizzo email",
++    "connexions.demoLocked": "Account demo: questa azione è disattivata.",
+     "connexions.emailCurrentLabel": "Indirizzo attuale",
+     "connexions.emailNewLabel": "Nuovo indirizzo",
+     "connexions.emailNewPlaceholder": "nuovo@indirizzo.com",
+@@ -7101,6 +7108,7 @@ export const DICT = {
+     "stories.openCardQuote": "Apri la scheda e fai il preventivo",
+     "stories.devisOpenLeadNow": "{name} sta leggendo il tuo preventivo. Chiamalo.",
+     "stories.devisOpenLead": "{name} ha aperto il tuo preventivo. Chiamalo.",
++    "stories.devisOpenLeadLate": "{name} ha aperto il tuo preventivo {m} min fa. Chiama comunque: un preventivo letto si negozia ancora.",
+     "stories.devisOpenCount": "aperto {n} volte",
+     "stories.devisOpenNoPhone": "Nessun numero nella scheda — aggiungilo per chiamare con un tocco.",
+     "stories.devisOpenCall": "Chiama",
+@@ -8928,6 +8936,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Preferencias",
+     "connexions.tabSubscription": "Suscripción",
+     "connexions.emailSectionLabel": "Dirección de email",
++    "connexions.demoLocked": "Cuenta de demostración: esta acción está desactivada.",
+     "connexions.emailCurrentLabel": "Dirección actual",
+     "connexions.emailNewLabel": "Nueva dirección",
+     "connexions.emailNewPlaceholder": "nueva@direccion.com",
+@@ -9266,6 +9275,7 @@ export const DICT = {
+     "stories.openCardQuote": "Abrir la ficha y hacer el presupuesto",
+     "stories.devisOpenLeadNow": "{name} está leyendo tu presupuesto. Llámale.",
+     "stories.devisOpenLead": "{name} ha abierto tu presupuesto. Llámale.",
++    "stories.devisOpenLeadLate": "{name} abrió tu presupuesto hace {m} min. Llama de todos modos: un presupuesto leído todavía se negocia.",
+     "stories.devisOpenCount": "abierto {n} veces",
+     "stories.devisOpenNoPhone": "No hay número en su ficha — añádelo para llamar con un toque.",
+     "stories.devisOpenCall": "Llamar",
+@@ -11093,6 +11103,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Preferências",
+     "connexions.tabSubscription": "Subscrição",
+     "connexions.emailSectionLabel": "Endereço de email",
++    "connexions.demoLocked": "Conta de demonstração: esta ação está desativada.",
+     "connexions.emailCurrentLabel": "Endereço atual",
+     "connexions.emailNewLabel": "Novo endereço",
+     "connexions.emailNewPlaceholder": "novo@endereco.com",
+@@ -11431,6 +11442,7 @@ export const DICT = {
+     "stories.openCardQuote": "Abrir a ficha e fazer o orçamento",
+     "stories.devisOpenLeadNow": "{name} está a ler o seu orçamento. Ligue-lhe.",
+     "stories.devisOpenLead": "{name} abriu o seu orçamento. Ligue-lhe.",
++    "stories.devisOpenLeadLate": "{name} abriu o seu orçamento há {m} min. Ligue na mesma: um orçamento lido ainda se negoceia.",
+     "stories.devisOpenCount": "aberto {n} vezes",
+     "stories.devisOpenNoPhone": "Sem número na ficha — adicione um para ligar num toque.",
+     "stories.devisOpenCall": "Ligar",
+@@ -13258,6 +13270,7 @@ export const DICT = {
+     "connexions.tabPreferences": "Voorkeuren",
+     "connexions.tabSubscription": "Abonnement",
+     "connexions.emailSectionLabel": "E-mailadres",
++    "connexions.demoLocked": "Demo-account: deze actie is uitgeschakeld.",
+     "connexions.emailCurrentLabel": "Huidig adres",
+     "connexions.emailNewLabel": "Nieuw adres",
+     "connexions.emailNewPlaceholder": "nieuw@adres.com",
+@@ -13596,6 +13609,7 @@ export const DICT = {
+     "stories.openCardQuote": "Kaart openen en offerte maken",
+     "stories.devisOpenLeadNow": "{name} leest nu je offerte. Bel hem.",
+     "stories.devisOpenLead": "{name} heeft je offerte geopend. Bel hem.",
++    "stories.devisOpenLeadLate": "{name} heeft je offerte {m} min geleden geopend. Bel toch: over een gelezen offerte valt nog te onderhandelen.",
+     "stories.devisOpenCount": "{n} keer geopend",
+     "stories.devisOpenNoPhone": "Geen nummer op de kaart — voeg er een toe om met één tik te bellen.",
+     "stories.devisOpenCall": "Bellen",
+diff --git a/migration_demo_company_2026-11-08.sql b/migration_demo_company_2026-11-08.sql
+new file mode 100644
+index 0000000..e53beb0
+--- /dev/null
++++ b/migration_demo_company_2026-11-08.sql
+@@ -0,0 +1,38 @@
++-- migration_demo_company_2026-11-08.sql
++-- Société de démonstration (testeurs Google Play, revue Apple, captures) :
++-- campagnes, envois, ajouts de prospects et suppression de compte désactivés
++-- (lib/demo-guard.ts). Plafond API bas : les testeurs peuvent discuter avec
++-- Aaron, pas vider le compte Anthropic.
++alter table public.companies add column if not exists is_demo boolean not null default false;
++
++update public.companies
++   set is_demo = true,
++       monthly_api_cap_usd = 5
++ where name = 'Démo Meet Aaron';
++
++-- Les deux campagnes fictives du seed étaient « en_cours » : entre le seed et
++-- ce déploiement, le cron run-campaigns a pu les prendre pour de vraies
++-- campagnes et sourcer de vraies entreprises. On efface tout ce qui n'est
++-- pas fictif (les domaines du seed sont en .example.*). Désormais le code
++-- ignore les sociétés is_demo (lib/demo-guard.ts), les campagnes restent
++-- « en_cours » pour les captures d'écran sans jamais tourner.
++delete from public.messages m using public.conversations cv, public.prospects p, public.companies c
++ where m.conversation_id = cv.id and cv.prospect_id = p.id and p.company_id = c.id and c.is_demo = true
++   and p.email not like '%.example.%';
++delete from public.conversations cv using public.prospects p, public.companies c
++ where cv.prospect_id = p.id and p.company_id = c.id and c.is_demo = true and p.email not like '%.example.%';
++delete from public.prospects p using public.companies c
++ where p.company_id = c.id and c.is_demo = true and p.email not like '%.example.%';
++delete from public.prospect_companies pc using public.companies c
++ where pc.company_id = c.id and c.is_demo = true and pc.domain not like '%.example.%';
++
++-- Le parcours Bienvenue ne doit pas se rouvrir pour chaque testeur (il
++-- réécrirait la fiche entreprise de la démo).
++update public.users set welcome_done_at = coalesce(welcome_done_at, now())
++ where email = 'aaron+demo@meetaaron.app';
++
++-- Vérification : attendu 1 ligne, is_demo true, cap 5, 9 sociétés, 9 contacts.
++select c.name, c.is_demo, c.monthly_api_cap_usd,
++       (select count(*) from public.prospect_companies pc where pc.company_id = c.id) as societes,
++       (select count(*) from public.prospects p where p.company_id = c.id) as contacts
++  from public.companies c where c.is_demo = true;
+diff --git a/migration_devis_open_nudge_2026-11-08.sql b/migration_devis_open_nudge_2026-11-08.sql
+new file mode 100644
+index 0000000..3ee0348
+--- /dev/null
++++ b/migration_devis_open_nudge_2026-11-08.sql
+@@ -0,0 +1,5 @@
++-- migration_devis_open_nudge_2026-11-08.sql
++-- Relance « appelle quand même » 30 min après l'ouverture d'un devis sans
++-- appel enregistré (app/api/cron/devis-open-nudge). Une seule fois par devis.
++alter table public.prospects add column if not exists devis_open_nudge_at timestamptz;
++comment on column public.prospects.devis_open_nudge_at is 'Date du push « tu n''as pas encore appelé » envoyé 30 min après l''ouverture du devis (une fois).';
+diff --git a/public/landing.html b/public/landing.html
+index 6a78a62..a8d2819 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -445,6 +445,7 @@
+         <li data-i18n="price.f3">Prise de rendez-vous dans votre agenda</li>
+         <li data-i18n="price.f4">Conseils avant chaque rendez-vous et suivi des opportunités</li>
+         <li data-i18n="price.f5">Relances jusqu'à la signature</li>
++        <li data-i18n="price.f6">Vous prévient à la seconde où votre devis est ouvert : c’est le moment d’appeler</li>
+       </ul>
+     </div>
+   </div>
+@@ -526,6 +527,7 @@ var I18N = {
+   'price.f3':'Prise de rendez-vous dans votre agenda',
+   'price.f4':'Conseils avant chaque rendez-vous et suivi des opportunités',
+   'price.f5':"Relances jusqu'à la signature",
++  'price.f6':'Vous prévient à la seconde où votre devis est ouvert : c’est le moment d’appeler',
+   'price.note':"Sans engagement — résiliable à tout moment depuis l'application. {price} par compte commercial supplémentaire. Prix ajusté à votre pays au paiement : 49 £, 65 $, 99 A$, 89 C$.",
+   'contact.eyebrow':'Contact','contact.title':'Une question ?','contact.sub':'Écrivez-nous, on répond directement.',
+   'contact.desc':'Support, facturation, ou simplement une question avant de vous lancer.','contact.btn':'Nous écrire',
+@@ -571,6 +573,7 @@ var I18N = {
+   'price.f3':'Books meetings straight into your calendar',
+   'price.f4':'Advice before every meeting, and deal tracking',
+   'price.f5':'Follow-ups all the way to signature',
++  'price.f6':'Tells you the second your quote is opened: that is the moment to call',
+   'price.note':'No commitment — cancel any time from the app. {price} per additional salesperson account. Price adjusted to your country at checkout: £49, $65, A$99, C$89.',
+   'contact.eyebrow':'Contact','contact.title':'A question?','contact.sub':'Write to us, we answer directly.',
+   'contact.desc':'Support, billing, or simply a question before you get started.','contact.btn':'Write to us',
+@@ -616,6 +619,7 @@ var I18N = {
+   'price.f3':'Termine direkt in Ihrem Kalender',
+   'price.f4':'Rat vor jedem Termin und Verfolgung der Chancen',
+   'price.f5':'Nachfassen bis zur Unterschrift',
++  'price.f6':'Meldet Ihnen sofort, wenn Ihr Angebot geöffnet wird: der Moment zum Anrufen',
+   'price.note':'Keine Bindung — jederzeit in der App kündbar. {price} je zusätzlichem Vertriebskonto. Preis beim Bezahlen an Ihr Land angepasst: 49 £, 65 $, 99 A$, 89 C$.',
+   'contact.eyebrow':'Kontakt','contact.title':'Eine Frage?','contact.sub':'Schreiben Sie uns, wir antworten direkt.',
+   'contact.desc':'Support, Rechnungen oder einfach eine Frage, bevor Sie loslegen.','contact.btn':'Schreiben Sie uns',
+@@ -661,6 +665,7 @@ var I18N = {
+   'price.f3':'Appuntamenti fissati direttamente in agenda',
+   'price.f4':'Consigli prima di ogni appuntamento e monitoraggio delle opportunità',
+   'price.f5':'Solleciti fino alla firma',
++  'price.f6':'Ti avvisa nell’istante in cui il preventivo viene aperto: è il momento di chiamare',
+   'price.note':'Senza vincoli — disdici quando vuoi dall’app. {price} per ogni account commerciale aggiuntivo. Prezzo adattato al tuo paese al pagamento: 49 £, 65 $, 99 A$, 89 C$.',
+   'contact.eyebrow':'Contatti','contact.title':'Una domanda?','contact.sub':'Scrivici, rispondiamo direttamente.',
+   'contact.desc':'Assistenza, fatturazione o semplicemente una domanda prima di iniziare.','contact.btn':'Scrivici',
+@@ -706,6 +711,7 @@ var I18N = {
+   'price.f3':'Citas concertadas directamente en tu agenda',
+   'price.f4':'Consejos antes de cada cita y seguimiento de oportunidades',
+   'price.f5':'Seguimientos hasta la firma',
++  'price.f6':'Te avisa en el segundo en que abren tu presupuesto: es el momento de llamar',
+   'price.note':'Sin permanencia — cancela cuando quieras desde la aplicación. {price} por cada cuenta comercial adicional. Precio adaptado a tu país al pagar: 49 £, 65 $, 99 A$, 89 C$.',
+   'contact.eyebrow':'Contacto','contact.title':'¿Alguna pregunta?','contact.sub':'Escríbenos, respondemos directamente.',
+   'contact.desc':'Soporte, facturación o simplemente una duda antes de empezar.','contact.btn':'Escríbenos',
+@@ -751,6 +757,7 @@ var I18N = {
+   'price.f3':'Reuniões marcadas diretamente na tua agenda',
+   'price.f4':'Conselhos antes de cada reunião e acompanhamento das oportunidades',
+   'price.f5':'Seguimentos até à assinatura',
++  'price.f6':'Avisa-o no segundo em que o seu orçamento é aberto: é o momento de ligar',
+   'price.note':'Sem fidelização — cancelas quando quiseres na aplicação. {price} por cada conta comercial adicional. Preço adaptado ao teu país no pagamento: 49 £, 65 $, 99 A$, 89 C$.',
+   'contact.eyebrow':'Contacto','contact.title':'Alguma questão?','contact.sub':'Escreve-nos, respondemos diretamente.',
+   'contact.desc':'Apoio, faturação ou simplesmente uma dúvida antes de começares.','contact.btn':'Escreve-nos',
+@@ -796,6 +803,7 @@ var I18N = {
+   'price.f3':'Afspraken rechtstreeks in je agenda',
+   'price.f4':'Advies voor elke afspraak en opvolging van kansen',
+   'price.f5':'Opvolging tot de handtekening',
++  'price.f6':'Waarschuwt je op de seconde dat je offerte wordt geopend: hét moment om te bellen',
+   'price.note':'Zonder verplichting — op elk moment opzegbaar in de app. {price} per extra verkopersaccount. Prijs bij het afrekenen aangepast aan je land: 49 £, 65 $, 99 A$, 89 C$.',
+   'contact.eyebrow':'Contact','contact.title':'Een vraag?','contact.sub':'Schrijf ons, we antwoorden rechtstreeks.',
+   'contact.desc':'Ondersteuning, facturatie, of gewoon een vraag voor je begint.','contact.btn':'Schrijf ons',
+diff --git a/vercel.json b/vercel.json
+index 447dd10..d6b2805 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -25,6 +25,10 @@
+       "path": "/api/cron/tomorrow-digest",
+       "schedule": "5 * * * *"
+     },
++    {
++      "path": "/api/cron/devis-open-nudge",
++      "schedule": "*/5 * * * *"
++    },
+     {
+       "path": "/api/cron/run-campaigns",
+       "schedule": "*/10 * * * *"
+-- 
+2.43.0
+
