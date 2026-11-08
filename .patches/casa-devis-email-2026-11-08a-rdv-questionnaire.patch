@@ -1,0 +1,2407 @@
+From aa73d329eb0bbeb373062b76e3cf9cac09325866 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 04:27:37 +0000
+Subject: [PATCH] =?UTF-8?q?Rendez-vous=20sans=20devoirs,=20questionnaire?=
+ =?UTF-8?q?=20conversationnel,=20disponibilit=C3=A9s=20=C3=A0=20l'inscript?=
+ =?UTF-8?q?ion,=20emails=20de=20compte=20=C3=977,=20mot=20de=20passe=20con?=
+ =?UTF-8?q?firm=C3=A9,=20langue=20dans=20la=20d=C3=A9mo,=20traduction=20Cl?=
+ =?UTF-8?q?ients?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Rendez-vous (décision Alex 08/11) :
+- lib/appointment-flow.ts (nouveau) : computeFreeSlots (plages déclarées sinon lun–ven 8h–19h du fuseau du commercial, moins indisponibilités, RDV validés, agenda Google/Outlook), schedulingConflicts dans le bon fuseau (avant : UTC du serveur), confirmAppointment (agenda, lien visio, email ×7 avec adresse pour un RDV physique, prospect en bleu), autoConfirmIfPossible (règle des 24 h), cancellationDraft ×7, rescheduleAppointment (ancien événement retiré, nouveau créé, email « décalé » ×7).
+- lib/aaron.ts + prompt : commercial.creneaux_disponibles (6 créneaux sur 10 jours), section CRÉNEAUX DE RENDEZ-VOUS.
+- check-inbox : confirmation automatique après un appointment_proposal ; notification « confirmé » ou « à valider » avec la raison.
+- /api/appointments/[id] : valider via la lib ; annuler { preview } → brouillon d'Aaron, puis { subject, body } ou { skip_email } ; reporter { new_proposed_at }.
+- Agenda : fiche RDV avec « Reporter » et annulation en deux temps (confirmation → email relu → envoi).
+
+Bienvenue :
+- étape « disponibilités » (lundi–dimanche, heures, types) via /api/availability/rules ;
+- questionnaire en conversation (/api/onboarding/chat, Sonnet) : Aaron répond, reformule « Ok, donc tu … », propose la réponse à confirmer ou compléter ; suggestions envoyées comme réponses ; textes ×7 ;
+- sélecteur de langue (Bienvenue et /onboarding).
+
+Compte :
+- lib/account-emails.ts : confirmation, nouveau lien, mot de passe ×7 avec la langue de l'inscription ; nom d'expéditeur localisé.
+- app/login : mot de passe saisi deux fois, règles cochées pendant la frappe (rouge seulement après refus).
+
+Divers : Clients (commentaire, upsell, email de renouvellement) traduits ; fil d'activité masqué quand vide ; seed_demo_2026-11-08.sql.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/appointments/[id]/route.ts           | 276 ++----------
+ app/api/auth/request-password-reset/route.ts |  18 +-
+ app/api/auth/resend-verification/route.ts    |  12 +-
+ app/api/auth/send-verification/route.ts      |  14 +-
+ app/api/cron/check-inbox/route.ts            |  88 ++--
+ app/api/onboarding/chat/route.ts             |  97 ++++
+ app/app/agenda/page.jsx                      |  84 +++-
+ app/app/bienvenue/page.jsx                   | 244 ++++++++++-
+ app/app/customer/page.jsx                    |   7 +-
+ app/login/page.jsx                           |  69 ++-
+ app/onboarding/page.jsx                      |  23 +-
+ components/ActivityFeed.jsx                  |   5 +
+ components/Translated.jsx                    |   4 +-
+ lib/aaron.ts                                 |  23 +
+ lib/aaron_system_prompt.md                   |  14 +-
+ lib/account-emails.ts                        |  48 ++
+ lib/appointment-flow.ts                      | 438 +++++++++++++++++++
+ lib/password-policy.js                       |  29 ++
+ seed_demo_2026-11-08.sql                     | 203 +++++++++
+ 19 files changed, 1366 insertions(+), 330 deletions(-)
+ create mode 100644 app/api/onboarding/chat/route.ts
+ create mode 100644 lib/account-emails.ts
+ create mode 100644 lib/appointment-flow.ts
+ create mode 100644 seed_demo_2026-11-08.sql
+
+diff --git a/app/api/appointments/[id]/route.ts b/app/api/appointments/[id]/route.ts
+index 2de0c87..3058447 100644
+--- a/app/api/appointments/[id]/route.ts
++++ b/app/api/appointments/[id]/route.ts
+@@ -21,93 +21,15 @@
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+-import { createGoogleCalendarEvent } from '@/lib/google';
+-import { createOutlookCalendarEvent } from '@/lib/microsoft';
+ import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from '@/lib/calendar-sync';
+-import { sendEmailForUser, getFreeBusyForUser } from '@/lib/messaging';
+-import { resolveMeetingLink } from '@/lib/meeting-link';
+-import { resolveProspectLocale } from '@/lib/prospect-locale';
+-import { resolveUserTimeZone } from '@/lib/user-timezone';
+-
+-// Email de confirmation de rendez-vous, dans la langue du prospect (06/11/2026).
+-const CONFIRMATION_TEXTS: Record<string, { intl: string; subject: string; hello: string; confirmed: string; types: Record<'visio' | 'telephonique' | 'physique', string>; link: string; linkLater: string; invite: string; reschedule: string; bye: string }> = {
+-  fr: { intl: 'fr-FR', subject: "C'est confirmé pour notre rendez-vous", hello: 'Bonjour {name},', confirmed: "C'est confirmé pour notre rendez-vous {type}, le {date}.", types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, link: 'Voici le lien pour nous rejoindre : {link}', linkLater: 'Je vous envoie le lien de connexion dans un second email.', invite: 'Vous recevrez également une invitation pour votre agenda.', reschedule: 'Si vous avez besoin de décaler, répondez simplement à cet email.', bye: 'À très vite,' },
+-  en: { intl: 'en-GB', subject: 'Our meeting is confirmed', hello: 'Hello {name},', confirmed: 'Our meeting {type} is confirmed for {date}.', types: { visio: 'by video call', telephonique: 'by phone', physique: 'in person' }, link: 'Here is the link to join: {link}', linkLater: 'I will send you the connection link in a second email.', invite: 'You will also receive a calendar invitation.', reschedule: 'If you need to reschedule, just reply to this email.', bye: 'Speak soon,' },
+-  de: { intl: 'de-DE', subject: 'Unser Termin ist bestätigt', hello: 'Guten Tag {name},', confirmed: 'Unser Termin {type} ist bestätigt: {date}.', types: { visio: 'per Videoanruf', telephonique: 'per Telefon', physique: 'vor Ort' }, link: 'Hier ist der Link zur Teilnahme: {link}', linkLater: 'Den Zugangslink sende ich Ihnen in einer zweiten E-Mail.', invite: 'Sie erhalten außerdem eine Kalendereinladung.', reschedule: 'Falls Sie verschieben müssen, antworten Sie einfach auf diese E-Mail.', bye: 'Bis bald,' },
+-  it: { intl: 'it-IT', subject: 'Il nostro appuntamento è confermato', hello: 'Buongiorno {name},', confirmed: 'Il nostro appuntamento {type} è confermato per {date}.', types: { visio: 'in videochiamata', telephonique: 'per telefono', physique: 'di persona' }, link: 'Ecco il link per collegarsi: {link}', linkLater: 'Le invierò il link di collegamento in una seconda email.', invite: 'Riceverà anche un invito per la sua agenda.', reschedule: 'Se ha bisogno di spostarlo, risponda semplicemente a questa email.', bye: 'A presto,' },
+-  es: { intl: 'es-ES', subject: 'Nuestra reunión está confirmada', hello: 'Hola {name},', confirmed: 'Nuestra reunión {type} está confirmada para el {date}.', types: { visio: 'por videollamada', telephonique: 'por teléfono', physique: 'presencial' }, link: 'Aquí tiene el enlace para unirse: {link}', linkLater: 'Le enviaré el enlace de conexión en un segundo correo.', invite: 'También recibirá una invitación para su agenda.', reschedule: 'Si necesita cambiar la fecha, responda simplemente a este correo.', bye: 'Hasta pronto,' },
+-  pt: { intl: 'pt-PT', subject: 'A nossa reunião está confirmada', hello: 'Olá {name},', confirmed: 'A nossa reunião {type} está confirmada para {date}.', types: { visio: 'por videochamada', telephonique: 'por telefone', physique: 'presencial' }, link: 'Aqui está o link para entrar: {link}', linkLater: 'Envio-lhe o link de ligação num segundo email.', invite: 'Receberá também um convite para a sua agenda.', reschedule: 'Se precisar de remarcar, basta responder a este email.', bye: 'Até breve,' },
+-  nl: { intl: 'nl-NL', subject: 'Onze afspraak is bevestigd', hello: 'Hallo {name},', confirmed: 'Onze afspraak {type} is bevestigd voor {date}.', types: { visio: 'via videogesprek', telephonique: 'telefonisch', physique: 'ter plaatse' }, link: 'Hier is de link om deel te nemen: {link}', linkLater: 'De verbindingslink stuur ik je in een tweede e-mail.', invite: 'Je ontvangt ook een agenda-uitnodiging.', reschedule: 'Moet je verzetten? Beantwoord dan gewoon deze e-mail.', bye: 'Tot snel,' },
+-};
++import { sendEmailForUser } from '@/lib/messaging';
++import { confirmAppointment, rescheduleAppointment, cancellationDraft } from '@/lib/appointment-flow';
++
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { canAccessAppointment } from '@/lib/appointment-access';
+ import { runInBackground } from '@/lib/background';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+-// Durée estimée par type de RDV — utilisée pour bloquer le bon créneau dans
+-// le calendrier et pour la vérification de conflit. Avant, une durée fixe de
+-// 30 min était utilisée pour TOUS les types, y compris les RDV physiques
+-// (largement sous-estimés en pratique).
+-const APPOINTMENT_DURATION_MINUTES: Record<string, number> = {
+-  telephonique: 30,
+-  visio: 60,
+-  physique: 120,
+-};
+-
+-// 18/10/2026 (Alex : « de base ça se met sur 1 h ») : la durée saisie
+-// (appointments.duration_minutes) prime ; sinon 60 min par défaut, et le
+-// barème par type ci-dessus ne sert plus que si on le demande explicitement.
+-function durationMinutesForType(type: string, stored?: number | null): number {
+-  if (Number.isFinite(Number(stored)) && Number(stored) >= 15) return Number(stored);
+-  return 60;
+-}
+-
+-// Vérifie que le créneau [startISO, endISO] ne rentre pas en conflit avec :
+-//  - une indisponibilité ponctuelle déclarée (availability_blocks)
+-//  - les créneaux récurrents déclarés (availability_rules), s'il y en a
+-//  - le calendrier réel du commercial (freebusy Google et/ou Microsoft), s'il est connecté
+-// Retourne la liste des raisons de conflit (vide = aucun conflit détecté).
+-async function detectSchedulingConflicts(userId: string, startISO: string, endISO: string) {
+-  const reasons: string[] = [];
+-  const start = new Date(startISO);
+-  const end = new Date(endISO);
+-
+-  const { data: blocks } = await supabaseAdmin
+-    .from('availability_blocks')
+-    .select('start_at, end_at, reason')
+-    .eq('user_id', userId)
+-    .lt('start_at', endISO)
+-    .gt('end_at', startISO);
+-
+-  if (blocks && blocks.length > 0) {
+-    reasons.push(`Chevauche une indisponibilité déclarée${blocks[0].reason ? ` (${blocks[0].reason})` : ''}.`);
+-  }
+-
+-  const { data: rules } = await supabaseAdmin
+-    .from('availability_rules')
+-    .select('day_of_week, start_time, end_time')
+-    .eq('user_id', userId);
+-
+-  if (rules && rules.length > 0) {
+-    const dayOfWeek = start.getDay();
+-    const timeStr = start.toTimeString().slice(0, 8); // HH:MM:SS
+-    const withinAnyRule = rules.some(
+-      (r) => r.day_of_week === dayOfWeek && timeStr >= r.start_time && timeStr < r.end_time
+-    );
+-    if (!withinAnyRule) {
+-      reasons.push("En dehors des créneaux de disponibilité déclarés.");
+-    }
+-  }
+-
+-  const busy = await getFreeBusyForUser(userId, startISO, endISO);
+-  const overlaps = busy.some((b) => new Date(b.start) < end && new Date(b.end) > start);
+-  if (overlaps) {
+-    reasons.push('Chevauche un événement déjà présent sur votre agenda (Google ou Outlook).');
+-  }
+-
+-  return reasons;
+-}
+-
+ // GET -> détails minimaux d'un RDV, utilisé par la page de bilan post-RDV
+ // (app/app/agenda/rdv/[id]/bilan) pour afficher le nom du prospect et savoir
+ // si un bilan a déjà été enregistré.
+@@ -159,7 +81,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
+ 
+ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+   const params = await ctx.params;
+-  const { action, force } = await readJsonBody(request);
++  const { action, force, preview, subject, body, skip_email, new_proposed_at } = await readJsonBody(request);
+   const appointmentId = params.id;
+ 
+   const { data: appointment, error } = await supabaseAdmin
+@@ -188,156 +110,25 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   const userId = authedUser.id;
+ 
+   if (action === 'valider') {
+-    const { data: connections } = await supabaseAdmin
+-      .from('oauth_connections')
+-      .select('provider')
+-      .eq('user_id', userId);
+-
+-    const hasGoogle = connections?.some((c) => c.provider === 'google');
+-    const hasMicrosoft = connections?.some((c) => c.provider === 'microsoft');
+-
+-    const startISO = appointment.proposed_at;
+-    const endISO = new Date(
+-      new Date(startISO).getTime() + durationMinutesForType(appointment.type, (appointment as any).duration_minutes) * 60 * 1000
+-    ).toISOString();
+-
+-    if (!force) {
+-      const conflicts = await detectSchedulingConflicts(userId, startISO, endISO);
+-      if (conflicts.length > 0) {
+-        return NextResponse.json({ conflict: true, reasons: conflicts }, { status: 409 });
+-      }
+-    }
+-
+-    let calendarEvent: any = null;
+-    let calendarProvider: 'google' | 'microsoft' | null = null;
+-    // Avertissement renvoye au frontend quand le RDV est bien valide mais que
+-    // l'invitation d'agenda n'a pas pu etre creee (jeton Google/Microsoft
+-    // expire, par ex.). On ne fait PAS echouer la validation pour autant
+-    // (meme principe qu'une boite sans agenda, voir plus bas) : le RDV reste
+-    // valide, le commercial est juste prevenu, et le flux ICS fera quand meme
+-    // apparaitre le RDV. DECLARATION AJOUTEE LE 20/10/2026 : cette variable
+-    // etait referencee plus bas (calendar_warning) sans jamais exister, ce qui
+-    // cassait le build TypeScript de TOUTE la production depuis plus d'un jour
+-    // (aucun deploiement ne passait, le site tournait sur une vieille version).
+-    let calendarWarning: string | null = null;
+-
+-    if (hasGoogle) {
+-      try {
+-        calendarEvent = await createGoogleCalendarEvent(userId, {
+-          title: `RDV avec ${appointment.prospects.full_name}`,
+-          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
+-          startISO,
+-          endISO,
+-          attendeeEmail: appointment.prospects.email,
+-          wantsMeetLink: appointment.type === 'visio',
+-        });
+-        calendarProvider = 'google';
+-      } catch (calErr: any) {
+-        console.error('Erreur creation evenement Google Calendar:', calErr?.message);
+-        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Google n'a pas pu etre creee. Verifiez la connexion Google dans Mon compte.";
+-      }
+-    } else if (hasMicrosoft) {
+-      try {
+-        calendarEvent = await createOutlookCalendarEvent(userId, {
+-          title: `RDV avec ${appointment.prospects.full_name}`,
+-          description: `Rendez-vous ${appointment.type} avec ${appointment.prospects.full_name}.`,
+-          startISO,
+-          endISO,
+-          attendeeEmail: appointment.prospects.email,
+-          wantsMeetLink: appointment.type === 'visio',
+-        });
+-        calendarProvider = 'microsoft';
+-      } catch (calErr: any) {
+-        console.error('Erreur creation evenement Outlook Calendar:', calErr?.message);
+-        calendarWarning = "Le rendez-vous est valide, mais l'invitation d'agenda Outlook n'a pas pu etre creee. Verifiez la connexion Microsoft dans Mon compte.";
+-      }
+-    }
+-    // Aucun agenda connecté (boîte « Autre boîte mail » / IMAP, 10/09/2026) :
+-    // on ne refuse PLUS la validation. Avant, un commercial chez OVH ne
+-    // pouvait tout simplement pas valider un RDV — le parcours entier
+-    // s'arrêtait là. Le RDV est donc validé côté Aaron, sans événement
+-    // externe (le flux ICS le fera apparaître dans son téléphone), et c'est
+-    // Aaron lui-même qui envoie la confirmation au prospect, puisqu'aucune
+-    // invitation Google/Microsoft ne partira.
+-
+-    // Lien de visio (10/09/2026) : salle permanente du commercial en priorité
+-    // (Préférences), sinon le lien Meet/Teams généré ci-dessus. Voir
+-    // lib/meeting-link.ts.
+-    const meetLink =
+-      appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink, startISO) : null;
+-
+-    await supabaseAdmin
+-      .from('appointments')
+-      .update({
+-        status: 'validé',
+-        calendar_provider: calendarProvider,
+-        calendar_event_id: calendarEvent?.id || null,
+-        meet_link: meetLink,
+-      })
+-      .eq('id', appointmentId);
++    // Même parcours que la confirmation automatique (lib/appointment-flow.ts,
++    // 08/11/2026) : conflits sauf `force`, agenda, lien visio, email dans la
++    // langue du prospect, prospect en bleu.
++    const r = await confirmAppointment(appointmentId, userId, { force: !!force });
++    if (!r.ok) return NextResponse.json({ conflict: true, reasons: r.reasons }, { status: 409 });
++    return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.calendarWarning });
++  }
+ 
+-    // Confirmation envoyée par Aaron À CHAQUE FOIS depuis le 11/09/2026.
+-    //
+-    // Jusqu'ici elle ne partait qu'en l'absence d'agenda connecté, en
+-    // supposant que l'invitation Google/Microsoft suffisait. Les tests
+-    // d'Alex du 11/09 ont montré le contraire, sur les deux boîtes
+-    // Microsoft comme sur Google : « l'invitation n'est pas arrivée de
+-    // suite, il a fallu que je demande ». Une invitation d'agenda peut
+-    // tarder, atterrir dans les indésirables, ou être ignorée par un
+-    // client de messagerie qui ne sait pas la lire — et le prospect se
+-    // retrouve avec un rendez-vous confirmé sans savoir où se connecter.
+-    //
+-    // Un email de confirmation lisible, qui porte le lien en clair, coûte
+-    // un message de plus quand l'invitation arrive bien. C'est un prix
+-    // très inférieur à celui d'un rendez-vous manqué.
+-    if (appointment.prospects?.email) {
+-      // LANGUE DU PROSPECT ET FUSEAU DU COMMERCIAL (06/11/2026). Jusqu'ici :
+-      // français en dur, date à l'heure de Paris — pour un prospect de Perth
+-      // écrit en anglais, c'était une confirmation en français avec une
+-      // heure fausse de sept heures. Même détermination de langue que le
+-      // premier email (lib/prospect-locale.ts), et le fuseau est celui du
+-      // commercial, puisque le créneau a été proposé dans son agenda.
+-      const [{ data: seller }, { data: campaign }] = await Promise.all([
+-        supabaseAdmin.from('users').select('timezone, billing_country, locale').eq('id', userId).maybeSingle(),
+-        (appointment.prospects as any)?.prospect_companies?.found_by_campaign_id
+-          ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', (appointment.prospects as any).prospect_companies.found_by_campaign_id).maybeSingle()
+-          : Promise.resolve({ data: null as any }),
+-      ]);
+-      const prospectLocale = resolveProspectLocale({
+-        campaignLocale: campaign?.target_locale || null,
+-        address: (appointment.prospects as any)?.prospect_companies?.address || null,
+-        email: appointment.prospects.email,
+-        sellerLocale: (seller as any)?.locale || null,
+-      });
+-      const tz = resolveUserTimeZone((seller as any) || {});
+-      const T = CONFIRMATION_TEXTS[prospectLocale] || CONFIRMATION_TEXTS.fr;
+-      const dateStr = new Date(startISO).toLocaleString(T.intl, { dateStyle: 'full', timeStyle: 'short', timeZone: tz });
+-      const typeLabel = T.types[appointment.type as 'visio' | 'telephonique' | 'physique'] || T.types.physique;
+-      const lines = [T.hello.replace('{name}', appointment.prospects.full_name || ''), '', T.confirmed.replace('{type}', typeLabel).replace('{date}', dateStr)];
+-      if (meetLink) {
+-        lines.push('', T.link.replace('{link}', meetLink));
+-      } else if (appointment.type === 'visio') {
+-        // Aucun lien disponible au moment de la confirmation : on le dit,
+-        // plutôt que de laisser le prospect chercher.
+-        lines.push('', T.linkLater);
+-      }
+-      if (calendarProvider) {
+-        // L'invitation d'agenda part aussi : on l'annonce pour que le
+-        // prospect ne prenne pas le second message pour un doublon.
+-        lines.push('', T.invite);
+-      }
+-      lines.push('', T.reschedule, '', T.bye);
+-      const confirmationSubject = T.subject;
+-      // Envoi APRÈS la réponse (28/10/2026) : le RDV est validé, le bouton
+-      // n'attend pas la boîte mail. Un échec reste dans les journaux.
+-      runInBackground(`confirmation RDV ${appointmentId}`, () =>
+-        sendEmailForUser(userId, appointment.prospects.email, confirmationSubject, lines.join('\n'))
+-      );
++  if (action === 'reporter' && new_proposed_at) {
++    // Report avec une nouvelle date choisie par le commercial (08/11/2026) :
++    // l'ancien événement est retiré, le nouveau créé, le prospect prévenu
++    // (« j'ai dû décaler… ») dans sa langue. Pas de contrôle de conflit : le
++    // commercial a choisi lui-même le créneau.
++    const when = new Date(new_proposed_at);
++    if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() - 60000) {
++      return NextResponse.json({ error: 'Date de report invalide' }, { status: 400 });
+     }
+-
+-    await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
+-
+-    return NextResponse.json({ success: true, status: 'validé', calendar_warning: calendarWarning });
++    const r = await rescheduleAppointment(appointmentId, userId, when.toISOString());
++    return NextResponse.json({ success: true, status: 'validé', calendar_warning: r.ok ? r.calendarWarning : null });
+   }
+ 
+   if (action === 'reporter') {
+@@ -345,6 +136,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     return NextResponse.json({ success: true, status: 'reporté' });
+   }
+ 
++  if (action === 'annuler' && preview) {
++    // Aaron prépare l'email d'annulation, le commercial le relit et l'envoie
++    // lui-même (décision Alex, 08/11/2026). Rien n'est modifié ici.
++    const draft = await cancellationDraft(appointmentId, userId);
++    return NextResponse.json({ draft, already_past: new Date(appointment.proposed_at) < new Date() });
++  }
++
+   if (action === 'annuler') {
+     const alreadyPast = new Date(appointment.proposed_at) < new Date();
+ 
+@@ -370,15 +168,15 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     // ce cas on ne prévient pas le prospect ici ; le commercial choisira lui-
+     // même de relancer (action "relancer", voir plus bas) via la notif moins
+     // urgente qui apparaît désormais au tableau de bord pour ce cas.
+-    if (!alreadyPast && appointment.prospects?.email) {
+-      runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
+-        sendEmailForUser(
+-          userId,
+-          appointment.prospects.email,
+-          'Concernant notre rendez-vous',
+-          `Bonjour ${appointment.prospects.full_name},\n\nMalheureusement, je dois annuler notre rendez-vous prévu. Je reviens vers vous rapidement pour convenir d'un autre créneau.\n\nCordialement.`
+-        )
+-      );
++    if (!alreadyPast && appointment.prospects?.email && !skip_email) {
++      // Texte relu par le commercial (subject/body envoyés par la page),
++      // sinon le brouillon d'Aaron dans la langue du prospect.
++      const draft = typeof body === 'string' && body.trim() ? { subject: (typeof subject === 'string' && subject.trim()) || 'Concernant notre rendez-vous', body } : await cancellationDraft(appointmentId, userId);
++      if (draft) {
++        runInBackground(`email d'annulation RDV ${appointmentId}`, () =>
++          sendEmailForUser(userId, appointment.prospects.email, draft.subject, draft.body)
++        );
++      }
+     }
+ 
+     if (appointment.prospect_id) {
+diff --git a/app/api/auth/request-password-reset/route.ts b/app/api/auth/request-password-reset/route.ts
+index 71dfcb3..3978cc2 100644
+--- a/app/api/auth/request-password-reset/route.ts
++++ b/app/api/auth/request-password-reset/route.ts
+@@ -19,12 +19,14 @@ import crypto from 'crypto';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendSystemEmail } from '@/lib/google';
+ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
++import { passwordResetEmail } from '@/lib/account-emails';
++import { normalizeLocale } from '@/lib/locale-instruction';
+ import { readJsonBody } from '@/lib/http';
+ 
+ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
+ 
+ export async function POST(request: NextRequest) {
+-  const { email } = await readJsonBody(request);
++  const { email, locale } = await readJsonBody(request);
+ 
+   // Limitation de débit (15/10/2026, audit CASA). Deux compteurs, parce
+   // qu'ils arrêtent deux abus différents : par IP, quelqu'un qui balaye des
+@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
+ 
+   const { data: user } = await supabaseAdmin
+     .from('users')
+-    .select('id, auth_user_id, first_name, email')
++    .select('id, auth_user_id, first_name, email, locale')
+     .ilike('email', normalized)
+     .not('auth_user_id', 'is', null)
+     .maybeSingle();
+@@ -68,14 +70,12 @@ export async function POST(request: NextRequest) {
+ 
+     const origin = request.nextUrl.origin;
+     const link = `${origin}/login?reset=${token}`;
+-    const body =
+-      `Bonjour${user.first_name ? ' ' + user.first_name : ''},\n\n` +
+-      `Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :\n\n` +
+-      `${link}\n\n` +
+-      `Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.\n\n` +
+-      `Aaron`;
++    // Langue : celle du compte (users.locale), sinon celle envoyée par la
++    // page de connexion, sinon le français (08/11/2026).
++    const lang = normalizeLocale((user as any).locale || (typeof locale === 'string' ? locale : null));
++    const mail = passwordResetEmail(lang, link, user.first_name);
+     try {
+-      await sendSystemEmail(user.email || normalized, 'Réinitialise ton mot de passe Meet Aaron', body);
++      await sendSystemEmail(user.email || normalized, mail.subject, mail.body, lang);
+     } catch (err: any) {
+       console.error('Email de réinitialisation non envoyé:', err?.message || err);
+       return NextResponse.json({ error: "Impossible d'envoyer le lien pour le moment — écris-nous à aaron@meetaaron.app" }, { status: 502 });
+diff --git a/app/api/auth/resend-verification/route.ts b/app/api/auth/resend-verification/route.ts
+index 5ea7ac9..f413391 100644
+--- a/app/api/auth/resend-verification/route.ts
++++ b/app/api/auth/resend-verification/route.ts
+@@ -15,9 +15,12 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendSystemEmail } from '@/lib/google';
+ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { verificationEmail } from '@/lib/account-emails';
++import { normalizeLocale } from '@/lib/locale-instruction';
+ 
+ export async function POST(request: NextRequest) {
+-  const { email } = await readJsonBody(request);
++  const { email, locale } = await readJsonBody(request);
++  const lang = normalizeLocale(typeof locale === 'string' ? locale : null);
+ 
+   // Limitation de débit (15/10/2026, audit CASA). Plus permissive que les
+   // deux autres, à dessein : cette route existe précisément pour quelqu'un
+@@ -70,11 +73,8 @@ export async function POST(request: NextRequest) {
+   const verifyUrl = `${origin}/api/auth/verify-email?token=${token}`;
+ 
+   try {
+-    await sendSystemEmail(
+-      email,
+-      'Confirmez votre adresse email — Meet Aaron',
+-      `Voici un nouveau lien pour confirmer votre adresse email et activer votre compte Meet Aaron :\n${verifyUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez simplement cet email.`
+-    );
++    const mail = verificationEmail(lang, verifyUrl, true);
++    await sendSystemEmail(email, mail.subject, mail.body, lang);
+   } catch (err: any) {
+     // Même cause possible que le premier envoi (voir sendSystemEmail) — on
+     // le signale clairement plutôt que de renvoyer un faux succès, et on
+diff --git a/app/api/auth/send-verification/route.ts b/app/api/auth/send-verification/route.ts
+index a1ac37c..796bead 100644
+--- a/app/api/auth/send-verification/route.ts
++++ b/app/api/auth/send-verification/route.ts
+@@ -9,9 +9,14 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { sendSystemEmail } from '@/lib/google';
+ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { verificationEmail } from '@/lib/account-emails';
++import { normalizeLocale } from '@/lib/locale-instruction';
+ 
+ export async function POST(request: NextRequest) {
+-  const { auth_user_id, email } = await readJsonBody(request);
++  // `locale` (08/11/2026) : langue de l'interface au moment de l'inscription,
++  // pour l'email et le nom d'expéditeur (il n'y a pas encore de ligne users).
++  const { auth_user_id, email, locale } = await readJsonBody(request);
++  const lang = normalizeLocale(typeof locale === 'string' ? locale : null);
+ 
+   // Limitation de débit (15/10/2026, audit CASA). Cette route était la plus
+   // exposée des trois : non authentifiée, elle fait confiance à un
+@@ -47,11 +52,8 @@ export async function POST(request: NextRequest) {
+   const verifyUrl = `${origin}/api/auth/verify-email?token=${token}`;
+ 
+   try {
+-    await sendSystemEmail(
+-      email,
+-      'Confirmez votre adresse email — Meet Aaron',
+-      `Bienvenue sur Meet Aaron !\n\nPour confirmer votre adresse email et activer votre compte, cliquez sur ce lien :\n${verifyUrl}\n\nSi vous n'êtes pas à l'origine de cette inscription, ignorez simplement cet email.`
+-    );
++    const mail = verificationEmail(lang, verifyUrl);
++    await sendSystemEmail(email, mail.subject, mail.body, lang);
+   } catch (err: any) {
+     // On ne bloque pas l'inscription si l'envoi échoue (ex: token Google du
+     // compte système expiré/révoqué, quota Gmail) — mais on stocke désormais
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index 9b46691..c54198d 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -22,6 +22,7 @@ import { isDeliverabilityTestSubject } from '@/lib/deliverability-test';
+ import { recordAppointmentOutcome } from '@/lib/appointment-outcome';
+ import { parseCheckinResponse, generateTestimonialRequest, generateSupportReply, parseKickoffResponse } from '@/lib/aaron-customer';
+ import { sendPushNotification } from '@/lib/push';
++import { autoConfirmIfPossible, AUTO_CONFIRM_MIN_HOURS } from '@/lib/appointment-flow';
+ import { sendSystemEmail } from '@/lib/google';
+ 
+ function isAuthorized(request: NextRequest) {
+@@ -1227,39 +1228,64 @@ export async function GET(request: NextRequest) {
+         if (existingAppointment && existingAppointment.status === 'validé' && sameDate) {
+           // Le client reconfirme simplement une date déjà validée par le
+           // commercial : rien à faire, on évite de recréer une ligne "à valider".
+-        } else if (existingAppointment && existingAppointment.status === 'proposé') {
+-          // Un rendez-vous est déjà en cours de discussion pour ce prospect :
+-          // on met à jour la date/le type au lieu d'ajouter une deuxième ligne.
+-          await supabaseAdmin
+-            .from('appointments')
+-            .update({
+-              type: aaronOutput.appointment_proposal.type,
+-              proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+-            })
+-            .eq('id', existingAppointment.id);
+-
+-          await sendPushNotification(connection.user_id, {
+-            title: 'Nouveau rendez-vous à valider',
+-            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
+-            url: `/app/agenda?user_id=${connection.user_id}`,
+-          });
+         } else {
+-          // Aucune ligne en cours (ou date différente d'un rendez-vous déjà
+-          // validé, ex: le client redemande à changer un RDV déjà confirmé) :
+-          // nouvelle ligne.
+-          await supabaseAdmin.from('appointments').insert({
+-            prospect_id: prospect.id,
+-            user_id: connection.user_id,
+-            type: aaronOutput.appointment_proposal.type,
+-            proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
+-            status: 'proposé',
+-          });
++          let appointmentId: string | null = null;
++          if (existingAppointment && existingAppointment.status === 'proposé') {
++            // Un rendez-vous est déjà en cours de discussion pour ce prospect :
++            // on met à jour la date/le type au lieu d'ajouter une deuxième ligne.
++            await supabaseAdmin
++              .from('appointments')
++              .update({
++                type: aaronOutput.appointment_proposal.type,
++                proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
++              })
++              .eq('id', existingAppointment.id);
++            appointmentId = existingAppointment.id;
++          } else {
++            // Aucune ligne en cours (ou date différente d'un rendez-vous déjà
++            // validé, ex: le client redemande à changer un RDV déjà confirmé) :
++            // nouvelle ligne.
++            const { data: created } = await supabaseAdmin
++              .from('appointments')
++              .insert({
++                prospect_id: prospect.id,
++                user_id: connection.user_id,
++                type: aaronOutput.appointment_proposal.type,
++                proposed_at: aaronOutput.appointment_proposal.proposed_datetime,
++                status: 'proposé',
++              })
++              .select('id')
++              .single();
++            appointmentId = created?.id || null;
++          }
+ 
+-          await sendPushNotification(connection.user_id, {
+-            title: 'Nouveau rendez-vous à valider',
+-            body: `Aaron a proposé un RDV avec ${prospect.full_name}. Va le valider dans ton agenda.`,
+-            url: `/app/agenda?user_id=${connection.user_id}`,
+-          });
++          // CONFIRMATION AUTOMATIQUE (décision Alex, 08/11/2026 — voir
++          // lib/appointment-flow.ts) : le créneau est dans les disponibilités
++          // et à plus de 24 h → invitation + confirmation partent tout de
++          // suite, le commercial est seulement prévenu. Sinon la story
++          // « Rendez-vous à valider » reste, avec la raison.
++          const auto = appointmentId ? await autoConfirmIfPossible(appointmentId, connection.user_id) : { result: 'error' as const };
++          const whenLabel = new Date(aaronOutput.appointment_proposal.proposed_datetime).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short', timeZone: await (async () => { try { const r: any = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', connection.user_id).maybeSingle(); return resolveUserTimeZone(r.data || {}); } catch { return 'Europe/Paris'; } })() });
++          if (auto.result === 'confirmed') {
++            await sendPushNotification(connection.user_id, {
++              title: 'Rendez-vous confirmé',
++              body: `${prospect.full_name} : ${whenLabel}. Invitation et confirmation envoyées.`,
++              url: `/app/agenda?user_id=${connection.user_id}`,
++              tag: `rdv:${appointmentId}`,
++            });
++          } else {
++            const why = auto.result === 'too_soon'
++              ? `Dans moins de ${AUTO_CONFIRM_MIN_HOURS} h : à valider par toi.`
++              : auto.result === 'unavailable'
++                ? `Hors de tes disponibilités (${(auto.reasons || [])[0] || 'conflit'}) : à valider ou à reporter.`
++                : 'À valider dans ton agenda.';
++            await sendPushNotification(connection.user_id, {
++              title: 'Rendez-vous à valider',
++              body: `${prospect.full_name} propose ${whenLabel}. ${why}`,
++              url: `/app/agenda?user_id=${connection.user_id}`,
++              tag: `rdv:${appointmentId}`,
++            });
++          }
+         }
+       }
+ 
+diff --git a/app/api/onboarding/chat/route.ts b/app/api/onboarding/chat/route.ts
+new file mode 100644
+index 0000000..343504f
+--- /dev/null
++++ b/app/api/onboarding/chat/route.ts
+@@ -0,0 +1,97 @@
++// app/api/onboarding/chat/route.ts
++//
++// LE QUESTIONNAIRE DE BIENVENUE EST UNE CONVERSATION (décision Alex,
++// 08/11/2026 : « Aaron doit être capable de répondre aux questions, de faire
++// plusieurs échanges avant de confirmer, et avant chaque validation reprendre
++// proprement ce que l'utilisateur a dit… comme un échange entre un
++// utilisateur et un expert commercial »).
++//
++// POST { question_key, question, history: [{role:'user'|'aaron', content}],
++//        message, locale, draft? }
++//  -> { kind: 'ask' | 'propose', message, proposed_answer }
++//
++//   - 'ask'     : l'utilisateur a posé une question, n'a pas compris, ou sa
++//                 réponse est trop vague pour être utile : Aaron explique,
++//                 donne un exemple, et repose la question autrement. Rien
++//                 n'est validé.
++//   - 'propose' : Aaron a compris : il reformule proprement (« Ok, donc tu
++//                 es … ») et propose `proposed_answer`, le texte qui sera
++//                 enregistré si l'utilisateur confirme. L'utilisateur peut
++//                 encore compléter : on repasse ici avec l'historique.
++//
++// Reste dans le métier : une question politique, personnelle ou hors sujet
++// reçoit une réponse courte qui ramène à la question en cours.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { readJsonBody } from '@/lib/http';
++import { callClaude, MonthlyCapExceededError } from '@/lib/anthropic-client';
++import { localeInstruction, normalizeLocale } from '@/lib/locale-instruction';
++
++export const runtime = 'nodejs';
++export const maxDuration = 60;
++
++type Turn = { role: 'user' | 'aaron'; content: string };
++
++export async function POST(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++
++  const { question_key, question, history, message, locale, draft, company_name } = await readJsonBody(request);
++  if (typeof question !== 'string' || !question.trim()) {
++    return NextResponse.json({ error: 'question manquante' }, { status: 400 });
++  }
++  const turns: Turn[] = Array.isArray(history)
++    ? history.filter((t: any) => t && (t.role === 'user' || t.role === 'aaron') && typeof t.content === 'string').slice(-12)
++    : [];
++  const userMessage = typeof message === 'string' ? message.trim().slice(0, 3000) : '';
++  if (!userMessage) return NextResponse.json({ error: 'message manquant' }, { status: 400 });
++  const lang = normalizeLocale(typeof locale === 'string' ? locale : null);
++
++  const transcript = [...turns, { role: 'user', content: userMessage }]
++    .map((t) => `${t.role === 'user' ? 'UTILISATEUR' : 'AARON'} : ${t.content}`)
++    .join('\n');
++
++  const prompt =
++    `Tu es Aaron, expert commercial et copilote de vente. Tu aides un dirigeant ou un commercial à remplir la fiche de son entreprise, question par question, dans une conversation. ` +
++    `Tu tutoies, tu es chaleureux, concret et bref (2 à 4 phrases), jamais condescendant. ${localeInstruction(lang)}\n\n` +
++    `QUESTION EN COURS (clé « ${String(question_key || '')} ») : « ${question.trim()} »\n` +
++    (company_name ? `Entreprise de l'utilisateur : ${String(company_name).slice(0, 120)}\n` : '') +
++    (typeof draft === 'string' && draft.trim() ? `Réponse pré-remplie depuis un document de l'utilisateur (peut servir de base) : « ${draft.trim().slice(0, 800)} »\n` : '') +
++    `\nCONVERSATION SUR CETTE QUESTION :\n${transcript}\n\n` +
++    `Décide :\n` +
++    `- Si le dernier message de l'utilisateur est une question, une incompréhension (« je n'ai pas compris », « c'est-à-dire ? »), ou une réponse trop vague pour servir (« oui », « normal », un mot), réponds en EXPERT : explique ce que la question cherche et pourquoi ça aide Aaron à prospecter, donne un ou deux exemples concrets adaptés à son métier s'il est connu, puis repose la question simplement. kind = "ask", proposed_answer = null.\n` +
++    `- Si le dernier message (avec le reste de la conversation) répond à la question, même partiellement mais utilement : reformule proprement ce que tu as compris, à la deuxième personne (« Ok, donc tu … », « Si je résume, … »), en une ou deux phrases, et termine par une question de confirmation (« C'est bien ça ? » ou « Tu veux ajouter quelque chose ? »). kind = "propose", proposed_answer = la réponse NETTOYÉE à enregistrer, rédigée à la troisième personne ou de façon neutre (ex. « Traiteur événementiel à Lyon, 18 salariés, mariages et séminaires d'entreprise »), fidèle à ce qu'il a dit, sans rien inventer, 1 à 3 phrases.\n` +
++    `- Si l'utilisateur complète une réponse déjà proposée, intègre le complément et repropose (kind = "propose").\n` +
++    `- Hors sujet (politique, personnel, sans rapport avec son activité) : une phrase polie qui ramène à la question, kind = "ask".\n` +
++    `Réponds UNIQUEMENT avec un objet JSON : {"kind": "ask" | "propose", "message": "ce que tu dis à l'utilisateur", "proposed_answer": "texte à enregistrer" | null}`;
++
++  try {
++    const data = await callClaude(
++      {
++        model: 'claude-sonnet-5',
++        max_tokens: 600,
++        messages: [{ role: 'user', content: prompt }],
++      },
++      authedUser.company_id || null,
++      undefined,
++      authedUser.id,
++      'saisie_campagne'
++    );
++    const raw = (data?.content || []).map((b: any) => (b.type === 'text' ? b.text : '')).join('').trim();
++    const jsonText = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
++    const parsed = JSON.parse(jsonText);
++    const kind = parsed.kind === 'propose' && typeof parsed.proposed_answer === 'string' && parsed.proposed_answer.trim() ? 'propose' : 'ask';
++    return NextResponse.json({
++      kind,
++      message: String(parsed.message || '').trim(),
++      proposed_answer: kind === 'propose' ? String(parsed.proposed_answer).trim() : null,
++    });
++  } catch (err: any) {
++    if (err instanceof MonthlyCapExceededError) {
++      return NextResponse.json({ error: 'Plafond de dépense atteint pour ce mois.' }, { status: 429 });
++    }
++    console.error('[onboarding/chat]', err?.message || err);
++    return NextResponse.json({ error: 'Aaron ne répond pas pour le moment, réessaie.' }, { status: 500 });
++  }
++}
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index c481c2e..6223489 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -24,6 +24,12 @@ const AGENDA_TEXT = {
+   h: { fr: 'h', en: 'h', de: 'Std.', it: 'h', es: 'h', pt: 'h', nl: 'u' },
+   aaronRead: { fr: "Lecture d'Aaron", en: "Aaron's read", de: 'Aarons Einschätzung', it: 'Lettura di Aaron', es: 'Lectura de Aaron', pt: 'Leitura do Aaron', nl: 'Inschatting van Aaron' },
+   cancelAsk: { fr: 'Annuler ce rendez-vous ? Le prospect recevra un email de ta part pour le prévenir, et il sera retiré de ton calendrier.', en: 'Cancel this meeting? The prospect gets an email from you, and it is removed from your calendar.', de: 'Diesen Termin absagen? Der Interessent erhält eine E-Mail von Ihnen, und der Termin wird aus Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Il prospect riceverà una tua email e sarà rimosso dal calendario.', es: '¿Cancelar esta cita? El prospecto recibirá un email tuyo y se eliminará de tu calendario.', pt: 'Cancelar esta reunião? O prospect recebe um email teu e ela é removida do teu calendário.', nl: 'Deze afspraak annuleren? De prospect krijgt een e-mail van jou en de afspraak verdwijnt uit je agenda.' },
++  cancelDraftTitle: { fr: "L'email qu'Aaron a préparé pour prévenir le prospect — relis, corrige si besoin, puis envoie.", en: 'The email Aaron prepared to let the prospect know — read it, edit if needed, then send.', de: 'Die E-Mail, die Aaron zur Information des Interessenten vorbereitet hat — lesen, ggf. anpassen, dann senden.', it: "L'email che Aaron ha preparato per avvisare il prospect — rileggi, correggi se serve, poi invia.", es: 'El correo que Aaron ha preparado para avisar al prospecto — revísalo, corrígelo si hace falta y envíalo.', pt: 'O email que o Aaron preparou para avisar o prospeto — relê, corrige se for preciso e envia.', nl: 'De e-mail die Aaron heeft voorbereid om de prospect te informeren — lees, pas zo nodig aan en verstuur.' },
++  cancelSend: { fr: "Envoyer et annuler le rendez-vous", en: 'Send and cancel the meeting', de: 'Senden und Termin absagen', it: "Invia e annulla l'appuntamento", es: 'Enviar y cancelar la cita', pt: 'Enviar e cancelar a reunião', nl: 'Versturen en afspraak annuleren' },
++  cancelSilent: { fr: 'Annuler sans prévenir', en: 'Cancel without notifying', de: 'Absagen ohne Benachrichtigung', it: 'Annulla senza avvisare', es: 'Cancelar sin avisar', pt: 'Cancelar sem avisar', nl: 'Annuleren zonder bericht' },
++  reschedule: { fr: 'Reporter', en: 'Reschedule', de: 'Verschieben', it: 'Rimanda', es: 'Posponer', pt: 'Adiar', nl: 'Verzetten' },
++  rescheduleHint: { fr: "Choisis le nouveau créneau. L'ancien est retiré de ton agenda, le nouveau y est créé, et le prospect reçoit la nouvelle date avec le lien ou l'adresse.", en: 'Pick the new time. The old one is removed from your calendar, the new one is created, and the prospect receives the new date with the link or address.', de: 'Wähle den neuen Termin. Der alte wird aus deinem Kalender entfernt, der neue angelegt, und der Interessent erhält das neue Datum mit Link oder Adresse.', it: 'Scegli il nuovo orario. Il vecchio viene rimosso dalla tua agenda, il nuovo creato, e il prospect riceve la nuova data con il link o l’indirizzo.', es: 'Elige el nuevo horario. El anterior se elimina de tu agenda, el nuevo se crea y el prospecto recibe la nueva fecha con el enlace o la dirección.', pt: 'Escolhe o novo horário. O antigo é removido da tua agenda, o novo é criado e o prospeto recebe a nova data com o link ou a morada.', nl: 'Kies het nieuwe tijdstip. Het oude verdwijnt uit je agenda, het nieuwe wordt aangemaakt en de prospect ontvangt de nieuwe datum met link of adres.' },
++  rescheduleConfirm: { fr: 'Confirmer le report', en: 'Confirm the new time', de: 'Verschiebung bestätigen', it: 'Conferma il rinvio', es: 'Confirmar el cambio', pt: 'Confirmar o adiamento', nl: 'Verzetten bevestigen' },
+   cancelAskPerso: { fr: 'Annuler ce rendez-vous ? Il sera retiré de ton agenda et de ton calendrier.', en: 'Cancel this meeting? It is removed from your agenda and your calendar.', de: 'Diesen Termin absagen? Er wird aus Ihrer Agenda und Ihrem Kalender entfernt.', it: 'Annullare questo appuntamento? Sarà rimosso dalla tua agenda e dal calendario.', es: '¿Cancelar esta cita? Se eliminará de tu agenda y de tu calendario.', pt: 'Cancelar esta reunião? Será removida da tua agenda e do teu calendário.', nl: 'Deze afspraak annuleren? Hij verdwijnt uit je agenda en je kalender.' },
+   persoNote: { fr: "Contact ajouté à la main : Aaron ne suit pas ses échanges, il n'y a donc ni brief ni historique.", en: 'Contact added by hand: Aaron does not follow its exchanges, so there is no brief or history.', de: 'Von Hand hinzugefügter Kontakt: Aaron verfolgt den Austausch nicht, daher gibt es weder Briefing noch Verlauf.', it: 'Contatto aggiunto a mano: Aaron non segue gli scambi, quindi non ci sono brief né storico.', es: 'Contacto añadido a mano: Aaron no sigue sus intercambios, así que no hay brief ni historial.', pt: 'Contacto adicionado à mão: o Aaron não acompanha as trocas, por isso não há brief nem histórico.', nl: 'Handmatig toegevoegd contact: Aaron volgt de uitwisselingen niet, dus geen briefing of geschiedenis.' },
+ };
+@@ -330,12 +336,12 @@ export default function AgendaPage() {
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [userId]);
+ 
+-  async function handleAction(appointmentId, action, force = false) {
++  async function handleAction(appointmentId, action, force = false, extra = {}) {
+     setActingOn(appointmentId);
+     const res = await fetch(`/api/appointments/${appointmentId}`, {
+       method: 'PATCH',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ action, force }),
++      body: JSON.stringify({ action, force, ...extra }),
+     });
+     setActingOn(null);
+ 
+@@ -649,7 +655,8 @@ export default function AgendaPage() {
+           typeLabels={TYPE_LABELS}
+           statusMeta={STATUS_META}
+           acting={actingOn === detailAppointment.id}
+-          onCancel={async () => { await handleAction(detailAppointment.id, 'annuler'); setDetailAppointment(null); }}
++          onCancel={async (extra) => { await handleAction(detailAppointment.id, 'annuler', false, extra || {}); setDetailAppointment(null); }}
++          onReschedule={async (newISO) => { await handleAction(detailAppointment.id, 'reporter', true, { new_proposed_at: newISO }); setDetailAppointment(null); }}
+           onClose={() => setDetailAppointment(null)}
+         />
+       )}
+@@ -801,17 +808,20 @@ export default function AgendaPage() {
+                       >
+                         {t('agenda.actionValidate', locale)}
+                       </button>
++                      {/* Report et annulation passent par la fiche du RDV
++                          (08/11/2026) : choix du nouveau créneau, email
++                          d'annulation relu avant envoi. */}
+                       <button
+                         className="btn-neutral"
+                         disabled={actingOn === a.id}
+-                        onClick={() => handleAction(a.id, 'reporter')}
++                        onClick={() => setDetailAppointment(a)}
+                       >
+                         {t('agenda.actionPostpone', locale)}
+                       </button>
+                       <button
+                         className="btn-danger"
+                         disabled={actingOn === a.id}
+-                        onClick={() => handleAction(a.id, 'annuler')}
++                        onClick={() => setDetailAppointment(a)}
+                       >
+                         {t('common.cancel', locale)}
+                       </button>
+@@ -2090,7 +2100,7 @@ export default function AgendaPage() {
+ // l'historique brut des échanges (GET /api/prospects/[id]), pour que le
+ // commercial ait tout sous la main avant/après le RDV sans repasser par
+ // Aaron Sales ou Prospects.
+-function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, acting, onCancel, onClose }) {
++function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, acting, onCancel, onReschedule, onClose }) {
+   const [locale] = useLocale();
+   const [messages, setMessages] = useState([]);
+   const [prospect, setProspect] = useState(null);
+@@ -2099,7 +2109,31 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
+   const [briefLoading, setBriefLoading] = useState(!!appointment.prospect_id);
+   const [briefError, setBriefError] = useState(null);
+   const [confirmCancel, setConfirmCancel] = useState(false);
++  // Annulation en deux temps (Alex, 08/11/2026) : confirmation, puis l'email
++  // d'Aaron relu et envoyé par le commercial. Report : nouveau créneau.
++  const [cancelDraft, setCancelDraft] = useState(null); // { subject, body }
++  const [cancelBusy, setCancelBusy] = useState(false);
++  const [rescheduling, setRescheduling] = useState(false);
++  const [newWhen, setNewWhen] = useState('');
+   const hasProspect = !!appointment.prospect_id;
++
++  async function startCancel() {
++    setConfirmCancel(false);
++    if (!hasProspect) { onCancel({}); return; }
++    setCancelBusy(true);
++    try {
++      const res = await fetch(`/api/appointments/${appointment.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'annuler', preview: true }) });
++      const body = await res.json().catch(() => ({}));
++      if (body.already_past || !body.draft) { onCancel({ skip_email: true }); return; }
++      setCancelDraft(body.draft);
++    } finally {
++      setCancelBusy(false);
++    }
++  }
++  function toLocalInputValue(d) {
++    const pad = (n) => String(n).padStart(2, '0');
++    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
++  }
+   const start = new Date(appointment.proposed_at);
+   const durationMin = Number(appointment.duration_minutes) >= 15 ? Number(appointment.duration_minutes) : 60;
+   const end = new Date(start.getTime() + durationMin * 60 * 1000);
+@@ -2181,16 +2215,41 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
+           {isPast && hasProspect && appointment.status !== 'annulé' && (
+             <a className="btn-secondary" href={`/app/agenda/rdv/${appointment.id}/bilan`}>{appointment.outcome ? t('agenda.bilanDone', locale) : t('agenda.bilanTodo', locale)}</a>
+           )}
+-          {!isPast && appointment.status !== 'annulé' && !confirmCancel && (
+-            <button type="button" className="btn-danger-ghost" onClick={() => setConfirmCancel(true)}>{t('stories.cancelRdv', locale)}</button>
++          {!isPast && appointment.status !== 'annulé' && !rescheduling && !cancelDraft && (
++            <button type="button" className="btn-secondary" onClick={() => { setRescheduling(true); setNewWhen(toLocalInputValue(start)); setConfirmCancel(false); }}>{tx('reschedule')}</button>
++          )}
++          {!isPast && appointment.status !== 'annulé' && !confirmCancel && !cancelDraft && (
++            <button type="button" className="btn-danger-ghost" onClick={() => { setConfirmCancel(true); setRescheduling(false); }}>{t('stories.cancelRdv', locale)}</button>
+           )}
+         </div>
++        {rescheduling && (
++          <div className="confirm-box neutral">
++            <p>{tx('rescheduleHint')}</p>
++            <input type="datetime-local" className="when-input" value={newWhen} onChange={(e) => setNewWhen(e.target.value)} />
++            <div className="confirm-actions">
++              <button type="button" className="btn-secondary" onClick={() => setRescheduling(false)} disabled={acting}>{t('common.back', locale)}</button>
++              <button type="button" className="btn-primary" disabled={acting || !newWhen} onClick={() => onReschedule(new Date(newWhen).toISOString())}>{acting ? '…' : tx('rescheduleConfirm')}</button>
++            </div>
++          </div>
++        )}
+         {confirmCancel && (
+           <div className="confirm-box">
+             <p>{hasProspect ? tx('cancelAsk') : tx('cancelAskPerso')}</p>
+             <div className="confirm-actions">
+-              <button type="button" className="btn-secondary" onClick={() => setConfirmCancel(false)} disabled={acting}>{t('common.back', locale)}</button>
+-              <button type="button" className="btn-danger" onClick={onCancel} disabled={acting}>{acting ? '…' : t('stories.cancelRdv', locale)}</button>
++              <button type="button" className="btn-secondary" onClick={() => setConfirmCancel(false)} disabled={acting || cancelBusy}>{t('common.back', locale)}</button>
++              <button type="button" className="btn-danger" onClick={startCancel} disabled={acting || cancelBusy}>{acting || cancelBusy ? '…' : t('stories.cancelRdv', locale)}</button>
++            </div>
++          </div>
++        )}
++        {cancelDraft && (
++          <div className="confirm-box">
++            <p>{tx('cancelDraftTitle')}</p>
++            <input className="when-input" value={cancelDraft.subject} onChange={(e) => setCancelDraft({ ...cancelDraft, subject: e.target.value })} />
++            <textarea className="draft-area" rows={7} value={cancelDraft.body} onChange={(e) => setCancelDraft({ ...cancelDraft, body: e.target.value })} />
++            <div className="confirm-actions">
++              <button type="button" className="btn-secondary" onClick={() => setCancelDraft(null)} disabled={acting}>{t('common.back', locale)}</button>
++              <button type="button" className="btn-secondary" onClick={() => onCancel({ skip_email: true })} disabled={acting}>{tx('cancelSilent')}</button>
++              <button type="button" className="btn-danger" onClick={() => onCancel({ subject: cancelDraft.subject, body: cancelDraft.body })} disabled={acting}>{acting ? '…' : tx('cancelSend')}</button>
+             </div>
+           </div>
+         )}
+@@ -2326,7 +2385,10 @@ function AppointmentDetailModal({ appointment, userId, typeLabels, statusMeta, a
+         .btn-danger-ghost { background: transparent; color: var(--accent-red); border: 1px solid rgba(239, 68, 89, 0.5); margin-left: auto; }
+         .confirm-box { border: 1px solid rgba(239, 68, 89, 0.4); background: rgba(239, 68, 89, 0.08); border-radius: var(--radius-md); padding: 0.8rem 0.9rem; margin-bottom: 0.8rem; font-size: 0.86rem; }
+         .confirm-box p { margin: 0 0 0.6rem; }
+-        .confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
++        .confirm-actions { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; }
++        .confirm-box.neutral { border-color: var(--border); background: var(--surface); }
++        .when-input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; color: var(--text); font: inherit; margin: 0.5rem 0; }
++        .draft-area { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.7rem; color: var(--text); font: inherit; font-size: 0.86rem; line-height: 1.45; resize: vertical; margin-bottom: 0.5rem; }
+         .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; }
+         .read-cell { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.15rem; }
+         .read-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+diff --git a/app/app/bienvenue/page.jsx b/app/app/bienvenue/page.jsx
+index 4c9eda9..c7d3074 100644
+--- a/app/app/bienvenue/page.jsx
++++ b/app/app/bienvenue/page.jsx
+@@ -24,7 +24,7 @@
+ import { useEffect, useMemo, useRef, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser } from '@/lib/supabase-browser';
+-import { t, useLocale } from '@/lib/i18n';
++import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+ import { ONBOARDING_QUESTION_KEYS, suggestionsFor } from '@/lib/onboarding-questions';
+ import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft, Sparkles, Loader2, FileText } from 'lucide-react';
+ 
+@@ -32,6 +32,8 @@ import { Search, PenLine, RefreshCw, Check, Upload, Mail, ArrowRight, ArrowLeft,
+ // de GitHub), comme components/ContactCard.jsx.
+ const W = {
+   fr: {
++    chatSend: 'Envoyer', chatConfirm: 'Oui, c\'est ça', chatAdd: 'Compléter…', chatThinking: 'Aaron réfléchit…', chatFromDoc: 'D\'après ton document, voici ce que je comprends :', chatIntro: 'Réponds avec tes mots, ou pose-moi une question si quelque chose n\'est pas clair.', chatErr: 'Aaron n\'a pas pu répondre, réessaie.',
++    availTitle: 'Quand es-tu disponible pour un rendez-vous ?', availLead: 'Aaron ne proposera que ces créneaux à tes prospects, et confirmera les rendez-vous tout seul quand ils tombent dedans. Tu pourras les changer à tout moment dans l\'Agenda.', availTypes: 'Types de rendez-vous que tu acceptes', availSave: 'Enregistrer mes disponibilités', availSaving: 'Enregistrement…', availFrom: 'de', availTo: 'à', typeVisio: 'Visio', typeTel: 'Téléphone', typePhysique: 'Sur place', availErr: 'Impossible d\'enregistrer, réessaie.',
+     stepOf: 'Étape {n} sur {total}', skip: 'Passer', later: 'Reprendre plus tard', next: 'Suivant', back: 'Précédent', start: "C'est parti",
+     introTitle: 'Bienvenue{name} ! Voici comment Aaron travaille pour toi', introLead: 'Trois minutes de réglages, puis Aaron prend le relais.',
+     c1t: 'Aaron trouve', c1b: 'Il cherche les entreprises qui correspondent à tes clients idéaux.',
+@@ -74,6 +76,8 @@ const W = {
+     saveError: 'Connexion perdue : ta réponse n’a pas été enregistrée. Réessaie.',
+   },
+   en: {
++    chatSend: 'Send', chatConfirm: 'Yes, that\'s it', chatAdd: 'Add something…', chatThinking: 'Aaron is thinking…', chatFromDoc: 'From your document, here is what I understand:', chatIntro: 'Answer in your own words, or ask me a question if something is unclear.', chatErr: 'Aaron could not answer, please try again.',
++    availTitle: 'When are you available for a meeting?', availLead: 'Aaron will only offer these time slots to your prospects, and will confirm meetings on his own when they fall inside them. You can change them any time in the Calendar.', availTypes: 'Meeting types you accept', availSave: 'Save my availability', availSaving: 'Saving…', availFrom: 'from', availTo: 'to', typeVisio: 'Video call', typeTel: 'Phone', typePhysique: 'In person', availErr: 'Could not save, please try again.',
+     stepOf: 'Step {n} of {total}', skip: 'Skip', later: 'Continue later', next: 'Next', back: 'Back', start: "Let's go",
+     introTitle: 'Welcome{name}! Here is how Aaron works for you', introLead: 'Three minutes of setup, then Aaron takes over.',
+     c1t: 'Aaron finds', c1b: 'He looks for companies that match your ideal clients.',
+@@ -116,6 +120,8 @@ const W = {
+     saveError: 'Connection lost: your answer was not saved. Please try again.',
+   },
+   de: {
++    chatSend: 'Senden', chatConfirm: 'Ja, genau', chatAdd: 'Ergänzen…', chatThinking: 'Aaron überlegt…', chatFromDoc: 'Aus deinem Dokument verstehe ich Folgendes:', chatIntro: 'Antworte in deinen Worten oder stell mir eine Frage, wenn etwas unklar ist.', chatErr: 'Aaron konnte nicht antworten, bitte versuche es erneut.',
++    availTitle: 'Wann sind Sie für einen Termin erreichbar?', availLead: 'Aaron schlägt Ihren Interessenten nur diese Zeitfenster vor und bestätigt Termine selbstständig, wenn sie hineinfallen. Sie können sie jederzeit im Kalender ändern.', availTypes: 'Terminarten, die Sie akzeptieren', availSave: 'Verfügbarkeit speichern', availSaving: 'Wird gespeichert…', availFrom: 'von', availTo: 'bis', typeVisio: 'Videoanruf', typeTel: 'Telefon', typePhysique: 'Vor Ort', availErr: 'Speichern nicht möglich, bitte erneut versuchen.',
+     stepOf: 'Schritt {n} von {total}', skip: 'Überspringen', later: 'Später fortsetzen', next: 'Weiter', back: 'Zurück', start: 'Los geht’s',
+     introTitle: 'Willkommen{name}! So arbeitet Aaron für Sie', introLead: 'Drei Minuten Einrichtung, dann übernimmt Aaron.',
+     c1t: 'Aaron findet', c1b: 'Er sucht Unternehmen, die zu Ihren idealen Kunden passen.',
+@@ -158,6 +164,8 @@ const W = {
+     saveError: 'Verbindung verloren: Ihre Antwort wurde nicht gespeichert. Bitte erneut versuchen.',
+   },
+   it: {
++    chatSend: 'Invia', chatConfirm: 'Sì, è così', chatAdd: 'Aggiungi qualcosa…', chatThinking: 'Aaron sta pensando…', chatFromDoc: 'Dal tuo documento, ecco cosa capisco:', chatIntro: 'Rispondi con parole tue, o fammi una domanda se qualcosa non è chiaro.', chatErr: 'Aaron non ha potuto rispondere, riprova.',
++    availTitle: 'Quando sei disponibile per un appuntamento?', availLead: 'Aaron proporrà ai tuoi prospect solo queste fasce orarie e confermerà da solo gli appuntamenti che vi rientrano. Potrai cambiarle in qualsiasi momento nell\'Agenda.', availTypes: 'Tipi di appuntamento che accetti', availSave: 'Salva le mie disponibilità', availSaving: 'Salvataggio…', availFrom: 'dalle', availTo: 'alle', typeVisio: 'Videochiamata', typeTel: 'Telefono', typePhysique: 'Di persona', availErr: 'Impossibile salvare, riprova.',
+     stepOf: 'Passo {n} di {total}', skip: 'Salta', later: 'Riprendi più tardi', next: 'Avanti', back: 'Indietro', start: 'Iniziamo',
+     introTitle: 'Benvenuto{name}! Ecco come lavora Aaron per te', introLead: 'Tre minuti di impostazioni, poi ci pensa Aaron.',
+     c1t: 'Aaron trova', c1b: 'Cerca le aziende che corrispondono ai tuoi clienti ideali.',
+@@ -200,6 +208,8 @@ const W = {
+     saveError: 'Connessione persa: la risposta non è stata salvata. Riprova.',
+   },
+   es: {
++    chatSend: 'Enviar', chatConfirm: 'Sí, es eso', chatAdd: 'Añadir algo…', chatThinking: 'Aaron está pensando…', chatFromDoc: 'Según tu documento, esto es lo que entiendo:', chatIntro: 'Responde con tus palabras o hazme una pregunta si algo no está claro.', chatErr: 'Aaron no ha podido responder, inténtalo de nuevo.',
++    availTitle: '¿Cuándo estás disponible para una reunión?', availLead: 'Aaron solo propondrá estos horarios a tus prospectos y confirmará las reuniones por sí mismo cuando caigan dentro. Puedes cambiarlos en cualquier momento en la Agenda.', availTypes: 'Tipos de reunión que aceptas', availSave: 'Guardar mi disponibilidad', availSaving: 'Guardando…', availFrom: 'de', availTo: 'a', typeVisio: 'Videollamada', typeTel: 'Teléfono', typePhysique: 'Presencial', availErr: 'No se ha podido guardar, inténtalo de nuevo.',
+     stepOf: 'Paso {n} de {total}', skip: 'Omitir', later: 'Continuar más tarde', next: 'Siguiente', back: 'Atrás', start: 'Empezar',
+     introTitle: '¡Bienvenido{name}! Así trabaja Aaron para ti', introLead: 'Tres minutos de ajustes y Aaron toma el relevo.',
+     c1t: 'Aaron encuentra', c1b: 'Busca las empresas que encajan con tus clientes ideales.',
+@@ -242,6 +252,8 @@ const W = {
+     saveError: 'Conexión perdida: tu respuesta no se guardó. Inténtalo de nuevo.',
+   },
+   pt: {
++    chatSend: 'Enviar', chatConfirm: 'Sim, é isso', chatAdd: 'Acrescentar…', chatThinking: 'O Aaron está a pensar…', chatFromDoc: 'Pelo teu documento, é isto que percebo:', chatIntro: 'Responde com as tuas palavras, ou faz-me uma pergunta se algo não estiver claro.', chatErr: 'O Aaron não conseguiu responder, tenta de novo.',
++    availTitle: 'Quando estás disponível para uma reunião?', availLead: 'O Aaron só vai propor estes horários aos teus prospetos e confirma as reuniões sozinho quando caem dentro deles. Podes alterá-los a qualquer momento na Agenda.', availTypes: 'Tipos de reunião que aceitas', availSave: 'Guardar a minha disponibilidade', availSaving: 'A guardar…', availFrom: 'das', availTo: 'às', typeVisio: 'Videochamada', typeTel: 'Telefone', typePhysique: 'Presencial', availErr: 'Não foi possível guardar, tenta de novo.',
+     stepOf: 'Passo {n} de {total}', skip: 'Saltar', later: 'Continuar mais tarde', next: 'Seguinte', back: 'Anterior', start: 'Vamos lá',
+     introTitle: 'Bem-vindo{name}! Eis como o Aaron trabalha para ti', introLead: 'Três minutos de configuração, depois o Aaron trata do resto.',
+     c1t: 'O Aaron encontra', c1b: 'Procura as empresas que correspondem aos teus clientes ideais.',
+@@ -284,6 +296,8 @@ const W = {
+     saveError: 'Ligação perdida: a resposta não foi guardada. Tenta outra vez.',
+   },
+   nl: {
++    chatSend: 'Versturen', chatConfirm: 'Ja, dat klopt', chatAdd: 'Aanvullen…', chatThinking: 'Aaron denkt na…', chatFromDoc: 'Uit je document begrijp ik het volgende:', chatIntro: 'Antwoord in je eigen woorden, of stel me een vraag als iets niet duidelijk is.', chatErr: 'Aaron kon niet antwoorden, probeer het opnieuw.',
++    availTitle: 'Wanneer ben je beschikbaar voor een afspraak?', availLead: 'Aaron stelt je prospects alleen deze tijdsloten voor en bevestigt afspraken zelf wanneer ze erin vallen. Je kunt ze altijd aanpassen in de Agenda.', availTypes: 'Soorten afspraken die je accepteert', availSave: 'Mijn beschikbaarheid opslaan', availSaving: 'Opslaan…', availFrom: 'van', availTo: 'tot', typeVisio: 'Videogesprek', typeTel: 'Telefoon', typePhysique: 'Ter plaatse', availErr: 'Opslaan mislukt, probeer het opnieuw.',
+     stepOf: 'Stap {n} van {total}', skip: 'Overslaan', later: 'Later verdergaan', next: 'Volgende', back: 'Terug', start: 'Aan de slag',
+     introTitle: 'Welkom{name}! Zo werkt Aaron voor je', introLead: 'Drie minuten instellen, daarna neemt Aaron het over.',
+     c1t: 'Aaron zoekt', c1b: 'Hij zoekt bedrijven die passen bij je ideale klanten.',
+@@ -345,12 +359,14 @@ const RETURN_FLAG = 'aaron-welcome-return';
+ const LATER_FLAG = 'aaron-welcome-later';
+ 
+ function stepsFor(invited) {
+-  return invited ? ['intro', 'mailbox', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'end'];
++  // 'availability' (08/11/2026, demande Alex) : plages du lundi au dimanche et
++  // types de rendez-vous, saisis ici plutôt qu'en renvoyant vers l'Agenda.
++  return invited ? ['intro', 'mailbox', 'availability', 'end'] : ['intro', 'company', 'campaign', 'mailbox', 'availability', 'end'];
+ }
+ 
+ export default function BienvenuePage() {
+   const router = useRouter();
+-  const [locale] = useLocale();
++  const [locale, setLocale] = useLocale();
+   const [me, setMe] = useState(null); // { id, company_id }
+   const [state, setState] = useState(null); // réponse de GET /api/welcome
+   const [step, setStep] = useState('intro');
+@@ -366,6 +382,16 @@ export default function BienvenuePage() {
+   const docSaveRef = useRef(null);
+   const [current, setCurrent] = useState('');
+   const [savingAnswer, setSavingAnswer] = useState(false);
++  // Conversation avec Aaron sur la question en cours (08/11/2026) :
++  // thread = [{ role: 'user'|'aaron', content }], proposal = la réponse
++  // nettoyée qu'Aaron propose d'enregistrer, à confirmer ou compléter.
++  const [thread, setThread] = useState([]);
++  const [proposal, setProposal] = useState(null);
++  const [chatBusy, setChatBusy] = useState(false);
++  const threadEndRef = useRef(null);
++  useEffect(() => {
++    try { threadEndRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
++  }, [thread, proposal, chatBusy]);
+   const [docStatus, setDocStatus] = useState(null); // null | 'reading' | { filled, total } | 'none' | 'error'
+   const [summarizing, setSummarizing] = useState(false);
+   const fileRef = useRef(null);
+@@ -447,6 +473,41 @@ export default function BienvenuePage() {
+     goTo(steps[Math.min(steps.length - 1, i + 1)]);
+   }
+ 
++  // ---- Disponibilités ----
++  const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
++  const [avail, setAvail] = useState(() => Object.fromEntries(DAY_ORDER.map((d) => [d, { on: d >= 1 && d <= 5, start: '09:00', end: '18:00' }])));
++  const [availTypes, setAvailTypes] = useState({ visio: true, telephonique: true, physique: true });
++  const [availSaving, setAvailSaving] = useState(false);
++  const dayName = (d) => new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, { weekday: 'long', timeZone: 'UTC' });
++  async function saveAvailability() {
++    if (!me?.id) { nextStep(); return; }
++    setAvailSaving(true);
++    setError(null);
++    try {
++      const types = Object.keys(availTypes).filter((k) => availTypes[k]);
++      const allTypes = types.length === 3 || types.length === 0;
++      const calls = [];
++      for (const d of DAY_ORDER) {
++        const row = avail[d];
++        if (!row.on || row.start >= row.end) continue;
++        for (const type of allTypes ? [null] : types) {
++          calls.push(fetch('/api/availability/rules', {
++            method: 'POST',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify({ user_id: me.id, day_of_week: d, start_time: `${row.start}:00`, end_time: `${row.end}:00`, appointment_type: type }),
++          }));
++        }
++      }
++      const results = await Promise.all(calls);
++      if (results.some((r) => !r.ok)) throw new Error('save');
++      nextStep();
++    } catch (e) {
++      setError(w('availErr', locale));
++    } finally {
++      setAvailSaving(false);
++    }
++  }
++
+   function later() {
+     try { window.sessionStorage.setItem(LATER_FLAG, '1'); } catch (e) {}
+     router.push(`/app/campaigns?user_id=${me?.id || ''}`);
+@@ -456,13 +517,58 @@ export default function BienvenuePage() {
+   function showQuestion(i) {
+     const key = ONBOARDING_QUESTION_KEYS[i];
+     setQIndex(i);
+-    setCurrent(answers[key] ?? drafts[key] ?? '');
++    setCurrent('');
++    resetThread(key);
+     save({ question: i }).catch(() => {});
+   }
+ 
++  // Nouveau fil pour une question : une réponse déjà enregistrée ou tirée du
++  // document est proposée d'emblée (à confirmer ou à compléter).
++  function resetThread(key) {
++    const known = answers[key] ?? drafts[key] ?? '';
++    setThread([]);
++    setProposal(known ? known : null);
++  }
++
++  async function sendToAaron(text) {
++    const q = questions[qIndex];
++    const msg = (text || current).trim();
++    if (!msg || !q) return;
++    const nextThread = [...thread, { role: 'user', content: msg }];
++    setThread(nextThread);
++    setCurrent('');
++    setChatBusy(true);
++    setError(null);
++    try {
++      const res = await fetch('/api/onboarding/chat', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          question_key: q.key,
++          question: q.text,
++          history: proposal && thread.length === 0 ? [{ role: 'aaron', content: proposal }] : thread,
++          message: msg,
++          locale,
++          draft: drafts[q.key] || null,
++          company_name: state?.company_name || null,
++        }),
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok || !body.message) throw new Error(body.error || 'chat');
++      setThread([...nextThread, { role: 'aaron', content: body.message }]);
++      setProposal(body.kind === 'propose' ? body.proposed_answer : null);
++    } catch (e) {
++      setError(w('chatErr', locale));
++    } finally {
++      setChatBusy(false);
++    }
++  }
++
+   async function validateAnswer(skip = false) {
+     const q = questions[qIndex];
+-    const text = skip ? '' : current.trim();
++    // Ce qui est enregistré : la reformulation d'Aaron confirmée, sinon ce
++    // que l'utilisateur a tapé (secours si Aaron n'a rien proposé).
++    const text = skip ? '' : (proposal || current).trim();
+     setSavingAnswer(true);
+     setError(null);
+     try {
+@@ -479,7 +585,9 @@ export default function BienvenuePage() {
+     if (qIndex + 1 < questions.length) {
+       const key = ONBOARDING_QUESTION_KEYS[qIndex + 1];
+       setQIndex(qIndex + 1);
+-      setCurrent(nextAnswers[key] ?? drafts[key] ?? '');
++      setCurrent('');
++      setThread([]);
++      setProposal(nextAnswers[key] ?? drafts[key] ?? null);
+     } else {
+       finishCompany(nextAnswers);
+     }
+@@ -539,7 +647,9 @@ export default function BienvenuePage() {
+   }
+ 
+   function addChip(text) {
+-    setCurrent((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
++    // Une suggestion cliquée est une réponse : elle part à Aaron, qui la
++    // reformule et demande confirmation (08/11/2026).
++    sendToAaron(text);
+   }
+ 
+   // ---- Campagne ----
+@@ -650,7 +760,7 @@ export default function BienvenuePage() {
+   const firstName = state.first_name ? ` ${state.first_name}` : '';
+   const q = questions[qIndex];
+   const chips = q ? suggestionsFor(locale, q.key) : [];
+-  const fromDoc = q && !answers[q.key] && drafts[q.key] && current === drafts[q.key];
++  const fromDoc = q && !answers[q.key] && drafts[q.key] && thread.length === 0 && proposal === drafts[q.key];
+ 
+   return (
+     <div className="wl">
+@@ -660,6 +770,23 @@ export default function BienvenuePage() {
+           <span className="wl-step">{w('stepOf', locale).replace('{n}', String(stepNo)).replace('{total}', String(steps.length))}</span>
+           <span className="wl-bar"><span style={{ width: `${(stepNo / steps.length) * 100}%` }} /></span>
+         </div>
++        {/* Langue changeable dès la première connexion (demande Alex,
++            08/11/2026 : « dans la démo il faut pouvoir changer la langue »).
++            Synchronisée côté serveur comme dans Mon compte. */}
++        <select
++          className="wl-lang"
++          value={locale}
++          onChange={(e) => {
++            const next = e.target.value;
++            setLocale(next);
++            fetch('/api/user/locale', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locale: next }) }).catch(() => {});
++          }}
++          aria-label={t('common.language', locale)}
++        >
++          {LOCALES.map((l) => (
++            <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
++          ))}
++        </select>
+       </header>
+ 
+       <main className="wl-main">
+@@ -727,16 +854,47 @@ export default function BienvenuePage() {
+                       ))}
+                     </span>
+                   </div>
+-                  <h2 className="q-text">{q.text}</h2>
+-                  {chips.length > 0 && (
++                  {/* Conversation avec Aaron (08/11/2026) : la question est
++                      son premier message ; l'utilisateur répond ou demande
++                      une précision ; Aaron reformule et propose la réponse
++                      à enregistrer, que l'on confirme ou que l'on complète. */}
++                  <div className="thread">
++                    <div className="bubble aaron"><span className="who">Aaron</span>{q.text}</div>
++                    {thread.length === 0 && !proposal && <p className="muted small thread-hint">{w('chatIntro', locale)}</p>}
++                    {thread.length === 0 && proposal && (
++                      <div className="bubble aaron"><span className="who">Aaron</span>{fromDoc ? w('chatFromDoc', locale) : ''} {proposal}</div>
++                    )}
++                    {thread.map((m, i) => (
++                      <div key={i} className={`bubble ${m.role}`}><span className="who">{m.role === 'aaron' ? 'Aaron' : (state?.first_name || firstName || '')}</span>{m.content}</div>
++                    ))}
++                    {chatBusy && <div className="bubble aaron muted"><span className="who">Aaron</span>{w('chatThinking', locale)}</div>}
++                    <div ref={threadEndRef} />
++                  </div>
++                  {proposal && !chatBusy && (
++                    <div className="proposal">
++                      <p className="proposal-text">{proposal}</p>
++                      <button type="button" className="btn-primary" disabled={savingAnswer} onClick={() => validateAnswer(false)}>
++                        <Check size={15} aria-hidden="true" /> {w('chatConfirm', locale)}
++                      </button>
++                    </div>
++                  )}
++                  {chips.length > 0 && thread.length === 0 && !proposal && (
+                     <div className="chips" aria-label={w('suggestions', locale)}>
+                       {chips.map((c) => (
+-                        <button type="button" key={c.label} className="chip" onClick={() => addChip(c.text)}>{c.label}</button>
++                        <button type="button" key={c.label} className="chip" disabled={chatBusy} onClick={() => addChip(c.text)}>{c.label}</button>
+                       ))}
+                     </div>
+                   )}
+-                  <textarea rows={4} value={current} placeholder={w('placeholder', locale)} onChange={(e) => setCurrent(e.target.value)} />
+-                  {fromDoc && <p className="muted small">{w('prefilled', locale)}</p>}
++                  <div className="composer">
++                    <textarea
++                      rows={2}
++                      value={current}
++                      placeholder={proposal ? w('chatAdd', locale) : w('placeholder', locale)}
++                      onChange={(e) => setCurrent(e.target.value)}
++                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !chatBusy) { e.preventDefault(); sendToAaron(); } }}
++                    />
++                    <button type="button" className="btn-secondary" disabled={chatBusy || !current.trim()} onClick={() => sendToAaron()}>{w('chatSend', locale)}</button>
++                  </div>
+                   {error && <p className="err">{error}</p>}
+                   <div className="q-actions">
+                     <button type="button" className="btn-ghost" disabled={qIndex === 0 || savingAnswer} onClick={() => showQuestion(qIndex - 1)}>
+@@ -744,9 +902,6 @@ export default function BienvenuePage() {
+                     </button>
+                     <span className="grow" />
+                     <button type="button" className="btn-ghost" disabled={savingAnswer} onClick={() => validateAnswer(true)}>{w('skipQuestion', locale)}</button>
+-                    <button type="button" className="btn-primary" disabled={savingAnswer || !current.trim()} onClick={() => validateAnswer(false)}>
+-                      {w('validate', locale)} <ArrowRight size={15} aria-hidden="true" />
+-                    </button>
+                   </div>
+                 </div>
+               </>
+@@ -873,6 +1028,43 @@ export default function BienvenuePage() {
+           </section>
+         )}
+ 
++        {step === 'availability' && (
++          <section>
++            <h1>{w('availTitle', locale)}</h1>
++            <p className="lead">{w('availLead', locale)}</p>
++            <div className="panel">
++              <div className="avail-grid">
++                {DAY_ORDER.map((d) => (
++                  <div key={d} className={`avail-row${avail[d].on ? '' : ' off'}`}>
++                    <label className="avail-day">
++                      <input type="checkbox" checked={avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], on: e.target.checked } })} />
++                      <span>{dayName(d)}</span>
++                    </label>
++                    <div className="avail-times">
++                      <span className="muted small">{w('availFrom', locale)}</span>
++                      <input type="time" value={avail[d].start} disabled={!avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], start: e.target.value } })} />
++                      <span className="muted small">{w('availTo', locale)}</span>
++                      <input type="time" value={avail[d].end} disabled={!avail[d].on} onChange={(e) => setAvail({ ...avail, [d]: { ...avail[d], end: e.target.value } })} />
++                    </div>
++                  </div>
++                ))}
++              </div>
++              <span className="lbl" style={{ marginTop: '1rem' }}>{w('availTypes', locale)}</span>
++              <div className="chips">
++                {[['visio', 'typeVisio'], ['telephonique', 'typeTel'], ['physique', 'typePhysique']].map(([key, lk]) => (
++                  <button type="button" key={key} className={`chip${availTypes[key] ? ' on' : ''}`} aria-pressed={availTypes[key]} onClick={() => setAvailTypes({ ...availTypes, [key]: !availTypes[key] })}>{w(lk, locale)}</button>
++                ))}
++              </div>
++              {error && <p className="err">{error}</p>}
++              <div className="row-end">
++                <button type="button" className="btn-primary" disabled={availSaving} onClick={saveAvailability}>
++                  {availSaving ? w('availSaving', locale) : w('availSave', locale)} <ArrowRight size={15} aria-hidden="true" />
++                </button>
++              </div>
++            </div>
++          </section>
++        )}
++
+         {step === 'end' && (
+           <section>
+             <h1>{w('endTitle', locale)}</h1>
+@@ -904,6 +1096,7 @@ export default function BienvenuePage() {
+         .wl { min-height: 100vh; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+         .wl-top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+         .wl-logo { width: 32px; height: 32px; border-radius: 8px; }
++        .wl-lang { margin-left: auto; background: var(--surface); border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.35rem 0.5rem; font-size: 0.76rem; font-family: inherit; cursor: pointer; max-width: 110px; }
+         .wl-progress { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; max-width: 520px; }
+         .wl-step { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+         .wl-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; display: block; }
+@@ -912,6 +1105,14 @@ export default function BienvenuePage() {
+         h1 { font-family: var(--font-display); font-size: 1.55rem; line-height: 1.25; margin: 0.4rem 0 0.5rem; }
+         .lead { color: var(--muted); font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.2rem; }
+         .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
++        .avail-grid { display: grid; gap: 0.45rem; }
++        .avail-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
++        .avail-row:last-child { border-bottom: 0; }
++        .avail-row.off .avail-times { opacity: 0.45; }
++        .avail-day { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; text-transform: capitalize; min-width: 9rem; cursor: pointer; }
++        .avail-day input { width: 16px; height: 16px; accent-color: var(--accent); }
++        .avail-times { display: inline-flex; align-items: center; gap: 0.4rem; }
++        .avail-times input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.45rem; color: var(--text); font: inherit; font-size: 0.86rem; }
+         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; }
+         .card h3 { margin: 0.6rem 0 0.3rem; font-size: 1rem; }
+         .card p { margin: 0; color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
+@@ -948,6 +1149,17 @@ export default function BienvenuePage() {
+         textarea, input, select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; color: var(--text); font-size: 0.92rem; font-family: inherit; }
+         textarea { resize: vertical; }
+         .q-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
++        .thread { display: flex; flex-direction: column; gap: 0.55rem; margin: 0.6rem 0 0.8rem; max-height: 46vh; overflow-y: auto; padding-right: 0.2rem; }
++        .bubble { position: relative; max-width: 92%; padding: 0.65rem 0.8rem 0.6rem; border-radius: 14px; font-size: 0.93rem; line-height: 1.45; white-space: pre-line; }
++        .bubble .who { display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.2rem; }
++        .bubble.aaron { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
++        .bubble.user { align-self: flex-end; background: rgba(75, 57, 239, 0.16); border: 1px solid rgba(124, 110, 245, 0.45); border-bottom-right-radius: 4px; }
++        .bubble.muted { color: var(--muted); font-style: italic; }
++        .thread-hint { margin: 0; }
++        .proposal { display: flex; align-items: flex-start; gap: 0.7rem; flex-wrap: wrap; background: rgba(61, 163, 93, 0.1); border: 1px solid rgba(61, 163, 93, 0.45); border-radius: var(--radius-md); padding: 0.7rem 0.8rem; margin-bottom: 0.7rem; }
++        .proposal-text { flex: 1 1 220px; margin: 0; font-size: 0.9rem; line-height: 1.45; }
++        .composer { display: flex; gap: 0.5rem; align-items: flex-end; }
++        .composer textarea { flex: 1; margin: 0; }
+         .grow { flex: 1; }
+         .form { display: flex; flex-direction: column; gap: 0.85rem; }
+         .form label, .field { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem; color: var(--muted); font-weight: 600; }
+diff --git a/app/app/customer/page.jsx b/app/app/customer/page.jsx
+index f5f3e22..79f39a0 100644
+--- a/app/app/customer/page.jsx
++++ b/app/app/customer/page.jsx
+@@ -11,6 +11,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import Translated from '@/components/Translated';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -903,7 +904,7 @@ export default function CustomerPage() {
+                         <>
+                           <p><strong>{t('customer.scoreLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_score != null ? `${selectedCustomer.latest_checkin.response_score}/10` : t('customer.notProvided', locale)}</p>
+                           {selectedCustomer.latest_checkin.response_comment && (
+-                            <p><strong>{t('customer.commentLabel', locale)}</strong> {selectedCustomer.latest_checkin.response_comment}</p>
++                            <p><strong>{t('customer.commentLabel', locale)}</strong> <Translated text={selectedCustomer.latest_checkin.response_comment} locale={locale} /></p>
+                           )}
+                         </>
+                       ) : (
+@@ -917,7 +918,7 @@ export default function CustomerPage() {
+                   <section className="block">
+                     <h3>{t('customer.upsellTitle', locale)}</h3>
+                     <div className="brief-box">
+-                      <p>{selectedCustomer.upsell_suggestion}</p>
++                      <Translated as="p" text={selectedCustomer.upsell_suggestion} locale={locale} />
+                     </div>
+                     <button className="btn-secondary" onClick={() => handleDismissUpsell(selectedCustomer.id)}>
+                       {t('customer.dismiss', locale)}
+@@ -948,7 +949,7 @@ export default function CustomerPage() {
+                       ) : selectedCustomer.renewal_email_subject ? (
+                         <div className="email-preview">
+                           <p className="email-subject">{selectedCustomer.renewal_email_subject}</p>
+-                          <p className="email-body" style={{ whiteSpace: 'pre-line' }}>{selectedCustomer.renewal_email_body}</p>
++                          <Translated as="p" className="email-body" style={{ whiteSpace: 'pre-line' }} text={selectedCustomer.renewal_email_body} locale={locale} />
+                           {renewalError && <p className="error">{renewalError}</p>}
+                           <button className="btn-secondary" onClick={() => handleGenerateRenewal(selectedCustomer.id, true)} disabled={renewalLoading}>
+                             {renewalLoading ? t('customer.regenerating', locale) : t('customer.regenerate', locale)}
+diff --git a/app/login/page.jsx b/app/login/page.jsx
+index f42361e..ceecb55 100644
+--- a/app/login/page.jsx
++++ b/app/login/page.jsx
+@@ -5,7 +5,28 @@ import { useEffect, useRef, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext, revokeStaleSessionOnLoginPage } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+-import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
++import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage, passwordChecks, passwordRuleLabels } from '@/lib/password-policy';
++
++// Liste des règles sous le champ mot de passe (inscription et réinitialisation),
++// cochées au fur et à mesure de la saisie ; rouge seulement après un refus.
++function PasswordRules({ password, confirm, showConfirm, attempted, locale }) {
++  const c = passwordChecks(password);
++  const L = passwordRuleLabels(locale);
++  const rows = [
++    ['length', c.length], ['lower', c.lower], ['upper', c.upper], ['digit', c.digit], ['spaces', c.spaces],
++    ...(showConfirm ? [['match', !!password && password === confirm]] : []),
++  ];
++  return (
++    <ul className="pw-rules" aria-live="polite">
++      {rows.map(([key, ok]) => (
++        <li key={key} className={ok ? 'ok' : attempted ? 'ko' : ''}>
++          <span className="pw-dot" aria-hidden="true">{ok ? '✓' : '·'}</span>
++          {L[key]}
++        </li>
++      ))}
++    </ul>
++  );
++}
+ 
+ const MFA_TEXT = {
+   fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
+@@ -26,6 +47,7 @@ export default function LoginPage() {
+   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
+   const [resetToken, setResetToken] = useState(null);
+   const [passwordConfirm, setPasswordConfirm] = useState('');
++  const [pwAttempted, setPwAttempted] = useState(false);
+   const [email, setEmail] = useState('');
+   const [password, setPassword] = useState('');
+   const [remember, setRemember] = useState(true);
+@@ -238,10 +260,17 @@ export default function LoginPage() {
+       // même règle à l'inscription, à la réinitialisation et au changement,
+       // et la même est imposée côté Supabase Auth.
+       if (passwordPolicyError(password)) {
++        setPwAttempted(true);
+         setError(passwordPolicyMessage(locale));
+         setLoading(false);
+         return;
+       }
++      if (password !== passwordConfirm) {
++        setPwAttempted(true);
++        setError(t('auth.resetMismatch', locale));
++        setLoading(false);
++        return;
++      }
+       const { data, error } = await supabaseBrowser.auth.signUp({ email, password });
+       setLoading(false);
+       if (error) {
+@@ -255,7 +284,7 @@ export default function LoginPage() {
+         const res = await fetch('/api/auth/send-verification', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+-          body: JSON.stringify({ auth_user_id: data.user.id, email }),
++          body: JSON.stringify({ auth_user_id: data.user.id, email, locale }),
+         });
+         if (!res.ok) {
+           setMessage(t('auth.signupPartialError', locale));
+@@ -273,7 +302,7 @@ export default function LoginPage() {
+       const res = await fetch('/api/auth/resend-verification', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ email: unconfirmedEmail }),
++        body: JSON.stringify({ email: unconfirmedEmail, locale }),
+       });
+       if (!res.ok) {
+         setResendMessage(t('auth.resendError', locale));
+@@ -296,7 +325,7 @@ export default function LoginPage() {
+       const res = await fetch('/api/auth/request-password-reset', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ email }),
++        body: JSON.stringify({ email, locale }),
+       });
+       const body = await res.json().catch(() => ({}));
+       if (!res.ok) {
+@@ -314,10 +343,12 @@ export default function LoginPage() {
+   async function handleResetSubmit(e) {
+     e.preventDefault();
+     if (passwordPolicyError(password)) {
++      setPwAttempted(true);
+       setError(passwordPolicyMessage(locale));
+       return;
+     }
+     if (password !== passwordConfirm) {
++      setPwAttempted(true);
+       setError(t('auth.resetMismatch', locale));
+       return;
+     }
+@@ -427,6 +458,7 @@ export default function LoginPage() {
+               required
+               minLength={PASSWORD_MIN_LENGTH}
+             />
++            <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
+             <button type="submit" className="btn-primary" disabled={loading}>
+               {loading ? t('common.loading', locale) : t('auth.resetSubmit', locale)}
+             </button>
+@@ -475,6 +507,22 @@ export default function LoginPage() {
+             required
+             minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : 6}
+           />
++          {mode === 'signup' && (
++            <>
++              {/* Saisie en double et règles visibles pendant la frappe
++                  (demande Alex, 08/11/2026). */}
++              <input
++                type="password"
++                placeholder={t('auth.resetConfirmPassword', locale)}
++                value={passwordConfirm}
++                onChange={(e) => setPasswordConfirm(e.target.value)}
++                autoComplete="new-password"
++                required
++                minLength={PASSWORD_MIN_LENGTH}
++              />
++              <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
++            </>
++          )}
+           {mode === 'signin' && (
+             <label className="remember-row">
+               <input
+@@ -628,6 +676,19 @@ export default function LoginPage() {
+           gap: 0.6rem;
+           margin-bottom: 0.8rem;
+         }
++        .pw-rules {
++          list-style: none;
++          margin: -0.2rem 0 0.2rem;
++          padding: 0;
++          display: grid;
++          gap: 0.15rem;
++          font-size: 0.78rem;
++          color: var(--muted, #8b90a8);
++        }
++        .pw-rules li { display: flex; align-items: center; gap: 0.4rem; }
++        .pw-rules li.ok { color: var(--accent-green, #3DA35D); }
++        .pw-rules li.ko { color: #e5484d; }
++        .pw-dot { display: inline-block; width: 1em; text-align: center; font-weight: 700; }
+         .form input {
+           background: #0b0e1a;
+           border: 1px solid #232744;
+diff --git a/app/onboarding/page.jsx b/app/onboarding/page.jsx
+index deb1c8f..23aca77 100644
+--- a/app/onboarding/page.jsx
++++ b/app/onboarding/page.jsx
+@@ -4,7 +4,7 @@
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
+-import { useLocale, localeForCountry, t } from '@/lib/i18n';
++import { useLocale, localeForCountry, t, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+ import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
+ import Ic from '@/components/UiIcon';
+ import { isNativeApp } from '@/lib/native-app';
+@@ -508,6 +508,24 @@ const BILLING_TEXT = {
+ };
+ const bt = (key, locale) => (BILLING_TEXT[locale] || BILLING_TEXT.fr)[key] || BILLING_TEXT.fr[key];
+ 
++// Choix de la langue sur chaque écran d'inscription (demande Alex,
++// 08/11/2026) — même sélecteur que la page de connexion.
++function LangPicker({ locale, setLocale }) {
++  return (
++    <select
++      className="ob-lang"
++      value={locale}
++      onChange={(e) => setLocale(e.target.value)}
++      aria-label={t('common.language', locale)}
++      style={{ background: '#0b0e1a', border: '1px solid #232744', color: '#8b90a8', borderRadius: 8, padding: '0.35rem 0.5rem', fontSize: '0.76rem', fontFamily: 'inherit', marginBottom: '0.9rem', cursor: 'pointer' }}
++    >
++      {LOCALES.map((l) => (
++        <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
++      ))}
++    </select>
++  );
++}
++
+ export default function OnboardingPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+@@ -708,6 +726,7 @@ export default function OnboardingPage() {
+     return (
+       <div className="wrap">
+         <div className="card">
++          <LangPicker locale={locale} setLocale={setLocale} />
+           <img src="/icon.png" alt="Meet Aaron" className="logo" />
+           <h1>{st('welcome', locale)}</h1>
+ 
+@@ -839,6 +858,7 @@ export default function OnboardingPage() {
+     <div className="wrap">
+       {signupPath !== 'invite_code' ? (
+         <form className="card" onSubmit={handlePatronSubmit}>
++          <LangPicker locale={locale} setLocale={setLocale} />
+           <img src="/icon.png" alt="Meet Aaron" className="logo" />
+           <h1>{st('createTitle', locale)}</h1>
+           <p className="subtitle">{st('createSub', locale)}</p>
+@@ -977,6 +997,7 @@ export default function OnboardingPage() {
+         </form>
+       ) : (
+         <form className="card" onSubmit={handleJoinCompany}>
++          <LangPicker locale={locale} setLocale={setLocale} />
+           <img src="/icon.png" alt="Meet Aaron" className="logo" />
+           <h1>{st('joinTitle', locale)}</h1>
+           <p className="subtitle">{st('joinSub', locale)}</p>
+diff --git a/components/ActivityFeed.jsx b/components/ActivityFeed.jsx
+index e047fef..b4891f0 100644
+--- a/components/ActivityFeed.jsx
++++ b/components/ActivityFeed.jsx
+@@ -173,6 +173,11 @@ export default function ActivityFeed({ userId, locale, onOpenContact }) {
+   // (capture d'Alex sur iPhone, 07/11/2026). L'erreur est déjà dans la
+   // console serveur (serverError dans /api/activity).
+   if (error) return null;
++  // Compte sans aucune activité sur la période (nouveau compte) : rien non
++  // plus — la checklist et la campagne recommandée disent déjà quoi faire,
++  // une carte « rien pour l'instant » n'ajoute qu'un cadre (capture Alex,
++  // 07/11/2026).
++  if (Array.isArray(events) && events.length === 0) return null;
+ 
+   return (
+     <section className="feed" aria-live="polite">
+diff --git a/components/Translated.jsx b/components/Translated.jsx
+index 7f9f7af..b64cabf 100644
+--- a/components/Translated.jsx
++++ b/components/Translated.jsx
+@@ -128,7 +128,7 @@ export function useTranslation(text, locale) {
+   return tr;
+ }
+ 
+-export default function Translated({ text, locale, as: Tag = 'span', className, format, children, toggleClassName }) {
++export default function Translated({ text, locale, as: Tag = 'span', className, style, format, children, toggleClassName }) {
+   const tr = useTranslation(text, locale);
+   const [showOriginal, setShowOriginal] = useState(false);
+   useEffect(() => {
+@@ -140,7 +140,7 @@ export default function Translated({ text, locale, as: Tag = 'span', className,
+   const shown = tr && !showOriginal ? tr.text : text;
+   return (
+     <>
+-      <Tag className={className}>
++      <Tag className={className} style={style}>
+         {children}
+         {fmt(shown)}
+       </Tag>
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index e2f8c77..a5d6782 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -8,6 +8,7 @@ import { type UsageFeature, callClaude, CACHE_TTL_1H } from './anthropic-client'
+ import { LOCALE_NAMES, normalizeLocale } from './locale-instruction';
+ import { resolveProspectLocale } from './prospect-locale';
+ import { aaronVideoConfigured } from './meeting-link';
++import { computeFreeSlots, AUTO_CONFIRM_MIN_HOURS } from './appointment-flow';
+ import { readFileSync } from 'fs';
+ import path from 'path';
+ 
+@@ -287,6 +288,24 @@ async function buildContext(prospectId: string) {
+     canProvideVideoLink = true;
+   }
+ 
++  // Créneaux où le commercial est réellement disponible (08/11/2026, décision
++  // Alex : « Aaron se base uniquement sur l'agenda et propose de lui-même
++  // des dispos »). Jusqu'à 6 créneaux sur 10 jours, dans le fuseau et la
++  // langue du commercial — voir lib/appointment-flow.ts et la section
++  // CRÉNEAUX du prompt système. Tolérant : liste vide en cas de souci.
++  let freeSlots: { label: string; debut: string }[] = [];
++  let slotsTimeZone: string | null = null;
++  try {
++    const sellerId = prospect.assigned_user_id || prospect.user_id;
++    if (sellerId) {
++      const computed = await computeFreeSlots(sellerId, { locale: normalizeLocale(prospect.users?.locale) });
++      freeSlots = computed.slots.map((sl) => ({ label: sl.label, debut: sl.startISO }));
++      slotsTimeZone = computed.timeZone;
++    }
++  } catch {
++    freeSlots = [];
++  }
++
+   return {
+     company_id: prospect.company_id,
+     // Imputation de l'appel API au commercial du prospect (jauge Mon équipe,
+@@ -320,6 +339,10 @@ async function buildContext(prospectId: string) {
+       // doit pas mettre la visio en avant, plutôt que de promettre un
+       // rendez-vous en ligne dont personne ne recevra le lien.
+       peut_fournir_lien_visio: canProvideVideoLink,
++      // Créneaux libres à proposer, et seulement ceux-là (section CRÉNEAUX).
++      creneaux_disponibles: freeSlots,
++      fuseau_horaire: slotsTimeZone,
++      confirmation_automatique_au_dela_de_heures: AUTO_CONFIRM_MIN_HOURS,
+     },
+     prospect: {
+       nom: prospect.full_name,
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index bfd20fa..806de30 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -185,6 +185,16 @@ Quand `commercial.peut_fournir_lien_visio` vaut `false`, le commercial n'a AUCUN
+ 
+ Quand `commercial.peut_fournir_lien_visio` vaut `true`, les trois formats sont sur un pied d'égalité : propose celui qui convient le mieux au contexte et au profil du prospect. Dans tous les cas, ne mentionne jamais toi-même un lien de visio dans le corps d'un email : il est ajouté automatiquement après validation du rendez-vous (voir RÈGLES ABSOLUES sur les liens que tu ne connais pas).
+ 
++## CRÉNEAUX DE RENDEZ-VOUS (`commercial.creneaux_disponibles`)
++
++`commercial.creneaux_disponibles` est la liste des créneaux où le commercial est RÉELLEMENT libre (plages déclarées, indisponibilités, rendez-vous déjà pris et agenda Google/Outlook déjà déduits), avec leur libellé lisible dans son fuseau (`commercial.fuseau_horaire`) et leur début ISO (`debut`). Règles :
++
++- Quand tu proposes un rendez-vous, propose UNIQUEMENT deux ou trois créneaux pris dans cette liste, avec leur libellé (jour, date, heure). Jamais un créneau qui n'y figure pas, jamais « quand êtes-vous disponible ? » quand la liste n'est pas vide.
++- Si la liste est vide, propose un rendez-vous sans date précise et demande au prospect deux ou trois moments qui l'arrangent.
++- Si le prospect accepte un créneau de la liste, ou en propose un lui-même qui tombe dans les disponibilités du commercial à plus de `commercial.confirmation_automatique_au_dela_de_heures` heures, le rendez-vous est confirmé AUTOMATIQUEMENT par le système : invitation d'agenda et email de confirmation partent dans la foulée. Dans ton `email_draft`, confirme donc le créneau avec assurance (« C'est noté pour mardi 10h ») et annonce que l'invitation arrive — sans lien, sans adresse, l'email de confirmation les contient.
++- Si le prospect contre-propose un créneau qui n'est PAS dans la liste (ou dans moins de `confirmation_automatique_au_dela_de_heures` heures), renseigne quand même `appointment_proposal` avec sa proposition (le commercial pourra l'accepter), MAIS dans `email_draft` reproposes deux créneaux de la liste proches de son souhait, en restant souple (« Ce créneau est pris de mon côté ; mercredi 14h ou jeudi 10h vous iraient-ils ? »). Ne promets pas le créneau qu'il demande.
++- Les libellés sont dans le fuseau du commercial ; si le prospect est manifestement dans un autre pays, précise le fuseau dans l'email (ex. « 10h, heure de Perth »).
++
+ ## GESTION MULTI-CONTACTS D'UNE MÊME SOCIÉTÉ
+ 
+ Si le contexte indique qu'un autre contact de la même société est :
+@@ -294,11 +304,11 @@ Si aucun rendez-vous n'est en cours de proposition, `appointment_proposal` est `
+ 
+ `detected: true` signifie UNIQUEMENT : **le prospect vient, dans le message qu'il t'a envoyé, de confirmer ou de proposer lui-même une date/heure précise** pour un rendez-vous (ex: "oui le 18 août à 14h ça me va", "plutôt aujourd'hui dans 10 min", "on peut faire jeudi matin ?").
+ 
+-`detected` doit rester `false` (donc `appointment_proposal` = `null`) quand c'est TOI (Aaron) qui proposes un créneau au prospect dans le `email_draft` de ce tour-ci, sans qu'il ait encore répondu — ce n'est qu'une offre de ta part, pas un rendez-vous à faire valider par le commercial. Le commercial ne doit être sollicité pour valider un créneau que lorsque le client a lui-même acté une date précise.
++`detected` doit rester `false` (donc `appointment_proposal` = `null`) quand c'est TOI (Aaron) qui proposes un créneau au prospect dans le `email_draft` de ce tour-ci, sans qu'il ait encore répondu — ce n'est qu'une offre de ta part, pas un rendez-vous à faire valider par le commercial. Le système ne traite un créneau (confirmation automatique, ou validation par le commercial dans les cas limites — voir CRÉNEAUX DE RENDEZ-VOUS) que lorsque le client a lui-même acté une date précise.
+ 
+ ### Ne jamais écrire un lien (ou toute autre information) que tu ne connais pas encore (bug remonté par Alex, 27/08/2026)
+ 
+-Même quand `appointment_proposal.detected` passe à `true` (le prospect vient d'accepter/proposer un créneau, y compris un créneau très rapproché du type "dans 10 minutes"), TOI (Aaron) tu ne crées PAS le rendez-vous ni le lien de visio à cet instant précis : tu ne fais que transmettre l'information au commercial (`appointment_proposal`, `action_required_from_sales`), qui doit encore valider ce créneau. Le vrai lien Google Meet (ou Teams) n'est généré qu'APRÈS cette validation, au moment où l'événement est créé dans l'agenda du commercial — et c'est Google/Outlook lui-même qui envoie alors l'invitation contenant ce lien au prospect, pas toi. Concrètement, dans `email_draft.body` (ou `rescue_proposal.body`) de CE tour-ci :
++Même quand `appointment_proposal.detected` passe à `true` (le prospect vient d'accepter/proposer un créneau, y compris un créneau très rapproché du type "dans 10 minutes"), TOI (Aaron) tu ne crées PAS le rendez-vous ni le lien de visio à cet instant précis : tu ne fais que transmettre l'information (`appointment_proposal`) : le système confirme le rendez-vous tout seul s'il est dans les disponibilités et à plus de 24 h, sinon le commercial le valide. Le vrai lien Google Meet (ou Teams) n'est généré qu'à CE moment-là, quand l'événement est créé dans l'agenda du commercial — et l'email de confirmation qui part alors contient ce lien, pas le tien. Concrètement, dans `email_draft.body` (ou `rescue_proposal.body`) de CE tour-ci :
+ 
+ - **N'écris JAMAIS un texte du type "[lien visio à insérer]", "[lien à venir]", "[adresse à confirmer]", ou toute autre variante d'espace réservé entre crochets.** Un email envoyé au prospect avec un tel espace réservé non rempli part tel quel, c'est un email cassé et immédiatement disqualifiant — c'est du texte que TU as écrit, il part exactement comme tu l'as rédigé, personne ne le complète après toi. Cette règle vaut plus largement pour toute information que tu ne connais pas encore avec certitude à cet instant (lien, adresse exacte, numéro de dossier...) : si elle n'est pas dans le contexte fourni, ne l'invente pas ET ne laisse pas de trou visible à sa place — reformule pour ne pas avoir à la mentionner du tout.
+ - **Ne promets jamais d'envoyer toi-même un lien "tout de suite"/"à l'instant"/"dans la minute".** Tu n'as techniquement aucun moyen de le faire à ce tour-ci (voir mécanique ci-dessus). Pour un rendez-vous que le prospect vient d'accepter (visio en particulier), confirme simplement le créneau avec enthousiasme et indique que les détails de connexion vont arriver séparément, sans dire par qui ni sous quel délai précis que tu ne contrôles pas (ex: "Parfait, on se cale sur dans 10 minutes, vous allez recevoir l'invitation avec le lien de connexion très vite." plutôt que "je vous envoie le lien tout de suite : [...]").
+diff --git a/lib/account-emails.ts b/lib/account-emails.ts
+new file mode 100644
+index 0000000..72926da
+--- /dev/null
++++ b/lib/account-emails.ts
+@@ -0,0 +1,48 @@
++// lib/account-emails.ts
++// Les trois emails de compte (confirmation d'adresse, nouveau lien,
++// réinitialisation du mot de passe) dans les 7 langues de l'interface.
++//
++// Remarque d'Alex (08/11/2026) : « J'avais mon site en anglais et j'ai créé
++// le compte. Pourtant l'email de confirmation était en français. » Ces
++// textes étaient en dur en français, et le nom d'expéditeur retombait sur le
++// français faute de ligne users au moment de l'inscription. La page
++// d'inscription envoie désormais sa langue (`locale`), et sendSystemEmail la
++// reçoit pour le nom d'expéditeur.
++
++import { normalizeLocale } from './locale-instruction';
++
++type AccountEmail = { subject: string; body: string };
++
++const VERIFY: Record<string, { subject: string; intro: string; again: string; action: string; ignore: string }> = {
++  fr: { subject: 'Confirmez votre adresse email — Meet Aaron', intro: 'Bienvenue sur Meet Aaron !', again: 'Voici un nouveau lien pour confirmer votre adresse email et activer votre compte Meet Aaron :', action: 'Pour confirmer votre adresse email et activer votre compte, cliquez sur ce lien :', ignore: "Si vous n'êtes pas à l'origine de cette inscription, ignorez simplement cet email." },
++  en: { subject: 'Confirm your email address — Meet Aaron', intro: 'Welcome to Meet Aaron!', again: 'Here is a new link to confirm your email address and activate your Meet Aaron account:', action: 'To confirm your email address and activate your account, click this link:', ignore: 'If you did not sign up, simply ignore this email.' },
++  de: { subject: 'Bestätigen Sie Ihre E-Mail-Adresse — Meet Aaron', intro: 'Willkommen bei Meet Aaron!', again: 'Hier ist ein neuer Link, um Ihre E-Mail-Adresse zu bestätigen und Ihr Meet-Aaron-Konto zu aktivieren:', action: 'Um Ihre E-Mail-Adresse zu bestätigen und Ihr Konto zu aktivieren, klicken Sie auf diesen Link:', ignore: 'Falls Sie sich nicht registriert haben, ignorieren Sie diese E-Mail einfach.' },
++  it: { subject: 'Conferma il tuo indirizzo email — Meet Aaron', intro: 'Benvenuto su Meet Aaron!', again: 'Ecco un nuovo link per confermare il tuo indirizzo email e attivare il tuo account Meet Aaron:', action: 'Per confermare il tuo indirizzo email e attivare il tuo account, clicca su questo link:', ignore: 'Se non sei tu ad aver effettuato questa iscrizione, ignora semplicemente questa email.' },
++  es: { subject: 'Confirma tu dirección de correo — Meet Aaron', intro: '¡Bienvenido a Meet Aaron!', again: 'Aquí tienes un nuevo enlace para confirmar tu dirección de correo y activar tu cuenta Meet Aaron:', action: 'Para confirmar tu dirección de correo y activar tu cuenta, haz clic en este enlace:', ignore: 'Si no has sido tú, ignora simplemente este correo.' },
++  pt: { subject: 'Confirme o seu endereço de email — Meet Aaron', intro: 'Bem-vindo ao Meet Aaron!', again: 'Aqui está um novo link para confirmar o seu endereço de email e ativar a sua conta Meet Aaron:', action: 'Para confirmar o seu endereço de email e ativar a sua conta, clique neste link:', ignore: 'Se não foi você a inscrever-se, ignore simplesmente este email.' },
++  nl: { subject: 'Bevestig je e-mailadres — Meet Aaron', intro: 'Welkom bij Meet Aaron!', again: 'Hier is een nieuwe link om je e-mailadres te bevestigen en je Meet Aaron-account te activeren:', action: 'Klik op deze link om je e-mailadres te bevestigen en je account te activeren:', ignore: 'Heb je je niet aangemeld? Negeer deze e-mail dan gewoon.' },
++};
++
++const RESET: Record<string, { subject: string; hello: string; body: string; ignore: string; sign: string }> = {
++  fr: { subject: 'Réinitialise ton mot de passe Meet Aaron', hello: 'Bonjour{name},', body: 'Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :', ignore: "Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.", sign: 'Aaron' },
++  en: { subject: 'Reset your Meet Aaron password', hello: 'Hello{name},', body: 'You asked to reset the password of your Meet Aaron account. Click this link (valid for 1 hour) to choose a new one:', ignore: 'If you did not make this request, simply ignore this email: your password stays unchanged.', sign: 'Aaron' },
++  de: { subject: 'Setze dein Meet-Aaron-Passwort zurück', hello: 'Hallo{name},', body: 'Du hast darum gebeten, das Passwort deines Meet-Aaron-Kontos zurückzusetzen. Klicke auf diesen Link (1 Stunde gültig), um ein neues zu wählen:', ignore: 'Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach: dein Passwort bleibt unverändert.', sign: 'Aaron' },
++  it: { subject: 'Reimposta la tua password Meet Aaron', hello: 'Ciao{name},', body: 'Hai chiesto di reimpostare la password del tuo account Meet Aaron. Clicca su questo link (valido 1 ora) per sceglierne una nuova:', ignore: 'Se non sei stato tu, ignora semplicemente questa email: la tua password resta invariata.', sign: 'Aaron' },
++  es: { subject: 'Restablece tu contraseña de Meet Aaron', hello: 'Hola{name},', body: 'Has pedido restablecer la contraseña de tu cuenta Meet Aaron. Haz clic en este enlace (válido 1 hora) para elegir una nueva:', ignore: 'Si no has sido tú, ignora simplemente este correo: tu contraseña no cambia.', sign: 'Aaron' },
++  pt: { subject: 'Repõe a tua palavra-passe Meet Aaron', hello: 'Olá{name},', body: 'Pediste para repor a palavra-passe da tua conta Meet Aaron. Clica neste link (válido 1 hora) para escolher uma nova:', ignore: 'Se não foste tu, ignora simplesmente este email: a tua palavra-passe mantém-se.', sign: 'Aaron' },
++  nl: { subject: 'Stel je Meet Aaron-wachtwoord opnieuw in', hello: 'Hallo{name},', body: 'Je hebt gevraagd om het wachtwoord van je Meet Aaron-account opnieuw in te stellen. Klik op deze link (1 uur geldig) om een nieuw wachtwoord te kiezen:', ignore: 'Heb je dit niet aangevraagd? Negeer deze e-mail dan gewoon: je wachtwoord blijft ongewijzigd.', sign: 'Aaron' },
++};
++
++export function verificationEmail(locale: string | null | undefined, verifyUrl: string, again = false): AccountEmail {
++  const T = VERIFY[normalizeLocale(locale)] || VERIFY.fr;
++  const body = again
++    ? `${T.again}\n${verifyUrl}\n\n${T.ignore}`
++    : `${T.intro}\n\n${T.action}\n${verifyUrl}\n\n${T.ignore}`;
++  return { subject: T.subject, body };
++}
++
++export function passwordResetEmail(locale: string | null | undefined, link: string, firstName?: string | null): AccountEmail {
++  const T = RESET[normalizeLocale(locale)] || RESET.fr;
++  const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${T.ignore}\n\n${T.sign}`;
++  return { subject: T.subject, body };
++}
+diff --git a/lib/appointment-flow.ts b/lib/appointment-flow.ts
+new file mode 100644
+index 0000000..233d4a8
+--- /dev/null
++++ b/lib/appointment-flow.ts
+@@ -0,0 +1,438 @@
++// lib/appointment-flow.ts
++//
++// LE RENDEZ-VOUS SANS DEVOIRS (décision Alex, 08/11/2026).
++//
++// Avant : chaque créneau accepté par un prospect créait un rendez-vous
++// « proposé » que le commercial devait valider à la main (story « Rendez-
++// vous à valider ») — et tant qu'il ne cliquait pas, le prospect ne recevait
++// ni invitation ni confirmation. Axel ne l'a jamais fait.
++//
++// Maintenant :
++//   1. Aaron ne propose QUE des créneaux où le commercial est disponible
++//      (computeFreeSlots : plages déclarées — sinon lundi–vendredi 8h–19h du
++//      fuseau du commercial —, moins les indisponibilités, les rendez-vous
++//      déjà validés et l'agenda Google/Outlook).
++//   2. Dès que le prospect accepte un créneau (appointment_proposal), le
++//      rendez-vous est confirmé tout seul : événement d'agenda, lien visio,
++//      email de confirmation dans la langue du prospect (confirmAppointment).
++//   3. UNE exception : un rendez-vous à moins de 24 h reste « proposé » et
++//      attend la validation du commercial — le seul cas où le risque qu'il
++//      ne voie pas la notification à temps justifie un clic (Alex proposait
++//      3 jours ; 24 h, parce qu'au-delà les notifications push et le rappel
++//      30 min avant suffisent, et 3 jours recréerait les devoirs).
++//   4. Un créneau hors disponibilités (le prospect contre-propose) reste
++//      « proposé » lui aussi, mais Aaron repropose de lui-même des créneaux
++//      libres dans sa réponse (voir le contexte `creneaux_disponibles` dans
++//      lib/aaron.ts) — le commercial n'a rien à faire sauf s'il veut forcer.
++//   5. Depuis un rendez-vous, le commercial peut annuler (Aaron prépare
++//      l'email, le commercial l'envoie) ou reporter (nouveau créneau, le
++//      prospect est prévenu) — textes en 7 langues plus bas.
++
++import { supabaseAdmin } from './supabase-admin';
++import { createGoogleCalendarEvent } from './google';
++import { createOutlookCalendarEvent } from './microsoft';
++import { deleteGoogleCalendarEvent, deleteOutlookCalendarEvent } from './calendar-sync';
++import { sendEmailForUser, getFreeBusyForUser } from './messaging';
++import { resolveMeetingLink } from './meeting-link';
++import { resolveProspectLocale } from './prospect-locale';
++import { resolveUserTimeZone } from './user-timezone';
++import { runInBackground } from './background';
++
++export const AUTO_CONFIRM_MIN_HOURS = 24;
++
++export type AppointmentType = 'visio' | 'telephonique' | 'physique';
++
++// 18/10/2026 (Alex : « de base ça se met sur 1 h ») : la durée saisie prime,
++// sinon 60 min.
++export function durationMinutesFor(stored?: number | null): number {
++  if (Number.isFinite(Number(stored)) && Number(stored) >= 15) return Number(stored);
++  return 60;
++}
++
++// ---------------------------------------------------------------------------
++// Disponibilités
++// ---------------------------------------------------------------------------
++
++// Heure locale (dans le fuseau du commercial) d'un instant : jour de semaine
++// (0 = dimanche), « HH:MM:SS », et la date « YYYY-MM-DD ».
++function localParts(d: Date, tz: string): { dow: number; time: string; ymd: string } {
++  const parts = new Intl.DateTimeFormat('en-US', {
++    timeZone: tz, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
++  }).formatToParts(d);
++  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
++  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
++  const hour = get('hour') === '24' ? '00' : get('hour');
++  return { dow: dowMap[get('weekday')] ?? 0, time: `${hour}:${get('minute')}:${get('second')}`, ymd: `${get('year')}-${get('month')}-${get('day')}` };
++}
++
++// Décalage (minutes) entre UTC et le fuseau à un instant donné.
++function tzOffsetMinutes(d: Date, tz: string): number {
++  const p = localParts(d, tz);
++  const asUtc = Date.UTC(Number(p.ymd.slice(0, 4)), Number(p.ymd.slice(5, 7)) - 1, Number(p.ymd.slice(8, 10)), Number(p.time.slice(0, 2)), Number(p.time.slice(3, 5)), Number(p.time.slice(6, 8)));
++  return Math.round((asUtc - d.getTime()) / 60000);
++}
++
++// Instant UTC correspondant à « ce jour à HH:MM » dans le fuseau.
++function localToUtc(ymd: string, hhmm: string, tz: string): Date {
++  const [y, m, d] = ymd.split('-').map(Number);
++  const [h, mi] = hhmm.split(':').map(Number);
++  const guess = new Date(Date.UTC(y, m - 1, d, h, mi, 0));
++  const off = tzOffsetMinutes(guess, tz);
++  const first = new Date(guess.getTime() - off * 60000);
++  // Deuxième passe pour les jours de changement d'heure.
++  const off2 = tzOffsetMinutes(first, tz);
++  return off2 === off ? first : new Date(guess.getTime() - off2 * 60000);
++}
++
++type Rule = { day_of_week: number; start_time: string; end_time: string; appointment_type: string | null };
++
++// Plages par défaut quand aucune règle n'est déclarée : lundi–vendredi
++// 08:00–19:00 (avant : « disponible en permanence », donc aussi le dimanche à
++// 3 h du matin si un prospect le proposait).
++const DEFAULT_RULES: Rule[] = [1, 2, 3, 4, 5].map((dow) => ({ day_of_week: dow, start_time: '08:00:00', end_time: '19:00:00', appointment_type: null }));
++
++function ruleMatchesType(rule: Rule, type?: string | null): boolean {
++  if (!rule.appointment_type || !type) return true;
++  const norm = (v: string) => (v === 'tel' ? 'telephonique' : v);
++  return norm(rule.appointment_type) === norm(type);
++}
++
++async function loadRules(userId: string): Promise<{ rules: Rule[]; declared: boolean }> {
++  const { data } = await supabaseAdmin
++    .from('availability_rules')
++    .select('day_of_week, start_time, end_time, appointment_type')
++    .eq('user_id', userId);
++  const rules = (data || []) as Rule[];
++  return rules.length ? { rules, declared: true } : { rules: DEFAULT_RULES, declared: false };
++}
++
++// Raisons pour lesquelles [startISO, endISO] n'est PAS disponible (vide =
++// disponible). Fuseau du commercial pour les plages (avant : UTC du serveur,
++// donc faux de sept heures à Perth).
++export async function schedulingConflicts(userId: string, startISO: string, endISO: string, type?: string | null): Promise<string[]> {
++  const reasons: string[] = [];
++  const start = new Date(startISO);
++  const end = new Date(endISO);
++
++  const { data: seller } = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', userId).maybeSingle();
++  const tz = resolveUserTimeZone((seller as any) || {});
++
++  const { data: blocks } = await supabaseAdmin
++    .from('availability_blocks')
++    .select('start_at, end_at, reason')
++    .eq('user_id', userId)
++    .lt('start_at', endISO)
++    .gt('end_at', startISO);
++  if (blocks && blocks.length > 0) {
++    reasons.push(`Chevauche une indisponibilité déclarée${blocks[0].reason ? ` (${blocks[0].reason})` : ''}.`);
++  }
++
++  const { rules } = await loadRules(userId);
++  const p = localParts(start, tz);
++  const pe = localParts(new Date(end.getTime() - 1), tz);
++  const within = rules.some((r) => ruleMatchesType(r, type) && r.day_of_week === p.dow && p.time >= r.start_time && pe.time <= r.end_time && pe.ymd === p.ymd);
++  if (!within) reasons.push('En dehors des créneaux de disponibilité déclarés.');
++
++  const { data: taken } = await supabaseAdmin
++    .from('appointments')
++    .select('id, proposed_at, duration_minutes')
++    .eq('user_id', userId)
++    .eq('status', 'validé')
++    .gte('proposed_at', new Date(start.getTime() - 4 * 3600 * 1000).toISOString())
++    .lte('proposed_at', endISO);
++  const clash = (taken || []).some((a: any) => {
++    const s = new Date(a.proposed_at).getTime();
++    const e = s + durationMinutesFor(a.duration_minutes) * 60000;
++    return s < end.getTime() && e > start.getTime();
++  });
++  if (clash) reasons.push('Chevauche un rendez-vous déjà confirmé.');
++
++  try {
++    const busy = await getFreeBusyForUser(userId, startISO, endISO);
++    if (busy.some((b) => new Date(b.start) < end && new Date(b.end) > start)) {
++      reasons.push('Chevauche un événement déjà présent sur votre agenda (Google ou Outlook).');
++    }
++  } catch {
++    /* agenda injoignable : on ne bloque pas sur ce critère */
++  }
++  return reasons;
++}
++
++export type FreeSlot = { startISO: string; endISO: string; label: string };
++
++// Créneaux libres à proposer au prospect : jusqu'à `max` créneaux répartis
++// sur `days` jours, en évitant de tout concentrer le même jour (au plus
++// `perDay` par jour). Libellés dans la langue demandée et le fuseau du
++// commercial.
++export async function computeFreeSlots(
++  userId: string,
++  options: { days?: number; slotMinutes?: number; max?: number; perDay?: number; type?: string | null; locale?: string; fromISO?: string } = {}
++): Promise<{ slots: FreeSlot[]; timeZone: string; declared: boolean }> {
++  const days = options.days ?? 10;
++  const slotMinutes = options.slotMinutes ?? 60;
++  const max = options.max ?? 6;
++  const perDay = options.perDay ?? 2;
++  const locale = options.locale || 'fr';
++
++  const { data: seller } = await supabaseAdmin.from('users').select('timezone, billing_country').eq('id', userId).maybeSingle();
++  const tz = resolveUserTimeZone((seller as any) || {});
++  const { rules, declared } = await loadRules(userId);
++  const now = options.fromISO ? new Date(options.fromISO) : new Date();
++  // Pas avant demain : un créneau « dans deux heures » est rarement tenable.
++  const earliest = new Date(now.getTime() + AUTO_CONFIRM_MIN_HOURS * 3600 * 1000);
++  const horizon = new Date(now.getTime() + days * 86400 * 1000);
++
++  const [{ data: blocks }, { data: taken }] = await Promise.all([
++    supabaseAdmin.from('availability_blocks').select('start_at, end_at').eq('user_id', userId).lt('start_at', horizon.toISOString()).gt('end_at', now.toISOString()),
++    supabaseAdmin.from('appointments').select('proposed_at, duration_minutes').eq('user_id', userId).eq('status', 'validé').gte('proposed_at', now.toISOString()).lte('proposed_at', horizon.toISOString()),
++  ]);
++  let busy: { start: string; end: string }[] = [];
++  try {
++    busy = await getFreeBusyForUser(userId, now.toISOString(), horizon.toISOString());
++  } catch {
++    busy = [];
++  }
++  const blocked = [
++    ...(blocks || []).map((b: any) => [new Date(b.start_at).getTime(), new Date(b.end_at).getTime()]),
++    ...(taken || []).map((a: any) => [new Date(a.proposed_at).getTime(), new Date(a.proposed_at).getTime() + durationMinutesFor(a.duration_minutes) * 60000]),
++    ...busy.map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()]),
++  ];
++  const isFree = (s: number, e: number) => !blocked.some(([bs, be]) => bs < e && be > s);
++
++  const fmt = new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
++  const slots: FreeSlot[] = [];
++  for (let i = 0; i < days && slots.length < max; i++) {
++    const day = new Date(now.getTime() + i * 86400 * 1000);
++    const { dow, ymd } = localParts(day, tz);
++    const dayRules = rules.filter((r) => r.day_of_week === dow && ruleMatchesType(r, options.type));
++    let countDay = 0;
++    // Deux créneaux par jour, pris au début et au milieu de la plage : plus
++    // naturel que deux créneaux collés à 8h et 9h.
++    for (const r of dayRules) {
++      const startMin = Number(r.start_time.slice(0, 2)) * 60 + Number(r.start_time.slice(3, 5));
++      const endMin = Number(r.end_time.slice(0, 2)) * 60 + Number(r.end_time.slice(3, 5));
++      const candidates = [startMin + 60, Math.floor((startMin + endMin) / 2 / 30) * 30, endMin - slotMinutes - 60].filter((m) => m >= startMin && m + slotMinutes <= endMin);
++      for (const m of Array.from(new Set(candidates)).sort((a, b) => a - b)) {
++        if (countDay >= perDay || slots.length >= max) break;
++        const hh = String(Math.floor(m / 60)).padStart(2, '0');
++        const mm = String(m % 60).padStart(2, '0');
++        const s = localToUtc(ymd, `${hh}:${mm}`, tz);
++        const e = new Date(s.getTime() + slotMinutes * 60000);
++        if (s < earliest) continue;
++        if (!isFree(s.getTime(), e.getTime())) continue;
++        slots.push({ startISO: s.toISOString(), endISO: e.toISOString(), label: fmt.format(s) });
++        countDay++;
++      }
++    }
++  }
++  return { slots, timeZone: tz, declared };
++}
++
++// ---------------------------------------------------------------------------
++// Confirmation
++// ---------------------------------------------------------------------------
++
++export const CONFIRMATION_TEXTS: Record<string, { intl: string; subject: string; hello: string; confirmed: string; moved: string; movedSubject: string; types: Record<AppointmentType, string>; link: string; linkLater: string; address: string; invite: string; reschedule: string; bye: string; cancelSubject: string; cancelBody: string; cancelBye: string }> = {
++  fr: { intl: 'fr-FR', subject: "C'est confirmé pour notre rendez-vous", hello: 'Bonjour {name},', confirmed: "C'est confirmé pour notre rendez-vous {type}, le {date}.", movedSubject: 'Notre rendez-vous est décalé', moved: "J'ai dû décaler notre rendez-vous {type} : il est maintenant prévu le {date}. J'espère que ce nouveau créneau vous convient ; sinon, dites-moi ce qui vous arrange.", types: { visio: 'en visio', telephonique: 'par téléphone', physique: 'sur place' }, link: 'Voici le lien pour nous rejoindre : {link}', linkLater: 'Je vous envoie le lien de connexion dans un second email.', address: 'Adresse : {address}', invite: 'Vous recevrez également une invitation pour votre agenda.', reschedule: 'Si vous avez besoin de décaler, répondez simplement à cet email.', bye: 'À très vite,', cancelSubject: 'Concernant notre rendez-vous', cancelBody: "Je suis désolé, je dois annuler notre rendez-vous {type} prévu le {date}. Je reviens vers vous très vite pour vous proposer un nouveau créneau ; si vous avez une préférence, dites-la-moi simplement en réponse à cet email.", cancelBye: 'Avec mes excuses pour ce contretemps,' },
++  en: { intl: 'en-GB', subject: 'Our meeting is confirmed', hello: 'Hello {name},', confirmed: 'Our meeting {type} is confirmed for {date}.', movedSubject: 'Our meeting has moved', moved: 'I had to move our meeting {type}: it is now scheduled for {date}. I hope the new time works for you; if not, just tell me what suits you.', types: { visio: 'by video call', telephonique: 'by phone', physique: 'in person' }, link: 'Here is the link to join: {link}', linkLater: 'I will send you the connection link in a second email.', address: 'Address: {address}', invite: 'You will also receive a calendar invitation.', reschedule: 'If you need to reschedule, just reply to this email.', bye: 'Speak soon,', cancelSubject: 'About our meeting', cancelBody: 'I am sorry, I have to cancel our meeting {type} planned for {date}. I will come back to you very soon with a new time; if you have a preference, just reply to this email.', cancelBye: 'With my apologies for the inconvenience,' },
++  de: { intl: 'de-DE', subject: 'Unser Termin ist bestätigt', hello: 'Guten Tag {name},', confirmed: 'Unser Termin {type} ist bestätigt: {date}.', movedSubject: 'Unser Termin wurde verschoben', moved: 'Ich musste unseren Termin {type} verschieben: er findet nun am {date} statt. Ich hoffe, der neue Zeitpunkt passt Ihnen; falls nicht, sagen Sie mir einfach, was Ihnen besser passt.', types: { visio: 'per Videoanruf', telephonique: 'per Telefon', physique: 'vor Ort' }, link: 'Hier ist der Link zur Teilnahme: {link}', linkLater: 'Den Zugangslink sende ich Ihnen in einer zweiten E-Mail.', address: 'Adresse: {address}', invite: 'Sie erhalten außerdem eine Kalendereinladung.', reschedule: 'Falls Sie verschieben müssen, antworten Sie einfach auf diese E-Mail.', bye: 'Bis bald,', cancelSubject: 'Zu unserem Termin', cancelBody: 'Es tut mir leid, ich muss unseren Termin {type} am {date} absagen. Ich melde mich sehr bald mit einem neuen Vorschlag; wenn Sie eine Präferenz haben, antworten Sie einfach auf diese E-Mail.', cancelBye: 'Mit der Bitte um Entschuldigung,' },
++  it: { intl: 'it-IT', subject: 'Il nostro appuntamento è confermato', hello: 'Buongiorno {name},', confirmed: 'Il nostro appuntamento {type} è confermato per {date}.', movedSubject: 'Il nostro appuntamento è stato spostato', moved: 'Ho dovuto spostare il nostro appuntamento {type}: ora è previsto per {date}. Spero che il nuovo orario le vada bene; in caso contrario, mi dica cosa preferisce.', types: { visio: 'in videochiamata', telephonique: 'per telefono', physique: 'di persona' }, link: 'Ecco il link per collegarsi: {link}', linkLater: 'Le invierò il link di collegamento in una seconda email.', address: 'Indirizzo: {address}', invite: 'Riceverà anche un invito per la sua agenda.', reschedule: 'Se ha bisogno di spostarlo, risponda semplicemente a questa email.', bye: 'A presto,', cancelSubject: 'Riguardo al nostro appuntamento', cancelBody: 'Mi dispiace, devo annullare il nostro appuntamento {type} previsto per {date}. La ricontatto molto presto per proporle un nuovo orario; se ha una preferenza, me lo dica rispondendo a questa email.', cancelBye: 'Con le mie scuse per il contrattempo,' },
++  es: { intl: 'es-ES', subject: 'Nuestra reunión está confirmada', hello: 'Hola {name},', confirmed: 'Nuestra reunión {type} está confirmada para el {date}.', movedSubject: 'Nuestra reunión se ha movido', moved: 'He tenido que mover nuestra reunión {type}: ahora está prevista para el {date}. Espero que el nuevo horario le convenga; si no, dígame qué le viene mejor.', types: { visio: 'por videollamada', telephonique: 'por teléfono', physique: 'presencial' }, link: 'Aquí tiene el enlace para unirse: {link}', linkLater: 'Le enviaré el enlace de conexión en un segundo correo.', address: 'Dirección: {address}', invite: 'También recibirá una invitación para su agenda.', reschedule: 'Si necesita cambiar la fecha, responda simplemente a este correo.', bye: 'Hasta pronto,', cancelSubject: 'Sobre nuestra reunión', cancelBody: 'Lo siento, debo cancelar nuestra reunión {type} prevista para el {date}. Le escribiré muy pronto para proponerle un nuevo horario; si tiene una preferencia, dígamela respondiendo a este correo.', cancelBye: 'Con mis disculpas por el contratiempo,' },
++  pt: { intl: 'pt-PT', subject: 'A nossa reunião está confirmada', hello: 'Olá {name},', confirmed: 'A nossa reunião {type} está confirmada para {date}.', movedSubject: 'A nossa reunião foi adiada', moved: 'Tive de adiar a nossa reunião {type}: está agora marcada para {date}. Espero que o novo horário lhe convenha; caso contrário, diga-me o que prefere.', types: { visio: 'por videochamada', telephonique: 'por telefone', physique: 'presencial' }, link: 'Aqui está o link para entrar: {link}', linkLater: 'Envio-lhe o link de ligação num segundo email.', address: 'Morada: {address}', invite: 'Receberá também um convite para a sua agenda.', reschedule: 'Se precisar de remarcar, basta responder a este email.', bye: 'Até breve,', cancelSubject: 'Sobre a nossa reunião', cancelBody: 'Lamento, tenho de cancelar a nossa reunião {type} prevista para {date}. Volto a contactá-lo muito em breve com um novo horário; se tiver uma preferência, basta responder a este email.', cancelBye: 'Com as minhas desculpas pelo contratempo,' },
++  nl: { intl: 'nl-NL', subject: 'Onze afspraak is bevestigd', hello: 'Hallo {name},', confirmed: 'Onze afspraak {type} is bevestigd voor {date}.', movedSubject: 'Onze afspraak is verplaatst', moved: 'Ik moest onze afspraak {type} verplaatsen: hij staat nu gepland op {date}. Ik hoop dat het nieuwe tijdstip schikt; zo niet, laat me dan weten wat je beter uitkomt.', types: { visio: 'via videogesprek', telephonique: 'telefonisch', physique: 'ter plaatse' }, link: 'Hier is de link om deel te nemen: {link}', linkLater: 'De verbindingslink stuur ik je in een tweede e-mail.', address: 'Adres: {address}', invite: 'Je ontvangt ook een agenda-uitnodiging.', reschedule: 'Moet je verzetten? Beantwoord dan gewoon deze e-mail.', bye: 'Tot snel,', cancelSubject: 'Over onze afspraak', cancelBye: 'Met mijn excuses voor het ongemak,', cancelBody: 'Het spijt me, ik moet onze afspraak {type} van {date} annuleren. Ik kom heel snel bij je terug met een nieuw tijdstip; heb je een voorkeur, antwoord dan gewoon op deze e-mail.' },
++};
++
++type AppointmentRow = {
++  id: string;
++  user_id: string;
++  prospect_id: string | null;
++  type: string;
++  proposed_at: string;
++  duration_minutes?: number | null;
++  status: string;
++  calendar_provider?: string | null;
++  calendar_event_id?: string | null;
++  meet_link?: string | null;
++  prospects?: { full_name: string | null; email: string | null; assigned_user_id: string | null; prospect_companies?: { address?: string | null; found_by_campaign_id?: string | null } | null } | null;
++};
++
++export async function loadAppointment(appointmentId: string): Promise<AppointmentRow | null> {
++  const { data } = await supabaseAdmin
++    .from('appointments')
++    .select('*, prospects(full_name, email, assigned_user_id, prospect_companies(address, found_by_campaign_id))')
++    .eq('id', appointmentId)
++    .single();
++  return (data as any) || null;
++}
++
++async function prospectLanguageAndZone(appointment: AppointmentRow, userId: string) {
++  const [{ data: seller }, { data: campaign }] = await Promise.all([
++    supabaseAdmin.from('users').select('timezone, billing_country, locale, full_name').eq('id', userId).maybeSingle(),
++    appointment.prospects?.prospect_companies?.found_by_campaign_id
++      ? supabaseAdmin.from('prospecting_campaigns').select('target_locale').eq('id', appointment.prospects.prospect_companies.found_by_campaign_id).maybeSingle()
++      : Promise.resolve({ data: null as any }),
++  ]);
++  const locale = resolveProspectLocale({
++    campaignLocale: (campaign as any)?.target_locale || null,
++    address: appointment.prospects?.prospect_companies?.address || null,
++    email: appointment.prospects?.email || null,
++    sellerLocale: (seller as any)?.locale || null,
++  });
++  const tz = resolveUserTimeZone((seller as any) || {});
++  return { locale, tz, seller: seller as any };
++}
++
++function fmtDate(iso: string, T: (typeof CONFIRMATION_TEXTS)['fr'], tz: string) {
++  return new Date(iso).toLocaleString(T.intl, { dateStyle: 'full', timeStyle: 'short', timeZone: tz });
++}
++
++export type ConfirmResult =
++  | { ok: true; calendarWarning: string | null; meetLink: string | null; reasons?: undefined }
++  | { ok: false; conflict: true; reasons: string[]; calendarWarning?: undefined };
++
++// Confirme un rendez-vous : conflits (sauf force), événement d'agenda, lien
++// visio, email de confirmation dans la langue du prospect, prospect en bleu.
++// `moved` : le même parcours pour un report (texte « décalé » au lieu de
++// « confirmé »).
++export async function confirmAppointment(
++  appointmentId: string,
++  userId: string,
++  options: { force?: boolean; moved?: boolean; meetingAddress?: string | null } = {}
++): Promise<ConfirmResult> {
++  const appointment = await loadAppointment(appointmentId);
++  if (!appointment) throw new Error('RDV introuvable');
++
++  const startISO = appointment.proposed_at;
++  const endISO = new Date(new Date(startISO).getTime() + durationMinutesFor(appointment.duration_minutes) * 60000).toISOString();
++
++  if (!options.force) {
++    const reasons = await schedulingConflicts(userId, startISO, endISO, appointment.type);
++    if (reasons.length) return { ok: false, conflict: true, reasons };
++  }
++
++  const { data: connections } = await supabaseAdmin.from('oauth_connections').select('provider').eq('user_id', userId);
++  const hasGoogle = connections?.some((c) => c.provider === 'google');
++  const hasMicrosoft = connections?.some((c) => c.provider === 'microsoft');
++  const name = appointment.prospects?.full_name || '';
++
++  let calendarEvent: any = null;
++  let calendarProvider: 'google' | 'microsoft' | null = null;
++  let calendarWarning: string | null = null;
++  if (hasGoogle) {
++    try {
++      calendarEvent = await createGoogleCalendarEvent(userId, { title: `RDV avec ${name}`, description: `Rendez-vous ${appointment.type} avec ${name}.`, startISO, endISO, attendeeEmail: appointment.prospects?.email || undefined, wantsMeetLink: appointment.type === 'visio' });
++      calendarProvider = 'google';
++    } catch (err: any) {
++      console.error('Erreur creation evenement Google Calendar:', err?.message);
++      calendarWarning = "Le rendez-vous est validé, mais l'invitation d'agenda Google n'a pas pu être créée. Vérifiez la connexion Google dans Mon compte.";
++    }
++  } else if (hasMicrosoft) {
++    try {
++      calendarEvent = await createOutlookCalendarEvent(userId, { title: `RDV avec ${name}`, description: `Rendez-vous ${appointment.type} avec ${name}.`, startISO, endISO, attendeeEmail: appointment.prospects?.email || undefined, wantsMeetLink: appointment.type === 'visio' });
++      calendarProvider = 'microsoft';
++    } catch (err: any) {
++      console.error('Erreur creation evenement Outlook Calendar:', err?.message);
++      calendarWarning = "Le rendez-vous est validé, mais l'invitation d'agenda Outlook n'a pas pu être créée. Vérifiez la connexion Microsoft dans Mon compte.";
++    }
++  }
++
++  const meetLink = appointment.type === 'visio' ? await resolveMeetingLink(userId, (calendarEvent as any)?.meetLink, startISO) : null;
++
++  await supabaseAdmin
++    .from('appointments')
++    .update({ status: 'validé', calendar_provider: calendarProvider, calendar_event_id: calendarEvent?.id || null, meet_link: meetLink })
++    .eq('id', appointmentId);
++
++  if (appointment.prospects?.email) {
++    const { locale, tz, seller } = await prospectLanguageAndZone(appointment, userId);
++    const T = CONFIRMATION_TEXTS[locale] || CONFIRMATION_TEXTS.fr;
++    const typeLabel = T.types[appointment.type as AppointmentType] || T.types.physique;
++    const dateStr = fmtDate(startISO, T, tz);
++    const lines = [T.hello.replace('{name}', name), '', (options.moved ? T.moved : T.confirmed).replace('{type}', typeLabel).replace('{date}', dateStr)];
++    if (meetLink) lines.push('', T.link.replace('{link}', meetLink));
++    else if (appointment.type === 'visio') lines.push('', T.linkLater);
++    // Rendez-vous physique : l'adresse du commercial (sa société) si elle est
++    // connue — « si c'est un rdv physique alors l'adresse » (Alex).
++    if (appointment.type === 'physique') {
++      const address = options.meetingAddress ?? (await sellerAddress(userId));
++      if (address) lines.push('', T.address.replace('{address}', address));
++    }
++    if (calendarProvider) lines.push('', T.invite);
++    lines.push('', T.reschedule, '', T.bye);
++    const subject = options.moved ? T.movedSubject : T.subject;
++    runInBackground(`confirmation RDV ${appointmentId}`, () => sendEmailForUser(userId, appointment.prospects!.email!, subject, lines.join('\n')));
++    void seller;
++  }
++
++  if (appointment.prospect_id) {
++    await supabaseAdmin.from('prospects').update({ status: 'bleu', status_updated_at: new Date().toISOString() }).eq('id', appointment.prospect_id);
++  }
++  return { ok: true, calendarWarning, meetLink };
++}
++
++async function sellerAddress(userId: string): Promise<string | null> {
++  const { data: u } = await supabaseAdmin.from('users').select('company_id').eq('id', userId).maybeSingle();
++  if (!u?.company_id) return null;
++  const { data: c } = await supabaseAdmin.from('companies').select('billing_address').eq('id', u.company_id).maybeSingle();
++  const raw: any = (c as any)?.billing_address || null;
++  if (!raw) return null;
++  if (typeof raw === 'string') return raw;
++  const parts = [raw.line1, raw.line2, [raw.postal_code, raw.city].filter(Boolean).join(' '), raw.country].filter(Boolean);
++  return parts.length ? parts.join(', ') : null;
++}
++
++// Confirmation automatique d'un rendez-vous que le prospect vient d'accepter.
++// Renvoie 'confirmed' ou la raison pour laquelle il reste « proposé ».
++export async function autoConfirmIfPossible(appointmentId: string, userId: string): Promise<{ result: 'confirmed' | 'too_soon' | 'unavailable' | 'error'; reasons?: string[] }> {
++  const appointment = await loadAppointment(appointmentId);
++  if (!appointment || appointment.status !== 'proposé') return { result: 'error' };
++  const hoursAhead = (new Date(appointment.proposed_at).getTime() - Date.now()) / 3600000;
++  if (hoursAhead < AUTO_CONFIRM_MIN_HOURS) return { result: 'too_soon' };
++  try {
++    const r = await confirmAppointment(appointmentId, userId, { force: false });
++    if (r.ok) return { result: 'confirmed' };
++    return { result: 'unavailable', reasons: r.reasons };
++  } catch (err: any) {
++    console.error('[appointment-flow] confirmation automatique:', err?.message || err);
++    return { result: 'error' };
++  }
++}
++
++// ---------------------------------------------------------------------------
++// Annulation et report
++// ---------------------------------------------------------------------------
++
++// Brouillon d'annulation (langue du prospect) que le commercial relit et
++// envoie lui-même.
++export async function cancellationDraft(appointmentId: string, userId: string): Promise<{ subject: string; body: string } | null> {
++  const appointment = await loadAppointment(appointmentId);
++  if (!appointment || !appointment.prospects?.email) return null;
++  const { locale, tz } = await prospectLanguageAndZone(appointment, userId);
++  const T = CONFIRMATION_TEXTS[locale] || CONFIRMATION_TEXTS.fr;
++  const typeLabel = T.types[appointment.type as AppointmentType] || T.types.physique;
++  const body = [T.hello.replace('{name}', appointment.prospects.full_name || ''), '', T.cancelBody.replace('{type}', typeLabel).replace('{date}', fmtDate(appointment.proposed_at, T, tz)), '', T.cancelBye].join('\n');
++  return { subject: T.cancelSubject, body };
++}
++
++export async function removeCalendarEvent(appointment: AppointmentRow, userId: string) {
++  if (!appointment.calendar_event_id || !appointment.calendar_provider) return;
++  try {
++    if (appointment.calendar_provider === 'google') await deleteGoogleCalendarEvent(userId, appointment.calendar_event_id);
++    else if (appointment.calendar_provider === 'microsoft') await deleteOutlookCalendarEvent(userId, appointment.calendar_event_id);
++  } catch (err: any) {
++    console.error('[appointment-flow] suppression événement agenda:', err?.message || err);
++  }
++}
++
++// Report : nouvelle date, ancien événement retiré, nouveau créé, prospect
++// prévenu (« décalé »). Force : le commercial a choisi lui-même la date.
++export async function rescheduleAppointment(appointmentId: string, userId: string, newStartISO: string): Promise<ConfirmResult> {
++  const appointment = await loadAppointment(appointmentId);
++  if (!appointment) throw new Error('RDV introuvable');
++  await removeCalendarEvent(appointment, userId);
++  await supabaseAdmin
++    .from('appointments')
++    .update({ proposed_at: newStartISO, status: 'proposé', calendar_event_id: null, calendar_provider: null, meet_link: null })
++    .eq('id', appointmentId);
++  return confirmAppointment(appointmentId, userId, { force: true, moved: true });
++}
+diff --git a/lib/password-policy.js b/lib/password-policy.js
+index a8a9ee3..41fa1c8 100644
+--- a/lib/password-policy.js
++++ b/lib/password-policy.js
+@@ -42,3 +42,32 @@ const POLICY_TEXT = {
+ export function passwordPolicyMessage(locale) {
+   return POLICY_TEXT[locale] || POLICY_TEXT.fr;
+ }
++
++// Règles affichées PENDANT la saisie (demande Alex, 08/11/2026 : « inclure ça
++// pendant qu'on écrit le mot de passe, comme ça on ne fait pas d'erreur » ;
++// le rouge n'apparaît qu'après une tentative refusée). Même source de vérité
++// que passwordPolicyError ci-dessus.
++export function passwordChecks(password) {
++  const p = typeof password === 'string' ? password : '';
++  return {
++    length: p.length >= PASSWORD_MIN_LENGTH && p.length <= PASSWORD_MAX_LENGTH,
++    lower: /[a-z]/.test(p),
++    upper: /[A-Z]/.test(p),
++    digit: /[0-9]/.test(p),
++    spaces: p === p.trim(),
++  };
++}
++
++const RULE_TEXT = {
++  fr: { length: '10 caractères minimum', lower: 'une minuscule', upper: 'une majuscule', digit: 'un chiffre', spaces: "pas d'espace au début ni à la fin", match: 'les deux mots de passe sont identiques' },
++  en: { length: 'at least 10 characters', lower: 'a lowercase letter', upper: 'an uppercase letter', digit: 'a digit', spaces: 'no leading or trailing space', match: 'both passwords match' },
++  de: { length: 'mindestens 10 Zeichen', lower: 'ein Kleinbuchstabe', upper: 'ein Großbuchstabe', digit: 'eine Ziffer', spaces: 'kein Leerzeichen am Anfang oder Ende', match: 'beide Passwörter stimmen überein' },
++  it: { length: 'almeno 10 caratteri', lower: 'una lettera minuscola', upper: 'una lettera maiuscola', digit: 'una cifra', spaces: "nessuno spazio all'inizio o alla fine", match: 'le due password coincidono' },
++  es: { length: '10 caracteres como mínimo', lower: 'una minúscula', upper: 'una mayúscula', digit: 'un número', spaces: 'sin espacios al principio ni al final', match: 'las dos contraseñas coinciden' },
++  pt: { length: 'pelo menos 10 caracteres', lower: 'uma minúscula', upper: 'uma maiúscula', digit: 'um algarismo', spaces: 'sem espaços no início nem no fim', match: 'as duas palavras-passe coincidem' },
++  nl: { length: 'minimaal 10 tekens', lower: 'een kleine letter', upper: 'een hoofdletter', digit: 'een cijfer', spaces: 'geen spatie aan het begin of eind', match: 'beide wachtwoorden zijn gelijk' },
++};
++
++export function passwordRuleLabels(locale) {
++  return RULE_TEXT[locale] || RULE_TEXT.fr;
++}
+diff --git a/seed_demo_2026-11-08.sql b/seed_demo_2026-11-08.sql
+new file mode 100644
+index 0000000..2094312
+--- /dev/null
++++ b/seed_demo_2026-11-08.sql
+@@ -0,0 +1,203 @@
++-- seed_demo_2026-11-08.sql
++--
++-- Remplit la société « Démo Meet Aaron » (compte aaron+demo@meetaaron.app)
++-- avec des données FICTIVES pour : les captures d'écran des stores, la revue
++-- Apple (compte de démonstration), les testeurs Android.
++--
++-- Deux campagnes : une française (Lyon, restaurants et traiteurs) et une
++-- australienne (Perth, artisans du bâtiment), avec sociétés, contacts,
++-- conversations, rendez-vous, une opportunité et un client gagné.
++-- Toutes les entreprises, personnes et adresses email sont inventées
++-- (domaines en .example.* ne pouvant recevoir d'email réel).
++--
++-- Rejouable : efface d'abord ce qu'il a créé (repère : found_by_campaign_id
++-- des deux campagnes « démo »), jamais les données d'une autre société.
++
++do $$
++declare
++  v_company uuid;
++  v_user uuid;
++  v_camp_fr uuid;
++  v_camp_en uuid;
++  v_pc uuid;
++  v_p uuid;
++  v_conv uuid;
++begin
++  select c.id, u.id into v_company, v_user
++  from public.companies c
++  join public.users u on u.company_id = c.id and u.email = 'aaron+demo@meetaaron.app'
++  where c.name = 'Démo Meet Aaron'
++  limit 1;
++  if v_company is null then
++    raise exception 'Société « Démo Meet Aaron » ou utilisateur aaron+demo@ introuvable — lancer d''abord la SQL du compte démo.';
++  end if;
++
++  -- Nettoyage des précédents passages de ce script.
++  delete from public.messages m using public.conversations cv, public.prospects p
++    where m.conversation_id = cv.id and cv.prospect_id = p.id and p.company_id = v_company;
++  delete from public.conversations cv using public.prospects p where cv.prospect_id = p.id and p.company_id = v_company;
++  delete from public.appointments a using public.prospects p where a.prospect_id = p.id and p.company_id = v_company;
++  delete from public.prospects where company_id = v_company;
++  delete from public.prospect_companies where company_id = v_company;
++  delete from public.prospecting_campaigns where company_id = v_company;
++
++  -- ---------------------------------------------------------------- FR
++  insert into public.prospecting_campaigns (company_id, assigned_user_id, zone_label, zone_type, zone_codes, sector_keywords, company_sizes, target_count, context_notes, target_role, target_locale, status, created_at)
++  values (v_company, v_user, 'Lyon et alentours', 'zone', array['69'], array['restaurant', 'traiteur', 'brasserie'], array['artisan_tpe','pme'], 20,
++          'Mes clients habituels sont des restaurateurs pressés : aller droit au but.', 'Gérant ou chef', 'fr', 'en_cours', now() - interval '12 days')
++  returning id into v_camp_fr;
++
++  -- 1. Maison Delorme — opportunité, RDV fait, devis attendu
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at)
++  values (v_company, 'maison-delorme.example.fr', 'Maison Delorme Traiteur', v_camp_fr, 'https://maison-delorme.example.fr', '14 rue de la République, 69002 Lyon', 'Traiteur événementiel',
++          'Traiteur événementiel lyonnais fondé en 2009, 18 salariés, mariages et séminaires d''entreprise, cuisine de saison.',
++          'Cible idéale : un traiteur qui organise des séminaires d''entreprise a exactement le besoin que vous couvrez, et la taille (18 salariés) permet une décision rapide par la gérante.', 'strong', 'fr', now() - interval '10 days')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Claire Delorme', 'claire.delorme@maison-delorme.example.fr', '+33 4 72 00 00 11', 'Gérante', 'bleu', 'amene_par_aaron',
++          'Elle a demandé un devis pour la saison des séminaires : envoyez-le avant jeudi, elle compare deux prestataires.', 'dominant',
++          'Réponses courtes et directes, décide vite. Parlez résultats et délais, pas détails.', 72, 'Rendez-vous fait, devis demandé spontanément, délai de décision annoncé.', 'rdv_fait', now() - interval '2 days', now() - interval '2 days', now() - interval '10 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'claire.delorme@maison-delorme.example.fr', E'Bonjour Claire,\n\nJ''ai vu que Maison Delorme organise de plus en plus de séminaires d''entreprise. Nous aidons les traiteurs à remplir leur calendrier hors saison des mariages, sans démarchage de leur part.\n\nAuriez-vous 15 minutes la semaine prochaine pour en parler ?\n\nBien à vous,', now() - interval '9 days'),
++    (v_conv, 'inbound', 'claire.delorme@maison-delorme.example.fr', 'aaron+demo@meetaaron.app', E'Bonjour,\n\nOui, mardi 10h me va. Envoyez-moi une invitation.\n\nClaire Delorme', now() - interval '8 days'),
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'claire.delorme@maison-delorme.example.fr', E'Parfait Claire, c''est confirmé pour mardi 10h par téléphone. Vous recevrez une invitation pour votre agenda.\n\nÀ mardi,', now() - interval '8 days'),
++    (v_conv, 'inbound', 'claire.delorme@maison-delorme.example.fr', 'aaron+demo@meetaaron.app', E'Merci pour l''échange de ce matin. Pouvez-vous m''envoyer un devis pour la saison des séminaires (septembre à décembre) ? Je compare avec un autre prestataire d''ici jeudi.\n\nClaire', now() - interval '2 days');
++  insert into public.appointments (prospect_id, user_id, type, proposed_at, status, duration_minutes, outcome, outcome_mood, outcome_recorded_at, created_at)
++  values (v_p, v_user, 'telephonique', now() - interval '2 days' + interval '10 hours', 'validé', 30, 'devis', 'bien', now() - interval '2 days', now() - interval '8 days');
++
++  -- 2. Bistrot Les Tilleuls — a répondu, en bonne voie
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at)
++  values (v_company, 'bistrot-les-tilleuls.example.fr', 'Bistrot Les Tilleuls', v_camp_fr, 'https://bistrot-les-tilleuls.example.fr', '3 place des Tilleuls, 69006 Lyon', 'Restaurant',
++          'Bistrot de quartier, 40 couverts, équipe de 6, ouvert midi et soir, clientèle de bureaux le midi.',
++          'Bonne cible : clientèle de bureaux le midi, donc intérêt réel pour les repas d''équipe et les privatisations. Décideur unique, le chef-propriétaire.', 'medium', 'fr', now() - interval '9 days')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Julien Mercier', 'julien.mercier@bistrot-les-tilleuls.example.fr', '+33 4 78 00 00 22', 'Chef-propriétaire', 'vert', 'amene_par_aaron',
++          'Il a demandé des exemples concrets : répondez avec deux cas clients proches de son bistrot, pas une plaquette.', 'influent',
++          'Chaleureux, aime les anecdotes et les exemples. Soignez le relationnel avant les chiffres.', 55, 'A répondu avec intérêt, pose des questions, pas encore de rendez-vous.', now() - interval '1 day', now() - interval '9 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'julien.mercier@bistrot-les-tilleuls.example.fr', E'Bonjour Julien,\n\nLes Tilleuls a une belle clientèle de bureaux le midi. Nous aidons les restaurants comme le vôtre à remplir les soirs de semaine avec des repas d''équipe, sans y passer leurs après-midis.\n\nUn exemple concret vous intéresserait ?\n\nBien à vous,', now() - interval '8 days'),
++    (v_conv, 'inbound', 'julien.mercier@bistrot-les-tilleuls.example.fr', 'aaron+demo@meetaaron.app', E'Bonjour, pourquoi pas. Vous avez des exemples de restaurants qui l''ont fait ? Combien ça coûte ?\n\nJulien', now() - interval '1 day');
++
++  -- 3. Pâtisserie Rozier — contactée, pas encore de réponse (relance prévue)
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
++  values (v_company, 'patisserie-rozier.example.fr', 'Pâtisserie Rozier', v_camp_fr, 'https://patisserie-rozier.example.fr', '27 cours Vitton, 69006 Lyon', 'Pâtisserie',
++          'Pâtisserie-chocolaterie familiale, deux boutiques, commandes d''entreprise en fin d''année.')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Sophie Rozier', 'sophie.rozier@patisserie-rozier.example.fr', 'Co-gérante', 'jaune', 'amene_par_aaron',
++          'Pas de réponse au premier email : Aaron relance jeudi avec un angle « coffrets de fin d''année pour entreprises ».', now() - interval '5 days', now() - interval '6 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'sophie.rozier@patisserie-rozier.example.fr', E'Bonjour Sophie,\n\nVos coffrets de fin d''année sont très demandés par les entreprises lyonnaises. Nous aidons les pâtisseries à prendre ces commandes plus tôt dans la saison, sans relances manuelles.\n\nJe vous en dis plus en 10 minutes si vous le souhaitez.\n\nBien à vous,', now() - interval '5 days');
++
++  -- 4. Brasserie du Parc — client gagné
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
++  values (v_company, 'brasserie-du-parc.example.fr', 'Brasserie du Parc', v_camp_fr, 'https://brasserie-du-parc.example.fr', '1 boulevard des Belges, 69006 Lyon', 'Brasserie',
++          'Brasserie de 120 couverts face au parc de la Tête d''Or, salle privatisable, 25 salariés.')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, conviction_score, conviction_reason, deal_stage, deal_stage_updated_at, is_won, won_at, first_order_confirmed_at, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Marc Vidal', 'marc.vidal@brasserie-du-parc.example.fr', '+33 4 72 00 00 44', 'Directeur', 'bleu', 'amene_par_aaron',
++          'Client signé : Aaron lui demandera dans 30 jours s''il connaît d''autres restaurateurs intéressés.', 'stable', 90, 'Devis signé le mois dernier.', 'signe', now() - interval '20 days', true, now() - interval '20 days', now() - interval '20 days', now() - interval '20 days', now() - interval '11 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'marc.vidal@brasserie-du-parc.example.fr', E'Bonjour Marc,\n\nVotre salle privatisable face au parc est un atout pour les séminaires. Nous aidons les brasseries à la remplir en semaine. 15 minutes pour en parler ?\n\nBien à vous,', now() - interval '30 days'),
++    (v_conv, 'inbound', 'marc.vidal@brasserie-du-parc.example.fr', 'aaron+demo@meetaaron.app', E'Bonjour, oui, jeudi 15h si vous êtes disponible.\n\nMarc Vidal', now() - interval '29 days'),
++    (v_conv, 'inbound', 'marc.vidal@brasserie-du-parc.example.fr', 'aaron+demo@meetaaron.app', E'Devis signé et renvoyé ce matin. On démarre le 1er du mois.\n\nMarc', now() - interval '20 days');
++  insert into public.appointments (prospect_id, user_id, type, proposed_at, status, duration_minutes, outcome, outcome_mood, outcome_recorded_at, created_at)
++  values (v_p, v_user, 'physique', now() - interval '27 days', 'validé', 60, 'opportunite', 'bien', now() - interval '27 days', now() - interval '29 days');
++
++  -- 5. Auberge des Monts d'Or — perdue (déjà équipée)
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry)
++  values (v_company, 'auberge-monts-dor.example.fr', 'Auberge des Monts d''Or', v_camp_fr, 'https://auberge-monts-dor.example.fr', 'Route de la Croix, 69450 Saint-Cyr-au-Mont-d''Or', 'Restaurant gastronomique')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, deal_stage, deal_stage_updated_at, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Hélène Garnier', 'helene.garnier@auberge-monts-dor.example.fr', 'Propriétaire', 'rouge', 'amene_par_aaron',
++          'Déjà équipée et satisfaite : Aaron arrête le contact et reviendra dans six mois.', 'perdu', now() - interval '3 days', now() - interval '3 days', now() - interval '8 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'helene.garnier@auberge-monts-dor.example.fr', E'Bonjour Hélène,\n\nL''Auberge des Monts d''Or accueille des mariages et des séminaires toute l''année. Nous aidons les maisons comme la vôtre à remplir les semaines creuses. Auriez-vous 15 minutes ?\n\nBien à vous,', now() - interval '7 days'),
++    (v_conv, 'inbound', 'helene.garnier@auberge-monts-dor.example.fr', 'aaron+demo@meetaaron.app', E'Merci, mais nous travaillons déjà avec une agence et nous en sommes satisfaits.\n\nHélène Garnier', now() - interval '3 days');
++
++  -- 6. Le Comptoir d'Ainay — rendez-vous à venir (visio) la semaine prochaine
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
++  values (v_company, 'comptoir-ainay.example.fr', 'Le Comptoir d''Ainay', v_camp_fr, 'https://comptoir-ainay.example.fr', '8 rue Vaubecour, 69002 Lyon', 'Restaurant', 'Restaurant bistronomique, 50 couverts, chef passé par deux maisons étoilées, ouvert depuis 2021.')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Thomas Renard', 'thomas.renard@comptoir-ainay.example.fr', '+33 4 78 00 00 66', 'Chef et associé', 'vert', 'amene_par_aaron',
++          'Visio mardi prochain : il veut comprendre le fonctionnement en 20 minutes. Préparez deux exemples de restaurants bistronomiques.', 'consciencieux',
++          'Précis, veut des chiffres et un déroulé clair. Évitez les superlatifs.', 60, 'Rendez-vous accepté, questions précises sur le fonctionnement.', now() - interval '1 day', now() - interval '7 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'thomas.renard@comptoir-ainay.example.fr', E'Bonjour Thomas,\n\nLe Comptoir d''Ainay affiche complet le week-end ; nous aidons les restaurants bistronomiques à remplir aussi les mardis et mercredis avec des repas d''entreprise. 20 minutes en visio pour voir si c''est pertinent pour vous ?\n\nBien à vous,', now() - interval '6 days'),
++    (v_conv, 'inbound', 'thomas.renard@comptoir-ainay.example.fr', 'aaron+demo@meetaaron.app', E'Bonjour, d''accord pour une visio mardi prochain à 11h. Comment ça fonctionne concrètement ?\n\nThomas Renard', now() - interval '1 day'),
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'thomas.renard@comptoir-ainay.example.fr', E'Parfait Thomas, c''est confirmé pour mardi 11h en visio. Vous recevrez une invitation avec le lien. Je vous montrerai deux cas concrets de restaurants comparables.\n\nÀ mardi,', now() - interval '1 day');
++  insert into public.appointments (prospect_id, user_id, type, proposed_at, status, duration_minutes, created_at)
++  values (v_p, v_user, 'visio', date_trunc('day', now()) + interval '5 days' + interval '11 hours', 'validé', 30, now() - interval '1 day');
++
++  -- ---------------------------------------------------------------- EN
++  insert into public.prospecting_campaigns (company_id, assigned_user_id, zone_label, zone_type, zone_codes, sector_keywords, company_sizes, target_count, context_notes, target_role, target_locale, status, created_at)
++  values (v_company, v_user, 'Perth metropolitan area', 'zone', array['WA'], array['plumber', 'electrician', 'joinery'], array['artisan_tpe','pme'], 20,
++          'Tradies are busy on site: short emails, propose a phone call early morning.', 'Owner or director', 'en', 'en_cours', now() - interval '6 days')
++  returning id into v_camp_en;
++
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary, aaron_opinion, aaron_opinion_fit, aaron_opinion_locale, aaron_opinion_generated_at)
++  values (v_company, 'swanriverplumbing.example.com.au', 'Swan River Plumbing', v_camp_en, 'https://swanriverplumbing.example.com.au', '12 Canning Highway, South Perth WA 6151', 'Plumbing',
++          'Residential and commercial plumbing, 9 staff, emergency call-outs, strata contracts.',
++          'Strong fit: strata contracts mean recurring business, and the owner answers emails himself.', 'strong', 'en', now() - interval '5 days')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, phone, job_title, status, origin, aaron_advice, personality_type, personality_notes, conviction_score, conviction_reason, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'James Harper', 'james@swanriverplumbing.example.com.au', '+61 8 9000 0011', 'Owner', 'vert', 'amene_par_aaron',
++          'He asked for a call before 7am: Aaron proposed Thursday 6:45. Keep it under 10 minutes.', 'dominant',
++          'Blunt and fast. Lead with the outcome, skip the preamble.', 58, 'Replied within a day and asked for a call.', now() - interval '1 day', now() - interval '5 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'james@swanriverplumbing.example.com.au', E'Hi James,\n\nSwan River Plumbing already has strata contracts across South Perth. We help plumbing businesses win more of them without chasing property managers yourself.\n\nWorth a 10-minute call this week?\n\nCheers,', now() - interval '4 days'),
++    (v_conv, 'inbound', 'james@swanriverplumbing.example.com.au', 'aaron+demo@meetaaron.app', E'Could be. Call me Thursday before 7, I''m on site after that.\n\nJames', now() - interval '1 day');
++  insert into public.appointments (prospect_id, user_id, type, proposed_at, status, duration_minutes, created_at)
++  values (v_p, v_user, 'telephonique', date_trunc('day', now()) + interval '3 days' + interval '6 hours 45 minutes', 'proposé', 15, now() - interval '1 day');
++
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
++  values (v_company, 'fremantleelectrical.example.com.au', 'Fremantle Electrical Co', v_camp_en, 'https://fremantleelectrical.example.com.au', '45 High Street, Fremantle WA 6160', 'Electrical contractor',
++          'Electrical contractor, 14 staff, solar installations and commercial fit-outs.')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Charlotte Bennett', 'charlotte@fremantleelectrical.example.com.au', 'Director', 'jaune', 'amene_par_aaron',
++          'No reply yet: Aaron follows up Monday with the solar-installations angle.', now() - interval '3 days', now() - interval '4 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'charlotte@fremantleelectrical.example.com.au', E'Hi Charlotte,\n\nFremantle Electrical does a lot of solar work. We help electrical contractors fill the quieter months with commercial fit-outs, without cold calling.\n\nHappy to explain in 10 minutes if useful.\n\nKind regards,', now() - interval '3 days');
++
++  insert into public.prospect_companies (company_id, domain, name, found_by_campaign_id, website, address, industry, research_summary)
++  values (v_company, 'harperjoinery.example.com.au', 'Harper Joinery', v_camp_en, 'https://harperjoinery.example.com.au', '8 Belmont Avenue, Belmont WA 6104', 'Joinery',
++          'Custom joinery for kitchens and offices, 6 staff, family business since 1998.')
++  returning id into v_pc;
++  insert into public.prospects (company_id, assigned_user_id, prospect_company_id, full_name, email, job_title, status, origin, aaron_advice, last_contact_at, created_at)
++  values (v_company, v_user, v_pc, 'Matt Walker', 'matt@harperjoinery.example.com.au', 'Sales director', 'jaune', 'amene_par_aaron',
++          'First email sent yesterday. Nothing to do: Aaron watches the inbox.', now() - interval '1 day', now() - interval '2 days')
++  returning id into v_p;
++  insert into public.conversations (prospect_id, channel) values (v_p, 'email') returning id into v_conv;
++  insert into public.messages (conversation_id, direction, sender_email, recipient_email, body, sent_at) values
++    (v_conv, 'outbound', 'aaron+demo@meetaaron.app', 'matt@harperjoinery.example.com.au', E'Hi Matt,\n\nHarper Joinery''s office fit-outs caught my eye. We help joinery businesses get in front of fit-out companies and architects before projects are tendered.\n\nWould a short call make sense?\n\nKind regards,', now() - interval '1 day');
++
++  raise notice 'Démo remplie : campagnes % et %', v_camp_fr, v_camp_en;
++end $$;
++
++-- Vérification
++select c.name, count(distinct pc.id) as societes, count(distinct p.id) as contacts, count(distinct a.id) as rdv
++from public.companies c
++left join public.prospect_companies pc on pc.company_id = c.id
++left join public.prospects p on p.company_id = c.id
++left join public.appointments a on a.prospect_id = p.id
++where c.name = 'Démo Meet Aaron'
++group by c.name;
+-- 
+2.43.0
+
