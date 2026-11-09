@@ -98,17 +98,51 @@ const nextConfig = {
       },
     ];
   },
-  async rewrites() {
+  // PAGE D'ACCUEIL À LA RACINE (09/11/2026, Search Console).
+  //
+  // Avant : « / » répondait par une redirection vers /landing.html, et /demo
+  // vers /demo.html. Google a donc vu une page d'accueil qui n'était qu'une
+  // redirection, et /landing.html comme « page en double sans URL canonique »
+  // (deux adresses pour le même contenu, aucune déclarée comme l'officielle).
+  //
+  // Maintenant : « / » SERT la page statique public/landing.html sans changer
+  // l'adresse (réécriture interne, beforeFiles pour passer avant tout fichier
+  // de app/), et /landing.html redirige en 301 vers « / ». Même chose pour
+  // /demo et /demo.html. Les pages statiques portent en plus une balise
+  // canonical vers l'adresse courte. Une seule adresse par page, c'est tout
+  // ce que Google demande.
+  async redirects() {
     return [
-      // Digital Asset Links pour l'application Android (dossier android/).
-      // Android et Google lisent /.well-known/assetlinks.json ; la route qui
-      // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
-      { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
-      // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
-      // /.well-known/apple-app-site-association (sans extension), fabriqué
-      // par app/api/ios/aasa.
-      { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
+      { source: '/landing.html', destination: '/', permanent: true },
+      { source: '/demo.html', destination: '/demo', permanent: true },
+      // QR codes « iOS » et « Android » de la page d'accueil (section
+      // applications) : tant que les applications ne sont pas en ligne,
+      // ils ouvrent la version web — c'est ce que la page promet (« ce lien
+      // ouvre la version web »). Google avait trouvé /ios en 404. Quand les
+      // fiches seront publiées, remplacer /app par l'adresse du store
+      // (temporaire, donc 307 : les navigateurs ne la mémorisent pas).
+      { source: '/ios', destination: '/app', permanent: false },
+      { source: '/android', destination: '/app', permanent: false },
     ];
+  },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: '/', destination: '/landing.html' },
+        { source: '/demo', destination: '/demo.html' },
+      ],
+      afterFiles: [
+        // Digital Asset Links pour l'application Android (dossier android/).
+        // Android et Google lisent /.well-known/assetlinks.json ; la route qui
+        // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
+        { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
+        // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
+        // /.well-known/apple-app-site-association (sans extension), fabriqué
+        // par app/api/ios/aasa.
+        { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
+      ],
+      fallback: [],
+    };
   },
 };
 

@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /$
-Allow: /landing.html
+Allow: /demo
+Allow: /security
 Allow: /login
 Allow: /privacy
 Allow: /terms
