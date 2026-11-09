@@ -1,0 +1,39 @@
+From 659f7ee6b0e3cae38a6865dd3dccecc526ecb09e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 07:05:26 +0000
+Subject: [PATCH] Agenda : heure de la pastille sur une ligne en anglais
+ (2:45PM)
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/agenda/page.jsx | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index 27a08ab..f1998ed 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -227,7 +227,10 @@ function dayChipInfo(dateStr, locale) {
+   return {
+     day: d.toLocaleDateString(locale, { day: 'numeric' }),
+     month: d.toLocaleDateString(locale, { month: 'short' }).replace('.', ''),
+-    time: d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
++    // Pastille de 52 px : « 02:45 PM » (anglais) passait sur deux lignes.
++    // Heure sans zéro de tête et AM/PM collé (« 2:45PM ») — les langues
++    // en 24 h ne changent pas (« 14:45 »).
++    time: d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' }).replace(/\s+(AM|PM)$/i, '$1'),
+     isToday: diffDays === 0,
+     isTomorrow: diffDays === 1,
+     isPast: diffDays < 0,
+@@ -1370,6 +1373,7 @@ export default function AgendaPage() {
+           font-size: 0.62rem;
+           color: var(--muted);
+           margin-top: 2px;
++          white-space: nowrap;
+         }
+         .day-chip.today {
+           background: rgba(75, 57, 239, 0.14);
+-- 
+2.43.0
+
