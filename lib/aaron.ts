@@ -455,7 +455,7 @@ export interface AaronRequest {
   body: Record<string, any> | null;
 }
 
-export async function buildAaronRequest(prospectId: string, options?: { model?: AaronModel }): Promise<AaronRequest> {
+export async function buildAaronRequest(prospectId: string, options?: { model?: AaronModel; situation?: string }): Promise<AaronRequest> {
   const { company_id: companyId, _defaultFirstEmail: defaultFirstEmail, _assignedUserId: assignedUserId, ...context } = await buildContext(prospectId);
 
   // Email de premier contact par défaut (demande Alex, 2026-08-26) : si
@@ -543,7 +543,10 @@ export async function buildAaronRequest(prospectId: string, options?: { model?: 
     messages: [
       {
         role: 'user',
-        content: `Voici le contexte de la situation pour CE prospect (le contexte commercial — commercial, documents_entreprise — est dans les instructions système), y compris l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(prospectContext, null, 2)}`,
+        // `situation` (08/11/2026) : consigne propre à cet appel (ex. relance
+        // après devis), dans le message utilisateur pour ne pas casser le
+        // cache du prompt système.
+        content: `${options?.situation ? `## SITUATION DE CET APPEL\n${options.situation}\n\n` : ''}Voici le contexte de la situation pour CE prospect (le contexte commercial — commercial, documents_entreprise — est dans les instructions système), y compris l'éventuel rendez-vous déjà validé (rdv_valide_existant) pour détecter une annulation. Réponds UNIQUEMENT avec l'objet JSON structuré défini dans le prompt système, sans aucun texte avant ou après, sans balises markdown.\n\n${JSON.stringify(prospectContext, null, 2)}`,
       },
     ],
   };
@@ -589,7 +592,7 @@ export function parseAaronOutput(data: any): AaronOutput {
 
 export async function generateAaronResponse(
   prospectId: string,
-  options?: { model?: AaronModel; feature?: UsageFeature }
+  options?: { model?: AaronModel; feature?: UsageFeature; situation?: string }
 ): Promise<AaronOutput> {
   const req = await buildAaronRequest(prospectId, options);
   if (req.precomputed) return req.precomputed;

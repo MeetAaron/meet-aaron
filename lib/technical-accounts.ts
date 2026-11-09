@@ -20,10 +20,17 @@ import { supabaseAdmin } from './supabase-admin';
 
 export async function technicalCompanyIds(): Promise<Set<string>> {
   try {
-    const { data, error } = await supabaseAdmin
+    // 08/11/2026 : la société de démonstration (companies.is_demo, partagée
+    // avec les testeurs Google Play) est traitée pareil : aucun rapport,
+    // aucune relance automatique — Alex a reçu « ta journée d'hier : 3
+    // prospects contactés » calculé sur les emails fictifs du seed.
+    let { data, error } = await supabaseAdmin
       .from('companies')
       .select('id')
-      .eq('not_a_client', true);
+      .or('not_a_client.eq.true,is_demo.eq.true');
+    if (error) {
+      ({ data, error } = await supabaseAdmin.from('companies').select('id').eq('not_a_client', true));
+    }
     if (error) return new Set();
     return new Set(((data as any[]) || []).map((c) => c.id));
   } catch {

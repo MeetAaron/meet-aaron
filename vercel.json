@@ -30,6 +30,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/devis-followups",
+      "schedule": "20 * * * *"
+    },
+    {
       "path": "/api/cron/run-campaigns",
       "schedule": "*/10 * * * *"
     },

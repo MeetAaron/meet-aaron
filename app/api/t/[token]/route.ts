@@ -60,7 +60,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ token:
 
     const { data: prospect } = await supabaseAdmin
       .from('prospects')
-      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, users:assigned_user_id(locale)')
+      .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, users(locale)')
       .eq('devis_track_token', token)
       .maybeSingle();
 

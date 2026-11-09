@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
   const { data: prospects, error } = await supabaseAdmin
     .from('prospects')
-    .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, users:assigned_user_id(locale)')
+    .select('id, assigned_user_id, full_name, devis_opened_at, devis_last_opened_at, users(locale)')
     .not('devis_opened_at', 'is', null)
     .is('devis_call_done_at', null)
     .is('devis_open_nudge_at', null)
