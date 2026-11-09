@@ -227,7 +227,10 @@ function dayChipInfo(dateStr, locale) {
   return {
     day: d.toLocaleDateString(locale, { day: 'numeric' }),
     month: d.toLocaleDateString(locale, { month: 'short' }).replace('.', ''),
-    time: d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+    // Pastille de 52 px : « 02:45 PM » (anglais) passait sur deux lignes.
+    // Heure sans zéro de tête et AM/PM collé (« 2:45PM ») — les langues
+    // en 24 h ne changent pas (« 14:45 »).
+    time: d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' }).replace(/\s+(AM|PM)$/i, '$1'),
     isToday: diffDays === 0,
     isTomorrow: diffDays === 1,
     isPast: diffDays < 0,
@@ -1370,6 +1373,7 @@ export default function AgendaPage() {
           font-size: 0.62rem;
           color: var(--muted);
           margin-top: 2px;
+          white-space: nowrap;
         }
         .day-chip.today {
           background: rgba(75, 57, 239, 0.14);
