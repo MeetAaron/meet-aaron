@@ -619,7 +619,13 @@ export async function POST(request: NextRequest) {
   const systemBlocks = [
     {
       type: 'text',
-      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}${documentContext}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
+      // Langue (10/11/2026) : la consigne était une ligne en fin de prompt,
+      // et une question posée en allemand recevait parfois une réponse en
+      // français — le profil entreprise, les fiches et les outils sont en
+      // français, le modèle s'y laissait entraîner. Consigne répétée en tête
+      // et en pied, explicite sur le fait que les données sources ne
+      // dictent pas la langue de réponse.
+      text: `LANGUE DE RÉPONSE : tu écris toutes tes réponses ${localeInstruction(authedUser.locale)}, même si les fiches, le profil de l'entreprise ou les résultats d'outils sont dans une autre langue (traduis-les, ne cite pas le français tel quel). Seuls les noms propres, les raisons sociales et les citations textuelles d'emails restent tels quels.\n\n${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}${documentContext}\n\nRappel : réponds ${localeInstruction(authedUser.locale)}, sans exception.`,
       cache_control: { type: 'ephemeral' },
     },
   ];
