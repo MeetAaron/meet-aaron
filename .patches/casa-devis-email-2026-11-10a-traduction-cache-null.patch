@@ -1,0 +1,51 @@
+From d13b453f7397b5066d9d67c891131badc4c7f444 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 12:39:27 +0000
+Subject: [PATCH] =?UTF-8?q?Traduction=20:=20ne=20plus=20mettre=20en=20cach?=
+ =?UTF-8?q?e=20un=20=C2=AB=20d=C3=A9j=C3=A0=20traduit=20=C2=BB=20incoh?=
+ =?UTF-8?q?=C3=A9rent?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Quand Haiku détecte une autre langue que la cible mais renvoie text null
+(réponse tronquée, numéro décalé), on affichait l'original ET on gravait
+« déjà dans la langue cible » dans text_translations : la fiche de Claire
+Delorme restait en français pour toujours en italien. Désormais le null
+n'est mis en cache que si la langue détectée est la cible.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/translate.ts | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/lib/translate.ts b/lib/translate.ts
+index e134334..f9fd06d 100644
+--- a/lib/translate.ts
++++ b/lib/translate.ts
+@@ -169,9 +169,19 @@ export async function translateBatch(
+         // Un texte renvoyé « identique » à l'original est traité comme déjà
+         // dans la langue cible.
+         const translated = r && r.text && r.text.trim() !== l.text.trim() ? r.text : null;
+-        const lang = r ? (translated ? r.lang : target) : 'xx';
++        // Un « null » n'est digne de confiance que si Haiku dit AUSSI que le
++        // texte est déjà dans la langue cible. S'il détecte du français et
++        // ne traduit pas quand même (réponse tronquée, numéro décalé, texte
++        // sauté), c'est un raté : on affiche l'original cette fois-ci, sans
++        // le graver dans le cache. Avant (10/11/2026), ce raté était mis en
++        // cache comme « déjà en italien » et la fiche restait en français
++        // pour toujours.
++        const consistentNull = !translated && !!r && r.lang === target;
++        const lang = translated ? r!.lang : consistentNull ? target : 'xx';
+         for (const id of l.ids) results.set(id, { id, source_locale: lang, text: translated });
+-        if (r) toCache.push({ source_hash: l.hash, target_locale: target, source_locale: lang, translated, company_id: companyId });
++        if (translated || consistentNull) {
++          toCache.push({ source_hash: l.hash, target_locale: target, source_locale: lang, translated, company_id: companyId });
++        }
+       }
+       await writeCache(toCache);
+     } catch (err: any) {
+-- 
+2.43.0
+
