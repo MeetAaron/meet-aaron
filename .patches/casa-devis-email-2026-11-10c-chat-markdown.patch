@@ -1,0 +1,102 @@
+From 048bb67825ab8f682a5a097b88861681224b3a2c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 12:53:53 +0000
+Subject: [PATCH] =?UTF-8?q?Chat=20:=20gras,=20titres=20et=20puces=20d'Aaro?=
+ =?UTF-8?q?n=20rendus=20proprement=20(plus=20d'ast=C3=A9risques)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+components/AaronText.jsx : rendu léger (**gras**, titres #, puces -) sans
+HTML injecté ; consigne de mise en forme ajoutée au prompt du chat.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/chat/route.ts    |  1 +
+ app/app/chat/page.jsx    |  3 ++-
+ components/AaronText.jsx | 39 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 42 insertions(+), 1 deletion(-)
+ create mode 100644 components/AaronText.jsx
+
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index 0f6040f..7976f28 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -22,6 +22,7 @@ claire (ex: "donne moi le numero de ce client", "ou g en est ma campagne"), déd
+ adapté directement, sans lui demander de reformuler. Si une recherche de prospect ne renvoie rien ou plusieurs
+ résultats ambigus, dis-le clairement et demande une précision (nom de société, par exemple).
+ Réponds toujours de façon concise et utile — pas de blabla inutile.
++Mise en forme : tu peux mettre quelques mots importants en **gras** et faire des listes avec « - », mais jamais de titres « # », de tableaux, de blocs de code ni d'emojis — la bulle de chat n'affiche pas le Markdown complet.
+ Si le commercial exprime une suggestion, une remarque ou une idée d'amélioration sur l'outil, le produit ou l'organisation,
+ dis-lui simplement que tu transmets l'info au fondateur — tu n'as pas besoin de lui demander de le faire lui-même par email,
+ c'est déjà fait automatiquement de ton côté.
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 9025aa2..486ece5 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -13,6 +13,7 @@ import MobileChrome from '@/components/MobileChrome';
+ import Stories from '@/components/Stories';
+ import Ic from '@/components/UiIcon';
+ import { frenchTypography } from '@/lib/text-typography';
++import AaronText from '@/components/AaronText';
+ import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
+ 
+ function useAuthedUser() {
+@@ -1417,7 +1418,7 @@ export default function ChatPage() {
+                   éviter la ponctuation orpheline en début de ligne) — jamais
+                   le texte tapé par le commercial lui-même, qu'on affiche tel
+                   quel. Voir lib/text-typography.js. */}
+-              {m.role === 'assistant' ? frenchTypography(m.content) : m.content}
++              {m.role === 'assistant' ? <AaronText text={frenchTypography(m.content)} /> : m.content}
+               {/* Boutons de réponse rapide Oui/Non (demande Alex, 29/08/2026) :
+                   affichés uniquement sous le dernier message, quand Aaron
+                   vient de proposer de sauvegarder le document joint — un clic
+diff --git a/components/AaronText.jsx b/components/AaronText.jsx
+new file mode 100644
+index 0000000..0035dee
+--- /dev/null
++++ b/components/AaronText.jsx
+@@ -0,0 +1,39 @@
++// components/AaronText.jsx
++// Rendu léger des réponses d'Aaron dans le chat (10/11/2026, capture démo).
++//
++// Le modèle écrit spontanément un peu de Markdown : **gras**, titres « ### »,
++// listes « - » ou « 1. ». La bulle affichait tout en texte brut, donc des
++// astérisques partout (« **Profil détecté : Consciencieux** »). Plutôt
++// qu'une bibliothèque Markdown complète (tableaux, HTML, liens cliquables
++// non maîtrisés), on ne traite que ces trois formes, sans jamais injecter de
++// HTML : tout passe par des éléments React.
++//
++// Le texte garde son white-space: pre-wrap (voir .bubble) : on travaille
++// ligne par ligne et on remet les retours à la ligne tels quels.
++
++function inline(text, keyBase) {
++  const parts = String(text).split(/(\*\*[^*\n]+\*\*)/g);
++  return parts.map((p, i) =>
++    p.startsWith('**') && p.endsWith('**') && p.length > 4
++      ? <strong key={`${keyBase}-${i}`}>{p.slice(2, -2)}</strong>
++      : p
++  );
++}
++
++export default function AaronText({ text }) {
++  if (!text || typeof text !== 'string') return text || null;
++  const lines = text.split('\n');
++  const out = [];
++  lines.forEach((raw, i) => {
++    let line = raw;
++    // Titres Markdown : on retire les dièses et on met en gras.
++    const h = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
++    if (h) line = `**${h[1].replace(/\*\*/g, '')}**`;
++    // Puces « - » / « * » / « • » : un vrai point médian, aligné.
++    const li = line.match(/^(\s*)[-*•]\s+(.*)$/);
++    if (li) line = `${li[1]}• ${li[2]}`;
++    out.push(...inline(line, i));
++    if (i < lines.length - 1) out.push('\n');
++  });
++  return out;
++}
+-- 
+2.43.0
+
