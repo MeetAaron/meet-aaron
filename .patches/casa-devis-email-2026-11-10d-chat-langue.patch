@@ -1,0 +1,41 @@
+From 7c96a48f2c9f7f30420962a8789cf99509eb1d51 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 13:10:07 +0000
+Subject: [PATCH] =?UTF-8?q?Chat=20:=20consigne=20de=20langue=20en=20t?=
+ =?UTF-8?q?=C3=AAte=20et=20en=20pied=20du=20prompt?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Une question en allemand recevait une réponse en français (données
+sources en français). La langue du commercial est maintenant imposée
+explicitement, indépendamment de la langue des fiches et des outils.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/chat/route.ts | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index 7976f28..7b33664 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -619,7 +619,13 @@ export async function POST(request: NextRequest) {
+   const systemBlocks = [
+     {
+       type: 'text',
+-      text: `${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}${documentContext}\n\nRéponds ${localeInstruction(authedUser.locale)}.`,
++      // Langue (10/11/2026) : la consigne était une ligne en fin de prompt,
++      // et une question posée en allemand recevait parfois une réponse en
++      // français — le profil entreprise, les fiches et les outils sont en
++      // français, le modèle s'y laissait entraîner. Consigne répétée en tête
++      // et en pied, explicite sur le fait que les données sources ne
++      // dictent pas la langue de réponse.
++      text: `LANGUE DE RÉPONSE : tu écris toutes tes réponses ${localeInstruction(authedUser.locale)}, même si les fiches, le profil de l'entreprise ou les résultats d'outils sont dans une autre langue (traduis-les, ne cite pas le français tel quel). Seuls les noms propres, les raisons sociales et les citations textuelles d'emails restent tels quels.\n\n${CHAT_SYSTEM_PROMPT}\n\nTu discutes avec ${user?.full_name || 'ton commercial'} — son prénom est ${displayFirstName || 'inconnu'}.${businessContext}${documentContext}\n\nRappel : réponds ${localeInstruction(authedUser.locale)}, sans exception.`,
+       cache_control: { type: 'ephemeral' },
+     },
+   ];
+-- 
+2.43.0
+
