@@ -169,9 +169,19 @@ export async function translateBatch(
         // Un texte renvoyé « identique » à l'original est traité comme déjà
         // dans la langue cible.
         const translated = r && r.text && r.text.trim() !== l.text.trim() ? r.text : null;
-        const lang = r ? (translated ? r.lang : target) : 'xx';
+        // Un « null » n'est digne de confiance que si Haiku dit AUSSI que le
+        // texte est déjà dans la langue cible. S'il détecte du français et
+        // ne traduit pas quand même (réponse tronquée, numéro décalé, texte
+        // sauté), c'est un raté : on affiche l'original cette fois-ci, sans
+        // le graver dans le cache. Avant (10/11/2026), ce raté était mis en
+        // cache comme « déjà en italien » et la fiche restait en français
+        // pour toujours.
+        const consistentNull = !translated && !!r && r.lang === target;
+        const lang = translated ? r!.lang : consistentNull ? target : 'xx';
         for (const id of l.ids) results.set(id, { id, source_locale: lang, text: translated });
-        if (r) toCache.push({ source_hash: l.hash, target_locale: target, source_locale: lang, translated, company_id: companyId });
+        if (translated || consistentNull) {
+          toCache.push({ source_hash: l.hash, target_locale: target, source_locale: lang, translated, company_id: companyId });
+        }
       }
       await writeCache(toCache);
     } catch (err: any) {
