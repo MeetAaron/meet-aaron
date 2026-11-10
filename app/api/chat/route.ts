@@ -442,7 +442,11 @@ async function executeTool(
 ) {
   // Compte de démonstration (lib/demo-guard.ts) : Aaron répond, mais ne
   // modifie pas la fiche entreprise partagée et n'enregistre pas de document.
-  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise' || toolName === 'recherche_prospects')) {
+  // recherche_prospects reste OUVERT (10/11/2026) : c'est une lecture des
+  // fiches déjà en base, gratuite — sans elle Aaron répondait « la recherche
+  // est désactivée sur ce compte de démonstration » à « comment je prépare
+  // mon RDV avec Thomas Renard ? », ce qui vide la démo de son intérêt.
+  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise')) {
     return { success: false, error: 'Compte de démonstration : cette action est désactivée.' };
   }
   switch (toolName) {
