@@ -13,6 +13,7 @@ import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
+import AaronText from '@/components/AaronText';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 
 function useAuthedUser() {
@@ -1417,7 +1418,7 @@ export default function ChatPage() {
                   éviter la ponctuation orpheline en début de ligne) — jamais
                   le texte tapé par le commercial lui-même, qu'on affiche tel
                   quel. Voir lib/text-typography.js. */}
-              {m.role === 'assistant' ? frenchTypography(m.content) : m.content}
+              {m.role === 'assistant' ? <AaronText text={frenchTypography(m.content)} /> : m.content}
               {/* Boutons de réponse rapide Oui/Non (demande Alex, 29/08/2026) :
                   affichés uniquement sous le dernier message, quand Aaron
                   vient de proposer de sauvegarder le document joint — un clic
