@@ -1,0 +1,235 @@
+From c42dc88bd208ced993820bf261e5b6572c3747f8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 11:42:56 +0000
+Subject: [PATCH] =?UTF-8?q?SEO=20:=20accueil=20servi=20=C3=A0=20la=20racin?=
+ =?UTF-8?q?e,=20/demo=20sans=20.html,=20canonical,=20/ios=20et=20/android?=
+ =?UTF-8?q?=20vers=20/app?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Search Console (09/11/2026) : / était une redirection vers /landing.html
+(« page en double sans URL canonique »), /ios répondait 404 (QR code de la
+section applications), /app/preferences bloqué par robots.txt (voulu).
+
+- next.config : réécritures beforeFiles / -> landing.html et /demo ->
+  demo.html ; redirections 301 /landing.html -> / et /demo.html -> /demo ;
+  307 /ios et /android -> /app en attendant les fiches des stores.
+- app/page.jsx et app/demo/page.jsx supprimés (ne servaient qu'à rediriger).
+- landing.html et demo.html : balise canonical ; liens de demo.html vers /.
+- sitemap : /, /demo, /login, /security, /privacy, /terms ; robots : /demo
+  et /security autorisés explicitement.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/demo/page.jsx   | 14 ------------
+ app/page.jsx        |  6 ------
+ next.config.js      | 52 +++++++++++++++++++++++++++++++++++++--------
+ public/demo.html    | 19 +++++++++--------
+ public/landing.html |  1 +
+ public/robots.txt   |  3 ++-
+ public/sitemap.xml  |  9 ++++++--
+ 7 files changed, 63 insertions(+), 41 deletions(-)
+ delete mode 100644 app/demo/page.jsx
+ delete mode 100644 app/page.jsx
+
+diff --git a/app/demo/page.jsx b/app/demo/page.jsx
+deleted file mode 100644
+index b0c6980..0000000
+--- a/app/demo/page.jsx
++++ /dev/null
+@@ -1,14 +0,0 @@
+-// app/demo/page.jsx
+-// /demo -> page de démonstration statique (public/demo.html).
+-//
+-// Même mécanique que app/page.jsx, qui redirige vers /landing.html : la page
+-// est servie en statique depuis public/, hors du bundle Next, donc rien à
+-// charger côté client et aucune dépendance au reste de l'app. C'est la page
+-// que pointent les signatures des boîtes de prospection et le champ
+-// « Lien public à mentionner » d'Aaron — elle doit être la plus rapide et la
+-// plus sobre du site.
+-import { redirect } from 'next/navigation';
+-
+-export default function DemoPage() {
+-  redirect('/demo.html');
+-}
+diff --git a/app/page.jsx b/app/page.jsx
+deleted file mode 100644
+index e7c026b..0000000
+--- a/app/page.jsx
++++ /dev/null
+@@ -1,6 +0,0 @@
+-import { redirect } from "next/navigation";
+-
+-export default function Home() {
+-  redirect("/landing.html");
+-  }
+-  
+diff --git a/next.config.js b/next.config.js
+index a946513..f74cf94 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -98,18 +98,52 @@ const nextConfig = {
+       },
+     ];
+   },
+-  async rewrites() {
++  // PAGE D'ACCUEIL À LA RACINE (09/11/2026, Search Console).
++  //
++  // Avant : « / » répondait par une redirection vers /landing.html, et /demo
++  // vers /demo.html. Google a donc vu une page d'accueil qui n'était qu'une
++  // redirection, et /landing.html comme « page en double sans URL canonique »
++  // (deux adresses pour le même contenu, aucune déclarée comme l'officielle).
++  //
++  // Maintenant : « / » SERT la page statique public/landing.html sans changer
++  // l'adresse (réécriture interne, beforeFiles pour passer avant tout fichier
++  // de app/), et /landing.html redirige en 301 vers « / ». Même chose pour
++  // /demo et /demo.html. Les pages statiques portent en plus une balise
++  // canonical vers l'adresse courte. Une seule adresse par page, c'est tout
++  // ce que Google demande.
++  async redirects() {
+     return [
+-      // Digital Asset Links pour l'application Android (dossier android/).
+-      // Android et Google lisent /.well-known/assetlinks.json ; la route qui
+-      // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
+-      { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
+-      // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
+-      // /.well-known/apple-app-site-association (sans extension), fabriqué
+-      // par app/api/ios/aasa.
+-      { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
++      { source: '/landing.html', destination: '/', permanent: true },
++      { source: '/demo.html', destination: '/demo', permanent: true },
++      // QR codes « iOS » et « Android » de la page d'accueil (section
++      // applications) : tant que les applications ne sont pas en ligne,
++      // ils ouvrent la version web — c'est ce que la page promet (« ce lien
++      // ouvre la version web »). Google avait trouvé /ios en 404. Quand les
++      // fiches seront publiées, remplacer /app par l'adresse du store
++      // (temporaire, donc 307 : les navigateurs ne la mémorisent pas).
++      { source: '/ios', destination: '/app', permanent: false },
++      { source: '/android', destination: '/app', permanent: false },
+     ];
+   },
++  async rewrites() {
++    return {
++      beforeFiles: [
++        { source: '/', destination: '/landing.html' },
++        { source: '/demo', destination: '/demo.html' },
++      ],
++      afterFiles: [
++        // Digital Asset Links pour l'application Android (dossier android/).
++        // Android et Google lisent /.well-known/assetlinks.json ; la route qui
++        // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
++        { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },
++        // Liens universels pour l'application iOS (dossier ios-app/) : iOS lit
++        // /.well-known/apple-app-site-association (sans extension), fabriqué
++        // par app/api/ios/aasa.
++        { source: '/.well-known/apple-app-site-association', destination: '/api/ios/aasa' },
++      ],
++      fallback: [],
++    };
++  },
+ };
+ 
+ module.exports = nextConfig;
+diff --git a/public/demo.html b/public/demo.html
+index 2c645b5..7fb7b7b 100644
+--- a/public/demo.html
++++ b/public/demo.html
+@@ -6,6 +6,7 @@
+ <title>Meet Aaron — la démo en 36 secondes</title>
+ <meta name="description" content="Aaron prospecte, relance et remplit votre agenda pendant que vous travaillez. Voyez-le en 36 secondes.">
+ <meta name="robots" content="index, follow">
++<link rel="canonical" href="https://meetaaron.app/demo">
+ <link rel="icon" href="/favicon.ico">
+ <meta property="og:title" content="Meet Aaron — la démo en 36 secondes">
+ <meta property="og:description" content="Aaron prospecte, relance et remplit votre agenda pendant que vous travaillez.">
+@@ -131,10 +132,10 @@
+ 
+   <div class="cta-row">
+     <a class="cta" href="/app" data-i18n="cta">Essayer maintenant</a>
+-    <p class="cta-sub" data-i18n-html="ctasub">Sans carte bancaire. <a href="/landing.html">Voir toutes les fonctionnalités</a></p>
++    <p class="cta-sub" data-i18n-html="ctasub">Sans carte bancaire. <a href="/">Voir toutes les fonctionnalités</a></p>
+   </div>
+ 
+-  <footer><a href="/landing.html">meetaaron.app</a></footer>
++  <footer><a href="/">meetaaron.app</a></footer>
+ </div>
+ 
+ <script>
+@@ -172,13 +173,13 @@ function detectCountry(){
+ function pickVideoId(){ var c = detectCountry(); return VIDEO_BY_COUNTRY[c] || VIDEO_BY_COUNTRY[DEFAULT_COUNTRY]; }
+ 
+ var I18N = {
+- fr:{'meta.title':'Meet Aaron — la démo en 36 secondes','eyebrow':'La démo en 36 secondes','title':'Aaron prospecte pendant que vous travaillez','sub':"Il trouve les bons contacts, écrit le premier message, relance ceux qui ne répondent pas et remplit votre agenda.",'play':'Lire la vidéo','note':"Sans son — tout est écrit à l'écran.",'p1t':'Il trouve','p1b':'Vous décrivez votre cible une fois. Aaron cherche les entreprises et les bons interlocuteurs.','p2t':'Il écrit','p2b':"Un premier message pensé pour cette entreprise-là, pas un modèle recopié.",'p3t':'Il relance','p3b':"Et quand quelqu'un répond, il propose un créneau dans votre agenda.",'cta':'Essayer maintenant','ctasub':'Sans carte bancaire. <a href="/landing.html">Voir toutes les fonctionnalités</a>'},
+- en:{'meta.title':'Meet Aaron — the 36-second demo','eyebrow':'The 36-second demo','title':'Aaron prospects while you work','sub':'He finds the right contacts, writes the first message, follows up with those who stay silent and fills your calendar.','play':'Play video','note':'No sound — everything is on screen.','p1t':'He finds','p1b':'Describe your target once. Aaron looks for the companies and the right people inside them.','p2t':'He writes','p2b':'A first message written for that company, not a template copied over.','p3t':'He follows up','p3b':'And when someone replies, he offers a slot in your calendar.','cta':'Try it now','ctasub':'No card required. <a href="/landing.html">See every feature</a>'},
+- de:{'meta.title':'Meet Aaron — die Demo in 36 Sekunden','eyebrow':'Die Demo in 36 Sekunden','title':'Aaron akquiriert, während Sie arbeiten','sub':'Er findet die richtigen Kontakte, schreibt die erste Nachricht, hakt bei Schweigenden nach und füllt Ihren Kalender.','play':'Video abspielen','note':'Ohne Ton — alles steht auf dem Bildschirm.','p1t':'Er findet','p1b':'Sie beschreiben Ihre Zielgruppe einmal. Aaron sucht die Unternehmen und die passenden Ansprechpartner.','p2t':'Er schreibt','p2b':'Eine erste Nachricht für genau dieses Unternehmen, keine kopierte Vorlage.','p3t':'Er hakt nach','p3b':'Und wenn jemand antwortet, schlägt er einen Termin in Ihrem Kalender vor.','cta':'Jetzt testen','ctasub':'Ohne Kreditkarte. <a href="/landing.html">Alle Funktionen ansehen</a>'},
+- it:{'meta.title':'Meet Aaron — la demo in 36 secondi','eyebrow':'La demo in 36 secondi','title':'Aaron fa prospezione mentre tu lavori','sub':'Trova i contatti giusti, scrive il primo messaggio, ricontatta chi non risponde e riempie la tua agenda.','play':'Riproduci il video','note':'Senza audio — tutto è scritto a schermo.','p1t':'Trova','p1b':'Descrivi il tuo target una volta. Aaron cerca le aziende e gli interlocutori giusti.','p2t':'Scrive','p2b':"Un primo messaggio pensato per quell'azienda, non un modello ricopiato.",'p3t':'Ricontatta','p3b':'E quando qualcuno risponde, propone uno slot nella tua agenda.','cta':'Prova subito','ctasub':'Senza carta di credito. <a href="/landing.html">Vedi tutte le funzioni</a>'},
+- es:{'meta.title':'Meet Aaron — la demo en 36 segundos','eyebrow':'La demo en 36 segundos','title':'Aaron prospecta mientras tú trabajas','sub':'Encuentra los contactos adecuados, escribe el primer mensaje, insiste con quienes no responden y llena tu agenda.','play':'Reproducir vídeo','note':'Sin sonido — todo está escrito en pantalla.','p1t':'Encuentra','p1b':'Describe tu objetivo una vez. Aaron busca las empresas y las personas adecuadas.','p2t':'Escribe','p2b':'Un primer mensaje pensado para esa empresa, no una plantilla copiada.','p3t':'Insiste','p3b':'Y cuando alguien responde, propone un hueco en tu agenda.','cta':'Probar ahora','ctasub':'Sin tarjeta. <a href="/landing.html">Ver todas las funciones</a>'},
+- pt:{'meta.title':'Meet Aaron — a demo em 36 segundos','eyebrow':'A demo em 36 segundos','title':'O Aaron prospeta enquanto tu trabalhas','sub':'Encontra os contactos certos, escreve a primeira mensagem, insiste com quem não responde e enche a tua agenda.','play':'Reproduzir vídeo','note':'Sem som — está tudo escrito no ecrã.','p1t':'Encontra','p1b':'Descreves o teu alvo uma vez. O Aaron procura as empresas e os interlocutores certos.','p2t':'Escreve','p2b':'Uma primeira mensagem pensada para aquela empresa, não um modelo copiado.','p3t':'Insiste','p3b':'E quando alguém responde, propõe um horário na tua agenda.','cta':'Experimentar agora','ctasub':'Sem cartão. <a href="/landing.html">Ver todas as funcionalidades</a>'},
+- nl:{'meta.title':'Meet Aaron — de demo in 36 seconden','eyebrow':'De demo in 36 seconden','title':'Aaron prospecteert terwijl jij werkt','sub':'Hij vindt de juiste contacten, schrijft het eerste bericht, rappelleert wie niet reageert en vult je agenda.','play':'Video afspelen','note':'Zonder geluid — alles staat in beeld.','p1t':'Hij vindt','p1b':'Je beschrijft je doelgroep één keer. Aaron zoekt de bedrijven en de juiste mensen.','p2t':'Hij schrijft','p2b':'Een eerste bericht voor dat bedrijf, geen gekopieerd sjabloon.','p3t':'Hij rappelleert','p3b':'En zodra iemand antwoordt, stelt hij een moment in je agenda voor.','cta':'Nu proberen','ctasub':'Geen kaart nodig. <a href="/landing.html">Bekijk alle functies</a>'}
++ fr:{'meta.title':'Meet Aaron — la démo en 36 secondes','eyebrow':'La démo en 36 secondes','title':'Aaron prospecte pendant que vous travaillez','sub':"Il trouve les bons contacts, écrit le premier message, relance ceux qui ne répondent pas et remplit votre agenda.",'play':'Lire la vidéo','note':"Sans son — tout est écrit à l'écran.",'p1t':'Il trouve','p1b':'Vous décrivez votre cible une fois. Aaron cherche les entreprises et les bons interlocuteurs.','p2t':'Il écrit','p2b':"Un premier message pensé pour cette entreprise-là, pas un modèle recopié.",'p3t':'Il relance','p3b':"Et quand quelqu'un répond, il propose un créneau dans votre agenda.",'cta':'Essayer maintenant','ctasub':'Sans carte bancaire. <a href="/">Voir toutes les fonctionnalités</a>'},
++ en:{'meta.title':'Meet Aaron — the 36-second demo','eyebrow':'The 36-second demo','title':'Aaron prospects while you work','sub':'He finds the right contacts, writes the first message, follows up with those who stay silent and fills your calendar.','play':'Play video','note':'No sound — everything is on screen.','p1t':'He finds','p1b':'Describe your target once. Aaron looks for the companies and the right people inside them.','p2t':'He writes','p2b':'A first message written for that company, not a template copied over.','p3t':'He follows up','p3b':'And when someone replies, he offers a slot in your calendar.','cta':'Try it now','ctasub':'No card required. <a href="/">See every feature</a>'},
++ de:{'meta.title':'Meet Aaron — die Demo in 36 Sekunden','eyebrow':'Die Demo in 36 Sekunden','title':'Aaron akquiriert, während Sie arbeiten','sub':'Er findet die richtigen Kontakte, schreibt die erste Nachricht, hakt bei Schweigenden nach und füllt Ihren Kalender.','play':'Video abspielen','note':'Ohne Ton — alles steht auf dem Bildschirm.','p1t':'Er findet','p1b':'Sie beschreiben Ihre Zielgruppe einmal. Aaron sucht die Unternehmen und die passenden Ansprechpartner.','p2t':'Er schreibt','p2b':'Eine erste Nachricht für genau dieses Unternehmen, keine kopierte Vorlage.','p3t':'Er hakt nach','p3b':'Und wenn jemand antwortet, schlägt er einen Termin in Ihrem Kalender vor.','cta':'Jetzt testen','ctasub':'Ohne Kreditkarte. <a href="/">Alle Funktionen ansehen</a>'},
++ it:{'meta.title':'Meet Aaron — la demo in 36 secondi','eyebrow':'La demo in 36 secondi','title':'Aaron fa prospezione mentre tu lavori','sub':'Trova i contatti giusti, scrive il primo messaggio, ricontatta chi non risponde e riempie la tua agenda.','play':'Riproduci il video','note':'Senza audio — tutto è scritto a schermo.','p1t':'Trova','p1b':'Descrivi il tuo target una volta. Aaron cerca le aziende e gli interlocutori giusti.','p2t':'Scrive','p2b':"Un primo messaggio pensato per quell'azienda, non un modello ricopiato.",'p3t':'Ricontatta','p3b':'E quando qualcuno risponde, propone uno slot nella tua agenda.','cta':'Prova subito','ctasub':'Senza carta di credito. <a href="/">Vedi tutte le funzioni</a>'},
++ es:{'meta.title':'Meet Aaron — la demo en 36 segundos','eyebrow':'La demo en 36 segundos','title':'Aaron prospecta mientras tú trabajas','sub':'Encuentra los contactos adecuados, escribe el primer mensaje, insiste con quienes no responden y llena tu agenda.','play':'Reproducir vídeo','note':'Sin sonido — todo está escrito en pantalla.','p1t':'Encuentra','p1b':'Describe tu objetivo una vez. Aaron busca las empresas y las personas adecuadas.','p2t':'Escribe','p2b':'Un primer mensaje pensado para esa empresa, no una plantilla copiada.','p3t':'Insiste','p3b':'Y cuando alguien responde, propone un hueco en tu agenda.','cta':'Probar ahora','ctasub':'Sin tarjeta. <a href="/">Ver todas las funciones</a>'},
++ pt:{'meta.title':'Meet Aaron — a demo em 36 segundos','eyebrow':'A demo em 36 segundos','title':'O Aaron prospeta enquanto tu trabalhas','sub':'Encontra os contactos certos, escreve a primeira mensagem, insiste com quem não responde e enche a tua agenda.','play':'Reproduzir vídeo','note':'Sem som — está tudo escrito no ecrã.','p1t':'Encontra','p1b':'Descreves o teu alvo uma vez. O Aaron procura as empresas e os interlocutores certos.','p2t':'Escreve','p2b':'Uma primeira mensagem pensada para aquela empresa, não um modelo copiado.','p3t':'Insiste','p3b':'E quando alguém responde, propõe um horário na tua agenda.','cta':'Experimentar agora','ctasub':'Sem cartão. <a href="/">Ver todas as funcionalidades</a>'},
++ nl:{'meta.title':'Meet Aaron — de demo in 36 seconden','eyebrow':'De demo in 36 seconden','title':'Aaron prospecteert terwijl jij werkt','sub':'Hij vindt de juiste contacten, schrijft het eerste bericht, rappelleert wie niet reageert en vult je agenda.','play':'Video afspelen','note':'Zonder geluid — alles staat in beeld.','p1t':'Hij vindt','p1b':'Je beschrijft je doelgroep één keer. Aaron zoekt de bedrijven en de juiste mensen.','p2t':'Hij schrijft','p2b':'Een eerste bericht voor dat bedrijf, geen gekopieerd sjabloon.','p3t':'Hij rappelleert','p3b':'En zodra iemand antwoordt, stelt hij een moment in je agenda voor.','cta':'Nu proberen','ctasub':'Geen kaart nodig. <a href="/">Bekijk alle functies</a>'}
+ };
+ var LOCALES = ['fr','en','de','it','es','pt','nl'];
+ var LOCALE_LABELS = {fr:'Français',en:'English',de:'Deutsch',it:'Italiano',es:'Español',pt:'Português',nl:'Nederlands'};
+diff --git a/public/landing.html b/public/landing.html
+index a8d2819..56193c3 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -8,6 +8,7 @@
+      générait donc l'extrait de recherche automatiquement à partir du texte
+      visible de la page (une phrase de la carte d'installation desktop). -->
+ <meta name="description" content="Aaron, le copilote commercial IA : il prospecte, relance et prend vos rendez-vous pendant que vous êtes occupé. 59 € HT par mois et par commercial, sans engagement.">
++<link rel="canonical" href="https://meetaaron.app/">
+ <link rel="manifest" href="/manifest.json">
+ <meta name="theme-color" content="#05060f">
+ <meta name="apple-mobile-web-app-capable" content="yes">
+diff --git a/public/robots.txt b/public/robots.txt
+index 4b1fbf4..e455e38 100644
+--- a/public/robots.txt
++++ b/public/robots.txt
+@@ -1,6 +1,7 @@
+ User-agent: *
+ Allow: /$
+-Allow: /landing.html
++Allow: /demo
++Allow: /security
+ Allow: /login
+ Allow: /privacy
+ Allow: /terms
+diff --git a/public/sitemap.xml b/public/sitemap.xml
+index 56d7219..71ffc6a 100644
+--- a/public/sitemap.xml
++++ b/public/sitemap.xml
+@@ -6,15 +6,20 @@
+     <priority>1.0</priority>
+   </url>
+   <url>
+-    <loc>https://meetaaron.app/landing.html</loc>
++    <loc>https://meetaaron.app/demo</loc>
+     <changefreq>monthly</changefreq>
+-    <priority>1.0</priority>
++    <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://meetaaron.app/login</loc>
+     <changefreq>monthly</changefreq>
+     <priority>0.5</priority>
+   </url>
++  <url>
++    <loc>https://meetaaron.app/security</loc>
++    <changefreq>yearly</changefreq>
++    <priority>0.3</priority>
++  </url>
+   <url>
+     <loc>https://meetaaron.app/privacy</loc>
+     <changefreq>yearly</changefreq>
+-- 
+2.43.0
+
