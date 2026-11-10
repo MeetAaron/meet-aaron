@@ -1,0 +1,40 @@
+From d150ef84104395e8c581d886e6d3817e4b89e660 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 10 Nov 2026 12:44:49 +0000
+Subject: [PATCH] =?UTF-8?q?Chat=20d=C3=A9mo=20:=20la=20consultation=20des?=
+ =?UTF-8?q?=20fiches=20prospects=20reste=20ouverte?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+recherche_prospects lit les fiches déjà en base (gratuit) ; le bloquer sur
+la société démo faisait répondre Aaron « recherche désactivée » aux
+questions de préparation de RDV. Seuls l'enregistrement de documents et la
+modification du profil entreprise restent bloqués.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/chat/route.ts | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index b77873e..0f6040f 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -442,7 +442,11 @@ async function executeTool(
+ ) {
+   // Compte de démonstration (lib/demo-guard.ts) : Aaron répond, mais ne
+   // modifie pas la fiche entreprise partagée et n'enregistre pas de document.
+-  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise' || toolName === 'recherche_prospects')) {
++  // recherche_prospects reste OUVERT (10/11/2026) : c'est une lecture des
++  // fiches déjà en base, gratuite — sans elle Aaron répondait « la recherche
++  // est désactivée sur ce compte de démonstration » à « comment je prépare
++  // mon RDV avec Thomas Renard ? », ce qui vide la démo de son intérêt.
++  if (await isDemoCompany(companyId) && (toolName === 'sauvegarder_document' || toolName === 'mettre_a_jour_profil_entreprise')) {
+     return { success: false, error: 'Compte de démonstration : cette action est désactivée.' };
+   }
+   switch (toolName) {
+-- 
+2.43.0
+
