@@ -1,0 +1,38 @@
+From b7a36c90dd05c644de1ae7b98f620b4a1ac245b0 Mon Sep 17 00:00:00 2001
+From: Meet Aaron <aaron@meetaaron.app>
+Date: Wed, 11 Nov 2026 11:58:41 +0000
+Subject: [PATCH] =?UTF-8?q?Android=20:=20minSdk=2024=20(exig=C3=A9=20par?=
+ =?UTF-8?q?=20la=20protection=20automatique=20Google=20Play)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+La Play Console refuse l'app bundle : « La protection automatique Play
+nécessite le SDK 24 ou version ultérieure ». versionCode inchangé (1) :
+aucun bundle n'a encore été accepté.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ android/app/build.gradle | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index 632be0e..24a103c 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -33,7 +33,10 @@ android {
+ 
+     defaultConfig {
+         applicationId 'app.meetaaron.mobile'
+-        minSdk 23
++        // minSdk 24 (11/11/2026) : la « protection automatique » de Google Play
++        // refuse les app bundles en dessous d'Android 7.0 (API 24). Perte
++        // d'audience négligeable (Android 6 et moins, < 1 % du parc).
++        minSdk 24
+         targetSdk 36
+         versionCode 1
+         versionName '1.0.0'
+-- 
+2.43.0
+
