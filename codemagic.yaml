@@ -17,7 +17,9 @@
 #     (Codemagic → Teams → Integrations → App Store Connect → Add key).
 #     C'est elle qui genere et renouvelle les certificats tout seule : c'est
 #     la partie qui fait perdre des journees quand on la fait a la main.
-#   - le groupe de variables appstore_credentials (voir plus bas).
+#     Elle fournit aussi les identifiants aux outils en ligne de commande
+#     (numero du dernier build TestFlight) : plus besoin du groupe de
+#     variables appstore_credentials, supprime le 12/11/2026.
 #   - dans le portail developpeur Apple (Identifiers → app.meetaaron.mobile),
 #     les capacites Push Notifications et Associated Domains cochees : le
 #     profil de provisionnement doit couvrir les habilitations que pose
@@ -31,6 +33,8 @@ workflows:
     name: Meet Aaron — iOS (TestFlight)
     instance_type: mac_mini_m2
     max_build_duration: 45
+    integrations:
+      app_store_connect: meet-aaron-asc
     environment:
       # Capacitor 8 exige Xcode 26 et Node 22 (mise a jour du 07/11/2026).
       xcode: 26.0
@@ -41,15 +45,10 @@ workflows:
         bundle_identifier: app.meetaaron.mobile
       vars:
         APP_VERSION: '1.0.0'
-      groups:
-        # Groupe de variables a creer dans Codemagic, contenant :
-        #   APP_STORE_CONNECT_ISSUER_ID
-        #   APP_STORE_CONNECT_KEY_IDENTIFIER
-        #   APP_STORE_CONNECT_PRIVATE_KEY
-        #   APP_STORE_APP_ID   (identifiant numerique de l'app dans App Store
-        #                       Connect, visible dans l'URL de sa fiche — sert a
-        #                       numeroter les builds a la suite de TestFlight)
-        - appstore_credentials
+        # Identifiant numerique de l'app dans App Store Connect (« Meet Aaron:
+        # Sales Copilot », visible dans l'URL de sa fiche). Pas un secret.
+        # Sert a numeroter les builds a la suite de TestFlight.
+        APP_STORE_APP_ID: '6832991260'
 
     scripts:
       - name: Installer les dependances de la coque
@@ -92,12 +91,12 @@ workflows:
           cd ios-app/ios/App
           pod install
 
-      - name: Appliquer la signature automatique
+      - name: Appliquer la signature
         script: |
+          # Certificat et profil deja recuperes par `ios_signing` (via
+          # l'integration) avant les scripts : il reste a les brancher sur le
+          # projet Xcode genere.
           cd ios-app/ios/App
-          keychain initialize
-          app-store-connect fetch-signing-files app.meetaaron.mobile --type IOS_APP_STORE --create
-          keychain add-certificates
           xcode-project use-profiles
 
       - name: Compiler l'archive
