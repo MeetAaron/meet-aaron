@@ -22,7 +22,7 @@ import BusinessProfileSheet from '@/components/BusinessProfileSheet';
 import { inline } from '@/components/LegalPage';
 import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
-import { isNativeApp, openExternal } from '@/lib/native-app';
+import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
 import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
 import MfaSettings from '@/components/MfaSettings';
 import QRCode from 'qrcode';
@@ -3887,7 +3887,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           </div>
         )
       ) : activeTab === 'subscription' ? (
-        isNativeApp() ? (
+        isStoreApp() ? (
           // Application iOS de l'App Store (07/11/2026) : aucun achat, aucun
           // lien de paiement dans l'app (règle Apple 3.1.1). L'abonnement et
           // les crédits se gèrent sur le site, l'app se contente de le dire.

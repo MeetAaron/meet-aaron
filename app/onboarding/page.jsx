@@ -7,7 +7,7 @@ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
 import { useLocale, localeForCountry, t, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
 import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
 import Ic from '@/components/UiIcon';
-import { isNativeApp } from '@/lib/native-app';
+import { isStoreApp } from '@/lib/native-app';
 
 // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
 // seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
@@ -535,7 +535,7 @@ export default function OnboardingPage() {
   // on ne sait pas encore d'où vient la page.
   const [native, setNative] = useState(false);
   useEffect(() => {
-    setNative(isNativeApp());
+    setNative(isStoreApp());
   }, []);
   const [session, setSession] = useState(null);
   // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
