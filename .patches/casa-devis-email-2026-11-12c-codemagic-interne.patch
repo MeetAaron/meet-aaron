@@ -1,0 +1,40 @@
+From 624b205ec894a8fd6d818e454f35b3d7e2c8c30b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 06:03:35 +0000
+Subject: [PATCH] =?UTF-8?q?iOS=20:=20plus=20de=20soumission=20=C3=A0=20la?=
+ =?UTF-8?q?=20revue=20TestFlight=20externe=20(build=20vert,=20groupe=20int?=
+ =?UTF-8?q?erne=20servi)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ codemagic.yaml | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/codemagic.yaml b/codemagic.yaml
+index 9d97f50..4bebb51 100644
+--- a/codemagic.yaml
++++ b/codemagic.yaml
+@@ -118,9 +118,13 @@ workflows:
+     publishing:
+       app_store_connect:
+         auth: integration
+-        # Envoi sur TestFlight uniquement. La mise en vente publique reste un
+-        # clic manuel dans App Store Connect : on ne publie jamais tout seul.
+-        submit_to_testflight: true
++        # Envoi sur App Store Connect uniquement : le build apparait dans
++        # TestFlight et part tout seul au groupe interne « Equipe Meet Aaron »
++        # (distribution automatique). submit_to_testflight: true demandait en
++        # plus la revue beta EXTERNE, qui echouait faute d'infos de test et
++        # mettait le build en rouge alors que tout etait bon (12/11/2026).
++        # La mise en vente publique reste un clic manuel dans App Store Connect.
++        submit_to_testflight: false
+         submit_to_app_store: false
+       email:
+         recipients:
+-- 
+2.43.0
+
