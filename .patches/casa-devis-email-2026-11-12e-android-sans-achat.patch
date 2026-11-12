@@ -1,0 +1,100 @@
+From 819e96eabccf21b6b2c9bc0c2a112e4413865cac Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 08:37:21 +0000
+Subject: [PATCH] Appli Android du Play Store : pas d'achat ni d'inscription
+ payante (comme iOS)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/connexions/page.jsx |  4 ++--
+ app/onboarding/page.jsx     |  4 ++--
+ lib/native-app.js           | 28 ++++++++++++++++++++++++++++
+ 3 files changed, 32 insertions(+), 4 deletions(-)
+
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index f537a77..a1de456 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -22,7 +22,7 @@ import BusinessProfileSheet from '@/components/BusinessProfileSheet';
+ import { inline } from '@/components/LegalPage';
+ import AccountNav from '@/components/AccountNav';
+ import PushNotificationManager from '@/components/PushNotificationManager';
+-import { isNativeApp, openExternal } from '@/lib/native-app';
++import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
+ import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
+ import MfaSettings from '@/components/MfaSettings';
+ import QRCode from 'qrcode';
+@@ -3887,7 +3887,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           </div>
+         )
+       ) : activeTab === 'subscription' ? (
+-        isNativeApp() ? (
++        isStoreApp() ? (
+           // Application iOS de l'App Store (07/11/2026) : aucun achat, aucun
+           // lien de paiement dans l'app (règle Apple 3.1.1). L'abonnement et
+           // les crédits se gèrent sur le site, l'app se contente de le dire.
+diff --git a/app/onboarding/page.jsx b/app/onboarding/page.jsx
+index 23aca77..7ff3959 100644
+--- a/app/onboarding/page.jsx
++++ b/app/onboarding/page.jsx
+@@ -7,7 +7,7 @@ import { supabaseBrowser, consumePostLoginNext } from '@/lib/supabase-browser';
+ import { useLocale, localeForCountry, t, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+ import { currencyForCountryText, subscriptionPrice, formatBoostPrice, yearlyPrice, yearlyPerMonth } from '@/lib/boost-tiers';
+ import Ic from '@/components/UiIcon';
+-import { isNativeApp } from '@/lib/native-app';
++import { isStoreApp } from '@/lib/native-app';
+ 
+ // Modules Aaron proposés dès l'inscription (demande d'Alex 2026-08-17) : avant,
+ // seul Aaron Prospect était proposé au patron, Opportunités/Clients ne
+@@ -535,7 +535,7 @@ export default function OnboardingPage() {
+   // on ne sait pas encore d'où vient la page.
+   const [native, setNative] = useState(false);
+   useEffect(() => {
+-    setNative(isNativeApp());
++    setNative(isStoreApp());
+   }, []);
+   const [session, setSession] = useState(null);
+   // Deux questions bien distinctes (retour Alex 25/08, après avoir testé
+diff --git a/lib/native-app.js b/lib/native-app.js
+index e4dd3a6..5d4682d 100644
+--- a/lib/native-app.js
++++ b/lib/native-app.js
+@@ -25,6 +25,34 @@ export function isNativeApp() {
+   return !!getCapacitor();
+ }
+ 
++// Application Android du Play Store (12/11/2026). La coque TWA n'injecte
++// rien dans la page, mais Chrome pose `document.referrer` =
++// android-app://app.meetaaron.mobile/ sur la première page ouverte par
++// l'app. On le mémorise pour la session (onglet de la TWA) : les pages
++// suivantes ont un referrer https ordinaire.
++const TWA_FLAG = 'aaron_store_android';
++export function isAndroidStoreApp() {
++  if (typeof window === 'undefined') return false;
++  try {
++    if ((document.referrer || '').startsWith('android-app://app.meetaaron.mobile')) {
++      window.sessionStorage.setItem(TWA_FLAG, '1');
++      return true;
++    }
++    return window.sessionStorage.getItem(TWA_FLAG) === '1';
++  } catch {
++    return false;
++  }
++}
++
++// Application installée depuis un store (App Store OU Play Store) : aucun
++// achat ni inscription payante dans l'app. Apple (règle 3.1.1) comme Google
++// (règlement Paiements : un service numérique vendu dans l'app passe par
++// leur facturation) l'exigent ; l'abonnement et les boosts se prennent sur
++// le site, l'app se contente de le dire.
++export function isStoreApp() {
++  return isNativeApp() || isAndroidStoreApp();
++}
++
+ // 'ios' | 'android' | null
+ export function nativePlatform() {
+   const cap = getCapacitor();
+-- 
+2.43.0
+
