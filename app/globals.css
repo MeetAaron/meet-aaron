@@ -1515,3 +1515,15 @@ html[data-theme='light']:root {
   opacity: 1;
   outline: none;
 }
+
+/* 12/11/2026 — Coque iOS/Android (html.native-app, posé par
+   components/NativeAppBridge.jsx) : aucun glissement latéral de la page.
+   overscroll-behavior-x coupe le rebond horizontal ; touch-action:
+   manipulation supprime le zoom au double-tap tout en laissant défiler
+   les rangées horizontales (stories, onglets). Le zoom au pincement est
+   bloqué par la balise viewport réécrite dans la coque. */
+html.native-app,
+html.native-app body {
+  overscroll-behavior-x: none;
+  touch-action: manipulation;
+}

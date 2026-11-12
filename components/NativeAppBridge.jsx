@@ -42,6 +42,20 @@ export default function NativeAppBridge() {
     document.documentElement.classList.add('native-app');
     document.documentElement.dataset.nativePlatform = platform;
 
+    // 12/11/2026 (retour d'Alex sur TestFlight) : dans la coque, la page
+    // « bougeait sur les côtés ». Cause : le zoom d'iOS (pincement, ou zoom
+    // automatique au focus d'un champ en moins de 16 px) laisse la page
+    // agrandie, qui se met alors à glisser latéralement. Une app native ne
+    // zoome pas : on bloque le zoom DANS LA COQUE SEULEMENT — sur le site,
+    // le zoom reste permis (accessibilité). Bords fixes « comme Instagram ».
+    const vp = document.querySelector('meta[name="viewport"]');
+    if (vp) {
+      vp.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+      );
+    }
+
     const handles = [];
     const push = nativePushPlugin();
     if (push) {
