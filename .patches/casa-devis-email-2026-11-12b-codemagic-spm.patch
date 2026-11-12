@@ -1,0 +1,48 @@
+From 534e8563c5e7e3ef0071688788a95acceea5d04f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 05:41:47 +0000
+Subject: [PATCH] iOS : compilation Codemagic compatible Swift Package Manager
+ (Capacitor 8)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ codemagic.yaml | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/codemagic.yaml b/codemagic.yaml
+index bd7705a..9d97f50 100644
+--- a/codemagic.yaml
++++ b/codemagic.yaml
+@@ -86,10 +86,13 @@ workflows:
+           echo "BUILD_NUMBER=$BUILD_NUMBER"
+           APP_VERSION="$APP_VERSION" BUILD_NUMBER="$BUILD_NUMBER" ruby patch-ios.rb
+ 
+-      - name: Installer les pods
++      - name: Installer les pods (projets CocoaPods seulement)
+         script: |
++          # Capacitor 8 genere par defaut un projet Swift Package Manager
++          # (CapApp-SPM) : plus de Podfile, Xcode resout les paquets tout seul
++          # a la compilation. On garde le cas CocoaPods au cas ou.
+           cd ios-app/ios/App
+-          pod install
++          if [ -f Podfile ]; then pod install; else echo "Swift Package Manager : aucun pod a installer"; fi
+ 
+       - name: Appliquer la signature
+         script: |
+@@ -102,7 +105,11 @@ workflows:
+       - name: Compiler l'archive
+         script: |
+           cd ios-app/ios/App
+-          xcode-project build-ipa --workspace App.xcworkspace --scheme App
++          if [ -f Podfile ]; then
++            xcode-project build-ipa --workspace App.xcworkspace --scheme App
++          else
++            xcode-project build-ipa --project App.xcodeproj --scheme App
++          fi
+ 
+     artifacts:
+       - ios-app/ios/App/build/ios/ipa/*.ipa
+-- 
+2.43.0
+
