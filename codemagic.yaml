@@ -86,10 +86,13 @@ workflows:
           echo "BUILD_NUMBER=$BUILD_NUMBER"
           APP_VERSION="$APP_VERSION" BUILD_NUMBER="$BUILD_NUMBER" ruby patch-ios.rb
 
-      - name: Installer les pods
+      - name: Installer les pods (projets CocoaPods seulement)
         script: |
+          # Capacitor 8 genere par defaut un projet Swift Package Manager
+          # (CapApp-SPM) : plus de Podfile, Xcode resout les paquets tout seul
+          # a la compilation. On garde le cas CocoaPods au cas ou.
           cd ios-app/ios/App
-          pod install
+          if [ -f Podfile ]; then pod install; else echo "Swift Package Manager : aucun pod a installer"; fi
 
       - name: Appliquer la signature
         script: |
@@ -102,7 +105,11 @@ workflows:
       - name: Compiler l'archive
         script: |
           cd ios-app/ios/App
-          xcode-project build-ipa --workspace App.xcworkspace --scheme App
+          if [ -f Podfile ]; then
+            xcode-project build-ipa --workspace App.xcworkspace --scheme App
+          else
+            xcode-project build-ipa --project App.xcodeproj --scheme App
+          fi
 
     artifacts:
       - ios-app/ios/App/build/ios/ipa/*.ipa
