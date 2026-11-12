@@ -1,0 +1,64 @@
+From 894c1b3d15bc6f304b19a03dfc1d329cb186fa5b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 06:25:47 +0000
+Subject: [PATCH] =?UTF-8?q?Coque=20mobile=20:=20plus=20de=20zoom=20ni=20de?=
+ =?UTF-8?q?=20glissement=20lat=C3=A9ral=20(bords=20fixes)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/globals.css                | 12 ++++++++++++
+ components/NativeAppBridge.jsx | 14 ++++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/app/globals.css b/app/globals.css
+index c3d2ca4..3f7567a 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -1515,3 +1515,15 @@ html[data-theme='light']:root {
+   opacity: 1;
+   outline: none;
+ }
++
++/* 12/11/2026 — Coque iOS/Android (html.native-app, posé par
++   components/NativeAppBridge.jsx) : aucun glissement latéral de la page.
++   overscroll-behavior-x coupe le rebond horizontal ; touch-action:
++   manipulation supprime le zoom au double-tap tout en laissant défiler
++   les rangées horizontales (stories, onglets). Le zoom au pincement est
++   bloqué par la balise viewport réécrite dans la coque. */
++html.native-app,
++html.native-app body {
++  overscroll-behavior-x: none;
++  touch-action: manipulation;
++}
+diff --git a/components/NativeAppBridge.jsx b/components/NativeAppBridge.jsx
+index 0d9ee33..48c9653 100644
+--- a/components/NativeAppBridge.jsx
++++ b/components/NativeAppBridge.jsx
+@@ -42,6 +42,20 @@ export default function NativeAppBridge() {
+     document.documentElement.classList.add('native-app');
+     document.documentElement.dataset.nativePlatform = platform;
+ 
++    // 12/11/2026 (retour d'Alex sur TestFlight) : dans la coque, la page
++    // « bougeait sur les côtés ». Cause : le zoom d'iOS (pincement, ou zoom
++    // automatique au focus d'un champ en moins de 16 px) laisse la page
++    // agrandie, qui se met alors à glisser latéralement. Une app native ne
++    // zoome pas : on bloque le zoom DANS LA COQUE SEULEMENT — sur le site,
++    // le zoom reste permis (accessibilité). Bords fixes « comme Instagram ».
++    const vp = document.querySelector('meta[name="viewport"]');
++    if (vp) {
++      vp.setAttribute(
++        'content',
++        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
++      );
++    }
++
+     const handles = [];
+     const push = nativePushPlugin();
+     if (push) {
+-- 
+2.43.0
+
