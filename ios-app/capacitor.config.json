@@ -17,12 +17,27 @@
   },
   "plugins": {
     "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
     },
     "SplashScreen": {
       "launchShowDuration": 1200,
       "backgroundColor": "#0D0F20",
       "showSpinner": false
     }
+  },
+  "android": {
+    "backgroundColor": "#0D0F20",
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "force",
+    "includePlugins": [
+      "@capacitor/app",
+      "@capacitor/browser",
+      "@capacitor/splash-screen",
+      "@capacitor/status-bar"
+    ]
   }
 }

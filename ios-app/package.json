@@ -2,11 +2,13 @@
   "name": "meet-aaron-ios",
   "version": "1.0.0",
   "private": true,
-  "description": "Coque iOS de Meet Aaron. Volontairement isolee du projet Next.js : ses dependances ne doivent jamais remonter dans le build Vercel.",
+  "description": "Coque mobile de Meet Aaron (iOS ET Android depuis le 12/11/2026, Capacitor). Volontairement isolee du projet Next.js : ses dependances ne doivent jamais remonter dans le build Vercel.",
   "scripts": {
     "ios:add": "cap add ios",
     "ios:sync": "cap sync ios",
-    "assets": "capacitor-assets generate --ios --assetPath assets"
+    "assets": "capacitor-assets generate --ios --assetPath assets",
+    "android:add": "cap add android",
+    "android:sync": "cap sync android"
   },
   "dependencies": {
     "@capacitor/core": "^8.0.0",
@@ -15,7 +17,8 @@
     "@capacitor/browser": "^8.0.0",
     "@capacitor/push-notifications": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
-    "@capacitor/status-bar": "^8.0.0"
+    "@capacitor/status-bar": "^8.0.0",
+    "@capacitor/android": "^8.0.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.0.0",
