@@ -1,0 +1,80 @@
+From 961e2c5251936ff53cc29a653ccbfac2954487c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 11:26:35 +0000
+Subject: [PATCH] Applis iPhone/Android : la connexion ne bascule plus dans
+ Safari
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Capacitor iOS n'accepte dans l'app que les adresses qui COMMENCENT par
+server.url (https://meetaaron.app/app/campaigns). Toute navigation vers
+/login, /onboarding, /privacy... partait donc dans Safari : la video de
+revue Apple montrait le site dans Safari, pas l'app. allowNavigation
+(meetaaron.app, www.meetaaron.app) est verifie avant ce test : tout le
+site reste dans l'app, les liens tiers continuent de s'ouvrir dehors.
+
+Ecran de connexion : le lien « S'inscrire » est masque dans les applis
+(la creation de compte ne se fait pas dans l'app).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/login/page.jsx            | 9 ++++++++-
+ ios-app/capacitor.config.json | 6 +++++-
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/app/login/page.jsx b/app/login/page.jsx
+index ceecb55..2de4b05 100644
+--- a/app/login/page.jsx
++++ b/app/login/page.jsx
+@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext, revokeStaleSessionOnLoginPage } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { isStoreApp } from '@/lib/native-app';
+ import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage, passwordChecks, passwordRuleLabels } from '@/lib/password-policy';
+ 
+ // Liste des règles sous le champ mot de passe (inscription et réinitialisation),
+@@ -43,6 +44,12 @@ export default function LoginPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
++  // Applications iPhone / Android (13/11/2026) : la création de compte ne se
++  // fait pas dans l'app (voir app/onboarding, « native.signupNotInApp »). Le
++  // lien « Pas encore de compte ? S'inscrire » y créait pourtant un compte
++  // qui aboutissait sur un cul-de-sac. On le masque dans la coque.
++  const [storeApp, setStoreApp] = useState(false);
++  useEffect(() => { setStoreApp(isStoreApp()); }, []);
+   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
+   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
+   const [resetToken, setResetToken] = useState(null);
+@@ -549,7 +556,7 @@ export default function LoginPage() {
+           <button className="link-toggle" onClick={() => { setMode('signin'); setError(null); setMessage(null); }}>
+             {t('auth.backToSignin', locale)}
+           </button>
+-        ) : (
++        ) : storeApp && mode === 'signin' ? null : (
+           <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
+             {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
+           </button>
+diff --git a/ios-app/capacitor.config.json b/ios-app/capacitor.config.json
+index f6880be..9bf048d 100644
+--- a/ios-app/capacitor.config.json
++++ b/ios-app/capacitor.config.json
+@@ -8,7 +8,11 @@
+     "hostname": "meetaaron.app",
+     "androidScheme": "https",
+     "iosScheme": "https",
+-    "cleartext": false
++    "cleartext": false,
++    "allowNavigation": [
++      "meetaaron.app",
++      "www.meetaaron.app"
++    ]
+   },
+   "ios": {
+     "contentInset": "always",
+-- 
+2.43.0
+
