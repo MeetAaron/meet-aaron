@@ -1,0 +1,56 @@
+From 32683f64fe5302bb106477bd9d9acbbb8c3d2140 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 13:03:08 +0000
+Subject: [PATCH] Compte demo : suppression de compte simulee (revue Apple)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Apple exige de pouvoir derouler la suppression de compte. Sur le compte
+demo partage, la derniere etape repond comme pour un vrai compte (ecran
+« suppression programmee ») sans rien ecrire en base. Les notes de revue
+App Store le precisent.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/account/deletion/route.ts | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/app/api/account/deletion/route.ts b/app/api/account/deletion/route.ts
+index dfdfab6..78b632a 100644
+--- a/app/api/account/deletion/route.ts
++++ b/app/api/account/deletion/route.ts
+@@ -20,7 +20,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+-import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
++import { isDemoCompany } from '@/lib/demo-guard';
+ import { serverError } from '@/lib/http';
+ 
+ const DELAY_MS = 24 * 60 * 60 * 1000;
+@@ -49,7 +49,19 @@ export async function GET(request: NextRequest) {
+ export async function POST(request: NextRequest) {
+   const authedUser = await getAuthedUser(request);
+   if (!authedUser) return unauthorizedResponse();
+-  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
++  // Compte de démonstration (13/11/2026, revue Apple) : la suppression est
++  // SIMULÉE — même réponse et même écran « suppression programmée » qu'un
++  // vrai compte, mais rien n'est écrit en base. Apple exige de pouvoir
++  // dérouler le parcours de suppression, et le compte démo est partagé entre
++  // tous les testeurs : le supprimer pour de vrai casserait la revue des
++  // suivants. Les notes de revue App Store le disent explicitement.
++  if (await isDemoCompany(authedUser.company_id)) {
++    return NextResponse.json({
++      requested: true,
++      scheduled_for: new Date(Date.now() + DELAY_MS).toISOString(),
++      simulated: true,
++    });
++  }
+ 
+   const { data: existing } = await supabaseAdmin
+     .from('users')
+-- 
+2.43.0
+
