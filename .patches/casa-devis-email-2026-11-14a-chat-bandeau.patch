@@ -1,0 +1,44 @@
+From f20db1d65bad8b751b2f44f8a151af666d72c651 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 20:34:13 +0000
+Subject: [PATCH] Chat sur telephone : le bandeau de stories ne recouvre plus
+ l'en-tete Aaron
+
+La regle qui masquait le bandeau sur la page chat etait dans un style
+scope du composant de la page et n'atteignait pas le bandeau rendu par
+le Shell. Deplacee dans le style global de la page chat (injecte
+seulement quand le chat est affiche). Aucune fonction du chat modifiee.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/chat/page.jsx | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 239bc6f..1841653 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -2690,6 +2690,19 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+       </main>
+       <style jsx global>{`
+         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
++        /* Page chat sur téléphone (14/11/2026, retour Alex « l'affichage du
++           chat était étrange ») : le chat est un bloc fixe plein écran
++           (.mg-page, z-index 20) et le bandeau de stories collé en haut
++           (z-index 65) passait PAR-DESSUS son en-tête « Aaron » et le
++           message d'accueil. La règle qui le masquait vivait dans un
++           <style jsx> scopé du composant de la page : elle ne pouvait pas
++           atteindre le bandeau rendu par le Shell, donc ne s'appliquait
++           jamais. Ici, en global — ce bloc n'est injecté que tant que la
++           page chat est affichée, les autres pages gardent leur bandeau. */
++        @media (max-width: 900px) {
++          .shell > main.content > .stories,
++          .shell > main.content > .all-clear { display: none !important; }
++        }
+         :root {
+           --bg: #0a0c17;
+           --bg-elevated: #0f1224;
+-- 
+2.43.0
+
