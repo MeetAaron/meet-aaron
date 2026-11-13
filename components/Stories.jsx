@@ -136,7 +136,7 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
     const ordered = [...groups.filter((g) => g.type === type), ...groups.filter((g) => g.type !== type)];
     const deck = ordered.flatMap((g) => g.items);
     if (deck.length === 0) return;
-    setOpen({ deck, index: 0 });
+    setOpen({ deck, index: 0, total: deck.length });
   }
 
   function openAll() {
@@ -149,7 +149,7 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
       return;
     }
     setEmptyOpen(false);
-    setOpen({ deck, index: 0 });
+    setOpen({ deck, index: 0, total: deck.length });
   }
 
   async function handleChanged() {
@@ -164,7 +164,7 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
       if (!prev) return prev;
       const deck = prev.deck.filter((_, i) => i !== prev.index);
       if (deck.length === 0) return null;
-      return { deck, index: Math.min(prev.index, deck.length - 1) };
+      return { ...prev, deck, index: Math.min(prev.index, deck.length - 1) };
     });
     handleChanged();
   }
@@ -403,6 +403,11 @@ export default function Stories({ userId, locale, mode = 'strip', onOpenContact,
 function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContact, onBackgroundError }) {
   const { deck, index } = state;
   const item = deck[index];
+  // Compteur stable (13/11/2026) : « 2 sur 3 » se lit par rapport au nombre
+  // de stories À L'OUVERTURE. Une story traitée sort de la file, mais le
+  // compteur avance quand même (avant : traiter la 1re affichait « 1 sur 2 »).
+  const total = state.total || deck.length;
+  const position = total - deck.length + index + 1;
   const [acting, setActing] = useState(false);
   const [error, setError] = useState(null);
   // Texte du brouillon déplié ou non (Alex, 02/11/2026) : une story ne
@@ -1033,7 +1038,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
                 confondues, la catégorie touchée passe en premier), et non
                 dans la catégorie. « 1 sur 3 » plutôt que « 1/3 » collé au
                 type, qui se lisait comme « 1re réponse sur 3 ». */}
-            <p className="type">{t(`stories.type.${item.type}`, locale)}{deck.length > 1 && <span className="pos">{t('stories.position', locale).replace('{n}', index + 1).replace('{total}', deck.length)}</span>}</p>
+            <p className="type">{t(`stories.type.${item.type}`, locale)}{total > 1 && <span className="pos">{t('stories.position', locale).replace('{n}', position).replace('{total}', total)}</span>}</p>
             <p className="name">
               {item.prospect_name}
               <DiscBadge type={item.personality_type} locale={locale} />
