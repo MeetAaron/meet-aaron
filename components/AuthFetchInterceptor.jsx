@@ -35,6 +35,20 @@ import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDev
 // d'authentification reste de toute façon fait par Supabase + les routes API
 // (voir plus bas et lib/auth-helpers.ts) : ce marqueur ne fait qu'éviter de
 // redemander bêtement un clic "Se connecter" quand la session est encore là.
+// Même règle que useLocale (lib/i18n.js) : choix enregistré, sinon langue du
+// navigateur si elle est prise en charge.
+const UI_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'];
+function currentUiLocale() {
+  try {
+    const stored = window.localStorage.getItem('aaron_locale');
+    if (stored && UI_LOCALES.includes(stored)) return stored;
+  } catch {
+    // stockage indisponible : on retombe sur la langue du navigateur
+  }
+  const nav = (typeof navigator !== 'undefined' && (navigator.language || '')).slice(0, 2).toLowerCase();
+  return UI_LOCALES.includes(nav) ? nav : null;
+}
+
 if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
   window.__aaronAppEntryChecked = true;
   const path = window.location.pathname;
@@ -87,6 +101,19 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
     }
 
     const opts = init ? { ...init } : {};
+
+    // Langue de l'INTERFACE envoyée à chaque appel (13/11/2026). Le serveur
+    // produisait le contenu IA (chat, conseils, emails) dans users.locale,
+    // qui peut différer de la langue affichée : nouvel appareil, ou compte
+    // démo partagé dont un testeur avait mis l'espagnol — Alex, en anglais,
+    // s'est vu répondre « Hola amigo ». lib/auth-helpers.ts (getAuthedUser)
+    // donne priorité à cet en-tête.
+    const uiLocale = currentUiLocale();
+    if (uiLocale) {
+      const h = new Headers(opts.headers || (typeof input !== 'string' && input && input.headers) || undefined);
+      if (!h.has('x-aaron-locale')) h.set('x-aaron-locale', uiLocale);
+      opts.headers = Object.fromEntries(h.entries());
+    }
 
     // Item 3bis (docx 30/08) : signale l'appareil à /api/auth/link une fois
     // par jour — le serveur envoie un email de sécurité au commercial si cet

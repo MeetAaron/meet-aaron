@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import { confirmLogout } from '@/lib/confirm-dialog';
 import { formatSubscriptionPrice, USD_PER_CREDIT, PROSPECTS_PER_CREDIT } from '@/lib/boost-tiers';
 import { NavIcon, LockIcon } from '@/components/NavIcon';
 import RailMore, { railLinkClass } from '@/components/RailMore';
@@ -1939,6 +1940,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
   // l'activité des campagnes, pas la connexion de l'utilisateur.
   async function handleLogout() {
+    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
+    if (!(await confirmLogout(locale))) return;
     await supabaseBrowser.auth.signOut();
     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour

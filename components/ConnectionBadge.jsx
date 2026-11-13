@@ -18,14 +18,22 @@
 // pouvoir vivre aussi bien dans la barre du haut mobile que dans l'en-tête du
 // tableau de bord, sans dupliquer la logique de déconnexion.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { confirmLogout } from '@/lib/confirm-dialog';
 import { t } from '@/lib/i18n';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
 
 export default function ConnectionBadge({ locale, compact = false }) {
   const [online, setOnline] = useState(true);
-  const [showConfirm, setShowConfirm] = useState(false);
+  // Petit menu sous la pastille. 13/11/2026 (Alex : « quand on clique sur
+  // Connecté, il ne se passe rien ») : le menu existait, mais il s'ouvrait
+  // DANS la barre du haut (position fixe, z-index 55), sous le bandeau de
+  // stories collé juste en dessous (z-index 65) — invisible. Il est
+  // maintenant rendu à la racine de la page (portail), en position fixe.
+  const [menu, setMenu] = useState(null); // { top, right } | null
   const [loggingOut, setLoggingOut] = useState(false);
+  const btnRef = useRef(null);
 
   useEffect(() => {
     setOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -39,7 +47,17 @@ export default function ConnectionBadge({ locale, compact = false }) {
     };
   }, []);
 
-  async function confirmLogout() {
+  function toggleMenu() {
+    if (menu) { setMenu(null); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setMenu({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+  }
+
+  async function logout() {
+    setMenu(null);
+    // Puis « Es-tu sûr de vouloir te déconnecter ? » (lib/confirm-dialog.js).
+    if (!(await confirmLogout(locale))) return;
     setLoggingOut(true);
     await supabaseBrowser.auth.signOut();
     clearExplicitLogin();
@@ -51,24 +69,62 @@ export default function ConnectionBadge({ locale, compact = false }) {
   return (
     <div className="conn-wrap">
       <button
+        ref={btnRef}
         type="button"
         className={`conn-btn${compact ? ' compact' : ''}`}
-        onClick={() => setShowConfirm((v) => !v)}
+        onClick={toggleMenu}
         aria-label={label}
+        aria-expanded={!!menu}
+        disabled={loggingOut}
       >
         <span className={`conn-dot ${online ? 'is-online' : 'is-offline'}`} />
         <span className="conn-label">{label}</span>
       </button>
-      {showConfirm && (
-        <div className="conn-popover" role="dialog">
-          <p>{t('connectionBadge.confirmLogout', locale)}</p>
-          <div className="conn-actions">
-            <button type="button" className="conn-cancel" onClick={() => setShowConfirm(false)}>{t('common.cancel', locale)}</button>
-            <button type="button" className="conn-confirm" disabled={loggingOut} onClick={confirmLogout}>
-              {loggingOut ? '…' : t('connectionBadge.logoutButton', locale)}
+      {menu && typeof document !== 'undefined' && createPortal(
+        <>
+          <div
+            onClick={() => setMenu(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'transparent' }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: menu.top,
+              right: menu.right,
+              zIndex: 1501,
+              minWidth: 190,
+              background: 'var(--surface, #141a2e)',
+              border: '1px solid var(--border, rgba(255,255,255,0.1))',
+              borderRadius: 12,
+              padding: '0.35rem',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={logout}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--accent-red, #ef4459)',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                padding: '0.65rem 0.75rem',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {t('connectionBadge.logoutButton', locale)}
             </button>
           </div>
-        </div>
+        </>,
+        document.body
       )}
       <style jsx>{`
         .conn-wrap {

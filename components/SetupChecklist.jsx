@@ -206,7 +206,9 @@ export default function SetupChecklist({ userId, locale, onStoryGroups }) {
     }
     onStoryGroups([{
       type: 'mise_en_route',
-      count: steps.length - doneCount,
+      // Une seule story (l'étape en cours) : la bulle affichait le nombre
+      // d'étapes restantes (« 3 ») pour 1 seule story — Alex, 13/11/2026.
+      count: 1,
       items: [{
         id: `mise_en_route:${firstPending.key}`,
         type: 'mise_en_route',

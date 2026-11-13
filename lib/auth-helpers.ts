@@ -192,6 +192,8 @@ function getCachedAuthedUser(token: string, resolve: () => Promise<AuthedUser | 
 // Résout l'identité ET le profil "users" Meet Aaron correspondant — utilisé par
 // toutes les autres routes protégées. Renvoie null si le token est absent/
 // invalide, ou si aucun profil "users" n'est encore lié à ce compte.
+const UI_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'];
+
 export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | null> {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -203,12 +205,21 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | 
   // chaque route, jamais un accès accordé par défaut. Le détail de l'erreur
   // va dans les journaux serveur, pas au client.
   try {
-    return await getCachedAuthedUser(token, async () => {
+    const user = await getCachedAuthedUser(token, async () => {
       const identity = await resolveIdentityFromToken(token);
       if (!identity) return null;
       const row = await fetchUserRow(identity.auth_user_id);
       return row ? { ...row, aal: readAalClaim(token) } : null;
     });
+    // Langue affichée par l'interface (en-tête x-aaron-locale, posé par
+    // components/AuthFetchInterceptor.jsx) prioritaire sur users.locale : le
+    // contenu IA suit la langue que la personne a sous les yeux (13/11/2026).
+    // Copie, jamais de modification de l'objet en cache.
+    const uiLocale = (request.headers.get('x-aaron-locale') || '').toLowerCase();
+    if (user && UI_LOCALES.includes(uiLocale) && uiLocale !== user.locale) {
+      return { ...user, locale: uiLocale };
+    }
+    return user;
   } catch (err: any) {
     console.error('[auth-helpers] Exception pendant la vérification de session (accès refusé) :', err?.message);
     authedUserCache.delete(token);
