@@ -2690,6 +2690,19 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
       </main>
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
+        /* Page chat sur téléphone (14/11/2026, retour Alex « l'affichage du
+           chat était étrange ») : le chat est un bloc fixe plein écran
+           (.mg-page, z-index 20) et le bandeau de stories collé en haut
+           (z-index 65) passait PAR-DESSUS son en-tête « Aaron » et le
+           message d'accueil. La règle qui le masquait vivait dans un
+           <style jsx> scopé du composant de la page : elle ne pouvait pas
+           atteindre le bandeau rendu par le Shell, donc ne s'appliquait
+           jamais. Ici, en global — ce bloc n'est injecté que tant que la
+           page chat est affichée, les autres pages gardent leur bandeau. */
+        @media (max-width: 900px) {
+          .shell > main.content > .stories,
+          .shell > main.content > .all-clear { display: none !important; }
+        }
         :root {
           --bg: #0a0c17;
           --bg-elevated: #0f1224;
