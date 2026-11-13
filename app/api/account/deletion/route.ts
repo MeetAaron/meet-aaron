@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
-import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+import { isDemoCompany } from '@/lib/demo-guard';
 import { serverError } from '@/lib/http';
 
 const DELAY_MS = 24 * 60 * 60 * 1000;
@@ -49,7 +49,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
-  if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+  // Compte de démonstration (13/11/2026, revue Apple) : la suppression est
+  // SIMULÉE — même réponse et même écran « suppression programmée » qu'un
+  // vrai compte, mais rien n'est écrit en base. Apple exige de pouvoir
+  // dérouler le parcours de suppression, et le compte démo est partagé entre
+  // tous les testeurs : le supprimer pour de vrai casserait la revue des
+  // suivants. Les notes de revue App Store le disent explicitement.
+  if (await isDemoCompany(authedUser.company_id)) {
+    return NextResponse.json({
+      requested: true,
+      scheduled_for: new Date(Date.now() + DELAY_MS).toISOString(),
+      simulated: true,
+    });
+  }
 
   const { data: existing } = await supabaseAdmin
     .from('users')
