@@ -425,18 +425,14 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   const prev = useCallback(() => {
     setState((p) => (p && p.index > 0 ? { ...p, index: p.index - 1 } : p));
   }, [setState]);
-  // « Passer » : remet la notif en fin de file, sans la supprimer.
-  const skip = useCallback(() => {
-    setState((p) => {
-      if (!p) return p;
-      if (p.deck.length <= 1) return null;
-      const deck = [...p.deck];
-      const [cur] = deck.splice(p.index, 1);
-      deck.push(cur);
-      if (p.index >= deck.length - 1) return null;
-      return { deck, index: p.index };
-    });
-  }, [setState]);
+  // « Passer » : passe à la story suivante sans rien traiter ; la notif reste
+  // en attente et reviendra à la prochaine ouverture.
+  //
+  // 13/11/2026 (retour d'Alex : « 3 stories, je clique sur suivant, c'est
+  // toujours marqué 1/3 ») : avant, « Passer » renvoyait la story en fin de
+  // file SANS avancer l'index. Le compteur restait donc bloqué sur 1/3 et les
+  // stories tournaient en boucle sans jamais se fermer. Passer = avancer.
+  const skip = next;
 
   useEffect(() => {
     setError(null);
@@ -1033,7 +1029,11 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         <div className="head">
           <span className="type-ic"><TypeIcon type={item.type} size={18} /></span>
           <div className="head-text">
-            <p className="type">{t(`stories.type.${item.type}`, locale)} <span className="pos">{index + 1}/{deck.length}</span></p>
+            {/* Compteur : position dans TOUTE la file (toutes catégories
+                confondues, la catégorie touchée passe en premier), et non
+                dans la catégorie. « 1 sur 3 » plutôt que « 1/3 » collé au
+                type, qui se lisait comme « 1re réponse sur 3 ». */}
+            <p className="type">{t(`stories.type.${item.type}`, locale)}{deck.length > 1 && <span className="pos">{t('stories.position', locale).replace('{n}', index + 1).replace('{total}', deck.length)}</span>}</p>
             <p className="name">
               {item.prospect_name}
               <DiscBadge type={item.personality_type} locale={locale} />
@@ -1111,7 +1111,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         }
         .head-text { flex: 1; min-width: 0; }
         .type { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-        .pos { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); margin-left: 0.3rem; }
+        .pos { text-transform: none; letter-spacing: 0; margin-left: 0.5rem; opacity: 0.75; font-weight: 500; }
         .name { margin: 0.15rem 0 0; font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.45rem; }
         .company { margin: 0.1rem 0 0; font-size: 0.8rem; color: var(--muted); }
         .close {
