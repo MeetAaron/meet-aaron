@@ -1,0 +1,139 @@
+From 3ae595da49cb894da8560b3f3d94c25f40a3074c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 11:21:23 +0000
+Subject: [PATCH] =?UTF-8?q?Stories=20:=20=C2=AB=20Passer=20=C2=BB=20avance?=
+ =?UTF-8?q?=20vraiment,=20compteur=20=C2=AB=201=20sur=203=20=C2=BB=20lisib?=
+ =?UTF-8?q?le?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Passer renvoyait la story en fin de file sans avancer l'index : le
+compteur restait bloque sur 1/3 et les stories tournaient en boucle.
+Passer avance desormais comme la fleche suivante (la notif reste en
+attente). Le compteur affiche la position dans toute la file, toutes
+categories confondues, en clair (stories.position, 7 langues).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ components/Stories.jsx | 28 ++++++++++++++--------------
+ lib/i18n.js            |  7 +++++++
+ 2 files changed, 21 insertions(+), 14 deletions(-)
+
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index f43d1a0..558c605 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -425,18 +425,14 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+   const prev = useCallback(() => {
+     setState((p) => (p && p.index > 0 ? { ...p, index: p.index - 1 } : p));
+   }, [setState]);
+-  // « Passer » : remet la notif en fin de file, sans la supprimer.
+-  const skip = useCallback(() => {
+-    setState((p) => {
+-      if (!p) return p;
+-      if (p.deck.length <= 1) return null;
+-      const deck = [...p.deck];
+-      const [cur] = deck.splice(p.index, 1);
+-      deck.push(cur);
+-      if (p.index >= deck.length - 1) return null;
+-      return { deck, index: p.index };
+-    });
+-  }, [setState]);
++  // « Passer » : passe à la story suivante sans rien traiter ; la notif reste
++  // en attente et reviendra à la prochaine ouverture.
++  //
++  // 13/11/2026 (retour d'Alex : « 3 stories, je clique sur suivant, c'est
++  // toujours marqué 1/3 ») : avant, « Passer » renvoyait la story en fin de
++  // file SANS avancer l'index. Le compteur restait donc bloqué sur 1/3 et les
++  // stories tournaient en boucle sans jamais se fermer. Passer = avancer.
++  const skip = next;
+ 
+   useEffect(() => {
+     setError(null);
+@@ -1033,7 +1029,11 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         <div className="head">
+           <span className="type-ic"><TypeIcon type={item.type} size={18} /></span>
+           <div className="head-text">
+-            <p className="type">{t(`stories.type.${item.type}`, locale)} <span className="pos">{index + 1}/{deck.length}</span></p>
++            {/* Compteur : position dans TOUTE la file (toutes catégories
++                confondues, la catégorie touchée passe en premier), et non
++                dans la catégorie. « 1 sur 3 » plutôt que « 1/3 » collé au
++                type, qui se lisait comme « 1re réponse sur 3 ». */}
++            <p className="type">{t(`stories.type.${item.type}`, locale)}{deck.length > 1 && <span className="pos">{t('stories.position', locale).replace('{n}', index + 1).replace('{total}', deck.length)}</span>}</p>
+             <p className="name">
+               {item.prospect_name}
+               <DiscBadge type={item.personality_type} locale={locale} />
+@@ -1111,7 +1111,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+         }
+         .head-text { flex: 1; min-width: 0; }
+         .type { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+-        .pos { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); margin-left: 0.3rem; }
++        .pos { text-transform: none; letter-spacing: 0; margin-left: 0.5rem; opacity: 0.75; font-weight: 500; }
+         .name { margin: 0.15rem 0 0; font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.45rem; }
+         .company { margin: 0.1rem 0 0; font-size: 0.8rem; color: var(--muted); }
+         .close {
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 5c0f6e2..13d8c40 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -336,6 +336,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} risque de partir. Un coup de fil ?",
+     "stories.history": "Historique des échanges",
+     "stories.skip": "Passer",
++    "stories.position": "{n} sur {total}",
+     "stories.actionError": "Ça n'a pas fonctionné, réessaie dans un instant.",
+     "pipeline.stage.enCours": "En cours",
+     "pipeline.stage.enBonneVoie": "En bonne voie",
+@@ -2805,6 +2806,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} may slip away. Give them a call?",
+     "stories.history": "Exchange history",
+     "stories.skip": "Skip",
++    "stories.position": "{n} of {total}",
+     "stories.actionError": "That didn't work, try again in a moment.",
+     "pipeline.stage.enCours": "In progress",
+     "pipeline.stage.enBonneVoie": "On track",
+@@ -4972,6 +4974,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} könnte abspringen. Kurz anrufen?",
+     "stories.history": "Verlauf",
+     "stories.skip": "Überspringen",
++    "stories.position": "{n} von {total}",
+     "stories.actionError": "Das hat nicht geklappt, versuch es gleich noch einmal.",
+     "pipeline.stage.enCours": "In Bearbeitung",
+     "pipeline.stage.enBonneVoie": "Auf gutem Weg",
+@@ -7139,6 +7142,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} rischia di sfuggire. Una telefonata?",
+     "stories.history": "Storico degli scambi",
+     "stories.skip": "Salta",
++    "stories.position": "{n} di {total}",
+     "stories.actionError": "Non ha funzionato, riprova tra un attimo.",
+     "pipeline.stage.enCours": "In corso",
+     "pipeline.stage.enBonneVoie": "Sulla buona strada",
+@@ -9306,6 +9310,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} podría escaparse. ¿Una llamada?",
+     "stories.history": "Historial de intercambios",
+     "stories.skip": "Pasar",
++    "stories.position": "{n} de {total}",
+     "stories.actionError": "No ha funcionado, inténtalo de nuevo en un momento.",
+     "pipeline.stage.enCours": "En curso",
+     "pipeline.stage.enBonneVoie": "Por buen camino",
+@@ -11473,6 +11478,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} pode escapar. Um telefonema?",
+     "stories.history": "Histórico das trocas",
+     "stories.skip": "Passar",
++    "stories.position": "{n} de {total}",
+     "stories.actionError": "Não funcionou, tenta de novo daqui a pouco.",
+     "pipeline.stage.enCours": "Em curso",
+     "pipeline.stage.enBonneVoie": "No bom caminho",
+@@ -13640,6 +13646,7 @@ export const DICT = {
+     "stories.risqueLead": "{name} dreigt af te haken. Even bellen?",
+     "stories.history": "Berichtgeschiedenis",
+     "stories.skip": "Overslaan",
++    "stories.position": "{n} van {total}",
+     "stories.actionError": "Dat werkte niet, probeer het zo opnieuw.",
+     "pipeline.stage.enCours": "Bezig",
+     "pipeline.stage.enBonneVoie": "Op de goede weg",
+-- 
+2.43.0
+
