@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, setRememberMe, markExplicitLoginToday, rememberPostLoginNext, consumePostLoginNext, revokeStaleSessionOnLoginPage } from '@/lib/supabase-browser';
 import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
+import { isStoreApp } from '@/lib/native-app';
 import { PASSWORD_MIN_LENGTH, passwordPolicyError, passwordPolicyMessage, passwordChecks, passwordRuleLabels } from '@/lib/password-policy';
 
 // Liste des règles sous le champ mot de passe (inscription et réinitialisation),
@@ -43,6 +44,12 @@ export default function LoginPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
+  // Applications iPhone / Android (13/11/2026) : la création de compte ne se
+  // fait pas dans l'app (voir app/onboarding, « native.signupNotInApp »). Le
+  // lien « Pas encore de compte ? S'inscrire » y créait pourtant un compte
+  // qui aboutissait sur un cul-de-sac. On le masque dans la coque.
+  const [storeApp, setStoreApp] = useState(false);
+  useEffect(() => { setStoreApp(isStoreApp()); }, []);
   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
   const [resetToken, setResetToken] = useState(null);
@@ -549,7 +556,7 @@ export default function LoginPage() {
           <button className="link-toggle" onClick={() => { setMode('signin'); setError(null); setMessage(null); }}>
             {t('auth.backToSignin', locale)}
           </button>
-        ) : (
+        ) : storeApp && mode === 'signin' ? null : (
           <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
             {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
           </button>

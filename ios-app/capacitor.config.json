@@ -8,7 +8,11 @@
     "hostname": "meetaaron.app",
     "androidScheme": "https",
     "iosScheme": "https",
-    "cleartext": false
+    "cleartext": false,
+    "allowNavigation": [
+      "meetaaron.app",
+      "www.meetaaron.app"
+    ]
   },
   "ios": {
     "contentInset": "always",
