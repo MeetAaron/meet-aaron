@@ -1,0 +1,38 @@
+From 1a2198ba6655d0f2b32d425a8dd725e85042f9aa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 13:23:20 +0000
+Subject: [PATCH] =?UTF-8?q?Compte=20demo=20:=20l'onglet=20=C2=AB=20Supprim?=
+ =?UTF-8?q?er=20mon=20compte=20=C2=BB=20affiche=20le=20parcours=20complet?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+L'onglet etait bloque cote interface pour le compte demo (« action
+desactivee ») avant meme le formulaire. La derniere etape est simulee
+cote serveur depuis 2c71962 : le parcours peut s'afficher en entier.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/connexions/page.jsx | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 227c129..3552b97 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -4203,7 +4203,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           </div>
+         )
+       ) : activeTab === 'delete' ? (
+-        isDemo ? <p className="muted">{t('connexions.demoLocked', locale)}</p> : <AccountDeletionPanel locale={locale} />
++        // Compte démo : le parcours complet s'affiche aussi (revue Apple,
++        // 13/11/2026) ; la dernière étape est simulée côté serveur
++        // (app/api/account/deletion, rien n'est supprimé).
++        <AccountDeletionPanel locale={locale} />
+       ) : null}
+         </div>
+       </div>
+-- 
+2.43.0
+
