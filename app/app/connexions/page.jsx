@@ -4203,7 +4203,10 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           </div>
         )
       ) : activeTab === 'delete' ? (
-        isDemo ? <p className="muted">{t('connexions.demoLocked', locale)}</p> : <AccountDeletionPanel locale={locale} />
+        // Compte démo : le parcours complet s'affiche aussi (revue Apple,
+        // 13/11/2026) ; la dernière étape est simulée côté serveur
+        // (app/api/account/deletion, rien n'est supprimé).
+        <AccountDeletionPanel locale={locale} />
       ) : null}
         </div>
       </div>
