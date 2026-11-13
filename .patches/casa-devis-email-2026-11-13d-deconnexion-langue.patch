@@ -1,0 +1,683 @@
+From c96c796aad1472662dba53ac1b0666dedf0bc96a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 12:38:01 +0000
+Subject: [PATCH] Deconnexion confirmee, pastille Connecte cliquable, langue du
+ chat, bulle Mise en route
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Pastille « Connecte » : le menu s'ouvrait sous le bandeau de stories
+  (z-index 55 contre 65), donc invisible. Menu en portail, position fixe,
+  avec « Se deconnecter », puis confirmation.
+- lib/confirm-dialog.js : fenetre « Es-tu sur de vouloir te deconnecter ? »
+  (7 langues), branchee sur les 12 boutons « Se deconnecter » du menu.
+- Langue : l'interface envoie sa langue (x-aaron-locale) a chaque appel
+  API, prioritaire sur users.locale. Le compte demo partage avait garde
+  l'espagnol d'un testeur : Aaron repondait « Hola amigo » en anglais.
+- Bulle « Mise en route » : affichait le nombre d'etapes restantes (3)
+  pour une seule story ; affiche 1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/agenda/page.jsx             |  3 ++
+ app/app/campaigns/page.jsx          |  3 ++
+ app/app/chat/page.jsx               |  3 ++
+ app/app/connexions/page.jsx         |  3 ++
+ app/app/customer/page.jsx           |  3 ++
+ app/app/documents/page.jsx          |  3 ++
+ app/app/products/page.jsx           |  3 ++
+ app/app/prospects/page.jsx          |  3 ++
+ app/app/resultats/page.jsx          |  3 ++
+ app/app/suggestions/page.jsx        |  3 ++
+ app/app/team/[id]/page.jsx          |  3 ++
+ app/app/team/page.jsx               |  3 ++
+ components/AuthFetchInterceptor.jsx | 27 ++++++++++
+ components/ConnectionBadge.jsx      | 80 +++++++++++++++++++++++-----
+ components/SetupChecklist.jsx       |  4 +-
+ lib/auth-helpers.ts                 | 13 ++++-
+ lib/confirm-dialog.js               | 81 +++++++++++++++++++++++++++++
+ lib/i18n.js                         | 21 +++++---
+ 18 files changed, 241 insertions(+), 21 deletions(-)
+ create mode 100644 lib/confirm-dialog.js
+
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index f1998ed..7d09035 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import { Repeat, CalendarOff, Plus, X, Pencil, Trash2, RefreshCw, Phone, Handshake, Video, Calendar as CalendarIcon } from 'lucide-react';
+@@ -3542,6 +3543,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 483f596..7264bf6 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import SetupChecklist from '@/components/SetupChecklist';
+@@ -4153,6 +4154,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 486ece5..239bc6f 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { ONBOARDING_QUESTION_KEYS, ONBOARDING_QUESTION_SUGGESTIONS, getOnboardingQuestions } from '@/lib/onboarding-questions';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+@@ -2575,6 +2576,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index a1de456..227c129 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
+ // Depuis '@/lib/boost-tiers' et NON '@/lib/credit-boosts' : ce dernier
+ // importe supabaseAdmin (serveur uniquement) et rendait cette page blanche.
+@@ -8803,6 +8804,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/customer/page.jsx b/app/app/customer/page.jsx
+index 79f39a0..fcd8e04 100644
+--- a/app/app/customer/page.jsx
++++ b/app/app/customer/page.jsx
+@@ -11,6 +11,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import Translated from '@/components/Translated';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+@@ -1722,6 +1723,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/documents/page.jsx b/app/app/documents/page.jsx
+index 8152963..6ef297f 100644
+--- a/app/app/documents/page.jsx
++++ b/app/app/documents/page.jsx
+@@ -16,6 +16,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -1334,6 +1335,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/products/page.jsx b/app/app/products/page.jsx
+index a12477f..82c1af5 100644
+--- a/app/app/products/page.jsx
++++ b/app/app/products/page.jsx
+@@ -9,6 +9,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -385,6 +386,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index bcd1b66..90880be 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -2298,6 +2299,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/resultats/page.jsx b/app/app/resultats/page.jsx
+index 830a26e..8b74c65 100644
+--- a/app/app/resultats/page.jsx
++++ b/app/app/resultats/page.jsx
+@@ -12,6 +12,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -2576,6 +2577,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/suggestions/page.jsx b/app/app/suggestions/page.jsx
+index beafaf4..c2d2378 100644
+--- a/app/app/suggestions/page.jsx
++++ b/app/app/suggestions/page.jsx
+@@ -6,6 +6,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -376,6 +377,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/team/[id]/page.jsx b/app/app/team/[id]/page.jsx
+index 9f699d6..28aaab2 100644
+--- a/app/app/team/[id]/page.jsx
++++ b/app/app/team/[id]/page.jsx
+@@ -7,6 +7,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+ import MobileChrome from '@/components/MobileChrome';
+@@ -409,6 +410,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/app/app/team/page.jsx b/app/app/team/page.jsx
+index fbea154..8bd7f9c 100644
+--- a/app/app/team/page.jsx
++++ b/app/app/team/page.jsx
+@@ -13,6 +13,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ import { t, useLocale, LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { formatSubscriptionPrice, USD_PER_CREDIT, PROSPECTS_PER_CREDIT } from '@/lib/boost-tiers';
+ import { NavIcon, LockIcon } from '@/components/NavIcon';
+ import RailMore, { railLinkClass } from '@/components/RailMore';
+@@ -1939,6 +1940,8 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   // pastille "En veille"/"Aaron travaille" du tableau de bord, qui reflète
+   // l'activité des campagnes, pas la connexion de l'utilisateur.
+   async function handleLogout() {
++    // Confirmation avant de se déconnecter (demande Alex, 13/11/2026).
++    if (!(await confirmLogout(locale))) return;
+     await supabaseBrowser.auth.signOut();
+     // Efface aussi le marqueur "connexion explicite faite aujourd'hui" (voir
+     // components/AuthFetchInterceptor.jsx et lib/supabase-browser.ts) pour
+diff --git a/components/AuthFetchInterceptor.jsx b/components/AuthFetchInterceptor.jsx
+index 97bde39..bbfc266 100644
+--- a/components/AuthFetchInterceptor.jsx
++++ b/components/AuthFetchInterceptor.jsx
+@@ -35,6 +35,20 @@ import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDev
+ // d'authentification reste de toute façon fait par Supabase + les routes API
+ // (voir plus bas et lib/auth-helpers.ts) : ce marqueur ne fait qu'éviter de
+ // redemander bêtement un clic "Se connecter" quand la session est encore là.
++// Même règle que useLocale (lib/i18n.js) : choix enregistré, sinon langue du
++// navigateur si elle est prise en charge.
++const UI_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'];
++function currentUiLocale() {
++  try {
++    const stored = window.localStorage.getItem('aaron_locale');
++    if (stored && UI_LOCALES.includes(stored)) return stored;
++  } catch {
++    // stockage indisponible : on retombe sur la langue du navigateur
++  }
++  const nav = (typeof navigator !== 'undefined' && (navigator.language || '')).slice(0, 2).toLowerCase();
++  return UI_LOCALES.includes(nav) ? nav : null;
++}
++
+ if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
+   window.__aaronAppEntryChecked = true;
+   const path = window.location.pathname;
+@@ -88,6 +102,19 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+ 
+     const opts = init ? { ...init } : {};
+ 
++    // Langue de l'INTERFACE envoyée à chaque appel (13/11/2026). Le serveur
++    // produisait le contenu IA (chat, conseils, emails) dans users.locale,
++    // qui peut différer de la langue affichée : nouvel appareil, ou compte
++    // démo partagé dont un testeur avait mis l'espagnol — Alex, en anglais,
++    // s'est vu répondre « Hola amigo ». lib/auth-helpers.ts (getAuthedUser)
++    // donne priorité à cet en-tête.
++    const uiLocale = currentUiLocale();
++    if (uiLocale) {
++      const h = new Headers(opts.headers || (typeof input !== 'string' && input && input.headers) || undefined);
++      if (!h.has('x-aaron-locale')) h.set('x-aaron-locale', uiLocale);
++      opts.headers = Object.fromEntries(h.entries());
++    }
++
+     // Item 3bis (docx 30/08) : signale l'appareil à /api/auth/link une fois
+     // par jour — le serveur envoie un email de sécurité au commercial si cet
+     // appareil n'a jamais été vu sur son compte (voir lib/supabase-browser.ts).
+diff --git a/components/ConnectionBadge.jsx b/components/ConnectionBadge.jsx
+index 5643c7e..c930ffc 100644
+--- a/components/ConnectionBadge.jsx
++++ b/components/ConnectionBadge.jsx
+@@ -18,14 +18,22 @@
+ // pouvoir vivre aussi bien dans la barre du haut mobile que dans l'en-tête du
+ // tableau de bord, sans dupliquer la logique de déconnexion.
+ 
+-import { useEffect, useState } from 'react';
++import { useEffect, useRef, useState } from 'react';
++import { createPortal } from 'react-dom';
++import { confirmLogout } from '@/lib/confirm-dialog';
+ import { t } from '@/lib/i18n';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+ 
+ export default function ConnectionBadge({ locale, compact = false }) {
+   const [online, setOnline] = useState(true);
+-  const [showConfirm, setShowConfirm] = useState(false);
++  // Petit menu sous la pastille. 13/11/2026 (Alex : « quand on clique sur
++  // Connecté, il ne se passe rien ») : le menu existait, mais il s'ouvrait
++  // DANS la barre du haut (position fixe, z-index 55), sous le bandeau de
++  // stories collé juste en dessous (z-index 65) — invisible. Il est
++  // maintenant rendu à la racine de la page (portail), en position fixe.
++  const [menu, setMenu] = useState(null); // { top, right } | null
+   const [loggingOut, setLoggingOut] = useState(false);
++  const btnRef = useRef(null);
+ 
+   useEffect(() => {
+     setOnline(typeof navigator !== 'undefined' ? navigator.onLine : true);
+@@ -39,7 +47,17 @@ export default function ConnectionBadge({ locale, compact = false }) {
+     };
+   }, []);
+ 
+-  async function confirmLogout() {
++  function toggleMenu() {
++    if (menu) { setMenu(null); return; }
++    const r = btnRef.current?.getBoundingClientRect();
++    if (!r) return;
++    setMenu({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
++  }
++
++  async function logout() {
++    setMenu(null);
++    // Puis « Es-tu sûr de vouloir te déconnecter ? » (lib/confirm-dialog.js).
++    if (!(await confirmLogout(locale))) return;
+     setLoggingOut(true);
+     await supabaseBrowser.auth.signOut();
+     clearExplicitLogin();
+@@ -51,24 +69,62 @@ export default function ConnectionBadge({ locale, compact = false }) {
+   return (
+     <div className="conn-wrap">
+       <button
++        ref={btnRef}
+         type="button"
+         className={`conn-btn${compact ? ' compact' : ''}`}
+-        onClick={() => setShowConfirm((v) => !v)}
++        onClick={toggleMenu}
+         aria-label={label}
++        aria-expanded={!!menu}
++        disabled={loggingOut}
+       >
+         <span className={`conn-dot ${online ? 'is-online' : 'is-offline'}`} />
+         <span className="conn-label">{label}</span>
+       </button>
+-      {showConfirm && (
+-        <div className="conn-popover" role="dialog">
+-          <p>{t('connectionBadge.confirmLogout', locale)}</p>
+-          <div className="conn-actions">
+-            <button type="button" className="conn-cancel" onClick={() => setShowConfirm(false)}>{t('common.cancel', locale)}</button>
+-            <button type="button" className="conn-confirm" disabled={loggingOut} onClick={confirmLogout}>
+-              {loggingOut ? '…' : t('connectionBadge.logoutButton', locale)}
++      {menu && typeof document !== 'undefined' && createPortal(
++        <>
++          <div
++            onClick={() => setMenu(null)}
++            style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'transparent' }}
++          />
++          <div
++            role="menu"
++            style={{
++              position: 'fixed',
++              top: menu.top,
++              right: menu.right,
++              zIndex: 1501,
++              minWidth: 190,
++              background: 'var(--surface, #141a2e)',
++              border: '1px solid var(--border, rgba(255,255,255,0.1))',
++              borderRadius: 12,
++              padding: '0.35rem',
++              boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
++            }}
++          >
++            <button
++              type="button"
++              role="menuitem"
++              onClick={logout}
++              style={{
++                display: 'block',
++                width: '100%',
++                textAlign: 'left',
++                background: 'transparent',
++                border: 'none',
++                color: 'var(--accent-red, #ef4459)',
++                fontSize: '0.9rem',
++                fontWeight: 600,
++                padding: '0.65rem 0.75rem',
++                borderRadius: 8,
++                cursor: 'pointer',
++                fontFamily: 'inherit',
++              }}
++            >
++              {t('connectionBadge.logoutButton', locale)}
+             </button>
+           </div>
+-        </div>
++        </>,
++        document.body
+       )}
+       <style jsx>{`
+         .conn-wrap {
+diff --git a/components/SetupChecklist.jsx b/components/SetupChecklist.jsx
+index 18fcffe..b9f122f 100644
+--- a/components/SetupChecklist.jsx
++++ b/components/SetupChecklist.jsx
+@@ -206,7 +206,9 @@ export default function SetupChecklist({ userId, locale, onStoryGroups }) {
+     }
+     onStoryGroups([{
+       type: 'mise_en_route',
+-      count: steps.length - doneCount,
++      // Une seule story (l'étape en cours) : la bulle affichait le nombre
++      // d'étapes restantes (« 3 ») pour 1 seule story — Alex, 13/11/2026.
++      count: 1,
+       items: [{
+         id: `mise_en_route:${firstPending.key}`,
+         type: 'mise_en_route',
+diff --git a/lib/auth-helpers.ts b/lib/auth-helpers.ts
+index 1c1d057..8287944 100644
+--- a/lib/auth-helpers.ts
++++ b/lib/auth-helpers.ts
+@@ -192,6 +192,8 @@ function getCachedAuthedUser(token: string, resolve: () => Promise<AuthedUser |
+ // Résout l'identité ET le profil "users" Meet Aaron correspondant — utilisé par
+ // toutes les autres routes protégées. Renvoie null si le token est absent/
+ // invalide, ou si aucun profil "users" n'est encore lié à ce compte.
++const UI_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'];
++
+ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser | null> {
+   const authHeader = request.headers.get('authorization');
+   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+@@ -203,12 +205,21 @@ export async function getAuthedUser(request: NextRequest): Promise<AuthedUser |
+   // chaque route, jamais un accès accordé par défaut. Le détail de l'erreur
+   // va dans les journaux serveur, pas au client.
+   try {
+-    return await getCachedAuthedUser(token, async () => {
++    const user = await getCachedAuthedUser(token, async () => {
+       const identity = await resolveIdentityFromToken(token);
+       if (!identity) return null;
+       const row = await fetchUserRow(identity.auth_user_id);
+       return row ? { ...row, aal: readAalClaim(token) } : null;
+     });
++    // Langue affichée par l'interface (en-tête x-aaron-locale, posé par
++    // components/AuthFetchInterceptor.jsx) prioritaire sur users.locale : le
++    // contenu IA suit la langue que la personne a sous les yeux (13/11/2026).
++    // Copie, jamais de modification de l'objet en cache.
++    const uiLocale = (request.headers.get('x-aaron-locale') || '').toLowerCase();
++    if (user && UI_LOCALES.includes(uiLocale) && uiLocale !== user.locale) {
++      return { ...user, locale: uiLocale };
++    }
++    return user;
+   } catch (err: any) {
+     console.error('[auth-helpers] Exception pendant la vérification de session (accès refusé) :', err?.message);
+     authedUserCache.delete(token);
+diff --git a/lib/confirm-dialog.js b/lib/confirm-dialog.js
+new file mode 100644
+index 0000000..ce0c760
+--- /dev/null
++++ b/lib/confirm-dialog.js
+@@ -0,0 +1,81 @@
++// lib/confirm-dialog.js
++//
++// Fenêtre de confirmation « Es-tu sûr ? » (13/11/2026, demande d'Alex :
++// « Êtes-vous sûr de vouloir vous déconnecter ? Oui »).
++//
++// Construite en DOM, sans React, pour pouvoir être appelée telle quelle
++// depuis n'importe quel gestionnaire (les 12 pages de l'app ont chacune leur
++// propre bouton « Se déconnecter », voir handleLogout dans app/app/*). Pas de
++// window.confirm : sa boîte grise système détonne dans l'app et affiche
++// « meetaaron.app dit… » dans les applis iPhone / Android.
++//
++// Renvoie une promesse : true si l'utilisateur confirme, false sinon (bouton
++// Annuler, clic à côté, touche Échap).
++
++import { t } from '@/lib/i18n';
++
++export function confirmDialog({ message, confirmLabel, cancelLabel, danger = false }) {
++  if (typeof document === 'undefined') return Promise.resolve(false);
++  return new Promise((resolve) => {
++    const overlay = document.createElement('div');
++    overlay.setAttribute('role', 'presentation');
++    overlay.style.cssText =
++      'position:fixed;inset:0;z-index:2000;background:rgba(5,7,16,0.6);display:flex;align-items:center;justify-content:center;padding:1.25rem;';
++
++    const box = document.createElement('div');
++    box.setAttribute('role', 'alertdialog');
++    box.setAttribute('aria-modal', 'true');
++    box.style.cssText =
++      'width:100%;max-width:340px;background:var(--surface,#141a2e);color:var(--text,#f3f4f8);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:16px;padding:1.2rem 1.1rem 1rem;box-shadow:0 18px 48px rgba(0,0,0,0.45);font-family:inherit;';
++
++    const p = document.createElement('p');
++    p.textContent = message;
++    p.style.cssText = 'margin:0 0 1.1rem;font-size:0.98rem;line-height:1.45;font-weight:600;';
++
++    const row = document.createElement('div');
++    row.style.cssText = 'display:flex;gap:0.6rem;justify-content:flex-end;';
++
++    const cancel = document.createElement('button');
++    cancel.type = 'button';
++    cancel.textContent = cancelLabel;
++    cancel.style.cssText =
++      'flex:1;background:transparent;border:1px solid var(--border,rgba(255,255,255,0.14));color:var(--text,#f3f4f8);border-radius:10px;padding:0.7rem 0.8rem;font-size:0.9rem;font-weight:500;cursor:pointer;font-family:inherit;';
++
++    const ok = document.createElement('button');
++    ok.type = 'button';
++    ok.textContent = confirmLabel;
++    ok.style.cssText =
++      `flex:1;background:${danger ? 'var(--accent-red,#ef4459)' : 'var(--accent,#4b39ef)'};border:none;color:#fff;border-radius:10px;padding:0.7rem 0.8rem;font-size:0.9rem;font-weight:600;cursor:pointer;font-family:inherit;`;
++
++    function close(result) {
++      document.removeEventListener('keydown', onKey);
++      overlay.remove();
++      resolve(result);
++    }
++    function onKey(e) {
++      if (e.key === 'Escape') close(false);
++    }
++    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
++    cancel.addEventListener('click', () => close(false));
++    ok.addEventListener('click', () => close(true));
++    document.addEventListener('keydown', onKey);
++
++    row.append(cancel, ok);
++    box.append(p, row);
++    overlay.append(box);
++    document.body.append(overlay);
++    ok.focus();
++  });
++}
++
++// « Es-tu sûr de vouloir te déconnecter ? » — partagé par la pastille
++// « Connecté » (components/ConnectionBadge.jsx) et les boutons
++// « Se déconnecter » du menu de chaque page.
++export function confirmLogout(locale) {
++  return confirmDialog({
++    message: t('connectionBadge.confirmLogout', locale),
++    confirmLabel: t('connectionBadge.logoutYes', locale),
++    cancelLabel: t('common.cancel', locale),
++    danger: true,
++  });
++}
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 13d8c40..a06f092 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -604,8 +604,9 @@ export const DICT = {
+     // voir la remarque sur sales.addButton plus haut dans ce fichier.
+     'connectionBadge.online': 'Connecté',
+     'connectionBadge.offline': 'Hors réseau',
+-    'connectionBadge.confirmLogout': 'Se déconnecter de Meet Aaron ?',
++    'connectionBadge.confirmLogout': "Es-tu sûr de vouloir te déconnecter ?",
+     'connectionBadge.logoutButton': 'Se déconnecter',
++    'connectionBadge.logoutYes': "Oui, me déconnecter",
+     'shell.openMenu': 'Ouvrir le menu',
+     'shell.more': 'Plus',
+     'shell.notIncluded': 'Non inclus dans ton abonnement actuel',
+@@ -4373,8 +4374,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Managed by you',
+     'connectionBadge.online': "Connected",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "Log out of Meet Aaron?",
++    'connectionBadge.confirmLogout': "Are you sure you want to log out?",
+     'connectionBadge.logoutButton': "Log out",
++    'connectionBadge.logoutYes': "Yes, log out",
+     'prospects.templateColManaged': "Aaron management",
+     'prospects.downloadTemplate': "Download a blank template",
+     'sales.addButton': "+ Add an opportunity",
+@@ -6541,8 +6543,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Von dir betreut',
+     'connectionBadge.online': "Verbunden",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "Von Meet Aaron abmelden?",
++    'connectionBadge.confirmLogout': "Möchtest du dich wirklich abmelden?",
+     'connectionBadge.logoutButton': "Abmelden",
++    'connectionBadge.logoutYes': "Ja, abmelden",
+     'prospects.templateColManaged': "Aaron-Verwaltung",
+     'prospects.downloadTemplate': "Leere Vorlage herunterladen",
+     'sales.addButton': "+ Chance hinzufügen",
+@@ -8709,8 +8712,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Gestito da te',
+     'connectionBadge.online': "Connesso",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "Disconnettersi da Meet Aaron?",
++    'connectionBadge.confirmLogout': "Sei sicuro di volerti disconnettere?",
+     'connectionBadge.logoutButton': "Disconnetti",
++    'connectionBadge.logoutYes': "Sì, disconnetti",
+     'prospects.templateColManaged': "Gestione Aaron",
+     'prospects.downloadTemplate': "Scarica un modello vuoto",
+     'sales.addButton': "+ Aggiungi un'opportunità",
+@@ -10877,8 +10881,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Gestionado por ti',
+     'connectionBadge.online': "Conectado",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "¿Cerrar sesión en Meet Aaron?",
++    'connectionBadge.confirmLogout': "¿Seguro que quieres cerrar sesión?",
+     'connectionBadge.logoutButton': "Cerrar sesión",
++    'connectionBadge.logoutYes': "Sí, cerrar sesión",
+     'prospects.templateColManaged': "Gestión de Aaron",
+     'prospects.downloadTemplate': "Descargar una plantilla en blanco",
+     'sales.addButton': "+ Añadir una oportunidad",
+@@ -13045,8 +13050,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Gerido por ti',
+     'connectionBadge.online': "Conectado",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "Terminar sessão no Meet Aaron?",
++    'connectionBadge.confirmLogout': "Tens a certeza de que queres terminar sessão?",
+     'connectionBadge.logoutButton': "Terminar sessão",
++    'connectionBadge.logoutYes': "Sim, terminar sessão",
+     'prospects.templateColManaged': "Gestão Aaron",
+     'prospects.downloadTemplate': "Descarregar um modelo em branco",
+     'sales.addButton': "+ Adicionar uma oportunidade",
+@@ -15213,8 +15219,9 @@ export const DICT = {
+     'customer.aiManagedBadge': 'Door jou beheerd',
+     'connectionBadge.online': "Verbonden",
+     'connectionBadge.offline': "Offline",
+-    'connectionBadge.confirmLogout': "Afmelden bij Meet Aaron?",
++    'connectionBadge.confirmLogout': "Weet je zeker dat je wilt afmelden?",
+     'connectionBadge.logoutButton': "Afmelden",
++    'connectionBadge.logoutYes': "Ja, afmelden",
+     'prospects.templateColManaged': "Aaron-beheer",
+     'prospects.downloadTemplate': "Leeg sjabloon downloaden",
+     'sales.addButton': "+ Kans toevoegen",
+-- 
+2.43.0
+
