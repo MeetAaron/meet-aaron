@@ -1,0 +1,37 @@
+From b834d8c362e3048c231f921c1d67231aaf05f4e1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 11:57:21 +0000
+Subject: [PATCH] Doc : variable FCM_SERVICE_ACCOUNT_JSON (notifications
+ Android)
+
+Posee sur Vercel par Alex le 14/11/2026 ; ce deploiement l'active.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ .env.example | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/.env.example b/.env.example
+index 7dd5295..612d398 100644
+--- a/.env.example
++++ b/.env.example
+@@ -39,6 +39,15 @@ NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+ VAPID_PRIVATE_KEY=
+ VAPID_SUBJECT=mailto:aaron@meetaaron.app
+ 
++# Notifications de l'application Android (Firebase Cloud Messaging, lib/fcm.ts,
++# 14/11/2026). Contenu du fichier JSON du compte de service du projet Firebase
++# « Meet Aaron » (meet-aaron-5d311) : Paramètres du projet > Comptes de service
++# > Générer une nouvelle clé privée. Collé tel quel ou encodé en base64.
++# Production seulement. Sans elle, les appareils Android restent enregistrés
++# mais ne reçoivent rien. (Côté compilation : secret GitHub GOOGLE_SERVICES_JSON,
++# voir ios-app/android-push.js.)
++FCM_SERVICE_ACCOUNT_JSON=
++
+ # Emails "système" (confirmation de compte, etc.) — id de la ligne "users" dont
+ # le compte Google est déjà connecté (table oauth_connections), utilisé en
+ # attendant qu'aaron@meetaaron.app ait sa propre connexion OAuth dans l'app.
+-- 
+2.43.0
+
