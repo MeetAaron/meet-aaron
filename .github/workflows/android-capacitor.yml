@@ -18,6 +18,11 @@
 #
 # Un patch applique par le robot ne declenche PAS ce workflow : lancer
 # « Run workflow » a la main apres un patch qui touche ios-app/.
+#
+# Notifications (14/11/2026) : si le secret GOOGLE_SERVICES_JSON existe
+# (fichier google-services.json du projet Firebase), ios-app/android-push.js
+# embarque le plugin de notifications et ce fichier. Sans le secret, l'app
+# est compilee sans notifications, comme avant.
 
 name: Android (Capacitor)
 
@@ -40,6 +45,7 @@ jobs:
         working-directory: ios-app
     env:
       HAS_UPLOAD_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
       APP_VERSION: '1.0.0'
       VERSION_CODE: ${{ github.run_number }}
     steps:
@@ -66,11 +72,17 @@ jobs:
       - name: Dependances de la coque
         run: npm install
 
+      - name: Notifications Firebase (si le secret existe)
+        run: node android-push.js config
+
       - name: Generer le projet Android
         run: |
           rm -rf android
           npx cap add android
           npx cap sync android
+
+      - name: Fichier Firebase (si le secret existe)
+        run: node android-push.js files
 
       - name: Icones et ecran de lancement
         run: npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#0D0F20' --splashBackgroundColor '#0D0F20' --splashBackgroundColorDark '#0D0F20'
