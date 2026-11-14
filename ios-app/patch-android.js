@@ -117,3 +117,30 @@ if (!manifest.includes('android:host="meetaaron.app"')) {
   fs.writeFileSync(MANIFEST, manifest);
   console.log('AndroidManifest.xml : liens https://meetaaron.app ajoutes');
 }
+
+// 5. Petite icône des notifications (14/11/2026) : sans elle, Android
+// affiche un carré blanc dans la barre d'état. Icône monochrome reprise de
+// l'ancienne coque TWA, copiée depuis ios-app/android-res/ et déclarée comme
+// icône par défaut de Firebase Cloud Messaging (voir android-push.js).
+const RES_SRC = path.join(__dirname, 'android-res');
+const RES_DST = path.join(ROOT, 'app', 'src', 'main', 'res');
+if (fs.existsSync(RES_SRC)) {
+  fs.cpSync(RES_SRC, RES_DST, { recursive: true });
+  manifest = fs.readFileSync(MANIFEST, 'utf8');
+  if (!manifest.includes('default_notification_icon')) {
+    const meta = `
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_aaron" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
+`;
+    const i = manifest.indexOf('<activity');
+    if (i < 0) fail('<activity introuvable dans AndroidManifest.xml');
+    manifest = manifest.slice(0, i) + meta.trimStart() + '\n        ' + manifest.slice(i);
+    fs.writeFileSync(MANIFEST, manifest);
+  }
+  console.log('Icone de notification ajoutee (res/drawable-xxxhdpi/ic_stat_aaron.png)');
+}
+

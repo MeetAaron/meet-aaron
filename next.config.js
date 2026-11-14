@@ -132,7 +132,8 @@ const nextConfig = {
         { source: '/demo', destination: '/demo.html' },
       ],
       afterFiles: [
-        // Digital Asset Links pour l'application Android (dossier android/).
+        // Digital Asset Links pour l'application Android (coque Capacitor, ios-app/ :
+        // liens https://meetaaron.app ouverts dans l'app).
         // Android et Google lisent /.well-known/assetlinks.json ; la route qui
         // le fabrique vit dans app/api/android/assetlinks (voir son commentaire).
         { source: '/.well-known/assetlinks.json', destination: '/api/android/assetlinks' },

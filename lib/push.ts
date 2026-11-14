@@ -14,6 +14,7 @@
 import webpush from 'web-push';
 import { supabaseAdmin } from './supabase-admin';
 import { apnsConfigured, apnsTokenFromEndpoint, isApnsEndpoint, sendApns } from './apns';
+import { fcmConfigured, fcmTokenFromEndpoint, isFcmEndpoint, sendFcm } from './fcm';
 
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
@@ -54,8 +55,9 @@ type PushPayload = {
 
 // Envoie une notification push à TOUS les appareils abonnés d'un utilisateur
 // (un commercial peut être abonné depuis son téléphone ET son ordinateur).
-// Deux canaux selon l'endpoint (07/11/2026) : `apns://<token>` = application
-// iOS de l'App Store (lib/apns.ts) ; tout le reste = Web Push.
+// Trois canaux selon l'endpoint : `apns://<token>` = application iOS de
+// l'App Store (lib/apns.ts, 07/11/2026) ; `fcm://<token>` = application
+// Android du Play Store (lib/fcm.ts, 14/11/2026) ; tout le reste = Web Push.
 // Best-effort : un échec sur un abonnement (navigateur désinstallé, permission
 // retirée, etc.) ne bloque ni les autres abonnements ni l'appelant — cette
 // fonction n'est jamais dans le chemin critique d'un cron ou d'une route API.
@@ -79,6 +81,17 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
           await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
         } else if (!r.ok) {
           console.error(`Erreur envoi APNs (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
+        }
+        return;
+      }
+      // Application Android (14/11/2026) : Firebase Cloud Messaging, voir lib/fcm.ts.
+      if (isFcmEndpoint(sub.endpoint)) {
+        if (!fcmConfigured()) return;
+        const r = await sendFcm(fcmTokenFromEndpoint(sub.endpoint), payload);
+        if (r.gone) {
+          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+        } else if (!r.ok) {
+          console.error(`Erreur envoi FCM (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
         }
         return;
       }

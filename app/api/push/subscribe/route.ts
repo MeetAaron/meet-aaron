@@ -20,6 +20,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { readJsonBody } from '@/lib/http';
 import { APNS_ENDPOINT_PREFIX, isValidApnsToken } from '@/lib/apns';
+import { FCM_ENDPOINT_PREFIX, isValidFcmToken } from '@/lib/fcm';
 
 // Colonne ajoutée par migration_push_user_agent_2026-08-31.sql. Tant que la
 // migration n'a pas été exécutée, Postgres renvoie 42703 (undefined_column) :
@@ -62,13 +63,21 @@ export async function POST(request: NextRequest) {
   const authedUser = await getAuthedUser(request);
   if (!authedUser) return unauthorizedResponse();
 
-  const { subscription, apns_token } = await readJsonBody(request);
+  const { subscription, apns_token, fcm_token } = await readJsonBody(request);
 
   // Application iOS (coque Capacitor) : pas d'abonnement Web Push mais un
   // « device token » APNs (voir lib/apns.ts). Même table, endpoint préfixé ;
   // p256dh/auth n'ont pas de sens pour ce canal (colonnes non nulles).
   let base: { user_id: string; endpoint: string; p256dh: string; auth: string };
-  if (typeof apns_token === 'string') {
+  if (typeof fcm_token === 'string') {
+    // Application Android (14/11/2026) : jeton Firebase Cloud Messaging
+    // (lib/fcm.ts). Sensible à la casse : jamais mis en minuscules.
+    const token = fcm_token.trim();
+    if (!isValidFcmToken(token)) {
+      return NextResponse.json({ error: 'Jeton FCM invalide' }, { status: 400 });
+    }
+    base = { user_id: authedUser.id, endpoint: `${FCM_ENDPOINT_PREFIX}${token}`, p256dh: 'fcm', auth: 'fcm' };
+  } else if (typeof apns_token === 'string') {
     const token = apns_token.trim();
     if (!isValidApnsToken(token)) {
       return NextResponse.json({ error: 'Jeton APNs invalide' }, { status: 400 });

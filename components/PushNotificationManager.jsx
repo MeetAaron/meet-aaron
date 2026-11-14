@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 import { t, useLocale } from '@/lib/i18n';
 import Ic from '@/components/UiIcon';
-import { nativePushPlugin, requestNativePushToken } from '@/lib/native-app';
+import { nativePushPlugin, requestNativePushToken, nativePushBody, nativePushEndpoint } from '@/lib/native-app';
 
 // Application iOS (coque Capacitor, 07/11/2026) : la WKWebView n'a pas de
 // PushManager, Apple ne donne le Web Push qu'à Safari et aux PWA. Dans la
@@ -89,7 +89,7 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
           const res = await fetch('/api/push/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apns_token: token }),
+            body: JSON.stringify(nativePushBody(token)),
           });
           if (res.ok) {
             rememberApnsToken(token);
@@ -136,7 +136,7 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
         const res = await fetch('/api/push/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apns_token: token }),
+          body: JSON.stringify(nativePushBody(token)),
         });
         if (!res.ok) throw new Error(t('push.serverError', locale));
         rememberApnsToken(token);
@@ -186,7 +186,7 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
           await fetch('/api/push/subscribe', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ endpoint: `apns://${token.toLowerCase()}` }),
+            body: JSON.stringify({ endpoint: nativePushEndpoint(token) }),
           });
         }
         if (typeof native.unregister === 'function') {

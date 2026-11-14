@@ -1,8 +1,10 @@
 # Coque iOS de Meet Aaron
 
-Meme principe que `android/` : une coque native minimale qui affiche
-`https://meetaaron.app`. Ici c'est Capacitor plutot qu'une TWA, parce qu'iOS
-n'a pas d'equivalent des Trusted Web Activities.
+Coque native minimale qui affiche `https://meetaaron.app`, partagee par
+l'iPhone (Codemagic, `codemagic.yaml`) et Android (GitHub Actions,
+`.github/workflows/android-capacitor.yml`, retouches dans `patch-android.js`
+et notifications Firebase dans `android-push.js`). L'ancienne coque Android
+TWA (dossier `android/`) a ete retiree le 14/11/2026.
 
 ## Pourquoi le projet Xcode n'est pas dans le depot
 
