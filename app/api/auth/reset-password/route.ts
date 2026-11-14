@@ -6,13 +6,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { readJsonBody } from '@/lib/http';
+import { resetCodeToken } from '@/lib/password-reset-code';
+import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
 
 export async function POST(request: NextRequest) {
-  const { token, password } = await readJsonBody(request);
-  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
+  const { token: linkToken, email, code, password } = await readJsonBody(request);
+
+  // Deux façons de prouver qu'on a reçu l'email (14/11/2026) : le jeton du
+  // lien, ou l'adresse + le code à 6 chiffres (lib/password-reset-code.ts).
+  let token: string;
+  let viaCode = false;
+  if (typeof linkToken === 'string' && linkToken) {
+    if (!/^[a-f0-9]{64}$/.test(linkToken)) {
+      return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
+    }
+    token = linkToken;
+  } else if (typeof email === 'string' && typeof code === 'string') {
+    const normalized = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || !/^\d{6}$/.test(code.trim())) {
+      return NextResponse.json({ error: 'Code invalide — vérifie les 6 chiffres reçus par email.' }, { status: 400 });
+    }
+    // 1 million de codes possibles : au plus 6 essais par adresse et par
+    // heure (durée de vie du code), et 20 par appareil, sinon on pourrait
+    // tous les essayer.
+    const perEmail = await checkRateLimit(emailKey('pwreset-code', normalized), 6, 60 * 60 * 1000);
+    if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
+    const perIp = await checkRateLimit(callerKey(request, 'pwreset-code'), 20, 60 * 60 * 1000);
+    if (!perIp.ok) return tooManyRequestsResponse(perIp.retryAfterSeconds);
+    token = resetCodeToken(normalized, code.trim());
+    viaCode = true;
+  } else {
     return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
   }
+  const expiredMessage = viaCode
+    ? 'Ce code est incorrect, expiré ou déjà utilisé — vérifie-le ou redemande un email.'
+    : 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.';
   // Politique de mot de passe (CASA 1.1.1) — lib/password-policy.js.
   if (passwordPolicyError(password)) {
     return NextResponse.json({ error: passwordPolicyMessage('fr') }, { status: 400 });
@@ -25,7 +54,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (!row || row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
-    return NextResponse.json({ error: 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.' }, { status: 400 });
+    return NextResponse.json({ error: expiredMessage }, { status: 400 });
   }
 
   // Consommation ATOMIQUE du jeton avant tout changement (16/10/2026, CASA
@@ -40,7 +69,7 @@ export async function POST(request: NextRequest) {
     .select('id')
     .maybeSingle();
   if (!claimed) {
-    return NextResponse.json({ error: 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.' }, { status: 400 });
+    return NextResponse.json({ error: expiredMessage }, { status: 400 });
   }
 
   const { error } = await supabaseAdmin.auth.admin.updateUserById(row.auth_user_id, { password });
@@ -56,6 +85,14 @@ export async function POST(request: NextRequest) {
   // les jetons d'accès encore en circulation expirent d'eux-mêmes (1 h).
   // Fonction SQL revoke_all_sessions (migration_revocation_sessions_2026-10-16.sql),
   // exécutable par le service_role uniquement.
+  // Le lien et le code du même email (et toute demande plus ancienne) ne
+  // servent plus : un seul changement de mot de passe par demande.
+  await supabaseAdmin
+    .from('password_reset_tokens')
+    .update({ used_at: new Date().toISOString() })
+    .eq('auth_user_id', row.auth_user_id)
+    .is('used_at', null);
+
   const { error: revokeError } = await supabaseAdmin.rpc('revoke_all_sessions', { p_user_id: row.auth_user_id });
   if (revokeError) {
     console.error('Révocation des sessions après reset impossible:', revokeError.message);

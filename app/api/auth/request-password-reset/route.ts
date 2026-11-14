@@ -22,6 +22,7 @@ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/
 import { passwordResetEmail } from '@/lib/account-emails';
 import { normalizeLocale } from '@/lib/locale-instruction';
 import { readJsonBody } from '@/lib/http';
+import { resetCodeToken } from '@/lib/password-reset-code';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
 
@@ -68,12 +69,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Impossible d'envoyer le lien pour le moment" }, { status: 500 });
     }
 
+    // Code à 6 chiffres (14/11/2026) : même usage que le lien, plus pratique
+    // dans l'app sur téléphone. Stocké dans la même table sous forme
+    // d'empreinte liée à l'adresse (jamais en clair) : lib/password-reset-code.ts.
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const { error: codeError } = await supabaseAdmin.from('password_reset_tokens').insert({
+      auth_user_id: user.auth_user_id,
+      email: user.email || normalized,
+      token: resetCodeToken(normalized, code),
+      expires_at: expiresAt,
+    });
+    if (codeError) console.error('Erreur création code de réinitialisation:', codeError.message);
+
     const origin = request.nextUrl.origin;
     const link = `${origin}/login?reset=${token}`;
     // Langue : celle du compte (users.locale), sinon celle envoyée par la
     // page de connexion, sinon le français (08/11/2026).
     const lang = normalizeLocale((user as any).locale || (typeof locale === 'string' ? locale : null));
-    const mail = passwordResetEmail(lang, link, user.first_name);
+    const mail = passwordResetEmail(lang, link, user.first_name, codeError ? null : code);
     try {
       await sendSystemEmail(user.email || normalized, mail.subject, mail.body, lang);
     } catch (err: any) {

@@ -23,14 +23,14 @@ const VERIFY: Record<string, { subject: string; intro: string; again: string; ac
   nl: { subject: 'Bevestig je e-mailadres — Meet Aaron', intro: 'Welkom bij Meet Aaron!', again: 'Hier is een nieuwe link om je e-mailadres te bevestigen en je Meet Aaron-account te activeren:', action: 'Klik op deze link om je e-mailadres te bevestigen en je account te activeren:', ignore: 'Heb je je niet aangemeld? Negeer deze e-mail dan gewoon.' },
 };
 
-const RESET: Record<string, { subject: string; hello: string; body: string; ignore: string; sign: string }> = {
-  fr: { subject: 'Réinitialise ton mot de passe Meet Aaron', hello: 'Bonjour{name},', body: 'Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :', ignore: "Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.", sign: 'Aaron' },
-  en: { subject: 'Reset your Meet Aaron password', hello: 'Hello{name},', body: 'You asked to reset the password of your Meet Aaron account. Click this link (valid for 1 hour) to choose a new one:', ignore: 'If you did not make this request, simply ignore this email: your password stays unchanged.', sign: 'Aaron' },
-  de: { subject: 'Setze dein Meet-Aaron-Passwort zurück', hello: 'Hallo{name},', body: 'Du hast darum gebeten, das Passwort deines Meet-Aaron-Kontos zurückzusetzen. Klicke auf diesen Link (1 Stunde gültig), um ein neues zu wählen:', ignore: 'Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach: dein Passwort bleibt unverändert.', sign: 'Aaron' },
-  it: { subject: 'Reimposta la tua password Meet Aaron', hello: 'Ciao{name},', body: 'Hai chiesto di reimpostare la password del tuo account Meet Aaron. Clicca su questo link (valido 1 ora) per sceglierne una nuova:', ignore: 'Se non sei stato tu, ignora semplicemente questa email: la tua password resta invariata.', sign: 'Aaron' },
-  es: { subject: 'Restablece tu contraseña de Meet Aaron', hello: 'Hola{name},', body: 'Has pedido restablecer la contraseña de tu cuenta Meet Aaron. Haz clic en este enlace (válido 1 hora) para elegir una nueva:', ignore: 'Si no has sido tú, ignora simplemente este correo: tu contraseña no cambia.', sign: 'Aaron' },
-  pt: { subject: 'Repõe a tua palavra-passe Meet Aaron', hello: 'Olá{name},', body: 'Pediste para repor a palavra-passe da tua conta Meet Aaron. Clica neste link (válido 1 hora) para escolher uma nova:', ignore: 'Se não foste tu, ignora simplesmente este email: a tua palavra-passe mantém-se.', sign: 'Aaron' },
-  nl: { subject: 'Stel je Meet Aaron-wachtwoord opnieuw in', hello: 'Hallo{name},', body: 'Je hebt gevraagd om het wachtwoord van je Meet Aaron-account opnieuw in te stellen. Klik op deze link (1 uur geldig) om een nieuw wachtwoord te kiezen:', ignore: 'Heb je dit niet aangevraagd? Negeer deze e-mail dan gewoon: je wachtwoord blijft ongewijzigd.', sign: 'Aaron' },
+const RESET: Record<string, { subject: string; hello: string; body: string; code: string; ignore: string; sign: string }> = {
+  fr: { subject: 'Réinitialise ton mot de passe Meet Aaron', hello: 'Bonjour{name},', body: 'Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :', code: "Ou, dans l'application, saisis ce code (valable 1 heure) :", ignore: "Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.", sign: 'Aaron' },
+  en: { subject: 'Reset your Meet Aaron password', hello: 'Hello{name},', body: 'You asked to reset the password of your Meet Aaron account. Click this link (valid for 1 hour) to choose a new one:', code: "Or, in the app, enter this code (valid for 1 hour):", ignore: 'If you did not make this request, simply ignore this email: your password stays unchanged.', sign: 'Aaron' },
+  de: { subject: 'Setze dein Meet-Aaron-Passwort zurück', hello: 'Hallo{name},', body: 'Du hast darum gebeten, das Passwort deines Meet-Aaron-Kontos zurückzusetzen. Klicke auf diesen Link (1 Stunde gültig), um ein neues zu wählen:', code: "Oder gib in der App diesen Code ein (1 Stunde gültig):", ignore: 'Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach: dein Passwort bleibt unverändert.', sign: 'Aaron' },
+  it: { subject: 'Reimposta la tua password Meet Aaron', hello: 'Ciao{name},', body: 'Hai chiesto di reimpostare la password del tuo account Meet Aaron. Clicca su questo link (valido 1 ora) per sceglierne una nuova:', code: "Oppure, nell'app, inserisci questo codice (valido 1 ora):", ignore: 'Se non sei stato tu, ignora semplicemente questa email: la tua password resta invariata.', sign: 'Aaron' },
+  es: { subject: 'Restablece tu contraseña de Meet Aaron', hello: 'Hola{name},', body: 'Has pedido restablecer la contraseña de tu cuenta Meet Aaron. Haz clic en este enlace (válido 1 hora) para elegir una nueva:', code: "O, en la aplicación, introduce este código (válido 1 hora):", ignore: 'Si no has sido tú, ignora simplemente este correo: tu contraseña no cambia.', sign: 'Aaron' },
+  pt: { subject: 'Repõe a tua palavra-passe Meet Aaron', hello: 'Olá{name},', body: 'Pediste para repor a palavra-passe da tua conta Meet Aaron. Clica neste link (válido 1 hora) para escolher uma nova:', code: "Ou, na aplicação, introduz este código (válido 1 hora):", ignore: 'Se não foste tu, ignora simplesmente este email: a tua palavra-passe mantém-se.', sign: 'Aaron' },
+  nl: { subject: 'Stel je Meet Aaron-wachtwoord opnieuw in', hello: 'Hallo{name},', body: 'Je hebt gevraagd om het wachtwoord van je Meet Aaron-account opnieuw in te stellen. Klik op deze link (1 uur geldig) om een nieuw wachtwoord te kiezen:', code: "Of voer in de app deze code in (1 uur geldig):", ignore: 'Heb je dit niet aangevraagd? Negeer deze e-mail dan gewoon: je wachtwoord blijft ongewijzigd.', sign: 'Aaron' },
 };
 
 export function verificationEmail(locale: string | null | undefined, verifyUrl: string, again = false): AccountEmail {
@@ -41,8 +41,9 @@ export function verificationEmail(locale: string | null | undefined, verifyUrl: 
   return { subject: T.subject, body };
 }
 
-export function passwordResetEmail(locale: string | null | undefined, link: string, firstName?: string | null): AccountEmail {
+export function passwordResetEmail(locale: string | null | undefined, link: string, firstName?: string | null, code?: string | null): AccountEmail {
   const T = RESET[normalizeLocale(locale)] || RESET.fr;
-  const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${T.ignore}\n\n${T.sign}`;
+  const codePart = code ? `${T.code}\n${code}\n\n` : '';
+  const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${codePart}${T.ignore}\n\n${T.sign}`;
   return { subject: T.subject, body };
 }

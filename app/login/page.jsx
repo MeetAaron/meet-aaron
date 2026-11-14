@@ -29,6 +29,56 @@ function PasswordRules({ password, confirm, showConfirm, attempted, locale }) {
   );
 }
 
+// Afficher / masquer le mot de passe (14/11/2026, demande d'Alex). Bouton
+// œil dans le champ, sur tous les champs mot de passe de cet écran.
+function PasswordField({ value, onChange, placeholder, autoComplete, minLength, locale }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="pw-field">
+      <input
+        type={visible ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        required
+        minLength={minLength}
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+      <button
+        type="button"
+        className="pw-eye"
+        onClick={() => setVisible((v) => !v)}
+        aria-label={ct(locale, visible ? 'hide' : 'show')}
+        aria-pressed={visible}
+        title={ct(locale, visible ? 'hide' : 'show')}
+      >
+        {visible ? (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// Réinitialisation par CODE (14/11/2026, demande d'Alex) : l'email contient
+// toujours le lien, et maintenant aussi un code à 6 chiffres, plus pratique
+// dans l'app sur téléphone (pas besoin d'ouvrir le lien au bon endroit).
+const CODE_TEXT = {
+  fr: { show: 'Afficher le mot de passe', hide: 'Masquer le mot de passe', haveCode: "J'ai reçu un code", codeLabel: 'Code à 6 chiffres reçu par email', codeIntro: "Saisis le code reçu par email et choisis ton nouveau mot de passe.", sentCode: "Si un compte existe avec cette adresse, un email vient de partir avec un lien et un code à 6 chiffres (valables 1 heure). Regarde aussi tes spams." },
+  en: { show: 'Show password', hide: 'Hide password', haveCode: 'I received a code', codeLabel: '6-digit code received by email', codeIntro: 'Enter the code you received by email and choose your new password.', sentCode: 'If an account exists with this address, an email has just been sent with a link and a 6-digit code (valid for 1 hour). Check your spam folder too.' },
+  de: { show: 'Passwort anzeigen', hide: 'Passwort verbergen', haveCode: 'Ich habe einen Code erhalten', codeLabel: '6-stelliger Code aus der E-Mail', codeIntro: 'Gib den Code aus der E-Mail ein und wähle dein neues Passwort.', sentCode: 'Falls ein Konto mit dieser Adresse existiert, wurde gerade eine E-Mail mit einem Link und einem 6-stelligen Code verschickt (1 Stunde gültig). Sieh auch im Spam-Ordner nach.' },
+  it: { show: 'Mostra la password', hide: 'Nascondi la password', haveCode: 'Ho ricevuto un codice', codeLabel: 'Codice a 6 cifre ricevuto via email', codeIntro: 'Inserisci il codice ricevuto via email e scegli la nuova password.', sentCode: "Se esiste un account con questo indirizzo, è appena partita un'email con un link e un codice a 6 cifre (validi 1 ora). Controlla anche lo spam." },
+  es: { show: 'Mostrar la contraseña', hide: 'Ocultar la contraseña', haveCode: 'He recibido un código', codeLabel: 'Código de 6 cifras recibido por correo', codeIntro: 'Introduce el código recibido por correo y elige tu nueva contraseña.', sentCode: 'Si existe una cuenta con esta dirección, acabamos de enviar un correo con un enlace y un código de 6 cifras (válidos 1 hora). Mira también en spam.' },
+  pt: { show: 'Mostrar a palavra-passe', hide: 'Ocultar a palavra-passe', haveCode: 'Recebi um código', codeLabel: 'Código de 6 dígitos recebido por email', codeIntro: 'Introduz o código recebido por email e escolhe a nova palavra-passe.', sentCode: 'Se existir uma conta com este endereço, acabou de ser enviado um email com um link e um código de 6 dígitos (válidos 1 hora). Vê também no spam.' },
+  nl: { show: 'Wachtwoord tonen', hide: 'Wachtwoord verbergen', haveCode: 'Ik heb een code ontvangen', codeLabel: 'Code van 6 cijfers uit de e-mail', codeIntro: 'Voer de code uit de e-mail in en kies je nieuwe wachtwoord.', sentCode: 'Als er een account met dit adres bestaat, is er zojuist een e-mail verstuurd met een link en een code van 6 cijfers (1 uur geldig). Kijk ook in je spam.' },
+};
+const ct = (locale, key) => (CODE_TEXT[locale] || CODE_TEXT.fr)[key] || CODE_TEXT.fr[key];
+
 const MFA_TEXT = {
   fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
   en: { tooShort: 'Password: at least 8 characters.', title: 'Two-factor code', hint: 'Enter the six-digit code shown by your authenticator app.', submit: 'Confirm', back: 'Back', bad: 'Wrong or expired code. Try again with the code shown now.' },
@@ -53,6 +103,8 @@ export default function LoginPage() {
   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
   const [resetToken, setResetToken] = useState(null);
+  const [resetCode, setResetCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [pwAttempted, setPwAttempted] = useState(false);
   const [email, setEmail] = useState('');
@@ -338,7 +390,8 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(body.error || t('auth.resetGenericError', locale));
       } else {
-        setMessage(t('auth.resetLinkSent', locale));
+        setMessage(ct(locale, 'sentCode'));
+        setCodeSent(true);
       }
     } catch (err) {
       setError(t('auth.resetGenericError', locale));
@@ -366,7 +419,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, password }),
+        body: JSON.stringify(resetToken ? { token: resetToken, password } : { email, code: resetCode, password }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -377,6 +430,8 @@ export default function LoginPage() {
         setPassword('');
         setPasswordConfirm('');
         setResetToken(null);
+        setResetCode('');
+        setCodeSent(false);
         try {
           window.history.replaceState(null, '', '/login');
         } catch (err) {}
@@ -442,28 +497,52 @@ export default function LoginPage() {
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? t('common.loading', locale) : t('auth.forgotSubmit', locale)}
             </button>
+            {codeSent && (
+              <button
+                type="button"
+                className="btn-secondary-code"
+                onClick={() => { setMode('reset'); setResetToken(null); setMessage(null); setError(null); setPassword(''); setPasswordConfirm(''); }}
+              >
+                {ct(locale, 'haveCode')}
+              </button>
+            )}
           </form>
         )}
 
         {mode === 'reset' && (
           <form onSubmit={handleResetSubmit} className="form">
-            <input
-              type="password"
+            {!resetToken && (
+              <>
+                <p className="code-intro">{ct(locale, 'codeIntro')}</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  placeholder={ct(locale, 'codeLabel')}
+                  aria-label={ct(locale, 'codeLabel')}
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                />
+              </>
+            )}
+            <PasswordField
               placeholder={t('auth.resetNewPassword', locale)}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
-              required
               minLength={PASSWORD_MIN_LENGTH}
+              locale={locale}
             />
-            <input
-              type="password"
+            <PasswordField
               placeholder={t('auth.resetConfirmPassword', locale)}
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
               autoComplete="new-password"
-              required
               minLength={PASSWORD_MIN_LENGTH}
+              locale={locale}
             />
             <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
             <button type="submit" className="btn-primary" disabled={loading}>
@@ -505,27 +584,25 @@ export default function LoginPage() {
             autoComplete="email"
             required
           />
-          <input
-            type="password"
+          <PasswordField
             placeholder={t('auth.passwordLabel', locale)}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            required
             minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : 6}
+            locale={locale}
           />
           {mode === 'signup' && (
             <>
               {/* Saisie en double et règles visibles pendant la frappe
                   (demande Alex, 08/11/2026). */}
-              <input
-                type="password"
+              <PasswordField
                 placeholder={t('auth.resetConfirmPassword', locale)}
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
                 autoComplete="new-password"
-                required
                 minLength={PASSWORD_MIN_LENGTH}
+                locale={locale}
               />
               <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
             </>
@@ -703,6 +780,48 @@ export default function LoginPage() {
           padding: 0.65rem 0.9rem;
           color: #f4f1ea;
           font-size: 0.88rem;
+        }
+        /* Champ mot de passe avec œil (composant PasswordField, hors du
+           périmètre de ce style : d'où :global). */
+        .form :global(.pw-field) { position: relative; display: flex; }
+        .form :global(.pw-field input) {
+          width: 100%;
+          box-sizing: border-box;
+          background: #0b0e1a;
+          border: 1px solid #232744;
+          border-radius: 8px;
+          padding: 0.65rem 2.7rem 0.65rem 0.9rem;
+          color: #f4f1ea;
+          font-size: 0.88rem;
+        }
+        .form :global(.pw-eye) {
+          position: absolute;
+          right: 0.3rem;
+          top: 50%;
+          transform: translateY(-50%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 2.2rem;
+          height: 2.2rem;
+          background: none;
+          border: none;
+          border-radius: 6px;
+          color: #8b90a8;
+          cursor: pointer;
+        }
+        .form :global(.pw-eye:hover) { color: #f4f1ea; }
+        .code-intro { margin: 0; color: #8b90a8; font-size: 0.82rem; text-align: left; }
+        .btn-secondary-code {
+          width: 100%;
+          background: transparent;
+          color: #f4f1ea;
+          border: 1px solid #232744;
+          border-radius: 10px;
+          padding: 0.65rem 1rem;
+          font-weight: 500;
+          font-size: 0.86rem;
+          cursor: pointer;
         }
         .remember-row {
           display: flex;
