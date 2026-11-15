@@ -1,0 +1,283 @@
+From c1b87927f8f90427ac8dcc79ba8f35621431bc4c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 12:48:39 +0000
+Subject: [PATCH] =?UTF-8?q?Libelle=20=C2=AB=20Gere=20par=20Aaron=20=C2=BB?=
+ =?UTF-8?q?=20:=20dans=20la=20langue=20de=20l'interface,=20et=20plus=20jam?=
+ =?UTF-8?q?ais=20sur=20les=20emails=20systeme?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/google.ts : sendSystemEmail n'etiquette plus ses envois (alerte de
+  connexion, confirmation, mot de passe ne sont pas des fils de prospection) ;
+  syncAaronLabelLanguage renomme le libelle Gmail sans jamais le creer.
+- app/api/auth/link : la langue CHOISIE dans l'interface est enregistree sur
+  le compte (hors compte de demonstration), puis le libelle est remis dans
+  cette langue, en arriere-plan.
+- components/AuthFetchInterceptor.jsx : signale la langue choisie.
+- lib/account-emails.ts : alerte « Nouvelle connexion » dans les 7 langues
+  (elle etait en francais pour tout le monde).
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/auth/link/route.ts          | 82 ++++++++++++++++++++++-------
+ components/AuthFetchInterceptor.jsx | 12 +++++
+ lib/account-emails.ts               | 39 ++++++++++++++
+ lib/google.ts                       | 37 ++++++++++++-
+ 4 files changed, 150 insertions(+), 20 deletions(-)
+
+diff --git a/app/api/auth/link/route.ts b/app/api/auth/link/route.ts
+index f93fccd..3317c19 100644
+--- a/app/api/auth/link/route.ts
++++ b/app/api/auth/link/route.ts
+@@ -6,7 +6,10 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+-import { sendSystemEmail } from '@/lib/google';
++import { sendSystemEmail, syncAaronLabelLanguage } from '@/lib/google';
++import { newDeviceEmail } from '@/lib/account-emails';
++import { LOCALE_NAMES } from '@/lib/locale-instruction';
++import { runInBackground } from '@/lib/background';
+ import { resolveUserTimeZone } from '@/lib/user-timezone';
+ import { serverError } from '@/lib/http';
+ import { isDemoCompany } from '@/lib/demo-guard';
+@@ -68,6 +71,12 @@ export async function POST(request: NextRequest) {
+     if (deviceId) {
+       registerDeviceAndNotify(alreadyLinked.id, alreadyLinked.email || email, alreadyLinked.first_name, deviceId, request.headers.get('user-agent') || '').catch(() => {});
+     }
++    // Langue du compte alignée sur celle CHOISIE dans l'interface, puis
++    // libellé de la boîte mail remis dans cette langue — après la réponse,
++    // jamais bloquant pour la connexion (voir syncAccountLanguage plus bas).
++    const uiLocale = (request.headers.get('x-aaron-locale') || '').toLowerCase();
++    const chosenLocale = request.headers.get('x-aaron-locale-chosen') === '1' && LOCALE_NAMES[uiLocale] ? uiLocale : null;
++    runInBackground('langue du compte et libellé', () => syncAccountLanguage(alreadyLinked.id, alreadyLinked.company_id, chosenLocale));
+     // Changement d'email depuis "Mon compte" (demande Alex 2026-08-25) :
+     // supabaseBrowser.auth.updateUser({ email }) envoie un lien de
+     // confirmation à la NOUVELLE adresse et ne fait rien tant qu'il n'est pas
+@@ -118,6 +127,40 @@ export async function POST(request: NextRequest) {
+ }
+ 
+ 
++// LANGUE DU COMPTE ET LIBELLÉ DE LA BOÎTE MAIL (15/11/2026, capture d'Alex :
++// interface en français, libellé « Managed by Aaron » dans son Gmail).
++//
++// La langue de l'interface vit dans le navigateur ; users.locale, lue par
++// tout ce qui tourne hors écran (libellé, rapports, relances), n'était mise
++// à jour que par un clic sur le sélecteur de langue. Les deux pouvaient donc
++// diverger durablement — ici, un compte resté en anglais côté serveur après
++// des essais, avec une interface revenue au français.
++//
++//   1. Si le navigateur signale une langue CHOISIE (pas simplement détectée)
++//      différente de users.locale, on l'enregistre. Jamais pour le compte de
++//      démonstration, partagé entre des testeurs de toutes langues.
++//   2. Le libellé Gmail est remis dans la langue du compte : tout de suite
++//      après un changement, sinon une vérification toutes les 6 heures au
++//      plus par instance (un seul appel à Gmail, aucun si pas de boîte Google).
++const labelCheckedAt = new Map<string, number>();
++const LABEL_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
++
++async function syncAccountLanguage(userId: string, companyId: string | null, chosenLocale: string | null) {
++  let changed = false;
++  if (chosenLocale && !(await isDemoCompany(companyId))) {
++    const { data } = await supabaseAdmin.from('users').select('locale').eq('id', userId).maybeSingle();
++    if (data && (data as any).locale !== chosenLocale) {
++      const { error } = await supabaseAdmin.from('users').update({ locale: chosenLocale }).eq('id', userId);
++      changed = !error;
++    }
++  }
++  const last = labelCheckedAt.get(userId) || 0;
++  if (!changed && Date.now() - last < LABEL_CHECK_EVERY_MS) return;
++  if (labelCheckedAt.size > 5000) labelCheckedAt.clear();
++  labelCheckedAt.set(userId, Date.now());
++  await syncAaronLabelLanguage(userId);
++}
++
+ // Item 3bis (docx Modifs Aaron 30/08/2026) : "si connexion via un autre PC,
+ // demander email de sécurité". Chaque navigateur envoie un identifiant
+ // opaque (localStorage, voir lib/supabase-browser.ts) ; la table user_devices
+@@ -126,12 +169,8 @@ export async function POST(request: NextRequest) {
+ // le tout premier appareil enregistré (mise en place de la table : on
+ // n'alerte pas tous les comptes existants d'un coup). Best-effort : jamais
+ // bloquant pour la connexion.
+-function describeUserAgent(ua: string): string {
+-  const os = /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Android/i.test(ua) ? 'Android' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'appareil inconnu';
+-  const browser = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : 'navigateur inconnu';
+-  return `${browser} sur ${os}`;
+-}
+-
++// (La description de l'appareil vit désormais dans lib/account-emails.ts,
++// newDeviceEmail, traduite comme le reste de l'alerte.)
+ async function registerDeviceAndNotify(userId: string, userEmail: string | null, firstName: string | null, deviceId: string, userAgent: string) {
+   const safeId = deviceId.slice(0, 128);
+   const { data: known, error: knownError } = await supabaseAdmin
+@@ -167,23 +206,28 @@ async function registerDeviceAndNotify(userId: string, userEmail: string | null,
+   // Perth lisait « 09:08 heure de Paris » pour une connexion faite chez lui à
+   // 16:08 : impossible de reconnaître sa propre connexion, donc impossible de
+   // juger si l'alerte est légitime. Repli sur Paris si le fuseau est inconnu.
+-  const { data: tzUser } = await supabaseAdmin
++  // Langue du compte (15/11/2026) : l'alerte était en français pour tout le
++  // monde. Lecture tolérante : sans la colonne, on retombe sur le français.
++  let tzUser: any = null;
++  const withLocale = await supabaseAdmin
+     .from('users')
+-    .select('timezone, billing_country')
++    .select('timezone, billing_country, locale')
+     .eq('id', userId)
+     .maybeSingle();
++  tzUser = withLocale.data;
++  if (!tzUser) {
++    const withoutLocale = await supabaseAdmin
++      .from('users')
++      .select('timezone, billing_country')
++      .eq('id', userId)
++      .maybeSingle();
++    tzUser = withoutLocale.data;
++  }
+   const timeZone = resolveUserTimeZone((tzUser as any) || {});
+-  const when = new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone });
+-  const body =
+-    `Bonjour${firstName ? ' ' + firstName : ''},\n\n` +
+-    `Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :\n` +
+-    `• ${describeUserAgent(userAgent)}\n` +
+-    `• le ${when} (${timeZone})\n\n` +
+-    `Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.\n\n` +
+-    `Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.\n\n` +
+-    `Aaron`;
++  const locale = (tzUser as any)?.locale || null;
++  const { subject, body } = newDeviceEmail(locale, { firstName, userAgent, at: new Date(), timeZone });
+   try {
+-    await sendSystemEmail(userEmail, 'Nouvelle connexion à ton compte Meet Aaron', body);
++    await sendSystemEmail(userEmail, subject, body, locale);
+   } catch (err: any) {
+     console.error('Email de sécurité nouvel appareil non envoyé:', err?.message || err);
+   }
+diff --git a/components/AuthFetchInterceptor.jsx b/components/AuthFetchInterceptor.jsx
+index 6c47c26..f1cb1e1 100644
+--- a/components/AuthFetchInterceptor.jsx
++++ b/components/AuthFetchInterceptor.jsx
+@@ -123,6 +123,18 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+       const deviceId = getDeviceId();
+       if (deviceId) opts.headers = { ...(opts.headers || {}), 'x-aaron-device': deviceId };
+     }
++    // Langue CHOISIE dans le menu (pas seulement celle du navigateur) :
++    // /api/auth/link l'enregistre sur le compte, pour que tout ce qu'Aaron
++    // fait hors écran — libellé « Géré par Aaron » dans la boîte mail,
++    // alertes, rapports — suive la langue de l'interface (15/11/2026).
++    if (/\/api\/auth\/link(\?|$)/.test(url)) {
++      try {
++        const chosen = window.localStorage.getItem('aaron_locale');
++        if (chosen && UI_LOCALES.includes(chosen)) opts.headers = { ...(opts.headers || {}), 'x-aaron-locale-chosen': '1' };
++      } catch {
++        // stockage indisponible : rien à signaler
++      }
++    }
+ 
+     try {
+       let { data } = await supabaseBrowser.auth.getSession();
+diff --git a/lib/account-emails.ts b/lib/account-emails.ts
+index 3ae4dad..4dc9d1b 100644
+--- a/lib/account-emails.ts
++++ b/lib/account-emails.ts
+@@ -47,3 +47,42 @@ export function passwordResetEmail(locale: string | null | undefined, link: stri
+   const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${codePart}${T.ignore}\n\n${T.sign}`;
+   return { subject: T.subject, body };
+ }
++
++// ALERTE « NOUVELLE CONNEXION » DANS LA LANGUE DU COMPTE (15/11/2026).
++// Le texte était en dur en français dans app/api/auth/link : un commercial
++// anglais ou allemand recevait une alerte de sécurité qu'il ne pouvait pas
++// lire — donc qu'il ignorait, ce qui est le contraire du but recherché.
++const NEW_DEVICE: Record<string, { subject: string; hello: string; intro: string; on: string; unknownDevice: string; unknownBrowser: string; when: string; ok: string; notYou: string; dateLocale: string }> = {
++  fr: { subject: 'Nouvelle connexion à ton compte Meet Aaron', hello: 'Bonjour{name},', intro: "Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :", on: '{browser} sur {os}', unknownDevice: 'appareil inconnu', unknownBrowser: 'navigateur inconnu', when: 'le {when} ({tz})', ok: "Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.", notYou: "Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.", dateLocale: 'fr-FR' },
++  en: { subject: 'New sign-in to your Meet Aaron account', hello: 'Hello{name},', intro: 'Your Meet Aaron account was just signed in to from a device that has never been used before:', on: '{browser} on {os}', unknownDevice: 'unknown device', unknownBrowser: 'unknown browser', when: 'on {when} ({tz})', ok: 'If this was you (new computer, new phone, new browser), there is nothing to do.', notYou: 'If it was not you: change your password now (My account → My profile → Change password) and write to us at aaron@meetaaron.app — we will cut off that device.', dateLocale: 'en-GB' },
++  de: { subject: 'Neue Anmeldung bei deinem Meet-Aaron-Konto', hello: 'Hallo{name},', intro: 'Bei deinem Meet-Aaron-Konto hat sich gerade ein Gerät angemeldet, das bisher noch nie verwendet wurde:', on: '{browser} auf {os}', unknownDevice: 'unbekanntes Gerät', unknownBrowser: 'unbekannter Browser', when: 'am {when} ({tz})', ok: 'Wenn du das warst (neuer Computer, neues Telefon, neuer Browser), musst du nichts tun.', notYou: 'Wenn du das nicht warst: Ändere jetzt dein Passwort (Mein Konto → Mein Profil → Passwort ändern) und schreib uns an aaron@meetaaron.app — wir sperren den Zugang dieses Geräts.', dateLocale: 'de-DE' },
++  it: { subject: 'Nuovo accesso al tuo account Meet Aaron', hello: 'Ciao{name},', intro: 'È appena stato effettuato un accesso al tuo account Meet Aaron da un dispositivo mai usato finora:', on: '{browser} su {os}', unknownDevice: 'dispositivo sconosciuto', unknownBrowser: 'browser sconosciuto', when: 'il {when} ({tz})', ok: 'Se sei stato tu (nuovo computer, nuovo telefono, nuovo browser), non devi fare nulla.', notYou: "Se non sei stato tu: cambia subito la password (Il mio account → Il mio profilo → Cambia password) e scrivici a aaron@meetaaron.app — bloccheremo l'accesso di quel dispositivo.", dateLocale: 'it-IT' },
++  es: { subject: 'Nuevo inicio de sesión en tu cuenta Meet Aaron', hello: 'Hola{name},', intro: 'Se acaba de iniciar sesión en tu cuenta Meet Aaron desde un dispositivo que nunca se había usado:', on: '{browser} en {os}', unknownDevice: 'dispositivo desconocido', unknownBrowser: 'navegador desconocido', when: 'el {when} ({tz})', ok: 'Si has sido tú (ordenador nuevo, teléfono nuevo, navegador nuevo), no tienes que hacer nada.', notYou: 'Si no has sido tú: cambia tu contraseña ahora (Mi cuenta → Mi perfil → Cambiar contraseña) y escríbenos a aaron@meetaaron.app — cortaremos el acceso de ese dispositivo.', dateLocale: 'es-ES' },
++  pt: { subject: 'Novo início de sessão na tua conta Meet Aaron', hello: 'Olá{name},', intro: 'Acabou de ser iniciada uma sessão na tua conta Meet Aaron a partir de um dispositivo nunca antes utilizado:', on: '{browser} em {os}', unknownDevice: 'dispositivo desconhecido', unknownBrowser: 'navegador desconhecido', when: 'em {when} ({tz})', ok: 'Se foste tu (novo computador, novo telemóvel, novo navegador), não tens de fazer nada.', notYou: 'Se não foste tu: altera já a tua palavra-passe (A minha conta → O meu perfil → Alterar palavra-passe) e escreve-nos para aaron@meetaaron.app — cortaremos o acesso desse dispositivo.', dateLocale: 'pt-PT' },
++  nl: { subject: 'Nieuwe aanmelding bij je Meet Aaron-account', hello: 'Hallo{name},', intro: 'Er is zojuist bij je Meet Aaron-account aangemeld vanaf een apparaat dat nog nooit eerder is gebruikt:', on: '{browser} op {os}', unknownDevice: 'onbekend apparaat', unknownBrowser: 'onbekende browser', when: 'op {when} ({tz})', ok: 'Was jij dit (nieuwe computer, nieuwe telefoon, nieuwe browser)? Dan hoef je niets te doen.', notYou: 'Was jij dit niet? Wijzig dan nu je wachtwoord (Mijn account → Mijn profiel → Wachtwoord wijzigen) en schrijf ons op aaron@meetaaron.app — wij blokkeren de toegang van dat apparaat.', dateLocale: 'nl-NL' },
++};
++
++export function newDeviceEmail(
++  locale: string | null | undefined,
++  info: { firstName?: string | null; userAgent: string; at: Date; timeZone: string }
++): AccountEmail {
++  const T = NEW_DEVICE[normalizeLocale(locale)] || NEW_DEVICE.fr;
++  const ua = info.userAgent || '';
++  const os = /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Android/i.test(ua) ? 'Android' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : T.unknownDevice;
++  const browser = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : T.unknownBrowser;
++  let when: string;
++  try {
++    when = info.at.toLocaleString(T.dateLocale, { dateStyle: 'long', timeStyle: 'short', timeZone: info.timeZone });
++  } catch {
++    when = info.at.toISOString();
++  }
++  const body =
++    `${T.hello.replace('{name}', info.firstName ? ` ${info.firstName}` : '')}\n\n` +
++    `${T.intro}\n` +
++    `• ${T.on.replace('{browser}', browser).replace('{os}', os)}\n` +
++    `• ${T.when.replace('{when}', when).replace('{tz}', info.timeZone)}\n\n` +
++    `${T.ok}\n\n` +
++    `${T.notYou}\n\n` +
++    `Aaron`;
++  return { subject: T.subject, body };
++}
+diff --git a/lib/google.ts b/lib/google.ts
+index 85d8b89..c1ea50f 100644
+--- a/lib/google.ts
++++ b/lib/google.ts
+@@ -158,6 +158,34 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
+   }
+ }
+ 
++// Remet le libellé Aaron dans la langue du commercial, SANS jamais le créer
++// (15/11/2026). getOrCreateAaronLabelId le renomme déjà, mais seulement au
++// prochain email qu'Aaron envoie : après un changement de langue, le
++// commercial gardait l'ancien nom jusque-là. Appelé en arrière-plan par
++// /api/auth/link. Silencieux : pas de boîte Gmail, droit manquant ou
++// renommage refusé ne sont pas des erreurs.
++export async function syncAaronLabelLanguage(userId: string): Promise<void> {
++  try {
++    const accessToken = await getValidAccessToken(userId);
++    const wantedName = await aaronLabelNameForUser(userId);
++    const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
++      headers: { Authorization: `Bearer ${accessToken}` },
++    });
++    if (!listRes.ok) return;
++    const { labels } = await listRes.json();
++    if (labels?.some((l: any) => l.name === wantedName)) return;
++    const other = labels?.find((l: any) => isAaronLabelName(l.name));
++    if (!other) return;
++    await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/labels/${other.id}`, {
++      method: 'PATCH',
++      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
++      body: JSON.stringify({ name: wantedName }),
++    });
++  } catch {
++    // Pas de connexion Google pour ce compte, ou réseau : rien à faire.
++  }
++}
++
+ // Pose le label Aaron (traduit, voir lib/aaron-label.ts) sur un fil Gmail entier (donc sur tous les
+ // messages du fil, passés et à venir tant qu'ils y restent rattachés). Échec
+ // silencieux : un souci de label ne doit jamais empêcher l'envoi/la lecture
+@@ -474,7 +502,14 @@ export async function sendSystemEmail(to: string, subject: string, body: string,
+       resolvedLocale = null;
+     }
+   }
+-  return sendGmailEmail(senderUserId, to, subject, body, { fromName: aaronSenderName(resolvedLocale) });
++  // PAS DE LIBELLÉ « Géré par Aaron » SUR LES EMAILS SYSTÈME (15/11/2026,
++  // capture d'Alex : alerte « Nouvelle connexion » en français, étiquetée
++  // « Managed by Aaron »). Ce libellé signale un fil de PROSPECTION qu'Aaron
++  // suit dans la boîte du commercial. Un email de la plateforme (alerte de
++  // sécurité, confirmation de compte, mot de passe) n'en est pas un : il
++  // partait pourtant étiqueté dans la boîte expéditrice, et l'étiquette se
++  // voyait dès que le destinataire était cette même boîte.
++  return sendGmailEmail(senderUserId, to, subject, body, { fromName: aaronSenderName(resolvedLocale), skipAaronLabel: true });
+ }
+ 
+ // Vérifie les créneaux déjà occupés sur le calendrier Google du commercial
+-- 
+2.43.0
+
