@@ -28,7 +28,11 @@ import { useEffect } from 'react';
 import { getCapacitor } from '@/lib/native-app';
 
 const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID || '';
-const RELOADED_KEY = 'aaron_reloaded_for_build';
+// Pas de préfixe « aaron_ » : la page de connexion efface ces clés
+// (clearAppStorageOnLogout, lib/supabase-browser.ts) et le garde-fou
+// « jamais deux rechargements pour la même version » y sautait. La valeur
+// est un identifiant de commit, rien de personnel ; sessionStorage seulement.
+const RELOADED_KEY = 'ma_build_reloaded';
 const MIN_INTERVAL_MS = 60 * 1000;
 
 // Vrai si un rechargement ferait perdre quelque chose a l'utilisateur.
