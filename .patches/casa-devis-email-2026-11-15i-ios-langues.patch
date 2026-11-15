@@ -1,0 +1,41 @@
+From 3f1f8d9e769ff3cd4362e2338b4b622f16db9c44 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 11:57:24 +0000
+Subject: [PATCH] App iOS : les 7 langues declarees (fiche App Store et langue
+ du telephone)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ios-app/patch-ios.rb : CFBundleLocalizations = en, fr, de, it, es, pt, nl.
+Sans cette liste, iOS tenait l'app pour anglaise uniquement : la fiche
+affichait « Languages : English » et un iPhone regle en francais ouvrait
+l'app en anglais (navigator.language force a l'anglais dans la coque).
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ ios-app/patch-ios.rb | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/ios-app/patch-ios.rb b/ios-app/patch-ios.rb
+index 9207e24..c3e7a97 100644
+--- a/ios-app/patch-ios.rb
++++ b/ios-app/patch-ios.rb
+@@ -91,5 +91,13 @@ plist['ITSAppUsesNonExemptEncryption'] = false
+ plist['NSCameraUsageDescription']      = 'Pour joindre une photo a un devis ou a un document client.'
+ plist['NSPhotoLibraryUsageDescription'] = 'Pour joindre un document depuis votre photothèque.'
+ plist['NSPhotoLibraryAddUsageDescription'] = 'Pour enregistrer un document genere par Aaron.'
++# Langues de l'app (15/11/2026). Sans cette liste, iOS considere que l'app
++# n'existe qu'en anglais : la fiche App Store affichait « Languages : English »
++# et, surtout, la page chargee dans l'app se voyait annoncer l'anglais comme
++# langue du telephone (navigator.language) — un iPhone regle en francais
++# ouvrait donc l'app en anglais. Avec la liste, iOS choisit parmi ces sept
++# langues celle du telephone, et le site suit (lib/i18n.js, detectBrowserLocale).
++plist['CFBundleDevelopmentRegion'] = 'en'
++plist['CFBundleLocalizations'] = %w[en fr de it es pt nl]
+ File.write(plist_path, plist.to_plist)
+ puts 'Info.plist mis a jour'
+-- 
+2.43.0
+
