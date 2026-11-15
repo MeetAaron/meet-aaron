@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -54,8 +55,10 @@ const ALERT_ICON = { quote_to_send: FileText, email_to_validate: Mail, rescue_to
 
 function useAuthedUser() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Changement de rubrique : identifiant connu dès le premier rendu
+  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
+  const [userId, setUserId] = useState(() => navUserId());
+  const [authLoading, setAuthLoading] = useState(() => !navUserId());
   const [authError, setAuthError] = useState(null);
 
   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
@@ -277,9 +280,11 @@ export default function ProspectsPage() {
   const { userId, authLoading, authError } = useAuthedUser();
   const [locale] = useLocale();
   const PERSONALITY_LABELS = personalityLabelsFor(locale);
-  const [prospects, setProspects] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [companyId, setCompanyId] = useState(null);
+  // Liste connue dès le premier rendu quand on revient sur la rubrique
+  // (lib/instant.js) ; elle se met à jour sur place ensuite.
+  const [prospects, setProspects] = useState(() => initialJson((id) => `/api/prospects?user_id=${id}&scope=all`)?.prospects || []);
+  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/prospects?user_id=${id}&scope=all`));
+  const [companyId, setCompanyId] = useState(() => initialJson((id) => `/api/users/${id}`)?.user?.company_id || null);
   const [showAddForm, setShowAddForm] = useState(false);
   // Bandeau non bloquant, en remplacement de window.alert (13/09/2026).
   const [toast, setToast] = useState(null);
@@ -345,19 +350,23 @@ export default function ProspectsPage() {
   const [showHelp, setShowHelp] = useState(false);
 
   async function loadProspects() {
-    const res = await fetch(`/api/prospects?user_id=${userId}&scope=all`).then((r) => r.json());
+    const res = await freshJson(`/api/prospects?user_id=${userId}&scope=all`);
     setProspects(res.prospects || []);
     setLoading(false);
   }
+  // La mémoire suit ce qui est à l'écran (contact ajouté, étape changée…).
+  useEffect(() => {
+    if (!userId || loading) return;
+    const url = `/api/prospects?user_id=${userId}&scope=all`;
+    rememberJson(url, { ...(peekJson(url) || {}), prospects });
+  }, [prospects, loading, userId]);
 
   useEffect(() => {
     if (!userId) return;
     loadProspects();
-    fetch(`/api/users/${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.user) setCompanyId(res.user.company_id);
-      });
+    swrJson(`/api/users/${userId}`, (res) => {
+      if (res.user) setCompanyId(res.user.company_id);
+    }).catch(() => {});
     // Lien direct vers une fiche (notification push « Devis à faire », story
     // du tableau de bord…) : /app/prospects?contact=<id>.
     try {
@@ -2269,9 +2278,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
         if (cancelled) return;
         const prefs = body.preferences || {};
         setLockedModules({

@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { navUserId, swrJson } from '@/lib/instant';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -311,9 +312,11 @@ const BILLING_OWNER_ONLY = {
 
 function useAuthedUser() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
+  // Changement de rubrique : identifiant connu dès le premier rendu
+  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
+  const [userId, setUserId] = useState(() => navUserId());
   const [isDemo, setIsDemo] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(() => !navUserId());
   const [authError, setAuthError] = useState(null);
 
   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
@@ -8777,9 +8780,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
         if (cancelled) return;
         const prefs = body.preferences || {};
         setLockedModules({

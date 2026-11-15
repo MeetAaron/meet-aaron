@@ -21,6 +21,7 @@
 // l'ouverture et toutes les 60 s.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { peekJson, rememberJson } from '@/lib/instant';
 import { t } from '@/lib/i18n';
 import Ic from '@/components/UiIcon';
 import { frenchTypography } from '@/lib/text-typography';
@@ -89,15 +90,21 @@ function TypeIcon({ type, size = 16 }) {
 }
 
 export function useNotifications(userId, { refreshMs = 60000 } = {}) {
-  const [groups, setGroups] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  // Dernière réponse connue affichée tout de suite (lib/instant.js) : le
+  // bandeau ne « pousse » plus la page vers le bas une seconde après chaque
+  // changement de rubrique.
+  const known = userId ? peekJson(`/api/notifications?user_id=${userId}`) : undefined;
+  const [groups, setGroups] = useState(() => (known && known.groups) || []);
+  const [total, setTotal] = useState(() => (known && known.total) || 0);
+  const [loaded, setLoaded] = useState(() => !!known);
   const load = useCallback(async () => {
     if (!userId) return;
     try {
-      const res = await fetch(`/api/notifications?user_id=${userId}`);
+      const url = `/api/notifications?user_id=${userId}`;
+      const res = await fetch(url);
       const body = await res.json();
       if (res.ok) {
+        rememberJson(url, body);
         setGroups(body.groups || []);
         setTotal(body.total || 0);
       }

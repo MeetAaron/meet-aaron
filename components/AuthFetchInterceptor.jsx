@@ -14,6 +14,7 @@
 
 'use client';
 
+import { useEffect } from 'react';
 import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
 
 // Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
@@ -237,5 +238,12 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
 }
 
 export default function AuthFetchInterceptor() {
+  // Posé une fois la reprise du HTML du serveur terminée (ce composant est
+  // monté par app/layout.jsx et ne se démonte jamais). À partir de là, un
+  // changement de rubrique peut lire l'identifiant et la langue dès son
+  // premier rendu — voir lib/instant.js (navUserId) et lib/i18n.js (useLocale).
+  useEffect(() => {
+    window.__aaronHydrated = true;
+  }, []);
   return null;
 }

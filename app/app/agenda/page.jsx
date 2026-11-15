@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -41,8 +42,10 @@ const AGENDA_TEXT = {
 
 function useAuthedUser() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Changement de rubrique : identifiant connu dès le premier rendu
+  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
+  const [userId, setUserId] = useState(() => navUserId());
+  const [authLoading, setAuthLoading] = useState(() => !navUserId());
   const [authError, setAuthError] = useState(null);
 
   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
@@ -243,25 +246,34 @@ export default function AgendaPage() {
   const [locale] = useLocale();
   const TYPE_LABELS = typeLabelsFor(locale);
   const STATUS_META = statusMetaFor(locale);
-  const [appointments, setAppointments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Listes connues dès le premier rendu quand on revient sur la rubrique
+  // (lib/instant.js) ; elles se mettent à jour sur place ensuite.
+  const [appointments, setAppointments] = useState(() => initialJson((id) => `/api/appointments?user_id=${id}`)?.appointments || []);
+  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/appointments?user_id=${id}`));
   // Alex (18/10/2026, capture iPhone) : le renvoi « Synchronisation avec le
   // calendrier de ton téléphone… Ouvrir la mise en route » s'affichait même
   // une fois la synchro en place. Même critère que l'étape de la checklist
   // du tableau de bord : boîte Google/Outlook connectée (synchro
   // bidirectionnelle) OU lien ICS généré. null = pas encore su → rien.
-  const [calendarSynced, setCalendarSynced] = useState(null);
+  const calendarSyncedFrom = (conn, pref) => {
+    const connections = (conn && conn.connections) || [];
+    const calendarCapable = connections.some((c) => c.provider === 'google' || c.provider === 'microsoft');
+    return calendarCapable || pref?.preferences?.ics_link_generated === true;
+  };
+  const [calendarSynced, setCalendarSynced] = useState(() => {
+    const conn = initialJson((id) => `/api/oauth-connections?user_id=${id}`);
+    const pref = initialJson((id) => `/api/preferences?user_id=${id}`);
+    return conn && pref ? calendarSyncedFrom(conn, pref) : null;
+  });
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
     Promise.all([
-      fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
-      fetch(`/api/preferences?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+      freshJson(`/api/oauth-connections?user_id=${userId}`).catch(() => ({})),
+      freshJson(`/api/preferences?user_id=${userId}`).catch(() => ({})),
     ]).then(([conn, pref]) => {
       if (cancelled) return;
-      const connections = conn.connections || [];
-      const calendarCapable = connections.some((c) => c.provider === 'google' || c.provider === 'microsoft');
-      setCalendarSynced(calendarCapable || pref.preferences?.ics_link_generated === true);
+      setCalendarSynced(calendarSyncedFrom(conn, pref));
     });
     return () => { cancelled = true; };
   }, [userId]);
@@ -293,9 +305,9 @@ export default function AgendaPage() {
 
   // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
   // hebdomadaires récurrentes + indisponibilités ponctuelles.
-  const [rules, setRules] = useState([]);
-  const [blocks, setBlocks] = useState([]);
-  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [rules, setRules] = useState(() => initialJson((id) => `/api/availability?user_id=${id}`)?.rules || []);
+  const [blocks, setBlocks] = useState(() => initialJson((id) => `/api/availability?user_id=${id}`)?.blocks || []);
+  const [availabilityLoading, setAvailabilityLoading] = useState(() => !initialJson((id) => `/api/availability?user_id=${id}`));
   const [newRule, setNewRule] = useState({ day_of_week: 1, start_time: '09:00', end_time: '18:00', appointment_type: '' });
   const [savingRule, setSavingRule] = useState(false);
   const [newBlock, setNewBlock] = useState({ start_at: '', end_at: '', reason: '' });
@@ -319,8 +331,10 @@ export default function AgendaPage() {
   const [selectedDay, setSelectedDay] = useState(null);
 
   async function load() {
-    setLoading(true);
-    const res = await fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json());
+    const url = `/api/appointments?user_id=${userId}`;
+    // Pas de « Chargement… » par-dessus une liste déjà affichée.
+    if (!peekJson(url)) setLoading(true);
+    const res = await freshJson(url);
     const list = res.appointments || [];
     setAppointments(list);
     setLoading(false);
@@ -336,15 +350,26 @@ export default function AgendaPage() {
 
   function loadAvailability() {
     if (!userId) return;
-    setAvailabilityLoading(true);
-    fetch(`/api/availability?user_id=${userId}`)
-      .then((r) => r.json())
+    const url = `/api/availability?user_id=${userId}`;
+    if (!peekJson(url)) setAvailabilityLoading(true);
+    freshJson(url)
       .then((body) => {
         setRules(body.rules || []);
         setBlocks(body.blocks || []);
         setAvailabilityLoading(false);
       });
   }
+  // La mémoire suit ce qui est à l'écran (RDV ajouté, créneau modifié…).
+  useEffect(() => {
+    if (!userId || loading) return;
+    const url = `/api/appointments?user_id=${userId}`;
+    rememberJson(url, { ...(peekJson(url) || {}), appointments });
+  }, [appointments, loading, userId]);
+  useEffect(() => {
+    if (!userId || availabilityLoading) return;
+    const url = `/api/availability?user_id=${userId}`;
+    rememberJson(url, { ...(peekJson(url) || {}), rules, blocks });
+  }, [rules, blocks, availabilityLoading, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -3513,9 +3538,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
         if (cancelled) return;
         const prefs = body.preferences || {};
         setLockedModules({

@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -19,8 +20,10 @@ import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 
 function useAuthedUser() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Changement de rubrique : identifiant connu dès le premier rendu
+  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
+  const [userId, setUserId] = useState(() => navUserId());
+  const [authLoading, setAuthLoading] = useState(() => !navUserId());
   const [authError, setAuthError] = useState(null);
 
   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
@@ -123,10 +126,26 @@ function dayLabel(date, locale) {
   return date.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+// Visite ordinaire du chat (pas l'accueil d'un nouveau compte, pas une
+// relance du questionnaire) : seule situation où l'on réaffiche la
+// conversation « de mémoire » avant la réponse du serveur.
+function plainChatVisit() {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.get('welcome') !== '1' && q.get('restart_questionnaire') !== '1';
+  } catch {
+    return false;
+  }
+}
+
 export default function ChatPage() {
   const [locale] = useLocale();
   const { userId, authLoading, authError } = useAuthedUser();
   const [messages, setMessages] = useState([]);
+  // Conversation à laquelle appartient `messages` (15/11/2026) : sert à ne
+  // jamais ranger en mémoire les messages d'une conversation sous l'adresse
+  // d'une autre au moment où l'on en change (voir plus bas, lib/instant.js).
+  const [messagesFor, setMessagesFor] = useState(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -268,11 +287,12 @@ export default function ChatPage() {
   // dans son message d'accueil et tout au long de la conversation.
   useEffect(() => {
     if (!userId) return;
-    fetch(`/api/users/${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.user) setUserInfo(res.user);
-      })
+    // Dernière réponse connue d'abord (lib/instant.js), puis la fraîche.
+    const knownUser = peekJson(`/api/users/${userId}`);
+    if (knownUser && knownUser.user) setUserInfoLoaded(true);
+    swrJson(`/api/users/${userId}`, (res) => {
+      if (res.user) setUserInfo(res.user);
+    })
       .catch(() => {})
       .finally(() => setUserInfoLoaded(true));
   }, [userId]);
@@ -306,9 +326,16 @@ export default function ChatPage() {
   // d'entreprise et ne doit evidemment rien relancer.
   useEffect(() => {
     if (!userId) return;
+    // Un profil déjà vu comme existant le reste (il ne disparaît pas) : on
+    // le sait tout de suite au retour sur la rubrique. L'inverse n'est
+    // jamais supposé — « pas de profil » se revérifie toujours.
+    if (peekJson(`/api/business-summary?user_id=${userId}`)?.summary) setCompanyProfileExists(true);
     fetch(`/api/business-summary?user_id=${userId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((res) => setCompanyProfileExists(!!res?.summary))
+      .then((res) => {
+        if (res?.summary) rememberJson(`/api/business-summary?user_id=${userId}`, { summary: true });
+        setCompanyProfileExists(!!res?.summary);
+      })
       .catch(() => setCompanyProfileExists(false));
   }, [userId]);
 
@@ -355,8 +382,33 @@ export default function ChatPage() {
     // ne doit pas rester affichée après un rechargement réussi.
     setConversationsError(false);
 
-    fetch(`/api/chat-conversations?user_id=${userId}`)
-      .then((r) => r.json())
+    // RETOUR SUR LA RUBRIQUE (15/11/2026) : la liste des conversations et la
+    // conversation ouverte sont réaffichées tout de suite depuis la mémoire
+    // (lib/instant.js), sans attendre le serveur. La réponse fraîche suit et
+    // corrige si besoin. `shownFromMemoryId` évite de relancer deux fois la
+    // vérification « 24 h sans échange » pour la même conversation.
+    // Uniquement pour une visite ordinaire : l'accueil d'un nouveau compte
+    // (?welcome=1) et la relance du questionnaire gardent leur déroulé
+    // d'origine, qui attend le serveur avant de décider quoi afficher.
+    const convUrl = `/api/chat-conversations?user_id=${userId}`;
+    let shownFromMemoryId = null;
+    const knownConv = plainChatVisit() ? peekJson(convUrl) : undefined;
+    if (knownConv && Array.isArray(knownConv.conversations) && knownConv.conversations.length > 0) {
+      let savedFirst = null;
+      try {
+        savedFirst = window.localStorage.getItem(activeKey);
+      } catch {
+        // voir plus bas
+      }
+      const first = knownConv.conversations.find((c) => c.id === savedFirst) || knownConv.conversations[0];
+      setConversations(knownConv.conversations);
+      inactivityCheckPendingRef.current = true;
+      setActiveConversationId(first.id);
+      shownFromMemoryId = first.id;
+      setConversationsLoaded(true);
+    }
+
+    freshJson(convUrl)
       .then(async (res) => {
         if (cancelled) return;
         if (!Array.isArray(res.conversations)) {
@@ -392,7 +444,7 @@ export default function ChatPage() {
           // Item 11 (docx 30/08) : la vérification "24 h sans échange" ne se
           // fait qu'à l'arrivée sur la page, jamais quand le commercial
           // rouvre lui-même une vieille conversation depuis la liste.
-          inactivityCheckPendingRef.current = true;
+          if (chosen.id !== shownFromMemoryId) inactivityCheckPendingRef.current = true;
           setActiveConversationId(chosen.id);
           try {
             window.localStorage.setItem(activeKey, chosen.id);
@@ -416,18 +468,35 @@ export default function ChatPage() {
   // conversation créée, ou changement manuel depuis la liste ci-dessous).
   useEffect(() => {
     if (!userId || !activeConversationId) return;
-    setHistoryLoaded(false);
-    setMessages([]);
+    // Messages déjà connus de cette conversation : réaffichés tout de suite
+    // (lib/instant.js), le serveur confirme juste après. Sinon, comme avant :
+    // on vide et on attend.
+    const histUrl = `/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`;
+    const knownHist = plainChatVisit() ? peekJson(histUrl) : undefined;
+    if (knownHist && Array.isArray(knownHist.messages) && knownHist.messages.length > 0) {
+      setMessages(knownHist.messages);
+      setOnboardingStep(typeof knownHist.onboarding_step === 'number' ? knownHist.onboarding_step : -1);
+      setOnboardingAnswers(Array.isArray(knownHist.onboarding_answers) ? knownHist.onboarding_answers : []);
+      setHistoryLoaded(true);
+    } else {
+      setHistoryLoaded(false);
+      setMessages([]);
+    }
+    setMessagesFor(activeConversationId);
+    const shownFromMemory = knownHist && Array.isArray(knownHist.messages) && knownHist.messages.length > 0 ? knownHist.messages : null;
     let rotated = false;
-    fetch(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`)
-      .then((r) => r.json())
+    freshJson(histUrl)
       .then(async (res) => {
         const hasMessages = Array.isArray(res.messages) && res.messages.length > 0;
         const step = typeof res.onboarding_step === 'number' ? res.onboarding_step : -1;
         if (inactivityCheckPendingRef.current) {
           inactivityCheckPendingRef.current = false;
           const conv = conversations.find((c) => c.id === activeConversationId);
-          const lastActivity = conv?.updated_at ? new Date(conv.updated_at).getTime() : Date.now();
+          let lastActivity = conv?.updated_at ? new Date(conv.updated_at).getTime() : Date.now();
+          // La liste des conversations peut venir de la mémoire : la date du
+          // dernier message, elle, vient toujours du serveur.
+          const lastMessageAt = hasMessages ? new Date(res.messages[res.messages.length - 1].created_at || 0).getTime() : 0;
+          if (lastMessageAt > lastActivity) lastActivity = lastMessageAt;
           const inactiveForTooLong = Date.now() - lastActivity > CONVERSATION_INACTIVITY_MS;
           if (hasMessages && inactiveForTooLong && step < 0 && !isWelcome && !restartRequested) {
             rotated = await rotateInactiveConversation();
@@ -435,7 +504,9 @@ export default function ChatPage() {
           }
         }
         if (hasMessages) {
-          setMessages(res.messages);
+          // Si l'utilisateur a déjà écrit depuis l'affichage « de mémoire »,
+          // on garde ce qu'il voit : la réponse du serveur est partie avant.
+          setMessages((cur) => (shownFromMemory && cur !== shownFromMemory ? cur : res.messages));
           setOnboardingStep(step);
           setOnboardingAnswers(Array.isArray(res.onboarding_answers) ? res.onboarding_answers : []);
         }
@@ -446,6 +517,26 @@ export default function ChatPage() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, activeConversationId]);
+
+  // La mémoire suit ce qui est à l'écran (lib/instant.js) : en revenant sur
+  // le chat après un détour par une autre rubrique, on retrouve la
+  // conversation exactement où on l'a laissée, derniers messages compris.
+  useEffect(() => {
+    if (!userId || !conversationsLoaded || conversations.length === 0) return;
+    rememberJson(`/api/chat-conversations?user_id=${userId}`, { conversations });
+  }, [conversations, conversationsLoaded, userId]);
+  useEffect(() => {
+    if (!userId || !activeConversationId || messagesFor !== activeConversationId) return;
+    if (!historyLoaded || messages.length === 0) return;
+    // Seuls les vrais messages : les invites locales (jamais enregistrées
+    // côté serveur) ne sont pas gardées.
+    if (messages.some((m) => m && m.offerRestartQuestionnaire)) return;
+    rememberJson(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`, {
+      messages,
+      onboarding_step: onboardingStep,
+      onboarding_answers: onboardingAnswers,
+    });
+  }, [messages, messagesFor, onboardingStep, onboardingAnswers, historyLoaded, userId, activeConversationId]);
 
   // Bug remonté par Alex (29/08/2026, "il va falloir que moi et Ludovic on
   // répondent encore une fois au questionnaire ?") : questionnaireDone (voir
@@ -2546,9 +2637,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
         if (cancelled) return;
         const prefs = body.preferences || {};
         setLockedModules({

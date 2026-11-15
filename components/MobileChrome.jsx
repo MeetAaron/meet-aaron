@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { NavIcon } from '@/components/NavIcon';
 import ConnectionBadge from '@/components/ConnectionBadge';
+import { warmJson, tabDataUrls } from '@/lib/instant';
 
 // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
 // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
@@ -45,11 +46,45 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
   const [pending, setPending] = useState(null);
   useEffect(() => { setPending(null); }, [pathname]);
   const tabHref = (item) => (item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`);
+  // Le code des 4 rubriques est préchargé à l'affichage, puis rafraîchi
+  // toutes les 4 minutes et à chaque retour au premier plan : Next.js ne
+  // garde un préchargement que 5 minutes, au-delà le toucher redevenait lent.
   useEffect(() => {
-    tabs.forEach((item) => {
-      try { router.prefetch(tabHref(item)); } catch {}
-    });
+    const prefetchTabs = () => {
+      if (document.visibilityState !== 'visible') return;
+      tabs.forEach((item) => {
+        try { router.prefetch(tabHref(item)); } catch {}
+      });
+    };
+    prefetchTabs();
+    const id = setInterval(prefetchTabs, 4 * 60 * 1000);
+    document.addEventListener('visibilitychange', prefetchTabs);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', prefetchTabs);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // Les DONNÉES des rubriques sont préparées en arrière-plan (lib/instant.js),
+  // une seconde après l'affichage pour ne pas ralentir la page en cours :
+  // même la première visite d'un onglet s'affiche alors tout de suite. Rien
+  // n'est préparé en mode « économie de données ».
+  useEffect(() => {
+    if (!userId) return undefined;
+    const warm = () => {
+      if (document.visibilityState !== 'visible') return;
+      try { if (navigator.connection && navigator.connection.saveData) return; } catch {}
+      warmJson(tabDataUrls(userId), 150 * 1000);
+    };
+    const first = setTimeout(warm, 1200);
+    const id = setInterval(warm, 3 * 60 * 1000);
+    document.addEventListener('visibilitychange', warm);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', warm);
+    };
   }, [userId]);
 
   return (
@@ -81,7 +116,18 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
             key={item.slug}
             href={tabHref(item)}
             prefetch
-            onClick={() => { if (item.label !== title) setPending(item.slug); }}
+            onClick={(e) => {
+              if (item.label === title) return;
+              setPending(item.slug);
+              // Une nouvelle version du site est en ligne et n'a pas pu être
+              // chargée plus tôt (saisie en cours, voir
+              // components/VersionWatcher.jsx) : ce changement de rubrique
+              // se fait par un chargement complet, qui la récupère.
+              if (typeof window !== 'undefined' && window.__aaronNewVersion) {
+                e.preventDefault();
+                window.location.assign(tabHref(item));
+              }
+            }}
             className={`mobile-tab${isActive ? ' active' : ''}`}
             aria-current={item.label === title ? 'page' : undefined}
           >

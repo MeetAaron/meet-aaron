@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
@@ -23,8 +24,10 @@ import { FileText } from 'lucide-react';
 
 function useAuthedUser() {
   const router = useRouter();
-  const [userId, setUserId] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  // Changement de rubrique : identifiant connu dès le premier rendu
+  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
+  const [userId, setUserId] = useState(() => navUserId());
+  const [authLoading, setAuthLoading] = useState(() => !navUserId());
   const [authError, setAuthError] = useState(null);
 
   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
@@ -358,11 +361,14 @@ export default function CampaignsPage() {
   const STATUS_LABELS = statusLabelsFor(locale);
   const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
   const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
-  const [campaigns, setCampaigns] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Liste connue dès le premier rendu quand on revient sur la rubrique
+  // (lib/instant.js) : pas de « Chargement… », la page se met à jour sur
+  // place quand la réponse fraîche arrive.
+  const [campaigns, setCampaigns] = useState(() => initialJson((id) => `/api/campaigns?user_id=${id}`)?.campaigns || []);
+  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/campaigns?user_id=${id}`));
   const [showForm, setShowForm] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [companyId, setCompanyId] = useState(null);
+  const [companyId, setCompanyId] = useState(() => initialJson((id) => `/api/users/${id}`)?.user?.company_id || null);
   const [globalAdvice, setGlobalAdvice] = useState(null); // { scope, loading, text, empty, error }
   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
   const [changingStatusFor, setChangingStatusFor] = useState(null);
@@ -396,32 +402,41 @@ export default function CampaignsPage() {
   // verrouillage visuel + le fait qu'un module inactif n'a simplement pas de
   // données à afficher).
   const [tab, setTab] = useState('prospection');
-  const [customerModuleActive, setCustomerModuleActive] = useState(true);
+  const [customerModuleActive, setCustomerModuleActive] = useState(() => {
+    const known = initialJson((id) => `/api/preferences?user_id=${id}`)?.preferences;
+    return known ? known.offer_ac_active === true : true;
+  });
   // Docx Modifs Aaron (30/08/2026, bloc CAMPAGNE) : l'onglet Marketing est
   // réservé au compte aaron@meetaaron.app — supprimé pour tous les autres
   // comptes (fondateur comme commercial). null tant que l'email n'est pas
   // chargé → onglet masqué par défaut (fermé par défaut, pas ouvert puis
   // retiré après coup).
-  const [userEmail, setUserEmail] = useState(null);
+  const [userEmail, setUserEmail] = useState(() => initialJson((id) => `/api/preferences?user_id=${id}`)?.preferences?.email || null);
 
   useEffect(() => {
     if (!userId) return;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
-        const prefs = body.preferences || {};
-        setCustomerModuleActive(prefs.offer_ac_active === true);
-        setUserEmail(prefs.email || null);
-      })
-      .catch(() => {});
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+      const prefs = body.preferences || {};
+      setCustomerModuleActive(prefs.offer_ac_active === true);
+      setUserEmail(prefs.email || null);
+    }).catch(() => {});
   }, [userId]);
 
   async function loadCampaigns() {
-    setLoading(true);
-    const res = await fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json());
+    const url = `/api/campaigns?user_id=${userId}`;
+    // Pas de « Chargement… » par-dessus une liste déjà affichée.
+    if (!peekJson(url)) setLoading(true);
+    const res = await freshJson(url);
     setCampaigns(res.campaigns || []);
     setLoading(false);
   }
+  // La mémoire suit ce qui est à l'écran (campagne créée, mise en pause…) :
+  // au retour sur la rubrique, on retrouve la liste telle qu'on l'a laissée.
+  useEffect(() => {
+    if (!userId || loading) return;
+    const url = `/api/campaigns?user_id=${userId}`;
+    rememberJson(url, { ...(peekJson(url) || {}), campaigns });
+  }, [campaigns, loading, userId]);
 
   // Test de délivrabilité réel (06/11/2026, lib/deliverability-test.ts) :
   // visible ici seulement quand il retient le premier email — en cours, ou
@@ -448,11 +463,9 @@ export default function CampaignsPage() {
   useEffect(() => {
     if (!userId) return;
     loadCampaigns();
-    fetch(`/api/users/${userId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.user) setCompanyId(res.user.company_id);
-      });
+    swrJson(`/api/users/${userId}`, (res) => {
+      if (res.user) setCompanyId(res.user.company_id);
+    }).catch(() => {});
   }, [userId]);
 
   // #14 — avis global (campagnes en cours ou bilan des campagnes passées).
@@ -4124,9 +4137,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    fetch(`/api/preferences?user_id=${userId}`)
-      .then((r) => r.json())
-      .then((body) => {
+    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
         if (cancelled) return;
         const prefs = body.preferences || {};
         setLockedModules({
