@@ -64,9 +64,21 @@ export default function NativeAppBridge() {
     // maintenant affiché (ios-app/capacitor.config.json : 8 s au plus) et
     // c'est la page qui le retire, une fois entièrement chargée et mise en
     // forme.
+    // Dans /app, « chargée » ne suffit pas : la page affiche encore
+    // « Connexion… » tant que le compte n'est pas reconnu. On attend que
+    // l'habillage de l'app (.shell) soit là, 3 s au plus après le chargement.
     const splash = cap.Plugins && cap.Plugins.SplashScreen;
     if (splash && typeof splash.hide === 'function') {
-      const hide = () => setTimeout(() => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); }, 150);
+      const doHide = () => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); };
+      const hide = () => {
+        const inApp = window.location.pathname.startsWith('/app');
+        const started = Date.now();
+        const tick = () => {
+          if (!inApp || document.querySelector('.shell') || Date.now() - started > 3000) setTimeout(doHide, 150);
+          else setTimeout(tick, 100);
+        };
+        tick();
+      };
       if (document.readyState === 'complete') hide();
       else window.addEventListener('load', hide, { once: true });
     }

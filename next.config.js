@@ -4,6 +4,16 @@ const nextConfig = {
   // Le type-check reste actif ; seule la porte ESLint est neutralisée.
   eslint: { ignoreDuringBuilds: true },
   reactStrictMode: true,
+  // IDENTIFIANT DE VERSION (15/11/2026) : le commit Git du déploiement
+  // (variable système de Vercel), figé dans le code du navigateur ET dans
+  // /api/version. components/VersionWatcher.jsx compare les deux quand l'app
+  // revient au premier plan et recharge la page si une nouvelle version est
+  // en ligne. Vide hors Vercel : la surveillance est alors simplement
+  // désactivée (jamais de valeur inventée, qui différerait entre le serveur
+  // et le navigateur et ferait recharger en boucle).
+  env: {
+    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || '',
+  },
   // POLICES DE pdfkit DANS LE BUNDLE SERVERLESS (02/10/2026).
   //
   // pdfkit ne dessine pas Helvetica : il lit ses metriques depuis des

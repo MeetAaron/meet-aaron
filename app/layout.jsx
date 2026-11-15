@@ -7,6 +7,9 @@ import WinCelebration from "@/components/WinCelebration";
 import HelpLayer from "@/components/HelpLayer";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
+import { APP_ENTRY_GATE_SCRIPT } from "@/lib/app-entry-gate";
+import StyledJsxRegistry from "@/components/StyledJsxRegistry";
+import VersionWatcher from "@/components/VersionWatcher";
 
 export const metadata = {
     title: "Meet Aaron — Le copilote de votre commercial",
@@ -71,22 +74,36 @@ export default function RootLayout({ children }) {
           React.createElement(
             "body",
             null,
+            // Porte d'entrée de /app, avant tout téléchargement (15/11/2026) :
+            // sans connexion du jour, on part tout de suite sur /login au
+            // lieu d'attendre le JavaScript de la rubrique — lib/app-entry-gate.js.
+            React.createElement("script", { dangerouslySetInnerHTML: { __html: APP_ENTRY_GATE_SCRIPT } }),
             React.createElement("script", { dangerouslySetInnerHTML: { __html: THEME_INIT_SCRIPT } }),
             React.createElement("script", { dangerouslySetInnerHTML: { __html: CHUNK_ERROR_RECOVERY_SCRIPT } }),
-            React.createElement(AuthFetchInterceptor, null),
-            // Remonte le fuseau horaire du navigateur (users.timezone) pour que
-            // le rapport de resultats parte a minuit chez le commercial.
-            React.createElement(TimeZoneReporter, null),
-            // Application iOS (coque Capacitor) : marquage du document et
-            // ouverture des notifications touchees (07/11/2026).
-            React.createElement(NativeAppBridge, null),
-            // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
-            // point 3) : écoute un événement, n'affiche rien sinon.
-            React.createElement(WinCelebration, null),
-            // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
-            // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
-            React.createElement(HelpLayer, null),
-            children
+            // Tout le reste est rendu DANS le registre de styles : la mise en
+            // forme des pages (<style jsx>) part dans le HTML au lieu
+            // d'attendre le JavaScript — components/StyledJsxRegistry.jsx.
+            React.createElement(
+              StyledJsxRegistry,
+              null,
+              React.createElement(AuthFetchInterceptor, null),
+              // Remonte le fuseau horaire du navigateur (users.timezone) pour que
+              // le rapport de resultats parte a minuit chez le commercial.
+              React.createElement(TimeZoneReporter, null),
+              // Application iOS (coque Capacitor) : marquage du document et
+              // ouverture des notifications touchees (07/11/2026).
+              React.createElement(NativeAppBridge, null),
+              // Nouvelle version du site en ligne : rechargement discret au
+              // retour au premier plan (15/11/2026).
+              React.createElement(VersionWatcher, null),
+              // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
+              // point 3) : écoute un événement, n'affiche rien sinon.
+              React.createElement(WinCelebration, null),
+              // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
+              // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
+              React.createElement(HelpLayer, null),
+              children
+            )
           )
         );
 }
