@@ -1,0 +1,78 @@
+From ab5a9c3566302824a16d0bd0fa82b7c6df9d08e0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 05:15:23 +0000
+Subject: [PATCH] Applis : l'ecran de lancement reste jusqu'a ce que la page
+ soit prete (1.0.1)
+
+Retour d'Alex sur l'app App Store : ecran bleu avec un morceau de logo,
+puis page sans mise en forme, puis seulement la connexion (10 s en 4G).
+L'ecran de lancement natif disparaissait apres 1,2 s, avant le chargement
+du site. Il reste maintenant (8 s au plus, ios-app/capacitor.config.json)
+et NativeAppBridge le retire a l'evenement load de la page. Version iOS
+1.0.1 (codemagic.yaml).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ codemagic.yaml                 |  2 +-
+ components/NativeAppBridge.jsx | 15 +++++++++++++++
+ ios-app/capacitor.config.json  |  4 +++-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/codemagic.yaml b/codemagic.yaml
+index 4bebb51..ba0bf57 100644
+--- a/codemagic.yaml
++++ b/codemagic.yaml
+@@ -44,7 +44,7 @@ workflows:
+         distribution_type: app_store
+         bundle_identifier: app.meetaaron.mobile
+       vars:
+-        APP_VERSION: '1.0.0'
++        APP_VERSION: '1.0.1'
+         # Identifiant numerique de l'app dans App Store Connect (« Meet Aaron:
+         # Sales Copilot », visible dans l'URL de sa fiche). Pas un secret.
+         # Sert a numeroter les builds a la suite de TestFlight.
+diff --git a/components/NativeAppBridge.jsx b/components/NativeAppBridge.jsx
+index 48c9653..deab00e 100644
+--- a/components/NativeAppBridge.jsx
++++ b/components/NativeAppBridge.jsx
+@@ -56,6 +56,21 @@ export default function NativeAppBridge() {
+       );
+     }
+ 
++    // Écran de lancement (15/11/2026, retour d'Alex : « écran bleu avec un
++    // quart de logo, puis une page blanche buggée, puis seulement la
++    // connexion, ça fait hacké »). L'écran de lancement natif disparaissait
++    // au bout de 1,2 s, AVANT que le site ait fini de charger en 4G : on
++    // voyait la page se construire sans sa mise en forme. Il reste
++    // maintenant affiché (ios-app/capacitor.config.json : 8 s au plus) et
++    // c'est la page qui le retire, une fois entièrement chargée et mise en
++    // forme.
++    const splash = cap.Plugins && cap.Plugins.SplashScreen;
++    if (splash && typeof splash.hide === 'function') {
++      const hide = () => setTimeout(() => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); }, 150);
++      if (document.readyState === 'complete') hide();
++      else window.addEventListener('load', hide, { once: true });
++    }
++
+     const handles = [];
+     const push = nativePushPlugin();
+     if (push) {
+diff --git a/ios-app/capacitor.config.json b/ios-app/capacitor.config.json
+index 9bf048d..f48e83b 100644
+--- a/ios-app/capacitor.config.json
++++ b/ios-app/capacitor.config.json
+@@ -28,7 +28,9 @@
+       ]
+     },
+     "SplashScreen": {
+-      "launchShowDuration": 1200,
++      "launchShowDuration": 8000,
++      "launchAutoHide": true,
++      "launchFadeOutDuration": 250,
+       "backgroundColor": "#0D0F20",
+       "showSpinner": false
+     }
+-- 
+2.43.0
+
