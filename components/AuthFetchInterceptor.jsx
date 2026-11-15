@@ -15,7 +15,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
+import { supabaseBrowser, isAppEntryAllowed, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
 
 // Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
 // 2026-08-20) : même avec une session Supabase encore valide et persistée
@@ -54,7 +54,9 @@ if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
   window.__aaronAppEntryChecked = true;
   const path = window.location.pathname;
   if (path === '/app' || path.startsWith('/app/')) {
-    if (!isExplicitlyLoggedInToday()) {
+    // Dans l'application iPhone / Android, une session encore présente
+    // suffit (15/11/2026) : voir isAppEntryAllowed, lib/supabase-browser.ts.
+    if (!isAppEntryAllowed()) {
       // ?next= : revenir sur la page demandée une fois connecté (ex. QR code
       // « notifications sur ton téléphone » de Mon compte > Connexion) —
       // voir rememberPostLoginNext/consumePostLoginNext (lib/supabase-browser.ts).
