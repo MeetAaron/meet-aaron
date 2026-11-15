@@ -47,3 +47,42 @@ export function passwordResetEmail(locale: string | null | undefined, link: stri
   const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${codePart}${T.ignore}\n\n${T.sign}`;
   return { subject: T.subject, body };
 }
+
+// ALERTE « NOUVELLE CONNEXION » DANS LA LANGUE DU COMPTE (15/11/2026).
+// Le texte était en dur en français dans app/api/auth/link : un commercial
+// anglais ou allemand recevait une alerte de sécurité qu'il ne pouvait pas
+// lire — donc qu'il ignorait, ce qui est le contraire du but recherché.
+const NEW_DEVICE: Record<string, { subject: string; hello: string; intro: string; on: string; unknownDevice: string; unknownBrowser: string; when: string; ok: string; notYou: string; dateLocale: string }> = {
+  fr: { subject: 'Nouvelle connexion à ton compte Meet Aaron', hello: 'Bonjour{name},', intro: "Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :", on: '{browser} sur {os}', unknownDevice: 'appareil inconnu', unknownBrowser: 'navigateur inconnu', when: 'le {when} ({tz})', ok: "Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.", notYou: "Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.", dateLocale: 'fr-FR' },
+  en: { subject: 'New sign-in to your Meet Aaron account', hello: 'Hello{name},', intro: 'Your Meet Aaron account was just signed in to from a device that has never been used before:', on: '{browser} on {os}', unknownDevice: 'unknown device', unknownBrowser: 'unknown browser', when: 'on {when} ({tz})', ok: 'If this was you (new computer, new phone, new browser), there is nothing to do.', notYou: 'If it was not you: change your password now (My account → My profile → Change password) and write to us at aaron@meetaaron.app — we will cut off that device.', dateLocale: 'en-GB' },
+  de: { subject: 'Neue Anmeldung bei deinem Meet-Aaron-Konto', hello: 'Hallo{name},', intro: 'Bei deinem Meet-Aaron-Konto hat sich gerade ein Gerät angemeldet, das bisher noch nie verwendet wurde:', on: '{browser} auf {os}', unknownDevice: 'unbekanntes Gerät', unknownBrowser: 'unbekannter Browser', when: 'am {when} ({tz})', ok: 'Wenn du das warst (neuer Computer, neues Telefon, neuer Browser), musst du nichts tun.', notYou: 'Wenn du das nicht warst: Ändere jetzt dein Passwort (Mein Konto → Mein Profil → Passwort ändern) und schreib uns an aaron@meetaaron.app — wir sperren den Zugang dieses Geräts.', dateLocale: 'de-DE' },
+  it: { subject: 'Nuovo accesso al tuo account Meet Aaron', hello: 'Ciao{name},', intro: 'È appena stato effettuato un accesso al tuo account Meet Aaron da un dispositivo mai usato finora:', on: '{browser} su {os}', unknownDevice: 'dispositivo sconosciuto', unknownBrowser: 'browser sconosciuto', when: 'il {when} ({tz})', ok: 'Se sei stato tu (nuovo computer, nuovo telefono, nuovo browser), non devi fare nulla.', notYou: "Se non sei stato tu: cambia subito la password (Il mio account → Il mio profilo → Cambia password) e scrivici a aaron@meetaaron.app — bloccheremo l'accesso di quel dispositivo.", dateLocale: 'it-IT' },
+  es: { subject: 'Nuevo inicio de sesión en tu cuenta Meet Aaron', hello: 'Hola{name},', intro: 'Se acaba de iniciar sesión en tu cuenta Meet Aaron desde un dispositivo que nunca se había usado:', on: '{browser} en {os}', unknownDevice: 'dispositivo desconocido', unknownBrowser: 'navegador desconocido', when: 'el {when} ({tz})', ok: 'Si has sido tú (ordenador nuevo, teléfono nuevo, navegador nuevo), no tienes que hacer nada.', notYou: 'Si no has sido tú: cambia tu contraseña ahora (Mi cuenta → Mi perfil → Cambiar contraseña) y escríbenos a aaron@meetaaron.app — cortaremos el acceso de ese dispositivo.', dateLocale: 'es-ES' },
+  pt: { subject: 'Novo início de sessão na tua conta Meet Aaron', hello: 'Olá{name},', intro: 'Acabou de ser iniciada uma sessão na tua conta Meet Aaron a partir de um dispositivo nunca antes utilizado:', on: '{browser} em {os}', unknownDevice: 'dispositivo desconhecido', unknownBrowser: 'navegador desconhecido', when: 'em {when} ({tz})', ok: 'Se foste tu (novo computador, novo telemóvel, novo navegador), não tens de fazer nada.', notYou: 'Se não foste tu: altera já a tua palavra-passe (A minha conta → O meu perfil → Alterar palavra-passe) e escreve-nos para aaron@meetaaron.app — cortaremos o acesso desse dispositivo.', dateLocale: 'pt-PT' },
+  nl: { subject: 'Nieuwe aanmelding bij je Meet Aaron-account', hello: 'Hallo{name},', intro: 'Er is zojuist bij je Meet Aaron-account aangemeld vanaf een apparaat dat nog nooit eerder is gebruikt:', on: '{browser} op {os}', unknownDevice: 'onbekend apparaat', unknownBrowser: 'onbekende browser', when: 'op {when} ({tz})', ok: 'Was jij dit (nieuwe computer, nieuwe telefoon, nieuwe browser)? Dan hoef je niets te doen.', notYou: 'Was jij dit niet? Wijzig dan nu je wachtwoord (Mijn account → Mijn profiel → Wachtwoord wijzigen) en schrijf ons op aaron@meetaaron.app — wij blokkeren de toegang van dat apparaat.', dateLocale: 'nl-NL' },
+};
+
+export function newDeviceEmail(
+  locale: string | null | undefined,
+  info: { firstName?: string | null; userAgent: string; at: Date; timeZone: string }
+): AccountEmail {
+  const T = NEW_DEVICE[normalizeLocale(locale)] || NEW_DEVICE.fr;
+  const ua = info.userAgent || '';
+  const os = /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Android/i.test(ua) ? 'Android' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : T.unknownDevice;
+  const browser = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : T.unknownBrowser;
+  let when: string;
+  try {
+    when = info.at.toLocaleString(T.dateLocale, { dateStyle: 'long', timeStyle: 'short', timeZone: info.timeZone });
+  } catch {
+    when = info.at.toISOString();
+  }
+  const body =
+    `${T.hello.replace('{name}', info.firstName ? ` ${info.firstName}` : '')}\n\n` +
+    `${T.intro}\n` +
+    `• ${T.on.replace('{browser}', browser).replace('{os}', os)}\n` +
+    `• ${T.when.replace('{when}', when).replace('{tz}', info.timeZone)}\n\n` +
+    `${T.ok}\n\n` +
+    `${T.notYou}\n\n` +
+    `Aaron`;
+  return { subject: T.subject, body };
+}

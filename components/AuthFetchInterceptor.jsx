@@ -123,6 +123,18 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
       const deviceId = getDeviceId();
       if (deviceId) opts.headers = { ...(opts.headers || {}), 'x-aaron-device': deviceId };
     }
+    // Langue CHOISIE dans le menu (pas seulement celle du navigateur) :
+    // /api/auth/link l'enregistre sur le compte, pour que tout ce qu'Aaron
+    // fait hors écran — libellé « Géré par Aaron » dans la boîte mail,
+    // alertes, rapports — suive la langue de l'interface (15/11/2026).
+    if (/\/api\/auth\/link(\?|$)/.test(url)) {
+      try {
+        const chosen = window.localStorage.getItem('aaron_locale');
+        if (chosen && UI_LOCALES.includes(chosen)) opts.headers = { ...(opts.headers || {}), 'x-aaron-locale-chosen': '1' };
+      } catch {
+        // stockage indisponible : rien à signaler
+      }
+    }
 
     try {
       let { data } = await supabaseBrowser.auth.getSession();

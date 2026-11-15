@@ -6,7 +6,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
-import { sendSystemEmail } from '@/lib/google';
+import { sendSystemEmail, syncAaronLabelLanguage } from '@/lib/google';
+import { newDeviceEmail } from '@/lib/account-emails';
+import { LOCALE_NAMES } from '@/lib/locale-instruction';
+import { runInBackground } from '@/lib/background';
 import { resolveUserTimeZone } from '@/lib/user-timezone';
 import { serverError } from '@/lib/http';
 import { isDemoCompany } from '@/lib/demo-guard';
@@ -68,6 +71,12 @@ export async function POST(request: NextRequest) {
     if (deviceId) {
       registerDeviceAndNotify(alreadyLinked.id, alreadyLinked.email || email, alreadyLinked.first_name, deviceId, request.headers.get('user-agent') || '').catch(() => {});
     }
+    // Langue du compte alignée sur celle CHOISIE dans l'interface, puis
+    // libellé de la boîte mail remis dans cette langue — après la réponse,
+    // jamais bloquant pour la connexion (voir syncAccountLanguage plus bas).
+    const uiLocale = (request.headers.get('x-aaron-locale') || '').toLowerCase();
+    const chosenLocale = request.headers.get('x-aaron-locale-chosen') === '1' && LOCALE_NAMES[uiLocale] ? uiLocale : null;
+    runInBackground('langue du compte et libellé', () => syncAccountLanguage(alreadyLinked.id, alreadyLinked.company_id, chosenLocale));
     // Changement d'email depuis "Mon compte" (demande Alex 2026-08-25) :
     // supabaseBrowser.auth.updateUser({ email }) envoie un lien de
     // confirmation à la NOUVELLE adresse et ne fait rien tant qu'il n'est pas
@@ -118,6 +127,40 @@ export async function POST(request: NextRequest) {
 }
 
 
+// LANGUE DU COMPTE ET LIBELLÉ DE LA BOÎTE MAIL (15/11/2026, capture d'Alex :
+// interface en français, libellé « Managed by Aaron » dans son Gmail).
+//
+// La langue de l'interface vit dans le navigateur ; users.locale, lue par
+// tout ce qui tourne hors écran (libellé, rapports, relances), n'était mise
+// à jour que par un clic sur le sélecteur de langue. Les deux pouvaient donc
+// diverger durablement — ici, un compte resté en anglais côté serveur après
+// des essais, avec une interface revenue au français.
+//
+//   1. Si le navigateur signale une langue CHOISIE (pas simplement détectée)
+//      différente de users.locale, on l'enregistre. Jamais pour le compte de
+//      démonstration, partagé entre des testeurs de toutes langues.
+//   2. Le libellé Gmail est remis dans la langue du compte : tout de suite
+//      après un changement, sinon une vérification toutes les 6 heures au
+//      plus par instance (un seul appel à Gmail, aucun si pas de boîte Google).
+const labelCheckedAt = new Map<string, number>();
+const LABEL_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+
+async function syncAccountLanguage(userId: string, companyId: string | null, chosenLocale: string | null) {
+  let changed = false;
+  if (chosenLocale && !(await isDemoCompany(companyId))) {
+    const { data } = await supabaseAdmin.from('users').select('locale').eq('id', userId).maybeSingle();
+    if (data && (data as any).locale !== chosenLocale) {
+      const { error } = await supabaseAdmin.from('users').update({ locale: chosenLocale }).eq('id', userId);
+      changed = !error;
+    }
+  }
+  const last = labelCheckedAt.get(userId) || 0;
+  if (!changed && Date.now() - last < LABEL_CHECK_EVERY_MS) return;
+  if (labelCheckedAt.size > 5000) labelCheckedAt.clear();
+  labelCheckedAt.set(userId, Date.now());
+  await syncAaronLabelLanguage(userId);
+}
+
 // Item 3bis (docx Modifs Aaron 30/08/2026) : "si connexion via un autre PC,
 // demander email de sécurité". Chaque navigateur envoie un identifiant
 // opaque (localStorage, voir lib/supabase-browser.ts) ; la table user_devices
@@ -126,12 +169,8 @@ export async function POST(request: NextRequest) {
 // le tout premier appareil enregistré (mise en place de la table : on
 // n'alerte pas tous les comptes existants d'un coup). Best-effort : jamais
 // bloquant pour la connexion.
-function describeUserAgent(ua: string): string {
-  const os = /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Android/i.test(ua) ? 'Android' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'appareil inconnu';
-  const browser = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : 'navigateur inconnu';
-  return `${browser} sur ${os}`;
-}
-
+// (La description de l'appareil vit désormais dans lib/account-emails.ts,
+// newDeviceEmail, traduite comme le reste de l'alerte.)
 async function registerDeviceAndNotify(userId: string, userEmail: string | null, firstName: string | null, deviceId: string, userAgent: string) {
   const safeId = deviceId.slice(0, 128);
   const { data: known, error: knownError } = await supabaseAdmin
@@ -167,23 +206,28 @@ async function registerDeviceAndNotify(userId: string, userEmail: string | null,
   // Perth lisait « 09:08 heure de Paris » pour une connexion faite chez lui à
   // 16:08 : impossible de reconnaître sa propre connexion, donc impossible de
   // juger si l'alerte est légitime. Repli sur Paris si le fuseau est inconnu.
-  const { data: tzUser } = await supabaseAdmin
+  // Langue du compte (15/11/2026) : l'alerte était en français pour tout le
+  // monde. Lecture tolérante : sans la colonne, on retombe sur le français.
+  let tzUser: any = null;
+  const withLocale = await supabaseAdmin
     .from('users')
-    .select('timezone, billing_country')
+    .select('timezone, billing_country, locale')
     .eq('id', userId)
     .maybeSingle();
+  tzUser = withLocale.data;
+  if (!tzUser) {
+    const withoutLocale = await supabaseAdmin
+      .from('users')
+      .select('timezone, billing_country')
+      .eq('id', userId)
+      .maybeSingle();
+    tzUser = withoutLocale.data;
+  }
   const timeZone = resolveUserTimeZone((tzUser as any) || {});
-  const when = new Date().toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone });
-  const body =
-    `Bonjour${firstName ? ' ' + firstName : ''},\n\n` +
-    `Une connexion à ton compte Meet Aaron vient d'être faite depuis un appareil jamais utilisé jusqu'ici :\n` +
-    `• ${describeUserAgent(userAgent)}\n` +
-    `• le ${when} (${timeZone})\n\n` +
-    `Si c'est bien toi (nouvel ordinateur, nouveau téléphone, nouveau navigateur), tu n'as rien à faire.\n\n` +
-    `Si ce n'est pas toi : change ton mot de passe dès maintenant (Mon compte → Mon profil → Changer le mot de passe) et écris-nous à aaron@meetaaron.app — on coupera l'accès de cet appareil.\n\n` +
-    `Aaron`;
+  const locale = (tzUser as any)?.locale || null;
+  const { subject, body } = newDeviceEmail(locale, { firstName, userAgent, at: new Date(), timeZone });
   try {
-    await sendSystemEmail(userEmail, 'Nouvelle connexion à ton compte Meet Aaron', body);
+    await sendSystemEmail(userEmail, subject, body, locale);
   } catch (err: any) {
     console.error('Email de sécurité nouvel appareil non envoyé:', err?.message || err);
   }

@@ -158,6 +158,34 @@ async function getOrCreateAaronLabelId(userId: string): Promise<string | null> {
   }
 }
 
+// Remet le libellé Aaron dans la langue du commercial, SANS jamais le créer
+// (15/11/2026). getOrCreateAaronLabelId le renomme déjà, mais seulement au
+// prochain email qu'Aaron envoie : après un changement de langue, le
+// commercial gardait l'ancien nom jusque-là. Appelé en arrière-plan par
+// /api/auth/link. Silencieux : pas de boîte Gmail, droit manquant ou
+// renommage refusé ne sont pas des erreurs.
+export async function syncAaronLabelLanguage(userId: string): Promise<void> {
+  try {
+    const accessToken = await getValidAccessToken(userId);
+    const wantedName = await aaronLabelNameForUser(userId);
+    const listRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/labels', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!listRes.ok) return;
+    const { labels } = await listRes.json();
+    if (labels?.some((l: any) => l.name === wantedName)) return;
+    const other = labels?.find((l: any) => isAaronLabelName(l.name));
+    if (!other) return;
+    await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/labels/${other.id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: wantedName }),
+    });
+  } catch {
+    // Pas de connexion Google pour ce compte, ou réseau : rien à faire.
+  }
+}
+
 // Pose le label Aaron (traduit, voir lib/aaron-label.ts) sur un fil Gmail entier (donc sur tous les
 // messages du fil, passés et à venir tant qu'ils y restent rattachés). Échec
 // silencieux : un souci de label ne doit jamais empêcher l'envoi/la lecture
@@ -474,7 +502,14 @@ export async function sendSystemEmail(to: string, subject: string, body: string,
       resolvedLocale = null;
     }
   }
-  return sendGmailEmail(senderUserId, to, subject, body, { fromName: aaronSenderName(resolvedLocale) });
+  // PAS DE LIBELLÉ « Géré par Aaron » SUR LES EMAILS SYSTÈME (15/11/2026,
+  // capture d'Alex : alerte « Nouvelle connexion » en français, étiquetée
+  // « Managed by Aaron »). Ce libellé signale un fil de PROSPECTION qu'Aaron
+  // suit dans la boîte du commercial. Un email de la plateforme (alerte de
+  // sécurité, confirmation de compte, mot de passe) n'en est pas un : il
+  // partait pourtant étiqueté dans la boîte expéditrice, et l'étiquette se
+  // voyait dès que le destinataire était cette même boîte.
+  return sendGmailEmail(senderUserId, to, subject, body, { fromName: aaronSenderName(resolvedLocale), skipAaronLabel: true });
 }
 
 // Vérifie les créneaux déjà occupés sur le calendrier Google du commercial
