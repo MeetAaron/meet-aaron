@@ -1,0 +1,454 @@
+From 5f4408c5b908a75fe67403982c6ec97af82d383a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Nov 2026 12:20:37 +0000
+Subject: [PATCH] Connexion : afficher/masquer le mot de passe,
+ reinitialisation par code
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Bouton oeil sur tous les champs mot de passe de /login (connexion,
+  inscription, confirmation, nouveau mot de passe), 7 langues.
+- Mot de passe oublie : l'email contient le lien ET un code a 6 chiffres
+  (empreinte SHA-256 adresse+code dans password_reset_tokens, 1 h, usage
+  unique, lib/password-reset-code.ts). Sur /login, « J'ai recu un code »
+  apres l'envoi : code + nouveau mot de passe + confirmation.
+- /api/auth/reset-password accepte {email, code, password} : 6 essais par
+  adresse et 20 par appareil et par heure ; un changement reussi annule les
+  autres liens/codes en attente du compte.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/auth/request-password-reset/route.ts |  15 +-
+ app/api/auth/reset-password/route.ts         |  45 +++++-
+ app/login/page.jsx                           | 147 +++++++++++++++++--
+ lib/account-emails.ts                        |  21 +--
+ lib/password-reset-code.ts                   |  18 +++
+ 5 files changed, 217 insertions(+), 29 deletions(-)
+ create mode 100644 lib/password-reset-code.ts
+
+diff --git a/app/api/auth/request-password-reset/route.ts b/app/api/auth/request-password-reset/route.ts
+index 3978cc2..8a8f809 100644
+--- a/app/api/auth/request-password-reset/route.ts
++++ b/app/api/auth/request-password-reset/route.ts
+@@ -22,6 +22,7 @@ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/
+ import { passwordResetEmail } from '@/lib/account-emails';
+ import { normalizeLocale } from '@/lib/locale-instruction';
+ import { readJsonBody } from '@/lib/http';
++import { resetCodeToken } from '@/lib/password-reset-code';
+ 
+ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
+ 
+@@ -68,12 +69,24 @@ export async function POST(request: NextRequest) {
+       return NextResponse.json({ error: "Impossible d'envoyer le lien pour le moment" }, { status: 500 });
+     }
+ 
++    // Code à 6 chiffres (14/11/2026) : même usage que le lien, plus pratique
++    // dans l'app sur téléphone. Stocké dans la même table sous forme
++    // d'empreinte liée à l'adresse (jamais en clair) : lib/password-reset-code.ts.
++    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
++    const { error: codeError } = await supabaseAdmin.from('password_reset_tokens').insert({
++      auth_user_id: user.auth_user_id,
++      email: user.email || normalized,
++      token: resetCodeToken(normalized, code),
++      expires_at: expiresAt,
++    });
++    if (codeError) console.error('Erreur création code de réinitialisation:', codeError.message);
++
+     const origin = request.nextUrl.origin;
+     const link = `${origin}/login?reset=${token}`;
+     // Langue : celle du compte (users.locale), sinon celle envoyée par la
+     // page de connexion, sinon le français (08/11/2026).
+     const lang = normalizeLocale((user as any).locale || (typeof locale === 'string' ? locale : null));
+-    const mail = passwordResetEmail(lang, link, user.first_name);
++    const mail = passwordResetEmail(lang, link, user.first_name, codeError ? null : code);
+     try {
+       await sendSystemEmail(user.email || normalized, mail.subject, mail.body, lang);
+     } catch (err: any) {
+diff --git a/app/api/auth/reset-password/route.ts b/app/api/auth/reset-password/route.ts
+index c09dc36..a937c51 100644
+--- a/app/api/auth/reset-password/route.ts
++++ b/app/api/auth/reset-password/route.ts
+@@ -6,13 +6,42 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { readJsonBody } from '@/lib/http';
++import { resetCodeToken } from '@/lib/password-reset-code';
++import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+ import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
+ 
+ export async function POST(request: NextRequest) {
+-  const { token, password } = await readJsonBody(request);
+-  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
++  const { token: linkToken, email, code, password } = await readJsonBody(request);
++
++  // Deux façons de prouver qu'on a reçu l'email (14/11/2026) : le jeton du
++  // lien, ou l'adresse + le code à 6 chiffres (lib/password-reset-code.ts).
++  let token: string;
++  let viaCode = false;
++  if (typeof linkToken === 'string' && linkToken) {
++    if (!/^[a-f0-9]{64}$/.test(linkToken)) {
++      return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
++    }
++    token = linkToken;
++  } else if (typeof email === 'string' && typeof code === 'string') {
++    const normalized = email.trim().toLowerCase();
++    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || !/^\d{6}$/.test(code.trim())) {
++      return NextResponse.json({ error: 'Code invalide — vérifie les 6 chiffres reçus par email.' }, { status: 400 });
++    }
++    // 1 million de codes possibles : au plus 6 essais par adresse et par
++    // heure (durée de vie du code), et 20 par appareil, sinon on pourrait
++    // tous les essayer.
++    const perEmail = await checkRateLimit(emailKey('pwreset-code', normalized), 6, 60 * 60 * 1000);
++    if (!perEmail.ok) return tooManyRequestsResponse(perEmail.retryAfterSeconds);
++    const perIp = await checkRateLimit(callerKey(request, 'pwreset-code'), 20, 60 * 60 * 1000);
++    if (!perIp.ok) return tooManyRequestsResponse(perIp.retryAfterSeconds);
++    token = resetCodeToken(normalized, code.trim());
++    viaCode = true;
++  } else {
+     return NextResponse.json({ error: 'Lien invalide' }, { status: 400 });
+   }
++  const expiredMessage = viaCode
++    ? 'Ce code est incorrect, expiré ou déjà utilisé — vérifie-le ou redemande un email.'
++    : 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.';
+   // Politique de mot de passe (CASA 1.1.1) — lib/password-policy.js.
+   if (passwordPolicyError(password)) {
+     return NextResponse.json({ error: passwordPolicyMessage('fr') }, { status: 400 });
+@@ -25,7 +54,7 @@ export async function POST(request: NextRequest) {
+     .maybeSingle();
+ 
+   if (!row || row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
+-    return NextResponse.json({ error: 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.' }, { status: 400 });
++    return NextResponse.json({ error: expiredMessage }, { status: 400 });
+   }
+ 
+   // Consommation ATOMIQUE du jeton avant tout changement (16/10/2026, CASA
+@@ -40,7 +69,7 @@ export async function POST(request: NextRequest) {
+     .select('id')
+     .maybeSingle();
+   if (!claimed) {
+-    return NextResponse.json({ error: 'Ce lien est expiré ou a déjà été utilisé — redemande un nouveau lien.' }, { status: 400 });
++    return NextResponse.json({ error: expiredMessage }, { status: 400 });
+   }
+ 
+   const { error } = await supabaseAdmin.auth.admin.updateUserById(row.auth_user_id, { password });
+@@ -56,6 +85,14 @@ export async function POST(request: NextRequest) {
+   // les jetons d'accès encore en circulation expirent d'eux-mêmes (1 h).
+   // Fonction SQL revoke_all_sessions (migration_revocation_sessions_2026-10-16.sql),
+   // exécutable par le service_role uniquement.
++  // Le lien et le code du même email (et toute demande plus ancienne) ne
++  // servent plus : un seul changement de mot de passe par demande.
++  await supabaseAdmin
++    .from('password_reset_tokens')
++    .update({ used_at: new Date().toISOString() })
++    .eq('auth_user_id', row.auth_user_id)
++    .is('used_at', null);
++
+   const { error: revokeError } = await supabaseAdmin.rpc('revoke_all_sessions', { p_user_id: row.auth_user_id });
+   if (revokeError) {
+     console.error('Révocation des sessions après reset impossible:', revokeError.message);
+diff --git a/app/login/page.jsx b/app/login/page.jsx
+index 2de4b05..c2481d3 100644
+--- a/app/login/page.jsx
++++ b/app/login/page.jsx
+@@ -29,6 +29,56 @@ function PasswordRules({ password, confirm, showConfirm, attempted, locale }) {
+   );
+ }
+ 
++// Afficher / masquer le mot de passe (14/11/2026, demande d'Alex). Bouton
++// œil dans le champ, sur tous les champs mot de passe de cet écran.
++function PasswordField({ value, onChange, placeholder, autoComplete, minLength, locale }) {
++  const [visible, setVisible] = useState(false);
++  return (
++    <div className="pw-field">
++      <input
++        type={visible ? 'text' : 'password'}
++        placeholder={placeholder}
++        value={value}
++        onChange={onChange}
++        autoComplete={autoComplete}
++        required
++        minLength={minLength}
++        autoCapitalize="none"
++        autoCorrect="off"
++        spellCheck={false}
++      />
++      <button
++        type="button"
++        className="pw-eye"
++        onClick={() => setVisible((v) => !v)}
++        aria-label={ct(locale, visible ? 'hide' : 'show')}
++        aria-pressed={visible}
++        title={ct(locale, visible ? 'hide' : 'show')}
++      >
++        {visible ? (
++          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
++        ) : (
++          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
++        )}
++      </button>
++    </div>
++  );
++}
++
++// Réinitialisation par CODE (14/11/2026, demande d'Alex) : l'email contient
++// toujours le lien, et maintenant aussi un code à 6 chiffres, plus pratique
++// dans l'app sur téléphone (pas besoin d'ouvrir le lien au bon endroit).
++const CODE_TEXT = {
++  fr: { show: 'Afficher le mot de passe', hide: 'Masquer le mot de passe', haveCode: "J'ai reçu un code", codeLabel: 'Code à 6 chiffres reçu par email', codeIntro: "Saisis le code reçu par email et choisis ton nouveau mot de passe.", sentCode: "Si un compte existe avec cette adresse, un email vient de partir avec un lien et un code à 6 chiffres (valables 1 heure). Regarde aussi tes spams." },
++  en: { show: 'Show password', hide: 'Hide password', haveCode: 'I received a code', codeLabel: '6-digit code received by email', codeIntro: 'Enter the code you received by email and choose your new password.', sentCode: 'If an account exists with this address, an email has just been sent with a link and a 6-digit code (valid for 1 hour). Check your spam folder too.' },
++  de: { show: 'Passwort anzeigen', hide: 'Passwort verbergen', haveCode: 'Ich habe einen Code erhalten', codeLabel: '6-stelliger Code aus der E-Mail', codeIntro: 'Gib den Code aus der E-Mail ein und wähle dein neues Passwort.', sentCode: 'Falls ein Konto mit dieser Adresse existiert, wurde gerade eine E-Mail mit einem Link und einem 6-stelligen Code verschickt (1 Stunde gültig). Sieh auch im Spam-Ordner nach.' },
++  it: { show: 'Mostra la password', hide: 'Nascondi la password', haveCode: 'Ho ricevuto un codice', codeLabel: 'Codice a 6 cifre ricevuto via email', codeIntro: 'Inserisci il codice ricevuto via email e scegli la nuova password.', sentCode: "Se esiste un account con questo indirizzo, è appena partita un'email con un link e un codice a 6 cifre (validi 1 ora). Controlla anche lo spam." },
++  es: { show: 'Mostrar la contraseña', hide: 'Ocultar la contraseña', haveCode: 'He recibido un código', codeLabel: 'Código de 6 cifras recibido por correo', codeIntro: 'Introduce el código recibido por correo y elige tu nueva contraseña.', sentCode: 'Si existe una cuenta con esta dirección, acabamos de enviar un correo con un enlace y un código de 6 cifras (válidos 1 hora). Mira también en spam.' },
++  pt: { show: 'Mostrar a palavra-passe', hide: 'Ocultar a palavra-passe', haveCode: 'Recebi um código', codeLabel: 'Código de 6 dígitos recebido por email', codeIntro: 'Introduz o código recebido por email e escolhe a nova palavra-passe.', sentCode: 'Se existir uma conta com este endereço, acabou de ser enviado um email com um link e um código de 6 dígitos (válidos 1 hora). Vê também no spam.' },
++  nl: { show: 'Wachtwoord tonen', hide: 'Wachtwoord verbergen', haveCode: 'Ik heb een code ontvangen', codeLabel: 'Code van 6 cijfers uit de e-mail', codeIntro: 'Voer de code uit de e-mail in en kies je nieuwe wachtwoord.', sentCode: 'Als er een account met dit adres bestaat, is er zojuist een e-mail verstuurd met een link en een code van 6 cijfers (1 uur geldig). Kijk ook in je spam.' },
++};
++const ct = (locale, key) => (CODE_TEXT[locale] || CODE_TEXT.fr)[key] || CODE_TEXT.fr[key];
++
+ const MFA_TEXT = {
+   fr: { tooShort: 'Mot de passe : 8 caractères minimum.', title: 'Code de double authentification', hint: "Saisis le code à six chiffres affiché par ton application d'authentification.", submit: 'Valider', back: 'Retour', bad: 'Code incorrect ou expiré. Réessaie avec le code affiché maintenant.' },
+   en: { tooShort: 'Password: at least 8 characters.', title: 'Two-factor code', hint: 'Enter the six-digit code shown by your authenticator app.', submit: 'Confirm', back: 'Back', bad: 'Wrong or expired code. Try again with the code shown now.' },
+@@ -53,6 +103,8 @@ export default function LoginPage() {
+   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
+   // password-reset et reset-password : lien reçu par email → ?reset=<jeton>.
+   const [resetToken, setResetToken] = useState(null);
++  const [resetCode, setResetCode] = useState('');
++  const [codeSent, setCodeSent] = useState(false);
+   const [passwordConfirm, setPasswordConfirm] = useState('');
+   const [pwAttempted, setPwAttempted] = useState(false);
+   const [email, setEmail] = useState('');
+@@ -338,7 +390,8 @@ export default function LoginPage() {
+       if (!res.ok) {
+         setError(body.error || t('auth.resetGenericError', locale));
+       } else {
+-        setMessage(t('auth.resetLinkSent', locale));
++        setMessage(ct(locale, 'sentCode'));
++        setCodeSent(true);
+       }
+     } catch (err) {
+       setError(t('auth.resetGenericError', locale));
+@@ -366,7 +419,7 @@ export default function LoginPage() {
+       const res = await fetch('/api/auth/reset-password', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ token: resetToken, password }),
++        body: JSON.stringify(resetToken ? { token: resetToken, password } : { email, code: resetCode, password }),
+       });
+       const body = await res.json().catch(() => ({}));
+       if (!res.ok) {
+@@ -377,6 +430,8 @@ export default function LoginPage() {
+         setPassword('');
+         setPasswordConfirm('');
+         setResetToken(null);
++        setResetCode('');
++        setCodeSent(false);
+         try {
+           window.history.replaceState(null, '', '/login');
+         } catch (err) {}
+@@ -442,28 +497,52 @@ export default function LoginPage() {
+             <button type="submit" className="btn-primary" disabled={loading}>
+               {loading ? t('common.loading', locale) : t('auth.forgotSubmit', locale)}
+             </button>
++            {codeSent && (
++              <button
++                type="button"
++                className="btn-secondary-code"
++                onClick={() => { setMode('reset'); setResetToken(null); setMessage(null); setError(null); setPassword(''); setPasswordConfirm(''); }}
++              >
++                {ct(locale, 'haveCode')}
++              </button>
++            )}
+           </form>
+         )}
+ 
+         {mode === 'reset' && (
+           <form onSubmit={handleResetSubmit} className="form">
+-            <input
+-              type="password"
++            {!resetToken && (
++              <>
++                <p className="code-intro">{ct(locale, 'codeIntro')}</p>
++                <input
++                  type="text"
++                  inputMode="numeric"
++                  pattern="[0-9]{6}"
++                  maxLength={6}
++                  autoComplete="one-time-code"
++                  placeholder={ct(locale, 'codeLabel')}
++                  aria-label={ct(locale, 'codeLabel')}
++                  value={resetCode}
++                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
++                  required
++                />
++              </>
++            )}
++            <PasswordField
+               placeholder={t('auth.resetNewPassword', locale)}
+               value={password}
+               onChange={(e) => setPassword(e.target.value)}
+               autoComplete="new-password"
+-              required
+               minLength={PASSWORD_MIN_LENGTH}
++              locale={locale}
+             />
+-            <input
+-              type="password"
++            <PasswordField
+               placeholder={t('auth.resetConfirmPassword', locale)}
+               value={passwordConfirm}
+               onChange={(e) => setPasswordConfirm(e.target.value)}
+               autoComplete="new-password"
+-              required
+               minLength={PASSWORD_MIN_LENGTH}
++              locale={locale}
+             />
+             <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
+             <button type="submit" className="btn-primary" disabled={loading}>
+@@ -505,27 +584,25 @@ export default function LoginPage() {
+             autoComplete="email"
+             required
+           />
+-          <input
+-            type="password"
++          <PasswordField
+             placeholder={t('auth.passwordLabel', locale)}
+             value={password}
+             onChange={(e) => setPassword(e.target.value)}
+             autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+-            required
+             minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : 6}
++            locale={locale}
+           />
+           {mode === 'signup' && (
+             <>
+               {/* Saisie en double et règles visibles pendant la frappe
+                   (demande Alex, 08/11/2026). */}
+-              <input
+-                type="password"
++              <PasswordField
+                 placeholder={t('auth.resetConfirmPassword', locale)}
+                 value={passwordConfirm}
+                 onChange={(e) => setPasswordConfirm(e.target.value)}
+                 autoComplete="new-password"
+-                required
+                 minLength={PASSWORD_MIN_LENGTH}
++                locale={locale}
+               />
+               <PasswordRules password={password} confirm={passwordConfirm} showConfirm attempted={pwAttempted} locale={locale} />
+             </>
+@@ -704,6 +781,48 @@ export default function LoginPage() {
+           color: #f4f1ea;
+           font-size: 0.88rem;
+         }
++        /* Champ mot de passe avec œil (composant PasswordField, hors du
++           périmètre de ce style : d'où :global). */
++        .form :global(.pw-field) { position: relative; display: flex; }
++        .form :global(.pw-field input) {
++          width: 100%;
++          box-sizing: border-box;
++          background: #0b0e1a;
++          border: 1px solid #232744;
++          border-radius: 8px;
++          padding: 0.65rem 2.7rem 0.65rem 0.9rem;
++          color: #f4f1ea;
++          font-size: 0.88rem;
++        }
++        .form :global(.pw-eye) {
++          position: absolute;
++          right: 0.3rem;
++          top: 50%;
++          transform: translateY(-50%);
++          display: flex;
++          align-items: center;
++          justify-content: center;
++          width: 2.2rem;
++          height: 2.2rem;
++          background: none;
++          border: none;
++          border-radius: 6px;
++          color: #8b90a8;
++          cursor: pointer;
++        }
++        .form :global(.pw-eye:hover) { color: #f4f1ea; }
++        .code-intro { margin: 0; color: #8b90a8; font-size: 0.82rem; text-align: left; }
++        .btn-secondary-code {
++          width: 100%;
++          background: transparent;
++          color: #f4f1ea;
++          border: 1px solid #232744;
++          border-radius: 10px;
++          padding: 0.65rem 1rem;
++          font-weight: 500;
++          font-size: 0.86rem;
++          cursor: pointer;
++        }
+         .remember-row {
+           display: flex;
+           align-items: center;
+diff --git a/lib/account-emails.ts b/lib/account-emails.ts
+index 72926da..3ae4dad 100644
+--- a/lib/account-emails.ts
++++ b/lib/account-emails.ts
+@@ -23,14 +23,14 @@ const VERIFY: Record<string, { subject: string; intro: string; again: string; ac
+   nl: { subject: 'Bevestig je e-mailadres — Meet Aaron', intro: 'Welkom bij Meet Aaron!', again: 'Hier is een nieuwe link om je e-mailadres te bevestigen en je Meet Aaron-account te activeren:', action: 'Klik op deze link om je e-mailadres te bevestigen en je account te activeren:', ignore: 'Heb je je niet aangemeld? Negeer deze e-mail dan gewoon.' },
+ };
+ 
+-const RESET: Record<string, { subject: string; hello: string; body: string; ignore: string; sign: string }> = {
+-  fr: { subject: 'Réinitialise ton mot de passe Meet Aaron', hello: 'Bonjour{name},', body: 'Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :', ignore: "Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.", sign: 'Aaron' },
+-  en: { subject: 'Reset your Meet Aaron password', hello: 'Hello{name},', body: 'You asked to reset the password of your Meet Aaron account. Click this link (valid for 1 hour) to choose a new one:', ignore: 'If you did not make this request, simply ignore this email: your password stays unchanged.', sign: 'Aaron' },
+-  de: { subject: 'Setze dein Meet-Aaron-Passwort zurück', hello: 'Hallo{name},', body: 'Du hast darum gebeten, das Passwort deines Meet-Aaron-Kontos zurückzusetzen. Klicke auf diesen Link (1 Stunde gültig), um ein neues zu wählen:', ignore: 'Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach: dein Passwort bleibt unverändert.', sign: 'Aaron' },
+-  it: { subject: 'Reimposta la tua password Meet Aaron', hello: 'Ciao{name},', body: 'Hai chiesto di reimpostare la password del tuo account Meet Aaron. Clicca su questo link (valido 1 ora) per sceglierne una nuova:', ignore: 'Se non sei stato tu, ignora semplicemente questa email: la tua password resta invariata.', sign: 'Aaron' },
+-  es: { subject: 'Restablece tu contraseña de Meet Aaron', hello: 'Hola{name},', body: 'Has pedido restablecer la contraseña de tu cuenta Meet Aaron. Haz clic en este enlace (válido 1 hora) para elegir una nueva:', ignore: 'Si no has sido tú, ignora simplemente este correo: tu contraseña no cambia.', sign: 'Aaron' },
+-  pt: { subject: 'Repõe a tua palavra-passe Meet Aaron', hello: 'Olá{name},', body: 'Pediste para repor a palavra-passe da tua conta Meet Aaron. Clica neste link (válido 1 hora) para escolher uma nova:', ignore: 'Se não foste tu, ignora simplesmente este email: a tua palavra-passe mantém-se.', sign: 'Aaron' },
+-  nl: { subject: 'Stel je Meet Aaron-wachtwoord opnieuw in', hello: 'Hallo{name},', body: 'Je hebt gevraagd om het wachtwoord van je Meet Aaron-account opnieuw in te stellen. Klik op deze link (1 uur geldig) om een nieuw wachtwoord te kiezen:', ignore: 'Heb je dit niet aangevraagd? Negeer deze e-mail dan gewoon: je wachtwoord blijft ongewijzigd.', sign: 'Aaron' },
++const RESET: Record<string, { subject: string; hello: string; body: string; code: string; ignore: string; sign: string }> = {
++  fr: { subject: 'Réinitialise ton mot de passe Meet Aaron', hello: 'Bonjour{name},', body: 'Tu as demandé à réinitialiser le mot de passe de ton compte Meet Aaron. Clique sur ce lien (valable 1 heure) pour en choisir un nouveau :', code: "Ou, dans l'application, saisis ce code (valable 1 heure) :", ignore: "Si tu n'es pas à l'origine de cette demande, ignore simplement cet email : ton mot de passe reste inchangé.", sign: 'Aaron' },
++  en: { subject: 'Reset your Meet Aaron password', hello: 'Hello{name},', body: 'You asked to reset the password of your Meet Aaron account. Click this link (valid for 1 hour) to choose a new one:', code: "Or, in the app, enter this code (valid for 1 hour):", ignore: 'If you did not make this request, simply ignore this email: your password stays unchanged.', sign: 'Aaron' },
++  de: { subject: 'Setze dein Meet-Aaron-Passwort zurück', hello: 'Hallo{name},', body: 'Du hast darum gebeten, das Passwort deines Meet-Aaron-Kontos zurückzusetzen. Klicke auf diesen Link (1 Stunde gültig), um ein neues zu wählen:', code: "Oder gib in der App diesen Code ein (1 Stunde gültig):", ignore: 'Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach: dein Passwort bleibt unverändert.', sign: 'Aaron' },
++  it: { subject: 'Reimposta la tua password Meet Aaron', hello: 'Ciao{name},', body: 'Hai chiesto di reimpostare la password del tuo account Meet Aaron. Clicca su questo link (valido 1 ora) per sceglierne una nuova:', code: "Oppure, nell'app, inserisci questo codice (valido 1 ora):", ignore: 'Se non sei stato tu, ignora semplicemente questa email: la tua password resta invariata.', sign: 'Aaron' },
++  es: { subject: 'Restablece tu contraseña de Meet Aaron', hello: 'Hola{name},', body: 'Has pedido restablecer la contraseña de tu cuenta Meet Aaron. Haz clic en este enlace (válido 1 hora) para elegir una nueva:', code: "O, en la aplicación, introduce este código (válido 1 hora):", ignore: 'Si no has sido tú, ignora simplemente este correo: tu contraseña no cambia.', sign: 'Aaron' },
++  pt: { subject: 'Repõe a tua palavra-passe Meet Aaron', hello: 'Olá{name},', body: 'Pediste para repor a palavra-passe da tua conta Meet Aaron. Clica neste link (válido 1 hora) para escolher uma nova:', code: "Ou, na aplicação, introduz este código (válido 1 hora):", ignore: 'Se não foste tu, ignora simplesmente este email: a tua palavra-passe mantém-se.', sign: 'Aaron' },
++  nl: { subject: 'Stel je Meet Aaron-wachtwoord opnieuw in', hello: 'Hallo{name},', body: 'Je hebt gevraagd om het wachtwoord van je Meet Aaron-account opnieuw in te stellen. Klik op deze link (1 uur geldig) om een nieuw wachtwoord te kiezen:', code: "Of voer in de app deze code in (1 uur geldig):", ignore: 'Heb je dit niet aangevraagd? Negeer deze e-mail dan gewoon: je wachtwoord blijft ongewijzigd.', sign: 'Aaron' },
+ };
+ 
+ export function verificationEmail(locale: string | null | undefined, verifyUrl: string, again = false): AccountEmail {
+@@ -41,8 +41,9 @@ export function verificationEmail(locale: string | null | undefined, verifyUrl:
+   return { subject: T.subject, body };
+ }
+ 
+-export function passwordResetEmail(locale: string | null | undefined, link: string, firstName?: string | null): AccountEmail {
++export function passwordResetEmail(locale: string | null | undefined, link: string, firstName?: string | null, code?: string | null): AccountEmail {
+   const T = RESET[normalizeLocale(locale)] || RESET.fr;
+-  const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${T.ignore}\n\n${T.sign}`;
++  const codePart = code ? `${T.code}\n${code}\n\n` : '';
++  const body = `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n${T.body}\n\n${link}\n\n${codePart}${T.ignore}\n\n${T.sign}`;
+   return { subject: T.subject, body };
+ }
+diff --git a/lib/password-reset-code.ts b/lib/password-reset-code.ts
+new file mode 100644
+index 0000000..c5c930a
+--- /dev/null
++++ b/lib/password-reset-code.ts
+@@ -0,0 +1,18 @@
++// lib/password-reset-code.ts
++// Code à 6 chiffres de réinitialisation du mot de passe (14/11/2026).
++//
++// Le code part dans le même email que le lien (app/api/auth/request-
++// password-reset). Jamais stocké en clair : la table password_reset_tokens
++// reçoit une empreinte SHA-256 de « adresse + code », au même format
++// (64 caractères hexadécimaux) que les jetons de lien — même table, même
++// expiration (1 heure), même usage unique, aucune migration.
++//
++// Lier l'empreinte à l'adresse empêche qu'un code serve pour un autre compte.
++// Contre l'essai de tous les codes, la route de validation limite les
++// tentatives par adresse (app/api/auth/reset-password).
++
++import crypto from 'crypto';
++
++export function resetCodeToken(email: string, code: string): string {
++  return crypto.createHash('sha256').update(`reset-code:${email.trim().toLowerCase()}:${code}`).digest('hex');
++}
+-- 
+2.43.0
+
