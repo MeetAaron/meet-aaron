@@ -91,5 +91,13 @@ plist['ITSAppUsesNonExemptEncryption'] = false
 plist['NSCameraUsageDescription']      = 'Pour joindre une photo a un devis ou a un document client.'
 plist['NSPhotoLibraryUsageDescription'] = 'Pour joindre un document depuis votre photothèque.'
 plist['NSPhotoLibraryAddUsageDescription'] = 'Pour enregistrer un document genere par Aaron.'
+# Langues de l'app (15/11/2026). Sans cette liste, iOS considere que l'app
+# n'existe qu'en anglais : la fiche App Store affichait « Languages : English »
+# et, surtout, la page chargee dans l'app se voyait annoncer l'anglais comme
+# langue du telephone (navigator.language) — un iPhone regle en francais
+# ouvrait donc l'app en anglais. Avec la liste, iOS choisit parmi ces sept
+# langues celle du telephone, et le site suit (lib/i18n.js, detectBrowserLocale).
+plist['CFBundleDevelopmentRegion'] = 'en'
+plist['CFBundleLocalizations'] = %w[en fr de it es pt nl]
 File.write(plist_path, plist.to_plist)
 puts 'Info.plist mis a jour'
