@@ -1,0 +1,127 @@
+From ac7716395ad6f070add8b655b74d5dcce98a189e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 05:16:34 +0000
+Subject: [PATCH] Onglets du bas : reaction immediate et rubriques prechargees
+
+Retour d'Alex : 3 s sans reaction au toucher d'un onglet. L'onglet touche
+s'allume tout de suite et une barre de progression apparait sous la barre
+du haut pendant le chargement ; les 4 rubriques sont prechargees en entier
+(router.prefetch + Link prefetch) des l'affichage.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/globals.css             | 26 ++++++++++++++++++++++++++
+ components/MobileChrome.jsx | 36 ++++++++++++++++++++++++++++++++----
+ 2 files changed, 58 insertions(+), 4 deletions(-)
+
+diff --git a/app/globals.css b/app/globals.css
+index 3f7567a..af0c8ae 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -267,6 +267,32 @@ html[data-theme='light'] .shell > .sidebar {
+   .mobile-tab.active {
+     color: var(--accent-light);
+   }
++  /* Barre de progression sous la barre du haut pendant le changement de
++     rubrique (components/MobileChrome.jsx, 15/11/2026). */
++  .mobile-nav-progress {
++    position: fixed;
++    top: calc(52px + env(safe-area-inset-top, 0px));
++    left: 0;
++    right: 0;
++    height: 2px;
++    z-index: 57;
++    overflow: hidden;
++    pointer-events: none;
++  }
++  .mobile-nav-progress::after {
++    content: '';
++    position: absolute;
++    top: 0;
++    left: -40%;
++    width: 40%;
++    height: 100%;
++    background: linear-gradient(90deg, transparent, var(--accent-light, #7c6cff), transparent);
++    animation: mobile-nav-progress 0.9s ease-in-out infinite;
++  }
++  @keyframes mobile-nav-progress {
++    from { left: -40%; }
++    to { left: 100%; }
++  }
+   .mobile-tab-icon {
+     width: 46px;
+     height: 34px;
+diff --git a/components/MobileChrome.jsx b/components/MobileChrome.jsx
+index 337b68e..baf53bf 100644
+--- a/components/MobileChrome.jsx
++++ b/components/MobileChrome.jsx
+@@ -18,7 +18,9 @@
+ 
+ 'use client';
+ 
++import { useEffect, useState } from 'react';
+ import Link from 'next/link';
++import { usePathname, useRouter } from 'next/navigation';
+ import { NavIcon } from '@/components/NavIcon';
+ import ConnectionBadge from '@/components/ConnectionBadge';
+ 
+@@ -30,6 +32,26 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel,
+   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);
+   const q = userId ? `?user_id=${userId}` : '';
+ 
++  // Réactivité des onglets du bas (15/11/2026, Alex : « 3 secondes de délai
++  // quand on clique dessus »). Chaque rubrique est une page à part : tant
++  // que la suivante n'est pas chargée, Next.js laisse l'ancienne affichée,
++  // sans le moindre signe que le toucher a été pris en compte. Deux
++  // remèdes : (1) l'onglet touché s'allume tout de suite et une barre de
++  // progression apparaît sous la barre du haut ; (2) les 4 rubriques sont
++  // préchargées en entier dès l'affichage, pour que le changement soit
++  // quasi immédiat ensuite.
++  const router = useRouter();
++  const pathname = usePathname();
++  const [pending, setPending] = useState(null);
++  useEffect(() => { setPending(null); }, [pathname]);
++  const tabHref = (item) => (item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`);
++  useEffect(() => {
++    tabs.forEach((item) => {
++      try { router.prefetch(tabHref(item)); } catch {}
++    });
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [userId]);
++
+   return (
+     <>
+       <header className="mobile-topbar">
+@@ -50,18 +72,24 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel,
+         </button>
+       </header>
+ 
++      {pending && <div className="mobile-nav-progress" aria-hidden="true" />}
+       <nav className="mobile-tabbar" aria-label={moreLabel}>
+-        {tabs.map((item) => (
++        {tabs.map((item) => {
++          const isActive = pending ? pending === item.slug : item.label === title;
++          return (
+           <Link
+             key={item.slug}
+-            href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`}
+-            className={`mobile-tab${item.label === title ? ' active' : ''}`}
++            href={tabHref(item)}
++            prefetch
++            onClick={() => { if (item.label !== title) setPending(item.slug); }}
++            className={`mobile-tab${isActive ? ' active' : ''}`}
+             aria-current={item.label === title ? 'page' : undefined}
+           >
+             <span className="mobile-tab-icon"><NavIcon slug={item.slug} size={24} /></span>
+             <span className="mobile-tab-label">{item.label}</span>
+           </Link>
+-        ))}
++          );
++        })}
+         <button type="button" className="mobile-tab" onClick={onMenu}>
+           <span className="mobile-tab-icon mobile-tab-more" aria-hidden="true">
+             <span />
+-- 
+2.43.0
+
