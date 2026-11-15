@@ -23,7 +23,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { NavIcon } from '@/components/NavIcon';
 import ConnectionBadge from '@/components/ConnectionBadge';
-import { warmJson, tabDataUrls } from '@/lib/instant';
+import { warmJson, tabDataUrls, noteUserId } from '@/lib/instant';
 
 // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
 // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
@@ -32,6 +32,9 @@ const TAB_SLUGS = ['campaigns', 'prospects', 'agenda', 'chat'];
 export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel, locale }) {
   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);
   const q = userId ? `?user_id=${userId}` : '';
+  // Retenu pour la rubrique suivante, quand l'adresse en cours ne le porte
+  // pas (démarrage de l'app sur /app/campaigns) — lib/instant.js.
+  noteUserId(userId);
 
   // Réactivité des onglets du bas (15/11/2026, Alex : « 3 secondes de délai
   // quand on clique dessus »). Chaque rubrique est une page à part : tant
