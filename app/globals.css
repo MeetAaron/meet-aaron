@@ -267,6 +267,32 @@ html[data-theme='light'] .shell > .sidebar {
   .mobile-tab.active {
     color: var(--accent-light);
   }
+  /* Barre de progression sous la barre du haut pendant le changement de
+     rubrique (components/MobileChrome.jsx, 15/11/2026). */
+  .mobile-nav-progress {
+    position: fixed;
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    left: 0;
+    right: 0;
+    height: 2px;
+    z-index: 57;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .mobile-nav-progress::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--accent-light, #7c6cff), transparent);
+    animation: mobile-nav-progress 0.9s ease-in-out infinite;
+  }
+  @keyframes mobile-nav-progress {
+    from { left: -40%; }
+    to { left: 100%; }
+  }
   .mobile-tab-icon {
     width: 46px;
     height: 34px;

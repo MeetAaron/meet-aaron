@@ -18,7 +18,9 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { NavIcon } from '@/components/NavIcon';
 import ConnectionBadge from '@/components/ConnectionBadge';
 
@@ -29,6 +31,26 @@ const TAB_SLUGS = ['campaigns', 'prospects', 'agenda', 'chat'];
 export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel, locale }) {
   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);
   const q = userId ? `?user_id=${userId}` : '';
+
+  // Réactivité des onglets du bas (15/11/2026, Alex : « 3 secondes de délai
+  // quand on clique dessus »). Chaque rubrique est une page à part : tant
+  // que la suivante n'est pas chargée, Next.js laisse l'ancienne affichée,
+  // sans le moindre signe que le toucher a été pris en compte. Deux
+  // remèdes : (1) l'onglet touché s'allume tout de suite et une barre de
+  // progression apparaît sous la barre du haut ; (2) les 4 rubriques sont
+  // préchargées en entier dès l'affichage, pour que le changement soit
+  // quasi immédiat ensuite.
+  const router = useRouter();
+  const pathname = usePathname();
+  const [pending, setPending] = useState(null);
+  useEffect(() => { setPending(null); }, [pathname]);
+  const tabHref = (item) => (item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`);
+  useEffect(() => {
+    tabs.forEach((item) => {
+      try { router.prefetch(tabHref(item)); } catch {}
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   return (
     <>
@@ -50,18 +72,24 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, 
         </button>
       </header>
 
+      {pending && <div className="mobile-nav-progress" aria-hidden="true" />}
       <nav className="mobile-tabbar" aria-label={moreLabel}>
-        {tabs.map((item) => (
+        {tabs.map((item) => {
+          const isActive = pending ? pending === item.slug : item.label === title;
+          return (
           <Link
             key={item.slug}
-            href={item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`}
-            className={`mobile-tab${item.label === title ? ' active' : ''}`}
+            href={tabHref(item)}
+            prefetch
+            onClick={() => { if (item.label !== title) setPending(item.slug); }}
+            className={`mobile-tab${isActive ? ' active' : ''}`}
             aria-current={item.label === title ? 'page' : undefined}
           >
             <span className="mobile-tab-icon"><NavIcon slug={item.slug} size={24} /></span>
             <span className="mobile-tab-label">{item.label}</span>
           </Link>
-        ))}
+          );
+        })}
         <button type="button" className="mobile-tab" onClick={onMenu}>
           <span className="mobile-tab-icon mobile-tab-more" aria-hidden="true">
             <span />
