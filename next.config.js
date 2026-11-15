@@ -121,7 +121,8 @@ const nextConfig = {
       // ouvre la version web »). Google avait trouvé /ios en 404. Quand les
       // fiches seront publiées, remplacer /app par l'adresse du store
       // (temporaire, donc 307 : les navigateurs ne la mémorisent pas).
-      { source: '/ios', destination: '/app', permanent: false },
+      // iOS en ligne depuis le 15/11/2026 : le QR « iOS » ouvre la fiche App Store.
+      { source: '/ios', destination: 'https://apps.apple.com/app/meet-aaron-sales-copilot/id6832991260', permanent: false },
       { source: '/android', destination: '/app', permanent: false },
     ];
   },
