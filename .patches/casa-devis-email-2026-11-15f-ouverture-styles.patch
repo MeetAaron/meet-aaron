@@ -1,0 +1,397 @@
+From 4e4125b088dcb840bd743569fa1579184ef4b0f3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 11:36:39 +0000
+Subject: [PATCH] Ouverture de l'app : page de connexion mise en forme des le
+ premier affichage, renvoi immediat, rechargement auto des nouvelles versions
+
+- components/StyledJsxRegistry.jsx : les styles des pages (<style jsx>) partent
+  dans le HTML envoye par le serveur au lieu d'attendre le JavaScript (fin de
+  la page blanche sans mise en forme a l'ouverture).
+- lib/app-entry-gate.js : la porte d'entree de /app s'execute avant tout
+  telechargement ; sans connexion du jour, renvoi immediat vers /login.
+- app/login/layout.jsx : fond sombre de la page de connexion des le HTML.
+- components/NativeAppBridge.jsx : l'ecran de lancement attend l'habillage de
+  l'app, plus seulement la fin du chargement.
+- components/VersionWatcher.jsx + app/api/version : au retour au premier plan,
+  la page se recharge si une nouvelle version du site est en ligne (jamais
+  pendant une saisie).
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/version/route.ts         |  21 ++++++
+ app/layout.jsx                   |  45 +++++++++----
+ app/login/layout.jsx             |  15 +++++
+ components/NativeAppBridge.jsx   |  14 +++-
+ components/StyledJsxRegistry.jsx |  38 +++++++++++
+ components/VersionWatcher.jsx    | 108 +++++++++++++++++++++++++++++++
+ lib/app-entry-gate.js            |  33 ++++++++++
+ next.config.js                   |  10 +++
+ 8 files changed, 269 insertions(+), 15 deletions(-)
+ create mode 100644 app/api/version/route.ts
+ create mode 100644 app/login/layout.jsx
+ create mode 100644 components/StyledJsxRegistry.jsx
+ create mode 100644 components/VersionWatcher.jsx
+ create mode 100644 lib/app-entry-gate.js
+
+diff --git a/app/api/version/route.ts b/app/api/version/route.ts
+new file mode 100644
+index 0000000..f46e893
+--- /dev/null
++++ b/app/api/version/route.ts
+@@ -0,0 +1,21 @@
++// app/api/version/route.ts
++//
++// Identifiant de la version du site actuellement en ligne (15/11/2026).
++// Lu par components/VersionWatcher.jsx quand l'app revient au premier plan :
++// si l'identifiant a change depuis le chargement de la page, une nouvelle
++// version a ete deployee et la page se recharge toute seule.
++//
++// L'identifiant est le commit Git du deploiement (variable systeme de
++// Vercel), fige a la compilation par next.config.js (NEXT_PUBLIC_BUILD_ID).
++// Aucune donnee, aucun secret : pas d'authentification.
++
++import { NextResponse } from 'next/server';
++
++export const dynamic = 'force-dynamic';
++
++export async function GET() {
++  return NextResponse.json(
++    { id: process.env.NEXT_PUBLIC_BUILD_ID || '' },
++    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
++  );
++}
+diff --git a/app/layout.jsx b/app/layout.jsx
+index bb96f78..e1e19dc 100644
+--- a/app/layout.jsx
++++ b/app/layout.jsx
+@@ -7,6 +7,9 @@ import WinCelebration from "@/components/WinCelebration";
+ import HelpLayer from "@/components/HelpLayer";
+ import { THEME_INIT_SCRIPT } from "@/lib/theme";
+ import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
++import { APP_ENTRY_GATE_SCRIPT } from "@/lib/app-entry-gate";
++import StyledJsxRegistry from "@/components/StyledJsxRegistry";
++import VersionWatcher from "@/components/VersionWatcher";
+ 
+ export const metadata = {
+     title: "Meet Aaron — Le copilote de votre commercial",
+@@ -71,22 +74,36 @@ export default function RootLayout({ children }) {
+           React.createElement(
+             "body",
+             null,
++            // Porte d'entrée de /app, avant tout téléchargement (15/11/2026) :
++            // sans connexion du jour, on part tout de suite sur /login au
++            // lieu d'attendre le JavaScript de la rubrique — lib/app-entry-gate.js.
++            React.createElement("script", { dangerouslySetInnerHTML: { __html: APP_ENTRY_GATE_SCRIPT } }),
+             React.createElement("script", { dangerouslySetInnerHTML: { __html: THEME_INIT_SCRIPT } }),
+             React.createElement("script", { dangerouslySetInnerHTML: { __html: CHUNK_ERROR_RECOVERY_SCRIPT } }),
+-            React.createElement(AuthFetchInterceptor, null),
+-            // Remonte le fuseau horaire du navigateur (users.timezone) pour que
+-            // le rapport de resultats parte a minuit chez le commercial.
+-            React.createElement(TimeZoneReporter, null),
+-            // Application iOS (coque Capacitor) : marquage du document et
+-            // ouverture des notifications touchees (07/11/2026).
+-            React.createElement(NativeAppBridge, null),
+-            // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
+-            // point 3) : écoute un événement, n'affiche rien sinon.
+-            React.createElement(WinCelebration, null),
+-            // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
+-            // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
+-            React.createElement(HelpLayer, null),
+-            children
++            // Tout le reste est rendu DANS le registre de styles : la mise en
++            // forme des pages (<style jsx>) part dans le HTML au lieu
++            // d'attendre le JavaScript — components/StyledJsxRegistry.jsx.
++            React.createElement(
++              StyledJsxRegistry,
++              null,
++              React.createElement(AuthFetchInterceptor, null),
++              // Remonte le fuseau horaire du navigateur (users.timezone) pour que
++              // le rapport de resultats parte a minuit chez le commercial.
++              React.createElement(TimeZoneReporter, null),
++              // Application iOS (coque Capacitor) : marquage du document et
++              // ouverture des notifications touchees (07/11/2026).
++              React.createElement(NativeAppBridge, null),
++              // Nouvelle version du site en ligne : rechargement discret au
++              // retour au premier plan (15/11/2026).
++              React.createElement(VersionWatcher, null),
++              // Plein écran « Nouveau client ! » (modernisation 16/10/2026,
++              // point 3) : écoute un événement, n'affiche rien sinon.
++              React.createElement(WinCelebration, null),
++              // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
++              // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
++              React.createElement(HelpLayer, null),
++              children
++            )
+           )
+         );
+ }
+diff --git a/app/login/layout.jsx b/app/login/layout.jsx
+new file mode 100644
+index 0000000..b664220
+--- /dev/null
++++ b/app/login/layout.jsx
+@@ -0,0 +1,15 @@
++// app/login/layout.jsx
++// Fond de la page de connexion (15/11/2026). app/globals.css donne à
++// html/body le fond crème du site public ; la page de connexion est sombre.
++// Tant que sa propre mise en forme n'était pas arrivée, on voyait ce fond
++// clair — la « page blanche » signalée par Alex à l'ouverture de l'app. Posé
++// ici, dans le HTML envoyé par le serveur, le fond est sombre dès le premier
++// affichage, y compris derrière les zones de sécurité de l'iPhone.
++export default function LoginSegmentLayout({ children }) {
++  return (
++    <>
++      <style>{`html, body { background: #0b0e1a; }`}</style>
++      {children}
++    </>
++  );
++}
+diff --git a/components/NativeAppBridge.jsx b/components/NativeAppBridge.jsx
+index deab00e..c09ec82 100644
+--- a/components/NativeAppBridge.jsx
++++ b/components/NativeAppBridge.jsx
+@@ -64,9 +64,21 @@ export default function NativeAppBridge() {
+     // maintenant affiché (ios-app/capacitor.config.json : 8 s au plus) et
+     // c'est la page qui le retire, une fois entièrement chargée et mise en
+     // forme.
++    // Dans /app, « chargée » ne suffit pas : la page affiche encore
++    // « Connexion… » tant que le compte n'est pas reconnu. On attend que
++    // l'habillage de l'app (.shell) soit là, 3 s au plus après le chargement.
+     const splash = cap.Plugins && cap.Plugins.SplashScreen;
+     if (splash && typeof splash.hide === 'function') {
+-      const hide = () => setTimeout(() => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); }, 150);
++      const doHide = () => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); };
++      const hide = () => {
++        const inApp = window.location.pathname.startsWith('/app');
++        const started = Date.now();
++        const tick = () => {
++          if (!inApp || document.querySelector('.shell') || Date.now() - started > 3000) setTimeout(doHide, 150);
++          else setTimeout(tick, 100);
++        };
++        tick();
++      };
+       if (document.readyState === 'complete') hide();
+       else window.addEventListener('load', hide, { once: true });
+     }
+diff --git a/components/StyledJsxRegistry.jsx b/components/StyledJsxRegistry.jsx
+new file mode 100644
+index 0000000..333ac28
+--- /dev/null
++++ b/components/StyledJsxRegistry.jsx
+@@ -0,0 +1,38 @@
++// components/StyledJsxRegistry.jsx
++//
++// STYLES PRESENTS DES LE PREMIER AFFICHAGE (15/11/2026).
++//
++// Retour d'Alex en ouvrant l'app iPhone : « une page blanche bizarre, bien
++// buggee, puis seulement le menu de connexion — on a l'impression de se
++// faire hacker ».
++//
++// Cause mesuree en production : toutes les pages mettent leur mise en forme
++// dans des blocs <style jsx>. Sans ce registre, Next.js n'envoie AUCUN de ces
++// styles dans le HTML : ils ne sont poses qu'une fois le JavaScript
++// telecharge et execute. Entre-temps le navigateur affiche le HTML brut
++// (texte noir, liens bleus, fond creme). En Wi-Fi ca dure un clin d'oeil ;
++// en 4G, plusieurs secondes.
++//
++// Ce composant collecte les styles pendant le rendu serveur et les glisse
++// dans le HTML envoye : la page arrive deja mise en forme. C'est le montage
++// documente par Next.js pour styled-jsx avec l'App Router. Cote navigateur,
++// styled-jsx reconnait les balises deja presentes (id="__jsx-…") et ne les
++// pose pas une seconde fois.
++
++'use client';
++
++import React, { useState } from 'react';
++import { useServerInsertedHTML } from 'next/navigation';
++import { StyleRegistry, createStyleRegistry } from 'styled-jsx';
++
++export default function StyledJsxRegistry({ children }) {
++  const [registry] = useState(() => createStyleRegistry());
++
++  useServerInsertedHTML(() => {
++    const styles = registry.styles();
++    registry.flush();
++    return <>{styles}</>;
++  });
++
++  return <StyleRegistry registry={registry}>{children}</StyleRegistry>;
++}
+diff --git a/components/VersionWatcher.jsx b/components/VersionWatcher.jsx
+new file mode 100644
+index 0000000..52311dd
+--- /dev/null
++++ b/components/VersionWatcher.jsx
+@@ -0,0 +1,108 @@
++// components/VersionWatcher.jsx
++//
++// RECHARGEMENT AUTOMATIQUE QUAND UNE NOUVELLE VERSION EST EN LIGNE
++// (15/11/2026, propose a Alex, valide : « oui »).
++//
++// Les applis iPhone et Android affichent le site : une mise a jour du site
++// arrive donc dans l'app sans passer par les stores… mais seulement au
++// prochain chargement de page. Quelqu'un qui laisse l'app ouverte en
++// arriere-plan pendant des jours gardait l'ancienne version.
++//
++// Ici : quand la page revient au premier plan, on demande au serveur
++// l'identifiant de la version en ligne (/api/version). S'il a change :
++//   - si rien n'est en cours de saisie, la page se recharge tout de suite
++//     (dans l'app, derriere l'ecran de lancement : on voit le logo une
++//     seconde, pas une page qui clignote) ;
++//   - sinon on ne touche a rien — pas question de faire perdre un texte en
++//     cours — et on note que la version est perimee : le prochain
++//     changement de rubrique fera un chargement complet
++//     (components/MobileChrome.jsx lit window.__aaronNewVersion).
++//
++// Garde-fous : jamais deux rechargements pour la meme version (au cas ou le
++// serveur et la page ne seraient pas d'accord), une verification par minute
++// au plus, et rien du tout si l'identifiant de version est inconnu.
++
++'use client';
++
++import { useEffect } from 'react';
++import { getCapacitor } from '@/lib/native-app';
++
++const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID || '';
++const RELOADED_KEY = 'aaron_reloaded_for_build';
++const MIN_INTERVAL_MS = 60 * 1000;
++
++// Vrai si un rechargement ferait perdre quelque chose a l'utilisateur.
++function userIsBusy() {
++  try {
++    const a = document.activeElement;
++    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return true;
++    // Un texte en cours de redaction (email, note, message du chat).
++    const areas = document.querySelectorAll('textarea');
++    for (let i = 0; i < areas.length; i += 1) {
++      if ((areas[i].value || '').trim()) return true;
++    }
++    // Une fenetre ouverte par-dessus la page (formulaire, fiche, confirmation).
++    // (.sidebar-overlay n'est que le fond du menu latéral : rien à perdre.)
++    if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], .overlay, .modal, [class*="-overlay"]:not(.sidebar-overlay), [class*="-modal"]')) return true;
++  } catch {
++    return true;
++  }
++  return false;
++}
++
++export default function VersionWatcher() {
++  useEffect(() => {
++    if (!MY_BUILD) return undefined;
++    let lastCheck = Date.now();
++    let checking = false;
++
++    async function check() {
++      if (document.visibilityState !== 'visible') return;
++      if (checking || Date.now() - lastCheck < MIN_INTERVAL_MS) return;
++      checking = true;
++      lastCheck = Date.now();
++      try {
++        const res = await window.fetch('/api/version', { cache: 'no-store' });
++        const body = res.ok ? await res.json() : null;
++        const online = body && typeof body.id === 'string' ? body.id : '';
++        if (!online || online === MY_BUILD) return;
++        window.__aaronNewVersion = true;
++        let already = null;
++        try { already = window.sessionStorage.getItem(RELOADED_KEY); } catch {}
++        if (already === online) return;
++        if (userIsBusy()) return;
++        try { window.sessionStorage.setItem(RELOADED_KEY, online); } catch {}
++        // Dans l'app : l'ecran de lancement couvre le rechargement. Il se
++        // retire tout seul au bout de 6 s si la page ne le fait pas avant
++        // (components/NativeAppBridge.jsx).
++        const cap = getCapacitor();
++        const splash = cap && cap.Plugins && cap.Plugins.SplashScreen;
++        if (splash && typeof splash.show === 'function') {
++          try {
++            await Promise.race([
++              Promise.resolve(splash.show({ autoHide: true, showDuration: 6000, fadeInDuration: 150, fadeOutDuration: 250 })),
++              new Promise((resolve) => setTimeout(resolve, 400)),
++            ]);
++          } catch {}
++        }
++        window.location.reload();
++      } catch {
++        // Hors ligne ou serveur injoignable : on reessaiera au prochain retour.
++      } finally {
++        checking = false;
++      }
++    }
++
++    const onVisible = () => { if (document.visibilityState === 'visible') check(); };
++    document.addEventListener('visibilitychange', onVisible);
++    window.addEventListener('pageshow', onVisible);
++    window.addEventListener('focus', onVisible);
++    return () => {
++      document.removeEventListener('visibilitychange', onVisible);
++      window.removeEventListener('pageshow', onVisible);
++      window.removeEventListener('focus', onVisible);
++    };
++  }, []);
++
++  return null;
++}
+diff --git a/lib/app-entry-gate.js b/lib/app-entry-gate.js
+new file mode 100644
+index 0000000..c04eac7
+--- /dev/null
++++ b/lib/app-entry-gate.js
+@@ -0,0 +1,33 @@
++// lib/app-entry-gate.js
++//
++// PORTE D'ENTREE DE /app, EXECUTEE AVANT TOUT LE RESTE (15/11/2026).
++//
++// La regle existe deja (components/AuthFetchInterceptor.jsx) : sans passage
++// par « Se connecter » aujourd'hui, /app renvoie vers /login. Mais elle
++// etait appliquee par le JavaScript de la page — donc APRES avoir telecharge
++// et lance tout le code de la rubrique demandee. A l'ouverture de l'app
++// iPhone (qui demarre sur /app/campaigns), ca donnait : ecran sombre
++// « Connexion… » pendant le telechargement, PUIS seulement le renvoi vers
++// /login, PUIS le chargement de la page de connexion. Trois ecrans, dix
++// secondes en 4G.
++//
++// Ce petit script est ecrit directement dans le HTML, tout en haut du
++// <body> : il s'execute des que le navigateur recoit la page, avant le
++// moindre telechargement. Si la connexion du jour manque, on part tout de
++// suite sur /login. Meme cle et meme format de date que
++// lib/supabase-browser.ts (EXPLICIT_LOGIN_DATE_FLAG, todayLocalDateString).
++// Le controle de AuthFetchInterceptor reste en place comme second filet.
++export const APP_ENTRY_GATE_SCRIPT = `
++(function () {
++  try {
++    var p = window.location.pathname;
++    if (p !== '/app' && p.indexOf('/app/') !== 0) return;
++    var d = new Date();
++    var today = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
++    if (window.localStorage.getItem('aaron-explicit-login-date') === today) return;
++    var next = p.indexOf('/app/') === 0 ? p + (window.location.search || '') : '';
++    window.__aaronAppEntryChecked = true;
++    window.location.replace(next ? '/login?next=' + encodeURIComponent(next) : '/login');
++  } catch (err) {}
++})();
++`;
+diff --git a/next.config.js b/next.config.js
+index b096cb4..52a705e 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -4,6 +4,16 @@ const nextConfig = {
+   // Le type-check reste actif ; seule la porte ESLint est neutralisée.
+   eslint: { ignoreDuringBuilds: true },
+   reactStrictMode: true,
++  // IDENTIFIANT DE VERSION (15/11/2026) : le commit Git du déploiement
++  // (variable système de Vercel), figé dans le code du navigateur ET dans
++  // /api/version. components/VersionWatcher.jsx compare les deux quand l'app
++  // revient au premier plan et recharge la page si une nouvelle version est
++  // en ligne. Vide hors Vercel : la surveillance est alors simplement
++  // désactivée (jamais de valeur inventée, qui différerait entre le serveur
++  // et le navigateur et ferait recharger en boucle).
++  env: {
++    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || '',
++  },
+   // POLICES DE pdfkit DANS LE BUNDLE SERVERLESS (02/10/2026).
+   //
+   // pdfkit ne dessine pas Helvetica : il lit ses metriques depuis des
+-- 
+2.43.0
+
