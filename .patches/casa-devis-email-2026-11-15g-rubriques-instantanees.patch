@@ -1,0 +1,1178 @@
+From d2aa8b2adbb02d83ca663b291164e482e5df3f08 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 11:43:03 +0000
+Subject: [PATCH] Rubriques instantanees : la page s'affiche tout de suite avec
+ les dernieres donnees connues, puis se met a jour sur place
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/instant.js : memoire vive des dernieres reponses (jamais ecrite dans le
+  stockage du navigateur), affichage immediat puis verification aupres du
+  serveur, preparation en arriere-plan des 4 onglets.
+- Campagnes, Contacts, Agenda, Chat : listes connues des le premier rendu,
+  plus de « Connexion… » ni de « Chargement… » en changeant de rubrique ; la
+  memoire suit ce qui est a l'ecran.
+- Identifiant et langue lus des le premier rendu lors d'un changement de
+  rubrique (plus d'eclair de francais pour les autres langues).
+- Bandeau de notifications (Stories) : affiche tout de suite, ne pousse plus
+  la page vers le bas apres coup.
+- Barre du bas : prechargement des rubriques rafraichi toutes les 4 minutes et
+  au retour au premier plan ; chargement complet si une nouvelle version du
+  site attend.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/agenda/page.jsx             |  65 ++++++++-----
+ app/app/campaigns/page.jsx          |  61 ++++++++-----
+ app/app/chat/page.jsx               | 129 ++++++++++++++++++++++----
+ app/app/connexions/page.jsx         |  11 ++-
+ app/app/customer/page.jsx           |  11 ++-
+ app/app/documents/page.jsx          |  11 ++-
+ app/app/products/page.jsx           |  11 ++-
+ app/app/prospects/page.jsx          |  35 ++++---
+ app/app/resultats/page.jsx          |  11 ++-
+ app/app/suggestions/page.jsx        |  11 ++-
+ app/app/team/page.jsx               |  11 ++-
+ components/AuthFetchInterceptor.jsx |   8 ++
+ components/MobileChrome.jsx         |  54 ++++++++++-
+ components/Stories.jsx              |  15 ++-
+ lib/i18n.js                         |  16 +++-
+ lib/instant.js                      | 136 ++++++++++++++++++++++++++++
+ 16 files changed, 472 insertions(+), 124 deletions(-)
+ create mode 100644 lib/instant.js
+
+diff --git a/app/app/agenda/page.jsx b/app/app/agenda/page.jsx
+index 7d09035..89f5b47 100644
+--- a/app/app/agenda/page.jsx
++++ b/app/app/agenda/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useRef, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -41,8 +42,10 @@ const AGENDA_TEXT = {
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -243,25 +246,34 @@ export default function AgendaPage() {
+   const [locale] = useLocale();
+   const TYPE_LABELS = typeLabelsFor(locale);
+   const STATUS_META = statusMetaFor(locale);
+-  const [appointments, setAppointments] = useState([]);
+-  const [loading, setLoading] = useState(true);
++  // Listes connues dès le premier rendu quand on revient sur la rubrique
++  // (lib/instant.js) ; elles se mettent à jour sur place ensuite.
++  const [appointments, setAppointments] = useState(() => initialJson((id) => `/api/appointments?user_id=${id}`)?.appointments || []);
++  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/appointments?user_id=${id}`));
+   // Alex (18/10/2026, capture iPhone) : le renvoi « Synchronisation avec le
+   // calendrier de ton téléphone… Ouvrir la mise en route » s'affichait même
+   // une fois la synchro en place. Même critère que l'étape de la checklist
+   // du tableau de bord : boîte Google/Outlook connectée (synchro
+   // bidirectionnelle) OU lien ICS généré. null = pas encore su → rien.
+-  const [calendarSynced, setCalendarSynced] = useState(null);
++  const calendarSyncedFrom = (conn, pref) => {
++    const connections = (conn && conn.connections) || [];
++    const calendarCapable = connections.some((c) => c.provider === 'google' || c.provider === 'microsoft');
++    return calendarCapable || pref?.preferences?.ics_link_generated === true;
++  };
++  const [calendarSynced, setCalendarSynced] = useState(() => {
++    const conn = initialJson((id) => `/api/oauth-connections?user_id=${id}`);
++    const pref = initialJson((id) => `/api/preferences?user_id=${id}`);
++    return conn && pref ? calendarSyncedFrom(conn, pref) : null;
++  });
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+     Promise.all([
+-      fetch(`/api/oauth-connections?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
+-      fetch(`/api/preferences?user_id=${userId}`).then((r) => r.json()).catch(() => ({})),
++      freshJson(`/api/oauth-connections?user_id=${userId}`).catch(() => ({})),
++      freshJson(`/api/preferences?user_id=${userId}`).catch(() => ({})),
+     ]).then(([conn, pref]) => {
+       if (cancelled) return;
+-      const connections = conn.connections || [];
+-      const calendarCapable = connections.some((c) => c.provider === 'google' || c.provider === 'microsoft');
+-      setCalendarSynced(calendarCapable || pref.preferences?.ics_link_generated === true);
++      setCalendarSynced(calendarSyncedFrom(conn, pref));
+     });
+     return () => { cancelled = true; };
+   }, [userId]);
+@@ -293,9 +305,9 @@ export default function AgendaPage() {
+ 
+   // Disponibilités (fusionnées depuis l'ancienne page, voir #86) — règles
+   // hebdomadaires récurrentes + indisponibilités ponctuelles.
+-  const [rules, setRules] = useState([]);
+-  const [blocks, setBlocks] = useState([]);
+-  const [availabilityLoading, setAvailabilityLoading] = useState(true);
++  const [rules, setRules] = useState(() => initialJson((id) => `/api/availability?user_id=${id}`)?.rules || []);
++  const [blocks, setBlocks] = useState(() => initialJson((id) => `/api/availability?user_id=${id}`)?.blocks || []);
++  const [availabilityLoading, setAvailabilityLoading] = useState(() => !initialJson((id) => `/api/availability?user_id=${id}`));
+   const [newRule, setNewRule] = useState({ day_of_week: 1, start_time: '09:00', end_time: '18:00', appointment_type: '' });
+   const [savingRule, setSavingRule] = useState(false);
+   const [newBlock, setNewBlock] = useState({ start_at: '', end_at: '', reason: '' });
+@@ -319,8 +331,10 @@ export default function AgendaPage() {
+   const [selectedDay, setSelectedDay] = useState(null);
+ 
+   async function load() {
+-    setLoading(true);
+-    const res = await fetch(`/api/appointments?user_id=${userId}`).then((r) => r.json());
++    const url = `/api/appointments?user_id=${userId}`;
++    // Pas de « Chargement… » par-dessus une liste déjà affichée.
++    if (!peekJson(url)) setLoading(true);
++    const res = await freshJson(url);
+     const list = res.appointments || [];
+     setAppointments(list);
+     setLoading(false);
+@@ -336,15 +350,26 @@ export default function AgendaPage() {
+ 
+   function loadAvailability() {
+     if (!userId) return;
+-    setAvailabilityLoading(true);
+-    fetch(`/api/availability?user_id=${userId}`)
+-      .then((r) => r.json())
++    const url = `/api/availability?user_id=${userId}`;
++    if (!peekJson(url)) setAvailabilityLoading(true);
++    freshJson(url)
+       .then((body) => {
+         setRules(body.rules || []);
+         setBlocks(body.blocks || []);
+         setAvailabilityLoading(false);
+       });
+   }
++  // La mémoire suit ce qui est à l'écran (RDV ajouté, créneau modifié…).
++  useEffect(() => {
++    if (!userId || loading) return;
++    const url = `/api/appointments?user_id=${userId}`;
++    rememberJson(url, { ...(peekJson(url) || {}), appointments });
++  }, [appointments, loading, userId]);
++  useEffect(() => {
++    if (!userId || availabilityLoading) return;
++    const url = `/api/availability?user_id=${userId}`;
++    rememberJson(url, { ...(peekJson(url) || {}), rules, blocks });
++  }, [rules, blocks, availabilityLoading, userId]);
+ 
+   useEffect(() => {
+     if (!userId) return;
+@@ -3513,9 +3538,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 7264bf6..d6ff68c 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useRef, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -23,8 +24,10 @@ import { FileText } from 'lucide-react';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -358,11 +361,14 @@ export default function CampaignsPage() {
+   const STATUS_LABELS = statusLabelsFor(locale);
+   const COMPANY_SIZE_OPTIONS = companySizeOptionsFor(locale);
+   const ROLE_SUGGESTIONS = roleSuggestionsFor(locale);
+-  const [campaigns, setCampaigns] = useState([]);
+-  const [loading, setLoading] = useState(true);
++  // Liste connue dès le premier rendu quand on revient sur la rubrique
++  // (lib/instant.js) : pas de « Chargement… », la page se met à jour sur
++  // place quand la réponse fraîche arrive.
++  const [campaigns, setCampaigns] = useState(() => initialJson((id) => `/api/campaigns?user_id=${id}`)?.campaigns || []);
++  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/campaigns?user_id=${id}`));
+   const [showForm, setShowForm] = useState(false);
+   const [showChat, setShowChat] = useState(false);
+-  const [companyId, setCompanyId] = useState(null);
++  const [companyId, setCompanyId] = useState(() => initialJson((id) => `/api/users/${id}`)?.user?.company_id || null);
+   const [globalAdvice, setGlobalAdvice] = useState(null); // { scope, loading, text, empty, error }
+   const [generatingAdviceFor, setGeneratingAdviceFor] = useState(null);
+   const [changingStatusFor, setChangingStatusFor] = useState(null);
+@@ -396,32 +402,41 @@ export default function CampaignsPage() {
+   // verrouillage visuel + le fait qu'un module inactif n'a simplement pas de
+   // données à afficher).
+   const [tab, setTab] = useState('prospection');
+-  const [customerModuleActive, setCustomerModuleActive] = useState(true);
++  const [customerModuleActive, setCustomerModuleActive] = useState(() => {
++    const known = initialJson((id) => `/api/preferences?user_id=${id}`)?.preferences;
++    return known ? known.offer_ac_active === true : true;
++  });
+   // Docx Modifs Aaron (30/08/2026, bloc CAMPAGNE) : l'onglet Marketing est
+   // réservé au compte aaron@meetaaron.app — supprimé pour tous les autres
+   // comptes (fondateur comme commercial). null tant que l'email n'est pas
+   // chargé → onglet masqué par défaut (fermé par défaut, pas ouvert puis
+   // retiré après coup).
+-  const [userEmail, setUserEmail] = useState(null);
++  const [userEmail, setUserEmail] = useState(() => initialJson((id) => `/api/preferences?user_id=${id}`)?.preferences?.email || null);
+ 
+   useEffect(() => {
+     if (!userId) return;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
+-        const prefs = body.preferences || {};
+-        setCustomerModuleActive(prefs.offer_ac_active === true);
+-        setUserEmail(prefs.email || null);
+-      })
+-      .catch(() => {});
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
++      const prefs = body.preferences || {};
++      setCustomerModuleActive(prefs.offer_ac_active === true);
++      setUserEmail(prefs.email || null);
++    }).catch(() => {});
+   }, [userId]);
+ 
+   async function loadCampaigns() {
+-    setLoading(true);
+-    const res = await fetch(`/api/campaigns?user_id=${userId}`).then((r) => r.json());
++    const url = `/api/campaigns?user_id=${userId}`;
++    // Pas de « Chargement… » par-dessus une liste déjà affichée.
++    if (!peekJson(url)) setLoading(true);
++    const res = await freshJson(url);
+     setCampaigns(res.campaigns || []);
+     setLoading(false);
+   }
++  // La mémoire suit ce qui est à l'écran (campagne créée, mise en pause…) :
++  // au retour sur la rubrique, on retrouve la liste telle qu'on l'a laissée.
++  useEffect(() => {
++    if (!userId || loading) return;
++    const url = `/api/campaigns?user_id=${userId}`;
++    rememberJson(url, { ...(peekJson(url) || {}), campaigns });
++  }, [campaigns, loading, userId]);
+ 
+   // Test de délivrabilité réel (06/11/2026, lib/deliverability-test.ts) :
+   // visible ici seulement quand il retient le premier email — en cours, ou
+@@ -448,11 +463,9 @@ export default function CampaignsPage() {
+   useEffect(() => {
+     if (!userId) return;
+     loadCampaigns();
+-    fetch(`/api/users/${userId}`)
+-      .then((r) => r.json())
+-      .then((res) => {
+-        if (res.user) setCompanyId(res.user.company_id);
+-      });
++    swrJson(`/api/users/${userId}`, (res) => {
++      if (res.user) setCompanyId(res.user.company_id);
++    }).catch(() => {});
+   }, [userId]);
+ 
+   // #14 — avis global (campagnes en cours ou bilan des campagnes passées).
+@@ -4124,9 +4137,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/chat/page.jsx b/app/app/chat/page.jsx
+index 1841653..13e872d 100644
+--- a/app/app/chat/page.jsx
++++ b/app/app/chat/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useRef, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -19,8 +20,10 @@ import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -123,10 +126,26 @@ function dayLabel(date, locale) {
+   return date.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+ }
+ 
++// Visite ordinaire du chat (pas l'accueil d'un nouveau compte, pas une
++// relance du questionnaire) : seule situation où l'on réaffiche la
++// conversation « de mémoire » avant la réponse du serveur.
++function plainChatVisit() {
++  try {
++    const q = new URLSearchParams(window.location.search);
++    return q.get('welcome') !== '1' && q.get('restart_questionnaire') !== '1';
++  } catch {
++    return false;
++  }
++}
++
+ export default function ChatPage() {
+   const [locale] = useLocale();
+   const { userId, authLoading, authError } = useAuthedUser();
+   const [messages, setMessages] = useState([]);
++  // Conversation à laquelle appartient `messages` (15/11/2026) : sert à ne
++  // jamais ranger en mémoire les messages d'une conversation sous l'adresse
++  // d'une autre au moment où l'on en change (voir plus bas, lib/instant.js).
++  const [messagesFor, setMessagesFor] = useState(null);
+   const [input, setInput] = useState('');
+   const [sending, setSending] = useState(false);
+   const [showFeedback, setShowFeedback] = useState(false);
+@@ -268,11 +287,12 @@ export default function ChatPage() {
+   // dans son message d'accueil et tout au long de la conversation.
+   useEffect(() => {
+     if (!userId) return;
+-    fetch(`/api/users/${userId}`)
+-      .then((r) => r.json())
+-      .then((res) => {
+-        if (res.user) setUserInfo(res.user);
+-      })
++    // Dernière réponse connue d'abord (lib/instant.js), puis la fraîche.
++    const knownUser = peekJson(`/api/users/${userId}`);
++    if (knownUser && knownUser.user) setUserInfoLoaded(true);
++    swrJson(`/api/users/${userId}`, (res) => {
++      if (res.user) setUserInfo(res.user);
++    })
+       .catch(() => {})
+       .finally(() => setUserInfoLoaded(true));
+   }, [userId]);
+@@ -306,9 +326,16 @@ export default function ChatPage() {
+   // d'entreprise et ne doit evidemment rien relancer.
+   useEffect(() => {
+     if (!userId) return;
++    // Un profil déjà vu comme existant le reste (il ne disparaît pas) : on
++    // le sait tout de suite au retour sur la rubrique. L'inverse n'est
++    // jamais supposé — « pas de profil » se revérifie toujours.
++    if (peekJson(`/api/business-summary?user_id=${userId}`)?.summary) setCompanyProfileExists(true);
+     fetch(`/api/business-summary?user_id=${userId}`)
+       .then((r) => (r.ok ? r.json() : null))
+-      .then((res) => setCompanyProfileExists(!!res?.summary))
++      .then((res) => {
++        if (res?.summary) rememberJson(`/api/business-summary?user_id=${userId}`, { summary: true });
++        setCompanyProfileExists(!!res?.summary);
++      })
+       .catch(() => setCompanyProfileExists(false));
+   }, [userId]);
+ 
+@@ -355,8 +382,33 @@ export default function ChatPage() {
+     // ne doit pas rester affichée après un rechargement réussi.
+     setConversationsError(false);
+ 
+-    fetch(`/api/chat-conversations?user_id=${userId}`)
+-      .then((r) => r.json())
++    // RETOUR SUR LA RUBRIQUE (15/11/2026) : la liste des conversations et la
++    // conversation ouverte sont réaffichées tout de suite depuis la mémoire
++    // (lib/instant.js), sans attendre le serveur. La réponse fraîche suit et
++    // corrige si besoin. `shownFromMemoryId` évite de relancer deux fois la
++    // vérification « 24 h sans échange » pour la même conversation.
++    // Uniquement pour une visite ordinaire : l'accueil d'un nouveau compte
++    // (?welcome=1) et la relance du questionnaire gardent leur déroulé
++    // d'origine, qui attend le serveur avant de décider quoi afficher.
++    const convUrl = `/api/chat-conversations?user_id=${userId}`;
++    let shownFromMemoryId = null;
++    const knownConv = plainChatVisit() ? peekJson(convUrl) : undefined;
++    if (knownConv && Array.isArray(knownConv.conversations) && knownConv.conversations.length > 0) {
++      let savedFirst = null;
++      try {
++        savedFirst = window.localStorage.getItem(activeKey);
++      } catch {
++        // voir plus bas
++      }
++      const first = knownConv.conversations.find((c) => c.id === savedFirst) || knownConv.conversations[0];
++      setConversations(knownConv.conversations);
++      inactivityCheckPendingRef.current = true;
++      setActiveConversationId(first.id);
++      shownFromMemoryId = first.id;
++      setConversationsLoaded(true);
++    }
++
++    freshJson(convUrl)
+       .then(async (res) => {
+         if (cancelled) return;
+         if (!Array.isArray(res.conversations)) {
+@@ -392,7 +444,7 @@ export default function ChatPage() {
+           // Item 11 (docx 30/08) : la vérification "24 h sans échange" ne se
+           // fait qu'à l'arrivée sur la page, jamais quand le commercial
+           // rouvre lui-même une vieille conversation depuis la liste.
+-          inactivityCheckPendingRef.current = true;
++          if (chosen.id !== shownFromMemoryId) inactivityCheckPendingRef.current = true;
+           setActiveConversationId(chosen.id);
+           try {
+             window.localStorage.setItem(activeKey, chosen.id);
+@@ -416,18 +468,35 @@ export default function ChatPage() {
+   // conversation créée, ou changement manuel depuis la liste ci-dessous).
+   useEffect(() => {
+     if (!userId || !activeConversationId) return;
+-    setHistoryLoaded(false);
+-    setMessages([]);
++    // Messages déjà connus de cette conversation : réaffichés tout de suite
++    // (lib/instant.js), le serveur confirme juste après. Sinon, comme avant :
++    // on vide et on attend.
++    const histUrl = `/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`;
++    const knownHist = plainChatVisit() ? peekJson(histUrl) : undefined;
++    if (knownHist && Array.isArray(knownHist.messages) && knownHist.messages.length > 0) {
++      setMessages(knownHist.messages);
++      setOnboardingStep(typeof knownHist.onboarding_step === 'number' ? knownHist.onboarding_step : -1);
++      setOnboardingAnswers(Array.isArray(knownHist.onboarding_answers) ? knownHist.onboarding_answers : []);
++      setHistoryLoaded(true);
++    } else {
++      setHistoryLoaded(false);
++      setMessages([]);
++    }
++    setMessagesFor(activeConversationId);
++    const shownFromMemory = knownHist && Array.isArray(knownHist.messages) && knownHist.messages.length > 0 ? knownHist.messages : null;
+     let rotated = false;
+-    fetch(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`)
+-      .then((r) => r.json())
++    freshJson(histUrl)
+       .then(async (res) => {
+         const hasMessages = Array.isArray(res.messages) && res.messages.length > 0;
+         const step = typeof res.onboarding_step === 'number' ? res.onboarding_step : -1;
+         if (inactivityCheckPendingRef.current) {
+           inactivityCheckPendingRef.current = false;
+           const conv = conversations.find((c) => c.id === activeConversationId);
+-          const lastActivity = conv?.updated_at ? new Date(conv.updated_at).getTime() : Date.now();
++          let lastActivity = conv?.updated_at ? new Date(conv.updated_at).getTime() : Date.now();
++          // La liste des conversations peut venir de la mémoire : la date du
++          // dernier message, elle, vient toujours du serveur.
++          const lastMessageAt = hasMessages ? new Date(res.messages[res.messages.length - 1].created_at || 0).getTime() : 0;
++          if (lastMessageAt > lastActivity) lastActivity = lastMessageAt;
+           const inactiveForTooLong = Date.now() - lastActivity > CONVERSATION_INACTIVITY_MS;
+           if (hasMessages && inactiveForTooLong && step < 0 && !isWelcome && !restartRequested) {
+             rotated = await rotateInactiveConversation();
+@@ -435,7 +504,9 @@ export default function ChatPage() {
+           }
+         }
+         if (hasMessages) {
+-          setMessages(res.messages);
++          // Si l'utilisateur a déjà écrit depuis l'affichage « de mémoire »,
++          // on garde ce qu'il voit : la réponse du serveur est partie avant.
++          setMessages((cur) => (shownFromMemory && cur !== shownFromMemory ? cur : res.messages));
+           setOnboardingStep(step);
+           setOnboardingAnswers(Array.isArray(res.onboarding_answers) ? res.onboarding_answers : []);
+         }
+@@ -447,6 +518,26 @@ export default function ChatPage() {
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [userId, activeConversationId]);
+ 
++  // La mémoire suit ce qui est à l'écran (lib/instant.js) : en revenant sur
++  // le chat après un détour par une autre rubrique, on retrouve la
++  // conversation exactement où on l'a laissée, derniers messages compris.
++  useEffect(() => {
++    if (!userId || !conversationsLoaded || conversations.length === 0) return;
++    rememberJson(`/api/chat-conversations?user_id=${userId}`, { conversations });
++  }, [conversations, conversationsLoaded, userId]);
++  useEffect(() => {
++    if (!userId || !activeConversationId || messagesFor !== activeConversationId) return;
++    if (!historyLoaded || messages.length === 0) return;
++    // Seuls les vrais messages : les invites locales (jamais enregistrées
++    // côté serveur) ne sont pas gardées.
++    if (messages.some((m) => m && m.offerRestartQuestionnaire)) return;
++    rememberJson(`/api/chat-history?user_id=${userId}&conversation_id=${activeConversationId}`, {
++      messages,
++      onboarding_step: onboardingStep,
++      onboarding_answers: onboardingAnswers,
++    });
++  }, [messages, messagesFor, onboardingStep, onboardingAnswers, historyLoaded, userId, activeConversationId]);
++
+   // Bug remonté par Alex (29/08/2026, "il va falloir que moi et Ludovic on
+   // répondent encore une fois au questionnaire ?") : questionnaireDone (voir
+   // plus haut) n'était mis à true QUE juste après avoir répondu à la
+@@ -2546,9 +2637,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 3552b97..d304441 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useRef, useState } from 'react';
++import { navUserId, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -311,9 +312,11 @@ const BILLING_OWNER_ONLY = {
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
+   const [isDemo, setIsDemo] = useState(false);
+-  const [authLoading, setAuthLoading] = useState(true);
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -8777,9 +8780,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/customer/page.jsx b/app/app/customer/page.jsx
+index fcd8e04..d351957 100644
+--- a/app/app/customer/page.jsx
++++ b/app/app/customer/page.jsx
+@@ -7,6 +7,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -27,8 +28,10 @@ import { downloadSpreadsheet } from '@/lib/xlsx-io';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   useEffect(() => {
+@@ -1693,9 +1696,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/documents/page.jsx b/app/app/documents/page.jsx
+index 6ef297f..edcaa19 100644
+--- a/app/app/documents/page.jsx
++++ b/app/app/documents/page.jsx
+@@ -12,6 +12,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -41,8 +42,10 @@ const DOC_LANGUAGES = LOCALES;
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -1305,9 +1308,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/products/page.jsx b/app/app/products/page.jsx
+index 82c1af5..8f98fa7 100644
+--- a/app/app/products/page.jsx
++++ b/app/app/products/page.jsx
+@@ -5,6 +5,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -17,8 +18,10 @@ import Stories from '@/components/Stories';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   useEffect(() => {
+@@ -356,9 +359,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index 90880be..e6cba08 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useRef, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -54,8 +55,10 @@ const ALERT_ICON = { quote_to_send: FileText, email_to_validate: Mail, rescue_to
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -277,9 +280,11 @@ export default function ProspectsPage() {
+   const { userId, authLoading, authError } = useAuthedUser();
+   const [locale] = useLocale();
+   const PERSONALITY_LABELS = personalityLabelsFor(locale);
+-  const [prospects, setProspects] = useState([]);
+-  const [loading, setLoading] = useState(true);
+-  const [companyId, setCompanyId] = useState(null);
++  // Liste connue dès le premier rendu quand on revient sur la rubrique
++  // (lib/instant.js) ; elle se met à jour sur place ensuite.
++  const [prospects, setProspects] = useState(() => initialJson((id) => `/api/prospects?user_id=${id}&scope=all`)?.prospects || []);
++  const [loading, setLoading] = useState(() => !initialJson((id) => `/api/prospects?user_id=${id}&scope=all`));
++  const [companyId, setCompanyId] = useState(() => initialJson((id) => `/api/users/${id}`)?.user?.company_id || null);
+   const [showAddForm, setShowAddForm] = useState(false);
+   // Bandeau non bloquant, en remplacement de window.alert (13/09/2026).
+   const [toast, setToast] = useState(null);
+@@ -345,19 +350,23 @@ export default function ProspectsPage() {
+   const [showHelp, setShowHelp] = useState(false);
+ 
+   async function loadProspects() {
+-    const res = await fetch(`/api/prospects?user_id=${userId}&scope=all`).then((r) => r.json());
++    const res = await freshJson(`/api/prospects?user_id=${userId}&scope=all`);
+     setProspects(res.prospects || []);
+     setLoading(false);
+   }
++  // La mémoire suit ce qui est à l'écran (contact ajouté, étape changée…).
++  useEffect(() => {
++    if (!userId || loading) return;
++    const url = `/api/prospects?user_id=${userId}&scope=all`;
++    rememberJson(url, { ...(peekJson(url) || {}), prospects });
++  }, [prospects, loading, userId]);
+ 
+   useEffect(() => {
+     if (!userId) return;
+     loadProspects();
+-    fetch(`/api/users/${userId}`)
+-      .then((r) => r.json())
+-      .then((res) => {
+-        if (res.user) setCompanyId(res.user.company_id);
+-      });
++    swrJson(`/api/users/${userId}`, (res) => {
++      if (res.user) setCompanyId(res.user.company_id);
++    }).catch(() => {});
+     // Lien direct vers une fiche (notification push « Devis à faire », story
+     // du tableau de bord…) : /app/prospects?contact=<id>.
+     try {
+@@ -2269,9 +2278,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/resultats/page.jsx b/app/app/resultats/page.jsx
+index 8b74c65..7c4e254 100644
+--- a/app/app/resultats/page.jsx
++++ b/app/app/resultats/page.jsx
+@@ -8,6 +8,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -26,8 +27,10 @@ import { MiniBarChart } from '@/components/charts/MiniBarChart';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -2547,9 +2550,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/suggestions/page.jsx b/app/app/suggestions/page.jsx
+index c2d2378..a1fd2b5 100644
+--- a/app/app/suggestions/page.jsx
++++ b/app/app/suggestions/page.jsx
+@@ -2,6 +2,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -14,8 +15,10 @@ import Stories from '@/components/Stories';
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -347,9 +350,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/app/app/team/page.jsx b/app/app/team/page.jsx
+index 8bd7f9c..fb563ab 100644
+--- a/app/app/team/page.jsx
++++ b/app/app/team/page.jsx
+@@ -9,6 +9,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
++import { navUserId, initialJson, peekJson, rememberJson, freshJson, swrJson } from '@/lib/instant';
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { supabaseBrowser, clearExplicitLogin } from '@/lib/supabase-browser';
+@@ -75,8 +76,10 @@ function exportResultsXls(rows, headers, keys, filename) {
+ 
+ function useAuthedUser() {
+   const router = useRouter();
+-  const [userId, setUserId] = useState(null);
+-  const [authLoading, setAuthLoading] = useState(true);
++  // Changement de rubrique : identifiant connu dès le premier rendu
++  // (lib/instant.js) — plus d'écran « Connexion… » intermédiaire.
++  const [userId, setUserId] = useState(() => navUserId());
++  const [authLoading, setAuthLoading] = useState(() => !navUserId());
+   const [authError, setAuthError] = useState(null);
+ 
+   // Pré-remplit immédiatement depuis l'URL (déjà présente sur tous les liens de
+@@ -1910,9 +1913,7 @@ function Shell({ children, active, userId, onNotificationsChanged, onNotificatio
+   useEffect(() => {
+     if (!userId) return;
+     let cancelled = false;
+-    fetch(`/api/preferences?user_id=${userId}`)
+-      .then((r) => r.json())
+-      .then((body) => {
++    swrJson(`/api/preferences?user_id=${userId}`, (body) => {
+         if (cancelled) return;
+         const prefs = body.preferences || {};
+         setLockedModules({
+diff --git a/components/AuthFetchInterceptor.jsx b/components/AuthFetchInterceptor.jsx
+index bbfc266..6c47c26 100644
+--- a/components/AuthFetchInterceptor.jsx
++++ b/components/AuthFetchInterceptor.jsx
+@@ -14,6 +14,7 @@
+ 
+ 'use client';
+ 
++import { useEffect } from 'react';
+ import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
+ 
+ // Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
+@@ -237,5 +238,12 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+ }
+ 
+ export default function AuthFetchInterceptor() {
++  // Posé une fois la reprise du HTML du serveur terminée (ce composant est
++  // monté par app/layout.jsx et ne se démonte jamais). À partir de là, un
++  // changement de rubrique peut lire l'identifiant et la langue dès son
++  // premier rendu — voir lib/instant.js (navUserId) et lib/i18n.js (useLocale).
++  useEffect(() => {
++    window.__aaronHydrated = true;
++  }, []);
+   return null;
+ }
+diff --git a/components/MobileChrome.jsx b/components/MobileChrome.jsx
+index baf53bf..875edf1 100644
+--- a/components/MobileChrome.jsx
++++ b/components/MobileChrome.jsx
+@@ -23,6 +23,7 @@ import Link from 'next/link';
+ import { usePathname, useRouter } from 'next/navigation';
+ import { NavIcon } from '@/components/NavIcon';
+ import ConnectionBadge from '@/components/ConnectionBadge';
++import { warmJson, tabDataUrls } from '@/lib/instant';
+ 
+ // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
+ // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
+@@ -45,13 +46,47 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel,
+   const [pending, setPending] = useState(null);
+   useEffect(() => { setPending(null); }, [pathname]);
+   const tabHref = (item) => (item.locked ? `/app/preferences${userId ? `?user_id=${userId}&tab=subscription` : '?tab=subscription'}` : `/app/${item.slug}${q}`);
++  // Le code des 4 rubriques est préchargé à l'affichage, puis rafraîchi
++  // toutes les 4 minutes et à chaque retour au premier plan : Next.js ne
++  // garde un préchargement que 5 minutes, au-delà le toucher redevenait lent.
+   useEffect(() => {
+-    tabs.forEach((item) => {
+-      try { router.prefetch(tabHref(item)); } catch {}
+-    });
++    const prefetchTabs = () => {
++      if (document.visibilityState !== 'visible') return;
++      tabs.forEach((item) => {
++        try { router.prefetch(tabHref(item)); } catch {}
++      });
++    };
++    prefetchTabs();
++    const id = setInterval(prefetchTabs, 4 * 60 * 1000);
++    document.addEventListener('visibilitychange', prefetchTabs);
++    return () => {
++      clearInterval(id);
++      document.removeEventListener('visibilitychange', prefetchTabs);
++    };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [userId]);
+ 
++  // Les DONNÉES des rubriques sont préparées en arrière-plan (lib/instant.js),
++  // une seconde après l'affichage pour ne pas ralentir la page en cours :
++  // même la première visite d'un onglet s'affiche alors tout de suite. Rien
++  // n'est préparé en mode « économie de données ».
++  useEffect(() => {
++    if (!userId) return undefined;
++    const warm = () => {
++      if (document.visibilityState !== 'visible') return;
++      try { if (navigator.connection && navigator.connection.saveData) return; } catch {}
++      warmJson(tabDataUrls(userId), 150 * 1000);
++    };
++    const first = setTimeout(warm, 1200);
++    const id = setInterval(warm, 3 * 60 * 1000);
++    document.addEventListener('visibilitychange', warm);
++    return () => {
++      clearTimeout(first);
++      clearInterval(id);
++      document.removeEventListener('visibilitychange', warm);
++    };
++  }, [userId]);
++
+   return (
+     <>
+       <header className="mobile-topbar">
+@@ -81,7 +116,18 @@ export default function MobileChrome({ title, items, userId, onMenu, menuLabel,
+             key={item.slug}
+             href={tabHref(item)}
+             prefetch
+-            onClick={() => { if (item.label !== title) setPending(item.slug); }}
++            onClick={(e) => {
++              if (item.label === title) return;
++              setPending(item.slug);
++              // Une nouvelle version du site est en ligne et n'a pas pu être
++              // chargée plus tôt (saisie en cours, voir
++              // components/VersionWatcher.jsx) : ce changement de rubrique
++              // se fait par un chargement complet, qui la récupère.
++              if (typeof window !== 'undefined' && window.__aaronNewVersion) {
++                e.preventDefault();
++                window.location.assign(tabHref(item));
++              }
++            }}
+             className={`mobile-tab${isActive ? ' active' : ''}`}
+             aria-current={item.label === title ? 'page' : undefined}
+           >
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index 3f7bdf4..11cd377 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -21,6 +21,7 @@
+ // l'ouverture et toutes les 60 s.
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
++import { peekJson, rememberJson } from '@/lib/instant';
+ import { t } from '@/lib/i18n';
+ import Ic from '@/components/UiIcon';
+ import { frenchTypography } from '@/lib/text-typography';
+@@ -89,15 +90,21 @@ function TypeIcon({ type, size = 16 }) {
+ }
+ 
+ export function useNotifications(userId, { refreshMs = 60000 } = {}) {
+-  const [groups, setGroups] = useState([]);
+-  const [total, setTotal] = useState(0);
+-  const [loaded, setLoaded] = useState(false);
++  // Dernière réponse connue affichée tout de suite (lib/instant.js) : le
++  // bandeau ne « pousse » plus la page vers le bas une seconde après chaque
++  // changement de rubrique.
++  const known = userId ? peekJson(`/api/notifications?user_id=${userId}`) : undefined;
++  const [groups, setGroups] = useState(() => (known && known.groups) || []);
++  const [total, setTotal] = useState(() => (known && known.total) || 0);
++  const [loaded, setLoaded] = useState(() => !!known);
+   const load = useCallback(async () => {
+     if (!userId) return;
+     try {
+-      const res = await fetch(`/api/notifications?user_id=${userId}`);
++      const url = `/api/notifications?user_id=${userId}`;
++      const res = await fetch(url);
+       const body = await res.json();
+       if (res.ok) {
++        rememberJson(url, body);
+         setGroups(body.groups || []);
+         setTotal(body.total || 0);
+       }
+diff --git a/lib/i18n.js b/lib/i18n.js
+index a06f092..8a7264b 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -15403,7 +15403,21 @@ function detectBrowserLocale() {
+ // immédiatement à jour tous les autres textes traduits affichés ailleurs
+ // dans la page sans recharger.
+ export function useLocale() {
+-  const [locale, setLocaleState] = useState('fr');
++  // Changement de rubrique (15/11/2026) : la langue est lue dès le premier
++  // rendu. Avant, chaque page s'affichait d'abord en français puis basculait
++  // dans la langue choisie — un éclair de français à chaque toucher pour les
++  // six autres langues, et la page rendue deux fois. Au tout premier
++  // chargement, on garde 'fr' : c'est ce que le serveur a rendu
++  // (window.__aaronHydrated, posé par components/AuthFetchInterceptor.jsx).
++  const [locale, setLocaleState] = useState(() => {
++    if (typeof window === 'undefined' || !window.__aaronHydrated) return 'fr';
++    try {
++      const stored = window.localStorage.getItem(STORAGE_KEY);
++      return stored && LOCALES.includes(stored) ? stored : detectBrowserLocale();
++    } catch {
++      return 'fr';
++    }
++  });
+ 
+   useEffect(() => {
+     try {
+diff --git a/lib/instant.js b/lib/instant.js
+new file mode 100644
+index 0000000..9946ff6
+--- /dev/null
++++ b/lib/instant.js
+@@ -0,0 +1,136 @@
++// lib/instant.js
++//
++// RUBRIQUES INSTANTANÉES (15/11/2026, Alex : « je veux une latence très
++// courte quand je clique sur Agenda, Chat, Campagnes, Contacts »).
++//
++// Constat : changer de rubrique était déjà une navigation sans rechargement,
++// mais la nouvelle page repartait de zéro — « Connexion… », puis
++// « Chargement… », puis ses appels au serveur (0,6 à 0,8 s CHACUN depuis
++// l'Australie, voir claude/statut-2026-10-28). Deux à trois secondes d'écran
++// vide à chaque toucher, pour réafficher des données que l'app avait déjà
++// reçues une minute plus tôt.
++//
++// Principe (« afficher ce qu'on sait, vérifier ensuite ») :
++//   1. la dernière réponse de chaque liste est gardée EN MÉMOIRE VIVE ;
++//   2. en revenant sur une rubrique, la page s'affiche tout de suite avec
++//      cette dernière réponse (peekJson / initialJson) ;
++//   3. elle redemande quand même la liste au serveur (freshJson) et se met
++//      à jour sur place si quelque chose a changé ;
++//   4. les rubriques pas encore visitées sont préparées en arrière-plan
++//      (warmJson), pour que même le PREMIER toucher soit immédiat.
++//
++// Mémoire vive seulement — ni localStorage ni sessionStorage : aucune donnée
++// de prospect n'est écrite dans le stockage du navigateur (inventaire CASA
++// 6.6.1 de lib/supabase-browser.ts inchangé). Tout disparaît au rechargement
++// de la page et à la déconnexion (qui recharge la page).
++
++const mem = new Map(); // url -> { json, at }
++const inflight = new Map(); // url -> Promise (préparations en cours)
++
++// Identifiant d'utilisateur lisible DÈS LE PREMIER RENDU, mais seulement
++// lors d'un changement de rubrique. Au tout premier chargement, le serveur
++// a rendu « Connexion… » : rendre autre chose côté navigateur casserait la
++// reprise du HTML (hydratation). window.__aaronHydrated est posé par
++// components/AuthFetchInterceptor.jsx une fois cette reprise terminée.
++// Pendant le rendu de la nouvelle rubrique, l'adresse est encore celle de
++// la précédente : elle porte le même user_id (tous les liens de l'app
++// l'ajoutent).
++export function navUserId() {
++  if (typeof window === 'undefined' || !window.__aaronHydrated) return null;
++  try {
++    return new URLSearchParams(window.location.search).get('user_id') || null;
++  } catch {
++    return null;
++  }
++}
++
++export function peekJson(url) {
++  const hit = mem.get(url);
++  return hit ? hit.json : undefined;
++}
++
++export function rememberJson(url, json) {
++  if (json && typeof json === 'object') mem.set(url, { json, at: Date.now() });
++}
++
++// Dernière réponse connue pour l'utilisateur courant, ou undefined.
++// `build` reçoit l'identifiant et renvoie l'adresse de l'appel.
++export function initialJson(build) {
++  const id = navUserId();
++  if (!id) return undefined;
++  return peekJson(build(id));
++}
++
++// Remplace `fetch(url).then((r) => r.json())` : même résultat, et la réponse
++// est mémorisée si le serveur a répondu correctement.
++//
++// Deux composants de la même page demandent souvent la même chose au même
++// instant (la page et son habillage lisent tous deux /api/preferences) : un
++// appel identique lancé depuis moins de 300 ms est partagé. Pas au-delà —
++// après une action de l'utilisateur, il faut une réponse vraiment nouvelle.
++const recent = new Map(); // url -> { at, promise }
++export function freshJson(url) {
++  const hit = recent.get(url);
++  if (hit && Date.now() - hit.at < 300) return hit.promise;
++  const promise = (async () => {
++    const res = await fetch(url);
++    const json = await res.json();
++    if (res.ok) rememberJson(url, json);
++    return json;
++  })();
++  recent.set(url, { at: Date.now(), promise });
++  promise.catch(() => {}).finally(() => {
++    const cur = recent.get(url);
++    if (cur && cur.promise === promise) recent.delete(url);
++  });
++  return promise;
++}
++
++// « Afficher ce qu'on sait, vérifier ensuite » en un appel : `apply` reçoit
++// tout de suite la dernière réponse connue (s'il y en a une), puis la
++// réponse fraîche si elle diffère. À réserver aux `apply` qui ne font que
++// poser des états (les appeler deux fois ne doit rien casser).
++export function swrJson(url, apply) {
++  const cached = peekJson(url);
++  if (cached !== undefined) {
++    try { apply(cached); } catch {}
++  }
++  return freshJson(url).then((fresh) => {
++    let same = false;
++    try { same = cached !== undefined && JSON.stringify(cached) === JSON.stringify(fresh); } catch {}
++    if (!same) apply(fresh);
++    return fresh;
++  });
++}
++
++// Prépare en arrière-plan les réponses qui manquent ou qui ont plus de
++// `maxAgeMs`. Silencieux : un échec ne change rien, la page fera son appel
++// normalement.
++export function warmJson(urls, maxAgeMs = 60000) {
++  if (typeof window === 'undefined') return;
++  urls.forEach((url) => {
++    const hit = mem.get(url);
++    if (hit && Date.now() - hit.at < maxAgeMs) return;
++    if (inflight.has(url)) return;
++    const p = freshJson(url)
++      .catch(() => {})
++      .finally(() => inflight.delete(url));
++    inflight.set(url, p);
++  });
++}
++
++// Les listes des quatre onglets du bas, pour un utilisateur donné. Mêmes
++// adresses, au caractère près, que celles des pages (c'est la clé du cache).
++export function tabDataUrls(userId) {
++  return [
++    `/api/preferences?user_id=${userId}`,
++    `/api/users/${userId}`,
++    `/api/campaigns?user_id=${userId}`,
++    `/api/prospects?user_id=${userId}&scope=all`,
++    `/api/appointments?user_id=${userId}`,
++    `/api/availability?user_id=${userId}`,
++    `/api/oauth-connections?user_id=${userId}`,
++    `/api/chat-conversations?user_id=${userId}`,
++    `/api/notifications?user_id=${userId}`,
++  ];
++}
+-- 
+2.43.0
+
