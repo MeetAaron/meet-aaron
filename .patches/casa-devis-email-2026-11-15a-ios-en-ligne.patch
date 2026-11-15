@@ -1,0 +1,175 @@
+From 611563f8c6182123f59375318535387298c0d9f9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 04:55:58 +0000
+Subject: [PATCH] =?UTF-8?q?App=20iOS=20en=20ligne=20:=20QR=20/ios=20vers?=
+ =?UTF-8?q?=20la=20fiche=20App=20Store,=20carte=20=C2=AB=20Disponible=20?=
+ =?UTF-8?q?=C2=BB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Apple a approuve Meet Aaron le 15/11/2026. /ios redirige vers
+apps.apple.com/app/id6832991260 ; carte iOS de la page d'accueil passee
+en « Disponible » (7 langues). La carte Android garde son texte (cle
+c4.note distincte, elle partageait c3.note).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ next.config.js      |  3 ++-
+ public/landing.html | 61 +++++++++++++++++++++++++--------------------
+ 2 files changed, 36 insertions(+), 28 deletions(-)
+
+diff --git a/next.config.js b/next.config.js
+index 7f5141e..b096cb4 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -121,7 +121,8 @@ const nextConfig = {
+       // ouvre la version web »). Google avait trouvé /ios en 404. Quand les
+       // fiches seront publiées, remplacer /app par l'adresse du store
+       // (temporaire, donc 307 : les navigateurs ne la mémorisent pas).
+-      { source: '/ios', destination: '/app', permanent: false },
++      // iOS en ligne depuis le 15/11/2026 : le QR « iOS » ouvre la fiche App Store.
++      { source: '/ios', destination: 'https://apps.apple.com/app/meet-aaron-sales-copilot/id6832991260', permanent: false },
+       { source: '/android', destination: '/app', permanent: false },
+     ];
+   },
+diff --git a/public/landing.html b/public/landing.html
+index 56193c3..e12ab4e 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -386,19 +386,19 @@
+       <p class="install-status" id="installStatus"></p>
+     </div>
+ 
+-    <!-- 3. iOS App Store — à venir -->
++    <!-- 3. iOS App Store — en ligne depuis le 15/11/2026 (QR -> /ios -> fiche App Store) -->
+     <div class="card">
+       <div class="top">
+         <div class="icon"></div>
+-        <span class="badge soon" data-i18n="badge.soon">Bientôt disponible</span>
++        <span class="badge live" data-i18n="badge.live">Disponible</span>
+       </div>
+       <div>
+-        <h3 data-i18n="c3.title">App Store (iOS)</h3>
+-        <p class="desc" data-i18n="c3.desc">L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.</p>
++        <h3 data-i18n="c3.title">App Store (iPhone, iPad, Mac)</h3>
++        <p class="desc" data-i18n="c3.desc">L'app Meet Aaron est disponible sur l'App Store, pour iPhone, iPad et Mac. Scannez le code avec votre iPhone ou votre iPad pour l'installer.</p>
+       </div>
+       <div class="qr-wrap">
+         <div class="qr-box" id="qr-ios"></div>
+-        <p class="qr-note" data-i18n-html="c3.note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
++        <p class="qr-note" data-i18n-html="c3.note">Sur Mac (puce Apple), cherchez « Meet Aaron » dans l'App Store. Un compte Meet Aaron est nécessaire.</p>
+       </div>
+     </div>
+ 
+@@ -414,7 +414,7 @@
+       </div>
+       <div class="qr-wrap">
+         <div class="qr-box" id="qr-android"></div>
+-        <p class="qr-note" data-i18n-html="c3.note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
++        <p class="qr-note" data-i18n-html="c4.note">En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.</p>
+       </div>
+     </div>
+ 
+@@ -515,9 +515,10 @@ var I18N = {
+   'c2.title':'Sur votre téléphone (web)',
+   'c2.desc':"Scannez avec l'appareil photo de votre téléphone, puis choisissez « Ajouter à l'écran d'accueil » — Aaron se comporte comme une app native.",
+   'c2.note':'Fonctionne dès maintenant sur <b>iOS</b> et <b>Android</b>, sans passer par un store.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':"L'app native iOS est en cours de validation par Apple. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+-  'c3.note':'En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"L'app Meet Aaron est disponible sur l'App Store, pour iPhone, iPad et Mac. Scannez le code avec votre iPhone ou votre iPad pour l'installer.",
++  'c3.note':"Sur Mac (puce Apple), cherchez « Meet Aaron » dans l'App Store. Un compte Meet Aaron est nécessaire.",
++  'c4.note':'En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':"L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+   'price.eyebrow':'Tarifs','price.title':'Un seul abonnement, tout inclus',
+@@ -561,9 +562,10 @@ var I18N = {
+   'c2.title':'On your phone (web)',
+   'c2.desc':'Scan with your phone camera, then choose “Add to Home Screen” — Aaron behaves like a native app.',
+   'c2.note':'Works right now on <b>iOS</b> and <b>Android</b>, without going through a store.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'The native iOS app is under review by Apple. Scan to be redirected to the listing as soon as it goes live.',
+-  'c3.note':'In the meantime, this link opens the <b>web version</b> — same features.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"The Meet Aaron app is available on the App Store, for iPhone, iPad and Mac. Scan the code with your iPhone or iPad to install it.",
++  'c3.note':"On a Mac (Apple silicon), search for “Meet Aaron” in the App Store. A Meet Aaron account is required.",
++  'c4.note':'In the meantime, this link opens the <b>web version</b> — same features.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'The native Android app is under review by Google. Scan to be redirected to the listing as soon as it goes live.',
+   'price.eyebrow':'Pricing','price.title':'One subscription, everything included',
+@@ -607,9 +609,10 @@ var I18N = {
+   'c2.title':'Auf Ihrem Telefon (Web)',
+   'c2.desc':'Mit der Handykamera scannen und dann „Zum Startbildschirm hinzufügen“ wählen — Aaron verhält sich wie eine native App.',
+   'c2.note':'Funktioniert sofort auf <b>iOS</b> und <b>Android</b>, ohne Umweg über einen Store.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'Die native iOS-App wird gerade von Apple geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+-  'c3.note':'Bis dahin öffnet dieser Link die <b>Web-Version</b> — mit denselben Funktionen.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"Die Meet-Aaron-App ist im App Store verfügbar, für iPhone, iPad und Mac. Scannen Sie den Code mit Ihrem iPhone oder iPad, um sie zu installieren.",
++  'c3.note':"Auf dem Mac (Apple-Chip) suchen Sie im App Store nach „Meet Aaron“. Ein Meet-Aaron-Konto ist erforderlich.",
++  'c4.note':'Bis dahin öffnet dieser Link die <b>Web-Version</b> — mit denselben Funktionen.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'Die native Android-App wird gerade von Google geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+   'price.eyebrow':'Preise','price.title':'Ein Abo, alles inklusive',
+@@ -653,9 +656,10 @@ var I18N = {
+   'c2.title':'Sul tuo telefono (web)',
+   'c2.desc':'Inquadra con la fotocamera del telefono, poi scegli « Aggiungi a Home » — Aaron si comporta come un’app nativa.',
+   'c2.note':'Funziona già su <b>iOS</b> e <b>Android</b>, senza passare da uno store.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'L’app nativa iOS è in convalida presso Apple. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+-  'c3.note':'Nel frattempo questo link apre la <b>versione web</b> — stesse funzionalità.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"L’app Meet Aaron è disponibile sull’App Store, per iPhone, iPad e Mac. Inquadra il codice con il tuo iPhone o iPad per installarla.",
++  'c3.note':"Su Mac (chip Apple) cerca «Meet Aaron» nell’App Store. Serve un account Meet Aaron.",
++  'c4.note':'Nel frattempo questo link apre la <b>versione web</b> — stesse funzionalità.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'L’app nativa Android è in convalida presso Google. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+   'price.eyebrow':'Prezzi','price.title':'Un solo abbonamento, tutto incluso',
+@@ -699,9 +703,10 @@ var I18N = {
+   'c2.title':'En tu teléfono (web)',
+   'c2.desc':'Escanea con la cámara del teléfono y elige «Añadir a pantalla de inicio» — Aaron se comporta como una app nativa.',
+   'c2.note':'Funciona ya en <b>iOS</b> y <b>Android</b>, sin pasar por una tienda.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'La app nativa de iOS está en revisión por Apple. Escanea para ir directamente a la ficha en cuanto se publique.',
+-  'c3.note':'Mientras tanto, este enlace abre la <b>versión web</b> — las mismas funciones.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"La app Meet Aaron está disponible en la App Store, para iPhone, iPad y Mac. Escanea el código con tu iPhone o iPad para instalarla.",
++  'c3.note':"En Mac (chip de Apple), busca «Meet Aaron» en la App Store. Se necesita una cuenta de Meet Aaron.",
++  'c4.note':'Mientras tanto, este enlace abre la <b>versión web</b> — las mismas funciones.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'La app nativa de Android está en revisión por Google. Escanea para ir directamente a la ficha en cuanto se publique.',
+   'price.eyebrow':'Precios','price.title':'Una sola suscripción, todo incluido',
+@@ -745,9 +750,10 @@ var I18N = {
+   'c2.title':'No teu telemóvel (web)',
+   'c2.desc':'Lê com a câmara do telemóvel e escolhe «Adicionar ao ecrã principal» — o Aaron comporta-se como uma aplicação nativa.',
+   'c2.note':'Funciona já em <b>iOS</b> e <b>Android</b>, sem passar por uma loja.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'A aplicação nativa iOS está em validação pela Apple. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+-  'c3.note':'Entretanto, esta ligação abre a <b>versão web</b> — as mesmas funcionalidades.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"A aplicação Meet Aaron está disponível na App Store, para iPhone, iPad e Mac. Lê o código com o teu iPhone ou iPad para a instalar.",
++  'c3.note':"No Mac (chip Apple), procura «Meet Aaron» na App Store. É necessária uma conta Meet Aaron.",
++  'c4.note':'Entretanto, esta ligação abre a <b>versão web</b> — as mesmas funcionalidades.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'A aplicação nativa Android está em validação pela Google. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+   'price.eyebrow':'Preços','price.title':'Uma só subscrição, tudo incluído',
+@@ -791,9 +797,10 @@ var I18N = {
+   'c2.title':'Op je telefoon (web)',
+   'c2.desc':'Scan met de camera van je telefoon en kies „Zet op beginscherm” — Aaron gedraagt zich als een native app.',
+   'c2.note':'Werkt nu al op <b>iOS</b> en <b>Android</b>, zonder store.',
+-  'c3.title':'App Store (iOS)',
+-  'c3.desc':'De native iOS-app wordt momenteel beoordeeld door Apple. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+-  'c3.note':'Tot dan opent deze link de <b>webversie</b> — dezelfde functies.',
++  'c3.title':'App Store (iPhone, iPad, Mac)',
++  'c3.desc':"De Meet Aaron-app is beschikbaar in de App Store, voor iPhone, iPad en Mac. Scan de code met je iPhone of iPad om hem te installeren.",
++  'c3.note':"Op een Mac (Apple-chip) zoek je „Meet Aaron” in de App Store. Een Meet Aaron-account is vereist.",
++  'c4.note':'Tot dan opent deze link de <b>webversie</b> — dezelfde functies.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'De native Android-app wordt momenteel beoordeeld door Google. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+   'price.eyebrow':'Tarieven','price.title':'Eén abonnement, alles inbegrepen',
+-- 
+2.43.0
+
