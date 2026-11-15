@@ -56,6 +56,21 @@ export default function NativeAppBridge() {
       );
     }
 
+    // Écran de lancement (15/11/2026, retour d'Alex : « écran bleu avec un
+    // quart de logo, puis une page blanche buggée, puis seulement la
+    // connexion, ça fait hacké »). L'écran de lancement natif disparaissait
+    // au bout de 1,2 s, AVANT que le site ait fini de charger en 4G : on
+    // voyait la page se construire sans sa mise en forme. Il reste
+    // maintenant affiché (ios-app/capacitor.config.json : 8 s au plus) et
+    // c'est la page qui le retire, une fois entièrement chargée et mise en
+    // forme.
+    const splash = cap.Plugins && cap.Plugins.SplashScreen;
+    if (splash && typeof splash.hide === 'function') {
+      const hide = () => setTimeout(() => { Promise.resolve(splash.hide({ fadeOutDuration: 250 })).catch(() => {}); }, 150);
+      if (document.readyState === 'complete') hide();
+      else window.addEventListener('load', hide, { once: true });
+    }
+
     const handles = [];
     const push = nativePushPlugin();
     if (push) {

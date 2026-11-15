@@ -44,7 +44,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: app.meetaaron.mobile
       vars:
-        APP_VERSION: '1.0.0'
+        APP_VERSION: '1.0.1'
         # Identifiant numerique de l'app dans App Store Connect (« Meet Aaron:
         # Sales Copilot », visible dans l'URL de sa fiche). Pas un secret.
         # Sert a numeroter les builds a la suite de TestFlight.
