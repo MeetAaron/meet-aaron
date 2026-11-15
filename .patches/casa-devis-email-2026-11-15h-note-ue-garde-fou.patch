@@ -1,0 +1,114 @@
+From d92e925fbf4e16282c71e37f6ad1310bb4ffb978 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 11:53:46 +0000
+Subject: [PATCH] Landing : note Union europeenne sur la carte App Store ;
+ garde-fou du rechargement auto conserve sur la page de connexion
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- public/landing.html : la fiche App Store n'est pas encore visible dans l'UE
+  (declaration Digital Services Act a faire) ; une ligne le dit dans les 7
+  langues et renvoie vers la version web. A retirer une fois la fiche visible.
+- components/VersionWatcher.jsx : cle de session hors prefixe « aaron_ »,
+  efface par la page de connexion.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ components/VersionWatcher.jsx |  6 +++++-
+ public/landing.html           | 12 ++++++++++++
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/components/VersionWatcher.jsx b/components/VersionWatcher.jsx
+index 52311dd..948d1e3 100644
+--- a/components/VersionWatcher.jsx
++++ b/components/VersionWatcher.jsx
+@@ -28,7 +28,11 @@ import { useEffect } from 'react';
+ import { getCapacitor } from '@/lib/native-app';
+ 
+ const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID || '';
+-const RELOADED_KEY = 'aaron_reloaded_for_build';
++// Pas de préfixe « aaron_ » : la page de connexion efface ces clés
++// (clearAppStorageOnLogout, lib/supabase-browser.ts) et le garde-fou
++// « jamais deux rechargements pour la même version » y sautait. La valeur
++// est un identifiant de commit, rien de personnel ; sessionStorage seulement.
++const RELOADED_KEY = 'ma_build_reloaded';
+ const MIN_INTERVAL_MS = 60 * 1000;
+ 
+ // Vrai si un rechargement ferait perdre quelque chose a l'utilisateur.
+diff --git a/public/landing.html b/public/landing.html
+index e12ab4e..d1c6015 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -399,6 +399,11 @@
+       <div class="qr-wrap">
+         <div class="qr-box" id="qr-ios"></div>
+         <p class="qr-note" data-i18n-html="c3.note">Sur Mac (puce Apple), cherchez « Meet Aaron » dans l'App Store. Un compte Meet Aaron est nécessaire.</p>
++        <!-- 15/11/2026 : fiche App Store pas encore visible dans l'Union européenne
++             (déclaration Digital Services Act à faire dans App Store Connect).
++             À RETIRER (cette ligne et la clé c3.eu des 7 langues) dès que la
++             fiche https://apps.apple.com/fr/app/id6832991260 répond. -->
++        <p class="qr-note" data-i18n="c3.eu">Union européenne : l'app arrive bientôt sur l'App Store. En attendant, la version web fonctionne sur iPhone.</p>
+       </div>
+     </div>
+ 
+@@ -518,6 +523,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"L'app Meet Aaron est disponible sur l'App Store, pour iPhone, iPad et Mac. Scannez le code avec votre iPhone ou votre iPad pour l'installer.",
+   'c3.note':"Sur Mac (puce Apple), cherchez « Meet Aaron » dans l'App Store. Un compte Meet Aaron est nécessaire.",
++  'c3.eu':"Union européenne : l'app arrive bientôt sur l'App Store. En attendant, la version web fonctionne sur iPhone.",
+   'c4.note':'En attendant, ce lien ouvre la <b>version web</b> — mêmes fonctionnalités.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':"L'app native Android est en cours de validation par Google. Scannez pour être redirigé automatiquement vers la fiche dès sa publication.",
+@@ -565,6 +571,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"The Meet Aaron app is available on the App Store, for iPhone, iPad and Mac. Scan the code with your iPhone or iPad to install it.",
+   'c3.note':"On a Mac (Apple silicon), search for “Meet Aaron” in the App Store. A Meet Aaron account is required.",
++  'c3.eu':"European Union: the app is coming to the App Store soon. Until then, the web version works on iPhone.",
+   'c4.note':'In the meantime, this link opens the <b>web version</b> — same features.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'The native Android app is under review by Google. Scan to be redirected to the listing as soon as it goes live.',
+@@ -612,6 +619,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"Die Meet-Aaron-App ist im App Store verfügbar, für iPhone, iPad und Mac. Scannen Sie den Code mit Ihrem iPhone oder iPad, um sie zu installieren.",
+   'c3.note':"Auf dem Mac (Apple-Chip) suchen Sie im App Store nach „Meet Aaron“. Ein Meet-Aaron-Konto ist erforderlich.",
++  'c3.eu':"Europäische Union: Die App kommt bald in den App Store. Bis dahin funktioniert die Webversion auf dem iPhone.",
+   'c4.note':'Bis dahin öffnet dieser Link die <b>Web-Version</b> — mit denselben Funktionen.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'Die native Android-App wird gerade von Google geprüft. Scannen Sie, um bei Veröffentlichung automatisch zum Eintrag geleitet zu werden.',
+@@ -659,6 +667,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"L’app Meet Aaron è disponibile sull’App Store, per iPhone, iPad e Mac. Inquadra il codice con il tuo iPhone o iPad per installarla.",
+   'c3.note':"Su Mac (chip Apple) cerca «Meet Aaron» nell’App Store. Serve un account Meet Aaron.",
++  'c3.eu':"Unione europea: l’app arriverà presto sull’App Store. Nel frattempo la versione web funziona su iPhone.",
+   'c4.note':'Nel frattempo questo link apre la <b>versione web</b> — stesse funzionalità.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'L’app nativa Android è in convalida presso Google. Inquadra per essere reindirizzato alla scheda appena sarà pubblicata.',
+@@ -706,6 +715,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"La app Meet Aaron está disponible en la App Store, para iPhone, iPad y Mac. Escanea el código con tu iPhone o iPad para instalarla.",
+   'c3.note':"En Mac (chip de Apple), busca «Meet Aaron» en la App Store. Se necesita una cuenta de Meet Aaron.",
++  'c3.eu':"Unión Europea: la app llegará pronto a la App Store. Mientras tanto, la versión web funciona en iPhone.",
+   'c4.note':'Mientras tanto, este enlace abre la <b>versión web</b> — las mismas funciones.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'La app nativa de Android está en revisión por Google. Escanea para ir directamente a la ficha en cuanto se publique.',
+@@ -753,6 +763,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"A aplicação Meet Aaron está disponível na App Store, para iPhone, iPad e Mac. Lê o código com o teu iPhone ou iPad para a instalar.",
+   'c3.note':"No Mac (chip Apple), procura «Meet Aaron» na App Store. É necessária uma conta Meet Aaron.",
++  'c3.eu':"União Europeia: a aplicação chega em breve à App Store. Até lá, a versão web funciona no iPhone.",
+   'c4.note':'Entretanto, esta ligação abre a <b>versão web</b> — as mesmas funcionalidades.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'A aplicação nativa Android está em validação pela Google. Lê o código para seres encaminhado para a ficha assim que for publicada.',
+@@ -800,6 +811,7 @@ var I18N = {
+   'c3.title':'App Store (iPhone, iPad, Mac)',
+   'c3.desc':"De Meet Aaron-app is beschikbaar in de App Store, voor iPhone, iPad en Mac. Scan de code met je iPhone of iPad om hem te installeren.",
+   'c3.note':"Op een Mac (Apple-chip) zoek je „Meet Aaron” in de App Store. Een Meet Aaron-account is vereist.",
++  'c3.eu':"Europese Unie: de app komt binnenkort in de App Store. Tot die tijd werkt de webversie op de iPhone.",
+   'c4.note':'Tot dan opent deze link de <b>webversie</b> — dezelfde functies.',
+   'c4.title':'Google Play (Android)',
+   'c4.desc':'De native Android-app wordt momenteel beoordeeld door Google. Scan om automatisch naar de pagina te gaan zodra die online staat.',
+-- 
+2.43.0
+
