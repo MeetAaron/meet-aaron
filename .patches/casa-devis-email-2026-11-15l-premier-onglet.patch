@@ -1,0 +1,74 @@
+From 64bde7be5a317bcdad00859c0f10b54a15d693c0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 13:08:16 +0000
+Subject: [PATCH] Rubriques instantanees : aussi au premier changement quand
+ l'adresse ne porte pas l'identifiant
+
+L'app demarre sur /app/campaigns sans user_id : le premier toucher d'onglet
+repartait du chemin lent (0,8 s mesure). L'identifiant est retenu en memoire
+des qu'une page le connait (lib/instant.js noteUserId, components/MobileChrome.jsx).
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ components/MobileChrome.jsx |  5 ++++-
+ lib/instant.js              | 16 ++++++++++++++--
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/components/MobileChrome.jsx b/components/MobileChrome.jsx
+index 875edf1..6251e0e 100644
+--- a/components/MobileChrome.jsx
++++ b/components/MobileChrome.jsx
+@@ -23,7 +23,7 @@ import Link from 'next/link';
+ import { usePathname, useRouter } from 'next/navigation';
+ import { NavIcon } from '@/components/NavIcon';
+ import ConnectionBadge from '@/components/ConnectionBadge';
+-import { warmJson, tabDataUrls } from '@/lib/instant';
++import { warmJson, tabDataUrls, noteUserId } from '@/lib/instant';
+ 
+ // Les 4 rubriques toujours présentes dans la nav (jamais filtrées par rôle
+ // ni par compte), dans l'ordre d'usage quotidien sur téléphone.
+@@ -32,6 +32,9 @@ const TAB_SLUGS = ['campaigns', 'prospects', 'agenda', 'chat'];
+ export default function MobileChrome({ title, items, userId, onMenu, menuLabel, moreLabel, locale }) {
+   const tabs = TAB_SLUGS.map((slug) => items.find((item) => item.slug === slug)).filter(Boolean);
+   const q = userId ? `?user_id=${userId}` : '';
++  // Retenu pour la rubrique suivante, quand l'adresse en cours ne le porte
++  // pas (démarrage de l'app sur /app/campaigns) — lib/instant.js.
++  noteUserId(userId);
+ 
+   // Réactivité des onglets du bas (15/11/2026, Alex : « 3 secondes de délai
+   // quand on clique dessus »). Chaque rubrique est une page à part : tant
+diff --git a/lib/instant.js b/lib/instant.js
+index 9946ff6..52a62b4 100644
+--- a/lib/instant.js
++++ b/lib/instant.js
+@@ -35,12 +35,24 @@ const inflight = new Map(); // url -> Promise (préparations en cours)
+ // Pendant le rendu de la nouvelle rubrique, l'adresse est encore celle de
+ // la précédente : elle porte le même user_id (tous les liens de l'app
+ // l'ajoutent).
++//
++// Repli (mesuré le 15/11/2026 sur le compte de démonstration) : l'app
++// iPhone / Android démarre sur /app/campaigns SANS user_id dans l'adresse.
++// Le premier changement de rubrique ne trouvait donc pas l'identifiant et
++// repartait du chemin lent (0,8 s au lieu de 0,06 s). On retient l'identifiant
++// dès qu'une page le connaît (noteUserId, appelé par l'habillage commun
++// components/MobileChrome.jsx) — en mémoire vive, comme le reste.
++let lastUserId = null;
++export function noteUserId(id) {
++  if (id) lastUserId = id;
++}
++
+ export function navUserId() {
+   if (typeof window === 'undefined' || !window.__aaronHydrated) return null;
+   try {
+-    return new URLSearchParams(window.location.search).get('user_id') || null;
++    return new URLSearchParams(window.location.search).get('user_id') || lastUserId || null;
+   } catch {
+-    return null;
++    return lastUserId || null;
+   }
+ }
+ 
+-- 
+2.43.0
+
