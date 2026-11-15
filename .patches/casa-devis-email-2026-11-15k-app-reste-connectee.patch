@@ -1,0 +1,148 @@
+From f27d13130e26813d2353d3ee67210fe50dfe3547 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 13:00:07 +0000
+Subject: [PATCH] Application iPhone / Android : on reste connecte d'un jour a
+ l'autre
+
+Dans la coque native, une session encore presente suffit a entrer dans /app
+(lib/supabase-browser.ts isAppEntryAllowed, lib/app-entry-gate.js,
+components/AuthFetchInterceptor.jsx) et n'est plus revoquee a l'arrivee sur
+/login. Le site garde la connexion explicite quotidienne ; la duree de vie
+d'une session reste celle du serveur (30 jours, 7 jours sans activite).
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ components/AuthFetchInterceptor.jsx |  6 ++--
+ lib/app-entry-gate.js               | 14 ++++++++
+ lib/supabase-browser.ts             | 51 ++++++++++++++++++++++++++++-
+ 3 files changed, 68 insertions(+), 3 deletions(-)
+
+diff --git a/components/AuthFetchInterceptor.jsx b/components/AuthFetchInterceptor.jsx
+index f1cb1e1..17b87a8 100644
+--- a/components/AuthFetchInterceptor.jsx
++++ b/components/AuthFetchInterceptor.jsx
+@@ -15,7 +15,7 @@
+ 'use client';
+ 
+ import { useEffect } from 'react';
+-import { supabaseBrowser, isExplicitlyLoggedInToday, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
++import { supabaseBrowser, isAppEntryAllowed, getDeviceId, shouldCheckDeviceToday } from '@/lib/supabase-browser';
+ 
+ // Porte d'entrée de l'app (bug remonté par Alex le 2026-08-19, assoupli le
+ // 2026-08-20) : même avec une session Supabase encore valide et persistée
+@@ -54,7 +54,9 @@ if (typeof window !== 'undefined' && !window.__aaronAppEntryChecked) {
+   window.__aaronAppEntryChecked = true;
+   const path = window.location.pathname;
+   if (path === '/app' || path.startsWith('/app/')) {
+-    if (!isExplicitlyLoggedInToday()) {
++    // Dans l'application iPhone / Android, une session encore présente
++    // suffit (15/11/2026) : voir isAppEntryAllowed, lib/supabase-browser.ts.
++    if (!isAppEntryAllowed()) {
+       // ?next= : revenir sur la page demandée une fois connecté (ex. QR code
+       // « notifications sur ton téléphone » de Mon compte > Connexion) —
+       // voir rememberPostLoginNext/consumePostLoginNext (lib/supabase-browser.ts).
+diff --git a/lib/app-entry-gate.js b/lib/app-entry-gate.js
+index c04eac7..d9ebc8a 100644
+--- a/lib/app-entry-gate.js
++++ b/lib/app-entry-gate.js
+@@ -25,6 +25,20 @@ export const APP_ENTRY_GATE_SCRIPT = `
+     var d = new Date();
+     var today = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+     if (window.localStorage.getItem('aaron-explicit-login-date') === today) return;
++    // Application iPhone / Android : on reste connecte d'un jour a l'autre
++    // (15/11/2026). Une session encore presente suffit — meme test que
++    // isAppEntryAllowed dans lib/supabase-browser.ts. Capacitor pose
++    // window.Capacitor avant le premier script de la page.
++    var cap = window.Capacitor;
++    if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
++      var stores = [window.localStorage, window.sessionStorage];
++      for (var s = 0; s < stores.length; s++) {
++        for (var i = 0; i < stores[s].length; i++) {
++          var k = stores[s].key(i);
++          if (k && /^sb-.+-auth-token$/.test(k) && stores[s].getItem(k)) return;
++        }
++      }
++    }
+     var next = p.indexOf('/app/') === 0 ? p + (window.location.search || '') : '';
+     window.__aaronAppEntryChecked = true;
+     window.location.replace(next ? '/login?next=' + encodeURIComponent(next) : '/login');
+diff --git a/lib/supabase-browser.ts b/lib/supabase-browser.ts
+index b016444..130b555 100644
+--- a/lib/supabase-browser.ts
++++ b/lib/supabase-browser.ts
+@@ -3,6 +3,7 @@
+ // Utilise la clé publique "anon" — jamais la service_role ici.
+ 
+ import { createClient } from '@supabase/supabase-js';
++import { isNativeApp } from './native-app';
+ 
+ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+@@ -87,6 +88,52 @@ export function isExplicitlyLoggedInToday(): boolean {
+   }
+ }
+ 
++// DANS L'APPLICATION (iPhone / Android), ON RESTE CONNECTÉ D'UN JOUR À
++// L'AUTRE (15/11/2026, décision d'Alex : « comme toute appli »).
++//
++// La connexion explicite quotidienne ci-dessus a été pensée pour le site,
++// ouvert sur des ordinateurs parfois partagés. Sur un téléphone personnel,
++// verrouillé par code ou par le visage, redemander le mot de passe chaque
++// matin ne protège rien de plus et donne l'impression d'une app qui
++// « oublie ». Dans la coque native, une session Supabase encore présente
++// suffit donc à entrer.
++//
++// Ce qui ne change pas :
++//   - le SITE garde la connexion explicite quotidienne ;
++//   - la durée de vie réelle d'une session reste décidée par le serveur
++//     (migration_expiration_sessions_2026-10-19.sql : 30 jours au plus, 7
++//     jours sans activité) — passé ce délai, le premier appel répond 401 et
++//     AuthFetchInterceptor renvoie vers /login ;
++//   - « Se déconnecter » retire la session : la connexion est redemandée ;
++//   - sans « Se souvenir de moi », la session vit dans sessionStorage et
++//     disparaît à la fermeture de l'app, comme avant.
++//
++// Même test, mot pour mot, dans lib/app-entry-gate.js (script exécuté avant
++// le chargement de la page) : garder les deux alignés.
++export function hasStoredSession(): boolean {
++  if (typeof window === 'undefined') return false;
++  for (const store of [window.localStorage, window.sessionStorage]) {
++    try {
++      for (let i = 0; i < store.length; i += 1) {
++        const k = store.key(i);
++        if (k && /^sb-.+-auth-token$/.test(k) && store.getItem(k)) return true;
++      }
++    } catch (err) {}
++  }
++  return false;
++}
++
++// La porte d'entrée de /app laisse-t-elle passer ? Connexion faite
++// aujourd'hui, ou application native avec une session encore là.
++export function isAppEntryAllowed(): boolean {
++  if (isExplicitlyLoggedInToday()) return true;
++  try {
++    return isNativeApp() && hasStoredSession();
++  } catch (err) {
++    return false;
++  }
++}
++
+ // Appelé par TOUS les gestionnaires de déconnexion (handleLogout /
+ // confirmLogout des pages de l'app, ConnectionBadge), juste après
+ // supabaseBrowser.auth.signOut() — qui, lui, a déjà retiré la session
+@@ -285,7 +332,9 @@ export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
+ // connexion (?next=) est préservée.
+ export async function revokeStaleSessionOnLoginPage(): Promise<void> {
+   if (typeof window === 'undefined') return;
+-  if (isExplicitlyLoggedInToday()) return;
++  // Dans l'application, une session de la veille n'est pas « résiduelle » :
++  // elle est voulue (voir isAppEntryAllowed).
++  if (isAppEntryAllowed()) return;
+   let next: string | null = null;
+   try { next = window.localStorage.getItem(POST_LOGIN_NEXT_KEY); } catch (err) {}
+   try {
+-- 
+2.43.0
+
