@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { sendPushNotification } from '@/lib/push';
 import { checkRateLimit, tooManyRequestsResponse } from '@/lib/rate-limit';
+import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
 
 const TEXT: Record<string, { title: string; body: string }> = {
   fr: { title: 'Notification d’essai', body: 'Les notifications de Meet Aaron arrivent bien sur cet appareil.' },
@@ -23,6 +24,10 @@ const TEXT: Record<string, { title: string; body: string }> = {
 export async function POST(request: NextRequest) {
   const user = await getAuthedUser(request);
   if (!user) return unauthorizedResponse();
+  // Compte démo partagé : ses « appareils » sont les téléphones de tous les
+  // testeurs. Un essai les notifierait tous (constaté le 17/11/2026 : 3
+  // téléphones Android de testeurs ont reçu la notification d'essai).
+  if (await isDemoCompany((user as any).company_id)) return demoBlockedResponse(user.locale);
   const limit = await checkRateLimit(`push-test:${user.id}`, 5, 10 * 60 * 1000);
   if (!limit.ok) return tooManyRequestsResponse(limit.retryAfterSeconds);
   const T = TEXT[String(user.locale || 'fr')] || TEXT.fr;
