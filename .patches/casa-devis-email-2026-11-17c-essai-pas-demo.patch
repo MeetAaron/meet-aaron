@@ -1,0 +1,38 @@
+From 2e14c13c6460f77781f007904e596045b362e206 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 03:15:30 +0000
+Subject: [PATCH] Notification d'essai : desactivee sur le compte demo partage
+ (elle atteignait les telephones des testeurs)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/push/test/route.ts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/app/api/push/test/route.ts b/app/api/push/test/route.ts
+index c84e7fd..2c83580 100644
+--- a/app/api/push/test/route.ts
++++ b/app/api/push/test/route.ts
+@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
+ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { sendPushNotification } from '@/lib/push';
+ import { checkRateLimit, tooManyRequestsResponse } from '@/lib/rate-limit';
++import { isDemoCompany, demoBlockedResponse } from '@/lib/demo-guard';
+ 
+ const TEXT: Record<string, { title: string; body: string }> = {
+   fr: { title: 'Notification d’essai', body: 'Les notifications de Meet Aaron arrivent bien sur cet appareil.' },
+@@ -23,6 +24,10 @@ const TEXT: Record<string, { title: string; body: string }> = {
+ export async function POST(request: NextRequest) {
+   const user = await getAuthedUser(request);
+   if (!user) return unauthorizedResponse();
++  // Compte démo partagé : ses « appareils » sont les téléphones de tous les
++  // testeurs. Un essai les notifierait tous (constaté le 17/11/2026 : 3
++  // téléphones Android de testeurs ont reçu la notification d'essai).
++  if (await isDemoCompany((user as any).company_id)) return demoBlockedResponse(user.locale);
+   const limit = await checkRateLimit(`push-test:${user.id}`, 5, 10 * 60 * 1000);
+   if (!limit.ok) return tooManyRequestsResponse(limit.retryAfterSeconds);
+   const T = TEXT[String(user.locale || 'fr')] || TEXT.fr;
+-- 
+2.43.0
+
