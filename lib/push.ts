@@ -61,41 +61,46 @@ type PushPayload = {
 // Best-effort : un échec sur un abonnement (navigateur désinstallé, permission
 // retirée, etc.) ne bloque ni les autres abonnements ni l'appelant — cette
 // fonction n'est jamais dans le chemin critique d'un cron ou d'une route API.
-export async function sendPushNotification(userId: string, payload: PushPayload) {
+// Résultat par appareil (17/11/2026) : lu par la notification d'essai
+// (app/api/push/test) pour dire, canal par canal, si l'envoi est parti. Les
+// autres appelants l'ignorent.
+export type PushDeliveryResult = { channel: 'ios' | 'android' | 'web'; ok: boolean; reason: string | null };
+
+export async function sendPushNotification(userId: string, payload: PushPayload): Promise<PushDeliveryResult[]> {
   const { data: subscriptions } = await supabaseAdmin
     .from('push_subscriptions')
     .select('id, endpoint, p256dh, auth')
     .eq('user_id', userId);
 
-  if (!subscriptions || subscriptions.length === 0) return;
+  if (!subscriptions || subscriptions.length === 0) return [];
 
   const body = JSON.stringify(payload);
   const webConfigured = ensureConfigured();
 
-  await Promise.all(
-    subscriptions.map(async (sub) => {
+  return Promise.all(
+    subscriptions.map(async (sub): Promise<PushDeliveryResult> => {
       if (isApnsEndpoint(sub.endpoint)) {
-        if (!apnsConfigured()) return;
+        if (!apnsConfigured()) return { channel: 'ios', ok: false, reason: 'APNs non configuré' };
         const r = await sendApns(apnsTokenFromEndpoint(sub.endpoint), payload);
         if (r.gone) {
           await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
         } else if (!r.ok) {
           console.error(`Erreur envoi APNs (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
         }
-        return;
+        return { channel: 'ios', ok: r.ok, reason: r.ok ? null : (r.gone ? 'appareil désinscrit' : String(r.reason || r.status)) };
       }
       // Application Android (14/11/2026) : Firebase Cloud Messaging, voir lib/fcm.ts.
       if (isFcmEndpoint(sub.endpoint)) {
-        if (!fcmConfigured()) return;
+        if (!fcmConfigured()) return { channel: 'android', ok: false, reason: 'FCM non configuré' };
         const r = await sendFcm(fcmTokenFromEndpoint(sub.endpoint), payload);
         if (r.gone) {
           await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
         } else if (!r.ok) {
           console.error(`Erreur envoi FCM (subscription ${sub.id}): ${r.status} ${r.reason || ''}`);
         }
-        return;
+        return { channel: 'android', ok: r.ok, reason: r.ok ? null : (r.gone ? 'appareil désinscrit' : String(r.reason || r.status)) };
       }
-      if (!webConfigured) return;
+      if (!webConfigured) return { channel: 'web', ok: false, reason: 'Web Push non configuré' };
       try {
         await webpush.sendNotification(
           {
@@ -104,6 +109,7 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
           },
           body
         );
+        return { channel: 'web', ok: true, reason: null };
       } catch (err: any) {
         // 404/410 = abonnement expiré ou révoqué côté navigateur : on le
         // supprime pour ne pas réessayer indéfiniment un endpoint mort.
@@ -112,6 +118,7 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
         } else {
           console.error(`Erreur envoi push (subscription ${sub.id}):`, err.message);
         }
+        return { channel: 'web', ok: false, reason: String(err?.statusCode || 'erreur') };
       }
     })
   );

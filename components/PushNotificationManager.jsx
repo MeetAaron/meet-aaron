@@ -59,6 +59,18 @@ function urlBase64ToUint8Array(base64String) {
 // appareil à la checklist « Mise en route », qui affiche la coche verte de
 // la ligne « Sur cet ordinateur / ce téléphone » et rafraîchit la liste des
 // appareils (GET /api/push/subscribe) après chaque activation/désactivation.
+// Notification d'essai (17/11/2026) : textes locaux, 7 langues.
+const TEST_TEXT = {
+  fr: { send: "Envoyer une notification d'essai", sending: 'Envoi…', none: 'Aucun appareil inscrit pour le moment.', sent: 'Envoyée à {n} appareil(s) : {list}. Elle doit arriver dans quelques secondes.', failed: 'Échec sur : {list}.', ios: 'iPhone', android: 'Android', web: 'navigateur' },
+  en: { send: 'Send a test notification', sending: 'Sending…', none: 'No device registered yet.', sent: 'Sent to {n} device(s): {list}. It should arrive within a few seconds.', failed: 'Failed on: {list}.', ios: 'iPhone', android: 'Android', web: 'browser' },
+  de: { send: 'Testbenachrichtigung senden', sending: 'Wird gesendet…', none: 'Noch kein Gerät registriert.', sent: 'An {n} Gerät(e) gesendet: {list}. Sie sollte in wenigen Sekunden ankommen.', failed: 'Fehlgeschlagen auf: {list}.', ios: 'iPhone', android: 'Android', web: 'Browser' },
+  it: { send: 'Invia una notifica di prova', sending: 'Invio…', none: 'Nessun dispositivo registrato per ora.', sent: 'Inviata a {n} dispositivo/i: {list}. Dovrebbe arrivare tra pochi secondi.', failed: 'Non riuscita su: {list}.', ios: 'iPhone', android: 'Android', web: 'browser' },
+  es: { send: 'Enviar una notificación de prueba', sending: 'Enviando…', none: 'Ningún dispositivo registrado por ahora.', sent: 'Enviada a {n} dispositivo(s): {list}. Debería llegar en unos segundos.', failed: 'Error en: {list}.', ios: 'iPhone', android: 'Android', web: 'navegador' },
+  pt: { send: 'Enviar uma notificação de teste', sending: 'A enviar…', none: 'Nenhum dispositivo registado por agora.', sent: 'Enviada para {n} dispositivo(s): {list}. Deve chegar dentro de alguns segundos.', failed: 'Falhou em: {list}.', ios: 'iPhone', android: 'Android', web: 'navegador' },
+  nl: { send: 'Testmelding versturen', sending: 'Bezig met versturen…', none: 'Nog geen apparaat geregistreerd.', sent: 'Verstuurd naar {n} apparaat/apparaten: {list}. Hij komt binnen enkele seconden aan.', failed: 'Mislukt op: {list}.', ios: 'iPhone', android: 'Android', web: 'browser' },
+};
+const tt = (key, locale) => (TEST_TEXT[locale] || TEST_TEXT.fr)[key] ?? TEST_TEXT.fr[key];
+
 export default function PushNotificationManager({ emailConnected = true, onStatusChange }) {
   const [locale] = useLocale();
   const [supported, setSupported] = useState(true);
@@ -66,6 +78,32 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState(null);
+
+  async function sendTest() {
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const res = await fetch('/api/push/test', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTestMsg(body.error || t('common.error', locale));
+      } else if (!body.devices) {
+        setTestMsg(tt('none', locale));
+      } else {
+        const ok = (body.results || []).filter((r) => r.ok).map((r) => tt(r.channel, locale));
+        const ko = (body.results || []).filter((r) => !r.ok).map((r) => `${tt(r.channel, locale)} (${r.reason || '?'})`);
+        const parts = [];
+        if (ok.length) parts.push(tt('sent', locale).replace('{n}', String(ok.length)).replace('{list}', ok.join(', ')));
+        if (ko.length) parts.push(tt('failed', locale).replace('{list}', ko.join(', ')));
+        setTestMsg(parts.join(' '));
+      }
+    } catch {
+      setTestMsg(t('common.error', locale));
+    }
+    setTesting(false);
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -262,6 +300,12 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
           {busy ? t('push.enabling', locale) : t('push.enableOnDevice', locale)}
         </button>
       )}
+      {subscribed && (
+        <button type="button" className="push-test" onClick={sendTest} disabled={testing}>
+          {testing ? tt('sending', locale) : tt('send', locale)}
+        </button>
+      )}
+      {testMsg && <p className="push-hint">{testMsg}</p>}
       {permission === 'denied' && <p className="push-error">{t('push.blockedInBrowser', locale)}</p>}
       {subscribed && !emailConnected && <p className="push-hint">{t('push.emailTip', locale)}</p>}
       {error && <p className="push-error">{error}</p>}
@@ -281,6 +325,18 @@ export default function PushNotificationManager({ emailConnected = true, onStatu
           max-width: 100%;
           white-space: normal;
           text-align: left;
+        }
+        .push-test {
+          display: block;
+          margin-top: 0.45rem;
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--muted);
+          text-decoration: underline;
+          font-size: 0.8rem;
+          cursor: pointer;
+          font-family: inherit;
         }
         .push-btn.active {
           background: transparent;
