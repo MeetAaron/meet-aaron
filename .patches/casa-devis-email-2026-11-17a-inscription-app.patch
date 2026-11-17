@@ -1,0 +1,1076 @@
+From ed16e627c0d967ebb2f497a92533df11c8037bc0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 03:05:32 +0000
+Subject: [PATCH] Inscription possible dans l'app (paiement par email
+ d'activation) ; compte demo : plus de reinitialisation du mot de passe
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Applis iPhone / Android : « S'inscrire » de nouveau propose. Fondateur et
+  commercial sans code remplissent le formulaire dans l'app ; au lieu
+  d'ouvrir Stripe (interdit dans l'app, Apple 3.1.1 / Google Payments), un
+  email d'activation est envoye (app/api/checkout/email-link). Le lien
+  (chiffre, 14 jours, lib/signup-activation.ts) cree une session Stripe dans
+  le navigateur (app/api/checkout/resume). Pas de prix ni de mention de carte
+  dans l'app. Commercial avec code : inchange.
+- lib/signup-checkout.ts : creation de la session Stripe partagee entre le
+  site et le lien d'activation.
+- /onboarding/success : paiement fait sans session (navigateur) -> « retourne
+  dans l'app ».
+- Compte demo : demande de reinitialisation refusee avec une explication,
+  sans email ; reset-password refuse aussi le compte demo.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/auth/request-password-reset/route.ts |  11 +-
+ app/api/auth/reset-password/route.ts         |   8 +
+ app/api/checkout/email-link/route.ts         |  65 ++++++++
+ app/api/checkout/resume/route.ts             |  59 +++++++
+ app/api/checkout/route.ts                    | 166 +++----------------
+ app/login/page.jsx                           |   9 +-
+ app/onboarding/page.jsx                      | 122 ++++++++++++--
+ app/onboarding/success/page.jsx              |  41 ++++-
+ lib/account-emails.ts                        |  22 +++
+ lib/demo-guard.ts                            |  16 ++
+ lib/signup-activation.ts                     |  53 ++++++
+ lib/signup-checkout.ts                       | 158 ++++++++++++++++++
+ 12 files changed, 563 insertions(+), 167 deletions(-)
+ create mode 100644 app/api/checkout/email-link/route.ts
+ create mode 100644 app/api/checkout/resume/route.ts
+ create mode 100644 lib/signup-activation.ts
+ create mode 100644 lib/signup-checkout.ts
+
+diff --git a/app/api/auth/request-password-reset/route.ts b/app/api/auth/request-password-reset/route.ts
+index 8a8f809..5a66a96 100644
+--- a/app/api/auth/request-password-reset/route.ts
++++ b/app/api/auth/request-password-reset/route.ts
+@@ -23,6 +23,7 @@ import { passwordResetEmail } from '@/lib/account-emails';
+ import { normalizeLocale } from '@/lib/locale-instruction';
+ import { readJsonBody } from '@/lib/http';
+ import { resetCodeToken } from '@/lib/password-reset-code';
++import { isDemoCompany, DEMO_PASSWORD_MESSAGE } from '@/lib/demo-guard';
+ 
+ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
+ 
+@@ -50,11 +51,19 @@ export async function POST(request: NextRequest) {
+ 
+   const { data: user } = await supabaseAdmin
+     .from('users')
+-    .select('id, auth_user_id, first_name, email, locale')
++    .select('id, auth_user_id, first_name, email, locale, company_id')
+     .ilike('email', normalized)
+     .not('auth_user_id', 'is', null)
+     .maybeSingle();
+ 
++  // Compte de démonstration partagé : pas de réinitialisation (voir
++  // DEMO_PASSWORD_MESSAGE, lib/demo-guard.ts). Dire que c'est le compte démo
++  // ne révèle rien : son adresse est publique (notes de revue, testeurs).
++  if (user && (await isDemoCompany((user as any).company_id))) {
++    const key = String(locale || 'fr').slice(0, 2).toLowerCase();
++    return NextResponse.json({ error: DEMO_PASSWORD_MESSAGE[key] || DEMO_PASSWORD_MESSAGE.fr, demo: true }, { status: 403 });
++  }
++
+   if (user?.auth_user_id) {
+     const token = crypto.randomBytes(32).toString('hex');
+     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
+diff --git a/app/api/auth/reset-password/route.ts b/app/api/auth/reset-password/route.ts
+index a937c51..00a011e 100644
+--- a/app/api/auth/reset-password/route.ts
++++ b/app/api/auth/reset-password/route.ts
+@@ -9,6 +9,7 @@ import { readJsonBody } from '@/lib/http';
+ import { resetCodeToken } from '@/lib/password-reset-code';
+ import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
+ import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
++import { isDemoCompany, DEMO_PASSWORD_MESSAGE } from '@/lib/demo-guard';
+ 
+ export async function POST(request: NextRequest) {
+   const { token: linkToken, email, code, password } = await readJsonBody(request);
+@@ -72,6 +73,13 @@ export async function POST(request: NextRequest) {
+     return NextResponse.json({ error: expiredMessage }, { status: 400 });
+   }
+ 
++  // Second filet : jamais de nouveau mot de passe pour le compte démo, même
++  // avec un lien valide (lien demandé avant le 17/11/2026, par exemple).
++  const { data: owner } = await supabaseAdmin.from('users').select('company_id').eq('auth_user_id', row.auth_user_id).maybeSingle();
++  if (owner && (await isDemoCompany((owner as any).company_id))) {
++    return NextResponse.json({ error: DEMO_PASSWORD_MESSAGE.fr, demo: true }, { status: 403 });
++  }
++
+   const { error } = await supabaseAdmin.auth.admin.updateUserById(row.auth_user_id, { password });
+   if (error) {
+     console.error('Erreur changement de mot de passe (reset):', error.message);
+diff --git a/app/api/checkout/email-link/route.ts b/app/api/checkout/email-link/route.ts
+new file mode 100644
+index 0000000..9480fb3
+--- /dev/null
++++ b/app/api/checkout/email-link/route.ts
+@@ -0,0 +1,65 @@
++// app/api/checkout/email-link/route.ts
++// POST — inscription faite DANS L'APPLICATION iPhone / Android (17/11/2026).
++//
++// Même formulaire que sur le site, mais au lieu d'ouvrir le paiement Stripe
++// (interdit dans l'app : Apple 3.1.1, Google Payments), on envoie à la
++// personne un email avec un lien d'activation. Le paiement se fait ensuite
++// dans le navigateur ; au retour dans l'app, le compte est prêt (le webhook
++// Stripe crée la société et le profil, comme pour une inscription web).
++// Voir lib/signup-activation.ts et app/api/checkout/resume.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
++import { readJsonBody } from '@/lib/http';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { sendSystemEmail } from '@/lib/google';
++import { activationEmail } from '@/lib/account-emails';
++import { normalizeLocale } from '@/lib/locale-instruction';
++import { makeActivationToken } from '@/lib/signup-activation';
++import { checkRateLimit, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
++
++export async function POST(request: NextRequest) {
++  const identity = await getAuthedIdentity(request);
++  if (!identity) return unauthorizedResponse();
++  const { auth_user_id, email } = identity;
++
++  const { first_name, full_name, company_name, country, locale, role, billing_interval } = await readJsonBody(request);
++  const clean = (v: any, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
++  const firstName = clean(first_name, 80);
++  const fullName = clean(full_name, 160);
++  const companyName = clean(company_name, 160);
++  const countryName = clean(country, 80);
++  if (!firstName || !fullName || !companyName || !countryName) {
++    return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
++  }
++
++  // Trois emails par heure au plus pour une même adresse.
++  const limit = await checkRateLimit(emailKey('activation', email), 3, 60 * 60 * 1000);
++  if (!limit.ok) return tooManyRequestsResponse(limit.retryAfterSeconds);
++
++  // Déjà un espace : rien à activer.
++  const { data: existing } = await supabaseAdmin.from('users').select('id').eq('auth_user_id', auth_user_id).maybeSingle();
++  if (existing) return NextResponse.json({ already: true });
++
++  const lang = normalizeLocale(typeof locale === 'string' ? locale : null);
++  const token = makeActivationToken({
++    auth_user_id,
++    email,
++    first_name: firstName,
++    full_name: fullName,
++    company_name: companyName,
++    country: countryName,
++    locale: lang,
++    role: role === 'commercial' ? 'commercial' : 'patron',
++    billing_interval: billing_interval === 'year' ? 'year' : 'month',
++  });
++  const link = `${request.nextUrl.origin}/api/checkout/resume?t=${encodeURIComponent(token)}`;
++  const mail = activationEmail(lang, link, firstName);
++  try {
++    await sendSystemEmail(email, mail.subject, mail.body, lang);
++  } catch (err: any) {
++    console.error('Email d’activation non envoyé:', err?.message || err);
++    return NextResponse.json({ error: "Impossible d'envoyer l'email pour le moment — écris-nous à aaron@meetaaron.app" }, { status: 502 });
++  }
++  return NextResponse.json({ sent: true, email });
++}
+diff --git a/app/api/checkout/resume/route.ts b/app/api/checkout/resume/route.ts
+new file mode 100644
+index 0000000..40508f5
+--- /dev/null
++++ b/app/api/checkout/resume/route.ts
+@@ -0,0 +1,59 @@
++// app/api/checkout/resume/route.ts
++// GET ?t=<jeton> — lien de l'email d'activation (voir app/api/checkout/
++// email-link). Ouvert dans le navigateur (les adresses /api/* ne sont pas
++// des liens universels de l'app, voir app/api/ios/aasa) : crée une session
++// Stripe neuve avec les informations du formulaire et y redirige.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { readActivationToken } from '@/lib/signup-activation';
++import { createSignupCheckoutSession, SignupCheckoutError } from '@/lib/signup-checkout';
++
++export const dynamic = 'force-dynamic';
++
++const PAGE_TEXT: Record<string, { expired: string; done: string; error: string; back: string }> = {
++  fr: { expired: "Ce lien d'activation est expiré ou incomplet. Ouvre l'application Meet Aaron et refais la dernière étape pour en recevoir un nouveau.", done: "Ton espace Meet Aaron est déjà actif. Ouvre l'application, ou connecte-toi sur meetaaron.app.", error: 'Le paiement ne peut pas s’ouvrir pour le moment. Réessaie dans quelques minutes, ou écris-nous à aaron@meetaaron.app.', back: 'Aller sur Meet Aaron' },
++  en: { expired: 'This activation link has expired or is incomplete. Open the Meet Aaron app and redo the last step to receive a new one.', done: 'Your Meet Aaron space is already active. Open the app, or sign in at meetaaron.app.', error: 'The payment page cannot open right now. Try again in a few minutes, or write to aaron@meetaaron.app.', back: 'Go to Meet Aaron' },
++  de: { expired: 'Dieser Aktivierungslink ist abgelaufen oder unvollständig. Öffne die Meet-Aaron-App und wiederhole den letzten Schritt, um einen neuen zu erhalten.', done: 'Dein Meet-Aaron-Bereich ist bereits aktiv. Öffne die App oder melde dich auf meetaaron.app an.', error: 'Die Zahlungsseite lässt sich gerade nicht öffnen. Versuche es in ein paar Minuten erneut oder schreib an aaron@meetaaron.app.', back: 'Zu Meet Aaron' },
++  it: { expired: "Questo link di attivazione è scaduto o incompleto. Apri l'app Meet Aaron e ripeti l'ultimo passaggio per riceverne uno nuovo.", done: "Il tuo spazio Meet Aaron è già attivo. Apri l'app o accedi su meetaaron.app.", error: 'La pagina di pagamento non si apre al momento. Riprova tra qualche minuto o scrivi a aaron@meetaaron.app.', back: 'Vai su Meet Aaron' },
++  es: { expired: 'Este enlace de activación ha caducado o está incompleto. Abre la aplicación Meet Aaron y repite el último paso para recibir uno nuevo.', done: 'Tu espacio Meet Aaron ya está activo. Abre la aplicación o inicia sesión en meetaaron.app.', error: 'La página de pago no se puede abrir ahora. Inténtalo de nuevo en unos minutos o escribe a aaron@meetaaron.app.', back: 'Ir a Meet Aaron' },
++  pt: { expired: 'Este link de ativação expirou ou está incompleto. Abre a aplicação Meet Aaron e repete o último passo para receberes um novo.', done: 'O teu espaço Meet Aaron já está ativo. Abre a aplicação ou inicia sessão em meetaaron.app.', error: 'A página de pagamento não abre de momento. Tenta de novo dentro de alguns minutos ou escreve para aaron@meetaaron.app.', back: 'Ir para o Meet Aaron' },
++  nl: { expired: 'Deze activeringslink is verlopen of onvolledig. Open de Meet Aaron-app en herhaal de laatste stap om een nieuwe te ontvangen.', done: 'Je Meet Aaron-omgeving is al actief. Open de app of log in op meetaaron.app.', error: 'De betaalpagina kan nu niet worden geopend. Probeer het over een paar minuten opnieuw of schrijf naar aaron@meetaaron.app.', back: 'Naar Meet Aaron' },
++};
++
++function page(locale: string, kind: 'expired' | 'done' | 'error', status: number) {
++  const T = PAGE_TEXT[locale] || PAGE_TEXT.fr;
++  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
++  const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Meet Aaron</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0e1a;font-family:-apple-system,system-ui,sans-serif;padding:1.25rem}.c{max-width:400px;background:#131629;border:1px solid #232744;border-radius:16px;padding:2rem 1.5rem;text-align:center;color:#f4f1ea}img{width:48px;height:48px;border-radius:12px}p{color:#a3a9c2;line-height:1.5}a{display:inline-block;margin-top:.6rem;background:#4b39ef;color:#fff;text-decoration:none;border-radius:10px;padding:.7rem 1.1rem;font-weight:600}</style></head><body><div class="c"><img src="/icon.png" alt="Meet Aaron"><p>${esc(T[kind])}</p><a href="/login">${esc(T.back)}</a></div></body></html>`;
++  return new NextResponse(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
++}
++
++export async function GET(request: NextRequest) {
++  const data = readActivationToken(request.nextUrl.searchParams.get('t'));
++  const guessLocale = (request.headers.get('accept-language') || 'fr').slice(0, 2).toLowerCase();
++  if (!data) return page(PAGE_TEXT[guessLocale] ? guessLocale : 'fr', 'expired', 400);
++  const locale = PAGE_TEXT[data.locale] ? data.locale : 'fr';
++
++  // Déjà payé (lien recliqué après coup) : pas de deuxième abonnement.
++  const { data: existing } = await supabaseAdmin.from('users').select('id').eq('auth_user_id', data.auth_user_id).maybeSingle();
++  if (existing) return page(locale, 'done', 200);
++
++  try {
++    const url = await createSignupCheckoutSession({
++      ...data,
++      origin: request.nextUrl.origin,
++      // Retour de Stripe dans le NAVIGATEUR, où la personne n'est en
++      // général pas connectée : la page de succès le gère (via=email).
++      successPath: '/onboarding/success?session_id={CHECKOUT_SESSION_ID}&via=email',
++      cancelPath: '/login',
++    });
++    return NextResponse.redirect(url, 303);
++  } catch (err: any) {
++    if (!(err instanceof SignupCheckoutError)) {
++      console.error('Lien d’activation : session Stripe impossible', { type: err?.type || null, code: err?.code || null });
++    } else {
++      console.error('Lien d’activation :', err.message);
++    }
++    return page(locale, 'error', 502);
++  }
++}
+diff --git a/app/api/checkout/route.ts b/app/api/checkout/route.ts
+index d15dc32..9525ea7 100644
+--- a/app/api/checkout/route.ts
++++ b/app/api/checkout/route.ts
+@@ -4,87 +4,21 @@
+ // puisse créer la société + le profil utilisateur une fois le paiement confirmé.
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+-import { stripe, managedPaymentsParams } from '@/lib/stripe';
+ import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
+-import { ModuleCode, getModulePriceId, getAaronYearlyPriceId, currencyForCountry } from '@/lib/subscription';
++import { createSignupCheckoutSession, SignupCheckoutError } from '@/lib/signup-checkout';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
+-// Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
+-// de tarif sans redeployer. Le repli en dur a ete retire le 09/10/2026 : il
+-// pointait vers un prix du compte Stripe Singapour, qui n'existe pas sur le
+-// compte Australie passe en reel le 18/09. Voir lib/subscription.ts pour le
+-// raisonnement complet — getAaronPriceId() leve desormais une erreur claire
+-// si la variable manque, au lieu de viser un prix mort.
+-
+-// Choix des modules à l'inscription (demande d'Alex 2026-08-17) : l'onboarding
+-// ne propose plus uniquement Aaron Prospect — le futur patron choisit 1, 2 ou
+-// les 3 modules (Aaron Prospect/Opportunités/Clients) dès la création du
+-// compte, chacun devenant sa propre ligne d'abonnement Stripe (même
+-// architecture "un abonnement, plusieurs subscription items" que la bascule
+-// après-coup dans Préférences, voir lib/subscription.ts et
+-// app/api/subscription/modules/route.ts). Les trois modules passent
+-// desormais par getModulePriceId : Aaron Prospect leve une erreur explicite
+-// si sa variable manque, Opportunites/Clients renvoient null si la leur
+-// n'est pas configuree.
+-function priceIdFor(module: ModuleCode): string | null {
+-  return getModulePriceId(module);
+-}
+-
+-// Marchés visés pour l'expansion internationale (voir statut projet) :
+-// Portugal, Espagne, France, Belgique, Pays-Bas, Allemagne, Italie, UK,
+-// Australie, USA. Stripe Checkout gère déjà nativement la TVA UE/UK, la GST
+-// australienne et la sales tax américaine via Stripe Tax (automatic_tax
+-// ci-dessous) — à condition que Stripe Tax soit activé et qu'un
+-// enregistrement fiscal (tax registration) existe pour chaque pays où on
+-// veut réellement collecter la taxe. Je ne crée PAS ces enregistrements
+-// depuis le code : c'est une décision fiscale/légale par pays qui doit
+-// rester entre les mains d'Alex (et de son comptable), pas quelque chose
+-// qu'Aaron décide unilatéralement même si l'API Stripe le permettrait
+-// techniquement (stripe.tax.registrations.create). Voir la note dans le
+-// statut projet pour la marche à suivre côté Dashboard Stripe.
+-
+-// Correspondance locale interne (lib/i18n.js) -> code de langue Stripe
+-// Checkout (liste officielle Stripe, sous-ensemble pertinent ici). 'auto'
+-// : Stripe détecte la langue du navigateur si aucune valeur reconnue n'est
+-// fournie.
+-const STRIPE_LOCALE_MAP: Record<string, string> = {
+-  fr: 'fr', en: 'en', de: 'de', it: 'it', es: 'es', pt: 'pt', nl: 'nl',
+-};
++// Le calcul de la session (prix, devise, taxes, métadonnées lues par le
++// webhook) vit dans lib/signup-checkout.ts depuis le 17/11/2026, partagé avec
++// le lien d'activation envoyé par email (app/api/checkout/resume).
+ 
+ export async function POST(request: NextRequest) {
+-  const { first_name, full_name, company_name, country, locale, modules, role, billing_interval } = await readJsonBody(request);
++  const { first_name, full_name, company_name, country, locale, role, billing_interval } = await readJsonBody(request);
+ 
+   if (!first_name || !full_name || !company_name || !country) {
+     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
+   }
+ 
+-  // Repli sur ['AP'] seul si le payload n'envoie rien de reconnu (ancien
+-  // frontend pas encore redéployé, ou appel externe) — comportement identique
+-  // à avant cette évolution.
+-  // Abonnement unique Aaron (décision Alex, 31/08/2026) : quel que soit le
+-  // choix envoyé par le frontend (ancienne sélection de modules), le
+-  // Checkout ne vend plus qu'UNE ligne — le prix Aaron à 30 €/mois (ex prix
+-  // "AP"). Le webhook active ensuite les 3 drapeaux de modules.
+-  void modules;
+-  const selectedModules: ModuleCode[] = ['AP'];
+-
+-  // TARIF ANNUEL (06/11/2026) : billing_interval 'year' → le Price annuel.
+-  // S'il n'est pas configuré, on REFUSE (501) plutôt que de prélever un
+-  // mensuel à quelqu'un qui a choisi l'année — l'écran d'inscription ne
+-  // propose l'annuel que si NEXT_PUBLIC_YEARLY_PLAN vaut "1".
+-  const yearly = billing_interval === 'year';
+-  const lineItems: { price: string; quantity: number }[] = [];
+-  for (const mod of selectedModules) {
+-    const priceId = yearly ? getAaronYearlyPriceId() : priceIdFor(mod);
+-    if (!priceId) {
+-      return NextResponse.json(
+-        { error: yearly ? "Tarif annuel pas encore configuré côté serveur (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY manquant)." : `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
+-        { status: 501 }
+-      );
+-    }
+-    lineItems.push({ price: priceId, quantity: 1 });
+-  }
+-
+   // auth_user_id et email proviennent du token vérifié : sinon, quelqu'un pourrait
+   // payer un abonnement en indiquant l'UUID Supabase Auth d'une autre personne dans
+   // les metadata, et le webhook Stripe créerait alors un compte "patron" au nom de
+@@ -93,82 +27,24 @@ export async function POST(request: NextRequest) {
+   if (!identity) return unauthorizedResponse();
+   const { auth_user_id, email } = identity;
+ 
+-  const origin = request.nextUrl.origin;
+-
+-  const currency = currencyForCountry(country);
+-  const sessionParams: Record<string, any> = {
+-      mode: 'subscription',
+-      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
+-      ...managedPaymentsParams(),
+-      customer_email: email,
+-      line_items: lineItems,
+-      allow_promotion_codes: true,
+-      // Adresse de facturation complète (rue, ville, code postal) requise pour
+-      // pouvoir générer une vraie facture — avant, seul le pays était demandé.
+-      billing_address_collection: 'required',
+-      // Calcule automatiquement la TVA/GST/sales tax selon le pays de
+-      // facturation renseigné par le client (UE, UK, Australie, USA...).
+-      // Nécessite Stripe Tax activé + un enregistrement fiscal pour le pays
+-      // concerné côté Dashboard Stripe (voir note ci-dessus) — sans ça,
+-      // Stripe ignore simplement ce paramètre et ne facture aucune taxe,
+-      // donc pas de risque de casser le paiement en attendant.
+-      automatic_tax: { enabled: true },
+-      // Permet à un client professionnel de renseigner son numéro de TVA
+-      // intracommunautaire (autoliquidation en B2B UE) directement dans le
+-      // Checkout, sur la facture générée automatiquement par Stripe.
+-      tax_id_collection: { enabled: true },
+-      // Langue du Checkout alignée sur la langue choisie dans l'app (voir
+-      // lib/i18n.js) quand elle est reconnue par Stripe, sinon détection
+-      // automatique du navigateur.
+-      locale: (STRIPE_LOCALE_MAP[locale] as any) || 'auto',
+-      success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
+-      cancel_url: `${origin}/onboarding`,
+-      metadata: {
+-        auth_user_id,
+-        email,
+-        first_name,
+-        full_name,
+-        company_name,
+-        country,
+-        billing_interval: yearly ? 'year' : 'month',
+-        // Modules choisis à l'inscription — lu par le webhook
+-        // (checkout.session.completed) pour activer les bons booléens
+-        // offer_ap_active/offer_as_active/offer_ac_active à la création de
+-        // la société. Même convention que purpose:'reactivate_subscription'
+-        // (app/api/subscription/modules/route.ts), qui utilise déjà un
+-        // champ metadata.modules en liste séparée par des virgules.
+-        modules: selectedModules.join(','),
+-        // 'patron' (fondateur/dirigeant, valeur par défaut) ou 'commercial'
+-        // (commercial solo qui paie lui-même — pas de code d'activation
+-        // entreprise). Lu par le webhook pour renseigner users.role au lieu
+-        // de forcer 'patron' pour tout le monde (demande Alex 25/08 : un
+-        // commercial solo payant seul ne doit pas hériter des permissions
+-        // "fondateur", ex. voir "Mon équipe" dans le menu).
+-        role: role === 'commercial' ? 'commercial' : 'patron',
+-      },
+-  };
+-
+   try {
+-    // Devise selon le pays de facturation : on tente avec la devise du
+-    // client (currency_options du Price côté Stripe), et si le Price n'a pas
+-    // encore cette option on réessaie en EUR — jamais de paiement cassé.
+-    let session;
+-    try {
+-      // La devise est TOUJOURS passée, euro compris (06/11/2026) : le prix
+-      // annuel a été créé avec le dollar australien comme devise de base, et
+-      // sans `currency` Stripe facturerait un client français en AUD.
+-      session = await stripe.checkout.sessions.create({ ...sessionParams, currency });
+-    } catch (err: any) {
+-      const msg = String(err?.message || '').toLowerCase();
+-      if (/currenc/.test(msg)) {
+-        console.error(`Devise ${currency} non configurée sur le Price Stripe, repli EUR:`, err?.message);
+-        session = await stripe.checkout.sessions.create(sessionParams);
+-      } else {
+-        throw err;
+-      }
+-    }
+-    return NextResponse.json({ url: session.url });
++    const url = await createSignupCheckoutSession({
++      auth_user_id,
++      email,
++      first_name,
++      full_name,
++      company_name,
++      country,
++      locale,
++      role,
++      billing_interval,
++      origin: request.nextUrl.origin,
++    });
++    return NextResponse.json({ url });
+   } catch (err: any) {
++    if (err instanceof SignupCheckoutError) {
++      return NextResponse.json({ error: err.message }, { status: err.status });
++    }
+     console.error('Erreur création session Stripe:', { type: (err as any)?.type || null, code: (err as any)?.code || null, requestId: (err as any)?.requestId || null }); // jamais l'objet d'erreur complet (CASA 6.5.1)
+     return serverError(err, '/api/checkout');
+   }
+diff --git a/app/login/page.jsx b/app/login/page.jsx
+index c2481d3..1f6038e 100644
+--- a/app/login/page.jsx
++++ b/app/login/page.jsx
+@@ -94,10 +94,9 @@ export default function LoginPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
+-  // Applications iPhone / Android (13/11/2026) : la création de compte ne se
+-  // fait pas dans l'app (voir app/onboarding, « native.signupNotInApp »). Le
+-  // lien « Pas encore de compte ? S'inscrire » y créait pourtant un compte
+-  // qui aboutissait sur un cul-de-sac. On le masque dans la coque.
++  // Applications iPhone / Android : « S'inscrire » est de nouveau proposé
++  // (17/11/2026). Le paiement se fait par un email d'activation, voir
++  // app/onboarding (NATIVE_TEXT) et app/api/checkout/email-link.
+   const [storeApp, setStoreApp] = useState(false);
+   useEffect(() => { setStoreApp(isStoreApp()); }, []);
+   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
+@@ -633,7 +632,7 @@ export default function LoginPage() {
+           <button className="link-toggle" onClick={() => { setMode('signin'); setError(null); setMessage(null); }}>
+             {t('auth.backToSignin', locale)}
+           </button>
+-        ) : storeApp && mode === 'signin' ? null : (
++        ) : (
+           <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
+             {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
+           </button>
+diff --git a/app/onboarding/page.jsx b/app/onboarding/page.jsx
+index 7ff3959..2e42e28 100644
+--- a/app/onboarding/page.jsx
++++ b/app/onboarding/page.jsx
+@@ -526,13 +526,34 @@ function LangPicker({ locale, setLocale }) {
+   );
+ }
+ 
++// INSCRIPTION DANS L'APPLICATION iPhone / Android (17/11/2026, demande
++// d'Alex : « quiconque, fondateur ou commercial, doit pouvoir créer son
++// compte dans l'appli ; pour Stripe, ça doit passer par le navigateur »).
++//
++// Tout le parcours reste le même, sauf le paiement : l'app ne peut ni vendre
++// l'abonnement ni afficher un bouton qui mène au paiement sur le site
++// (Apple 3.1.1, règlement Paiements de Google). On envoie donc un email
++// d'activation (app/api/checkout/email-link) et on n'affiche dans l'app ni
++// prix ni mention de carte. Le commercial invité par un code, lui, ne paie
++// rien : son parcours est identique au site.
++const NATIVE_TEXT = {
++  fr: { patronDesc: "Je crée l'espace Meet Aaron de mon entreprise. Je pourrai ajouter mon équipe plus tard.", ownDesc: "Je n'ai pas de code : je crée mon propre espace Meet Aaron.", createSub: 'Quelques infos pour créer votre espace.', submit: 'Créer mon espace', sending: 'Envoi…', sentTitle: 'Plus qu’une étape', sentBody: "Ton compte est créé. Pour ouvrir ton espace, suis les instructions envoyées à {email}.", sentCheck: 'C’est fait, continuer', sentPending: "Ton espace n'est pas encore ouvert. Termine l'étape décrite dans l'email, puis réessaie.", resend: "Renvoyer l'email", resent: 'Email renvoyé.' },
++  en: { patronDesc: 'I create my company’s Meet Aaron space. I can add my team later.', ownDesc: 'I have no code: I create my own Meet Aaron space.', createSub: 'A few details to create your space.', submit: 'Create my space', sending: 'Sending…', sentTitle: 'One last step', sentBody: 'Your account has been created. To open your space, follow the instructions sent to {email}.', sentCheck: 'Done, continue', sentPending: 'Your space is not open yet. Finish the step described in the email, then try again.', resend: 'Resend the email', resent: 'Email sent again.' },
++  de: { patronDesc: 'Ich lege den Meet-Aaron-Bereich meines Unternehmens an. Mein Team kann ich später hinzufügen.', ownDesc: 'Ich habe keinen Code: Ich lege meinen eigenen Meet-Aaron-Bereich an.', createSub: 'Ein paar Angaben, um Ihren Bereich anzulegen.', submit: 'Meinen Bereich anlegen', sending: 'Wird gesendet…', sentTitle: 'Noch ein Schritt', sentBody: 'Dein Konto ist erstellt. Um deinen Bereich zu öffnen, folge den Anweisungen, die an {email} gesendet wurden.', sentCheck: 'Erledigt, weiter', sentPending: 'Dein Bereich ist noch nicht geöffnet. Schließe den in der E-Mail beschriebenen Schritt ab und versuche es dann erneut.', resend: 'E-Mail erneut senden', resent: 'E-Mail erneut gesendet.' },
++  it: { patronDesc: 'Creo lo spazio Meet Aaron della mia azienda. Potrò aggiungere il mio team più tardi.', ownDesc: 'Non ho un codice: creo il mio spazio Meet Aaron.', createSub: 'Qualche informazione per creare il tuo spazio.', submit: 'Crea il mio spazio', sending: 'Invio…', sentTitle: 'Manca un passaggio', sentBody: 'Il tuo account è stato creato. Per aprire il tuo spazio, segui le istruzioni inviate a {email}.', sentCheck: 'Fatto, continua', sentPending: "Il tuo spazio non è ancora aperto. Completa il passaggio descritto nell'email, poi riprova.", resend: "Invia di nuovo l'email", resent: 'Email inviata di nuovo.' },
++  es: { patronDesc: 'Creo el espacio Meet Aaron de mi empresa. Podré añadir a mi equipo más adelante.', ownDesc: 'No tengo código: creo mi propio espacio Meet Aaron.', createSub: 'Unos datos para crear tu espacio.', submit: 'Crear mi espacio', sending: 'Enviando…', sentTitle: 'Un último paso', sentBody: 'Tu cuenta está creada. Para abrir tu espacio, sigue las instrucciones enviadas a {email}.', sentCheck: 'Hecho, continuar', sentPending: 'Tu espacio aún no está abierto. Completa el paso descrito en el correo y vuelve a intentarlo.', resend: 'Reenviar el correo', resent: 'Correo reenviado.' },
++  pt: { patronDesc: 'Crio o espaço Meet Aaron da minha empresa. Posso adicionar a minha equipa mais tarde.', ownDesc: 'Não tenho código: crio o meu próprio espaço Meet Aaron.', createSub: 'Alguns dados para criar o teu espaço.', submit: 'Criar o meu espaço', sending: 'A enviar…', sentTitle: 'Falta um passo', sentBody: 'A tua conta foi criada. Para abrir o teu espaço, segue as instruções enviadas para {email}.', sentCheck: 'Feito, continuar', sentPending: 'O teu espaço ainda não está aberto. Conclui o passo descrito no email e tenta de novo.', resend: 'Reenviar o email', resent: 'Email reenviado.' },
++  nl: { patronDesc: 'Ik maak de Meet Aaron-omgeving van mijn bedrijf aan. Mijn team kan ik later toevoegen.', ownDesc: 'Ik heb geen code: ik maak mijn eigen Meet Aaron-omgeving aan.', createSub: 'Een paar gegevens om je omgeving aan te maken.', submit: 'Mijn omgeving aanmaken', sending: 'Bezig met verzenden…', sentTitle: 'Nog één stap', sentBody: 'Je account is aangemaakt. Volg de instructies die naar {email} zijn gestuurd om je omgeving te openen.', sentCheck: 'Klaar, doorgaan', sentPending: 'Je omgeving is nog niet open. Rond de stap uit de e-mail af en probeer het daarna opnieuw.', resend: 'E-mail opnieuw sturen', resent: 'E-mail opnieuw verstuurd.' },
++};
++const nt = (key, locale) => (NATIVE_TEXT[locale] || NATIVE_TEXT.fr)[key] ?? NATIVE_TEXT.fr[key];
++
+ export default function OnboardingPage() {
+   const router = useRouter();
+   const [locale, setLocale] = useLocale();
+   const [checking, setChecking] = useState(true);
+-  // Application iOS (coque Capacitor) : pas d'inscription ni de paiement
+-  // dans l'app (règle Apple 3.1.1). Détecté après montage : au rendu serveur
+-  // on ne sait pas encore d'où vient la page.
++  // Application iPhone / Android : inscription permise, paiement par un
++  // email d'activation (voir NATIVE_TEXT plus haut). Détecté après montage :
++  // au rendu serveur on ne sait pas encore d'où vient la page.
+   const [native, setNative] = useState(false);
+   useEffect(() => {
+     setNative(isStoreApp());
+@@ -563,6 +584,10 @@ export default function OnboardingPage() {
+   const [inviteCode, setInviteCode] = useState('');
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState(null);
++  // Application : email d'activation envoyé (adresse), et retour de l'app au
++  // premier plan après le paiement dans le navigateur.
++  const [activationSentTo, setActivationSentTo] = useState(null);
++  const [activationNote, setActivationNote] = useState(null);
+ 
+   useEffect(() => {
+     async function checkExisting() {
+@@ -618,6 +643,11 @@ export default function OnboardingPage() {
+     setSubmitting(true);
+     setError(null);
+ 
++    if (native) {
++      await sendActivationEmail();
++      return;
++    }
++
+     const res = await fetch('/api/checkout', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+@@ -651,6 +681,59 @@ export default function OnboardingPage() {
+     window.location.href = body.url;
+   }
+ 
++  // Application : envoi (ou renvoi) de l'email d'activation.
++  async function sendActivationEmail(isResend = false) {
++    setSubmitting(true);
++    setError(null);
++    const res = await fetch('/api/checkout/email-link', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({
++        first_name: firstName.trim(),
++        full_name: `${firstName.trim()} ${lastName.trim()}`.trim(),
++        company_name: companyName,
++        country,
++        locale,
++        billing_interval: yearlyOffered ? billing : 'month',
++        role: personRole,
++      }),
++    });
++    const body = await res.json().catch(() => ({}));
++    setSubmitting(false);
++    if (body.already) {
++      router.push('/app/bienvenue');
++      return;
++    }
++    if (!res.ok || !body.sent) {
++      setError(body.error || 'Une erreur est survenue');
++      return;
++    }
++    setActivationSentTo(body.email || session?.user?.email || '');
++    setActivationNote(isResend ? nt('resent', locale) : null);
++  }
++
++  // « C'est fait, continuer » (et retour de l'app au premier plan) : le
++  // webhook Stripe a-t-il créé l'espace ?
++  async function checkActivated(showPending) {
++    const res = await fetch('/api/auth/link', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ auth_user_id: session?.user?.id, email: session?.user?.email }),
++    }).catch(() => null);
++    if (res && res.ok) {
++      router.push('/app/bienvenue');
++      return;
++    }
++    if (showPending) setActivationNote(nt('sentPending', locale));
++  }
++  useEffect(() => {
++    if (!activationSentTo) return undefined;
++    const onVisible = () => { if (document.visibilityState === 'visible') checkActivated(false); };
++    document.addEventListener('visibilitychange', onVisible);
++    return () => document.removeEventListener('visibilitychange', onVisible);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [activationSentTo]);
++
+   async function handleJoinCompany(e) {
+     e.preventDefault();
+     setSubmitting(true);
+@@ -693,15 +776,20 @@ export default function OnboardingPage() {
+     );
+   }
+ 
+-  if (native) {
++  if (native && activationSentTo) {
+     return (
+       <div className="wrap">
+         <div className="card">
+           <img src="/icon.png" alt="Meet Aaron" className="logo" />
+-          <h1>{st('welcome', locale)}</h1>
+-          <p className="subtitle">{t('native.signupNotInApp', locale)}</p>
+-          <button type="button" className="role-btn" onClick={() => router.push('/login')}>
+-            <span className="role-title">{t('auth.signIn', locale)}</span>
++          <h1>{nt('sentTitle', locale)}</h1>
++          <p className="subtitle">{nt('sentBody', locale).replace('{email}', activationSentTo)}</p>
++          {activationNote && <p className="note">{activationNote}</p>}
++          {error && <p className="note">{error}</p>}
++          <button type="button" className="role-btn" onClick={() => checkActivated(true)}>
++            <span className="role-title">{nt('sentCheck', locale)}</span>
++          </button>
++          <button type="button" className="link-btn" disabled={submitting} onClick={() => sendActivationEmail(true)}>
++            {submitting ? nt('sending', locale) : nt('resend', locale)}
+           </button>
+         </div>
+         <style jsx>{`
+@@ -709,8 +797,10 @@ export default function OnboardingPage() {
+           .card { max-width: 420px; width: 100%; text-align: center; background: #141a2e; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2rem 1.5rem; color: #f3f4f8; font-family: 'Inter', sans-serif; }
+           .logo { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 1rem; }
+           h1 { font-size: 1.3rem; margin: 0 0 0.6rem; }
+-          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.4rem; }
+-          .role-btn { width: 100%; background: #5b6cff; border: none; color: #fff; border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
++          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.2rem; word-break: break-word; }
++          .note { color: #f5a623; font-size: 0.88rem; line-height: 1.45; margin: 0 0 1rem; }
++          .role-btn { width: 100%; background: #4b39ef; border: none; color: #fff; border-radius: 10px; padding: 0.85rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
++          .link-btn { margin-top: 0.9rem; background: none; border: none; color: #8b90a8; text-decoration: underline; font-size: 0.86rem; cursor: pointer; font-family: inherit; }
+         `}</style>
+       </div>
+     );
+@@ -736,7 +826,7 @@ export default function OnboardingPage() {
+ 
+               <button type="button" className="role-btn" onClick={() => setPersonRole('patron')}>
+                 <span className="role-title">{st('rolePatron', locale)}</span>
+-                <span className="role-desc">{st('rolePatronDesc', locale)}</span>
++                <span className="role-desc">{native ? nt('patronDesc', locale) : st('rolePatronDesc', locale)}</span>
+               </button>
+ 
+               <button type="button" className="role-btn" onClick={() => setPersonRole('commercial')}>
+@@ -760,7 +850,7 @@ export default function OnboardingPage() {
+ 
+               <button type="button" className="role-btn" onClick={() => setSignupPath('own_space')}>
+                 <span className="role-title">{st('pathOwn', locale)}</span>
+-                <span className="role-desc">{st('pathOwnDesc', locale)}</span>
++                <span className="role-desc">{native ? nt('ownDesc', locale) : st('pathOwnDesc', locale)}</span>
+               </button>
+ 
+               <button type="button" className="link-back" onClick={() => setPersonRole(null)}>
+@@ -861,7 +951,7 @@ export default function OnboardingPage() {
+           <LangPicker locale={locale} setLocale={setLocale} />
+           <img src="/icon.png" alt="Meet Aaron" className="logo" />
+           <h1>{st('createTitle', locale)}</h1>
+-          <p className="subtitle">{st('createSub', locale)}</p>
++          <p className="subtitle">{native ? nt('createSub', locale) : st('createSub', locale)}</p>
+ 
+           <div className="name-row">
+             <label>
+@@ -915,6 +1005,7 @@ export default function OnboardingPage() {
+               une seule offre à 30 €/mois qui inclut prospection,
+               opportunités et suivi client. selectedModules reste ['AP']
+               (le prix Aaron côté Stripe est l'ancien prix "AP"). */}
++          {!native && (
+           <div className="modules-field">
+             <span className="modules-label">{st('subscription', locale)}</span>
+             <div className="modules-grid">
+@@ -945,6 +1036,7 @@ export default function OnboardingPage() {
+             )}
+             <p className="modules-hint">{st('offerHint', locale)}</p>
+           </div>
++          )}
+ 
+           {/* Rassurance avant la case a cocher.
+               17/09/2026 (demande Alex) : l'ancienne version nommait les
+@@ -977,7 +1069,9 @@ export default function OnboardingPage() {
+           {error && <p className="error">{error}</p>}
+ 
+           <button type="submit" className="btn-primary" disabled={submitting || selectedModules.length === 0}>
+-            {submitting ? st('redirecting', locale) : st('continuePay', locale)}
++            {native
++              ? (submitting ? nt('sending', locale) : nt('submit', locale))
++              : (submitting ? st('redirecting', locale) : st('continuePay', locale))}
+           </button>
+ 
+           <button
+diff --git a/app/onboarding/success/page.jsx b/app/onboarding/success/page.jsx
+index cb7c02c..79119ec 100644
+--- a/app/onboarding/success/page.jsx
++++ b/app/onboarding/success/page.jsx
+@@ -9,42 +9,56 @@ import { useLocale } from '@/lib/i18n';
+ // 7 langues (06/11/2026, retour Alex : « tout n'est pas traduit »).
+ const SUCCESS_TEXT = {
+   "fr": {
++    "backToApp": "Ton espace est prêt. Retourne dans l'application Meet Aaron, ou connecte-toi sur ce site.",
++    "signin": "Se connecter",
+     "paid": "Paiement confirmé !",
+     "preparing": "On prépare votre espace, un instant…",
+     "slow": "Ça prend un peu plus de temps que prévu",
+     "retry": "Rechargez cette page dans quelques secondes, ou contactez-nous si le problème persiste."
+   },
+   "en": {
++    "backToApp": "Your space is ready. Go back to the Meet Aaron app, or sign in on this website.",
++    "signin": "Sign in",
+     "paid": "Payment confirmed!",
+     "preparing": "We are preparing your space, one moment…",
+     "slow": "This is taking a little longer than expected",
+     "retry": "Reload this page in a few seconds, or contact us if the problem persists."
+   },
+   "de": {
++    "backToApp": "Dein Bereich ist bereit. Kehre in die Meet-Aaron-App zurück oder melde dich auf dieser Website an.",
++    "signin": "Anmelden",
+     "paid": "Zahlung bestätigt!",
+     "preparing": "Wir richten Ihren Bereich ein, einen Moment…",
+     "slow": "Das dauert etwas länger als erwartet",
+     "retry": "Laden Sie diese Seite in ein paar Sekunden neu, oder kontaktieren Sie uns, falls das Problem bleibt."
+   },
+   "it": {
++    "backToApp": "Il tuo spazio è pronto. Torna nell'app Meet Aaron o accedi su questo sito.",
++    "signin": "Accedi",
+     "paid": "Pagamento confermato!",
+     "preparing": "Stiamo preparando il tuo spazio, un attimo…",
+     "slow": "Ci vuole un po' più del previsto",
+     "retry": "Ricarica questa pagina tra qualche secondo, o contattaci se il problema persiste."
+   },
+   "es": {
++    "backToApp": "Tu espacio está listo. Vuelve a la aplicación Meet Aaron o inicia sesión en este sitio.",
++    "signin": "Iniciar sesión",
+     "paid": "¡Pago confirmado!",
+     "preparing": "Estamos preparando tu espacio, un momento…",
+     "slow": "Está tardando un poco más de lo previsto",
+     "retry": "Recarga esta página en unos segundos o contáctanos si el problema persiste."
+   },
+   "pt": {
++    "backToApp": "O teu espaço está pronto. Volta à aplicação Meet Aaron ou inicia sessão neste site.",
++    "signin": "Iniciar sessão",
+     "paid": "Pagamento confirmado!",
+     "preparing": "Estamos a preparar o teu espaço, um instante…",
+     "slow": "Está a demorar um pouco mais do que o previsto",
+     "retry": "Recarrega esta página dentro de alguns segundos, ou contacta-nos se o problema persistir."
+   },
+   "nl": {
++    "backToApp": "Je omgeving staat klaar. Ga terug naar de Meet Aaron-app of log in op deze website.",
++    "signin": "Inloggen",
+     "paid": "Betaling bevestigd!",
+     "preparing": "We maken je omgeving klaar, een ogenblik…",
+     "slow": "Dit duurt iets langer dan verwacht",
+@@ -57,6 +71,9 @@ export default function OnboardingSuccessPage() {
+   const router = useRouter();
+   const [locale] = useLocale();
+   const [status, setStatus] = useState('waiting');
++  // Paiement fait depuis le lien de l'email d'activation (inscription dans
++  // l'application, 17/11/2026) : on est dans le navigateur, sans session.
++  // Le webhook Stripe crée l'espace ; il suffit de rouvrir l'app.
+ 
+   useEffect(() => {
+     let attempts = 0;
+@@ -64,7 +81,11 @@ export default function OnboardingSuccessPage() {
+ 
+     async function tryLink() {
+       const { data: { session } } = await supabaseBrowser.auth.getSession();
+-      if (!session || cancelled) return;
++      if (cancelled) return;
++      if (!session) {
++        setStatus('noSession');
++        return;
++      }
+ 
+       const res = await fetch('/api/auth/link', {
+         method: 'POST',
+@@ -95,7 +116,13 @@ export default function OnboardingSuccessPage() {
+     <div className="wrap">
+       <div className="card">
+         <img src="/icon.png" alt="Meet Aaron" className="logo" />
+-        {status === 'waiting' ? (
++        {status === 'noSession' ? (
++          <>
++            <h1>{sx('paid', locale)}</h1>
++            <p className="subtitle">{sx('backToApp', locale)}</p>
++            <a className="signin-link" href="/login">{sx('signin', locale)}</a>
++          </>
++        ) : status === 'waiting' ? (
+           <>
+             <h1>{sx('paid', locale)}</h1>
+             <p className="subtitle">{sx('preparing', locale)}</p>
+@@ -111,6 +138,16 @@ export default function OnboardingSuccessPage() {
+ 
+       <style jsx>{`
+         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500&display=swap');
++        .signin-link {
++          display: inline-block;
++          margin-top: 0.4rem;
++          background: #4b39ef;
++          color: #fff;
++          text-decoration: none;
++          border-radius: 10px;
++          padding: 0.7rem 1.2rem;
++          font-weight: 600;
++        }
+         .wrap {
+           min-height: 100vh;
+           display: flex;
+diff --git a/lib/account-emails.ts b/lib/account-emails.ts
+index 4dc9d1b..52bc9b7 100644
+--- a/lib/account-emails.ts
++++ b/lib/account-emails.ts
+@@ -86,3 +86,25 @@ export function newDeviceEmail(
+     `Aaron`;
+   return { subject: T.subject, body };
+ }
++
++// EMAIL D'ACTIVATION APRÈS UNE INSCRIPTION DANS L'APPLICATION (17/11/2026).
++// Voir lib/signup-activation.ts : l'app ne peut pas mener au paiement, cet
++// email le fait. Pas de prix ici : le montant exact et la devise s'affichent
++// sur la page Stripe, d'après le pays de facturation.
++const ACTIVATE: Record<string, { subject: string; hello: string; intro: string; action: string; valid: string; after: string; ignore: string }> = {
++  fr: { subject: 'Active ton espace Meet Aaron', hello: 'Bonjour{name},', intro: 'Ton compte Meet Aaron est créé. Il reste une étape pour ouvrir ton espace : choisir ton abonnement.', action: 'Clique sur ce lien pour le faire en toute sécurité, sur notre site (paiement par carte avec Stripe) :', valid: 'Le lien est valable 14 jours.', after: "Une fois le paiement fait, retourne dans l'application Meet Aaron : ton espace t'y attend.", ignore: "Si tu n'es pas à l'origine de cette inscription, ignore simplement cet email." },
++  en: { subject: 'Activate your Meet Aaron space', hello: 'Hello{name},', intro: 'Your Meet Aaron account has been created. One step remains to open your space: choosing your subscription.', action: 'Click this link to do it securely on our website (card payment with Stripe):', valid: 'The link is valid for 14 days.', after: 'Once the payment is done, go back to the Meet Aaron app: your space will be waiting for you.', ignore: 'If you did not sign up, simply ignore this email.' },
++  de: { subject: 'Aktiviere deinen Meet-Aaron-Bereich', hello: 'Hallo{name},', intro: 'Dein Meet-Aaron-Konto ist erstellt. Ein Schritt fehlt noch, um deinen Bereich zu öffnen: die Wahl deines Abonnements.', action: 'Klicke auf diesen Link, um das sicher auf unserer Website zu erledigen (Kartenzahlung mit Stripe):', valid: 'Der Link ist 14 Tage gültig.', after: 'Sobald die Zahlung erfolgt ist, kehre in die Meet-Aaron-App zurück: Dein Bereich wartet dort auf dich.', ignore: 'Falls du dich nicht angemeldet hast, ignoriere diese E-Mail einfach.' },
++  it: { subject: 'Attiva il tuo spazio Meet Aaron', hello: 'Ciao{name},', intro: 'Il tuo account Meet Aaron è stato creato. Manca un passaggio per aprire il tuo spazio: scegliere l\'abbonamento.', action: 'Clicca su questo link per farlo in sicurezza sul nostro sito (pagamento con carta tramite Stripe):', valid: 'Il link è valido 14 giorni.', after: 'Una volta effettuato il pagamento, torna nell\'app Meet Aaron: il tuo spazio ti aspetta.', ignore: 'Se non sei stato tu a iscriverti, ignora semplicemente questa email.' },
++  es: { subject: 'Activa tu espacio Meet Aaron', hello: 'Hola{name},', intro: 'Tu cuenta Meet Aaron está creada. Queda un paso para abrir tu espacio: elegir tu suscripción.', action: 'Haz clic en este enlace para hacerlo de forma segura en nuestra web (pago con tarjeta mediante Stripe):', valid: 'El enlace es válido durante 14 días.', after: 'Una vez hecho el pago, vuelve a la aplicación Meet Aaron: tu espacio te estará esperando.', ignore: 'Si no te has registrado, simplemente ignora este correo.' },
++  pt: { subject: 'Ativa o teu espaço Meet Aaron', hello: 'Olá{name},', intro: 'A tua conta Meet Aaron foi criada. Falta um passo para abrir o teu espaço: escolher a tua subscrição.', action: 'Clica neste link para o fazer em segurança no nosso site (pagamento com cartão através da Stripe):', valid: 'O link é válido durante 14 dias.', after: 'Depois do pagamento, volta à aplicação Meet Aaron: o teu espaço estará à tua espera.', ignore: 'Se não foste tu a inscrever-te, ignora simplesmente este email.' },
++  nl: { subject: 'Activeer je Meet Aaron-omgeving', hello: 'Hallo{name},', intro: 'Je Meet Aaron-account is aangemaakt. Nog één stap om je omgeving te openen: je abonnement kiezen.', action: 'Klik op deze link om dat veilig op onze website te doen (betaling met kaart via Stripe):', valid: 'De link is 14 dagen geldig.', after: 'Ga na de betaling terug naar de Meet Aaron-app: je omgeving staat daar voor je klaar.', ignore: 'Heb je je niet aangemeld? Negeer deze e-mail dan gewoon.' },
++};
++
++export function activationEmail(locale: string | null | undefined, link: string, firstName?: string | null): AccountEmail {
++  const T = ACTIVATE[normalizeLocale(locale)] || ACTIVATE.fr;
++  const body =
++    `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n` +
++    `${T.intro}\n\n${T.action}\n${link}\n\n${T.valid}\n\n${T.after}\n\n${T.ignore}\n\nAaron`;
++  return { subject: T.subject, body };
++}
+diff --git a/lib/demo-guard.ts b/lib/demo-guard.ts
+index 5a836e2..4b6a53c 100644
+--- a/lib/demo-guard.ts
++++ b/lib/demo-guard.ts
+@@ -56,3 +56,19 @@ export function demoBlockedResponse(locale?: string | null) {
+   const key = String(locale || 'fr').slice(0, 2).toLowerCase();
+   return NextResponse.json({ error: DEMO_BLOCKED_MESSAGE[key] || DEMO_BLOCKED_MESSAGE.fr, demo: true }, { status: 403 });
+ }
++
++// MOT DE PASSE DU COMPTE DÉMO (17/11/2026, Alex : « pourquoi les comptes
++// démo demandent à réinitialiser le mot de passe ? »). Ce n'est pas le test :
++// un testeur a touché « Mot de passe oublié ? » sur le compte partagé, et
++// l'email est arrivé dans la boîte d'Alex (aaron+demo@ = aaron@). Le
++// testeur ne pouvait de toute façon pas recevoir le code ; désormais la
++// demande est refusée tout de suite, avec une explication, sans email.
++export const DEMO_PASSWORD_MESSAGE: Record<string, string> = {
++  fr: 'Compte de démonstration : son mot de passe ne se réinitialise pas. Utilise celui indiqué dans les instructions du test.',
++  en: 'Demo account: its password cannot be reset. Use the one given in the test instructions.',
++  de: 'Demokonto: Sein Passwort kann nicht zurückgesetzt werden. Verwende das Passwort aus der Testanleitung.',
++  it: 'Account demo: la sua password non si può reimpostare. Usa quella indicata nelle istruzioni del test.',
++  es: 'Cuenta de demostración: su contraseña no se puede restablecer. Usa la indicada en las instrucciones de la prueba.',
++  pt: 'Conta de demonstração: a palavra-passe não pode ser reposta. Usa a indicada nas instruções do teste.',
++  nl: 'Demo-account: het wachtwoord kan niet opnieuw worden ingesteld. Gebruik het wachtwoord uit de testinstructies.',
++};
+diff --git a/lib/signup-activation.ts b/lib/signup-activation.ts
+new file mode 100644
+index 0000000..d50688f
+--- /dev/null
++++ b/lib/signup-activation.ts
+@@ -0,0 +1,53 @@
++// lib/signup-activation.ts
++//
++// LIEN D'ACTIVATION ENVOYÉ PAR EMAIL (17/11/2026, demande d'Alex : « je veux
++// que quiconque, fondateur ou commercial, puisse se créer un compte dans
++// l'appli ; pour Stripe, ça doit passer par le navigateur »).
++//
++// Dans l'application iPhone / Android, on ne peut ni vendre l'abonnement ni
++// afficher un bouton qui mène au paiement sur le site (Apple 3.1.1, Google
++// Payments). On peut en revanche ENVOYER UN EMAIL : la personne remplit le
++// formulaire dans l'app, reçoit un lien, le paiement se fait dans le
++// navigateur.
++//
++// Le lien porte toutes les informations du formulaire, CHIFFRÉES ET
++// AUTHENTIFIÉES (AES-256-GCM, même clé que les jetons OAuth :
++// lib/encryption.ts). Aucune table à créer, et un lien modifié à la main est
++// rejeté. Il vaut 14 jours : il crée à chaque clic une session Stripe neuve
++// (une session Stripe, elle, expire au bout de 24 h).
++
++import { encryptToken, decryptToken } from './encryption';
++
++export type ActivationPayload = {
++  auth_user_id: string;
++  email: string;
++  first_name: string;
++  full_name: string;
++  company_name: string;
++  country: string;
++  locale: string;
++  role: 'patron' | 'commercial';
++  billing_interval: 'month' | 'year';
++  exp: number; // millisecondes
++};
++
++const LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
++
++export function makeActivationToken(data: Omit<ActivationPayload, 'exp'>): string {
++  const payload: ActivationPayload = { ...data, exp: Date.now() + LIFETIME_MS };
++  // Format interne iv:tag:données (hexadécimal) — déjà sûr dans une URL.
++  return encryptToken(JSON.stringify({ v: 1, ...payload }));
++}
++
++// null si le lien est illisible, modifié ou expiré.
++export function readActivationToken(token: string | null | undefined): ActivationPayload | null {
++  if (!token || typeof token !== 'string' || token.length > 4000) return null;
++  try {
++    const parsed = JSON.parse(decryptToken(token));
++    if (!parsed || parsed.v !== 1 || typeof parsed.exp !== 'number' || parsed.exp < Date.now()) return null;
++    if (!parsed.auth_user_id || !parsed.email || !parsed.company_name || !parsed.country) return null;
++    return parsed as ActivationPayload;
++  } catch {
++    return null;
++  }
++}
+diff --git a/lib/signup-checkout.ts b/lib/signup-checkout.ts
+new file mode 100644
+index 0000000..a3e006d
+--- /dev/null
++++ b/lib/signup-checkout.ts
+@@ -0,0 +1,158 @@
++// lib/signup-checkout.ts
++//
++// SESSION DE PAIEMENT STRIPE D'UNE NOUVELLE SOCIÉTÉ (extrait de
++// app/api/checkout/route.ts le 17/11/2026).
++//
++// Deux portes d'entrée l'utilisent désormais :
++//   - /api/checkout : inscription sur le SITE, redirection immédiate vers
++//     Stripe (inchangé) ;
++//   - /api/checkout/resume : lien reçu PAR EMAIL après une inscription faite
++//     DANS L'APPLICATION iPhone / Android. Apple (règle 3.1.1) et Google
++//     (règlement Paiements) interdisent de vendre un abonnement dans l'app
++//     ou d'y renvoyer vers un paiement externe ; un email envoyé hors de
++//     l'app est en revanche permis. Voir app/api/checkout/email-link.
++//
++// Les commentaires d'origine (devises, taxes, métadonnées lues par le
++// webhook) sont conservés ci-dessous.
++
++import { stripe, managedPaymentsParams } from './stripe';
++import { ModuleCode, getModulePriceId, getAaronYearlyPriceId, currencyForCountry } from './subscription';
++
++export type SignupCheckoutInput = {
++  auth_user_id: string;
++  email: string;
++  first_name: string;
++  full_name: string;
++  company_name: string;
++  country: string;
++  locale?: string | null;
++  role?: string | null;
++  billing_interval?: string | null;
++  origin: string;
++  // Chemin (avec paramètres) de retour après paiement / abandon.
++  successPath?: string;
++  cancelPath?: string;
++};
++
++export class SignupCheckoutError extends Error {
++  status: number;
++  constructor(message: string, status: number) {
++    super(message);
++    this.status = status;
++  }
++}
++
++function priceIdFor(module: ModuleCode): string | null {
++  return getModulePriceId(module);
++}
++
++// Correspondance locale interne (lib/i18n.js) -> code de langue Stripe
++// Checkout (liste officielle Stripe, sous-ensemble pertinent ici). 'auto'
++// : Stripe détecte la langue du navigateur si aucune valeur reconnue n'est
++// fournie.
++const STRIPE_LOCALE_MAP: Record<string, string> = {
++  fr: 'fr', en: 'en', de: 'de', it: 'it', es: 'es', pt: 'pt', nl: 'nl',
++};
++
++export async function createSignupCheckoutSession(input: SignupCheckoutInput): Promise<string> {
++  const { auth_user_id, email, first_name, full_name, company_name, country, locale, role, billing_interval, origin } = input;
++  if (!first_name || !full_name || !company_name || !country) {
++    throw new SignupCheckoutError('Champs manquants', 400);
++  }
++  // Repli sur ['AP'] seul si le payload n'envoie rien de reconnu (ancien
++  // frontend pas encore redéployé, ou appel externe) — comportement identique
++  // à avant cette évolution.
++  // Abonnement unique Aaron (décision Alex, 31/08/2026) : quel que soit le
++  // choix envoyé par le frontend (ancienne sélection de modules), le
++  // Checkout ne vend plus qu'UNE ligne — le prix Aaron à 30 €/mois (ex prix
++  // "AP"). Le webhook active ensuite les 3 drapeaux de modules.
++  const selectedModules: ModuleCode[] = ['AP'];
++
++  // TARIF ANNUEL (06/11/2026) : billing_interval 'year' → le Price annuel.
++  // S'il n'est pas configuré, on REFUSE (501) plutôt que de prélever un
++  // mensuel à quelqu'un qui a choisi l'année — l'écran d'inscription ne
++  // propose l'annuel que si NEXT_PUBLIC_YEARLY_PLAN vaut "1".
++  const yearly = billing_interval === 'year';
++  const lineItems: { price: string; quantity: number }[] = [];
++  for (const mod of selectedModules) {
++    const priceId = yearly ? getAaronYearlyPriceId() : priceIdFor(mod);
++    if (!priceId) {
++      throw new SignupCheckoutError(
++        yearly ? "Tarif annuel pas encore configuré côté serveur (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY manquant)." : `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).`,
++        501
++      );
++    }
++    lineItems.push({ price: priceId, quantity: 1 });
++  }
++
++  const currency = currencyForCountry(country);
++  const sessionParams: Record<string, any> = {
++      mode: 'subscription',
++      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
++      ...managedPaymentsParams(),
++      customer_email: email,
++      line_items: lineItems,
++      allow_promotion_codes: true,
++      // Adresse de facturation complète (rue, ville, code postal) requise pour
++      // pouvoir générer une vraie facture — avant, seul le pays était demandé.
++      billing_address_collection: 'required',
++      // Calcule automatiquement la TVA/GST/sales tax selon le pays de
++      // facturation renseigné par le client (UE, UK, Australie, USA...).
++      // Nécessite Stripe Tax activé + un enregistrement fiscal pour le pays
++      // concerné côté Dashboard Stripe (voir note ci-dessus) — sans ça,
++      // Stripe ignore simplement ce paramètre et ne facture aucune taxe,
++      // donc pas de risque de casser le paiement en attendant.
++      automatic_tax: { enabled: true },
++      // Permet à un client professionnel de renseigner son numéro de TVA
++      // intracommunautaire (autoliquidation en B2B UE) directement dans le
++      // Checkout, sur la facture générée automatiquement par Stripe.
++      tax_id_collection: { enabled: true },
++      // Langue du Checkout alignée sur la langue choisie dans l'app (voir
++      // lib/i18n.js) quand elle est reconnue par Stripe, sinon détection
++      // automatique du navigateur.
++      locale: (STRIPE_LOCALE_MAP[String(locale || '')] as any) || 'auto',
++      success_url: `${origin}${input.successPath || '/onboarding/success?session_id={CHECKOUT_SESSION_ID}'}`,
++      cancel_url: `${origin}${input.cancelPath || '/onboarding'}`,
++      metadata: {
++        auth_user_id,
++        email,
++        first_name,
++        full_name,
++        company_name,
++        country,
++        billing_interval: yearly ? 'year' : 'month',
++        // Modules choisis à l'inscription — lu par le webhook
++        // (checkout.session.completed) pour activer les bons booléens
++        // offer_ap_active/offer_as_active/offer_ac_active à la création de
++        // la société. Même convention que purpose:'reactivate_subscription'
++        // (app/api/subscription/modules/route.ts), qui utilise déjà un
++        // champ metadata.modules en liste séparée par des virgules.
++        modules: selectedModules.join(','),
++        // 'patron' (fondateur/dirigeant, valeur par défaut) ou 'commercial'
++        // (commercial solo qui paie lui-même — pas de code d'activation
++        // entreprise). Lu par le webhook pour renseigner users.role au lieu
++        // de forcer 'patron' pour tout le monde (demande Alex 25/08 : un
++        // commercial solo payant seul ne doit pas hériter des permissions
++        // "fondateur", ex. voir "Mon équipe" dans le menu).
++        role: role === 'commercial' ? 'commercial' : 'patron',
++      },
++  };
++
++    let session;
++    try {
++      // La devise est TOUJOURS passée, euro compris (06/11/2026) : le prix
++      // annuel a été créé avec le dollar australien comme devise de base, et
++      // sans `currency` Stripe facturerait un client français en AUD.
++      session = await stripe.checkout.sessions.create({ ...sessionParams, currency });
++    } catch (err: any) {
++      const msg = String(err?.message || '').toLowerCase();
++      if (/currenc/.test(msg)) {
++        console.error(`Devise ${currency} non configurée sur le Price Stripe, repli EUR:`, err?.message);
++        session = await stripe.checkout.sessions.create(sessionParams);
++      } else {
++        throw err;
++      }
++    }
++    if (!session?.url) throw new SignupCheckoutError('Session Stripe sans adresse', 502);
++    return session.url;
++}
+-- 
+2.43.0
+
