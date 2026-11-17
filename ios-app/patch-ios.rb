@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# encoding: utf-8
 # ios-app/patch-ios.rb
 #
 # Retouche le projet Xcode genere par `npx cap add ios`.
@@ -76,6 +77,57 @@ target.build_configurations.each do |config|
   # Capacitor 8 (07/11/2026) exige iOS 15 au minimum.
   config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
 end
+
+# 3 bis. Traductions embarquees dans l'app (17/11/2026, Alex : « fais-le
+# maintenant »). L'App Store deduit la ligne « Langues » de la fiche des
+# dossiers <langue>.lproj presents dans l'app, PAS de CFBundleLocalizations
+# (pose plus bas) : la 1.0.1 affichait donc toujours « English » seul.
+# Chaque dossier contient un InfoPlist.strings : nom sous l'icone et textes
+# des demandes d'autorisation (appareil photo, photos), traduits — iOS les
+# affiche desormais dans la langue du telephone.
+# Echec non bloquant : sans ce bloc l'app fonctionne, elle est juste
+# declaree en anglais seul.
+require 'fileutils'
+LOCALIZED_STRINGS = {
+  'en' => { 'cam' => 'To attach a photo to a quote or a customer document.', 'lib' => 'To attach a document from your photo library.', 'add' => 'To save a document created by Aaron.' },
+  'fr' => { 'cam' => 'Pour joindre une photo à un devis ou à un document client.', 'lib' => 'Pour joindre un document depuis votre photothèque.', 'add' => 'Pour enregistrer un document créé par Aaron.' },
+  'de' => { 'cam' => 'Um einem Angebot oder Kundendokument ein Foto beizufügen.', 'lib' => 'Um ein Dokument aus Ihrer Fotomediathek beizufügen.', 'add' => 'Um ein von Aaron erstelltes Dokument zu speichern.' },
+  'it' => { 'cam' => 'Per allegare una foto a un preventivo o a un documento cliente.', 'lib' => 'Per allegare un documento dalla tua libreria foto.', 'add' => 'Per salvare un documento creato da Aaron.' },
+  'es' => { 'cam' => 'Para adjuntar una foto a un presupuesto o a un documento de cliente.', 'lib' => 'Para adjuntar un documento desde tu fototeca.', 'add' => 'Para guardar un documento creado por Aaron.' },
+  'pt' => { 'cam' => 'Para anexar uma foto a um orçamento ou a um documento de cliente.', 'lib' => 'Para anexar um documento a partir da sua fototeca.', 'add' => 'Para guardar um documento criado pelo Aaron.' },
+  'nl' => { 'cam' => 'Om een foto toe te voegen aan een offerte of klantdocument.', 'lib' => 'Om een document uit je fotobibliotheek toe te voegen.', 'add' => 'Om een door Aaron gemaakt document op te slaan.' },
+}.freeze
+begin
+  app_group = project.main_group.find_subpath('App', true)
+  variant = app_group.children.find { |c| c.isa == 'PBXVariantGroup' && c.name == 'InfoPlist.strings' } ||
+            app_group.new_variant_group('InfoPlist.strings')
+  LOCALIZED_STRINGS.each do |lang, s|
+    dir = File.join('ios', 'App', 'App', "#{lang}.lproj")
+    FileUtils.mkdir_p(dir)
+    body = [
+      %("CFBundleDisplayName" = "Meet Aaron";),
+      %("CFBundleName" = "Meet Aaron";),
+      %("NSCameraUsageDescription" = "#{s['cam']}";),
+      %("NSPhotoLibraryUsageDescription" = "#{s['lib']}";),
+      %("NSPhotoLibraryAddUsageDescription" = "#{s['add']}";),
+    ].join("\n") + "\n"
+    File.write(File.join(dir, 'InfoPlist.strings'), body, mode: 'w:UTF-8')
+    rel = "#{lang}.lproj/InfoPlist.strings"
+    unless variant.files.any? { |f| f.path == rel }
+      ref = variant.new_reference(rel)
+      ref.name = lang
+    end
+  end
+  regions = project.root_object.known_regions || []
+  project.root_object.known_regions = (regions | %w[en Base] | LOCALIZED_STRINGS.keys)
+  unless target.resources_build_phase.files_references.include?(variant)
+    target.resources_build_phase.add_file_reference(variant, true)
+  end
+  puts "traductions embarquees : #{LOCALIZED_STRINGS.keys.join(', ')}"
+rescue StandardError => e
+  puts "AVERTISSEMENT traductions non embarquees : #{e.class} #{e.message}"
+end
+
 project.save
 puts "projet Xcode mis a jour (version #{VERSION}, build #{BUILD_NUM})"
 
