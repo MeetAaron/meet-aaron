@@ -526,13 +526,34 @@ function LangPicker({ locale, setLocale }) {
   );
 }
 
+// INSCRIPTION DANS L'APPLICATION iPhone / Android (17/11/2026, demande
+// d'Alex : « quiconque, fondateur ou commercial, doit pouvoir créer son
+// compte dans l'appli ; pour Stripe, ça doit passer par le navigateur »).
+//
+// Tout le parcours reste le même, sauf le paiement : l'app ne peut ni vendre
+// l'abonnement ni afficher un bouton qui mène au paiement sur le site
+// (Apple 3.1.1, règlement Paiements de Google). On envoie donc un email
+// d'activation (app/api/checkout/email-link) et on n'affiche dans l'app ni
+// prix ni mention de carte. Le commercial invité par un code, lui, ne paie
+// rien : son parcours est identique au site.
+const NATIVE_TEXT = {
+  fr: { patronDesc: "Je crée l'espace Meet Aaron de mon entreprise. Je pourrai ajouter mon équipe plus tard.", ownDesc: "Je n'ai pas de code : je crée mon propre espace Meet Aaron.", createSub: 'Quelques infos pour créer votre espace.', submit: 'Créer mon espace', sending: 'Envoi…', sentTitle: 'Plus qu’une étape', sentBody: "Ton compte est créé. Pour ouvrir ton espace, suis les instructions envoyées à {email}.", sentCheck: 'C’est fait, continuer', sentPending: "Ton espace n'est pas encore ouvert. Termine l'étape décrite dans l'email, puis réessaie.", resend: "Renvoyer l'email", resent: 'Email renvoyé.' },
+  en: { patronDesc: 'I create my company’s Meet Aaron space. I can add my team later.', ownDesc: 'I have no code: I create my own Meet Aaron space.', createSub: 'A few details to create your space.', submit: 'Create my space', sending: 'Sending…', sentTitle: 'One last step', sentBody: 'Your account has been created. To open your space, follow the instructions sent to {email}.', sentCheck: 'Done, continue', sentPending: 'Your space is not open yet. Finish the step described in the email, then try again.', resend: 'Resend the email', resent: 'Email sent again.' },
+  de: { patronDesc: 'Ich lege den Meet-Aaron-Bereich meines Unternehmens an. Mein Team kann ich später hinzufügen.', ownDesc: 'Ich habe keinen Code: Ich lege meinen eigenen Meet-Aaron-Bereich an.', createSub: 'Ein paar Angaben, um Ihren Bereich anzulegen.', submit: 'Meinen Bereich anlegen', sending: 'Wird gesendet…', sentTitle: 'Noch ein Schritt', sentBody: 'Dein Konto ist erstellt. Um deinen Bereich zu öffnen, folge den Anweisungen, die an {email} gesendet wurden.', sentCheck: 'Erledigt, weiter', sentPending: 'Dein Bereich ist noch nicht geöffnet. Schließe den in der E-Mail beschriebenen Schritt ab und versuche es dann erneut.', resend: 'E-Mail erneut senden', resent: 'E-Mail erneut gesendet.' },
+  it: { patronDesc: 'Creo lo spazio Meet Aaron della mia azienda. Potrò aggiungere il mio team più tardi.', ownDesc: 'Non ho un codice: creo il mio spazio Meet Aaron.', createSub: 'Qualche informazione per creare il tuo spazio.', submit: 'Crea il mio spazio', sending: 'Invio…', sentTitle: 'Manca un passaggio', sentBody: 'Il tuo account è stato creato. Per aprire il tuo spazio, segui le istruzioni inviate a {email}.', sentCheck: 'Fatto, continua', sentPending: "Il tuo spazio non è ancora aperto. Completa il passaggio descritto nell'email, poi riprova.", resend: "Invia di nuovo l'email", resent: 'Email inviata di nuovo.' },
+  es: { patronDesc: 'Creo el espacio Meet Aaron de mi empresa. Podré añadir a mi equipo más adelante.', ownDesc: 'No tengo código: creo mi propio espacio Meet Aaron.', createSub: 'Unos datos para crear tu espacio.', submit: 'Crear mi espacio', sending: 'Enviando…', sentTitle: 'Un último paso', sentBody: 'Tu cuenta está creada. Para abrir tu espacio, sigue las instrucciones enviadas a {email}.', sentCheck: 'Hecho, continuar', sentPending: 'Tu espacio aún no está abierto. Completa el paso descrito en el correo y vuelve a intentarlo.', resend: 'Reenviar el correo', resent: 'Correo reenviado.' },
+  pt: { patronDesc: 'Crio o espaço Meet Aaron da minha empresa. Posso adicionar a minha equipa mais tarde.', ownDesc: 'Não tenho código: crio o meu próprio espaço Meet Aaron.', createSub: 'Alguns dados para criar o teu espaço.', submit: 'Criar o meu espaço', sending: 'A enviar…', sentTitle: 'Falta um passo', sentBody: 'A tua conta foi criada. Para abrir o teu espaço, segue as instruções enviadas para {email}.', sentCheck: 'Feito, continuar', sentPending: 'O teu espaço ainda não está aberto. Conclui o passo descrito no email e tenta de novo.', resend: 'Reenviar o email', resent: 'Email reenviado.' },
+  nl: { patronDesc: 'Ik maak de Meet Aaron-omgeving van mijn bedrijf aan. Mijn team kan ik later toevoegen.', ownDesc: 'Ik heb geen code: ik maak mijn eigen Meet Aaron-omgeving aan.', createSub: 'Een paar gegevens om je omgeving aan te maken.', submit: 'Mijn omgeving aanmaken', sending: 'Bezig met verzenden…', sentTitle: 'Nog één stap', sentBody: 'Je account is aangemaakt. Volg de instructies die naar {email} zijn gestuurd om je omgeving te openen.', sentCheck: 'Klaar, doorgaan', sentPending: 'Je omgeving is nog niet open. Rond de stap uit de e-mail af en probeer het daarna opnieuw.', resend: 'E-mail opnieuw sturen', resent: 'E-mail opnieuw verstuurd.' },
+};
+const nt = (key, locale) => (NATIVE_TEXT[locale] || NATIVE_TEXT.fr)[key] ?? NATIVE_TEXT.fr[key];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
   const [checking, setChecking] = useState(true);
-  // Application iOS (coque Capacitor) : pas d'inscription ni de paiement
-  // dans l'app (règle Apple 3.1.1). Détecté après montage : au rendu serveur
-  // on ne sait pas encore d'où vient la page.
+  // Application iPhone / Android : inscription permise, paiement par un
+  // email d'activation (voir NATIVE_TEXT plus haut). Détecté après montage :
+  // au rendu serveur on ne sait pas encore d'où vient la page.
   const [native, setNative] = useState(false);
   useEffect(() => {
     setNative(isStoreApp());
@@ -563,6 +584,10 @@ export default function OnboardingPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // Application : email d'activation envoyé (adresse), et retour de l'app au
+  // premier plan après le paiement dans le navigateur.
+  const [activationSentTo, setActivationSentTo] = useState(null);
+  const [activationNote, setActivationNote] = useState(null);
 
   useEffect(() => {
     async function checkExisting() {
@@ -618,6 +643,11 @@ export default function OnboardingPage() {
     setSubmitting(true);
     setError(null);
 
+    if (native) {
+      await sendActivationEmail();
+      return;
+    }
+
     const res = await fetch('/api/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -650,6 +680,59 @@ export default function OnboardingPage() {
 
     window.location.href = body.url;
   }
+
+  // Application : envoi (ou renvoi) de l'email d'activation.
+  async function sendActivationEmail(isResend = false) {
+    setSubmitting(true);
+    setError(null);
+    const res = await fetch('/api/checkout/email-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        first_name: firstName.trim(),
+        full_name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        company_name: companyName,
+        country,
+        locale,
+        billing_interval: yearlyOffered ? billing : 'month',
+        role: personRole,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSubmitting(false);
+    if (body.already) {
+      router.push('/app/bienvenue');
+      return;
+    }
+    if (!res.ok || !body.sent) {
+      setError(body.error || 'Une erreur est survenue');
+      return;
+    }
+    setActivationSentTo(body.email || session?.user?.email || '');
+    setActivationNote(isResend ? nt('resent', locale) : null);
+  }
+
+  // « C'est fait, continuer » (et retour de l'app au premier plan) : le
+  // webhook Stripe a-t-il créé l'espace ?
+  async function checkActivated(showPending) {
+    const res = await fetch('/api/auth/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_user_id: session?.user?.id, email: session?.user?.email }),
+    }).catch(() => null);
+    if (res && res.ok) {
+      router.push('/app/bienvenue');
+      return;
+    }
+    if (showPending) setActivationNote(nt('sentPending', locale));
+  }
+  useEffect(() => {
+    if (!activationSentTo) return undefined;
+    const onVisible = () => { if (document.visibilityState === 'visible') checkActivated(false); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activationSentTo]);
 
   async function handleJoinCompany(e) {
     e.preventDefault();
@@ -693,15 +776,20 @@ export default function OnboardingPage() {
     );
   }
 
-  if (native) {
+  if (native && activationSentTo) {
     return (
       <div className="wrap">
         <div className="card">
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
-          <h1>{st('welcome', locale)}</h1>
-          <p className="subtitle">{t('native.signupNotInApp', locale)}</p>
-          <button type="button" className="role-btn" onClick={() => router.push('/login')}>
-            <span className="role-title">{t('auth.signIn', locale)}</span>
+          <h1>{nt('sentTitle', locale)}</h1>
+          <p className="subtitle">{nt('sentBody', locale).replace('{email}', activationSentTo)}</p>
+          {activationNote && <p className="note">{activationNote}</p>}
+          {error && <p className="note">{error}</p>}
+          <button type="button" className="role-btn" onClick={() => checkActivated(true)}>
+            <span className="role-title">{nt('sentCheck', locale)}</span>
+          </button>
+          <button type="button" className="link-btn" disabled={submitting} onClick={() => sendActivationEmail(true)}>
+            {submitting ? nt('sending', locale) : nt('resend', locale)}
           </button>
         </div>
         <style jsx>{`
@@ -709,8 +797,10 @@ export default function OnboardingPage() {
           .card { max-width: 420px; width: 100%; text-align: center; background: #141a2e; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2rem 1.5rem; color: #f3f4f8; font-family: 'Inter', sans-serif; }
           .logo { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 1rem; }
           h1 { font-size: 1.3rem; margin: 0 0 0.6rem; }
-          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.4rem; }
-          .role-btn { width: 100%; background: #5b6cff; border: none; color: #fff; border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+          .subtitle { color: #a3a9c2; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1.2rem; word-break: break-word; }
+          .note { color: #f5a623; font-size: 0.88rem; line-height: 1.45; margin: 0 0 1rem; }
+          .role-btn { width: 100%; background: #4b39ef; border: none; color: #fff; border-radius: 10px; padding: 0.85rem 1rem; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+          .link-btn { margin-top: 0.9rem; background: none; border: none; color: #8b90a8; text-decoration: underline; font-size: 0.86rem; cursor: pointer; font-family: inherit; }
         `}</style>
       </div>
     );
@@ -736,7 +826,7 @@ export default function OnboardingPage() {
 
               <button type="button" className="role-btn" onClick={() => setPersonRole('patron')}>
                 <span className="role-title">{st('rolePatron', locale)}</span>
-                <span className="role-desc">{st('rolePatronDesc', locale)}</span>
+                <span className="role-desc">{native ? nt('patronDesc', locale) : st('rolePatronDesc', locale)}</span>
               </button>
 
               <button type="button" className="role-btn" onClick={() => setPersonRole('commercial')}>
@@ -760,7 +850,7 @@ export default function OnboardingPage() {
 
               <button type="button" className="role-btn" onClick={() => setSignupPath('own_space')}>
                 <span className="role-title">{st('pathOwn', locale)}</span>
-                <span className="role-desc">{st('pathOwnDesc', locale)}</span>
+                <span className="role-desc">{native ? nt('ownDesc', locale) : st('pathOwnDesc', locale)}</span>
               </button>
 
               <button type="button" className="link-back" onClick={() => setPersonRole(null)}>
@@ -861,7 +951,7 @@ export default function OnboardingPage() {
           <LangPicker locale={locale} setLocale={setLocale} />
           <img src="/icon.png" alt="Meet Aaron" className="logo" />
           <h1>{st('createTitle', locale)}</h1>
-          <p className="subtitle">{st('createSub', locale)}</p>
+          <p className="subtitle">{native ? nt('createSub', locale) : st('createSub', locale)}</p>
 
           <div className="name-row">
             <label>
@@ -915,6 +1005,7 @@ export default function OnboardingPage() {
               une seule offre à 30 €/mois qui inclut prospection,
               opportunités et suivi client. selectedModules reste ['AP']
               (le prix Aaron côté Stripe est l'ancien prix "AP"). */}
+          {!native && (
           <div className="modules-field">
             <span className="modules-label">{st('subscription', locale)}</span>
             <div className="modules-grid">
@@ -945,6 +1036,7 @@ export default function OnboardingPage() {
             )}
             <p className="modules-hint">{st('offerHint', locale)}</p>
           </div>
+          )}
 
           {/* Rassurance avant la case a cocher.
               17/09/2026 (demande Alex) : l'ancienne version nommait les
@@ -977,7 +1069,9 @@ export default function OnboardingPage() {
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="btn-primary" disabled={submitting || selectedModules.length === 0}>
-            {submitting ? st('redirecting', locale) : st('continuePay', locale)}
+            {native
+              ? (submitting ? nt('sending', locale) : nt('submit', locale))
+              : (submitting ? st('redirecting', locale) : st('continuePay', locale))}
           </button>
 
           <button

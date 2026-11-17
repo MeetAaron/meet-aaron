@@ -94,10 +94,9 @@ export default function LoginPage() {
   const router = useRouter();
   const [locale, setLocale] = useLocale();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'reset'
-  // Applications iPhone / Android (13/11/2026) : la création de compte ne se
-  // fait pas dans l'app (voir app/onboarding, « native.signupNotInApp »). Le
-  // lien « Pas encore de compte ? S'inscrire » y créait pourtant un compte
-  // qui aboutissait sur un cul-de-sac. On le masque dans la coque.
+  // Applications iPhone / Android : « S'inscrire » est de nouveau proposé
+  // (17/11/2026). Le paiement se fait par un email d'activation, voir
+  // app/onboarding (NATIVE_TEXT) et app/api/checkout/email-link.
   const [storeApp, setStoreApp] = useState(false);
   useEffect(() => { setStoreApp(isStoreApp()); }, []);
   // « Mot de passe oublié ? » (31/08/2026) — voir app/api/auth/request-
@@ -633,7 +632,7 @@ export default function LoginPage() {
           <button className="link-toggle" onClick={() => { setMode('signin'); setError(null); setMessage(null); }}>
             {t('auth.backToSignin', locale)}
           </button>
-        ) : storeApp && mode === 'signin' ? null : (
+        ) : (
           <button className="link-toggle" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setMessage(null); setUnconfirmedEmail(null); setResendMessage(null); }}>
             {mode === 'signin' ? `${t('auth.noAccount', locale)} ${t('auth.switchToSignup', locale)}` : `${t('auth.hasAccount', locale)} ${t('auth.switchToSignin', locale)}`}
           </button>

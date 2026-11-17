@@ -9,42 +9,56 @@ import { useLocale } from '@/lib/i18n';
 // 7 langues (06/11/2026, retour Alex : « tout n'est pas traduit »).
 const SUCCESS_TEXT = {
   "fr": {
+    "backToApp": "Ton espace est prêt. Retourne dans l'application Meet Aaron, ou connecte-toi sur ce site.",
+    "signin": "Se connecter",
     "paid": "Paiement confirmé !",
     "preparing": "On prépare votre espace, un instant…",
     "slow": "Ça prend un peu plus de temps que prévu",
     "retry": "Rechargez cette page dans quelques secondes, ou contactez-nous si le problème persiste."
   },
   "en": {
+    "backToApp": "Your space is ready. Go back to the Meet Aaron app, or sign in on this website.",
+    "signin": "Sign in",
     "paid": "Payment confirmed!",
     "preparing": "We are preparing your space, one moment…",
     "slow": "This is taking a little longer than expected",
     "retry": "Reload this page in a few seconds, or contact us if the problem persists."
   },
   "de": {
+    "backToApp": "Dein Bereich ist bereit. Kehre in die Meet-Aaron-App zurück oder melde dich auf dieser Website an.",
+    "signin": "Anmelden",
     "paid": "Zahlung bestätigt!",
     "preparing": "Wir richten Ihren Bereich ein, einen Moment…",
     "slow": "Das dauert etwas länger als erwartet",
     "retry": "Laden Sie diese Seite in ein paar Sekunden neu, oder kontaktieren Sie uns, falls das Problem bleibt."
   },
   "it": {
+    "backToApp": "Il tuo spazio è pronto. Torna nell'app Meet Aaron o accedi su questo sito.",
+    "signin": "Accedi",
     "paid": "Pagamento confermato!",
     "preparing": "Stiamo preparando il tuo spazio, un attimo…",
     "slow": "Ci vuole un po' più del previsto",
     "retry": "Ricarica questa pagina tra qualche secondo, o contattaci se il problema persiste."
   },
   "es": {
+    "backToApp": "Tu espacio está listo. Vuelve a la aplicación Meet Aaron o inicia sesión en este sitio.",
+    "signin": "Iniciar sesión",
     "paid": "¡Pago confirmado!",
     "preparing": "Estamos preparando tu espacio, un momento…",
     "slow": "Está tardando un poco más de lo previsto",
     "retry": "Recarga esta página en unos segundos o contáctanos si el problema persiste."
   },
   "pt": {
+    "backToApp": "O teu espaço está pronto. Volta à aplicação Meet Aaron ou inicia sessão neste site.",
+    "signin": "Iniciar sessão",
     "paid": "Pagamento confirmado!",
     "preparing": "Estamos a preparar o teu espaço, um instante…",
     "slow": "Está a demorar um pouco mais do que o previsto",
     "retry": "Recarrega esta página dentro de alguns segundos, ou contacta-nos se o problema persistir."
   },
   "nl": {
+    "backToApp": "Je omgeving staat klaar. Ga terug naar de Meet Aaron-app of log in op deze website.",
+    "signin": "Inloggen",
     "paid": "Betaling bevestigd!",
     "preparing": "We maken je omgeving klaar, een ogenblik…",
     "slow": "Dit duurt iets langer dan verwacht",
@@ -57,6 +71,9 @@ export default function OnboardingSuccessPage() {
   const router = useRouter();
   const [locale] = useLocale();
   const [status, setStatus] = useState('waiting');
+  // Paiement fait depuis le lien de l'email d'activation (inscription dans
+  // l'application, 17/11/2026) : on est dans le navigateur, sans session.
+  // Le webhook Stripe crée l'espace ; il suffit de rouvrir l'app.
 
   useEffect(() => {
     let attempts = 0;
@@ -64,7 +81,11 @@ export default function OnboardingSuccessPage() {
 
     async function tryLink() {
       const { data: { session } } = await supabaseBrowser.auth.getSession();
-      if (!session || cancelled) return;
+      if (cancelled) return;
+      if (!session) {
+        setStatus('noSession');
+        return;
+      }
 
       const res = await fetch('/api/auth/link', {
         method: 'POST',
@@ -95,7 +116,13 @@ export default function OnboardingSuccessPage() {
     <div className="wrap">
       <div className="card">
         <img src="/icon.png" alt="Meet Aaron" className="logo" />
-        {status === 'waiting' ? (
+        {status === 'noSession' ? (
+          <>
+            <h1>{sx('paid', locale)}</h1>
+            <p className="subtitle">{sx('backToApp', locale)}</p>
+            <a className="signin-link" href="/login">{sx('signin', locale)}</a>
+          </>
+        ) : status === 'waiting' ? (
           <>
             <h1>{sx('paid', locale)}</h1>
             <p className="subtitle">{sx('preparing', locale)}</p>
@@ -111,6 +138,16 @@ export default function OnboardingSuccessPage() {
 
       <style jsx>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500&display=swap');
+        .signin-link {
+          display: inline-block;
+          margin-top: 0.4rem;
+          background: #4b39ef;
+          color: #fff;
+          text-decoration: none;
+          border-radius: 10px;
+          padding: 0.7rem 1.2rem;
+          font-weight: 600;
+        }
         .wrap {
           min-height: 100vh;
           display: flex;

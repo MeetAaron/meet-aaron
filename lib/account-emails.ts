@@ -86,3 +86,25 @@ export function newDeviceEmail(
     `Aaron`;
   return { subject: T.subject, body };
 }
+
+// EMAIL D'ACTIVATION APRÈS UNE INSCRIPTION DANS L'APPLICATION (17/11/2026).
+// Voir lib/signup-activation.ts : l'app ne peut pas mener au paiement, cet
+// email le fait. Pas de prix ici : le montant exact et la devise s'affichent
+// sur la page Stripe, d'après le pays de facturation.
+const ACTIVATE: Record<string, { subject: string; hello: string; intro: string; action: string; valid: string; after: string; ignore: string }> = {
+  fr: { subject: 'Active ton espace Meet Aaron', hello: 'Bonjour{name},', intro: 'Ton compte Meet Aaron est créé. Il reste une étape pour ouvrir ton espace : choisir ton abonnement.', action: 'Clique sur ce lien pour le faire en toute sécurité, sur notre site (paiement par carte avec Stripe) :', valid: 'Le lien est valable 14 jours.', after: "Une fois le paiement fait, retourne dans l'application Meet Aaron : ton espace t'y attend.", ignore: "Si tu n'es pas à l'origine de cette inscription, ignore simplement cet email." },
+  en: { subject: 'Activate your Meet Aaron space', hello: 'Hello{name},', intro: 'Your Meet Aaron account has been created. One step remains to open your space: choosing your subscription.', action: 'Click this link to do it securely on our website (card payment with Stripe):', valid: 'The link is valid for 14 days.', after: 'Once the payment is done, go back to the Meet Aaron app: your space will be waiting for you.', ignore: 'If you did not sign up, simply ignore this email.' },
+  de: { subject: 'Aktiviere deinen Meet-Aaron-Bereich', hello: 'Hallo{name},', intro: 'Dein Meet-Aaron-Konto ist erstellt. Ein Schritt fehlt noch, um deinen Bereich zu öffnen: die Wahl deines Abonnements.', action: 'Klicke auf diesen Link, um das sicher auf unserer Website zu erledigen (Kartenzahlung mit Stripe):', valid: 'Der Link ist 14 Tage gültig.', after: 'Sobald die Zahlung erfolgt ist, kehre in die Meet-Aaron-App zurück: Dein Bereich wartet dort auf dich.', ignore: 'Falls du dich nicht angemeldet hast, ignoriere diese E-Mail einfach.' },
+  it: { subject: 'Attiva il tuo spazio Meet Aaron', hello: 'Ciao{name},', intro: 'Il tuo account Meet Aaron è stato creato. Manca un passaggio per aprire il tuo spazio: scegliere l\'abbonamento.', action: 'Clicca su questo link per farlo in sicurezza sul nostro sito (pagamento con carta tramite Stripe):', valid: 'Il link è valido 14 giorni.', after: 'Una volta effettuato il pagamento, torna nell\'app Meet Aaron: il tuo spazio ti aspetta.', ignore: 'Se non sei stato tu a iscriverti, ignora semplicemente questa email.' },
+  es: { subject: 'Activa tu espacio Meet Aaron', hello: 'Hola{name},', intro: 'Tu cuenta Meet Aaron está creada. Queda un paso para abrir tu espacio: elegir tu suscripción.', action: 'Haz clic en este enlace para hacerlo de forma segura en nuestra web (pago con tarjeta mediante Stripe):', valid: 'El enlace es válido durante 14 días.', after: 'Una vez hecho el pago, vuelve a la aplicación Meet Aaron: tu espacio te estará esperando.', ignore: 'Si no te has registrado, simplemente ignora este correo.' },
+  pt: { subject: 'Ativa o teu espaço Meet Aaron', hello: 'Olá{name},', intro: 'A tua conta Meet Aaron foi criada. Falta um passo para abrir o teu espaço: escolher a tua subscrição.', action: 'Clica neste link para o fazer em segurança no nosso site (pagamento com cartão através da Stripe):', valid: 'O link é válido durante 14 dias.', after: 'Depois do pagamento, volta à aplicação Meet Aaron: o teu espaço estará à tua espera.', ignore: 'Se não foste tu a inscrever-te, ignora simplesmente este email.' },
+  nl: { subject: 'Activeer je Meet Aaron-omgeving', hello: 'Hallo{name},', intro: 'Je Meet Aaron-account is aangemaakt. Nog één stap om je omgeving te openen: je abonnement kiezen.', action: 'Klik op deze link om dat veilig op onze website te doen (betaling met kaart via Stripe):', valid: 'De link is 14 dagen geldig.', after: 'Ga na de betaling terug naar de Meet Aaron-app: je omgeving staat daar voor je klaar.', ignore: 'Heb je je niet aangemeld? Negeer deze e-mail dan gewoon.' },
+};
+
+export function activationEmail(locale: string | null | undefined, link: string, firstName?: string | null): AccountEmail {
+  const T = ACTIVATE[normalizeLocale(locale)] || ACTIVATE.fr;
+  const body =
+    `${T.hello.replace('{name}', firstName ? ` ${firstName}` : '')}\n\n` +
+    `${T.intro}\n\n${T.action}\n${link}\n\n${T.valid}\n\n${T.after}\n\n${T.ignore}\n\nAaron`;
+  return { subject: T.subject, body };
+}

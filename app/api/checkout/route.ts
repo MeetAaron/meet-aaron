@@ -4,85 +4,19 @@
 // puisse créer la société + le profil utilisateur une fois le paiement confirmé.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe, managedPaymentsParams } from '@/lib/stripe';
 import { getAuthedIdentity, unauthorizedResponse } from '@/lib/auth-helpers';
-import { ModuleCode, getModulePriceId, getAaronYearlyPriceId, currencyForCountry } from '@/lib/subscription';
+import { createSignupCheckoutSession, SignupCheckoutError } from '@/lib/signup-checkout';
 import { readJsonBody, serverError } from '@/lib/http';
 
-// Le Price ID vient de Vercel (STRIPE_PRICE_ID_AARON_PROSPECT), pour changer
-// de tarif sans redeployer. Le repli en dur a ete retire le 09/10/2026 : il
-// pointait vers un prix du compte Stripe Singapour, qui n'existe pas sur le
-// compte Australie passe en reel le 18/09. Voir lib/subscription.ts pour le
-// raisonnement complet — getAaronPriceId() leve desormais une erreur claire
-// si la variable manque, au lieu de viser un prix mort.
-
-// Choix des modules à l'inscription (demande d'Alex 2026-08-17) : l'onboarding
-// ne propose plus uniquement Aaron Prospect — le futur patron choisit 1, 2 ou
-// les 3 modules (Aaron Prospect/Opportunités/Clients) dès la création du
-// compte, chacun devenant sa propre ligne d'abonnement Stripe (même
-// architecture "un abonnement, plusieurs subscription items" que la bascule
-// après-coup dans Préférences, voir lib/subscription.ts et
-// app/api/subscription/modules/route.ts). Les trois modules passent
-// desormais par getModulePriceId : Aaron Prospect leve une erreur explicite
-// si sa variable manque, Opportunites/Clients renvoient null si la leur
-// n'est pas configuree.
-function priceIdFor(module: ModuleCode): string | null {
-  return getModulePriceId(module);
-}
-
-// Marchés visés pour l'expansion internationale (voir statut projet) :
-// Portugal, Espagne, France, Belgique, Pays-Bas, Allemagne, Italie, UK,
-// Australie, USA. Stripe Checkout gère déjà nativement la TVA UE/UK, la GST
-// australienne et la sales tax américaine via Stripe Tax (automatic_tax
-// ci-dessous) — à condition que Stripe Tax soit activé et qu'un
-// enregistrement fiscal (tax registration) existe pour chaque pays où on
-// veut réellement collecter la taxe. Je ne crée PAS ces enregistrements
-// depuis le code : c'est une décision fiscale/légale par pays qui doit
-// rester entre les mains d'Alex (et de son comptable), pas quelque chose
-// qu'Aaron décide unilatéralement même si l'API Stripe le permettrait
-// techniquement (stripe.tax.registrations.create). Voir la note dans le
-// statut projet pour la marche à suivre côté Dashboard Stripe.
-
-// Correspondance locale interne (lib/i18n.js) -> code de langue Stripe
-// Checkout (liste officielle Stripe, sous-ensemble pertinent ici). 'auto'
-// : Stripe détecte la langue du navigateur si aucune valeur reconnue n'est
-// fournie.
-const STRIPE_LOCALE_MAP: Record<string, string> = {
-  fr: 'fr', en: 'en', de: 'de', it: 'it', es: 'es', pt: 'pt', nl: 'nl',
-};
+// Le calcul de la session (prix, devise, taxes, métadonnées lues par le
+// webhook) vit dans lib/signup-checkout.ts depuis le 17/11/2026, partagé avec
+// le lien d'activation envoyé par email (app/api/checkout/resume).
 
 export async function POST(request: NextRequest) {
-  const { first_name, full_name, company_name, country, locale, modules, role, billing_interval } = await readJsonBody(request);
+  const { first_name, full_name, company_name, country, locale, role, billing_interval } = await readJsonBody(request);
 
   if (!first_name || !full_name || !company_name || !country) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
-  }
-
-  // Repli sur ['AP'] seul si le payload n'envoie rien de reconnu (ancien
-  // frontend pas encore redéployé, ou appel externe) — comportement identique
-  // à avant cette évolution.
-  // Abonnement unique Aaron (décision Alex, 31/08/2026) : quel que soit le
-  // choix envoyé par le frontend (ancienne sélection de modules), le
-  // Checkout ne vend plus qu'UNE ligne — le prix Aaron à 30 €/mois (ex prix
-  // "AP"). Le webhook active ensuite les 3 drapeaux de modules.
-  void modules;
-  const selectedModules: ModuleCode[] = ['AP'];
-
-  // TARIF ANNUEL (06/11/2026) : billing_interval 'year' → le Price annuel.
-  // S'il n'est pas configuré, on REFUSE (501) plutôt que de prélever un
-  // mensuel à quelqu'un qui a choisi l'année — l'écran d'inscription ne
-  // propose l'annuel que si NEXT_PUBLIC_YEARLY_PLAN vaut "1".
-  const yearly = billing_interval === 'year';
-  const lineItems: { price: string; quantity: number }[] = [];
-  for (const mod of selectedModules) {
-    const priceId = yearly ? getAaronYearlyPriceId() : priceIdFor(mod);
-    if (!priceId) {
-      return NextResponse.json(
-        { error: yearly ? "Tarif annuel pas encore configuré côté serveur (STRIPE_PRICE_ID_AARON_PROSPECT_YEARLY manquant)." : `Module ${mod} pas encore configuré côté serveur (Price ID Stripe manquant).` },
-        { status: 501 }
-      );
-    }
-    lineItems.push({ price: priceId, quantity: 1 });
   }
 
   // auth_user_id et email proviennent du token vérifié : sinon, quelqu'un pourrait
@@ -93,82 +27,24 @@ export async function POST(request: NextRequest) {
   if (!identity) return unauthorizedResponse();
   const { auth_user_id, email } = identity;
 
-  const origin = request.nextUrl.origin;
-
-  const currency = currencyForCountry(country);
-  const sessionParams: Record<string, any> = {
-      mode: 'subscription',
-      // Stripe vendeur officiel si Alex l'a activé (voir lib/stripe.ts).
-      ...managedPaymentsParams(),
-      customer_email: email,
-      line_items: lineItems,
-      allow_promotion_codes: true,
-      // Adresse de facturation complète (rue, ville, code postal) requise pour
-      // pouvoir générer une vraie facture — avant, seul le pays était demandé.
-      billing_address_collection: 'required',
-      // Calcule automatiquement la TVA/GST/sales tax selon le pays de
-      // facturation renseigné par le client (UE, UK, Australie, USA...).
-      // Nécessite Stripe Tax activé + un enregistrement fiscal pour le pays
-      // concerné côté Dashboard Stripe (voir note ci-dessus) — sans ça,
-      // Stripe ignore simplement ce paramètre et ne facture aucune taxe,
-      // donc pas de risque de casser le paiement en attendant.
-      automatic_tax: { enabled: true },
-      // Permet à un client professionnel de renseigner son numéro de TVA
-      // intracommunautaire (autoliquidation en B2B UE) directement dans le
-      // Checkout, sur la facture générée automatiquement par Stripe.
-      tax_id_collection: { enabled: true },
-      // Langue du Checkout alignée sur la langue choisie dans l'app (voir
-      // lib/i18n.js) quand elle est reconnue par Stripe, sinon détection
-      // automatique du navigateur.
-      locale: (STRIPE_LOCALE_MAP[locale] as any) || 'auto',
-      success_url: `${origin}/onboarding/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/onboarding`,
-      metadata: {
-        auth_user_id,
-        email,
-        first_name,
-        full_name,
-        company_name,
-        country,
-        billing_interval: yearly ? 'year' : 'month',
-        // Modules choisis à l'inscription — lu par le webhook
-        // (checkout.session.completed) pour activer les bons booléens
-        // offer_ap_active/offer_as_active/offer_ac_active à la création de
-        // la société. Même convention que purpose:'reactivate_subscription'
-        // (app/api/subscription/modules/route.ts), qui utilise déjà un
-        // champ metadata.modules en liste séparée par des virgules.
-        modules: selectedModules.join(','),
-        // 'patron' (fondateur/dirigeant, valeur par défaut) ou 'commercial'
-        // (commercial solo qui paie lui-même — pas de code d'activation
-        // entreprise). Lu par le webhook pour renseigner users.role au lieu
-        // de forcer 'patron' pour tout le monde (demande Alex 25/08 : un
-        // commercial solo payant seul ne doit pas hériter des permissions
-        // "fondateur", ex. voir "Mon équipe" dans le menu).
-        role: role === 'commercial' ? 'commercial' : 'patron',
-      },
-  };
-
   try {
-    // Devise selon le pays de facturation : on tente avec la devise du
-    // client (currency_options du Price côté Stripe), et si le Price n'a pas
-    // encore cette option on réessaie en EUR — jamais de paiement cassé.
-    let session;
-    try {
-      // La devise est TOUJOURS passée, euro compris (06/11/2026) : le prix
-      // annuel a été créé avec le dollar australien comme devise de base, et
-      // sans `currency` Stripe facturerait un client français en AUD.
-      session = await stripe.checkout.sessions.create({ ...sessionParams, currency });
-    } catch (err: any) {
-      const msg = String(err?.message || '').toLowerCase();
-      if (/currenc/.test(msg)) {
-        console.error(`Devise ${currency} non configurée sur le Price Stripe, repli EUR:`, err?.message);
-        session = await stripe.checkout.sessions.create(sessionParams);
-      } else {
-        throw err;
-      }
-    }
-    return NextResponse.json({ url: session.url });
+    const url = await createSignupCheckoutSession({
+      auth_user_id,
+      email,
+      first_name,
+      full_name,
+      company_name,
+      country,
+      locale,
+      role,
+      billing_interval,
+      origin: request.nextUrl.origin,
+    });
+    return NextResponse.json({ url });
   } catch (err: any) {
+    if (err instanceof SignupCheckoutError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('Erreur création session Stripe:', { type: (err as any)?.type || null, code: (err as any)?.code || null, requestId: (err as any)?.requestId || null }); // jamais l'objet d'erreur complet (CASA 6.5.1)
     return serverError(err, '/api/checkout');
   }

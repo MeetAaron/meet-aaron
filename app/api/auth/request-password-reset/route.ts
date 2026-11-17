@@ -23,6 +23,7 @@ import { passwordResetEmail } from '@/lib/account-emails';
 import { normalizeLocale } from '@/lib/locale-instruction';
 import { readJsonBody } from '@/lib/http';
 import { resetCodeToken } from '@/lib/password-reset-code';
+import { isDemoCompany, DEMO_PASSWORD_MESSAGE } from '@/lib/demo-guard';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 heure
 
@@ -50,10 +51,18 @@ export async function POST(request: NextRequest) {
 
   const { data: user } = await supabaseAdmin
     .from('users')
-    .select('id, auth_user_id, first_name, email, locale')
+    .select('id, auth_user_id, first_name, email, locale, company_id')
     .ilike('email', normalized)
     .not('auth_user_id', 'is', null)
     .maybeSingle();
+
+  // Compte de démonstration partagé : pas de réinitialisation (voir
+  // DEMO_PASSWORD_MESSAGE, lib/demo-guard.ts). Dire que c'est le compte démo
+  // ne révèle rien : son adresse est publique (notes de revue, testeurs).
+  if (user && (await isDemoCompany((user as any).company_id))) {
+    const key = String(locale || 'fr').slice(0, 2).toLowerCase();
+    return NextResponse.json({ error: DEMO_PASSWORD_MESSAGE[key] || DEMO_PASSWORD_MESSAGE.fr, demo: true }, { status: 403 });
+  }
 
   if (user?.auth_user_id) {
     const token = crypto.randomBytes(32).toString('hex');

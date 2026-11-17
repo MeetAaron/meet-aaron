@@ -56,3 +56,19 @@ export function demoBlockedResponse(locale?: string | null) {
   const key = String(locale || 'fr').slice(0, 2).toLowerCase();
   return NextResponse.json({ error: DEMO_BLOCKED_MESSAGE[key] || DEMO_BLOCKED_MESSAGE.fr, demo: true }, { status: 403 });
 }
+
+// MOT DE PASSE DU COMPTE DÉMO (17/11/2026, Alex : « pourquoi les comptes
+// démo demandent à réinitialiser le mot de passe ? »). Ce n'est pas le test :
+// un testeur a touché « Mot de passe oublié ? » sur le compte partagé, et
+// l'email est arrivé dans la boîte d'Alex (aaron+demo@ = aaron@). Le
+// testeur ne pouvait de toute façon pas recevoir le code ; désormais la
+// demande est refusée tout de suite, avec une explication, sans email.
+export const DEMO_PASSWORD_MESSAGE: Record<string, string> = {
+  fr: 'Compte de démonstration : son mot de passe ne se réinitialise pas. Utilise celui indiqué dans les instructions du test.',
+  en: 'Demo account: its password cannot be reset. Use the one given in the test instructions.',
+  de: 'Demokonto: Sein Passwort kann nicht zurückgesetzt werden. Verwende das Passwort aus der Testanleitung.',
+  it: 'Account demo: la sua password non si può reimpostare. Usa quella indicata nelle istruzioni del test.',
+  es: 'Cuenta de demostración: su contraseña no se puede restablecer. Usa la indicada en las instrucciones de la prueba.',
+  pt: 'Conta de demonstração: a palavra-passe não pode ser reposta. Usa a indicada nas instruções do teste.',
+  nl: 'Demo-account: het wachtwoord kan niet opnieuw worden ingesteld. Gebruik het wachtwoord uit de testinstructies.',
+};

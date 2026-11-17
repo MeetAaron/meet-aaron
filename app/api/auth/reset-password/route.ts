@@ -9,6 +9,7 @@ import { readJsonBody } from '@/lib/http';
 import { resetCodeToken } from '@/lib/password-reset-code';
 import { checkRateLimit, callerKey, emailKey, tooManyRequestsResponse } from '@/lib/rate-limit';
 import { passwordPolicyError, passwordPolicyMessage } from '@/lib/password-policy';
+import { isDemoCompany, DEMO_PASSWORD_MESSAGE } from '@/lib/demo-guard';
 
 export async function POST(request: NextRequest) {
   const { token: linkToken, email, code, password } = await readJsonBody(request);
@@ -70,6 +71,13 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (!claimed) {
     return NextResponse.json({ error: expiredMessage }, { status: 400 });
+  }
+
+  // Second filet : jamais de nouveau mot de passe pour le compte démo, même
+  // avec un lien valide (lien demandé avant le 17/11/2026, par exemple).
+  const { data: owner } = await supabaseAdmin.from('users').select('company_id').eq('auth_user_id', row.auth_user_id).maybeSingle();
+  if (owner && (await isDemoCompany((owner as any).company_id))) {
+    return NextResponse.json({ error: DEMO_PASSWORD_MESSAGE.fr, demo: true }, { status: 403 });
   }
 
   const { error } = await supabaseAdmin.auth.admin.updateUserById(row.auth_user_id, { password });
