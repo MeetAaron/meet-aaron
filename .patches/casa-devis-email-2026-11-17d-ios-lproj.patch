@@ -1,0 +1,112 @@
+From 4cdce72ee12a0c2b490d25fafce001b4c1c33c16 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 03:31:27 +0000
+Subject: [PATCH] App iOS 1.0.2 : traductions embarquees (7 langues) pour la
+ fiche App Store et les demandes d'autorisation
+
+ios-app/patch-ios.rb : dossiers <langue>.lproj avec InfoPlist.strings (nom,
+textes appareil photo / photos) ajoutes au projet Xcode genere ; c'est leur
+presence qui fait afficher les langues sur la fiche App Store
+(CFBundleLocalizations seul ne suffisait pas). Echec non bloquant.
+codemagic.yaml : version 1.0.2, LANG UTF-8 pour le script.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ codemagic.yaml       |  4 +++-
+ ios-app/patch-ios.rb | 52 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 55 insertions(+), 1 deletion(-)
+
+diff --git a/codemagic.yaml b/codemagic.yaml
+index ba0bf57..f0108cf 100644
+--- a/codemagic.yaml
++++ b/codemagic.yaml
+@@ -44,7 +44,7 @@ workflows:
+         distribution_type: app_store
+         bundle_identifier: app.meetaaron.mobile
+       vars:
+-        APP_VERSION: '1.0.1'
++        APP_VERSION: '1.0.2'
+         # Identifiant numerique de l'app dans App Store Connect (« Meet Aaron:
+         # Sales Copilot », visible dans l'URL de sa fiche). Pas un secret.
+         # Sert a numeroter les builds a la suite de TestFlight.
+@@ -84,6 +84,8 @@ workflows:
+             BUILD_NUMBER=$((${BUILD_NUMBER:-0} + 100))
+           fi
+           echo "BUILD_NUMBER=$BUILD_NUMBER"
++          # Textes traduits (accents) dans patch-ios.rb : lecture et ecriture en UTF-8.
++          export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+           APP_VERSION="$APP_VERSION" BUILD_NUMBER="$BUILD_NUMBER" ruby patch-ios.rb
+ 
+       - name: Installer les pods (projets CocoaPods seulement)
+diff --git a/ios-app/patch-ios.rb b/ios-app/patch-ios.rb
+index c3e7a97..3641237 100644
+--- a/ios-app/patch-ios.rb
++++ b/ios-app/patch-ios.rb
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env ruby
++# encoding: utf-8
+ # ios-app/patch-ios.rb
+ #
+ # Retouche le projet Xcode genere par `npx cap add ios`.
+@@ -76,6 +77,57 @@ target.build_configurations.each do |config|
+   # Capacitor 8 (07/11/2026) exige iOS 15 au minimum.
+   config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+ end
++
++# 3 bis. Traductions embarquees dans l'app (17/11/2026, Alex : « fais-le
++# maintenant »). L'App Store deduit la ligne « Langues » de la fiche des
++# dossiers <langue>.lproj presents dans l'app, PAS de CFBundleLocalizations
++# (pose plus bas) : la 1.0.1 affichait donc toujours « English » seul.
++# Chaque dossier contient un InfoPlist.strings : nom sous l'icone et textes
++# des demandes d'autorisation (appareil photo, photos), traduits — iOS les
++# affiche desormais dans la langue du telephone.
++# Echec non bloquant : sans ce bloc l'app fonctionne, elle est juste
++# declaree en anglais seul.
++require 'fileutils'
++LOCALIZED_STRINGS = {
++  'en' => { 'cam' => 'To attach a photo to a quote or a customer document.', 'lib' => 'To attach a document from your photo library.', 'add' => 'To save a document created by Aaron.' },
++  'fr' => { 'cam' => 'Pour joindre une photo à un devis ou à un document client.', 'lib' => 'Pour joindre un document depuis votre photothèque.', 'add' => 'Pour enregistrer un document créé par Aaron.' },
++  'de' => { 'cam' => 'Um einem Angebot oder Kundendokument ein Foto beizufügen.', 'lib' => 'Um ein Dokument aus Ihrer Fotomediathek beizufügen.', 'add' => 'Um ein von Aaron erstelltes Dokument zu speichern.' },
++  'it' => { 'cam' => 'Per allegare una foto a un preventivo o a un documento cliente.', 'lib' => 'Per allegare un documento dalla tua libreria foto.', 'add' => 'Per salvare un documento creato da Aaron.' },
++  'es' => { 'cam' => 'Para adjuntar una foto a un presupuesto o a un documento de cliente.', 'lib' => 'Para adjuntar un documento desde tu fototeca.', 'add' => 'Para guardar un documento creado por Aaron.' },
++  'pt' => { 'cam' => 'Para anexar uma foto a um orçamento ou a um documento de cliente.', 'lib' => 'Para anexar um documento a partir da sua fototeca.', 'add' => 'Para guardar um documento criado pelo Aaron.' },
++  'nl' => { 'cam' => 'Om een foto toe te voegen aan een offerte of klantdocument.', 'lib' => 'Om een document uit je fotobibliotheek toe te voegen.', 'add' => 'Om een door Aaron gemaakt document op te slaan.' },
++}.freeze
++begin
++  app_group = project.main_group.find_subpath('App', true)
++  variant = app_group.children.find { |c| c.isa == 'PBXVariantGroup' && c.name == 'InfoPlist.strings' } ||
++            app_group.new_variant_group('InfoPlist.strings')
++  LOCALIZED_STRINGS.each do |lang, s|
++    dir = File.join('ios', 'App', 'App', "#{lang}.lproj")
++    FileUtils.mkdir_p(dir)
++    body = [
++      %("CFBundleDisplayName" = "Meet Aaron";),
++      %("CFBundleName" = "Meet Aaron";),
++      %("NSCameraUsageDescription" = "#{s['cam']}";),
++      %("NSPhotoLibraryUsageDescription" = "#{s['lib']}";),
++      %("NSPhotoLibraryAddUsageDescription" = "#{s['add']}";),
++    ].join("\n") + "\n"
++    File.write(File.join(dir, 'InfoPlist.strings'), body, mode: 'w:UTF-8')
++    rel = "#{lang}.lproj/InfoPlist.strings"
++    unless variant.files.any? { |f| f.path == rel }
++      ref = variant.new_reference(rel)
++      ref.name = lang
++    end
++  end
++  regions = project.root_object.known_regions || []
++  project.root_object.known_regions = (regions | %w[en Base] | LOCALIZED_STRINGS.keys)
++  unless target.resources_build_phase.files_references.include?(variant)
++    target.resources_build_phase.add_file_reference(variant, true)
++  end
++  puts "traductions embarquees : #{LOCALIZED_STRINGS.keys.join(', ')}"
++rescue StandardError => e
++  puts "AVERTISSEMENT traductions non embarquees : #{e.class} #{e.message}"
++end
++
+ project.save
+ puts "projet Xcode mis a jour (version #{VERSION}, build #{BUILD_NUM})"
+ 
+-- 
+2.43.0
+
