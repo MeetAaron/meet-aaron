@@ -13,7 +13,7 @@ import { sendImapEmail } from './imap';
 import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
 import { findReplyContext, replySubject } from './email-threading';
-import { pickSignature, pickBannerUrl, recipientLocaleForSignature } from './signature-locale';
+import { pickSignature, pickBannerUrl, recipientLocaleForSignature, detectTextLocale, signatureMapForSend, tidySignature } from './signature-locale';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
 // les emails générés par Aaron sont parfois "wrappés à la main" par le
@@ -551,24 +551,33 @@ export async function sendEmailForUser(
   // On coupe donc court : pas de data: dans la signature, pas de data: dans
   // les URL d'images, et une signature plafonnée. Et on journalise la taille
   // finale pour que le jour où ça recommence, le log le dise tout de suite.
-  // ── SIGNATURE DANS LA LANGUE DU DESTINATAIRE (26/09/2026) ─────────────
+  // ── LANGUE DE LA SIGNATURE (18/11/2026) ────────────────────────────────
   //
-  // Aaron rédige déjà le message dans la langue du prospect
-  // (lib/prospect-locale.ts). La signature suivait, elle, une seule langue :
-  // un email anglais se terminait par « Cordialement, / Directeur commercial ».
-  //
-  // On ne fait la résolution de langue QUE si le commercial a réellement
-  // saisi au moins une signature traduite — sinon le résultat serait
-  // identique et on aurait ajouté deux requêtes à chaque envoi pour rien.
-  // Jamais pour les emails qu'Aaron s'envoie à lui-même : c'est la langue du
-  // commercial qui s'applique, sans aucune requête.
+  // Elle suit d'abord la langue DU MESSAGE lui-même (detectTextLocale) : si
+  // Aaron répond en anglais à un prospect allemand qui écrit en anglais, la
+  // signature est anglaise. À défaut (message trop court pour trancher), on
+  // reprend le calcul du destinataire : campagne d'origine, pays de sa
+  // société, extension de son domaine, puis langue du commercial.
+  // Les emails qu'Aaron envoie au commercial lui-même gardent sa langue.
   let signatureLocale: string | null = user?.locale || null;
-  if (!toSelf && (user?.email_signature_by_locale || user?.email_banner_by_locale || user?.email_signature_image_by_locale)) {
-    signatureLocale = await recipientLocaleForSignature(userId, to, user?.locale);
+  if (!toSelf) {
+    signatureLocale = detectTextLocale(body) || (await recipientLocaleForSignature(userId, to, user?.locale));
   }
-  const chosenSignature = pickSignature(user?.email_signature, user?.email_signature_by_locale, signatureLocale);
+  // Traduction automatique : si la version de cette langue manque ou date
+  // d'une ancienne signature, elle est produite ici une fois pour toutes
+  // (enregistrée), avec un délai plafonné — jamais d'envoi bloqué par ça.
+  const signatureMap = toSelf
+    ? user?.email_signature_by_locale
+    : await signatureMapForSend(userId, user?.email_signature, user?.email_signature_by_locale, signatureLocale, user?.locale);
+  const chosenSignature = pickSignature(user?.email_signature, signatureMap, signatureLocale);
   const rawSignature = stripDataUris(chosenSignature);
-  const signatureText = rawSignature ? normalizeEmailBodyLineBreaks(capSignature(rawSignature, userId)) : '';
+  // PAS normalizeEmailBodyLineBreaks ici (bug signalé le 18/11/2026 : « la
+  // signature saute ») : cette fonction recolle les lignes de plus de 30
+  // caractères, pensée pour les paragraphes du corps. Sur une signature,
+  // « Alexandre Fevre — Fondateur de Meet Aaron » + le téléphone finissaient
+  // sur une seule ligne. Une signature garde ses retours à la ligne tels
+  // quels ; on retire seulement les lignes vides en trop.
+  const signatureText = rawSignature ? tidySignature(capSignature(rawSignature, userId)) : '';
   // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
   // le commentaire au-dessus de sendEmailForUser.)
   // ── RÉPONDRE DANS LE FIL (11/09/2026) ─────────────────────────────────

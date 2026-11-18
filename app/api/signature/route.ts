@@ -10,8 +10,41 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
 import { getLastSentGmailBodyText } from '@/lib/google';
 import { guessEmailSignature } from '@/lib/signature';
-import { normalizeSignatureMap } from '@/lib/signature-locale';
+import {
+  normalizeSignatureMap,
+  parseSignatureMap,
+  buildSignatureMap,
+  signatureStateOf,
+  refreshSignatureTranslations,
+  signatureHash,
+  tidySignature,
+  SIGNATURE_LOCALES,
+  SignatureState,
+} from '@/lib/signature-locale';
 import { readJsonBody, serverError } from '@/lib/http';
+
+
+// Vue de la signature pour l'écran Mon entreprise (18/11/2026) : la signature
+// écrite, la langue dans laquelle Aaron l'a reconnue, et la version qui
+// partira dans chacune des autres langues (traduite automatiquement ou
+// corrigée à la main).
+function describeSignature(state: SignatureState) {
+  const hash = signatureHash(state.signature);
+  const fresh = !!state.meta.src && state.meta.src === hash;
+  const versions: Record<string, { text: string; manual: boolean; pending: boolean }> = {};
+  for (const locale of SIGNATURE_LOCALES) {
+    if (locale === state.meta.from) continue;
+    const manual = state.meta.manual.includes(locale);
+    const text = state.entries[locale] || '';
+    const usable = manual || (state.meta.auto && fresh && !!text);
+    versions[locale] = { text: usable ? text : '', manual, pending: !usable && state.meta.auto && !!state.signature };
+  }
+  return {
+    signature_auto: state.meta.auto,
+    signature_from: state.meta.from,
+    signature_versions: versions,
+  };
+}
 
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id');
@@ -40,7 +73,9 @@ export async function GET(request: NextRequest) {
   }
   const user: any = userRes.data;
 
+  const state = signatureStateOf(user?.email_signature, user?.email_signature_by_locale, authedUser.locale);
   return NextResponse.json({
+    ...describeSignature(state),
     signature: user?.email_signature || null,
     // Signature par langue de destinataire (A_FAIRE.docx, 26/09/2026) — voir
     // lib/signature-locale.ts. Objet { langue: texte }, les langues absentes
@@ -59,7 +94,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user_id, signature, signature_by_locale } = await readJsonBody(request);
+  const { user_id, signature, signature_by_locale, auto_translate, overrides } = await readJsonBody(request);
 
   if (!user_id || typeof signature !== 'string') {
     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
@@ -69,12 +104,48 @@ export async function PATCH(request: NextRequest) {
   if (!authedUser) return unauthorizedResponse();
   if (authedUser.id !== user_id) return forbiddenResponse();
 
-  const patch: Record<string, any> = { email_signature: signature.trim() || null };
-  // `signature_by_locale` absent du corps = champ non touché (les anciens
-  // clients continuent de fonctionner). Présent mais vide = remise à zéro.
-  const hasLocaleMap = signature_by_locale !== undefined;
-  if (hasLocaleMap) {
-    patch.email_signature_by_locale = normalizeSignatureMap(signature_by_locale);
+  const cleanSignature = tidySignature(signature).slice(0, 1500);
+  const patch: Record<string, any> = { email_signature: cleanSignature || null };
+
+  // Nouvel écran (18/11/2026) : une seule signature, traduite par Aaron.
+  // `overrides` = les langues que le commercial corrige lui-même
+  // ({ en: '…' } pour fixer une version, { en: null } pour la rendre à la
+  // traduction automatique). `auto_translate` coupe ou rallume la traduction.
+  const usesNewScreen = auto_translate !== undefined || overrides !== undefined;
+  if (usesNewScreen) {
+    const { data: current, error: readError } = await supabaseAdmin
+      .from('users')
+      .select('email_signature_by_locale')
+      .eq('id', user_id)
+      .maybeSingle();
+    if (readError && (readError as any).code !== '42703') return serverError(readError, '/api/signature');
+    const { entries, meta } = parseSignatureMap((current as any)?.email_signature_by_locale);
+    const nextMeta = { ...meta, manual: [...meta.manual] };
+    if (typeof auto_translate === 'boolean') nextMeta.auto = auto_translate;
+    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+      for (const locale of SIGNATURE_LOCALES) {
+        if (!(locale in overrides)) continue;
+        const raw = (overrides as any)[locale];
+        const value = typeof raw === 'string' ? tidySignature(raw).slice(0, 1500) : '';
+        if (value) {
+          entries[locale] = value;
+          if (!nextMeta.manual.includes(locale)) nextMeta.manual.push(locale);
+        } else {
+          delete entries[locale];
+          nextMeta.manual = nextMeta.manual.filter((l) => l !== locale);
+        }
+      }
+    }
+    patch.email_signature_by_locale = buildSignatureMap(entries, nextMeta);
+  } else if (signature_by_locale !== undefined) {
+    // Ancien écran (onglets par langue) : chaque langue saisie est manuelle.
+    const map = normalizeSignatureMap(signature_by_locale) || {};
+    patch.email_signature_by_locale = buildSignatureMap(map, {
+      auto: true,
+      src: null,
+      from: null,
+      manual: Object.keys(map),
+    });
   }
 
   let { error } = await supabaseAdmin.from('users').update(patch).eq('id', user_id);
@@ -83,7 +154,7 @@ export async function PATCH(request: NextRequest) {
   if (error && (error as any).code === '42703') {
     const retry = await supabaseAdmin
       .from('users')
-      .update({ email_signature: signature.trim() || null })
+      .update({ email_signature: cleanSignature || null })
       .eq('id', user_id);
     if (retry.error) {
       return serverError(retry.error, '/api/signature');
@@ -95,7 +166,26 @@ export async function PATCH(request: NextRequest) {
     return serverError(error, '/api/signature');
   }
 
-  return NextResponse.json({ success: true, locale_signatures_saved: hasLocaleMap });
+  // Traduction dans la foulée, pour que l'écran montre tout de suite ce qui
+  // partira dans chaque langue. Plafonnée à 15 s : au-delà, la traduction
+  // se fera au premier envoi concerné, sans rien bloquer.
+  const refreshed = await Promise.race([
+    refreshSignatureTranslations(user_id, authedUser.locale),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+  ]);
+  const { data: after } = await supabaseAdmin
+    .from('users')
+    .select('email_signature, email_signature_by_locale')
+    .eq('id', user_id)
+    .maybeSingle();
+  const state = refreshed || signatureStateOf((after as any)?.email_signature, (after as any)?.email_signature_by_locale, authedUser.locale);
+
+  return NextResponse.json({
+    success: true,
+    locale_signatures_saved: true,
+    signature: cleanSignature || null,
+    ...describeSignature(state),
+  });
 }
 
 export async function POST(request: NextRequest) {

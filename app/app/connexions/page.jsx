@@ -27,6 +27,7 @@ import PushNotificationManager from '@/components/PushNotificationManager';
 import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
 import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
 import MfaSettings from '@/components/MfaSettings';
+import SignatureEditor from '@/components/SignatureEditor';
 import QRCode from 'qrcode';
 
 // Téléchargement d'un fichier généré côté serveur (export "Profil de
@@ -298,6 +299,17 @@ const AUTO_CONVERSION_HINT = {
     body: 'Bij dit doel boekt niemand een afspraak, dus weet Aaron nooit dat iemand zich heeft aangemeld en blijft hij opvolgen. Koppel het adres voor automatische omzetting aan je Stripe of aanmeldtool — de prospect wordt vanzelf een gewonnen klant.',
     cta: 'Bekijk het adres',
   },
+};
+
+// Pastille de la carte « Signature des emails » (18/11/2026).
+const SIGNATURE_STATUS = {
+  fr: { auto: 'Traduite automatiquement', single: 'Une seule langue' },
+  en: { auto: 'Translated automatically', single: 'One language' },
+  de: { auto: 'Automatisch übersetzt', single: 'Eine Sprache' },
+  it: { auto: 'Tradotta automaticamente', single: 'Una sola lingua' },
+  es: { auto: 'Traducida automáticamente', single: 'Un solo idioma' },
+  pt: { auto: 'Traduzida automaticamente', single: 'Um só idioma' },
+  nl: { auto: 'Automatisch vertaald', single: 'Eén taal' },
 };
 
 const BILLING_OWNER_ONLY = {
@@ -837,6 +849,11 @@ export default function ConnexionsPage() {
   const importFileInputRef = useRef(null);
   const [signature, setSignature] = useState('');
   const [signatureLoaded, setSignatureLoaded] = useState(false);
+  // Réponse brute de /api/signature, passée telle quelle au nouvel écran
+  // (components/SignatureEditor.jsx, 18/11/2026) ; signatureSummary sert à la
+  // pastille d'état de la carte.
+  const [signatureInitial, setSignatureInitial] = useState(null);
+  const [signatureSummary, setSignatureSummary] = useState({ hasSignature: false, auto: true });
   // SIGNATURE PAR LANGUE DE DESTINATAIRE (A_FAIRE.docx, 26/09/2026).
   // Aaron écrit déjà au prospect dans SA langue (lib/prospect-locale.ts) ;
   // la signature suivait une seule langue. `signatureByLocale` = objet
@@ -1044,6 +1061,8 @@ export default function ConnexionsPage() {
     fetch(`/api/signature?user_id=${userId}`)
       .then((r) => r.json())
       .then((res) => {
+        setSignatureInitial(res || {});
+        setSignatureSummary({ hasSignature: !!(res?.signature || '').trim(), auto: res?.signature_auto !== false });
         setSignature(res.signature || '');
         setSignatureByLocale(res.signature_by_locale || {});
         setSignatureImageUrl(res.signature_image_url || null);
@@ -2864,190 +2883,25 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           {signatureLoaded && (
             <CompanyCard
               icon="pencil"
-              tone={signatureLangCount > 0 ? 'ok' : (signature || '').trim() ? 'brand' : 'off'}
+              tone={signatureSummary.hasSignature ? 'ok' : 'off'}
               title={t('connexions.coSectionSignature', locale)}
               status={
-                signatureLangCount > 0
-                  ? t('connexions.coStateLangs', locale).replace('{count}', signatureLangCount)
-                  : (signature || '').trim()
-                    ? t('connexions.coStateDefaultOnly', locale)
-                    : t('connexions.coStateTodo', locale)
+                signatureSummary.hasSignature
+                  ? (SIGNATURE_STATUS[locale] || SIGNATURE_STATUS.fr)[signatureSummary.auto ? 'auto' : 'single']
+                  : t('connexions.coStateTodo', locale)
               }
               open={openCompanySection === 'signature'}
               onToggle={() => setOpenCompanySection((v) => (v === 'signature' ? null : 'signature'))}
             >
-              {/* Onglets de langue (26/09/2026) : « Par défaut » + les 7
-                  langues. Une langue laissée vide n'est pas enregistrée et
-                  retombe sur la signature par défaut à l'envoi — voir
-                  lib/signature-locale.ts. La puce indique d'un coup d'œil
-                  les langues déjà traduites. */}
-              <div className="sig-lang-tabs">
-                <button
-                  type="button"
-                  className={`sig-lang-tab${signatureLang === '' ? ' is-active' : ''}`}
-                  onClick={() => setSignatureLang('')}
-                >
-                  {t('preferences.signatureDefaultTab', locale)}
-                </button>
-                {LOCALES.map((loc) => (
-                  <button
-                    key={loc}
-                    type="button"
-                    className={`sig-lang-tab${signatureLang === loc ? ' is-active' : ''}${(signatureByLocale[loc] || '').trim() ? ' is-filled' : ''}`}
-                    onClick={() => setSignatureLang(loc)}
-                  >
-                    {LOCALE_LABELS[loc]}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                rows={4}
-                value={signatureLang ? (signatureByLocale[signatureLang] || '') : signature}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (signatureLang) {
-                    setSignatureByLocale((prev) => ({ ...prev, [signatureLang]: value }));
-                  } else {
-                    setSignature(value);
-                  }
-                }}
-                placeholder={
-                  signatureLang
-                    ? (signature || t('preferences.signaturePlaceholder', locale))
-                    : t('preferences.signaturePlaceholder', locale)
-                }
+              {/* Nouvel écran (18/11/2026) : une signature, traduite
+                  automatiquement dans la langue de chaque email — voir
+                  components/SignatureEditor.jsx et lib/signature-locale.ts. */}
+              <SignatureEditor
+                locale={locale}
+                userId={userId}
+                initial={signatureInitial}
+                onChange={setSignatureSummary}
               />
-              <p className="collab-extra-hint">
-                {signatureLang
-                  ? t('preferences.signatureLocaleHint', locale)
-                  : t('preferences.signatureDefaultHint', locale)}
-              </p>
-              {signatureError && <p className="error">{signatureError}</p>}
-              <div className="actions">
-                <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
-                  {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
-                </button>
-                <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
-                  {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
-                </button>
-                {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
-              </div>
-              <p className="collab-extra-hint">
-                {t('preferences.signatureDetectHint', locale)}
-              </p>
-
-              {/* Signature avec image ("carte de visite", demande Alex
-                  2026-08-25) : la signature texte ci-dessus reste facultative,
-                  cette image est ajoutée dessous dans les emails envoyés —
-                  voir handleUploadSignatureImage / lib/messaging.ts. */}
-              <div className="signature-image-block">
-                <label className="sub-label">{t('connexions.signatureImageLabel', locale)}</label>
-                <p className="collab-extra-hint">{t('connexions.signatureImageHint', locale)}</p>
-                {/* Onglets de langue (02/10/2026) : memes reperes que pour la
-                    signature texte et le bandeau. */}
-                <div className="sig-lang-tabs">
-                  <button
-                    type="button"
-                    className={`sig-lang-tab${signatureImageLang === '' ? ' is-active' : ''}${signatureImageUrl ? ' is-filled' : ''}`}
-                    onClick={() => setSignatureImageLang('')}
-                  >
-                    {t('preferences.signatureDefaultTab', locale)}
-                  </button>
-                  {LOCALES.map((loc) => (
-                    <button
-                      key={loc}
-                      type="button"
-                      className={`sig-lang-tab${signatureImageLang === loc ? ' is-active' : ''}${signatureImageByLocale[loc] ? ' is-filled' : ''}`}
-                      onClick={() => setSignatureImageLang(loc)}
-                    >
-                      {LOCALE_LABELS[loc]}
-                    </button>
-                  ))}
-                </div>
-                <p className="collab-extra-hint">
-                  {signatureImageLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
-                </p>
-                {(signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl) && (
-                  <div className="signature-image-preview">
-                    <img src={signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl} alt="Signature" />
-                    <button type="button" className="btn-secondary" onClick={handleRemoveSignatureImage} disabled={signatureImageUploading}>
-                      {t('connexions.signatureImageRemoveButton', locale)}
-                    </button>
-                  </div>
-                )}
-                <div className="upload-row">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/gif,image/webp"
-                    onChange={(e) => setSignatureImageFile(e.target.files?.[0] || null)}
-                  />
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleUploadSignatureImage}
-                    disabled={!signatureImageFile || signatureImageUploading}
-                  >
-                    {signatureImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
-                  </button>
-                </div>
-                {signatureImageError && <p className="error">{signatureImageError}</p>}
-              </div>
-
-              {/* Bandeau publicitaire (docx Modifs Aaron "AJOUT signature",
-                  30/08/2026) : image importée, affichée SOUS la signature
-                  dans les emails envoyés — voir lib/messaging.ts. */}
-              <div className="signature-image-block">
-                <label className="sub-label">{t('connexions.bannerImageLabel', locale)}</label>
-                <p className="collab-extra-hint">{t('connexions.bannerImageHint', locale)}</p>
-                {/* Onglets de langue du bandeau (30/09/2026) : memes reperes
-                    visuels que pour la signature texte, pastille comprise. */}
-                <div className="sig-lang-tabs">
-                  <button
-                    type="button"
-                    className={`sig-lang-tab${bannerLang === '' ? ' is-active' : ''}${bannerImageUrl ? ' is-filled' : ''}`}
-                    onClick={() => setBannerLang('')}
-                  >
-                    {t('preferences.signatureDefaultTab', locale)}
-                  </button>
-                  {LOCALES.map((loc) => (
-                    <button
-                      key={loc}
-                      type="button"
-                      className={`sig-lang-tab${bannerLang === loc ? ' is-active' : ''}${bannerByLocale[loc] ? ' is-filled' : ''}`}
-                      onClick={() => setBannerLang(loc)}
-                    >
-                      {LOCALE_LABELS[loc]}
-                    </button>
-                  ))}
-                </div>
-                <p className="collab-extra-hint">
-                  {bannerLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
-                </p>
-                {(bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl) && (
-                  <div className="signature-image-preview">
-                    <img src={bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl} alt="" />
-                    <button type="button" className="btn-secondary" onClick={handleRemoveBannerImage} disabled={bannerImageUploading}>
-                      {t('connexions.signatureImageRemoveButton', locale)}
-                    </button>
-                  </div>
-                )}
-                <div className="upload-row">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/gif,image/webp"
-                    onChange={(e) => setBannerImageFile(e.target.files?.[0] || null)}
-                  />
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleUploadBannerImage}
-                    disabled={!bannerImageFile || bannerImageUploading}
-                  >
-                    {bannerImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
-                  </button>
-                </div>
-                {bannerImageError && <p className="error">{bannerImageError}</p>}
-              </div>
             </CompanyCard>
           )}
 
