@@ -616,11 +616,13 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
           </div>
           <p>{auto ? tx(locale, 'autoOn') : tx(locale, 'autoOff')}</p>
           {auto && saved ? (
-            <button type="button" className="sig-link" onClick={() => setShowVersions((v) => !v)}>
-              <Ic name={showVersions ? 'chevronUp' : 'chevronDown'} size={14} />
-              {showVersions ? tx(locale, 'hide') : tx(locale, 'show')}
-              {pendingCount > 0 ? <span className="sig-muted"> · {tx(locale, 'pending')}</span> : null}
-            </button>
+            <div className="sig-auto-actions">
+              <button type="button" className="sig-link" onClick={() => setShowVersions((v) => !v)}>
+                <Ic name={showVersions ? 'chevronUp' : 'chevronDown'} size={14} />
+                {showVersions ? tx(locale, 'hide') : tx(locale, 'show')}
+              </button>
+              {pendingCount > 0 ? <span className="sig-muted">{tx(locale, 'pending')}</span> : null}
+            </div>
           ) : null}
         </div>
         <button
@@ -945,6 +947,12 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
           font-size: 0.83rem;
           line-height: 1.5;
         }
+        .sig-auto-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem 0.8rem;
+          flex-wrap: wrap;
+        }
         .sig-chip {
           padding: 0.12rem 0.5rem;
           border-radius: 999px;
@@ -1136,7 +1144,7 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
           }
           .sig-bar-right {
             width: 100%;
-            justify-content: space-between;
+            justify-content: flex-end;
           }
           .sig-auto {
             grid-template-columns: minmax(0, 1fr) auto;
