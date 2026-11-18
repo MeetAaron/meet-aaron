@@ -1,0 +1,566 @@
+From ad1d811ea20de97cbcf82fed92d0c5026a71409b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 06:22:18 +0000
+Subject: [PATCH] Se desabonner : resiliation en fin de periode (code promo
+ compris), bouton sur le site et dans l'app
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/subscription-cancel.ts : fin = la plus tardive entre la fin de periode et la fin
+  de la reduction en cours ; reprise possible.
+- /api/subscription/modules : actions cancel et resume ; le dernier module ne coupe
+  plus l'abonnement sur-le-champ.
+- webhook customer.subscription.deleted : desactive les modules a l'echeance.
+- /api/api-usage : cancel_at.
+- Mon compte > Abonnement : bloc « Se desabonner » (7 langues), date de fin affichee,
+  « Reprendre » sur le site uniquement.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/api-usage/route.ts            |   5 +
+ app/api/subscription/modules/route.ts |  78 +++++----
+ app/api/webhooks/stripe/route.ts      |  24 +++
+ app/app/connexions/page.jsx           | 220 +++++++++++++++++++++++++-
+ lib/subscription-cancel.ts            |  84 ++++++++++
+ 5 files changed, 377 insertions(+), 34 deletions(-)
+ create mode 100644 lib/subscription-cancel.ts
+
+diff --git a/app/api/api-usage/route.ts b/app/api/api-usage/route.ts
+index 7e950c7..20daafc 100644
+--- a/app/api/api-usage/route.ts
++++ b/app/api/api-usage/route.ts
+@@ -14,6 +14,7 @@ import { listActiveBoosts } from '@/lib/credit-boosts';
+ import { USD_PER_CREDIT } from '@/lib/boost-tiers';
+ import { getSubscriptionState } from '@/lib/subscription-status';
+ import { stripe } from '@/lib/stripe';
++import { cancellationStateOf } from '@/lib/subscription-cancel';
+ 
+ // Aligné sur lib/anthropic-client.ts (docx Modifs Aaron, AJOUTS 30/08/26,
+ // item 2) : 20 € PAR UTILISATEUR et par mois (21.5 USD au taux prudent),
+@@ -113,6 +114,8 @@ export async function GET(request: NextRequest) {
+   // niveau abonnement au niveau de chaque ligne (subscription item), donc on
+   // vérifie les deux plutôt que de supposer lequel existe.
+   let renewalDate: string | null = null;
++  // Résiliation programmée (18/11/2026) : date de fin d'accès, sinon null.
++  let cancelAt: string | null = null;
+   if (company?.stripe_subscription_id) {
+     try {
+       const subscription: any = await stripe.subscriptions.retrieve(company.stripe_subscription_id, {
+@@ -126,6 +129,7 @@ export async function GET(request: NextRequest) {
+       if (periodEnds.length) {
+         renewalDate = new Date(Math.max(...periodEnds) * 1000).toISOString();
+       }
++      cancelAt = cancellationStateOf(subscription).cancelAt;
+     } catch (err: any) {
+       console.error('Erreur récupération date de renouvellement Stripe:', err.message);
+     }
+@@ -163,5 +167,6 @@ export async function GET(request: NextRequest) {
+     boost_cap_usd: boostCapUsd,
+     active_boosts: activeBoosts,
+     renewal_date: renewalDate,
++    cancel_at: cancelAt,
+   });
+ }
+diff --git a/app/api/subscription/modules/route.ts b/app/api/subscription/modules/route.ts
+index f864872..93c3fc3 100644
+--- a/app/api/subscription/modules/route.ts
++++ b/app/api/subscription/modules/route.ts
+@@ -39,6 +39,7 @@ import {
+   resolveSubscriptionItemId,
+ } from '@/lib/subscription';
+ import { readJsonBody, serverError } from '@/lib/http';
++import { scheduleCancellation, resumeSubscription } from '@/lib/subscription-cancel';
+ 
+ const MODULE_LABELS: Record<ModuleCode, string> = {
+   AP: 'Aaron Prospect',
+@@ -49,10 +50,35 @@ const MODULE_LABELS: Record<ModuleCode, string> = {
+ export async function POST(request: NextRequest) {
+   const { module, action } = await readJsonBody(request);
+ 
++  // « Se désabonner » en un geste (18/11/2026), y compris depuis l'app :
++  // résiliation de tout l'abonnement en fin de période, sans viser un module.
++  if (action === 'cancel') {
++    const authed = await getAuthedUser(request);
++    if (!authed) return unauthorizedResponse();
++    if (authed.role !== 'patron') return forbiddenResponse();
++    if (!authed.company_id) {
++      return NextResponse.json({ error: 'Aucune société associée à ce compte' }, { status: 400 });
++    }
++    const { data: co } = await supabaseAdmin
++      .from('companies')
++      .select('stripe_subscription_id')
++      .eq('id', authed.company_id)
++      .maybeSingle();
++    if (!co?.stripe_subscription_id) {
++      return NextResponse.json({ error: 'Aucun abonnement Stripe actif pour cette société' }, { status: 400 });
++    }
++    try {
++      const state = await scheduleCancellation(co.stripe_subscription_id);
++      return NextResponse.json({ success: true, scheduled: true, cancel_at: state.cancelAt });
++    } catch (err: any) {
++      return serverError(err, '/api/subscription/modules');
++    }
++  }
++
+   if (!MODULE_CODES.includes(module)) {
+     return NextResponse.json({ error: 'Module invalide' }, { status: 400 });
+   }
+-  if (action !== 'activate' && action !== 'deactivate') {
++  if (action !== 'activate' && action !== 'deactivate' && action !== 'resume') {
+     return NextResponse.json({ error: 'Action invalide' }, { status: 400 });
+   }
+ 
+@@ -75,6 +101,19 @@ export async function POST(request: NextRequest) {
+     return NextResponse.json({ error: 'Société introuvable' }, { status: 404 });
+   }
+ 
++  // Annuler une résiliation programmée (18/11/2026).
++  if (action === 'resume') {
++    if (!company.stripe_subscription_id) {
++      return NextResponse.json({ error: 'Aucun abonnement Stripe actif pour cette société' }, { status: 400 });
++    }
++    try {
++      const state = await resumeSubscription(company.stripe_subscription_id);
++      return NextResponse.json({ success: true, cancel_at: state.cancelAt });
++    } catch (err: any) {
++      return serverError(err, '/api/subscription/modules');
++    }
++  }
++
+   if (action === 'deactivate') {
+     if (!isModuleActive(company as any, module)) {
+       return NextResponse.json({ error: 'Ce module est déjà inactif' }, { status: 400 });
+@@ -87,35 +126,14 @@ export async function POST(request: NextRequest) {
+ 
+     try {
+       if (remaining <= 1) {
+-        // Dernier module actif -> on annule l'abonnement Stripe entier
+-        // (impossible d'avoir un abonnement à 0 ligne). Le compte devient
+-        // totalement inactif jusqu'à réabonnement.
+-        await stripe.subscriptions.cancel(company.stripe_subscription_id);
+-        const { error: updateError } = await supabaseAdmin
+-          .from('companies')
+-          .update({
+-            offer_ap_active: false,
+-            offer_as_active: false,
+-            offer_ac_active: false,
+-            stripe_subscription_id: null,
+-            stripe_subscription_item_ap: null,
+-            stripe_subscription_item_as: null,
+-            stripe_subscription_item_ac: null,
+-          })
+-          .eq('id', company.id);
+-        // Bug corrigé le 2026-08-23 (signalé par Alex) : cette mise à jour
+-        // Supabase n'était jusqu'ici jamais vérifiée — si elle échouait,
+-        // Stripe avait déjà annulé l'abonnement mais la société restait
+-        // marquée active en base, ou inversement ici on aurait pu répondre
+-        // "success" alors que la désactivation n'était pas reflétée. On log
+-        // et on renvoie une vraie erreur plutôt qu'un faux succès.
+-        if (updateError) {
+-          console.error(`Désactivation module ${module} : abonnement Stripe annulé mais mise à jour Supabase échouée`, updateError.message, { company_id: company.id });
+-          return NextResponse.json(
+-            { error: "L'abonnement Stripe a bien été annulé mais la mise à jour n'a pas pu être enregistrée — contactez le support, ne réessayez pas de désactiver." },
+-            { status: 500 }
+-          );
+-        }
++        // Dernier module actif -> résiliation EN FIN DE PÉRIODE (18/11/2026).
++        // Avant, l'abonnement était annulé sur-le-champ et l'accès coupé le
++        // jour même, même avec un code gratuit encore valable des semaines.
++        // Désormais tout reste actif jusqu'à la date renvoyée ; c'est le
++        // webhook customer.subscription.deleted qui désactive les modules ce
++        // jour-là. Rien n'est prélevé après.
++        const state = await scheduleCancellation(company.stripe_subscription_id);
++        return NextResponse.json({ success: true, scheduled: true, cancel_at: state.cancelAt });
+       } else {
+         const itemId = await resolveSubscriptionItemId(company as any, module as ModuleCode);
+         if (!itemId) {
+diff --git a/app/api/webhooks/stripe/route.ts b/app/api/webhooks/stripe/route.ts
+index 954d5ff..0f35075 100644
+--- a/app/api/webhooks/stripe/route.ts
++++ b/app/api/webhooks/stripe/route.ts
+@@ -369,6 +369,30 @@ export async function POST(request: NextRequest) {
+     const companyId = await companyIdFromStripeCustomer(subscription.customer);
+     if (companyId) {
+       await setSubscriptionState(companyId, { status: 'canceled' });
++      // Résiliation programmée arrivée à échéance (18/11/2026, voir
++      // lib/subscription-cancel.ts) : c'est maintenant, et seulement
++      // maintenant, que les modules se désactivent. On ne touche à rien si la
++      // société a entre-temps repris un AUTRE abonnement.
++      const { data: current } = await supabaseAdmin
++        .from('companies')
++        .select('stripe_subscription_id')
++        .eq('id', companyId)
++        .maybeSingle();
++      if (!current?.stripe_subscription_id || current.stripe_subscription_id === subscription.id) {
++        const { error: offError } = await supabaseAdmin
++          .from('companies')
++          .update({
++            offer_ap_active: false,
++            offer_as_active: false,
++            offer_ac_active: false,
++            stripe_subscription_id: null,
++            stripe_subscription_item_ap: null,
++            stripe_subscription_item_as: null,
++            stripe_subscription_item_ac: null,
++          })
++          .eq('id', companyId);
++        if (offError) console.error('[stripe] fin d’abonnement : désactivation des modules échouée', offError.message, { company_id: companyId });
++      }
+     }
+     return NextResponse.json({ received: true });
+   }
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index 47df5f2..0bc60ca 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -1507,11 +1507,13 @@ export default function ConnexionsPage() {
+   async function handleToggleModule(moduleValue, isActive) {
+     if (isActive) {
+       const activeCount = ['AP', 'AS', 'AC'].filter((m) => prefs[`offer_${m.toLowerCase()}_active`]).length;
+-      const warningKey = activeCount <= 1
+-        ? 'preferences.subscription.confirmDeactivateLastTemplate'
+-        : 'preferences.subscription.confirmDeactivateTemplate';
+       const moduleLabel = OFFERS.find((o) => o.value === moduleValue)?.label || moduleValue;
+-      if (!confirm(t(warningKey, locale).replace('{module}', moduleLabel))) return;
++      // Dernier module = désabonnement en fin de période (18/11/2026), plus
++      // une coupure immédiate : on reprend donc le message du désabonnement.
++      const message = activeCount <= 1
++        ? (SUB_CANCEL[locale] || SUB_CANCEL.fr).confirm
++        : t('preferences.subscription.confirmDeactivateTemplate', locale).replace('{module}', moduleLabel);
++      if (!confirm(message)) return;
+     }
+ 
+     setModuleBusy(moduleValue);
+@@ -1531,6 +1533,7 @@ export default function ConnexionsPage() {
+         window.location.href = body.checkout_url;
+         return;
+       }
++      if (body.scheduled) setUsage((u) => ({ ...(u || {}), cancel_at: body.cancel_at || null }));
+       loadPrefs();
+     } catch (err) {
+       setModuleError(t('common.error', locale));
+@@ -2001,6 +2004,200 @@ export default function ConnexionsPage() {
+ // de son contenu, et la carte deborde de l'ecran sur telephone. Ce bug est
+ // deja survenu deux fois dans ce projet (AccountNav le 01/10, Resultats le
+ // meme jour) — d'ou le rappel ici.
++// RÉSILIATION EN FIN DE PÉRIODE (18/11/2026, demande d'Alex) : « Se
++// désabonner » ne coupe plus rien sur-le-champ. L'accès reste entier jusqu'à
++// la fin de ce qui est déjà réglé ou offert (code promo compris), puis plus
++// rien n'est prélevé — voir lib/subscription-cancel.ts. Présent sur le site
++// ET dans l'application ; « Reprendre » n'existe que sur le site (dans l'app
++// iOS, rien qui ressemble à un paiement — règle Apple 3.1.1).
++const SUB_CANCEL = {
++  fr: {
++    title: 'Se désabonner',
++    body: 'Tu gardes tout jusqu’à la fin de la période déjà réglée ou offerte (code promo compris), puis plus rien n’est prélevé. Aucun rappel à faire de ton côté.',
++    button: 'Me désabonner',
++    confirm: 'Te désabonner ? Tu gardes l’accès complet jusqu’à la fin de la période en cours, puis plus rien ne sera prélevé.',
++    scheduled: 'Désabonnement enregistré. Ton accès reste complet jusqu’au {date}, puis plus rien ne sera prélevé.',
++    resume: 'Reprendre mon abonnement',
++    resumed: 'Ton abonnement continue normalement.',
++    busy: '…',
++  },
++  en: {
++    title: 'Unsubscribe',
++    body: 'You keep everything until the end of the period already paid for or offered (promo code included), then nothing more is charged. Nothing to remember on your side.',
++    button: 'Unsubscribe',
++    confirm: 'Unsubscribe? You keep full access until the end of the current period, then nothing more will be charged.',
++    scheduled: 'Unsubscribed. Your access stays complete until {date}, then nothing more will be charged.',
++    resume: 'Resume my subscription',
++    resumed: 'Your subscription continues as normal.',
++    busy: '…',
++  },
++  de: {
++    title: 'Abo kündigen',
++    body: 'Du behältst alles bis zum Ende des bereits bezahlten oder geschenkten Zeitraums (inklusive Promo-Code), danach wird nichts mehr abgebucht. Du musst an nichts denken.',
++    button: 'Abo kündigen',
++    confirm: 'Abo kündigen? Du behältst den vollen Zugang bis zum Ende des laufenden Zeitraums, danach wird nichts mehr abgebucht.',
++    scheduled: 'Kündigung gespeichert. Dein Zugang bleibt bis zum {date} vollständig, danach wird nichts mehr abgebucht.',
++    resume: 'Abo fortsetzen',
++    resumed: 'Dein Abo läuft normal weiter.',
++    busy: '…',
++  },
++  it: {
++    title: 'Disdici l’abbonamento',
++    body: 'Mantieni tutto fino alla fine del periodo già pagato o offerto (codice promozionale incluso), poi non viene più addebitato nulla. Non devi ricordarti niente.',
++    button: 'Disdici',
++    confirm: 'Disdire l’abbonamento? Mantieni l’accesso completo fino alla fine del periodo in corso, poi non verrà più addebitato nulla.',
++    scheduled: 'Disdetta registrata. Il tuo accesso resta completo fino al {date}, poi non verrà più addebitato nulla.',
++    resume: 'Riprendi l’abbonamento',
++    resumed: 'Il tuo abbonamento continua normalmente.',
++    busy: '…',
++  },
++  es: {
++    title: 'Darse de baja',
++    body: 'Conservas todo hasta el final del periodo ya pagado u ofrecido (código promocional incluido) y después no se cobra nada más. No tienes que acordarte de nada.',
++    button: 'Darme de baja',
++    confirm: '¿Darte de baja? Conservas el acceso completo hasta el final del periodo en curso y después no se cobrará nada más.',
++    scheduled: 'Baja registrada. Tu acceso sigue completo hasta el {date} y después no se cobrará nada más.',
++    resume: 'Reanudar mi suscripción',
++    resumed: 'Tu suscripción continúa con normalidad.',
++    busy: '…',
++  },
++  pt: {
++    title: 'Cancelar a subscrição',
++    body: 'Mantém tudo até ao fim do período já pago ou oferecido (código promocional incluído) e depois não é cobrado mais nada. Não tem de se lembrar de nada.',
++    button: 'Cancelar a subscrição',
++    confirm: 'Cancelar a subscrição? Mantém o acesso completo até ao fim do período em curso e depois não será cobrado mais nada.',
++    scheduled: 'Cancelamento registado. O seu acesso mantém-se completo até {date} e depois não será cobrado mais nada.',
++    resume: 'Retomar a subscrição',
++    resumed: 'A sua subscrição continua normalmente.',
++    busy: '…',
++  },
++  nl: {
++    title: 'Opzeggen',
++    body: 'Je houdt alles tot het einde van de al betaalde of aangeboden periode (promocode inbegrepen), daarna wordt er niets meer afgeschreven. Je hoeft nergens aan te denken.',
++    button: 'Opzeggen',
++    confirm: 'Opzeggen? Je houdt volledige toegang tot het einde van de lopende periode, daarna wordt er niets meer afgeschreven.',
++    scheduled: 'Opzegging opgeslagen. Je toegang blijft volledig tot {date}, daarna wordt er niets meer afgeschreven.',
++    resume: 'Abonnement hervatten',
++    resumed: 'Je abonnement loopt normaal door.',
++    busy: '…',
++  },
++};
++
++function CancelSubscriptionBlock({ locale, usage, isPatron, allowResume, onChanged }) {
++  const txt = SUB_CANCEL[locale] || SUB_CANCEL.fr;
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState(null);
++  const [notice, setNotice] = useState(null);
++  const cancelAt = usage?.cancel_at || null;
++  const hasSubscription = Boolean(usage?.renewal_date || cancelAt);
++  if (!hasSubscription) return null;
++  const fmt = (iso) => new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
++
++  async function call(action) {
++    setBusy(true);
++    setError(null);
++    setNotice(null);
++    try {
++      const res = await fetch('/api/subscription/modules', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ action }),
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok) throw new Error(body.error || t('common.error', locale));
++      if (action === 'resume') setNotice(txt.resumed);
++      onChanged?.(body.cancel_at || null);
++    } catch (err) {
++      setError(err.message || t('common.error', locale));
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  if (cancelAt) {
++    return (
++      <div className="cancel-block is-scheduled">
++        <p>{txt.scheduled.replace('{date}', fmt(cancelAt))}</p>
++        {isPatron && allowResume ? (
++          <button type="button" className="btn-secondary" disabled={busy} onClick={() => call('resume')}>
++            {busy ? txt.busy : txt.resume}
++          </button>
++        ) : null}
++        {error && <p className="error">{error}</p>}
++        <style jsx>{CANCEL_BLOCK_CSS}</style>
++      </div>
++    );
++  }
++  if (!isPatron) return null;
++  return (
++    <div className="cancel-block">
++      <div className="cancel-title">{txt.title}</div>
++      <p>{txt.body}</p>
++      <button
++        type="button"
++        className="btn-danger"
++        disabled={busy}
++        onClick={() => { if (window.confirm(txt.confirm)) call('cancel'); }}
++      >
++        {busy ? txt.busy : txt.button}
++      </button>
++      {notice && <p className="cancel-ok">{notice}</p>}
++      {error && <p className="error">{error}</p>}
++      <style jsx>{CANCEL_BLOCK_CSS}</style>
++    </div>
++  );
++}
++
++const CANCEL_BLOCK_CSS = `
++  .cancel-block {
++    margin: 1.4rem 0 0.6rem;
++    padding: 1rem 1.05rem;
++    border: 1px solid var(--border);
++    border-radius: var(--radius-md);
++    background: var(--bg);
++  }
++  .cancel-block.is-scheduled {
++    border-color: var(--accent-amber);
++    background: var(--state-warn-bg);
++  }
++  .cancel-block p {
++    margin: 0 0 0.8rem;
++    font-size: 0.86rem;
++    line-height: 1.5;
++    color: var(--text);
++  }
++  .cancel-title {
++    font-weight: 600;
++    font-size: 0.92rem;
++    margin-bottom: 0.35rem;
++  }
++  .cancel-block button {
++    padding: 0.55rem 1rem;
++    border-radius: var(--radius-sm);
++    font: inherit;
++    font-size: 0.85rem;
++    cursor: pointer;
++  }
++  .cancel-block .btn-danger {
++    background: transparent;
++    border: 1px solid var(--accent-red);
++    color: var(--state-bad-text);
++  }
++  .cancel-block .btn-secondary {
++    background: var(--bg);
++    border: 1px solid var(--border);
++    color: var(--text);
++  }
++  .cancel-block button:disabled {
++    opacity: 0.6;
++    cursor: default;
++  }
++  .cancel-ok {
++    color: var(--state-good-text) !important;
++    margin-top: 0.6rem !important;
++  }
++`;
++
+ function CompanyCard({ icon, title, status, tone, open, onToggle, children }) {
+   return (
+     <div className={`co-card${open ? ' is-open' : ''}`}>
+@@ -3751,6 +3948,13 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           // les crédits se gèrent sur le site, l'app se contente de le dire.
+           <div className="subscription-panel">
+             <p className="muted">{t('native.subscriptionManagedOnSite', locale)}</p>
++            <CancelSubscriptionBlock
++              locale={locale}
++              usage={usage}
++              isPatron={prefs?.role === 'patron'}
++              allowResume={false}
++              onChanged={(cancelAt) => setUsage((u) => ({ ...(u || {}), cancel_at: cancelAt }))}
++            />
+           </div>
+         ) : loadError ? (
+           <div className="load-error">
+@@ -3772,6 +3976,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+               </p>
+             )}
+ 
++            <CancelSubscriptionBlock
++              locale={locale}
++              usage={usage}
++              isPatron={prefs.role === 'patron'}
++              allowResume
++              onChanged={(cancelAt) => setUsage((u) => ({ ...(u || {}), cancel_at: cancelAt }))}
++            />
++
+             <div className="field">
+               <label>{t('preferences.subscriptionLabel', locale)}</label>
+               <div className="offer-options">
+diff --git a/lib/subscription-cancel.ts b/lib/subscription-cancel.ts
+new file mode 100644
+index 0000000..2a98588
+--- /dev/null
++++ b/lib/subscription-cancel.ts
+@@ -0,0 +1,84 @@
++// lib/subscription-cancel.ts
++//
++// RÉSILIATION EN FIN DE PÉRIODE (Alex, 18/11/2026).
++//
++// « Se désabonner » coupait l'abonnement Stripe sur-le-champ
++// (stripe.subscriptions.cancel) : un ami inscrit avec le code gratuit qui
++// cliquait le premier jour perdait l'accès le jour même. Alex veut l'inverse :
++// on peut se désabonner quand on veut, on garde l'accès jusqu'au bout de ce
++// qui est déjà payé — ou offert — et rien n'est prélevé ensuite.
++//
++// Fin effective = la plus tardive de :
++//   - la fin de la période en cours (abonnement ou lignes, selon l'API) ;
++//   - la fin de la réduction en cours (code promo « 3 mois offerts » : la
++//     période mensuelle s'arrête après un mois, la gratuité après trois).
++// Au-delà, Stripe supprime l'abonnement et envoie
++// customer.subscription.deleted : le webhook désactive alors les modules.
++
++import { stripe } from './stripe';
++
++function periodEnd(subscription: any): number | null {
++  const ends: number[] = [];
++  if (subscription?.current_period_end) ends.push(subscription.current_period_end);
++  for (const item of subscription?.items?.data || []) {
++    if (item?.current_period_end) ends.push(item.current_period_end);
++  }
++  return ends.length ? Math.max(...ends) : null;
++}
++
++function discountEnd(subscription: any): number | null {
++  const ends: number[] = [];
++  const discounts = [subscription?.discount, ...(Array.isArray(subscription?.discounts) ? subscription.discounts : [])];
++  for (const d of discounts) {
++    if (d && typeof d === 'object' && typeof d.end === 'number') ends.push(d.end);
++  }
++  return ends.length ? Math.max(...ends) : null;
++}
++
++export type CancellationState = {
++  cancelAt: string | null; // ISO, null = pas de résiliation programmée
++};
++
++export function cancellationStateOf(subscription: any): CancellationState {
++  if (!subscription) return { cancelAt: null };
++  const ts = subscription.cancel_at || (subscription.cancel_at_period_end ? periodEnd(subscription) : null);
++  return { cancelAt: ts ? new Date(ts * 1000).toISOString() : null };
++}
++
++export async function scheduleCancellation(subscriptionId: string): Promise<CancellationState> {
++  const subscription: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['items', 'discounts'] });
++  const nowSec = Math.floor(Date.now() / 1000);
++  const end = periodEnd(subscription);
++  const freeUntil = discountEnd(subscription);
++  let updated: any;
++  if (freeUntil && end && freeUntil > end && freeUntil > nowSec) {
++    // Gratuité plus longue que la période en cours : on s'arrête à la fin de
++    // la gratuité, sans facture au prorata.
++    updated = await stripe.subscriptions.update(subscriptionId, {
++      cancel_at: freeUntil,
++      proration_behavior: 'none',
++    } as any);
++  } else {
++    updated = await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true } as any);
++  }
++  return cancellationStateOf(updated);
++}
++
++export async function resumeSubscription(subscriptionId: string): Promise<CancellationState> {
++  const subscription: any = await stripe.subscriptions.retrieve(subscriptionId);
++  const params: any = subscription.cancel_at && !subscription.cancel_at_period_end
++    ? { cancel_at: '' }
++    : { cancel_at_period_end: false };
++  const updated = await stripe.subscriptions.update(subscriptionId, params);
++  return cancellationStateOf(updated);
++}
++
++export async function readCancellation(subscriptionId: string | null | undefined): Promise<CancellationState> {
++  if (!subscriptionId) return { cancelAt: null };
++  try {
++    const subscription: any = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['items'] });
++    return cancellationStateOf(subscription);
++  } catch {
++    return { cancelAt: null };
++  }
++}
+-- 
+2.43.0
+
