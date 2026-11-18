@@ -18,7 +18,7 @@ import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
-import { getStoredTheme, applyTheme } from '@/lib/theme';
+import { getThemeChoice, applyTheme } from '@/lib/theme';
 import { buildBusinessProfilePreview } from '@/lib/business-profile-format';
 import BusinessProfileSheet from '@/components/BusinessProfileSheet';
 import { inline } from '@/components/LegalPage';
@@ -299,6 +299,17 @@ const AUTO_CONVERSION_HINT = {
     body: 'Bij dit doel boekt niemand een afspraak, dus weet Aaron nooit dat iemand zich heeft aangemeld en blijft hij opvolgen. Koppel het adres voor automatische omzetting aan je Stripe of aanmeldtool — de prospect wordt vanzelf een gewonnen klant.',
     cta: 'Bekijk het adres',
   },
+};
+
+// Thème « Automatique » (18/11/2026) : suit le réglage de l'appareil.
+const THEME_AUTO = {
+  fr: { label: 'Automatique', hint: 'Suit le réglage clair ou sombre de ton appareil.' },
+  en: { label: 'Automatic', hint: 'Follows the light or dark setting of your device.' },
+  de: { label: 'Automatisch', hint: 'Folgt der Hell- oder Dunkel-Einstellung deines Geräts.' },
+  it: { label: 'Automatico', hint: 'Segue l’impostazione chiara o scura del tuo dispositivo.' },
+  es: { label: 'Automático', hint: 'Sigue el ajuste claro u oscuro de tu dispositivo.' },
+  pt: { label: 'Automático', hint: 'Segue a definição clara ou escura do seu dispositivo.' },
+  nl: { label: 'Automatisch', hint: 'Volgt de lichte of donkere instelling van je apparaat.' },
 };
 
 // Pastille de la carte « Signature des emails » (18/11/2026).
@@ -711,7 +722,9 @@ export default function ConnexionsPage() {
   const [profileError, setProfileError] = useState(null);
   // Mode clair optionnel (tâche #129, piste 2) — préférence 100% locale au
   // navigateur (voir lib/theme.js), pas de champ base de données.
-  const [theme, setTheme] = useState('dark');
+  // 18/11/2026 : trois choix — Automatique (suit l'appareil, par défaut),
+  // Clair, Sombre. `theme` est le CHOIX, pas le thème affiché.
+  const [theme, setTheme] = useState('auto');
   // Traduction automatique des textes d'Aaron et des prospects dans la
   // langue de l'interface (components/Translated.jsx, 07/11/2026). Réglage
   // local au navigateur, lu après montage.
@@ -720,7 +733,7 @@ export default function ConnexionsPage() {
     setAutoTranslate(autoTranslateEnabled());
   }, []);
   useEffect(() => {
-    setTheme(getStoredTheme());
+    setTheme(getThemeChoice());
   }, []);
   function changeTheme(next) {
     setTheme(next);
@@ -3558,13 +3571,17 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                   <div className="field-body">
                     <label>{t('connexions.themeLabel', locale)}</label>
                     <div className="seg">
-                      <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => changeTheme('dark')}>
-                        {t('connexions.themeDark', locale)}
+                      <button type="button" className={theme === 'auto' ? 'active' : ''} onClick={() => changeTheme('auto')}>
+                        {(THEME_AUTO[locale] || THEME_AUTO.fr).label}
                       </button>
                       <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => changeTheme('light')}>
                         {t('connexions.themeLight', locale)}
                       </button>
+                      <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => changeTheme('dark')}>
+                        {t('connexions.themeDark', locale)}
+                      </button>
                     </div>
+                    {theme === 'auto' ? <p className="field-hint">{(THEME_AUTO[locale] || THEME_AUTO.fr).hint}</p> : null}
                   </div>
                 </div>
 
