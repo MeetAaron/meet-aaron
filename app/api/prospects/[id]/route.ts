@@ -11,6 +11,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
 import { markProspectAsClient } from '@/lib/become-client';
 import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
 import { sendPushNotification } from '@/lib/push';
+import { isContactType } from '@/lib/contact-type';
 import { readJsonBody, serverError } from '@/lib/http';
 import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
 
@@ -95,6 +96,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     linkedin_url,
     company_linkedin_url,
     company_instagram_url,
+    client_type,
   } = await readJsonBody(request);
   const prospectId = params.id;
 
@@ -766,6 +768,28 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   // false, Aaron n'ouvre plus du tout les messages de ce contact : ni
   // archivage, ni brouillon de réponse, ni relance automatique — le
   // commercial reprend entièrement la main, comme pour un email personnel.
+  // Type de contact : entreprise ou particulier (18/11/2026, voir
+  // lib/contact-type.js). null remet la déduction automatique. Le
+  // propriétaire ou un membre de la même société peut le corriger (contrôle
+  // commun plus haut). Si la migration n'est pas passée, on le dit au lieu
+  // d'échouer en silence : la fiche continue d'afficher le type déduit.
+  if (action === 'set_client_type') {
+    if (client_type !== null && !isContactType(client_type)) {
+      return NextResponse.json({ error: 'client_type invalide' }, { status: 400 });
+    }
+    const { error: typeError } = await supabaseAdmin
+      .from('prospects')
+      .update({ client_type })
+      .eq('id', prospectId);
+    if (typeError) {
+      if (typeError.code === '42703' || typeError.code === 'PGRST204') {
+        return NextResponse.json({ error: 'client_type_migration_missing', code: 'client_type_migration_missing' }, { status: 409 });
+      }
+      return serverError(typeError, '/api/prospects/[id]');
+    }
+    return NextResponse.json({ success: true, client_type });
+  }
+
   if (action === 'set_ai_managed') {
     if (typeof ai_managed !== 'boolean') {
       return NextResponse.json({ error: 'ai_managed doit être un booléen' }, { status: 400 });

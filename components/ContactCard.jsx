@@ -36,6 +36,7 @@ import CompanyInfoEditor from '@/components/CompanyInfoEditor';
 import DealTools from '@/components/DealTools';
 import Translated from '@/components/Translated';
 import { celebrateWin } from '@/components/WinCelebration';
+import { contactTypeOf, contactTypeIsSet, contactTypeText, CONTACT_TYPES } from '@/lib/contact-type';
 
 // Textes de la fiche refondue (maquette validée par Alex le 18/10/2026).
 // Gardés ici plutôt que dans lib/i18n.js (1,1 Mo, l'envoi web de GitHub
@@ -523,6 +524,32 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
     }
   }
 
+  // Type de contact (18/11/2026) : un appui sur le type déjà choisi le
+  // retire et rend la main à la déduction d'Aaron.
+  async function handleClientType(value) {
+    const next = contactTypeIsSet(prospect) && prospect.client_type === value ? null : value;
+    setActing(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/prospects/${prospect.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_client_type', client_type: next }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFeedback({ type: 'error', text: json.code === 'client_type_migration_missing' ? contactTypeText('migration', locale) : (json.error || t('prospects.loadErrorFallback', locale)) });
+        return;
+      }
+      setFeedback({ type: 'ok', text: contactTypeText('saved', locale) });
+      onChanged();
+    } catch {
+      setFeedback({ type: 'error', text: t('prospects.loadErrorFallback', locale) });
+    } finally {
+      setActing(false);
+    }
+  }
+
   async function handleToggleAiManaged() {
     if (await patch({ action: 'set_ai_managed', ai_managed: prospect.ai_managed === false })) {
       setPanel(null);
@@ -730,6 +757,32 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
             {position.wonPendingFirstOrder && <span className="pill" style={{ color: PIPELINE_COLORS.wonPending, borderColor: PIPELINE_COLORS.wonPending }}>{t('prospects.wonPendingLabel', locale)}</span>}
             {position.lost && position.lostReason && <span className="pill muted-pill">{t(`pipeline.lostReason.${position.lostReason}`, locale)}</span>}
             {prospect.origin && ORIGIN_KEYS[prospect.origin] && <span className="pill muted-pill">{t(ORIGIN_KEYS[prospect.origin], locale)}</span>}
+          </div>
+          {/* Type de contact : entreprise ou particulier (18/11/2026). Le type
+              déduit est marqué d'un contour en pointillés tant que personne
+              ne l'a confirmé. */}
+          <div className="type-row" role="group" aria-label={contactTypeText('label', locale)} title={contactTypeText('hint', locale)}>
+            <span className="type-lbl">{contactTypeText('label', locale)}</span>
+            <span className="type-seg">
+              {CONTACT_TYPES.map((value) => {
+                const on = contactTypeOf(prospect) === value;
+                return (
+                  <button
+                    type="button"
+                    key={value}
+                    className={`type-btn${on ? ' on' : ''}${on && !contactTypeIsSet(prospect) ? ' deduced' : ''}`}
+                    aria-pressed={on}
+                    disabled={acting}
+                    onClick={() => handleClientType(value)}
+                  >
+                    {value === 'entreprise' ? <Building2 size={13} strokeWidth={2.2} aria-hidden="true" /> : <User size={13} strokeWidth={2.2} aria-hidden="true" />}
+                    {contactTypeText(value, locale)}
+                  </button>
+                );
+              })}
+            </span>
+            {contactTypeOf(prospect) === null && <span className="type-note">{contactTypeText('unknown', locale)}</span>}
+            {contactTypeOf(prospect) !== null && !contactTypeIsSet(prospect) && <span className="type-note">{contactTypeText('deduced', locale)}</span>}
           </div>
           <div className="progress-wrap">
             <ProgressLine position={position} locale={locale} />
@@ -1071,6 +1124,16 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
         .pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.65rem; }
         .pill { display: inline-flex; align-items: center; gap: 0.3em; border: 1px solid; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
         .muted-pill { color: var(--muted); border-color: var(--border); }
+        .type-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+        .type-lbl { color: var(--muted); font-size: 0.72rem; font-weight: 600; }
+        .type-seg { display: inline-flex; gap: 0.2rem; padding: 0.15rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); }
+        .type-btn { display: inline-flex; align-items: center; gap: 0.3em; min-height: 1.9rem; padding: 0 0.7rem; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .type-btn.on { background: var(--text); color: var(--bg); }
+        .type-btn.on.deduced { background: transparent; color: var(--text); border: 1px dashed var(--muted); }
+        .type-btn:disabled { opacity: 0.6; cursor: default; }
+        .type-btn:focus-visible { outline: 2px solid var(--accent, #6c5cff); outline-offset: 2px; }
+        .type-note { color: var(--muted); font-size: 0.7rem; }
+        @media (pointer: coarse) { .type-btn { min-height: 2.75rem; padding: 0 0.9rem; } }
         .alert-badge { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem; border-radius: 50%; font-size: 0.7rem; font-weight: 700; background: var(--accent-red); color: #fff; }
         .close {
           width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); color: var(--text);

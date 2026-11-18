@@ -21,9 +21,10 @@ import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
 import { downloadSpreadsheet } from '@/lib/xlsx-io';
 import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder, baselineConfidence } from '@/lib/pipeline';
 import PipelineIcon from '@/components/PipelineIcon';
-import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2 } from 'lucide-react';
+import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2, Building2 } from 'lucide-react';
 import { contactAlerts } from '@/lib/contact-alerts';
 import { useTranslation } from '@/components/Translated';
+import { contactTypeOf, contactTypeText } from '@/lib/contact-type';
 
 // Texte de la colonne « prochaine étape ». Un conseil d'Aaron (next.translate)
 // est traduit dans la langue de l'interface (demande Alex, 07/11/2026 : « tout
@@ -346,6 +347,8 @@ export default function ProspectsPage() {
   const [stageFilter, setStageFilter] = useState([]);
   const [extraFilter, setExtraFilter] = useState(null); // 'risk' | 'lost' | null
   const [managedFilter, setManagedFilter] = useState(null); // 'aaron' | 'me' | null
+  // Entreprise ou particulier (18/11/2026, voir lib/contact-type.js).
+  const [typeFilter, setTypeFilter] = useState(null); // 'entreprise' | 'particulier' | null
   const [selectedId, setSelectedId] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -450,6 +453,8 @@ export default function ProspectsPage() {
   const counts = countPipeline(prospects);
   const aaronManagedCount = rows.filter((r) => r.p.ai_managed !== false && !r.position.lost).length;
   const meManagedCount = rows.filter((r) => r.p.ai_managed === false && !r.position.lost).length;
+  const companyTypeCount = rows.filter((r) => contactTypeOf(r.p) === 'entreprise' && !r.position.lost).length;
+  const personTypeCount = rows.filter((r) => contactTypeOf(r.p) === 'particulier' && !r.position.lost).length;
 
   function toggleCategory(cat) {
     setExtraFilter(null);
@@ -476,6 +481,7 @@ export default function ProspectsPage() {
       if (stageFilter.length > 0 && !stageFilter.includes(position.stage)) return false;
       if (managedFilter === 'aaron' && p.ai_managed === false) return false;
       if (managedFilter === 'me' && p.ai_managed !== false) return false;
+      if (typeFilter && contactTypeOf(p) !== typeFilter) return false;
       return true;
     })
     .filter(({ p }) => {
@@ -692,6 +698,19 @@ export default function ProspectsPage() {
           <button type="button" className={`chip${managedFilter === 'me' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'me' ? null : 'me'))} title={t('pipeline.meOnlyHint', locale)}>
             {ic(UserCheck)} {t('pipeline.meOnly', locale)} <span className="chip-count">{meManagedCount}</span>
           </button>
+          {/* Entreprises ou particuliers (18/11/2026). Le filtre « particuliers »
+              n'apparaît que s'il y en a : tant qu'un compte ne vend qu'à des
+              entreprises, il n'ajoute rien à l'écran. */}
+          {(personTypeCount > 0 || typeFilter) && (
+            <>
+              <button type="button" className={`chip${typeFilter === 'entreprise' ? ' active' : ''}`} onClick={() => setTypeFilter((v) => (v === 'entreprise' ? null : 'entreprise'))} title={contactTypeText('filterCompanies', locale)}>
+                {ic(Building2)} {contactTypeText('entreprises', locale)} <span className="chip-count">{companyTypeCount}</span>
+              </button>
+              <button type="button" className={`chip${typeFilter === 'particulier' ? ' active' : ''}`} onClick={() => setTypeFilter((v) => (v === 'particulier' ? null : 'particulier'))} title={contactTypeText('filterPeople', locale)}>
+                {ic(User)} {contactTypeText('particuliers', locale)} <span className="chip-count">{personTypeCount}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
