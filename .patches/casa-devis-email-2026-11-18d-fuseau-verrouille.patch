@@ -1,0 +1,55 @@
+From 823ac6df85ea8c86f375dd48e4348fd3d47753fc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 08:20:57 +0000
+Subject: [PATCH] Fuseau horaire verrouillable par compte
+ (users.timezone_locked) : les boites de prospection gardent le fuseau de leur
+ pays
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/user/timezone/route.ts             | 16 ++++++++++++++++
+ migration_fuseau_verrouille_2026-11-18.sql |  4 ++++
+ 2 files changed, 20 insertions(+)
+ create mode 100644 migration_fuseau_verrouille_2026-11-18.sql
+
+diff --git a/app/api/user/timezone/route.ts b/app/api/user/timezone/route.ts
+index 60ebbdf..30d7f23 100644
+--- a/app/api/user/timezone/route.ts
++++ b/app/api/user/timezone/route.ts
+@@ -38,6 +38,22 @@ export async function PATCH(request: NextRequest) {
+     return NextResponse.json({ error: 'Fuseau horaire invalide' }, { status: 400 });
+   }
+ 
++  // FUSEAU VERROUILLÉ (18/11/2026). Le navigateur réécrit le fuseau à chaque
++  // connexion — voulu pour un commercial qui voyage, faux pour un compte dont
++  // les prospects sont dans UN pays et qu'on ouvre depuis un autre (les
++  // boîtes de prospection de Meet Aaron, ouvertes depuis Saïgon : les
++  // créneaux proposés aux prospects français seraient calés sur l'heure du
++  // Vietnam). users.timezone_locked = true : le fuseau enregistré ne bouge
++  // plus. Colonne absente (migration pas encore passée) : comportement d'avant.
++  const lockRes: any = await supabaseAdmin
++    .from('users')
++    .select('timezone_locked')
++    .eq('id', authedUser.id)
++    .maybeSingle();
++  if (!lockRes.error && lockRes.data?.timezone_locked === true) {
++    return NextResponse.json({ success: true, stored: false, locked: true });
++  }
++
+   const { error } = await supabaseAdmin
+     .from('users')
+     .update({ timezone })
+diff --git a/migration_fuseau_verrouille_2026-11-18.sql b/migration_fuseau_verrouille_2026-11-18.sql
+new file mode 100644
+index 0000000..86a8f8d
+--- /dev/null
++++ b/migration_fuseau_verrouille_2026-11-18.sql
+@@ -0,0 +1,4 @@
++-- migration_fuseau_verrouille_2026-11-18.sql
++-- users.timezone_locked : quand true, le fuseau horaire du compte n'est plus
++-- reecrit par le navigateur a la connexion (app/api/user/timezone/route.ts).
++alter table public.users add column if not exists timezone_locked boolean not null default false;
+-- 
+2.43.0
+
