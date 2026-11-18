@@ -1,0 +1,2083 @@
+From edf2dffad49214fdf00b47832889cb8c45f44700 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 03:37:39 +0000
+Subject: [PATCH] Signature des emails : une seule signature, traduite
+ automatiquement, nouvel ecran
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/signature-locale.ts : traduction automatique de la signature (Haiku, un appel
+  pour les 6 langues), controle de fidelite (chiffres, emails, liens, nombre de
+  lignes identiques sinon rejet), versions perimees ignorees quand la signature
+  change, corrections manuelles conservees, detection de la langue du message.
+- lib/messaging.ts : la signature suit la langue du corps de l'email (sinon
+  campagne / pays / domaine du prospect) ; elle garde ses retours a la ligne
+  (normalizeEmailBodyLineBreaks recollait les lignes longues : « ca saute »).
+- app/api/signature : PATCH avec auto_translate / overrides, traduction dans la
+  foulee, GET renvoie les versions par langue.
+- components/SignatureEditor.jsx : un champ, apercu email, interrupteur
+  « Traduite automatiquement », traductions repliees et corrigeables, images
+  envoyees des leur choix, images par langue dans un volet facultatif. 7 langues.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/signature/route.ts     |  110 ++-
+ app/app/connexions/page.jsx    |  208 +-----
+ components/SignatureEditor.jsx | 1151 ++++++++++++++++++++++++++++++++
+ lib/messaging.ts               |   39 +-
+ lib/signature-locale.ts        |  374 ++++++++++-
+ 5 files changed, 1672 insertions(+), 210 deletions(-)
+ create mode 100644 components/SignatureEditor.jsx
+
+diff --git a/app/api/signature/route.ts b/app/api/signature/route.ts
+index b814151..03c593a 100644
+--- a/app/api/signature/route.ts
++++ b/app/api/signature/route.ts
+@@ -10,9 +10,42 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/auth-helpers';
+ import { getLastSentGmailBodyText } from '@/lib/google';
+ import { guessEmailSignature } from '@/lib/signature';
+-import { normalizeSignatureMap } from '@/lib/signature-locale';
++import {
++  normalizeSignatureMap,
++  parseSignatureMap,
++  buildSignatureMap,
++  signatureStateOf,
++  refreshSignatureTranslations,
++  signatureHash,
++  tidySignature,
++  SIGNATURE_LOCALES,
++  SignatureState,
++} from '@/lib/signature-locale';
+ import { readJsonBody, serverError } from '@/lib/http';
+ 
++
++// Vue de la signature pour l'écran Mon entreprise (18/11/2026) : la signature
++// écrite, la langue dans laquelle Aaron l'a reconnue, et la version qui
++// partira dans chacune des autres langues (traduite automatiquement ou
++// corrigée à la main).
++function describeSignature(state: SignatureState) {
++  const hash = signatureHash(state.signature);
++  const fresh = !!state.meta.src && state.meta.src === hash;
++  const versions: Record<string, { text: string; manual: boolean; pending: boolean }> = {};
++  for (const locale of SIGNATURE_LOCALES) {
++    if (locale === state.meta.from) continue;
++    const manual = state.meta.manual.includes(locale);
++    const text = state.entries[locale] || '';
++    const usable = manual || (state.meta.auto && fresh && !!text);
++    versions[locale] = { text: usable ? text : '', manual, pending: !usable && state.meta.auto && !!state.signature };
++  }
++  return {
++    signature_auto: state.meta.auto,
++    signature_from: state.meta.from,
++    signature_versions: versions,
++  };
++}
++
+ export async function GET(request: NextRequest) {
+   const userId = request.nextUrl.searchParams.get('user_id');
+   if (!userId) {
+@@ -40,7 +73,9 @@ export async function GET(request: NextRequest) {
+   }
+   const user: any = userRes.data;
+ 
++  const state = signatureStateOf(user?.email_signature, user?.email_signature_by_locale, authedUser.locale);
+   return NextResponse.json({
++    ...describeSignature(state),
+     signature: user?.email_signature || null,
+     // Signature par langue de destinataire (A_FAIRE.docx, 26/09/2026) — voir
+     // lib/signature-locale.ts. Objet { langue: texte }, les langues absentes
+@@ -59,7 +94,7 @@ export async function GET(request: NextRequest) {
+ }
+ 
+ export async function PATCH(request: NextRequest) {
+-  const { user_id, signature, signature_by_locale } = await readJsonBody(request);
++  const { user_id, signature, signature_by_locale, auto_translate, overrides } = await readJsonBody(request);
+ 
+   if (!user_id || typeof signature !== 'string') {
+     return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
+@@ -69,12 +104,48 @@ export async function PATCH(request: NextRequest) {
+   if (!authedUser) return unauthorizedResponse();
+   if (authedUser.id !== user_id) return forbiddenResponse();
+ 
+-  const patch: Record<string, any> = { email_signature: signature.trim() || null };
+-  // `signature_by_locale` absent du corps = champ non touché (les anciens
+-  // clients continuent de fonctionner). Présent mais vide = remise à zéro.
+-  const hasLocaleMap = signature_by_locale !== undefined;
+-  if (hasLocaleMap) {
+-    patch.email_signature_by_locale = normalizeSignatureMap(signature_by_locale);
++  const cleanSignature = tidySignature(signature).slice(0, 1500);
++  const patch: Record<string, any> = { email_signature: cleanSignature || null };
++
++  // Nouvel écran (18/11/2026) : une seule signature, traduite par Aaron.
++  // `overrides` = les langues que le commercial corrige lui-même
++  // ({ en: '…' } pour fixer une version, { en: null } pour la rendre à la
++  // traduction automatique). `auto_translate` coupe ou rallume la traduction.
++  const usesNewScreen = auto_translate !== undefined || overrides !== undefined;
++  if (usesNewScreen) {
++    const { data: current, error: readError } = await supabaseAdmin
++      .from('users')
++      .select('email_signature_by_locale')
++      .eq('id', user_id)
++      .maybeSingle();
++    if (readError && (readError as any).code !== '42703') return serverError(readError, '/api/signature');
++    const { entries, meta } = parseSignatureMap((current as any)?.email_signature_by_locale);
++    const nextMeta = { ...meta, manual: [...meta.manual] };
++    if (typeof auto_translate === 'boolean') nextMeta.auto = auto_translate;
++    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
++      for (const locale of SIGNATURE_LOCALES) {
++        if (!(locale in overrides)) continue;
++        const raw = (overrides as any)[locale];
++        const value = typeof raw === 'string' ? tidySignature(raw).slice(0, 1500) : '';
++        if (value) {
++          entries[locale] = value;
++          if (!nextMeta.manual.includes(locale)) nextMeta.manual.push(locale);
++        } else {
++          delete entries[locale];
++          nextMeta.manual = nextMeta.manual.filter((l) => l !== locale);
++        }
++      }
++    }
++    patch.email_signature_by_locale = buildSignatureMap(entries, nextMeta);
++  } else if (signature_by_locale !== undefined) {
++    // Ancien écran (onglets par langue) : chaque langue saisie est manuelle.
++    const map = normalizeSignatureMap(signature_by_locale) || {};
++    patch.email_signature_by_locale = buildSignatureMap(map, {
++      auto: true,
++      src: null,
++      from: null,
++      manual: Object.keys(map),
++    });
+   }
+ 
+   let { error } = await supabaseAdmin.from('users').update(patch).eq('id', user_id);
+@@ -83,7 +154,7 @@ export async function PATCH(request: NextRequest) {
+   if (error && (error as any).code === '42703') {
+     const retry = await supabaseAdmin
+       .from('users')
+-      .update({ email_signature: signature.trim() || null })
++      .update({ email_signature: cleanSignature || null })
+       .eq('id', user_id);
+     if (retry.error) {
+       return serverError(retry.error, '/api/signature');
+@@ -95,7 +166,26 @@ export async function PATCH(request: NextRequest) {
+     return serverError(error, '/api/signature');
+   }
+ 
+-  return NextResponse.json({ success: true, locale_signatures_saved: hasLocaleMap });
++  // Traduction dans la foulée, pour que l'écran montre tout de suite ce qui
++  // partira dans chaque langue. Plafonnée à 15 s : au-delà, la traduction
++  // se fera au premier envoi concerné, sans rien bloquer.
++  const refreshed = await Promise.race([
++    refreshSignatureTranslations(user_id, authedUser.locale),
++    new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
++  ]);
++  const { data: after } = await supabaseAdmin
++    .from('users')
++    .select('email_signature, email_signature_by_locale')
++    .eq('id', user_id)
++    .maybeSingle();
++  const state = refreshed || signatureStateOf((after as any)?.email_signature, (after as any)?.email_signature_by_locale, authedUser.locale);
++
++  return NextResponse.json({
++    success: true,
++    locale_signatures_saved: true,
++    signature: cleanSignature || null,
++    ...describeSignature(state),
++  });
+ }
+ 
+ export async function POST(request: NextRequest) {
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index d304441..47df5f2 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -27,6 +27,7 @@ import PushNotificationManager from '@/components/PushNotificationManager';
+ import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
+ import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
+ import MfaSettings from '@/components/MfaSettings';
++import SignatureEditor from '@/components/SignatureEditor';
+ import QRCode from 'qrcode';
+ 
+ // Téléchargement d'un fichier généré côté serveur (export "Profil de
+@@ -300,6 +301,17 @@ const AUTO_CONVERSION_HINT = {
+   },
+ };
+ 
++// Pastille de la carte « Signature des emails » (18/11/2026).
++const SIGNATURE_STATUS = {
++  fr: { auto: 'Traduite automatiquement', single: 'Une seule langue' },
++  en: { auto: 'Translated automatically', single: 'One language' },
++  de: { auto: 'Automatisch übersetzt', single: 'Eine Sprache' },
++  it: { auto: 'Tradotta automaticamente', single: 'Una sola lingua' },
++  es: { auto: 'Traducida automáticamente', single: 'Un solo idioma' },
++  pt: { auto: 'Traduzida automaticamente', single: 'Um só idioma' },
++  nl: { auto: 'Automatisch vertaald', single: 'Eén taal' },
++};
++
+ const BILLING_OWNER_ONLY = {
+   fr: "Seul le responsable du compte peut mettre à jour la carte de paiement : préviens-le.",
+   en: 'Only the account owner can update the payment card: let them know.',
+@@ -837,6 +849,11 @@ export default function ConnexionsPage() {
+   const importFileInputRef = useRef(null);
+   const [signature, setSignature] = useState('');
+   const [signatureLoaded, setSignatureLoaded] = useState(false);
++  // Réponse brute de /api/signature, passée telle quelle au nouvel écran
++  // (components/SignatureEditor.jsx, 18/11/2026) ; signatureSummary sert à la
++  // pastille d'état de la carte.
++  const [signatureInitial, setSignatureInitial] = useState(null);
++  const [signatureSummary, setSignatureSummary] = useState({ hasSignature: false, auto: true });
+   // SIGNATURE PAR LANGUE DE DESTINATAIRE (A_FAIRE.docx, 26/09/2026).
+   // Aaron écrit déjà au prospect dans SA langue (lib/prospect-locale.ts) ;
+   // la signature suivait une seule langue. `signatureByLocale` = objet
+@@ -1044,6 +1061,8 @@ export default function ConnexionsPage() {
+     fetch(`/api/signature?user_id=${userId}`)
+       .then((r) => r.json())
+       .then((res) => {
++        setSignatureInitial(res || {});
++        setSignatureSummary({ hasSignature: !!(res?.signature || '').trim(), auto: res?.signature_auto !== false });
+         setSignature(res.signature || '');
+         setSignatureByLocale(res.signature_by_locale || {});
+         setSignatureImageUrl(res.signature_image_url || null);
+@@ -2864,190 +2883,25 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+           {signatureLoaded && (
+             <CompanyCard
+               icon="pencil"
+-              tone={signatureLangCount > 0 ? 'ok' : (signature || '').trim() ? 'brand' : 'off'}
++              tone={signatureSummary.hasSignature ? 'ok' : 'off'}
+               title={t('connexions.coSectionSignature', locale)}
+               status={
+-                signatureLangCount > 0
+-                  ? t('connexions.coStateLangs', locale).replace('{count}', signatureLangCount)
+-                  : (signature || '').trim()
+-                    ? t('connexions.coStateDefaultOnly', locale)
+-                    : t('connexions.coStateTodo', locale)
++                signatureSummary.hasSignature
++                  ? (SIGNATURE_STATUS[locale] || SIGNATURE_STATUS.fr)[signatureSummary.auto ? 'auto' : 'single']
++                  : t('connexions.coStateTodo', locale)
+               }
+               open={openCompanySection === 'signature'}
+               onToggle={() => setOpenCompanySection((v) => (v === 'signature' ? null : 'signature'))}
+             >
+-              {/* Onglets de langue (26/09/2026) : « Par défaut » + les 7
+-                  langues. Une langue laissée vide n'est pas enregistrée et
+-                  retombe sur la signature par défaut à l'envoi — voir
+-                  lib/signature-locale.ts. La puce indique d'un coup d'œil
+-                  les langues déjà traduites. */}
+-              <div className="sig-lang-tabs">
+-                <button
+-                  type="button"
+-                  className={`sig-lang-tab${signatureLang === '' ? ' is-active' : ''}`}
+-                  onClick={() => setSignatureLang('')}
+-                >
+-                  {t('preferences.signatureDefaultTab', locale)}
+-                </button>
+-                {LOCALES.map((loc) => (
+-                  <button
+-                    key={loc}
+-                    type="button"
+-                    className={`sig-lang-tab${signatureLang === loc ? ' is-active' : ''}${(signatureByLocale[loc] || '').trim() ? ' is-filled' : ''}`}
+-                    onClick={() => setSignatureLang(loc)}
+-                  >
+-                    {LOCALE_LABELS[loc]}
+-                  </button>
+-                ))}
+-              </div>
+-              <textarea
+-                rows={4}
+-                value={signatureLang ? (signatureByLocale[signatureLang] || '') : signature}
+-                onChange={(e) => {
+-                  const value = e.target.value;
+-                  if (signatureLang) {
+-                    setSignatureByLocale((prev) => ({ ...prev, [signatureLang]: value }));
+-                  } else {
+-                    setSignature(value);
+-                  }
+-                }}
+-                placeholder={
+-                  signatureLang
+-                    ? (signature || t('preferences.signaturePlaceholder', locale))
+-                    : t('preferences.signaturePlaceholder', locale)
+-                }
++              {/* Nouvel écran (18/11/2026) : une signature, traduite
++                  automatiquement dans la langue de chaque email — voir
++                  components/SignatureEditor.jsx et lib/signature-locale.ts. */}
++              <SignatureEditor
++                locale={locale}
++                userId={userId}
++                initial={signatureInitial}
++                onChange={setSignatureSummary}
+               />
+-              <p className="collab-extra-hint">
+-                {signatureLang
+-                  ? t('preferences.signatureLocaleHint', locale)
+-                  : t('preferences.signatureDefaultHint', locale)}
+-              </p>
+-              {signatureError && <p className="error">{signatureError}</p>}
+-              <div className="actions">
+-                <button type="button" className="btn-secondary" onClick={handleDetectSignature} disabled={detectingSignature}>
+-                  {detectingSignature ? t('preferences.detectingEllipsis', locale) : t('preferences.detectSignatureButton', locale)}
+-                </button>
+-                <button className="btn-secondary" onClick={handleSaveSignature} disabled={savingSignature}>
+-                  {savingSignature ? t('preferences.savingEllipsis', locale) : t('preferences.saveSignatureButton', locale)}
+-                </button>
+-                {signatureSaved && <span className="saved-msg">{t('preferences.signatureSavedMsg', locale)}</span>}
+-              </div>
+-              <p className="collab-extra-hint">
+-                {t('preferences.signatureDetectHint', locale)}
+-              </p>
+-
+-              {/* Signature avec image ("carte de visite", demande Alex
+-                  2026-08-25) : la signature texte ci-dessus reste facultative,
+-                  cette image est ajoutée dessous dans les emails envoyés —
+-                  voir handleUploadSignatureImage / lib/messaging.ts. */}
+-              <div className="signature-image-block">
+-                <label className="sub-label">{t('connexions.signatureImageLabel', locale)}</label>
+-                <p className="collab-extra-hint">{t('connexions.signatureImageHint', locale)}</p>
+-                {/* Onglets de langue (02/10/2026) : memes reperes que pour la
+-                    signature texte et le bandeau. */}
+-                <div className="sig-lang-tabs">
+-                  <button
+-                    type="button"
+-                    className={`sig-lang-tab${signatureImageLang === '' ? ' is-active' : ''}${signatureImageUrl ? ' is-filled' : ''}`}
+-                    onClick={() => setSignatureImageLang('')}
+-                  >
+-                    {t('preferences.signatureDefaultTab', locale)}
+-                  </button>
+-                  {LOCALES.map((loc) => (
+-                    <button
+-                      key={loc}
+-                      type="button"
+-                      className={`sig-lang-tab${signatureImageLang === loc ? ' is-active' : ''}${signatureImageByLocale[loc] ? ' is-filled' : ''}`}
+-                      onClick={() => setSignatureImageLang(loc)}
+-                    >
+-                      {LOCALE_LABELS[loc]}
+-                    </button>
+-                  ))}
+-                </div>
+-                <p className="collab-extra-hint">
+-                  {signatureImageLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
+-                </p>
+-                {(signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl) && (
+-                  <div className="signature-image-preview">
+-                    <img src={signatureImageLang ? signatureImageByLocale[signatureImageLang] : signatureImageUrl} alt="Signature" />
+-                    <button type="button" className="btn-secondary" onClick={handleRemoveSignatureImage} disabled={signatureImageUploading}>
+-                      {t('connexions.signatureImageRemoveButton', locale)}
+-                    </button>
+-                  </div>
+-                )}
+-                <div className="upload-row">
+-                  <input
+-                    type="file"
+-                    accept="image/png,image/jpeg,image/gif,image/webp"
+-                    onChange={(e) => setSignatureImageFile(e.target.files?.[0] || null)}
+-                  />
+-                  <button
+-                    type="button"
+-                    className="btn-secondary"
+-                    onClick={handleUploadSignatureImage}
+-                    disabled={!signatureImageFile || signatureImageUploading}
+-                  >
+-                    {signatureImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
+-                  </button>
+-                </div>
+-                {signatureImageError && <p className="error">{signatureImageError}</p>}
+-              </div>
+-
+-              {/* Bandeau publicitaire (docx Modifs Aaron "AJOUT signature",
+-                  30/08/2026) : image importée, affichée SOUS la signature
+-                  dans les emails envoyés — voir lib/messaging.ts. */}
+-              <div className="signature-image-block">
+-                <label className="sub-label">{t('connexions.bannerImageLabel', locale)}</label>
+-                <p className="collab-extra-hint">{t('connexions.bannerImageHint', locale)}</p>
+-                {/* Onglets de langue du bandeau (30/09/2026) : memes reperes
+-                    visuels que pour la signature texte, pastille comprise. */}
+-                <div className="sig-lang-tabs">
+-                  <button
+-                    type="button"
+-                    className={`sig-lang-tab${bannerLang === '' ? ' is-active' : ''}${bannerImageUrl ? ' is-filled' : ''}`}
+-                    onClick={() => setBannerLang('')}
+-                  >
+-                    {t('preferences.signatureDefaultTab', locale)}
+-                  </button>
+-                  {LOCALES.map((loc) => (
+-                    <button
+-                      key={loc}
+-                      type="button"
+-                      className={`sig-lang-tab${bannerLang === loc ? ' is-active' : ''}${bannerByLocale[loc] ? ' is-filled' : ''}`}
+-                      onClick={() => setBannerLang(loc)}
+-                    >
+-                      {LOCALE_LABELS[loc]}
+-                    </button>
+-                  ))}
+-                </div>
+-                <p className="collab-extra-hint">
+-                  {bannerLang ? t('connexions.bannerLocaleHint', locale) : t('connexions.bannerDefaultHint', locale)}
+-                </p>
+-                {(bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl) && (
+-                  <div className="signature-image-preview">
+-                    <img src={bannerLang ? bannerByLocale[bannerLang] : bannerImageUrl} alt="" />
+-                    <button type="button" className="btn-secondary" onClick={handleRemoveBannerImage} disabled={bannerImageUploading}>
+-                      {t('connexions.signatureImageRemoveButton', locale)}
+-                    </button>
+-                  </div>
+-                )}
+-                <div className="upload-row">
+-                  <input
+-                    type="file"
+-                    accept="image/png,image/jpeg,image/gif,image/webp"
+-                    onChange={(e) => setBannerImageFile(e.target.files?.[0] || null)}
+-                  />
+-                  <button
+-                    type="button"
+-                    className="btn-secondary"
+-                    onClick={handleUploadBannerImage}
+-                    disabled={!bannerImageFile || bannerImageUploading}
+-                  >
+-                    {bannerImageUploading ? t('connexions.signatureImageUploadingEllipsis', locale) : t('connexions.signatureImageUploadButton', locale)}
+-                  </button>
+-                </div>
+-                {bannerImageError && <p className="error">{bannerImageError}</p>}
+-              </div>
+             </CompanyCard>
+           )}
+ 
+diff --git a/components/SignatureEditor.jsx b/components/SignatureEditor.jsx
+new file mode 100644
+index 0000000..7a02aef
+--- /dev/null
++++ b/components/SignatureEditor.jsx
+@@ -0,0 +1,1151 @@
++'use client';
++
++// components/SignatureEditor.jsx
++//
++// SIGNATURE DES EMAILS — nouvel écran (18/11/2026).
++//
++// Retours d'Alex et de Pierre : « la signature ne marche pas, ça saute, ça
++// bugue » et « l'interface est très moche ». L'ancien écran demandait de
++// remplir huit onglets (Par défaut + 7 langues) pour le texte, puis encore
++// huit pour l'image et huit pour le bandeau. Personne ne le faisait, et
++// l'onglet affiché ne disait pas clairement ce qui partait vraiment.
++//
++// Désormais :
++//   - UNE signature, écrite dans la langue du commercial ;
++//   - Aaron la traduit automatiquement dans les six autres langues
++//     (lib/signature-locale.ts) et choisit à l'envoi celle du message
++//     (langue du corps de l'email, sinon campagne / pays du prospect) ;
++//   - les numéros, adresses, liens et noms ne sont jamais modifiés (une
++//     traduction qui y touche est rejetée) ;
++//   - chaque traduction reste visible et corrigeable, mais repliée ;
++//   - un aperçu montre exactement le bas de l'email.
++// Les images par langue restent possibles, rangées dans un volet facultatif.
++
++import { useEffect, useMemo, useRef, useState } from 'react';
++import { LOCALES, LOCALE_LABELS } from '@/lib/i18n';
++import Ic from '@/components/UiIcon';
++
++const TEXT = {
++  fr: {
++    label: 'Ta signature',
++    placeholder: 'Marie Dupont\nResponsable commerciale — Société\n06 12 34 56 78 · www.societe.fr',
++    save: 'Enregistrer',
++    saving: 'Enregistrement…',
++    saved: 'Signature enregistrée',
++    detect: 'Récupérer depuis mon dernier email',
++    detecting: 'Recherche…',
++    detectHint: 'Gmail uniquement. Relis-la avant d’enregistrer.',
++    autoTitle: 'Traduite automatiquement',
++    autoOn: 'Aaron envoie ta signature dans la langue de chaque email, selon le message et la campagne. Noms, numéros, adresses et liens ne sont jamais modifiés.',
++    autoOff: 'Ta signature part telle quelle dans tous les emails, quelle que soit leur langue.',
++    show: 'Voir les traductions',
++    hide: 'Masquer les traductions',
++    writtenIn: 'Écrite en {lang}',
++    pending: 'Traduction en cours…',
++    pendingSave: 'Enregistre ta signature pour la traduire.',
++    edited: 'Corrigée à la main',
++    edit: 'Corriger',
++    reset: 'Revenir à la traduction',
++    cancel: 'Annuler',
++    keep: 'Garder cette version',
++    preview: 'Aperçu en bas de tes emails',
++    previewBody: 'Bonjour Julie,\n\nMerci pour votre retour, je vous envoie les éléments demandés.',
++    previewEmpty: 'Écris ta signature pour voir l’aperçu.',
++    imageTitle: 'Image sous la signature',
++    imageHint: 'Logo ou carte de visite. PNG, JPEG, GIF ou WEBP, 2 Mo maximum.',
++    bannerTitle: 'Bandeau',
++    bannerHint: 'Bannière affichée tout en bas, sous la signature.',
++    add: 'Ajouter une image',
++    replace: 'Remplacer',
++    remove: 'Retirer',
++    uploading: 'Envoi…',
++    perLang: 'Une image différente selon la langue',
++    perLangHint: 'Facultatif. Une langue sans image utilise l’image ci-dessus.',
++    unsaved: 'Modifications non enregistrées',
++    error: 'Une erreur est survenue. Réessaie.',
++  },
++  en: {
++    label: 'Your signature',
++    placeholder: 'Mary Smith\nSales Manager — Company\n+44 20 1234 5678 · www.company.com',
++    save: 'Save',
++    saving: 'Saving…',
++    saved: 'Signature saved',
++    detect: 'Pull from my last sent email',
++    detecting: 'Searching…',
++    detectHint: 'Gmail only. Check it before saving.',
++    autoTitle: 'Translated automatically',
++    autoOn: 'Aaron sends your signature in the language of each email, based on the message and the campaign. Names, numbers, addresses and links are never changed.',
++    autoOff: 'Your signature is sent as is in every email, whatever its language.',
++    show: 'Show translations',
++    hide: 'Hide translations',
++    writtenIn: 'Written in {lang}',
++    pending: 'Translating…',
++    pendingSave: 'Save your signature to translate it.',
++    edited: 'Edited by hand',
++    edit: 'Edit',
++    reset: 'Back to translation',
++    cancel: 'Cancel',
++    keep: 'Keep this version',
++    preview: 'Preview at the bottom of your emails',
++    previewBody: 'Hi Julie,\n\nThanks for getting back to me, here is what you asked for.',
++    previewEmpty: 'Write your signature to see the preview.',
++    imageTitle: 'Image under the signature',
++    imageHint: 'Logo or business card. PNG, JPEG, GIF or WEBP, 2 MB max.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner shown at the very bottom, under the signature.',
++    add: 'Add an image',
++    replace: 'Replace',
++    remove: 'Remove',
++    uploading: 'Uploading…',
++    perLang: 'A different image per language',
++    perLangHint: 'Optional. A language without an image uses the one above.',
++    unsaved: 'Unsaved changes',
++    error: 'Something went wrong. Please try again.',
++  },
++  de: {
++    label: 'Deine Signatur',
++    placeholder: 'Maria Müller\nVertriebsleiterin — Firma\n+49 30 1234567 · www.firma.de',
++    save: 'Speichern',
++    saving: 'Wird gespeichert…',
++    saved: 'Signatur gespeichert',
++    detect: 'Aus meiner letzten gesendeten E-Mail übernehmen',
++    detecting: 'Suche…',
++    detectHint: 'Nur Gmail. Vor dem Speichern prüfen.',
++    autoTitle: 'Automatisch übersetzt',
++    autoOn: 'Aaron sendet deine Signatur in der Sprache jeder E-Mail, je nach Nachricht und Kampagne. Namen, Nummern, Adressen und Links werden nie verändert.',
++    autoOff: 'Deine Signatur wird in jeder E-Mail unverändert gesendet, egal in welcher Sprache.',
++    show: 'Übersetzungen anzeigen',
++    hide: 'Übersetzungen ausblenden',
++    writtenIn: 'Geschrieben auf {lang}',
++    pending: 'Wird übersetzt…',
++    pendingSave: 'Speichere deine Signatur, um sie zu übersetzen.',
++    edited: 'Von Hand korrigiert',
++    edit: 'Korrigieren',
++    reset: 'Zurück zur Übersetzung',
++    cancel: 'Abbrechen',
++    keep: 'Diese Version behalten',
++    preview: 'Vorschau am Ende deiner E-Mails',
++    previewBody: 'Hallo Julia,\n\ndanke für Ihre Rückmeldung, anbei die gewünschten Unterlagen.',
++    previewEmpty: 'Schreibe deine Signatur, um die Vorschau zu sehen.',
++    imageTitle: 'Bild unter der Signatur',
++    imageHint: 'Logo oder Visitenkarte. PNG, JPEG, GIF oder WEBP, max. 2 MB.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner ganz unten, unter der Signatur.',
++    add: 'Bild hinzufügen',
++    replace: 'Ersetzen',
++    remove: 'Entfernen',
++    uploading: 'Wird hochgeladen…',
++    perLang: 'Ein anderes Bild je Sprache',
++    perLangHint: 'Optional. Eine Sprache ohne Bild verwendet das Bild oben.',
++    unsaved: 'Nicht gespeicherte Änderungen',
++    error: 'Ein Fehler ist aufgetreten. Bitte erneut versuchen.',
++  },
++  it: {
++    label: 'La tua firma',
++    placeholder: 'Maria Rossi\nResponsabile vendite — Azienda\n+39 02 1234 5678 · www.azienda.it',
++    save: 'Salva',
++    saving: 'Salvataggio…',
++    saved: 'Firma salvata',
++    detect: 'Recupera dalla mia ultima email inviata',
++    detecting: 'Ricerca…',
++    detectHint: 'Solo Gmail. Rileggila prima di salvare.',
++    autoTitle: 'Tradotta automaticamente',
++    autoOn: 'Aaron invia la tua firma nella lingua di ogni email, in base al messaggio e alla campagna. Nomi, numeri, indirizzi e link non vengono mai modificati.',
++    autoOff: 'La tua firma parte così com’è in tutte le email, qualunque sia la lingua.',
++    show: 'Mostra le traduzioni',
++    hide: 'Nascondi le traduzioni',
++    writtenIn: 'Scritta in {lang}',
++    pending: 'Traduzione in corso…',
++    pendingSave: 'Salva la tua firma per tradurla.',
++    edited: 'Corretta a mano',
++    edit: 'Correggi',
++    reset: 'Torna alla traduzione',
++    cancel: 'Annulla',
++    keep: 'Tieni questa versione',
++    preview: 'Anteprima in fondo alle tue email',
++    previewBody: 'Buongiorno Giulia,\n\ngrazie per la risposta, le invio quanto richiesto.',
++    previewEmpty: 'Scrivi la tua firma per vedere l’anteprima.',
++    imageTitle: 'Immagine sotto la firma',
++    imageHint: 'Logo o biglietto da visita. PNG, JPEG, GIF o WEBP, max 2 MB.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner in fondo, sotto la firma.',
++    add: 'Aggiungi un’immagine',
++    replace: 'Sostituisci',
++    remove: 'Rimuovi',
++    uploading: 'Caricamento…',
++    perLang: 'Un’immagine diversa per lingua',
++    perLangHint: 'Facoltativo. Una lingua senza immagine usa quella sopra.',
++    unsaved: 'Modifiche non salvate',
++    error: 'Si è verificato un errore. Riprova.',
++  },
++  es: {
++    label: 'Tu firma',
++    placeholder: 'María García\nDirectora comercial — Empresa\n+34 912 345 678 · www.empresa.es',
++    save: 'Guardar',
++    saving: 'Guardando…',
++    saved: 'Firma guardada',
++    detect: 'Recuperar de mi último correo enviado',
++    detecting: 'Buscando…',
++    detectHint: 'Solo Gmail. Revísala antes de guardar.',
++    autoTitle: 'Traducida automáticamente',
++    autoOn: 'Aaron envía tu firma en el idioma de cada correo, según el mensaje y la campaña. Nombres, números, direcciones y enlaces nunca se modifican.',
++    autoOff: 'Tu firma se envía tal cual en todos los correos, sea cual sea su idioma.',
++    show: 'Ver las traducciones',
++    hide: 'Ocultar las traducciones',
++    writtenIn: 'Escrita en {lang}',
++    pending: 'Traduciendo…',
++    pendingSave: 'Guarda tu firma para traducirla.',
++    edited: 'Corregida a mano',
++    edit: 'Corregir',
++    reset: 'Volver a la traducción',
++    cancel: 'Cancelar',
++    keep: 'Conservar esta versión',
++    preview: 'Vista previa al final de tus correos',
++    previewBody: 'Hola Julia,\n\ngracias por tu respuesta, te envío lo que me pediste.',
++    previewEmpty: 'Escribe tu firma para ver la vista previa.',
++    imageTitle: 'Imagen bajo la firma',
++    imageHint: 'Logo o tarjeta de visita. PNG, JPEG, GIF o WEBP, 2 MB máximo.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner al final, bajo la firma.',
++    add: 'Añadir una imagen',
++    replace: 'Reemplazar',
++    remove: 'Quitar',
++    uploading: 'Subiendo…',
++    perLang: 'Una imagen distinta según el idioma',
++    perLangHint: 'Opcional. Un idioma sin imagen usa la de arriba.',
++    unsaved: 'Cambios sin guardar',
++    error: 'Se ha producido un error. Inténtalo de nuevo.',
++  },
++  pt: {
++    label: 'A sua assinatura',
++    placeholder: 'Maria Silva\nDiretora comercial — Empresa\n+351 21 123 4567 · www.empresa.pt',
++    save: 'Guardar',
++    saving: 'A guardar…',
++    saved: 'Assinatura guardada',
++    detect: 'Recuperar do meu último email enviado',
++    detecting: 'A procurar…',
++    detectHint: 'Apenas Gmail. Reveja antes de guardar.',
++    autoTitle: 'Traduzida automaticamente',
++    autoOn: 'O Aaron envia a sua assinatura no idioma de cada email, consoante a mensagem e a campanha. Nomes, números, moradas e links nunca são alterados.',
++    autoOff: 'A sua assinatura é enviada tal como está em todos os emails, seja qual for o idioma.',
++    show: 'Ver as traduções',
++    hide: 'Ocultar as traduções',
++    writtenIn: 'Escrita em {lang}',
++    pending: 'A traduzir…',
++    pendingSave: 'Guarde a sua assinatura para a traduzir.',
++    edited: 'Corrigida à mão',
++    edit: 'Corrigir',
++    reset: 'Voltar à tradução',
++    cancel: 'Cancelar',
++    keep: 'Manter esta versão',
++    preview: 'Pré-visualização no fim dos seus emails',
++    previewBody: 'Olá Júlia,\n\nobrigado pela resposta, envio-lhe o que pediu.',
++    previewEmpty: 'Escreva a sua assinatura para ver a pré-visualização.',
++    imageTitle: 'Imagem sob a assinatura',
++    imageHint: 'Logótipo ou cartão de visita. PNG, JPEG, GIF ou WEBP, 2 MB no máximo.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner no fim, sob a assinatura.',
++    add: 'Adicionar uma imagem',
++    replace: 'Substituir',
++    remove: 'Remover',
++    uploading: 'A enviar…',
++    perLang: 'Uma imagem diferente por idioma',
++    perLangHint: 'Opcional. Um idioma sem imagem usa a de cima.',
++    unsaved: 'Alterações por guardar',
++    error: 'Ocorreu um erro. Tente novamente.',
++  },
++  nl: {
++    label: 'Je handtekening',
++    placeholder: 'Marie de Vries\nSales manager — Bedrijf\n+31 20 123 4567 · www.bedrijf.nl',
++    save: 'Opslaan',
++    saving: 'Opslaan…',
++    saved: 'Handtekening opgeslagen',
++    detect: 'Ophalen uit mijn laatst verzonden e-mail',
++    detecting: 'Zoeken…',
++    detectHint: 'Alleen Gmail. Controleer hem voor het opslaan.',
++    autoTitle: 'Automatisch vertaald',
++    autoOn: 'Aaron verstuurt je handtekening in de taal van elke e-mail, op basis van het bericht en de campagne. Namen, nummers, adressen en links worden nooit gewijzigd.',
++    autoOff: 'Je handtekening wordt in elke e-mail ongewijzigd verstuurd, in welke taal ook.',
++    show: 'Vertalingen tonen',
++    hide: 'Vertalingen verbergen',
++    writtenIn: 'Geschreven in het {lang}',
++    pending: 'Wordt vertaald…',
++    pendingSave: 'Sla je handtekening op om hem te vertalen.',
++    edited: 'Met de hand aangepast',
++    edit: 'Aanpassen',
++    reset: 'Terug naar de vertaling',
++    cancel: 'Annuleren',
++    keep: 'Deze versie houden',
++    preview: 'Voorbeeld onderaan je e-mails',
++    previewBody: 'Hallo Julia,\n\nbedankt voor je reactie, hierbij wat je vroeg.',
++    previewEmpty: 'Schrijf je handtekening om het voorbeeld te zien.',
++    imageTitle: 'Afbeelding onder de handtekening',
++    imageHint: 'Logo of visitekaartje. PNG, JPEG, GIF of WEBP, max. 2 MB.',
++    bannerTitle: 'Banner',
++    bannerHint: 'Banner helemaal onderaan, onder de handtekening.',
++    add: 'Afbeelding toevoegen',
++    replace: 'Vervangen',
++    remove: 'Verwijderen',
++    uploading: 'Uploaden…',
++    perLang: 'Een andere afbeelding per taal',
++    perLangHint: 'Optioneel. Een taal zonder afbeelding gebruikt de afbeelding hierboven.',
++    unsaved: 'Niet-opgeslagen wijzigingen',
++    error: 'Er ging iets mis. Probeer het opnieuw.',
++  },
++};
++
++function tx(locale, key) {
++  return (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key] || key;
++}
++
++const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp';
++
++// Ligne vide au début / à la fin et espaces de fin de ligne : ce que le
++// serveur retire aussi (tidySignature), pour comparer sans faux « non
++// enregistré ».
++function tidy(text) {
++  return String(text || '')
++    .replace(/\r\n?/g, '\n')
++    .split('\n')
++    .map((l) => l.replace(/\s+$/g, ''))
++    .join('\n')
++    .replace(/\n{3,}/g, '\n\n')
++    .trim();
++}
++
++function AutoTextarea({ value, onChange, placeholder, minRows = 4, autoFocus }) {
++  const ref = useRef(null);
++  useEffect(() => {
++    const el = ref.current;
++    if (!el) return;
++    el.style.height = 'auto';
++    el.style.height = `${el.scrollHeight + 2}px`;
++  }, [value]);
++  return (
++    <textarea
++      ref={ref}
++      className="sig-textarea"
++      rows={minRows}
++      value={value}
++      onChange={(e) => onChange(e.target.value)}
++      placeholder={placeholder}
++      spellCheck
++      autoFocus={autoFocus}
++    />
++  );
++}
++
++// Une image (signature ou bandeau) : vignette + Remplacer / Retirer, ou une
++// zone « Ajouter une image ». Le fichier part dès qu'il est choisi : plus de
++// double étape « choisir » puis « téléverser ».
++function ImageSlot({ locale, url, busy, onPick, onRemove, wide }) {
++  const inputRef = useRef(null);
++  return (
++    <div className={`img-slot${url ? ' has-img' : ''}${wide ? ' is-wide' : ''}`}>
++      <input
++        ref={inputRef}
++        type="file"
++        accept={ACCEPT}
++        hidden
++        onChange={(e) => {
++          const file = e.target.files?.[0];
++          e.target.value = '';
++          if (file) onPick(file);
++        }}
++      />
++      {url ? (
++        <>
++          <img src={url} alt="" />
++          <div className="img-actions">
++            <button type="button" className="sig-link" onClick={() => inputRef.current?.click()} disabled={busy}>
++              {busy ? tx(locale, 'uploading') : tx(locale, 'replace')}
++            </button>
++            <button type="button" className="sig-link is-danger" onClick={onRemove} disabled={busy}>
++              {tx(locale, 'remove')}
++            </button>
++          </div>
++        </>
++      ) : (
++        <button type="button" className="img-add" onClick={() => inputRef.current?.click()} disabled={busy}>
++          <Ic name="upload" size={15} />
++          {busy ? tx(locale, 'uploading') : tx(locale, 'add')}
++        </button>
++      )}
++      <style jsx>{`
++        .img-slot {
++          display: flex;
++          align-items: center;
++          gap: 0.9rem;
++          flex-wrap: wrap;
++        }
++        .img-slot img {
++          max-width: 200px;
++          max-height: 72px;
++          border-radius: 8px;
++          border: 1px solid var(--border);
++          background: #fff;
++          object-fit: contain;
++        }
++        .img-slot.is-wide img {
++          max-width: min(100%, 320px);
++        }
++        .img-actions {
++          display: flex;
++          gap: 0.9rem;
++        }
++        .img-add {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.5rem;
++          padding: 0.6rem 0.95rem;
++          border: 1px dashed var(--border);
++          border-radius: var(--radius-sm);
++          background: transparent;
++          color: var(--muted);
++          font: inherit;
++          font-size: 0.85rem;
++          cursor: pointer;
++          transition: border-color var(--fast), color var(--fast);
++        }
++        .img-add:hover:not(:disabled) {
++          border-color: var(--accent);
++          color: var(--text);
++        }
++      `}</style>
++    </div>
++  );
++}
++
++export default function SignatureEditor({ locale, userId, initial, onChange }) {
++  const [saved, setSaved] = useState(() => tidy(initial?.signature || ''));
++  const [draft, setDraft] = useState(() => initial?.signature || '');
++  const [auto, setAuto] = useState(initial?.signature_auto !== false);
++  const [from, setFrom] = useState(initial?.signature_from || null);
++  const [versions, setVersions] = useState(initial?.signature_versions || {});
++  const [showVersions, setShowVersions] = useState(false);
++  const [editing, setEditing] = useState(null); // { locale, text }
++  const [saving, setSaving] = useState(false);
++  const [savedFlash, setSavedFlash] = useState(false);
++  const [detecting, setDetecting] = useState(false);
++  const [error, setError] = useState(null);
++  const [hint, setHint] = useState(null);
++
++  const [imageUrl, setImageUrl] = useState(initial?.signature_image_url || null);
++  const [imageByLocale, setImageByLocale] = useState(initial?.signature_image_by_locale || {});
++  const [bannerUrl, setBannerUrl] = useState(initial?.banner_image_url || null);
++  const [bannerByLocale, setBannerByLocale] = useState(initial?.banner_by_locale || {});
++  const [busyImage, setBusyImage] = useState(null); // 'signature:' | 'banner:fr' …
++  const [showPerLang, setShowPerLang] = useState(
++    () => Object.keys(initial?.signature_image_by_locale || {}).length > 0 || Object.keys(initial?.banner_by_locale || {}).length > 0
++  );
++  const [perLangTab, setPerLangTab] = useState(LOCALES.find((l) => l !== (initial?.signature_from || locale)) || 'en');
++
++  const flashTimer = useRef(null);
++  const pollTimer = useRef(null);
++  useEffect(() => () => {
++    if (flashTimer.current) clearTimeout(flashTimer.current);
++    if (pollTimer.current) clearTimeout(pollTimer.current);
++  }, []);
++
++  const dirty = tidy(draft) !== saved;
++  const otherLocales = useMemo(() => LOCALES.filter((l) => l !== from), [from]);
++  const pendingCount = otherLocales.filter((l) => versions[l]?.pending).length;
++
++  useEffect(() => {
++    onChange?.({ hasSignature: !!saved, auto });
++  }, [saved, auto]); // eslint-disable-line react-hooks/exhaustive-deps
++
++  function applyResponse(body) {
++    if (!body) return;
++    if (typeof body.signature_auto === 'boolean') setAuto(body.signature_auto);
++    if ('signature_from' in body) setFrom(body.signature_from || null);
++    if (body.signature_versions) setVersions(body.signature_versions);
++    const stillPending = body.signature_auto !== false && body.signature_versions
++      && Object.values(body.signature_versions).some((v) => v && v.pending);
++    if (stillPending && body.signature) schedulePoll();
++  }
++
++  // La traduction a pu dépasser le délai de l'enregistrement : on relit une
++  // ou deux fois pour afficher les versions dès qu'elles sont prêtes.
++  function schedulePoll(attempt = 0) {
++    if (pollTimer.current) clearTimeout(pollTimer.current);
++    if (attempt > 3) return;
++    pollTimer.current = setTimeout(async () => {
++      try {
++        const res = await fetch(`/api/signature?user_id=${userId}`);
++        const body = await res.json();
++        if (body.signature_versions) setVersions(body.signature_versions);
++        if ('signature_from' in body) setFrom(body.signature_from || null);
++        if (Object.values(body.signature_versions || {}).some((v) => v && v.pending)) schedulePoll(attempt + 1);
++      } catch {}
++    }, 5000 + attempt * 4000);
++  }
++
++  async function patch(payload) {
++    setSaving(true);
++    setError(null);
++    try {
++      const res = await fetch('/api/signature', {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ user_id: userId, signature: tidy(draft), ...payload }),
++      });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok) throw new Error(body.error || tx(locale, 'error'));
++      setSaved(tidy(body.signature || draft));
++      setDraft((d) => tidy(d));
++      applyResponse(body);
++      setSavedFlash(true);
++      if (flashTimer.current) clearTimeout(flashTimer.current);
++      flashTimer.current = setTimeout(() => setSavedFlash(false), 2500);
++      return true;
++    } catch (err) {
++      setError(err.message || tx(locale, 'error'));
++      return false;
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function handleDetect() {
++    setDetecting(true);
++    setError(null);
++    setHint(null);
++    try {
++      const res = await fetch('/api/signature', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ user_id: userId }),
++      });
++      const body = await res.json().catch(() => ({}));
++      if (body.signature) setDraft(body.signature);
++      else setHint(body.error || tx(locale, 'error'));
++    } catch {
++      setHint(tx(locale, 'error'));
++    } finally {
++      setDetecting(false);
++    }
++  }
++
++  async function uploadImage(kind, file, lang) {
++    const key = `${kind}:${lang || ''}`;
++    setBusyImage(key);
++    setError(null);
++    try {
++      const form = new FormData();
++      form.append('file', file);
++      form.append('user_id', userId);
++      if (kind === 'banner') form.append('kind', 'banner');
++      if (lang) form.append('locale', lang);
++      const res = await fetch('/api/signature/image', { method: 'POST', body: form });
++      const body = await res.json().catch(() => ({}));
++      if (!res.ok || !body.url) throw new Error(body.error || tx(locale, 'error'));
++      if (kind === 'banner') {
++        if (lang) setBannerByLocale((p) => ({ ...p, [lang]: body.url }));
++        else setBannerUrl(body.url);
++      } else if (lang) setImageByLocale((p) => ({ ...p, [lang]: body.url }));
++      else setImageUrl(body.url);
++    } catch (err) {
++      setError(err.message || tx(locale, 'error'));
++    } finally {
++      setBusyImage(null);
++    }
++  }
++
++  async function removeImage(kind, lang) {
++    const key = `${kind}:${lang || ''}`;
++    setBusyImage(key);
++    setError(null);
++    try {
++      const qs = `user_id=${userId}${kind === 'banner' ? '&kind=banner' : ''}${lang ? `&locale=${lang}` : ''}`;
++      const res = await fetch(`/api/signature/image?${qs}`, { method: 'DELETE' });
++      if (!res.ok) {
++        const body = await res.json().catch(() => ({}));
++        throw new Error(body.error || tx(locale, 'error'));
++      }
++      const drop = (p) => {
++        const n = { ...p };
++        delete n[lang];
++        return n;
++      };
++      if (kind === 'banner') {
++        if (lang) setBannerByLocale(drop);
++        else setBannerUrl(null);
++      } else if (lang) setImageByLocale(drop);
++      else setImageUrl(null);
++    } catch (err) {
++      setError(err.message || tx(locale, 'error'));
++    } finally {
++      setBusyImage(null);
++    }
++  }
++
++  const previewSignature = tidy(draft);
++  const fromLabel = from ? LOCALE_LABELS[from] : null;
++
++  return (
++    <div className="sig">
++      <div className="sig-label">{tx(locale, 'label')}</div>
++      <AutoTextarea value={draft} onChange={setDraft} placeholder={tx(locale, 'placeholder')} minRows={4} />
++
++      <div className="sig-bar">
++        <button type="button" className="sig-link" onClick={handleDetect} disabled={detecting}>
++          <Ic name="mail" size={14} /> {detecting ? tx(locale, 'detecting') : tx(locale, 'detect')}
++        </button>
++        <div className="sig-bar-right">
++          {savedFlash && !dirty ? (
++            <span className="sig-ok"><Ic name="check" size={14} strokeWidth={2.6} /> {tx(locale, 'saved')}</span>
++          ) : dirty ? (
++            <span className="sig-dirty">{tx(locale, 'unsaved')}</span>
++          ) : null}
++          <button type="button" className="sig-primary" onClick={() => patch({ auto_translate: auto })} disabled={saving || !dirty}>
++            {saving ? tx(locale, 'saving') : tx(locale, 'save')}
++          </button>
++        </div>
++      </div>
++      {hint && <p className="sig-hint">{hint} <span className="sig-muted">{tx(locale, 'detectHint')}</span></p>}
++      {error && <p className="sig-error">{error}</p>}
++
++      {/* Traduction automatique */}
++      <div className={`sig-auto${auto ? ' is-on' : ''}`}>
++        <span className="sig-auto-icon"><Ic name="globe" size={18} /></span>
++        <div className="sig-auto-text">
++          <div className="sig-auto-title">
++            {tx(locale, 'autoTitle')}
++            {auto && fromLabel ? <span className="sig-chip">{tx(locale, 'writtenIn').replace('{lang}', fromLabel)}</span> : null}
++          </div>
++          <p>{auto ? tx(locale, 'autoOn') : tx(locale, 'autoOff')}</p>
++          {auto && saved ? (
++            <button type="button" className="sig-link" onClick={() => setShowVersions((v) => !v)}>
++              <Ic name={showVersions ? 'chevronUp' : 'chevronDown'} size={14} />
++              {showVersions ? tx(locale, 'hide') : tx(locale, 'show')}
++              {pendingCount > 0 ? <span className="sig-muted"> · {tx(locale, 'pending')}</span> : null}
++            </button>
++          ) : null}
++        </div>
++        <button
++          type="button"
++          role="switch"
++          aria-checked={auto ? 'true' : 'false'}
++          aria-label={tx(locale, 'autoTitle')}
++          className={`sig-switch${auto ? ' is-on' : ''}`}
++          disabled={saving}
++          onClick={() => {
++            const next = !auto;
++            setAuto(next);
++            if (!next) setShowVersions(false);
++            patch({ auto_translate: next });
++          }}
++        >
++          <span />
++        </button>
++      </div>
++
++      {auto && saved && showVersions ? (
++        <ul className="sig-versions">
++          {otherLocales.map((loc) => {
++            const v = versions[loc] || {};
++            const isEditing = editing?.locale === loc;
++            return (
++              <li key={loc} className="sig-version">
++                <div className="sig-version-head">
++                  <span className="sig-version-lang">{LOCALE_LABELS[loc]}</span>
++                  {v.manual ? <span className="sig-chip is-soft">{tx(locale, 'edited')}</span> : null}
++                  <span className="sig-version-actions">
++                    {!isEditing && !v.pending ? (
++                      <button type="button" className="sig-link" onClick={() => setEditing({ locale: loc, text: v.text || saved })}>
++                        <Ic name="pencil" size={13} /> {tx(locale, 'edit')}
++                      </button>
++                    ) : null}
++                    {!isEditing && v.manual ? (
++                      <button type="button" className="sig-link" onClick={() => patch({ overrides: { [loc]: null } })} disabled={saving}>
++                        <Ic name="undo" size={13} /> {tx(locale, 'reset')}
++                      </button>
++                    ) : null}
++                  </span>
++                </div>
++                {isEditing ? (
++                  <div className="sig-version-edit">
++                    <AutoTextarea value={editing.text} onChange={(text) => setEditing({ locale: loc, text })} minRows={3} autoFocus />
++                    <div className="sig-version-edit-actions">
++                      <button type="button" className="sig-link" onClick={() => setEditing(null)}>{tx(locale, 'cancel')}</button>
++                      <button
++                        type="button"
++                        className="sig-primary is-small"
++                        disabled={saving || !tidy(editing.text)}
++                        onClick={async () => {
++                          const ok = await patch({ overrides: { [loc]: editing.text } });
++                          if (ok) setEditing(null);
++                        }}
++                      >
++                        {tx(locale, 'keep')}
++                      </button>
++                    </div>
++                  </div>
++                ) : v.pending ? (
++                  <p className="sig-muted">{tx(locale, dirty ? 'pendingSave' : 'pending')}</p>
++                ) : (
++                  <pre className="sig-version-text">{v.text}</pre>
++                )}
++              </li>
++            );
++          })}
++        </ul>
++      ) : null}
++
++      {/* Aperçu : le bas d'un email tel que le destinataire le verra */}
++      <div className="sig-section-title">{tx(locale, 'preview')}</div>
++      <div className="sig-paper">
++        <div className="sig-paper-body">{tx(locale, 'previewBody')}</div>
++        {previewSignature ? (
++          <div className="sig-paper-sign">{previewSignature}</div>
++        ) : (
++          <div className="sig-paper-empty">{tx(locale, 'previewEmpty')}</div>
++        )}
++        {imageUrl ? <img className="sig-paper-img" src={imageUrl} alt="" /> : null}
++        {bannerUrl ? <img className="sig-paper-banner" src={bannerUrl} alt="" /> : null}
++      </div>
++
++      {/* Images */}
++      <div className="sig-images">
++        <div className="sig-image-row">
++          <div className="sig-image-text">
++            <div className="sig-image-title">{tx(locale, 'imageTitle')}</div>
++            <p className="sig-muted">{tx(locale, 'imageHint')}</p>
++          </div>
++          <ImageSlot
++            locale={locale}
++            url={imageUrl}
++            busy={busyImage === 'signature:'}
++            onPick={(f) => uploadImage('signature', f, null)}
++            onRemove={() => removeImage('signature', null)}
++          />
++        </div>
++        <div className="sig-image-row">
++          <div className="sig-image-text">
++            <div className="sig-image-title">{tx(locale, 'bannerTitle')}</div>
++            <p className="sig-muted">{tx(locale, 'bannerHint')}</p>
++          </div>
++          <ImageSlot
++            locale={locale}
++            url={bannerUrl}
++            wide
++            busy={busyImage === 'banner:'}
++            onPick={(f) => uploadImage('banner', f, null)}
++            onRemove={() => removeImage('banner', null)}
++          />
++        </div>
++
++        <button type="button" className="sig-link" onClick={() => setShowPerLang((v) => !v)}>
++          <Ic name={showPerLang ? 'chevronUp' : 'chevronDown'} size={14} /> {tx(locale, 'perLang')}
++        </button>
++        {showPerLang ? (
++          <div className="sig-perlang">
++            <p className="sig-muted">{tx(locale, 'perLangHint')}</p>
++            <div className="sig-tabs" role="tablist">
++              {LOCALES.map((loc) => (
++                <button
++                  key={loc}
++                  type="button"
++                  role="tab"
++                  aria-selected={perLangTab === loc ? 'true' : 'false'}
++                  className={`sig-tab${perLangTab === loc ? ' is-active' : ''}${imageByLocale[loc] || bannerByLocale[loc] ? ' is-filled' : ''}`}
++                  onClick={() => setPerLangTab(loc)}
++                >
++                  {LOCALE_LABELS[loc]}
++                </button>
++              ))}
++            </div>
++            <div className="sig-image-row">
++              <div className="sig-image-text"><div className="sig-image-title">{tx(locale, 'imageTitle')}</div></div>
++              <ImageSlot
++                locale={locale}
++                url={imageByLocale[perLangTab] || null}
++                busy={busyImage === `signature:${perLangTab}`}
++                onPick={(f) => uploadImage('signature', f, perLangTab)}
++                onRemove={() => removeImage('signature', perLangTab)}
++              />
++            </div>
++            <div className="sig-image-row">
++              <div className="sig-image-text"><div className="sig-image-title">{tx(locale, 'bannerTitle')}</div></div>
++              <ImageSlot
++                locale={locale}
++                url={bannerByLocale[perLangTab] || null}
++                wide
++                busy={busyImage === `banner:${perLangTab}`}
++                onPick={(f) => uploadImage('banner', f, perLangTab)}
++                onRemove={() => removeImage('banner', perLangTab)}
++              />
++            </div>
++          </div>
++        ) : null}
++      </div>
++
++      <style jsx>{`
++        .sig {
++          display: flex;
++          flex-direction: column;
++          gap: 0.75rem;
++          padding-top: 0.8rem;
++        }
++        .sig-label,
++        .sig-section-title {
++          font-size: 0.78rem;
++          font-weight: 600;
++          letter-spacing: 0.02em;
++          color: var(--muted);
++        }
++        .sig-section-title {
++          margin-top: 0.6rem;
++        }
++        .sig :global(.sig-textarea) {
++          width: 100%;
++          box-sizing: border-box;
++          min-height: 110px;
++          resize: none;
++          overflow: hidden;
++          padding: 0.85rem 0.95rem;
++          background: var(--bg);
++          color: var(--text);
++          border: 1px solid var(--border);
++          border-radius: var(--radius-md);
++          font: inherit;
++          font-size: 0.92rem;
++          line-height: 1.55;
++          transition: border-color var(--fast), box-shadow var(--fast);
++        }
++        .sig :global(.sig-textarea:focus) {
++          outline: none;
++          border-color: var(--accent);
++          box-shadow: 0 0 0 3px var(--accent-glow);
++        }
++        .sig :global(.sig-textarea::placeholder) {
++          color: var(--muted-soft, var(--muted));
++        }
++        .sig-bar {
++          display: flex;
++          align-items: center;
++          justify-content: space-between;
++          gap: 0.75rem;
++          flex-wrap: wrap;
++        }
++        .sig-bar-right {
++          display: flex;
++          align-items: center;
++          gap: 0.75rem;
++          margin-left: auto;
++        }
++        .sig :global(.sig-link) {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.35rem;
++          padding: 0.2rem 0;
++          background: none;
++          border: 0;
++          color: var(--accent-light);
++          font: inherit;
++          font-size: 0.84rem;
++          font-weight: 500;
++          cursor: pointer;
++        }
++        .sig :global(.sig-link:hover:not(:disabled)) {
++          text-decoration: underline;
++          text-underline-offset: 3px;
++        }
++        .sig :global(.sig-link:disabled) {
++          opacity: 0.55;
++          cursor: default;
++        }
++        .sig :global(.sig-link.is-danger) {
++          color: var(--state-bad-text);
++        }
++        .sig-primary {
++          padding: 0.6rem 1.15rem;
++          border: 0;
++          border-radius: var(--radius-sm);
++          background: var(--accent);
++          color: #fff;
++          font: inherit;
++          font-size: 0.86rem;
++          font-weight: 600;
++          cursor: pointer;
++          transition: background var(--fast), opacity var(--fast);
++        }
++        .sig-primary:hover:not(:disabled) {
++          background: var(--accent-dark);
++        }
++        .sig-primary:disabled {
++          opacity: 0.45;
++          cursor: default;
++        }
++        .sig-primary.is-small {
++          padding: 0.45rem 0.85rem;
++          font-size: 0.82rem;
++        }
++        .sig-ok {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.3rem;
++          color: var(--state-good-text);
++          font-size: 0.82rem;
++        }
++        .sig-dirty {
++          color: var(--state-warn-text);
++          font-size: 0.82rem;
++        }
++        .sig-hint,
++        .sig-error {
++          margin: 0;
++          font-size: 0.84rem;
++        }
++        .sig-error {
++          color: var(--state-bad-text);
++        }
++        .sig-muted {
++          margin: 0;
++          color: var(--muted);
++          font-size: 0.82rem;
++          line-height: 1.45;
++        }
++        .sig-auto {
++          display: grid;
++          grid-template-columns: auto minmax(0, 1fr) auto;
++          gap: 0.8rem;
++          align-items: start;
++          padding: 0.9rem 1rem;
++          border: 1px solid var(--border);
++          border-radius: var(--radius-md);
++          background: var(--bg);
++        }
++        .sig-auto.is-on {
++          border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
++          background: color-mix(in srgb, var(--accent) 7%, var(--bg));
++        }
++        .sig-auto-icon {
++          display: grid;
++          place-items: center;
++          width: 34px;
++          height: 34px;
++          border-radius: 10px;
++          background: color-mix(in srgb, var(--accent) 16%, transparent);
++          color: var(--accent-light);
++        }
++        .sig-auto-title {
++          display: flex;
++          align-items: center;
++          gap: 0.5rem;
++          flex-wrap: wrap;
++          font-weight: 600;
++          font-size: 0.9rem;
++          color: var(--text);
++        }
++        .sig-auto-text p {
++          margin: 0.25rem 0 0.35rem;
++          color: var(--muted);
++          font-size: 0.83rem;
++          line-height: 1.5;
++        }
++        .sig-chip {
++          padding: 0.12rem 0.5rem;
++          border-radius: 999px;
++          background: color-mix(in srgb, var(--accent) 18%, transparent);
++          color: var(--accent-light);
++          font-size: 0.72rem;
++          font-weight: 600;
++        }
++        .sig-chip.is-soft {
++          background: var(--state-warn-bg);
++          color: var(--state-warn-text);
++        }
++        .sig-switch {
++          position: relative;
++          width: 44px;
++          height: 26px;
++          margin-top: 0.15rem;
++          border: 0;
++          border-radius: 999px;
++          background: var(--border);
++          cursor: pointer;
++          transition: background var(--fast);
++          flex-shrink: 0;
++        }
++        .sig-switch span {
++          position: absolute;
++          top: 3px;
++          left: 3px;
++          width: 20px;
++          height: 20px;
++          border-radius: 50%;
++          background: #fff;
++          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
++          transition: transform var(--fast);
++        }
++        .sig-switch.is-on {
++          background: var(--accent);
++        }
++        .sig-switch.is-on span {
++          transform: translateX(18px);
++        }
++        .sig-switch:disabled {
++          opacity: 0.6;
++        }
++        .sig-versions {
++          list-style: none;
++          margin: 0;
++          padding: 0;
++          display: grid;
++          gap: 0.5rem;
++        }
++        .sig-version {
++          padding: 0.7rem 0.85rem;
++          border: 1px solid var(--border-soft, var(--border));
++          border-radius: var(--radius-sm);
++          background: var(--bg);
++        }
++        .sig-version-head {
++          display: flex;
++          align-items: center;
++          gap: 0.5rem;
++          flex-wrap: wrap;
++          margin-bottom: 0.35rem;
++        }
++        .sig-version-lang {
++          font-size: 0.8rem;
++          font-weight: 600;
++          color: var(--text);
++        }
++        .sig-version-actions {
++          display: flex;
++          gap: 0.8rem;
++          margin-left: auto;
++        }
++        .sig-version-text {
++          margin: 0;
++          white-space: pre-wrap;
++          font: inherit;
++          font-size: 0.84rem;
++          line-height: 1.5;
++          color: var(--muted);
++          overflow-wrap: anywhere;
++        }
++        .sig-version-edit {
++          display: grid;
++          gap: 0.5rem;
++        }
++        .sig-version-edit-actions {
++          display: flex;
++          justify-content: flex-end;
++          align-items: center;
++          gap: 0.9rem;
++        }
++        /* L'aperçu reste clair dans les deux thèmes : c'est ainsi que la
++           grande majorité des destinataires lisent leurs emails. */
++        .sig-paper {
++          padding: 1rem 1.1rem 1.1rem;
++          border-radius: var(--radius-md);
++          background: #ffffff;
++          color: #202124;
++          border: 1px solid var(--border);
++          font-family: Arial, Helvetica, sans-serif;
++          font-size: 0.86rem;
++          line-height: 1.5;
++          overflow: hidden;
++        }
++        .sig-paper-body {
++          white-space: pre-wrap;
++          color: #3c4043;
++        }
++        .sig-paper-sign {
++          margin-top: 0.9rem;
++          white-space: pre-wrap;
++          overflow-wrap: anywhere;
++        }
++        .sig-paper-empty {
++          margin-top: 0.9rem;
++          color: #9aa0a6;
++          font-style: italic;
++        }
++        .sig-paper-img {
++          display: block;
++          max-width: 280px;
++          max-height: 140px;
++          margin-top: 8px;
++        }
++        .sig-paper-banner {
++          display: block;
++          width: 100%;
++          max-width: 480px;
++          margin-top: 12px;
++        }
++        .sig-images {
++          display: grid;
++          gap: 0.9rem;
++          margin-top: 0.4rem;
++          padding-top: 1rem;
++          border-top: 1px solid var(--border-soft, var(--border));
++        }
++        .sig-image-row {
++          display: grid;
++          grid-template-columns: minmax(0, 1fr) auto;
++          gap: 0.8rem;
++          align-items: center;
++        }
++        .sig-image-title {
++          font-size: 0.88rem;
++          font-weight: 600;
++          color: var(--text);
++        }
++        .sig-image-text .sig-muted {
++          margin-top: 0.15rem;
++        }
++        .sig-perlang {
++          display: grid;
++          gap: 0.8rem;
++          padding: 0.85rem 0.9rem;
++          border-radius: var(--radius-sm);
++          background: var(--bg);
++          border: 1px solid var(--border-soft, var(--border));
++        }
++        .sig-tabs {
++          display: flex;
++          flex-wrap: wrap;
++          gap: 0.35rem;
++        }
++        .sig-tab {
++          padding: 0.28rem 0.65rem;
++          border: 1px solid var(--border);
++          border-radius: 999px;
++          background: transparent;
++          color: var(--muted);
++          font: inherit;
++          font-size: 0.78rem;
++          cursor: pointer;
++        }
++        .sig-tab.is-active {
++          background: var(--accent);
++          border-color: var(--accent);
++          color: #fff;
++        }
++        .sig-tab.is-filled:not(.is-active) {
++          color: var(--text);
++          border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
++        }
++        @media (max-width: 560px) {
++          .sig-image-row {
++            grid-template-columns: 1fr;
++          }
++          .sig-bar-right {
++            width: 100%;
++            justify-content: space-between;
++          }
++          .sig-auto {
++            grid-template-columns: minmax(0, 1fr) auto;
++          }
++          .sig-auto-icon {
++            display: none;
++          }
++        }
++      `}</style>
++    </div>
++  );
++}
+diff --git a/lib/messaging.ts b/lib/messaging.ts
+index 5fec9a7..7e008bc 100644
+--- a/lib/messaging.ts
++++ b/lib/messaging.ts
+@@ -13,7 +13,7 @@ import { sendImapEmail } from './imap';
+ import { isMailboxAuthBroken } from './mailbox-health';
+ import { isDomainHealthyForSending } from './email-deliverability';
+ import { findReplyContext, replySubject } from './email-threading';
+-import { pickSignature, pickBannerUrl, recipientLocaleForSignature } from './signature-locale';
++import { pickSignature, pickBannerUrl, recipientLocaleForSignature, detectTextLocale, signatureMapForSend, tidySignature } from './signature-locale';
+ 
+ // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
+ // les emails générés par Aaron sont parfois "wrappés à la main" par le
+@@ -551,24 +551,33 @@ export async function sendEmailForUser(
+   // On coupe donc court : pas de data: dans la signature, pas de data: dans
+   // les URL d'images, et une signature plafonnée. Et on journalise la taille
+   // finale pour que le jour où ça recommence, le log le dise tout de suite.
+-  // ── SIGNATURE DANS LA LANGUE DU DESTINATAIRE (26/09/2026) ─────────────
++  // ── LANGUE DE LA SIGNATURE (18/11/2026) ────────────────────────────────
+   //
+-  // Aaron rédige déjà le message dans la langue du prospect
+-  // (lib/prospect-locale.ts). La signature suivait, elle, une seule langue :
+-  // un email anglais se terminait par « Cordialement, / Directeur commercial ».
+-  //
+-  // On ne fait la résolution de langue QUE si le commercial a réellement
+-  // saisi au moins une signature traduite — sinon le résultat serait
+-  // identique et on aurait ajouté deux requêtes à chaque envoi pour rien.
+-  // Jamais pour les emails qu'Aaron s'envoie à lui-même : c'est la langue du
+-  // commercial qui s'applique, sans aucune requête.
++  // Elle suit d'abord la langue DU MESSAGE lui-même (detectTextLocale) : si
++  // Aaron répond en anglais à un prospect allemand qui écrit en anglais, la
++  // signature est anglaise. À défaut (message trop court pour trancher), on
++  // reprend le calcul du destinataire : campagne d'origine, pays de sa
++  // société, extension de son domaine, puis langue du commercial.
++  // Les emails qu'Aaron envoie au commercial lui-même gardent sa langue.
+   let signatureLocale: string | null = user?.locale || null;
+-  if (!toSelf && (user?.email_signature_by_locale || user?.email_banner_by_locale || user?.email_signature_image_by_locale)) {
+-    signatureLocale = await recipientLocaleForSignature(userId, to, user?.locale);
++  if (!toSelf) {
++    signatureLocale = detectTextLocale(body) || (await recipientLocaleForSignature(userId, to, user?.locale));
+   }
+-  const chosenSignature = pickSignature(user?.email_signature, user?.email_signature_by_locale, signatureLocale);
++  // Traduction automatique : si la version de cette langue manque ou date
++  // d'une ancienne signature, elle est produite ici une fois pour toutes
++  // (enregistrée), avec un délai plafonné — jamais d'envoi bloqué par ça.
++  const signatureMap = toSelf
++    ? user?.email_signature_by_locale
++    : await signatureMapForSend(userId, user?.email_signature, user?.email_signature_by_locale, signatureLocale, user?.locale);
++  const chosenSignature = pickSignature(user?.email_signature, signatureMap, signatureLocale);
+   const rawSignature = stripDataUris(chosenSignature);
+-  const signatureText = rawSignature ? normalizeEmailBodyLineBreaks(capSignature(rawSignature, userId)) : '';
++  // PAS normalizeEmailBodyLineBreaks ici (bug signalé le 18/11/2026 : « la
++  // signature saute ») : cette fonction recolle les lignes de plus de 30
++  // caractères, pensée pour les paragraphes du corps. Sur une signature,
++  // « Alexandre Fevre — Fondateur de Meet Aaron » + le téléphone finissaient
++  // sur une seule ligne. Une signature garde ses retours à la ligne tels
++  // quels ; on retire seulement les lignes vides en trop.
++  const signatureText = rawSignature ? tidySignature(capSignature(rawSignature, userId)) : '';
+   // (La mention d'opposition ajoutée le 07/09 a été retirée le 10/09 — voir
+   // le commentaire au-dessus de sendEmailForUser.)
+   // ── RÉPONDRE DANS LE FIL (11/09/2026) ─────────────────────────────────
+diff --git a/lib/signature-locale.ts b/lib/signature-locale.ts
+index 674e7c4..5bdf978 100644
+--- a/lib/signature-locale.ts
++++ b/lib/signature-locale.ts
+@@ -17,8 +17,10 @@
+ // encore migree : on retombe sur la signature par defaut. Jamais d'email sans
+ // signature parce qu'une traduction manquait.
+ 
++import crypto from 'crypto';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { resolveProspectLocale } from '@/lib/prospect-locale';
++import { callClaude } from '@/lib/anthropic-client';
+ 
+ export const SIGNATURE_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'] as const;
+ 
+@@ -27,6 +29,99 @@ export const SIGNATURE_LOCALES = ['fr', 'en', 'de', 'it', 'es', 'pt', 'nl'] as c
+ // « [Message tronque] » de Gmail.
+ const MAX_SIGNATURE_CHARS = 1500;
+ 
++// ── TRADUCTION AUTOMATIQUE (18/11/2026) ────────────────────────────────────
++//
++// Retour d'Alex : sept onglets de langue a remplir a la main, personne ne le
++// fait, et l'ecran est laid. Desormais le commercial ecrit UNE signature ;
++// Aaron la decline dans les six autres langues et choisit la bonne a l'envoi.
++//
++// Tout tient dans la colonne jsonb existante (aucune migration) :
++//   { en: '…', de: '…', _meta: { auto, src, from, manual } }
++//   - auto   : traduction automatique active (vrai par defaut) ;
++//   - src    : empreinte de la signature par defaut a partir de laquelle les
++//              versions automatiques ont ete produites. Si la signature a
++//              change depuis, ces versions sont PERIMEES et ne partent pas :
++//              on retombe sur la signature par defaut, jamais sur un ancien
++//              numero de telephone traduit ;
++//   - from   : langue dans laquelle la signature par defaut est ecrite ;
++//   - manual : langues que le commercial a ecrites ou corrigees lui-meme.
++//              Celles-la ne sont jamais ecrasees ni considerees perimees.
++// Une colonne sans _meta (comptes d'avant) : toutes ses langues sont
++// « manuelles », exactement le comportement d'avant.
++
++export type SignatureMeta = { auto: boolean; src: string | null; from: string | null; manual: string[] };
++
++const LOCALE_SET = new Set<string>(SIGNATURE_LOCALES as readonly string[]);
++
++export function signatureHash(text: string | null | undefined): string {
++  return crypto.createHash('sha256').update(tidySignature(text || '').normalize('NFC')).digest('hex').slice(0, 16);
++}
++
++// Mise au propre d'une signature SANS toucher a ses retours a la ligne : une
++// signature est une suite de lignes courtes voulues telles quelles. On retire
++// seulement les espaces de fin de ligne, les lignes vides en double et celles
++// du debut et de la fin.
++export function tidySignature(text: string): string {
++  return String(text || '')
++    .replace(/\r\n?/g, '\n')
++    .split('\n')
++    .map((line) => line.replace(/\s+$/g, ''))
++    .join('\n')
++    .replace(/\n{3,}/g, '\n\n')
++    .trim();
++}
++
++function toObject(byLocale: any): Record<string, any> | null {
++  let map: any = byLocale;
++  if (typeof map === 'string') {
++    try { map = JSON.parse(map); } catch { map = null; }
++  }
++  if (!map || typeof map !== 'object' || Array.isArray(map)) return null;
++  return map;
++}
++
++// Lit la colonne : les textes par langue d'un cote, les reglages de l'autre.
++export function parseSignatureMap(byLocale: any): { entries: Record<string, string>; meta: SignatureMeta } {
++  const map = toObject(byLocale);
++  const entries: Record<string, string> = {};
++  if (map) {
++    for (const locale of SIGNATURE_LOCALES) {
++      const raw = map[locale];
++      if (typeof raw === 'string' && raw.trim()) entries[locale] = raw.trim().slice(0, MAX_SIGNATURE_CHARS);
++    }
++  }
++  const rawMeta = map && map._meta && typeof map._meta === 'object' ? map._meta : null;
++  if (!rawMeta) {
++    return { entries, meta: { auto: true, src: null, from: null, manual: Object.keys(entries) } };
++  }
++  const manual = Array.isArray(rawMeta.manual)
++    ? rawMeta.manual.filter((l: any) => typeof l === 'string' && LOCALE_SET.has(l) && entries[l])
++    : [];
++  return {
++    entries,
++    meta: {
++      auto: rawMeta.auto !== false,
++      src: typeof rawMeta.src === 'string' ? rawMeta.src : null,
++      from: typeof rawMeta.from === 'string' && LOCALE_SET.has(rawMeta.from) ? rawMeta.from : null,
++      manual,
++    },
++  };
++}
++
++// Reconstruit la valeur a ecrire en base. null quand il n'y a rien a retenir
++// (aucun texte et traduction automatique active = l'etat par defaut).
++export function buildSignatureMap(entries: Record<string, string>, meta: SignatureMeta): Record<string, any> | null {
++  const out: Record<string, any> = {};
++  for (const locale of SIGNATURE_LOCALES) {
++    const value = (entries[locale] || '').trim().slice(0, MAX_SIGNATURE_CHARS);
++    if (value) out[locale] = value;
++  }
++  const manual = meta.manual.filter((l) => out[l]);
++  if (Object.keys(out).length === 0 && meta.auto && !meta.from) return null;
++  out._meta = { auto: meta.auto, src: meta.src, from: meta.from, manual };
++  return out;
++}
++
+ // Nettoie ce qui arrive de l'UI avant de l'ecrire en base : on ne garde que
+ // les langues supportees, on coupe les valeurs trop longues, et on supprime
+ // les entrees vides (une langue vidée = retour au repli, pas une signature
+@@ -37,12 +132,27 @@ export function normalizeSignatureMap(input: any): Record<string, string> | null
+   for (const locale of SIGNATURE_LOCALES) {
+     const raw = (input as any)[locale];
+     if (typeof raw !== 'string') continue;
+-    const value = raw.trim().slice(0, MAX_SIGNATURE_CHARS);
++    const value = tidySignature(raw).slice(0, MAX_SIGNATURE_CHARS);
+     if (value) out[locale] = value;
+   }
+   return Object.keys(out).length > 0 ? out : null;
+ }
+ 
++// Une version automatique n'est valable que si elle a ete produite a partir
++// de la signature par defaut ACTUELLE.
++function usableEntry(
++  locale: string,
++  entries: Record<string, string>,
++  meta: SignatureMeta,
++  defaultSignature: string
++): string | null {
++  const candidate = entries[locale];
++  if (!candidate) return null;
++  if (meta.manual.includes(locale)) return candidate;
++  if (!meta.auto) return null;
++  return meta.src && meta.src === signatureHash(defaultSignature) ? candidate : null;
++}
++
+ // Choix effectif. `byLocale` peut arriver en objet (jsonb) ou en chaine JSON
+ // selon le client Postgrest — les deux sont acceptes.
+ export function pickSignature(
+@@ -53,16 +163,264 @@ export function pickSignature(
+   const fallback = (defaultSignature || '').trim();
+   const key = String(locale || '').trim().toLowerCase();
+   if (!key) return fallback;
++  const { entries, meta } = parseSignatureMap(byLocale);
++  return usableEntry(key, entries, meta, fallback) || fallback;
++}
+ 
+-  let map: any = byLocale;
+-  if (typeof map === 'string') {
+-    try { map = JSON.parse(map); } catch { map = null; }
++// ── LANGUE D'UN TEXTE, SANS APPEL A L'IA ───────────────────────────────────
++//
++// La signature doit parler la langue DU MESSAGE qu'elle termine. Le meilleur
++// indice est donc le corps de l'email lui-meme : si Aaron repond en anglais a
++// un prospect allemand qui lui a ecrit en anglais, la signature est anglaise.
++// Comptage de mots-outils sur les sept langues ; un mot propre a une seule
++// langue compte double. Dans le doute (texte court, deux langues au coude a
++// coude) : null, et les autres signaux decident.
++const STOPWORDS: Record<string, string[]> = {
++  fr: ['le', 'la', 'les', 'des', 'est', 'et', 'vous', 'nous', 'pour', 'dans', 'que', 'qui', 'une', 'un', 'votre', 'vos', 'avec', 'sur', 'pas', 'je', 'bonjour', 'ce', 'cette', 'au', 'aux', 'du', 'en', 'ne', 'plus', 'merci', 'notre', 'serait', 'bien', 'cordialement'],
++  en: ['the', 'and', 'you', 'your', 'for', 'with', 'that', 'this', 'is', 'are', 'we', 'our', 'to', 'of', 'in', 'it', 'have', 'be', 'would', 'can', 'hi', 'hello', 'on', 'as', 'at', 'not', 'if', 'from', 'thanks', 'will', 'regards', 'please'],
++  de: ['der', 'die', 'das', 'und', 'ist', 'sie', 'ich', 'wir', 'nicht', 'mit', 'für', 'auf', 'ein', 'eine', 'zu', 'den', 'von', 'dem', 'ihre', 'ihr', 'ihnen', 'hallo', 'auch', 'sich', 'es', 'im', 'dass', 'oder', 'gerne', 'uns', 'grüße', 'guten'],
++  it: ['il', 'lo', 'gli', 'di', 'che', 'è', 'per', 'con', 'non', 'un', 'una', 'sono', 'del', 'della', 'vi', 'ci', 'buongiorno', 'ciao', 'più', 'come', 'anche', 'nel', 'alla', 'grazie', 'vostro', 'vostra', 'saluti', 'questo', 'essere', 'gentile'],
++  es: ['el', 'los', 'las', 'de', 'que', 'y', 'en', 'un', 'una', 'es', 'por', 'con', 'para', 'no', 'su', 'sus', 'hola', 'se', 'lo', 'como', 'más', 'pero', 'nos', 'usted', 'gracias', 'del', 'al', 'muy', 'saludos', 'estimado', 'nuestro'],
++  pt: ['o', 'os', 'as', 'de', 'que', 'e', 'em', 'um', 'uma', 'é', 'por', 'com', 'para', 'não', 'seu', 'sua', 'olá', 'se', 'do', 'da', 'dos', 'das', 'mais', 'como', 'você', 'obrigado', 'ao', 'muito', 'cumprimentos', 'nosso', 'nossa'],
++  nl: ['de', 'het', 'een', 'en', 'van', 'is', 'dat', 'u', 'je', 'ik', 'wij', 'we', 'niet', 'met', 'voor', 'op', 'te', 'zijn', 'uw', 'aan', 'ook', 'hallo', 'als', 'bij', 'naar', 'om', 'dit', 'er', 'graag', 'ons', 'groet', 'beste'],
++};
++
++const STOPWORD_WEIGHTS: Record<string, Map<string, number>> = (() => {
++  const seen = new Map<string, number>();
++  for (const words of Object.values(STOPWORDS)) for (const w of new Set(words)) seen.set(w, (seen.get(w) || 0) + 1);
++  const out: Record<string, Map<string, number>> = {};
++  for (const [locale, words] of Object.entries(STOPWORDS)) {
++    out[locale] = new Map(Array.from(new Set(words)).map((w) => [w, seen.get(w) === 1 ? 2 : 1]));
+   }
+-  if (!map || typeof map !== 'object') return fallback;
++  return out;
++})();
+ 
+-  const candidate = map[key];
+-  if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+-  return fallback;
++export function detectTextLocale(text: string | null | undefined): string | null {
++  const tokens = String(text || '').toLowerCase().split(/[^a-z\u00c0-\u024f]+/).filter(Boolean);
++  if (tokens.length < 12) return null;
++  const scores: Array<[string, number]> = [];
++  for (const locale of SIGNATURE_LOCALES) {
++    const weights = STOPWORD_WEIGHTS[locale];
++    let score = 0;
++    for (const token of tokens) score += weights.get(token) || 0;
++    scores.push([locale, score]);
++  }
++  scores.sort((a, b) => b[1] - a[1]);
++  const [best, second] = scores;
++  if (best[1] < 8) return null;
++  if (second && best[1] < second[1] * 1.3) return null;
++  return best[0];
++}
++
++// ── TRADUCTION D'UNE SIGNATURE ─────────────────────────────────────────────
++
++const LANGUAGE_NAMES: Record<string, string> = {
++  fr: 'French', en: 'English', de: 'German', it: 'Italian', es: 'Spanish', pt: 'Portuguese', nl: 'Dutch',
++};
++
++const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
++const URL_RE = /(?:https?:\/\/|www\.)[^\s<>()]+/gi;
++
++// Une traduction de signature n'est acceptee que si elle n'a touche a RIEN de
++// ce qui sert a joindre le commercial : memes chiffres dans le meme ordre
++// (telephones, codes postaux, SIRET), memes adresses email, memes liens, et
++// le meme nombre de lignes. Au moindre ecart on jette la traduction : mieux
++// vaut une signature dans la langue du commercial qu'un numero faux.
++export function isFaithfulSignature(source: string, translated: string): boolean {
++  const src = tidySignature(source);
++  const out = tidySignature(translated);
++  if (!out) return false;
++  if (out.length > src.length * 2 + 60) return false;
++  const digits = (s: string) => s.replace(/\D+/g, '');
++  if (digits(src) !== digits(out)) return false;
++  const list = (s: string, re: RegExp) => (s.match(re) || []).map((v) => v.toLowerCase()).sort().join('|');
++  if (list(src, EMAIL_RE) !== list(out, EMAIL_RE)) return false;
++  if (list(src, URL_RE) !== list(out, URL_RE)) return false;
++  const lines = (s: string) => s.split('\n').filter((l) => l.trim()).length;
++  return lines(src) === lines(out);
++}
++
++function extractJsonObject(raw: string): any {
++  const cleaned = raw.replace(/```json|```/g, '').trim();
++  try {
++    return JSON.parse(cleaned);
++  } catch {
++    const start = cleaned.indexOf('{');
++    const end = cleaned.lastIndexOf('}');
++    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
++    throw new Error('réponse non JSON');
++  }
++}
++
++// Un seul appel pour toutes les langues. Renvoie la langue d'origine reconnue
++// et les versions validees ; une langue dont la traduction est refusee par
++// isFaithfulSignature est simplement absente du resultat.
++export async function translateSignature(
++  signature: string,
++  hintLocale: string,
++  companyId: string | null,
++  userId: string | null
++): Promise<{ from: string; translations: Record<string, string> }> {
++  const source = tidySignature(signature).slice(0, MAX_SIGNATURE_CHARS);
++  const hint = LOCALE_SET.has(hintLocale) ? hintLocale : 'fr';
++  const prompt =
++    `You localise a professional EMAIL SIGNATURE so that it reads naturally to recipients who speak another language.\n` +
++    `Supported languages: ${SIGNATURE_LOCALES.map((l) => `${l} (${LANGUAGE_NAMES[l]})`).join(', ')}.\n\n` +
++    `1. Detect the language the signature is written in (look at the closing formula, job title and labels). ` +
++    `If nothing in it reveals a language, assume "${hint}".\n` +
++    `2. Produce the signature in EVERY OTHER supported language.\n\n` +
++    `Rules, in order of importance:\n` +
++    `- Keep EXACTLY the same number of lines, in the same order, including blank lines.\n` +
++    `- NEVER change: names of people, company and brand names, phone numbers (every digit and its formatting), email addresses, URLs, street addresses, postcodes, city names, social handles, legal or registration numbers.\n` +
++    `- Translate ONLY: closing formulas (the equivalent a native professional would write), job titles, generic labels (phone, mobile, website, address…), short taglines, country names.\n` +
++    `- Keep separators (| · — - /), punctuation, emojis and the capitalisation style.\n` +
++    `- A line with nothing to translate is copied unchanged.\n` +
++    `- Do not add anything (no greeting, no comment, no country code).\n\n` +
++    `Return ONLY a JSON object, no markdown: {"source": "xx", "translations": {"xx": "…", …}} ` +
++    `with one key per target language and "\\n" for line breaks.\n\n` +
++    `Signature:\n${JSON.stringify(source)}`;
++
++  const data = await callClaude(
++    {
++      model: 'claude-haiku-4-5',
++      max_tokens: Math.min(8000, 600 + Math.ceil((source.length * 7) / 2)),
++      messages: [{ role: 'user', content: prompt }],
++    },
++    companyId,
++    undefined,
++    userId,
++    'autre'
++  );
++  const raw = (data?.content || []).map((b: any) => (b.type === 'text' ? b.text : '')).join('');
++  const parsed = extractJsonObject(raw);
++  const detected = String(parsed?.source || '').slice(0, 2).toLowerCase();
++  const from = LOCALE_SET.has(detected) ? detected : hint;
++  const translations: Record<string, string> = {};
++  const rawTranslations = parsed?.translations && typeof parsed.translations === 'object' ? parsed.translations : {};
++  for (const locale of SIGNATURE_LOCALES) {
++    if (locale === from) continue;
++    const value = rawTranslations[locale];
++    if (typeof value === 'string' && isFaithfulSignature(source, value)) {
++      translations[locale] = tidySignature(value).slice(0, MAX_SIGNATURE_CHARS);
++    }
++  }
++  return { from, translations };
++}
++
++export type SignatureState = {
++  signature: string;
++  entries: Record<string, string>;
++  meta: SignatureMeta;
++  // Vrai quand il manque au moins une version automatique a jour.
++  needsTranslation: boolean;
++};
++
++export function signatureStateOf(defaultSignature: string | null | undefined, byLocale: any, hintLocale?: string | null): SignatureState {
++  const signature = tidySignature(defaultSignature || '');
++  const { entries, meta } = parseSignatureMap(byLocale);
++  const fresh = !!meta.src && meta.src === signatureHash(signature);
++  const from = meta.from || (hintLocale && LOCALE_SET.has(hintLocale) ? hintLocale : null);
++  // Sans langue d'origine connue, il faut passer par la traduction : c'est
++  // elle qui la reconnait.
++  const targets = (SIGNATURE_LOCALES as readonly string[]).filter((l) => l !== from && !meta.manual.includes(l));
++  const needsTranslation =
++    !!signature && meta.auto && (!meta.from || !fresh || targets.some((l) => !entries[l]));
++  return { signature, entries, meta, needsTranslation };
++}
++
++// Produit (ou rafraichit) les versions automatiques et les enregistre.
++// Sans effet si la traduction automatique est coupee, si la signature est
++// vide ou si tout est deja a jour. Ne leve jamais : en cas d'echec (plafond
++// atteint, IA indisponible) on renvoie l'etat tel qu'il est, et l'envoi
++// retombe sur la signature par defaut.
++export async function refreshSignatureTranslations(
++  userId: string,
++  hintLocale?: string | null
++): Promise<SignatureState | null> {
++  try {
++    const read = async () =>
++      supabaseAdmin
++        .from('users')
++        .select('email_signature, email_signature_by_locale, locale, company_id')
++        .eq('id', userId)
++        .maybeSingle();
++    const { data: user, error } = await read();
++    if (error || !user) return null;
++    const hint = (hintLocale && LOCALE_SET.has(hintLocale) ? hintLocale : null) || (user as any).locale || 'fr';
++    const state = signatureStateOf((user as any).email_signature, (user as any).email_signature_by_locale, hint);
++    if (!state.needsTranslation) return state;
++
++    const hash = signatureHash(state.signature);
++    const { from, translations } = await translateSignature(
++      state.signature,
++      state.meta.from || hint,
++      (user as any).company_id || null,
++      userId
++    );
++
++    // La signature a pu etre modifiee pendant l'appel (le commercial tape
++    // encore) : on relit, et on n'ecrit que si elle est restee la meme.
++    const { data: latest } = await read();
++    if (!latest || signatureHash((latest as any).email_signature) !== hash) return null;
++    const current = parseSignatureMap((latest as any).email_signature_by_locale);
++    if (!current.meta.auto) return signatureStateOf((latest as any).email_signature, (latest as any).email_signature_by_locale, hint);
++
++    const entries: Record<string, string> = {};
++    for (const locale of current.meta.manual) entries[locale] = current.entries[locale];
++    for (const locale of SIGNATURE_LOCALES) {
++      if (locale === from || entries[locale]) continue;
++      // Traduction refusee par le controle : on garde le texte d'origine
++      // pour cette langue, ce qui revient a envoyer la signature par defaut
++      // sans relancer un appel a chaque email.
++      entries[locale] = translations[locale] || state.signature;
++    }
++    const meta: SignatureMeta = { auto: true, src: hash, from, manual: current.meta.manual };
++    const value = buildSignatureMap(entries, meta);
++    const { error: writeError } = await supabaseAdmin
++      .from('users')
++      .update({ email_signature_by_locale: value })
++      .eq('id', userId);
++    if (writeError) {
++      console.error('[signature] ecriture des traductions:', writeError.message);
++      return null;
++    }
++    return signatureStateOf(state.signature, value, hint);
++  } catch (err: any) {
++    console.error('[signature] traduction automatique:', err?.message || err);
++    return null;
++  }
++}
++
++// A L'ENVOI : la colonne a utiliser pour cette langue. Si la version voulue
++// manque ou est perimee, on la produit sur-le-champ (une seule fois par
++// signature : le resultat est enregistre), avec un delai maximal pour ne
++// jamais retenir un email a cause de sa signature.
++export async function signatureMapForSend(
++  userId: string,
++  defaultSignature: string | null | undefined,
++  byLocale: any,
++  locale: string | null | undefined,
++  sellerLocale: string | null | undefined,
++  timeoutMs = 8000
++): Promise<any> {
++  const signature = tidySignature(defaultSignature || '');
++  const key = String(locale || '').trim().toLowerCase();
++  if (!signature || !LOCALE_SET.has(key)) return byLocale;
++  const { entries, meta } = parseSignatureMap(byLocale);
++  if (!meta.auto) return byLocale;
++  if (usableEntry(key, entries, meta, signature)) return byLocale;
++  const fresh = !!meta.src && meta.src === signatureHash(signature);
++  // Langue d'origine connue et a jour : la signature par defaut EST la bonne.
++  if (fresh && meta.from === key) return byLocale;
++  // Rien n'a encore ete traduit et le destinataire parle la langue du
++  // commercial : inutile d'attendre une traduction pour cet envoi-ci.
++  if (!meta.from && key === String(sellerLocale || '').toLowerCase()) return byLocale;
++
++  const refreshed = await Promise.race([
++    refreshSignatureTranslations(userId, sellerLocale),
++    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
++  ]);
++  return refreshed ? buildSignatureMap(refreshed.entries, refreshed.meta) : byLocale;
+ }
+ 
+ // ── BANDEAU PAR LANGUE (30/09/2026) ────────────────────────────────────────
+-- 
+2.43.0
+
