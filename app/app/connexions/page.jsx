@@ -1507,11 +1507,13 @@ export default function ConnexionsPage() {
   async function handleToggleModule(moduleValue, isActive) {
     if (isActive) {
       const activeCount = ['AP', 'AS', 'AC'].filter((m) => prefs[`offer_${m.toLowerCase()}_active`]).length;
-      const warningKey = activeCount <= 1
-        ? 'preferences.subscription.confirmDeactivateLastTemplate'
-        : 'preferences.subscription.confirmDeactivateTemplate';
       const moduleLabel = OFFERS.find((o) => o.value === moduleValue)?.label || moduleValue;
-      if (!confirm(t(warningKey, locale).replace('{module}', moduleLabel))) return;
+      // Dernier module = désabonnement en fin de période (18/11/2026), plus
+      // une coupure immédiate : on reprend donc le message du désabonnement.
+      const message = activeCount <= 1
+        ? (SUB_CANCEL[locale] || SUB_CANCEL.fr).confirm
+        : t('preferences.subscription.confirmDeactivateTemplate', locale).replace('{module}', moduleLabel);
+      if (!confirm(message)) return;
     }
 
     setModuleBusy(moduleValue);
@@ -1531,6 +1533,7 @@ export default function ConnexionsPage() {
         window.location.href = body.checkout_url;
         return;
       }
+      if (body.scheduled) setUsage((u) => ({ ...(u || {}), cancel_at: body.cancel_at || null }));
       loadPrefs();
     } catch (err) {
       setModuleError(t('common.error', locale));
@@ -2001,6 +2004,200 @@ export default function ConnexionsPage() {
 // de son contenu, et la carte deborde de l'ecran sur telephone. Ce bug est
 // deja survenu deux fois dans ce projet (AccountNav le 01/10, Resultats le
 // meme jour) — d'ou le rappel ici.
+// RÉSILIATION EN FIN DE PÉRIODE (18/11/2026, demande d'Alex) : « Se
+// désabonner » ne coupe plus rien sur-le-champ. L'accès reste entier jusqu'à
+// la fin de ce qui est déjà réglé ou offert (code promo compris), puis plus
+// rien n'est prélevé — voir lib/subscription-cancel.ts. Présent sur le site
+// ET dans l'application ; « Reprendre » n'existe que sur le site (dans l'app
+// iOS, rien qui ressemble à un paiement — règle Apple 3.1.1).
+const SUB_CANCEL = {
+  fr: {
+    title: 'Se désabonner',
+    body: 'Tu gardes tout jusqu’à la fin de la période déjà réglée ou offerte (code promo compris), puis plus rien n’est prélevé. Aucun rappel à faire de ton côté.',
+    button: 'Me désabonner',
+    confirm: 'Te désabonner ? Tu gardes l’accès complet jusqu’à la fin de la période en cours, puis plus rien ne sera prélevé.',
+    scheduled: 'Désabonnement enregistré. Ton accès reste complet jusqu’au {date}, puis plus rien ne sera prélevé.',
+    resume: 'Reprendre mon abonnement',
+    resumed: 'Ton abonnement continue normalement.',
+    busy: '…',
+  },
+  en: {
+    title: 'Unsubscribe',
+    body: 'You keep everything until the end of the period already paid for or offered (promo code included), then nothing more is charged. Nothing to remember on your side.',
+    button: 'Unsubscribe',
+    confirm: 'Unsubscribe? You keep full access until the end of the current period, then nothing more will be charged.',
+    scheduled: 'Unsubscribed. Your access stays complete until {date}, then nothing more will be charged.',
+    resume: 'Resume my subscription',
+    resumed: 'Your subscription continues as normal.',
+    busy: '…',
+  },
+  de: {
+    title: 'Abo kündigen',
+    body: 'Du behältst alles bis zum Ende des bereits bezahlten oder geschenkten Zeitraums (inklusive Promo-Code), danach wird nichts mehr abgebucht. Du musst an nichts denken.',
+    button: 'Abo kündigen',
+    confirm: 'Abo kündigen? Du behältst den vollen Zugang bis zum Ende des laufenden Zeitraums, danach wird nichts mehr abgebucht.',
+    scheduled: 'Kündigung gespeichert. Dein Zugang bleibt bis zum {date} vollständig, danach wird nichts mehr abgebucht.',
+    resume: 'Abo fortsetzen',
+    resumed: 'Dein Abo läuft normal weiter.',
+    busy: '…',
+  },
+  it: {
+    title: 'Disdici l’abbonamento',
+    body: 'Mantieni tutto fino alla fine del periodo già pagato o offerto (codice promozionale incluso), poi non viene più addebitato nulla. Non devi ricordarti niente.',
+    button: 'Disdici',
+    confirm: 'Disdire l’abbonamento? Mantieni l’accesso completo fino alla fine del periodo in corso, poi non verrà più addebitato nulla.',
+    scheduled: 'Disdetta registrata. Il tuo accesso resta completo fino al {date}, poi non verrà più addebitato nulla.',
+    resume: 'Riprendi l’abbonamento',
+    resumed: 'Il tuo abbonamento continua normalmente.',
+    busy: '…',
+  },
+  es: {
+    title: 'Darse de baja',
+    body: 'Conservas todo hasta el final del periodo ya pagado u ofrecido (código promocional incluido) y después no se cobra nada más. No tienes que acordarte de nada.',
+    button: 'Darme de baja',
+    confirm: '¿Darte de baja? Conservas el acceso completo hasta el final del periodo en curso y después no se cobrará nada más.',
+    scheduled: 'Baja registrada. Tu acceso sigue completo hasta el {date} y después no se cobrará nada más.',
+    resume: 'Reanudar mi suscripción',
+    resumed: 'Tu suscripción continúa con normalidad.',
+    busy: '…',
+  },
+  pt: {
+    title: 'Cancelar a subscrição',
+    body: 'Mantém tudo até ao fim do período já pago ou oferecido (código promocional incluído) e depois não é cobrado mais nada. Não tem de se lembrar de nada.',
+    button: 'Cancelar a subscrição',
+    confirm: 'Cancelar a subscrição? Mantém o acesso completo até ao fim do período em curso e depois não será cobrado mais nada.',
+    scheduled: 'Cancelamento registado. O seu acesso mantém-se completo até {date} e depois não será cobrado mais nada.',
+    resume: 'Retomar a subscrição',
+    resumed: 'A sua subscrição continua normalmente.',
+    busy: '…',
+  },
+  nl: {
+    title: 'Opzeggen',
+    body: 'Je houdt alles tot het einde van de al betaalde of aangeboden periode (promocode inbegrepen), daarna wordt er niets meer afgeschreven. Je hoeft nergens aan te denken.',
+    button: 'Opzeggen',
+    confirm: 'Opzeggen? Je houdt volledige toegang tot het einde van de lopende periode, daarna wordt er niets meer afgeschreven.',
+    scheduled: 'Opzegging opgeslagen. Je toegang blijft volledig tot {date}, daarna wordt er niets meer afgeschreven.',
+    resume: 'Abonnement hervatten',
+    resumed: 'Je abonnement loopt normaal door.',
+    busy: '…',
+  },
+};
+
+function CancelSubscriptionBlock({ locale, usage, isPatron, allowResume, onChanged }) {
+  const txt = SUB_CANCEL[locale] || SUB_CANCEL.fr;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const cancelAt = usage?.cancel_at || null;
+  const hasSubscription = Boolean(usage?.renewal_date || cancelAt);
+  if (!hasSubscription) return null;
+  const fmt = (iso) => new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+
+  async function call(action) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch('/api/subscription/modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || t('common.error', locale));
+      if (action === 'resume') setNotice(txt.resumed);
+      onChanged?.(body.cancel_at || null);
+    } catch (err) {
+      setError(err.message || t('common.error', locale));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (cancelAt) {
+    return (
+      <div className="cancel-block is-scheduled">
+        <p>{txt.scheduled.replace('{date}', fmt(cancelAt))}</p>
+        {isPatron && allowResume ? (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => call('resume')}>
+            {busy ? txt.busy : txt.resume}
+          </button>
+        ) : null}
+        {error && <p className="error">{error}</p>}
+        <style jsx>{CANCEL_BLOCK_CSS}</style>
+      </div>
+    );
+  }
+  if (!isPatron) return null;
+  return (
+    <div className="cancel-block">
+      <div className="cancel-title">{txt.title}</div>
+      <p>{txt.body}</p>
+      <button
+        type="button"
+        className="btn-danger"
+        disabled={busy}
+        onClick={() => { if (window.confirm(txt.confirm)) call('cancel'); }}
+      >
+        {busy ? txt.busy : txt.button}
+      </button>
+      {notice && <p className="cancel-ok">{notice}</p>}
+      {error && <p className="error">{error}</p>}
+      <style jsx>{CANCEL_BLOCK_CSS}</style>
+    </div>
+  );
+}
+
+const CANCEL_BLOCK_CSS = `
+  .cancel-block {
+    margin: 1.4rem 0 0.6rem;
+    padding: 1rem 1.05rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+  }
+  .cancel-block.is-scheduled {
+    border-color: var(--accent-amber);
+    background: var(--state-warn-bg);
+  }
+  .cancel-block p {
+    margin: 0 0 0.8rem;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .cancel-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    margin-bottom: 0.35rem;
+  }
+  .cancel-block button {
+    padding: 0.55rem 1rem;
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .cancel-block .btn-danger {
+    background: transparent;
+    border: 1px solid var(--accent-red);
+    color: var(--state-bad-text);
+  }
+  .cancel-block .btn-secondary {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .cancel-block button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .cancel-ok {
+    color: var(--state-good-text) !important;
+    margin-top: 0.6rem !important;
+  }
+`;
+
 function CompanyCard({ icon, title, status, tone, open, onToggle, children }) {
   return (
     <div className={`co-card${open ? ' is-open' : ''}`}>
@@ -3751,6 +3948,13 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           // les crédits se gèrent sur le site, l'app se contente de le dire.
           <div className="subscription-panel">
             <p className="muted">{t('native.subscriptionManagedOnSite', locale)}</p>
+            <CancelSubscriptionBlock
+              locale={locale}
+              usage={usage}
+              isPatron={prefs?.role === 'patron'}
+              allowResume={false}
+              onChanged={(cancelAt) => setUsage((u) => ({ ...(u || {}), cancel_at: cancelAt }))}
+            />
           </div>
         ) : loadError ? (
           <div className="load-error">
@@ -3771,6 +3975,14 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 )}
               </p>
             )}
+
+            <CancelSubscriptionBlock
+              locale={locale}
+              usage={usage}
+              isPatron={prefs.role === 'patron'}
+              allowResume
+              onChanged={(cancelAt) => setUsage((u) => ({ ...(u || {}), cancel_at: cancelAt }))}
+            />
 
             <div className="field">
               <label>{t('preferences.subscriptionLabel', locale)}</label>

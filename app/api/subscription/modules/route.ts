@@ -39,6 +39,7 @@ import {
   resolveSubscriptionItemId,
 } from '@/lib/subscription';
 import { readJsonBody, serverError } from '@/lib/http';
+import { scheduleCancellation, resumeSubscription } from '@/lib/subscription-cancel';
 
 const MODULE_LABELS: Record<ModuleCode, string> = {
   AP: 'Aaron Prospect',
@@ -49,10 +50,35 @@ const MODULE_LABELS: Record<ModuleCode, string> = {
 export async function POST(request: NextRequest) {
   const { module, action } = await readJsonBody(request);
 
+  // « Se désabonner » en un geste (18/11/2026), y compris depuis l'app :
+  // résiliation de tout l'abonnement en fin de période, sans viser un module.
+  if (action === 'cancel') {
+    const authed = await getAuthedUser(request);
+    if (!authed) return unauthorizedResponse();
+    if (authed.role !== 'patron') return forbiddenResponse();
+    if (!authed.company_id) {
+      return NextResponse.json({ error: 'Aucune société associée à ce compte' }, { status: 400 });
+    }
+    const { data: co } = await supabaseAdmin
+      .from('companies')
+      .select('stripe_subscription_id')
+      .eq('id', authed.company_id)
+      .maybeSingle();
+    if (!co?.stripe_subscription_id) {
+      return NextResponse.json({ error: 'Aucun abonnement Stripe actif pour cette société' }, { status: 400 });
+    }
+    try {
+      const state = await scheduleCancellation(co.stripe_subscription_id);
+      return NextResponse.json({ success: true, scheduled: true, cancel_at: state.cancelAt });
+    } catch (err: any) {
+      return serverError(err, '/api/subscription/modules');
+    }
+  }
+
   if (!MODULE_CODES.includes(module)) {
     return NextResponse.json({ error: 'Module invalide' }, { status: 400 });
   }
-  if (action !== 'activate' && action !== 'deactivate') {
+  if (action !== 'activate' && action !== 'deactivate' && action !== 'resume') {
     return NextResponse.json({ error: 'Action invalide' }, { status: 400 });
   }
 
@@ -75,6 +101,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Société introuvable' }, { status: 404 });
   }
 
+  // Annuler une résiliation programmée (18/11/2026).
+  if (action === 'resume') {
+    if (!company.stripe_subscription_id) {
+      return NextResponse.json({ error: 'Aucun abonnement Stripe actif pour cette société' }, { status: 400 });
+    }
+    try {
+      const state = await resumeSubscription(company.stripe_subscription_id);
+      return NextResponse.json({ success: true, cancel_at: state.cancelAt });
+    } catch (err: any) {
+      return serverError(err, '/api/subscription/modules');
+    }
+  }
+
   if (action === 'deactivate') {
     if (!isModuleActive(company as any, module)) {
       return NextResponse.json({ error: 'Ce module est déjà inactif' }, { status: 400 });
@@ -87,35 +126,14 @@ export async function POST(request: NextRequest) {
 
     try {
       if (remaining <= 1) {
-        // Dernier module actif -> on annule l'abonnement Stripe entier
-        // (impossible d'avoir un abonnement à 0 ligne). Le compte devient
-        // totalement inactif jusqu'à réabonnement.
-        await stripe.subscriptions.cancel(company.stripe_subscription_id);
-        const { error: updateError } = await supabaseAdmin
-          .from('companies')
-          .update({
-            offer_ap_active: false,
-            offer_as_active: false,
-            offer_ac_active: false,
-            stripe_subscription_id: null,
-            stripe_subscription_item_ap: null,
-            stripe_subscription_item_as: null,
-            stripe_subscription_item_ac: null,
-          })
-          .eq('id', company.id);
-        // Bug corrigé le 2026-08-23 (signalé par Alex) : cette mise à jour
-        // Supabase n'était jusqu'ici jamais vérifiée — si elle échouait,
-        // Stripe avait déjà annulé l'abonnement mais la société restait
-        // marquée active en base, ou inversement ici on aurait pu répondre
-        // "success" alors que la désactivation n'était pas reflétée. On log
-        // et on renvoie une vraie erreur plutôt qu'un faux succès.
-        if (updateError) {
-          console.error(`Désactivation module ${module} : abonnement Stripe annulé mais mise à jour Supabase échouée`, updateError.message, { company_id: company.id });
-          return NextResponse.json(
-            { error: "L'abonnement Stripe a bien été annulé mais la mise à jour n'a pas pu être enregistrée — contactez le support, ne réessayez pas de désactiver." },
-            { status: 500 }
-          );
-        }
+        // Dernier module actif -> résiliation EN FIN DE PÉRIODE (18/11/2026).
+        // Avant, l'abonnement était annulé sur-le-champ et l'accès coupé le
+        // jour même, même avec un code gratuit encore valable des semaines.
+        // Désormais tout reste actif jusqu'à la date renvoyée ; c'est le
+        // webhook customer.subscription.deleted qui désactive les modules ce
+        // jour-là. Rien n'est prélevé après.
+        const state = await scheduleCancellation(company.stripe_subscription_id);
+        return NextResponse.json({ success: true, scheduled: true, cancel_at: state.cancelAt });
       } else {
         const itemId = await resolveSubscriptionItemId(company as any, module as ModuleCode);
         if (!itemId) {

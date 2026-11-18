@@ -369,6 +369,30 @@ export async function POST(request: NextRequest) {
     const companyId = await companyIdFromStripeCustomer(subscription.customer);
     if (companyId) {
       await setSubscriptionState(companyId, { status: 'canceled' });
+      // Résiliation programmée arrivée à échéance (18/11/2026, voir
+      // lib/subscription-cancel.ts) : c'est maintenant, et seulement
+      // maintenant, que les modules se désactivent. On ne touche à rien si la
+      // société a entre-temps repris un AUTRE abonnement.
+      const { data: current } = await supabaseAdmin
+        .from('companies')
+        .select('stripe_subscription_id')
+        .eq('id', companyId)
+        .maybeSingle();
+      if (!current?.stripe_subscription_id || current.stripe_subscription_id === subscription.id) {
+        const { error: offError } = await supabaseAdmin
+          .from('companies')
+          .update({
+            offer_ap_active: false,
+            offer_as_active: false,
+            offer_ac_active: false,
+            stripe_subscription_id: null,
+            stripe_subscription_item_ap: null,
+            stripe_subscription_item_as: null,
+            stripe_subscription_item_ac: null,
+          })
+          .eq('id', companyId);
+        if (offError) console.error('[stripe] fin d’abonnement : désactivation des modules échouée', offError.message, { company_id: companyId });
+      }
     }
     return NextResponse.json({ received: true });
   }

@@ -14,6 +14,7 @@ import { listActiveBoosts } from '@/lib/credit-boosts';
 import { USD_PER_CREDIT } from '@/lib/boost-tiers';
 import { getSubscriptionState } from '@/lib/subscription-status';
 import { stripe } from '@/lib/stripe';
+import { cancellationStateOf } from '@/lib/subscription-cancel';
 
 // Aligné sur lib/anthropic-client.ts (docx Modifs Aaron, AJOUTS 30/08/26,
 // item 2) : 20 € PAR UTILISATEUR et par mois (21.5 USD au taux prudent),
@@ -113,6 +114,8 @@ export async function GET(request: NextRequest) {
   // niveau abonnement au niveau de chaque ligne (subscription item), donc on
   // vérifie les deux plutôt que de supposer lequel existe.
   let renewalDate: string | null = null;
+  // Résiliation programmée (18/11/2026) : date de fin d'accès, sinon null.
+  let cancelAt: string | null = null;
   if (company?.stripe_subscription_id) {
     try {
       const subscription: any = await stripe.subscriptions.retrieve(company.stripe_subscription_id, {
@@ -126,6 +129,7 @@ export async function GET(request: NextRequest) {
       if (periodEnds.length) {
         renewalDate = new Date(Math.max(...periodEnds) * 1000).toISOString();
       }
+      cancelAt = cancellationStateOf(subscription).cancelAt;
     } catch (err: any) {
       console.error('Erreur récupération date de renouvellement Stripe:', err.message);
     }
@@ -163,5 +167,6 @@ export async function GET(request: NextRequest) {
     boost_cap_usd: boostCapUsd,
     active_boosts: activeBoosts,
     renewal_date: renewalDate,
+    cancel_at: cancelAt,
   });
 }
