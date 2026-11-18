@@ -1,0 +1,246 @@
+From 62003e555b638d12a674cfe02efb9f220b7188d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 09:24:09 +0000
+Subject: [PATCH] Aaron Social, socle Meta : webhook, desautorisation et
+ suppression de donnees (verification des signatures, aucun traitement)
+
+Les adresses de rappel exigees par la console Meta doivent repondre avant
+de pouvoir etre enregistrees. Trois routes sous /api/social/meta, toutes
+fermees (403) tant que META_APP_SECRET et META_WEBHOOK_VERIFY_TOKEN ne
+sont pas saisis dans Vercel. Rien n'est lu ni stocke : la liaison des
+comptes et le traitement arrivent ensuite.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/social/meta/data-deletion/route.ts | 32 ++++++++
+ app/api/social/meta/deauthorize/route.ts   | 23 ++++++
+ app/api/social/meta/webhook/route.ts       | 48 ++++++++++++
+ lib/social-meta.ts                         | 91 ++++++++++++++++++++++
+ 4 files changed, 194 insertions(+)
+ create mode 100644 app/api/social/meta/data-deletion/route.ts
+ create mode 100644 app/api/social/meta/deauthorize/route.ts
+ create mode 100644 app/api/social/meta/webhook/route.ts
+ create mode 100644 lib/social-meta.ts
+
+diff --git a/app/api/social/meta/data-deletion/route.ts b/app/api/social/meta/data-deletion/route.ts
+new file mode 100644
+index 0000000..eb93205
+--- /dev/null
++++ b/app/api/social/meta/data-deletion/route.ts
+@@ -0,0 +1,32 @@
++// app/api/social/meta/data-deletion/route.ts
++//
++// AARON SOCIAL — rappel de suppression de données Meta : appelé quand une
++// personne demande, depuis Instagram ou Facebook, que Meet Aaron efface ce
++// qu'il détient sur elle. Meta attend en réponse une adresse où suivre la
++// demande et un code de confirmation.
++//
++// Socle du 18/11/2026 : aucun compte social n'est encore lié et aucune donnée
++// Meta n'est stockée, la suppression est donc vraie par construction. Dès que
++// la liaison existera, cette route devra effacer le jeton, les publications
++// programmées et les conversations rattachées à l'identifiant reçu — à faire
++// dans le même lot que la liaison, pas après.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { randomBytes } from 'crypto';
++import { parseSignedRequest, readSignedRequest } from '@/lib/social-meta';
++
++export const dynamic = 'force-dynamic';
++
++export async function POST(request: NextRequest) {
++  const payload = parseSignedRequest(await readSignedRequest(request));
++  if (!payload) {
++    console.warn('[social-meta] suppression de données refusée : signature absente ou invalide');
++    return NextResponse.json({ error: 'Signature invalide' }, { status: 403 });
++  }
++  const confirmationCode = randomBytes(8).toString('hex');
++  console.info('[social-meta] demande de suppression de données reçue', { confirmation_code: confirmationCode });
++  return NextResponse.json({
++    url: `https://meetaaron.app/privacy?demande=${confirmationCode}`,
++    confirmation_code: confirmationCode,
++  });
++}
+diff --git a/app/api/social/meta/deauthorize/route.ts b/app/api/social/meta/deauthorize/route.ts
+new file mode 100644
+index 0000000..15ee0ed
+--- /dev/null
++++ b/app/api/social/meta/deauthorize/route.ts
+@@ -0,0 +1,23 @@
++// app/api/social/meta/deauthorize/route.ts
++//
++// AARON SOCIAL — rappel de désautorisation Meta : appelé quand une personne
++// retire l'accès de Meet Aaron depuis les réglages d'Instagram ou de Facebook.
++// Socle du 18/11/2026 : aucun compte n'est encore lié, il n'y a donc rien à
++// débrancher. La route vérifie la signature et accuse réception ; le
++// débranchement réel (jeton supprimé, posts en pause, notification « réseau
++// déconnecté ») arrive avec la liaison des comptes.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { parseSignedRequest, readSignedRequest } from '@/lib/social-meta';
++
++export const dynamic = 'force-dynamic';
++
++export async function POST(request: NextRequest) {
++  const payload = parseSignedRequest(await readSignedRequest(request));
++  if (!payload) {
++    console.warn('[social-meta] désautorisation refusée : signature absente ou invalide');
++    return NextResponse.json({ error: 'Signature invalide' }, { status: 403 });
++  }
++  console.info('[social-meta] désautorisation reçue');
++  return NextResponse.json({ success: true });
++}
+diff --git a/app/api/social/meta/webhook/route.ts b/app/api/social/meta/webhook/route.ts
+new file mode 100644
+index 0000000..6f27b35
+--- /dev/null
++++ b/app/api/social/meta/webhook/route.ts
+@@ -0,0 +1,48 @@
++// app/api/social/meta/webhook/route.ts
++//
++// AARON SOCIAL — point d'entrée des notifications Meta (commentaires et
++// messages Instagram et Facebook). Socle du 18/11/2026 : la route vérifie et
++// accuse réception, elle ne traite encore rien (voir lib/social-meta.ts).
++//
++// GET  : poignée de main. Quand on enregistre l'adresse dans la console Meta,
++//        Meta appelle ?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…
++//        et attend le « challenge » en retour, tel quel, en texte.
++// POST : notification. Signature vérifiée sur le corps brut ; réponse 200
++//        immédiate, parce que Meta renvoie la notification tant qu'il n'a pas
++//        eu de réponse rapide.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { verifyTokenMatches, verifyWebhookSignature } from '@/lib/social-meta';
++
++export const dynamic = 'force-dynamic';
++
++export async function GET(request: NextRequest) {
++  const params = request.nextUrl.searchParams;
++  const challenge = params.get('hub.challenge');
++  if (params.get('hub.mode') !== 'subscribe' || !challenge || !verifyTokenMatches(params.get('hub.verify_token'))) {
++    console.warn('[social-meta] vérification du webhook refusée');
++    return new NextResponse('Forbidden', { status: 403 });
++  }
++  return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
++}
++
++export async function POST(request: NextRequest) {
++  const rawBody = await request.text();
++  if (!verifyWebhookSignature(rawBody, request.headers.get('x-hub-signature-256'))) {
++    console.warn('[social-meta] notification refusée : signature absente ou invalide');
++    return NextResponse.json({ error: 'Signature invalide' }, { status: 403 });
++  }
++
++  // Journal minimal : le type d'objet et le nombre d'entrées, JAMAIS le
++  // contenu (un commentaire ou un message privé est une donnée personnelle).
++  let object = 'inconnu';
++  let entries = 0;
++  try {
++    const body = JSON.parse(rawBody);
++    object = typeof body?.object === 'string' ? body.object : 'inconnu';
++    entries = Array.isArray(body?.entry) ? body.entry.length : 0;
++  } catch {}
++  console.info('[social-meta] notification reçue', { object, entries });
++
++  return NextResponse.json({ received: true });
++}
+diff --git a/lib/social-meta.ts b/lib/social-meta.ts
+new file mode 100644
+index 0000000..a6999c5
+--- /dev/null
++++ b/lib/social-meta.ts
+@@ -0,0 +1,91 @@
++// lib/social-meta.ts
++//
++// AARON SOCIAL — socle Meta (Instagram et Facebook), 18/11/2026.
++//
++// Ce fichier ne contient QUE la vérification cryptographique des appels que
++// Meta envoie vers Meet Aaron. Rien n'est encore lu ni enregistré : la
++// liaison des comptes et le traitement des commentaires et des messages
++// arrivent ensuite. Il fallait pourtant commencer par là, parce que la
++// console Meta refuse d'enregistrer une adresse de rappel (webhook,
++// désautorisation, suppression de données) tant qu'elle ne répond pas
++// correctement.
++//
++// Deux secrets, saisis par Alex dans Vercel, jamais dans le code :
++//   - META_APP_SECRET            : la « clé secrète » de l'application Meta.
++//     Sert à vérifier que chaque appel vient bien de Meta.
++//   - META_WEBHOOK_VERIFY_TOKEN  : une phrase qu'on choisit soi-même, recopiée
++//     dans la console Meta au moment de déclarer le webhook.
++// Tant qu'ils sont absents, toutes les routes refusent (403) : une adresse
++// publique qui accepterait n'importe quel appel non signé serait une porte
++// ouverte le jour où le traitement sera branché.
++
++import { createHmac, timingSafeEqual } from 'crypto';
++
++export function metaAppSecret(): string | null {
++  return process.env.META_APP_SECRET || null;
++}
++
++export function metaVerifyToken(): string | null {
++  return process.env.META_WEBHOOK_VERIFY_TOKEN || null;
++}
++
++function safeEqual(a: Buffer, b: Buffer): boolean {
++  return a.length === b.length && timingSafeEqual(a, b);
++}
++
++// Jeton de vérification du webhook : comparaison à temps constant.
++export function verifyTokenMatches(received: string | null): boolean {
++  const expected = metaVerifyToken();
++  if (!expected || !received) return false;
++  return safeEqual(Buffer.from(received), Buffer.from(expected));
++}
++
++// Signature des notifications : en-tête « X-Hub-Signature-256: sha256=<hex> »,
++// HMAC-SHA256 du corps BRUT (avant tout JSON.parse) avec la clé secrète.
++export function verifyWebhookSignature(rawBody: string, header: string | null): boolean {
++  const secret = metaAppSecret();
++  if (!secret || !header || !header.startsWith('sha256=')) return false;
++  const received = Buffer.from(header.slice('sha256='.length), 'hex');
++  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest();
++  return safeEqual(received, expected);
++}
++
++function fromBase64Url(value: string): Buffer {
++  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
++}
++
++// « signed_request » des rappels de désautorisation et de suppression de
++// données : « <signature>.<charge utile> », les deux en base64 url, la
++// signature étant le HMAC-SHA256 de la charge utile ENCODÉE. Renvoie la
++// charge utile décodée, ou null si la signature ne correspond pas.
++export function parseSignedRequest(signedRequest: string | null): Record<string, any> | null {
++  const secret = metaAppSecret();
++  if (!secret || !signedRequest) return null;
++  const [encodedSig, encodedPayload] = signedRequest.split('.');
++  if (!encodedSig || !encodedPayload) return null;
++  const expected = createHmac('sha256', secret).update(encodedPayload, 'utf8').digest();
++  if (!safeEqual(fromBase64Url(encodedSig), expected)) return null;
++  try {
++    const payload = JSON.parse(fromBase64Url(encodedPayload).toString('utf8'));
++    return payload && typeof payload === 'object' ? payload : null;
++  } catch {
++    return null;
++  }
++}
++
++// Meta envoie ces deux rappels en formulaire (signed_request=…), parfois en
++// JSON selon le produit : on accepte les deux.
++export async function readSignedRequest(request: Request): Promise<string | null> {
++  const raw = await request.text();
++  if (!raw) return null;
++  const type = request.headers.get('content-type') || '';
++  if (type.includes('application/json')) {
++    try {
++      const json = JSON.parse(raw);
++      return typeof json?.signed_request === 'string' ? json.signed_request : null;
++    } catch {
++      return null;
++    }
++  }
++  return new URLSearchParams(raw).get('signed_request');
++}
+-- 
+2.43.0
+
