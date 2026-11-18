@@ -38,6 +38,22 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Fuseau horaire invalide' }, { status: 400 });
   }
 
+  // FUSEAU VERROUILLÉ (18/11/2026). Le navigateur réécrit le fuseau à chaque
+  // connexion — voulu pour un commercial qui voyage, faux pour un compte dont
+  // les prospects sont dans UN pays et qu'on ouvre depuis un autre (les
+  // boîtes de prospection de Meet Aaron, ouvertes depuis Saïgon : les
+  // créneaux proposés aux prospects français seraient calés sur l'heure du
+  // Vietnam). users.timezone_locked = true : le fuseau enregistré ne bouge
+  // plus. Colonne absente (migration pas encore passée) : comportement d'avant.
+  const lockRes: any = await supabaseAdmin
+    .from('users')
+    .select('timezone_locked')
+    .eq('id', authedUser.id)
+    .maybeSingle();
+  if (!lockRes.error && lockRes.data?.timezone_locked === true) {
+    return NextResponse.json({ success: true, stored: false, locked: true });
+  }
+
   const { error } = await supabaseAdmin
     .from('users')
     .update({ timezone })
