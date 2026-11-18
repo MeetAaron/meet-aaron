@@ -1,0 +1,334 @@
+From 7ab8e347436c66caae37696c15a473765e642f88 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 09:01:09 +0000
+Subject: [PATCH] Type de contact : entreprise ou particulier (fiche contact,
+ filtre dans Contacts, deduction automatique)
+
+prospects.client_type (migration_type_contact_2026-11-18.sql), vide par
+defaut : le type est deduit a l'affichage (societe nommee, SIRET ou email
+professionnel = entreprise, sinon a preciser) et ne se fige que sur un
+choix explicite. Fiche contact : selecteur Entreprise / Particulier.
+Liste : filtres Entreprises / Particuliers, affiches des qu'il existe au
+moins un particulier. Textes en 7 langues dans lib/contact-type.js.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/prospects/[id]/route.ts       | 24 ++++++++++
+ app/app/prospects/page.jsx            | 21 ++++++++-
+ components/ContactCard.jsx            | 63 +++++++++++++++++++++++++++
+ lib/contact-type.js                   | 62 ++++++++++++++++++++++++++
+ migration_type_contact_2026-11-18.sql | 26 +++++++++++
+ 5 files changed, 195 insertions(+), 1 deletion(-)
+ create mode 100644 lib/contact-type.js
+ create mode 100644 migration_type_contact_2026-11-18.sql
+
+diff --git a/app/api/prospects/[id]/route.ts b/app/api/prospects/[id]/route.ts
+index 72d52d0..a158222 100644
+--- a/app/api/prospects/[id]/route.ts
++++ b/app/api/prospects/[id]/route.ts
+@@ -11,6 +11,7 @@ import { getAuthedUser, unauthorizedResponse, forbiddenResponse } from '@/lib/au
+ import { markProspectAsClient } from '@/lib/become-client';
+ import { isPipelineStage, LOST_REASONS, legacyColumnsForStage, derivePipelinePosition } from '@/lib/pipeline';
+ import { sendPushNotification } from '@/lib/push';
++import { isContactType } from '@/lib/contact-type';
+ import { readJsonBody, serverError } from '@/lib/http';
+ import { normalizeInstagramUrl, normalizeLinkedInCompanyUrl, normalizeLinkedInProfileUrl } from '@/lib/social-urls';
+ 
+@@ -95,6 +96,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+     linkedin_url,
+     company_linkedin_url,
+     company_instagram_url,
++    client_type,
+   } = await readJsonBody(request);
+   const prospectId = params.id;
+ 
+@@ -766,6 +768,28 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   // false, Aaron n'ouvre plus du tout les messages de ce contact : ni
+   // archivage, ni brouillon de réponse, ni relance automatique — le
+   // commercial reprend entièrement la main, comme pour un email personnel.
++  // Type de contact : entreprise ou particulier (18/11/2026, voir
++  // lib/contact-type.js). null remet la déduction automatique. Le
++  // propriétaire ou un membre de la même société peut le corriger (contrôle
++  // commun plus haut). Si la migration n'est pas passée, on le dit au lieu
++  // d'échouer en silence : la fiche continue d'afficher le type déduit.
++  if (action === 'set_client_type') {
++    if (client_type !== null && !isContactType(client_type)) {
++      return NextResponse.json({ error: 'client_type invalide' }, { status: 400 });
++    }
++    const { error: typeError } = await supabaseAdmin
++      .from('prospects')
++      .update({ client_type })
++      .eq('id', prospectId);
++    if (typeError) {
++      if (typeError.code === '42703' || typeError.code === 'PGRST204') {
++        return NextResponse.json({ error: 'client_type_migration_missing', code: 'client_type_migration_missing' }, { status: 409 });
++      }
++      return serverError(typeError, '/api/prospects/[id]');
++    }
++    return NextResponse.json({ success: true, client_type });
++  }
++
+   if (action === 'set_ai_managed') {
+     if (typeof ai_managed !== 'boolean') {
+       return NextResponse.json({ error: 'ai_managed doit être un booléen' }, { status: 400 });
+diff --git a/app/app/prospects/page.jsx b/app/app/prospects/page.jsx
+index e6cba08..d2a97da 100644
+--- a/app/app/prospects/page.jsx
++++ b/app/app/prospects/page.jsx
+@@ -21,9 +21,10 @@ import ContactCard, { DiscBadge, ProgressLine } from '@/components/ContactCard';
+ import { downloadSpreadsheet } from '@/lib/xlsx-io';
+ import { PIPELINE_STAGES, PIPELINE_COLORS, derivePipelinePosition, countPipeline, categoryOfStage, stageOrder, baselineConfidence } from '@/lib/pipeline';
+ import PipelineIcon from '@/components/PipelineIcon';
+-import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2 } from 'lucide-react';
++import { Bot, User, RefreshCw, PenLine, Upload, FileText, Table2, Download, AlertTriangle, X, UserCheck, PauseCircle, Sparkles, Mail, Calendar, ClipboardList, LifeBuoy, Star, CheckCircle2, Building2 } from 'lucide-react';
+ import { contactAlerts } from '@/lib/contact-alerts';
+ import { useTranslation } from '@/components/Translated';
++import { contactTypeOf, contactTypeText } from '@/lib/contact-type';
+ 
+ // Texte de la colonne « prochaine étape ». Un conseil d'Aaron (next.translate)
+ // est traduit dans la langue de l'interface (demande Alex, 07/11/2026 : « tout
+@@ -346,6 +347,8 @@ export default function ProspectsPage() {
+   const [stageFilter, setStageFilter] = useState([]);
+   const [extraFilter, setExtraFilter] = useState(null); // 'risk' | 'lost' | null
+   const [managedFilter, setManagedFilter] = useState(null); // 'aaron' | 'me' | null
++  // Entreprise ou particulier (18/11/2026, voir lib/contact-type.js).
++  const [typeFilter, setTypeFilter] = useState(null); // 'entreprise' | 'particulier' | null
+   const [selectedId, setSelectedId] = useState(null);
+   const [showHelp, setShowHelp] = useState(false);
+ 
+@@ -450,6 +453,8 @@ export default function ProspectsPage() {
+   const counts = countPipeline(prospects);
+   const aaronManagedCount = rows.filter((r) => r.p.ai_managed !== false && !r.position.lost).length;
+   const meManagedCount = rows.filter((r) => r.p.ai_managed === false && !r.position.lost).length;
++  const companyTypeCount = rows.filter((r) => contactTypeOf(r.p) === 'entreprise' && !r.position.lost).length;
++  const personTypeCount = rows.filter((r) => contactTypeOf(r.p) === 'particulier' && !r.position.lost).length;
+ 
+   function toggleCategory(cat) {
+     setExtraFilter(null);
+@@ -476,6 +481,7 @@ export default function ProspectsPage() {
+       if (stageFilter.length > 0 && !stageFilter.includes(position.stage)) return false;
+       if (managedFilter === 'aaron' && p.ai_managed === false) return false;
+       if (managedFilter === 'me' && p.ai_managed !== false) return false;
++      if (typeFilter && contactTypeOf(p) !== typeFilter) return false;
+       return true;
+     })
+     .filter(({ p }) => {
+@@ -692,6 +698,19 @@ export default function ProspectsPage() {
+           <button type="button" className={`chip${managedFilter === 'me' ? ' active' : ''}`} onClick={() => setManagedFilter((v) => (v === 'me' ? null : 'me'))} title={t('pipeline.meOnlyHint', locale)}>
+             {ic(UserCheck)} {t('pipeline.meOnly', locale)} <span className="chip-count">{meManagedCount}</span>
+           </button>
++          {/* Entreprises ou particuliers (18/11/2026). Le filtre « particuliers »
++              n'apparaît que s'il y en a : tant qu'un compte ne vend qu'à des
++              entreprises, il n'ajoute rien à l'écran. */}
++          {(personTypeCount > 0 || typeFilter) && (
++            <>
++              <button type="button" className={`chip${typeFilter === 'entreprise' ? ' active' : ''}`} onClick={() => setTypeFilter((v) => (v === 'entreprise' ? null : 'entreprise'))} title={contactTypeText('filterCompanies', locale)}>
++                {ic(Building2)} {contactTypeText('entreprises', locale)} <span className="chip-count">{companyTypeCount}</span>
++              </button>
++              <button type="button" className={`chip${typeFilter === 'particulier' ? ' active' : ''}`} onClick={() => setTypeFilter((v) => (v === 'particulier' ? null : 'particulier'))} title={contactTypeText('filterPeople', locale)}>
++                {ic(User)} {contactTypeText('particuliers', locale)} <span className="chip-count">{personTypeCount}</span>
++              </button>
++            </>
++          )}
+         </div>
+       </div>
+ 
+diff --git a/components/ContactCard.jsx b/components/ContactCard.jsx
+index afc3dc5..4c42843 100644
+--- a/components/ContactCard.jsx
++++ b/components/ContactCard.jsx
+@@ -36,6 +36,7 @@ import CompanyInfoEditor from '@/components/CompanyInfoEditor';
+ import DealTools from '@/components/DealTools';
+ import Translated from '@/components/Translated';
+ import { celebrateWin } from '@/components/WinCelebration';
++import { contactTypeOf, contactTypeIsSet, contactTypeText, CONTACT_TYPES } from '@/lib/contact-type';
+ 
+ // Textes de la fiche refondue (maquette validée par Alex le 18/10/2026).
+ // Gardés ici plutôt que dans lib/i18n.js (1,1 Mo, l'envoi web de GitHub
+@@ -523,6 +524,32 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
+     }
+   }
+ 
++  // Type de contact (18/11/2026) : un appui sur le type déjà choisi le
++  // retire et rend la main à la déduction d'Aaron.
++  async function handleClientType(value) {
++    const next = contactTypeIsSet(prospect) && prospect.client_type === value ? null : value;
++    setActing(true);
++    setFeedback(null);
++    try {
++      const res = await fetch(`/api/prospects/${prospect.id}`, {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ action: 'set_client_type', client_type: next }),
++      });
++      const json = await res.json().catch(() => ({}));
++      if (!res.ok) {
++        setFeedback({ type: 'error', text: json.code === 'client_type_migration_missing' ? contactTypeText('migration', locale) : (json.error || t('prospects.loadErrorFallback', locale)) });
++        return;
++      }
++      setFeedback({ type: 'ok', text: contactTypeText('saved', locale) });
++      onChanged();
++    } catch {
++      setFeedback({ type: 'error', text: t('prospects.loadErrorFallback', locale) });
++    } finally {
++      setActing(false);
++    }
++  }
++
+   async function handleToggleAiManaged() {
+     if (await patch({ action: 'set_ai_managed', ai_managed: prospect.ai_managed === false })) {
+       setPanel(null);
+@@ -731,6 +758,32 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
+             {position.lost && position.lostReason && <span className="pill muted-pill">{t(`pipeline.lostReason.${position.lostReason}`, locale)}</span>}
+             {prospect.origin && ORIGIN_KEYS[prospect.origin] && <span className="pill muted-pill">{t(ORIGIN_KEYS[prospect.origin], locale)}</span>}
+           </div>
++          {/* Type de contact : entreprise ou particulier (18/11/2026). Le type
++              déduit est marqué d'un contour en pointillés tant que personne
++              ne l'a confirmé. */}
++          <div className="type-row" role="group" aria-label={contactTypeText('label', locale)} title={contactTypeText('hint', locale)}>
++            <span className="type-lbl">{contactTypeText('label', locale)}</span>
++            <span className="type-seg">
++              {CONTACT_TYPES.map((value) => {
++                const on = contactTypeOf(prospect) === value;
++                return (
++                  <button
++                    type="button"
++                    key={value}
++                    className={`type-btn${on ? ' on' : ''}${on && !contactTypeIsSet(prospect) ? ' deduced' : ''}`}
++                    aria-pressed={on}
++                    disabled={acting}
++                    onClick={() => handleClientType(value)}
++                  >
++                    {value === 'entreprise' ? <Building2 size={13} strokeWidth={2.2} aria-hidden="true" /> : <User size={13} strokeWidth={2.2} aria-hidden="true" />}
++                    {contactTypeText(value, locale)}
++                  </button>
++                );
++              })}
++            </span>
++            {contactTypeOf(prospect) === null && <span className="type-note">{contactTypeText('unknown', locale)}</span>}
++            {contactTypeOf(prospect) !== null && !contactTypeIsSet(prospect) && <span className="type-note">{contactTypeText('deduced', locale)}</span>}
++          </div>
+           <div className="progress-wrap">
+             <ProgressLine position={position} locale={locale} />
+           </div>
+@@ -1071,6 +1124,16 @@ export default function ContactCard({ prospect, locale, userId, onClose, onChang
+         .pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.65rem; }
+         .pill { display: inline-flex; align-items: center; gap: 0.3em; border: 1px solid; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+         .muted-pill { color: var(--muted); border-color: var(--border); }
++        .type-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
++        .type-lbl { color: var(--muted); font-size: 0.72rem; font-weight: 600; }
++        .type-seg { display: inline-flex; gap: 0.2rem; padding: 0.15rem; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); }
++        .type-btn { display: inline-flex; align-items: center; gap: 0.3em; min-height: 1.9rem; padding: 0 0.7rem; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
++        .type-btn.on { background: var(--text); color: var(--bg); }
++        .type-btn.on.deduced { background: transparent; color: var(--text); border: 1px dashed var(--muted); }
++        .type-btn:disabled { opacity: 0.6; cursor: default; }
++        .type-btn:focus-visible { outline: 2px solid var(--accent, #6c5cff); outline-offset: 2px; }
++        .type-note { color: var(--muted); font-size: 0.7rem; }
++        @media (pointer: coarse) { .type-btn { min-height: 2.75rem; padding: 0 0.9rem; } }
+         .alert-badge { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem; border-radius: 50%; font-size: 0.7rem; font-weight: 700; background: var(--accent-red); color: #fff; }
+         .close {
+           width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+diff --git a/lib/contact-type.js b/lib/contact-type.js
+new file mode 100644
+index 0000000..e79c761
+--- /dev/null
++++ b/lib/contact-type.js
+@@ -0,0 +1,62 @@
++// lib/contact-type.js
++//
++// TYPE DE CONTACT : entreprise ou particulier (demande d'Alex, 18/11/2026 :
++// « une nouvelle colonne pour démarquer ce qui est un client professionnel,
++// B2B ou B2C »). Jusqu'ici tous les contacts étaient des entreprises, parce
++// qu'Aaron ne prospectait que par email auprès de sociétés. Avec les réseaux
++// sociaux, un même client peut vendre aux deux, ou à un seul.
++//
++// Une seule colonne, prospects.client_type, vide par défaut (voir
++// migration_type_contact_2026-11-18.sql) :
++//   - 'entreprise' ou 'particulier' : choisi à la main, ou posé par Aaron
++//     quand la personne le dit elle-même dans la conversation ;
++//   - vide : on DÉDUIT le type à l'affichage, sans rien écrire en base. Une
++//     société nommée, un SIRET ou une adresse email professionnelle veulent
++//     dire « entreprise ». Sinon on ne sait pas, et on l'affiche tel quel
++//     (« à préciser ») plutôt que de deviner : classer un particulier comme
++//     entreprise fausserait le filtre sans que personne le voie.
++//
++// La déduction n'est jamais enregistrée : si le commercial complète la
++// société plus tard, le type suit tout seul. Seul un choix explicite fige.
++//
++// Fichier en JS pur, sans dépendance serveur : importé par la fiche contact,
++// la liste et la route d'enregistrement.
++
++import { isGenericEmailDomain } from '@/lib/csv-import';
++
++export const CONTACT_TYPES = ['entreprise', 'particulier'];
++
++export function isContactType(value) {
++  return CONTACT_TYPES.includes(value);
++}
++
++// Type enregistré s'il existe, sinon déduit, sinon null (« à préciser »).
++export function contactTypeOf(prospect) {
++  if (!prospect) return null;
++  if (isContactType(prospect.client_type)) return prospect.client_type;
++  const company = prospect.prospect_companies || {};
++  if ((company.name || '').trim() || (company.siret || '').trim()) return 'entreprise';
++  if (prospect.email && !isGenericEmailDomain(prospect.email)) return 'entreprise';
++  return null;
++}
++
++// true quand le type vient d'un choix explicite (et non de la déduction).
++export function contactTypeIsSet(prospect) {
++  return !!prospect && isContactType(prospect.client_type);
++}
++
++// Textes gardés ici plutôt que dans lib/i18n.js (1,1 Mo, l'envoi web de
++// GitHub bloque dessus), comme components/ContactCard.jsx.
++const TEXT = {
++  fr: { entreprise: 'Entreprise', particulier: 'Particulier', unknown: 'Type à préciser', entreprises: 'Entreprises', particuliers: 'Particuliers', label: 'Type de client', hint: 'Entreprise ou particulier. Aaron le déduit, tu peux le corriger.', deduced: 'déduit par Aaron', saved: 'Type de client enregistré', migration: 'Le type de client n\'est pas encore activé sur ce compte.', filterCompanies: 'Seulement les entreprises', filterPeople: 'Seulement les particuliers' },
++  en: { entreprise: 'Business', particulier: 'Individual', unknown: 'Type to confirm', entreprises: 'Businesses', particuliers: 'Individuals', label: 'Customer type', hint: 'Business or individual. Aaron works it out, you can correct it.', deduced: 'worked out by Aaron', saved: 'Customer type saved', migration: 'Customer type is not enabled on this account yet.', filterCompanies: 'Businesses only', filterPeople: 'Individuals only' },
++  de: { entreprise: 'Unternehmen', particulier: 'Privatperson', unknown: 'Typ offen', entreprises: 'Unternehmen', particuliers: 'Privatpersonen', label: 'Kundentyp', hint: 'Unternehmen oder Privatperson. Aaron leitet es ab, du kannst es korrigieren.', deduced: 'von Aaron abgeleitet', saved: 'Kundentyp gespeichert', migration: 'Der Kundentyp ist für dieses Konto noch nicht aktiviert.', filterCompanies: 'Nur Unternehmen', filterPeople: 'Nur Privatpersonen' },
++  it: { entreprise: 'Azienda', particulier: 'Privato', unknown: 'Tipo da precisare', entreprises: 'Aziende', particuliers: 'Privati', label: 'Tipo di cliente', hint: 'Azienda o privato. Aaron lo deduce, puoi correggerlo.', deduced: 'dedotto da Aaron', saved: 'Tipo di cliente salvato', migration: 'Il tipo di cliente non è ancora attivo su questo account.', filterCompanies: 'Solo le aziende', filterPeople: 'Solo i privati' },
++  es: { entreprise: 'Empresa', particulier: 'Particular', unknown: 'Tipo por precisar', entreprises: 'Empresas', particuliers: 'Particulares', label: 'Tipo de cliente', hint: 'Empresa o particular. Aaron lo deduce, puedes corregirlo.', deduced: 'deducido por Aaron', saved: 'Tipo de cliente guardado', migration: 'El tipo de cliente aún no está activado en esta cuenta.', filterCompanies: 'Solo las empresas', filterPeople: 'Solo los particulares' },
++  pt: { entreprise: 'Empresa', particulier: 'Particular', unknown: 'Tipo por definir', entreprises: 'Empresas', particuliers: 'Particulares', label: 'Tipo de cliente', hint: 'Empresa ou particular. O Aaron deduz, podes corrigir.', deduced: 'deduzido pelo Aaron', saved: 'Tipo de cliente guardado', migration: 'O tipo de cliente ainda não está ativo nesta conta.', filterCompanies: 'Só as empresas', filterPeople: 'Só os particulares' },
++  nl: { entreprise: 'Bedrijf', particulier: 'Particulier', unknown: 'Type nog onbekend', entreprises: 'Bedrijven', particuliers: 'Particulieren', label: 'Type klant', hint: 'Bedrijf of particulier. Aaron leidt het af, je kunt het aanpassen.', deduced: 'afgeleid door Aaron', saved: 'Type klant opgeslagen', migration: 'Het type klant is nog niet actief voor dit account.', filterCompanies: 'Alleen bedrijven', filterPeople: 'Alleen particulieren' },
++};
++
++export function contactTypeText(key, locale) {
++  return (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key] || key;
++}
+diff --git a/migration_type_contact_2026-11-18.sql b/migration_type_contact_2026-11-18.sql
+new file mode 100644
+index 0000000..d941208
+--- /dev/null
++++ b/migration_type_contact_2026-11-18.sql
+@@ -0,0 +1,26 @@
++-- migration_type_contact_2026-11-18.sql
++--
++-- Type de contact : entreprise ou particulier (demande d'Alex, 18/11/2026).
++-- Vide par défaut : tant que personne n'a choisi, l'application déduit le
++-- type à l'affichage (société nommée, SIRET ou email professionnel =
++-- entreprise ; sinon « à préciser »). Voir lib/contact-type.js.
++--
++-- Sans risque et rejouable : une colonne ajoutée, aucune donnée modifiée.
++
++ALTER TABLE prospects
++  ADD COLUMN IF NOT EXISTS client_type text;
++
++ALTER TABLE prospects
++  DROP CONSTRAINT IF EXISTS prospects_client_type_check;
++
++ALTER TABLE prospects
++  ADD CONSTRAINT prospects_client_type_check
++  CHECK (client_type IS NULL OR client_type IN ('entreprise', 'particulier'));
++
++COMMENT ON COLUMN prospects.client_type IS
++  'entreprise | particulier | NULL (déduit à l''affichage, voir lib/contact-type.js). Posé à la main depuis la fiche contact, ou par Aaron quand la personne le dit.';
++
++-- Contrôle : la colonne existe.
++SELECT column_name, data_type
++FROM information_schema.columns
++WHERE table_name = 'prospects' AND column_name = 'client_type';
+-- 
+2.43.0
+
