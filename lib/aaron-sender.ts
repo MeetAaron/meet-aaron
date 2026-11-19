@@ -22,7 +22,10 @@
 
 export const AARON_SENDER_NAME: Record<string, string> = {
   fr: 'Aaron Assistant Commercial',
-  en: 'Aaron Sales Assistant',
+  // 19/11/2026 : « Sales Copilot », le nom de la marque en anglais (fiches
+  // App Store et Google Play, application Meta), a la place de « Sales
+  // Assistant ». Demande d'Alex avant le lancement en Australie.
+  en: 'Aaron Sales Copilot',
   de: 'Aaron Vertriebsassistent',
   it: 'Aaron Assistente Commerciale',
   es: 'Aaron Asistente Comercial',
