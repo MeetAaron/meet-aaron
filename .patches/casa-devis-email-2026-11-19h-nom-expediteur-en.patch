@@ -1,0 +1,38 @@
+From 58b5d5efbc0eb4023638be9cc20d8bb47dbac220 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 12:47:26 +0000
+Subject: [PATCH] =?UTF-8?q?Nom=20d'expediteur=20d'Aaron=20en=20anglais=20:?=
+ =?UTF-8?q?=20=C2=AB=20Aaron=20Sales=20Copilot=20=C2=BB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Les emails qu'Aaron envoie a ses propres clients (rapports, alertes,
+confirmations) partaient en anglais sous « Aaron Sales Assistant ». La marque
+en anglais est « Sales Copilot » partout ailleurs.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/aaron-sender.ts | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/lib/aaron-sender.ts b/lib/aaron-sender.ts
+index dd0d178..56a8444 100644
+--- a/lib/aaron-sender.ts
++++ b/lib/aaron-sender.ts
+@@ -22,7 +22,10 @@
+ 
+ export const AARON_SENDER_NAME: Record<string, string> = {
+   fr: 'Aaron Assistant Commercial',
+-  en: 'Aaron Sales Assistant',
++  // 19/11/2026 : « Sales Copilot », le nom de la marque en anglais (fiches
++  // App Store et Google Play, application Meta), a la place de « Sales
++  // Assistant ». Demande d'Alex avant le lancement en Australie.
++  en: 'Aaron Sales Copilot',
+   de: 'Aaron Vertriebsassistent',
+   it: 'Aaron Assistente Commerciale',
+   es: 'Aaron Asistente Comercial',
+-- 
+2.43.0
+
