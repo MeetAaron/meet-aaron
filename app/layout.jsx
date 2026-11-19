@@ -37,7 +37,14 @@ export const metadata = {
     icons: {
         icon: [
             { url: "/favicon.ico", sizes: "any" },
-            { url: "/icon.png", type: "image/png", sizes: "192x192" },
+            // Icône PLEIN CADRE pour les moteurs de recherche (19/11/2026) :
+            // Google affiche l'icône dans un petit rond. public/icon.png a
+            // des coins arrondis transparents, le logo y apparaissait comme
+            // un carré rétréci au milieu d'un rond gris. favicon-192.png et
+            // favicon.ico ont un fond plein jusqu'aux bords, logo centré
+            // dans la zone qui survit à un recadrage en rond. icon.png reste
+            // l'icône de l'application (écran d'accueil).
+            { url: "/favicon-192.png", type: "image/png", sizes: "192x192" },
         ],
         apple: "/icon.png",
     },
