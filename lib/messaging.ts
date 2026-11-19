@@ -12,7 +12,7 @@ import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './m
 import { sendImapEmail } from './imap';
 import { isMailboxAuthBroken } from './mailbox-health';
 import { isDomainHealthyForSending } from './email-deliverability';
-import { findReplyContext, replySubject } from './email-threading';
+import { findReplyContext, replySubject, hasProspectReplied } from './email-threading';
 import { pickSignature, pickBannerUrl, recipientLocaleForSignature, detectTextLocale, signatureMapForSend, tidySignature } from './signature-locale';
 
 // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
@@ -616,10 +616,22 @@ export async function sendEmailForUser(
   const bannerImageUrl = safeImageUrl(
     pickBannerUrl(user?.email_banner_image_url, user?.email_banner_by_locale, signatureLocale)
   );
-  const signatureImageHtml = signatureImageUrl
+  // PAS D'IMAGE TANT QUE LE PROSPECT N'A PAS ÉCRIT (19/11/2026, idée d'Alex).
+  //
+  // Une image distante dans un email non sollicité pèse sur le score de spam,
+  // exactement comme la plaquette en pièce jointe (retirée du premier email
+  // le 25/09). Le premier contact et les relances partent donc avec la
+  // signature ÉCRITE seule. Dès que le prospect a répondu, l'image de
+  // signature et le bandeau reviennent : le fil est engagé, ils ne coûtent
+  // plus rien et rassurent sur le sérieux de l'expéditeur.
+  //
+  // Ne concerne que la prospection : devis, partage de fiche, rapports et
+  // tout autre email gardent leurs images comme avant.
+  const imagesAllowed = emailType !== 'prospecting' || (await hasProspectReplied(userId, to));
+  const signatureImageHtml = signatureImageUrl && imagesAllowed
     ? `<img src="${signatureImageUrl}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
     : '';
-  const bannerImageHtml = bannerImageUrl
+  const bannerImageHtml = bannerImageUrl && imagesAllowed
     ? `<img src="${bannerImageUrl}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
     : '';
   const htmlBody = plainTextToEmailHtml(textBody, {

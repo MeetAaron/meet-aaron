@@ -49,6 +49,33 @@ export function replySubject(originalSubject: string): string {
   return `Re: ${stripReplyPrefixes(originalSubject)}`;
 }
 
+// Les prospects de CE commercial qui portent cette adresse, du plus récent
+// au plus ancien.
+//
+// 19/11/2026 : la recherche filtrait sur prospects.user_id, alors que tout le
+// reste du code rattache un prospect à son commercial par assigned_user_id.
+// Si la colonne user_id n'existe pas, la requête échouait sans bruit et
+// findReplyContext répondait toujours « aucun fil » : les réponses d'Aaron
+// repartaient alors hors du fil. On essaie donc assigned_user_id d'abord, et
+// user_id seulement si la première lecture est refusée.
+async function prospectIdsFor(userId: string, email: string, limit: number): Promise<string[]> {
+  for (const column of ['assigned_user_id', 'user_id']) {
+    const { data, error } = await supabaseAdmin
+      .from('prospects')
+      .select('id')
+      .eq(column, userId)
+      .ilike('email', email)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error(`prospectIdsFor (${column}):`, error.message);
+      continue;
+    }
+    return ((data || []) as any[]).map((p) => p.id);
+  }
+  return [];
+}
+
 // Dernier message échangé avec cette adresse, pour CE commercial.
 //
 // Le filtrage passe par le prospect : une adresse email ne suffit pas, deux
@@ -59,14 +86,8 @@ export async function findReplyContext(userId: string, toEmail: string): Promise
   if (!userId || !email.includes('@')) return null;
 
   try {
-    const { data: prospect } = await supabaseAdmin
-      .from('prospects')
-      .select('id')
-      .eq('user_id', userId)
-      .ilike('email', email)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const prospectIds = await prospectIdsFor(userId, email, 1);
+    const prospect = prospectIds.length ? { id: prospectIds[0] } : null;
     if (!prospect) return null;
 
     const { data: conversation } = await supabaseAdmin
@@ -104,5 +125,41 @@ export async function findReplyContext(userId: string, toEmail: string): Promise
     // jouée) ou toute autre erreur : on n'empêche pas l'envoi.
     console.error('findReplyContext:', err?.message || err);
     return null;
+  }
+}
+
+// CE PROSPECT A-T-IL DÉJÀ ÉCRIT ? (19/11/2026)
+//
+// Sert à décider si l'image de signature et le bandeau accompagnent un email
+// de prospection (lib/messaging.ts). Même filtrage que findReplyContext :
+// par le prospect de CE commercial, jamais par l'adresse seule.
+//
+// En cas de doute (prospect introuvable, erreur de lecture), on répond
+// « non » : un email sans image arrive mieux qu'un email avec, et l'image
+// reviendra d'elle-même à la première réponse.
+export async function hasProspectReplied(userId: string, toEmail: string): Promise<boolean> {
+  const email = (toEmail || '').trim().toLowerCase();
+  if (!userId || !email.includes('@')) return false;
+  try {
+    const prospectIds = await prospectIdsFor(userId, email, 5);
+    if (prospectIds.length === 0) return false;
+
+    const { data: conversations } = await supabaseAdmin
+      .from('conversations')
+      .select('id')
+      .in('prospect_id', prospectIds);
+    const conversationIds = ((conversations || []) as any[]).map((c) => c.id);
+    if (conversationIds.length === 0) return false;
+
+    const { count, error } = await supabaseAdmin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .in('conversation_id', conversationIds)
+      .eq('direction', 'inbound');
+    if (error) return false;
+    return (count || 0) > 0;
+  } catch (err: any) {
+    console.error('hasProspectReplied:', err?.message || err);
+    return false;
   }
 }
