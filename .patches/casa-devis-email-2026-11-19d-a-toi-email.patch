@@ -1,0 +1,390 @@
+From afcb3763a262c4e2a4f2ccb2ccc90fc5b9932afe Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 05:39:14 +0000
+Subject: [PATCH] =?UTF-8?q?=C2=AB=20A=20toi=20=C2=BB=20pour=20les=20emails?=
+ =?UTF-8?q?=20:=20Aaron=20ne=20repond=20pas=20a=20un=20message=20qui=20n'e?=
+ =?UTF-8?q?st=20pas=20pour=20lui=20et=20previent=20le=20commercial?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Nouveau champ a_toi dans la reponse d'Aaron (message personnel, histoire
+commune inconnue, expediteur qui n'est pas un client potentiel). Dans ce
+cas aucun email ne part, le contact est marque (prospects.a_toi_at,
+migration_a_toi_2026-11-19.sql), une notification push part dans la langue
+du compte et une story « A toi » apparait jusqu'a ce que le commercial
+dise que c'est fait ou que la personne reecrive. Textes en 7 langues.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/cron/check-inbox/route.ts | 54 ++++++++++++++++++++++++++++++-
+ app/api/prospects/[id]/route.ts   | 13 ++++++++
+ components/Stories.jsx            | 20 ++++++++++++
+ lib/aaron.ts                      |  7 ++++
+ lib/aaron_system_prompt.md        | 23 +++++++++++++
+ lib/i18n.js                       | 21 ++++++++++++
+ lib/notifications.ts              | 14 +++++++-
+ migration_a_toi_2026-11-19.sql    | 22 +++++++++++++
+ 8 files changed, 172 insertions(+), 2 deletions(-)
+ create mode 100644 migration_a_toi_2026-11-19.sql
+
+diff --git a/app/api/cron/check-inbox/route.ts b/app/api/cron/check-inbox/route.ts
+index c54198d..dd4bb7c 100644
+--- a/app/api/cron/check-inbox/route.ts
++++ b/app/api/cron/check-inbox/route.ts
+@@ -438,6 +438,22 @@ async function handleWonCustomerMessage(
+   }
+ }
+ 
++
++// Texte du push « À toi » dans la langue du compte (les comptes anglophones
++// recevaient sinon un titre en français).
++const A_TOI_PUSH: Record<string, { title: string; body: string }> = {
++  fr: { title: 'À toi : {name}', body: "Ce message est pour toi, je n'ai pas répondu." },
++  en: { title: 'Over to you: {name}', body: 'This message is for you, I have not replied.' },
++  de: { title: 'Für dich: {name}', body: 'Diese Nachricht ist für dich, ich habe nicht geantwortet.' },
++  it: { title: 'Tocca a te: {name}', body: 'Questo messaggio è per te, non ho risposto.' },
++  es: { title: 'Te toca: {name}', body: 'Este mensaje es para ti, no he respondido.' },
++  pt: { title: 'É contigo: {name}', body: 'Esta mensagem é para ti, não respondi.' },
++  nl: { title: 'Voor jou: {name}', body: 'Dit bericht is voor jou, ik heb niet geantwoord.' },
++};
++function aToiPushText(locale?: string | null) {
++  return A_TOI_PUSH[(locale || 'fr').toLowerCase()] || A_TOI_PUSH.fr;
++}
++
+ export async function GET(request: NextRequest) {
+   if (!isAuthorized(request)) {
+     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+@@ -938,8 +954,13 @@ export async function GET(request: NextRequest) {
+       // met à jour le statut/la personnalité du prospect dans tous les cas,
+       // mais on n'envoie et n'archive un message que s'il y a vraiment
+       // quelque chose à envoyer.
++      // « À toi » (19/11/2026) : le message n'est pas pour Aaron. Il ne
++      // répond pas, même si le modèle a quand même rempli email_draft (la
++      // consigne dit de le laisser vide ; on ne s'en remet pas à elle pour
++      // empêcher un envoi). Le commercial est prévenu plus bas.
++      const aToi = aaronOutput.a_toi?.detected === true;
+       const hasEmailToSend =
+-        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
++        !aToi && aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+ 
+       if (hasEmailToSend) {
+         // Demande Alex (30/08/2026) : un email "long" envoyé 3 minutes après
+@@ -1020,6 +1041,37 @@ export async function GET(request: NextRequest) {
+       // best-effort : colonne optionnelle tant que la migration n'est pas passée.
+       await supabaseAdmin.from('prospects').update({ quote_paused_at: null }).eq('id', prospect.id).then(() => {}, () => {});
+ 
++      // « À toi » : on marque le contact et on prévient le commercial sur son
++      // téléphone. Sinon on efface une marque éventuelle : la personne a
++      // réécrit et Aaron a pu traiter, il n'y a plus rien à lui rendre.
++      // Appels séparés et tolérants : colonnes optionnelles tant que
++      // migration_a_toi_2026-11-19.sql n'est pas passée.
++      if (aToi) {
++        const reason = (aaronOutput.a_toi?.reason || '').trim().slice(0, 300) || null;
++        await supabaseAdmin
++          .from('prospects')
++          .update({ a_toi_at: new Date().toISOString(), a_toi_reason: reason })
++          .eq('id', prospect.id)
++          .then(() => {}, () => {});
++        try {
++          const { data: owner } = await supabaseAdmin.from('users').select('locale').eq('id', connection.user_id).maybeSingle();
++          const text = aToiPushText((owner as any)?.locale);
++          await sendPushNotification(connection.user_id, {
++            title: text.title.replace('{name}', prospect.full_name || ''),
++            body: reason || text.body,
++            url: `/app/prospects?user_id=${connection.user_id}&contact=${prospect.id}`,
++          });
++        } catch {
++          // la notification dans l'application reste, même sans push
++        }
++      } else {
++        await supabaseAdmin
++          .from('prospects')
++          .update({ a_toi_at: null, a_toi_reason: null })
++          .eq('id', prospect.id)
++          .then(() => {}, () => {});
++      }
++
+       // Demande de devis détectée par Aaron dans le message reçu : on fait
+       // avancer le contact et on PRÉVIENT le commercial. Aaron ne rédige
+       // AUCUN devis (décision d'Alex, 23-25/10/2026 : « Aaron ne fait pas de
+diff --git a/app/api/prospects/[id]/route.ts b/app/api/prospects/[id]/route.ts
+index a158222..ccd1d5c 100644
+--- a/app/api/prospects/[id]/route.ts
++++ b/app/api/prospects/[id]/route.ts
+@@ -773,6 +773,19 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   // propriétaire ou un membre de la même société peut le corriger (contrôle
+   // commun plus haut). Si la migration n'est pas passée, on le dit au lieu
+   // d'échouer en silence : la fiche continue d'afficher le type déduit.
++  // « À toi » traité (19/11/2026) : le commercial a répondu lui-même, la
++  // notification disparaît. Contrôle d'accès commun plus haut.
++  if (action === 'a_toi_done') {
++    const { error: aToiError } = await supabaseAdmin
++      .from('prospects')
++      .update({ a_toi_at: null, a_toi_reason: null })
++      .eq('id', prospectId);
++    if (aToiError && aToiError.code !== '42703' && aToiError.code !== 'PGRST204') {
++      return serverError(aToiError, '/api/prospects/[id]');
++    }
++    return NextResponse.json({ success: true });
++  }
++
+   if (action === 'set_client_type') {
+     if (client_type !== null && !isContactType(client_type)) {
+       return NextResponse.json({ error: 'client_type invalide' }, { status: 400 });
+diff --git a/components/Stories.jsx b/components/Stories.jsx
+index 11cd377..7bcc824 100644
+--- a/components/Stories.jsx
++++ b/components/Stories.jsx
+@@ -45,6 +45,7 @@ const RING = {
+   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
+   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
+   client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
++  a_toi: 'linear-gradient(135deg, #f5a623, #c93f8c)',
+   message_client: 'linear-gradient(135deg, #4b9ef0, #b07cf5)',
+   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
+   delivrabilite: 'linear-gradient(135deg, #ef4459, #f5a623)',
+@@ -70,6 +71,7 @@ const ICON_NAME = {
+   bilan_a_faire: 'notes',
+   commande_a_confirmer: 'trophy',
+   client_a_confirmer: 'trophy',
++  a_toi: 'message',
+   message_client: 'message',
+   a_risque: 'flame',
+   delivrabilite: 'ban',
+@@ -940,6 +942,24 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
+       );
+       break;
+     }
++    case 'a_toi':
++      // Email reçu qui n'est pas pour Aaron (19/11/2026) : il n'a pas
++      // répondu. Le commercial répond depuis sa boîte, puis dit que c'est
++      // fait ; la story disparaît aussi toute seule si la personne réécrit
++      // et qu'Aaron peut traiter.
++      body = (
++        <>
++          <p className="lead">{t('stories.aToiLead', locale).replace('{name}', item.prospect_name)}</p>
++          {item.meta?.reason && <p className="advice"><Ic name="message" /> <Translated text={item.meta.reason} locale={locale} format={frenchTypography} /></p>}
++        </>
++      );
++      actions = (
++        <>
++          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.openCard', locale)}</button>
++          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'a_toi_done' })}>{t('stories.aToiDone', locale)}</button>
++        </>
++      );
++      break;
+     case 'a_risque':
+       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
+       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)
+diff --git a/lib/aaron.ts b/lib/aaron.ts
+index 4b9c161..e5a2e2c 100644
+--- a/lib/aaron.ts
++++ b/lib/aaron.ts
+@@ -123,6 +123,13 @@ export interface AaronOutput {
+   // lib/first-contact.ts marque le prospect perdu pour qu'aucun cron ne
+   // repaie jamais ce jugement.
+   hors_cible?: { detected: boolean; reason: string | null } | null;
++  // « À toi » (19/11/2026) : le message reçu n'est pas pour Aaron (affaire
++  // personnelle, histoire commune avec le commercial qu'il ne connaît pas,
++  // message qui ne vient pas d'un client potentiel). Quand c'est vrai,
++  // Aaron ne répond PAS : email_draft est vide et le commercial reçoit une
++  // notification. Voir la section « À TOI » de lib/aaron_system_prompt.md et
++  // app/api/cron/check-inbox.
++  a_toi?: { detected: boolean; reason: string | null } | null;
+   quote_requested: boolean;
+   deal_approved: { detected: boolean; reason: string | null } | null;
+   // Docx pipeline (Alex, 2026-08-23) : deux nouveaux signaux, même mécanique
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index 806de30..f49e3f2 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -286,6 +286,7 @@ Le champ `email_draft` est volontairement placé EN PREMIER : c'est le seul dont
+   },
+   "action_required_from_sales": "string ou null — ex: 'Valider le créneau proposé au client'",
+   "hors_cible": { "detected": true ou false, "reason": "string ou null" } ou null,
++  "a_toi": { "detected": true ou false, "reason": "string ou null" } ou null,
+   "quote_requested": true ou false,
+   "deal_approved": { "detected": true ou false, "reason": "string ou null" },
+   "negotiation_confidence": { "score": 0 à 100, "reason": "string" } ou null,
+@@ -294,6 +295,28 @@ Le champ `email_draft` est volontairement placé EN PREMIER : c'est le seul dont
+ }
+ ```
+ 
++## À TOI : LE MESSAGE N'EST PAS POUR TOI
++
++Tu écris depuis la boîte du commercial, mais tu ne connais ni sa vie ni son passé. Certains messages reçus ne te regardent pas, et y répondre à sa place ferait plus de mal que de bien. Dans ce cas tu ne réponds PAS : tu passes la main.
++
++Mets `a_toi.detected` à `true` UNIQUEMENT dans l'un de ces trois cas :
++
++1. **Message personnel ou privé** : il ne parle pas d'affaires (nouvelles personnelles, invitation privée, condoléances, félicitations sans rapport avec une vente).
++2. **Référence à une histoire commune que tu ne connais pas** : la personne évoque un échange, une rencontre, un accord ou une promesse passés avec le commercial qui n'apparaît nulle part dans `historique_conversation` ni dans le contexte, et sa demande ne peut pas être comprise sans cela.
++3. **L'expéditeur n'est pas un client potentiel** : fournisseur ou démarcheur qui veut vendre quelque chose au commercial, candidature, journaliste, administration, erreur de destinataire.
++
++Quand `a_toi.detected` est `true` :
++- `email_draft.subject` et `email_draft.body` sont des chaînes VIDES. Tu n'écris rien au prospect, pas même un accusé de réception.
++- `a_toi.reason` : une seule phrase courte, dans `commercial.langue`, qui dit au commercial pourquoi ce message est pour lui (ex. « Il évoque votre déjeuner de mars, dont je ne sais rien. »).
++- Tu renseignes les autres champs normalement. `prospect_status` reste celui que justifie la conversation.
++
++Ne l'utilise PAS :
++- quand tu peux répondre, même partiellement. Une question à laquelle il te manque un détail se traite comme d'habitude, sans rien inventer.
++- pour une réponse automatique, une absence du bureau ou un indésirable : là, `email_draft` est vide et `a_toi` reste `null`, personne n'a besoin d'être prévenu.
++- pour un prospect mécontent ou qui refuse : c'est le rôle de `rescue_proposal`.
++
++Dans tous les autres cas, `a_toi` vaut `null`.
++
+ ## CONFIANCE POUR L'ÉTAPE SUIVANTE (toujours renseignée)
+ 
+ `next_step_confidence` est TOUJOURS renseigné, à chaque appel, quel que soit le statut : c'est ta probabilité honnête (0 à 100) que ce contact franchisse la PROCHAINE étape de son parcours — obtenir une réponse puis un rendez-vous s'il est en cours de prospection, une demande de devis après un rendez-vous, une signature après un devis. `reason` = une phrase courte dans `commercial.langue` qui dit ce qui te fait pencher (ex: "A ouvert le devis deux fois et pose des questions de délai, mais n'a pas répondu sur le prix."). Barème indicatif : 10-25 = premier contact sans réponse ; 30-50 = a répondu poliment ou montré un intérêt général ; 55-75 = échanges concrets (dates, chiffres, questions précises) ; 80+ = a exprimé une intention explicite d'avancer. Un silence prolongé ou une objection non résolue fait baisser le score. Ce score est affiché au commercial sur chaque fiche : sois prudent et cohérent d'un appel à l'autre, jamais complaisant.
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 8a7264b..9c9285b 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -296,6 +296,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Oui, c'est un client",
+     "stories.clientSignalNo": "Non, pas encore",
+     "stories.type.a_risque": "À risque",
++    "stories.type.a_toi": "À toi",
++    "stories.aToiLead": "{name} t'a écrit. Ce message est pour toi : je n'ai pas répondu.",
++    "stories.aToiDone": "C'est fait",
+     "stories.devisLead": "{name} attend ta proposition depuis {days} jour(s).",
+     "stories.devisAdvice0": "Il attend ta proposition — une réponse rapide montre que tu es fiable. Dépose ton devis sur sa fiche dès qu'il est prêt.",
+     "stories.devisAdvice1": "Deux jours déjà. Un prospect chaud refroidit vite : envoie au moins un mot pour dire que ça arrive, et une date.",
+@@ -2767,6 +2770,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Yes, it's a client",
+     "stories.clientSignalNo": "Not yet",
+     "stories.type.a_risque": "At risk",
++    "stories.type.a_toi": "Over to you",
++    "stories.aToiLead": "{name} wrote to you. This message is for you: I have not replied.",
++    "stories.aToiDone": "Done",
+     "stories.devisLead": "{name} has been waiting for your proposal for {days} day(s).",
+     "stories.devisAdvice0": "They're waiting for your proposal — a quick reply shows you're reliable. Add your quote to their card as soon as it's ready.",
+     "stories.devisAdvice1": "Two days already. A hot prospect cools down fast: at least send a note saying it's coming, with a date.",
+@@ -4936,6 +4942,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Ja, Kunde",
+     "stories.clientSignalNo": "Noch nicht",
+     "stories.type.a_risque": "Risiko",
++    "stories.type.a_toi": "Für dich",
++    "stories.aToiLead": "{name} hat dir geschrieben. Diese Nachricht ist für dich: Ich habe nicht geantwortet.",
++    "stories.aToiDone": "Erledigt",
+     "stories.devisLead": "{name} wartet seit {days} Tag(en) auf dein Angebot.",
+     "stories.devisAdvice0": "Er wartet auf dein Angebot — eine schnelle Antwort zeigt Verlässlichkeit. Lade dein Angebot auf seine Karte, sobald es fertig ist.",
+     "stories.devisAdvice1": "Schon zwei Tage. Ein heißer Kontakt kühlt schnell ab: schick zumindest eine kurze Nachricht mit einem Datum.",
+@@ -7105,6 +7114,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Sì, è un cliente",
+     "stories.clientSignalNo": "Non ancora",
+     "stories.type.a_risque": "A rischio",
++    "stories.type.a_toi": "Tocca a te",
++    "stories.aToiLead": "{name} ti ha scritto. Questo messaggio è per te: non ho risposto.",
++    "stories.aToiDone": "Fatto",
+     "stories.devisLead": "{name} aspetta la tua proposta da {days} giorno/i.",
+     "stories.devisAdvice0": "Aspetta la tua proposta — una risposta rapida mostra che sei affidabile. Carica il preventivo sulla sua scheda appena è pronto.",
+     "stories.devisAdvice1": "Già due giorni. Un prospect caldo si raffredda in fretta: manda almeno due righe per dire che arriva, con una data.",
+@@ -9274,6 +9286,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Sí, es cliente",
+     "stories.clientSignalNo": "Todavía no",
+     "stories.type.a_risque": "En riesgo",
++    "stories.type.a_toi": "Te toca",
++    "stories.aToiLead": "{name} te ha escrito. Este mensaje es para ti: no he respondido.",
++    "stories.aToiDone": "Hecho",
+     "stories.devisLead": "{name} espera tu propuesta desde hace {days} día(s).",
+     "stories.devisAdvice0": "Espera tu propuesta — una respuesta rápida demuestra fiabilidad. Sube tu presupuesto a su ficha en cuanto esté listo.",
+     "stories.devisAdvice1": "Ya dos días. Un prospecto caliente se enfría rápido: envía al menos una nota diciendo que llega, con una fecha.",
+@@ -11443,6 +11458,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Sim, é cliente",
+     "stories.clientSignalNo": "Ainda não",
+     "stories.type.a_risque": "Em risco",
++    "stories.type.a_toi": "É contigo",
++    "stories.aToiLead": "{name} escreveu-te. Esta mensagem é para ti: não respondi.",
++    "stories.aToiDone": "Feito",
+     "stories.devisLead": "{name} espera a tua proposta há {days} dia(s).",
+     "stories.devisAdvice0": "Espera a tua proposta — uma resposta rápida mostra que és fiável. Coloca o orçamento na ficha assim que estiver pronto.",
+     "stories.devisAdvice1": "Já dois dias. Um prospeto quente arrefece depressa: envia pelo menos uma nota a dizer que vem, com uma data.",
+@@ -13612,6 +13630,9 @@ export const DICT = {
+     "stories.clientSignalYes": "Ja, klant",
+     "stories.clientSignalNo": "Nog niet",
+     "stories.type.a_risque": "Risico",
++    "stories.type.a_toi": "Voor jou",
++    "stories.aToiLead": "{name} heeft je geschreven. Dit bericht is voor jou: ik heb niet geantwoord.",
++    "stories.aToiDone": "Klaar",
+     "stories.devisLead": "{name} wacht al {days} dag(en) op je voorstel.",
+     "stories.devisAdvice0": "Ze wachten op je voorstel — snel antwoorden toont betrouwbaarheid. Zet je offerte op de kaart zodra die klaar is.",
+     "stories.devisAdvice1": "Al twee dagen. Een warme prospect koelt snel af: stuur minstens een berichtje dat het eraan komt, met een datum.",
+diff --git a/lib/notifications.ts b/lib/notifications.ts
+index 8a42e64..f794b3e 100644
+--- a/lib/notifications.ts
++++ b/lib/notifications.ts
+@@ -30,6 +30,8 @@ export type NotificationType =
+   | 'bilan_a_faire'
+   | 'commande_a_confirmer'
+   | 'client_a_confirmer'
++  // Email reçu qui n'est pas pour Aaron : il n'a pas répondu (19/11/2026).
++  | 'a_toi'
+   | 'message_client'
+   | 'a_risque';
+ 
+@@ -59,6 +61,8 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
+   // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
+   // Placé APRÈS les signaux d'argent mais AVANT « à risque » : c'est une
+   // personne qui attend une réponse, pas un indicateur à surveiller.
++  // Une personne attend une réponse que seul le commercial peut donner.
++  'a_toi',
+   'message_client',
+   'a_risque',
+ ];
+@@ -124,7 +128,12 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     const newsCols = baseCols.replace('prospect_companies(name)', 'prospect_companies(name, news_signal)') + optionalCols + ', rescue_proposal_source';
+     // Signal « client à confirmer » (migration_signal_client_2026-10-28.sql).
+     const signalCols = newsCols + ', client_signal_detected_at, client_signal_source, client_signal_reason, client_signal_dismissed_at';
+-    let res: any = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
++    // « À toi » (migration_a_toi_2026-11-19.sql) : une variante de plus,
++    // même repli que les autres si la migration n'est pas passée.
++    let res: any = await supabaseAdmin.from('prospects').select(signalCols + ', a_toi_at, a_toi_reason').eq('assigned_user_id', userId);
++    if (res.error && res.error.code === '42703') {
++      res = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
++    }
+     if (res.error && res.error.code === '42703') {
+       res = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
+     }
+@@ -216,6 +225,9 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     if (p.client_signal_detected_at && !p.client_signal_dismissed_at && !p.first_order_confirmed_at) {
+       push({ ...base, id: `client_a_confirmer:${p.id}`, type: 'client_a_confirmer', at: p.client_signal_detected_at, days_waiting: null, meta: { source: p.client_signal_source || null, reason: p.client_signal_reason || null } });
+     }
++    if (p.a_toi_at && !pos.lost) {
++      push({ ...base, id: `a_toi:${p.id}`, type: 'a_toi', at: p.a_toi_at, days_waiting: null, meta: { reason: p.a_toi_reason || null } });
++    }
+     if (pos.risk && !pos.lost) {
+       push({ ...base, id: `a_risque:${p.id}`, type: 'a_risque', at: null, days_waiting: null, meta: { stage: pos.stage, advice: p.aaron_advice || null } });
+     }
+diff --git a/migration_a_toi_2026-11-19.sql b/migration_a_toi_2026-11-19.sql
+new file mode 100644
+index 0000000..dad6415
+--- /dev/null
++++ b/migration_a_toi_2026-11-19.sql
+@@ -0,0 +1,22 @@
++-- migration_a_toi_2026-11-19.sql
++--
++-- « À toi » pour les emails (Alex, 19/11/2026). Quand un email reçu n'est
++-- pas pour Aaron (affaire personnelle, histoire commune qu'il ne connaît pas,
++-- expéditeur qui n'est pas un client potentiel), Aaron ne répond pas et
++-- marque le contact : la notification « À toi » s'affiche tant que la marque
++-- est là. Elle part quand le commercial dit que c'est fait, ou quand la
++-- personne réécrit et qu'Aaron peut traiter.
++--
++-- Sans risque et rejouable : deux colonnes ajoutées, aucune donnée modifiée.
++
++ALTER TABLE prospects
++  ADD COLUMN IF NOT EXISTS a_toi_at timestamptz,
++  ADD COLUMN IF NOT EXISTS a_toi_reason text;
++
++COMMENT ON COLUMN prospects.a_toi_at IS
++  'Quand Aaron a rendu la main sur un email reçu qui n''est pas pour lui (null = rien en attente).';
++
++SELECT column_name, data_type
++FROM information_schema.columns
++WHERE table_name = 'prospects' AND column_name IN ('a_toi_at', 'a_toi_reason')
++ORDER BY column_name;
+-- 
+2.43.0
+
