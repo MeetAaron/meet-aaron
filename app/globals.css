@@ -8,6 +8,10 @@ html {
 html, body {
   margin: 0;
   padding: 0;
+  /* Veuves : pas de mot seul sur la dernière ligne d'un texte (19/11/2026).
+     La propriété est héritée, elle vaut donc pour tous les textes ; les
+     titres gardent leur « balance » plus bas. */
+  text-wrap: pretty;
   background: #F6F4EF;
   /* Garde-fou mobile (demande Alex, 27/08/2026, captures iPhone à l'appui) :
      plusieurs pages ont une rangée d'onglets/actions en flex sans

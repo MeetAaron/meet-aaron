@@ -228,5 +228,17 @@ function applyLocale(loc){
   });
 })();
 </script>
+<!-- Espaces insecables avant : ; ? ! (19/11/2026) : jamais de signe seul en debut de ligne. Meme regle que components/TypoFix.jsx. -->
+<style>body{text-wrap:pretty}</style>
+<script>
+(function(){
+  var N='\u00A0',T=/ [:;?!\u00BB]|\u00AB /,S={SCRIPT:1,STYLE:1,TEXTAREA:1,INPUT:1,CODE:1,PRE:1,NOSCRIPT:1};
+  function fx(n){var v=n.nodeValue;if(!v||!T.test(v))return;for(var e=n.parentElement;e;e=e.parentElement){if(S[e.tagName]||e.isContentEditable)return;}
+    var f=v.replace(/ ([:;?!\u00BB])/g,N+'$1').replace(/\u00AB /g,'\u00AB'+N);if(f!==v)n.nodeValue=f;}
+  function tree(r){if(!r)return;if(r.nodeType===3){fx(r);return;}if(r.nodeType!==1)return;var w=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode()))fx(n);}
+  function go(){tree(document.body);if(!window.MutationObserver)return;new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==='characterData')fx(m.target);else m.addedNodes.forEach(tree);});}).observe(document.body,{childList:true,subtree:true,characterData:true});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go();
+})();
+</script>
 </body>
 </html>

@@ -10,6 +10,7 @@ import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
 import { APP_ENTRY_GATE_SCRIPT } from "@/lib/app-entry-gate";
 import StyledJsxRegistry from "@/components/StyledJsxRegistry";
 import VersionWatcher from "@/components/VersionWatcher";
+import TypoFix from "@/components/TypoFix";
 
 export const metadata = {
     title: "Meet Aaron — Le copilote de votre commercial",
@@ -109,6 +110,9 @@ export default function RootLayout({ children }) {
               // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
               // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
               React.createElement(HelpLayer, null),
+              // Espaces insécables avant « : ; ? ! » : jamais de signe seul
+              // en début de ligne (19/11/2026) — components/TypoFix.jsx.
+              React.createElement(TypoFix, null),
               children
             )
           )
