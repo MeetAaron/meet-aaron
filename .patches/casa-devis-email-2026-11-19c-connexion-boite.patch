@@ -1,0 +1,69 @@
+From b9d27dcec229d4a6648c4fcde65ce558ec730a5a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 05:16:50 +0000
+Subject: [PATCH] Connexion de la boite mail : le bouton renvoyait vers la page
+ de connexion (double en-tete Authorization)
+
+Depuis le 13/11, les en-tetes de l'appelant passent par un objet Headers
+(noms en minuscules). Un appel qui fournissait deja son jeton se
+retrouvait avec deux en-tetes Authorization, fusionnes par le navigateur
+en 'Bearer X, Bearer Y' et refuses par le serveur (401). Touchait le
+branchement Google / Microsoft, les CRM et la fiche de contact a
+enregistrer. Une seule variante est conservee.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ components/AuthFetchInterceptor.jsx | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/components/AuthFetchInterceptor.jsx b/components/AuthFetchInterceptor.jsx
+index 17b87a8..7b71602 100644
+--- a/components/AuthFetchInterceptor.jsx
++++ b/components/AuthFetchInterceptor.jsx
+@@ -91,6 +91,24 @@ function refreshSessionShared() {
+   return refreshInFlight;
+ }
+ 
++// UN SEUL en-tête Authorization (19/11/2026). Depuis l'ajout de la langue de
++// l'interface (13/11), les en-têtes de l'appelant passent par un objet
++// Headers, qui met tous les noms en minuscules. Un appelant qui fournissait
++// déjà son jeton se retrouvait donc avec « authorization » (le sien) ET
++// « Authorization » (ajouté ici) : le navigateur les fusionne en
++// « Bearer X, Bearer Y », que le serveur refuse (401). Conséquence visible :
++// le bouton « Connecter ma boîte et mon agenda » renvoyait vers la page de
++// connexion au lieu d'ouvrir Google — découvert en branchant les boîtes de
++// prospection. On retire donc toute variante de casse avant de poser la nôtre.
++function withBearer(headers, token) {
++  const out = {};
++  for (const [name, value] of Object.entries(headers || {})) {
++    if (name.toLowerCase() !== 'authorization') out[name] = value;
++  }
++  out.Authorization = `Bearer ${token}`;
++  return out;
++}
++
+ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+   window.__aaronAuthFetchPatched = true;
+   const originalFetch = window.fetch.bind(window);
+@@ -163,7 +181,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+ 
+       const token = session?.access_token;
+       if (token) {
+-        opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
++        opts.headers = withBearer(opts.headers, token);
+       }
+     } catch (err) {
+       // Si on ne peut pas lire/rafraîchir la session, on laisse partir la
+@@ -191,7 +209,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
+         const { data: refreshed } = await refreshSessionShared();
+         const retryToken = refreshed?.session?.access_token;
+         if (retryToken) {
+-          const retryOpts = { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${retryToken}` } };
++          const retryOpts = { ...opts, headers: withBearer(opts.headers, retryToken) };
+           response = await originalFetch(input, retryOpts);
+         }
+       } catch (err) {
+-- 
+2.43.0
+
