@@ -1,0 +1,200 @@
+From ab2435c6e9aaae872e5c2f4a31c876a6e4eb4e40 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 12:38:10 +0000
+Subject: [PATCH] =?UTF-8?q?Typographie=20:=20espace=20insecable=20avant=20?=
+ =?UTF-8?q?=C2=AB=20:=20;=20=3F=20!=20=C2=BB,=20plus=20de=20signe=20seul?=
+ =?UTF-8?q?=20en=20debut=20de=20ligne?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Remarque d'Alex sur l'ecran de bienvenue : la carte « Tu valides » commencait
+sa deuxieme ligne par « : ». Correction a l'affichage, pour tous les textes
+(dictionnaires, textes rediges par Aaron), sans toucher aux champs de saisie :
+components/TypoFix.jsx dans l'application, meme regle en ligne dans
+landing.html et demo.html. Veuves : text-wrap: pretty pose sur body.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/globals.css        |  4 ++
+ app/layout.jsx         |  4 ++
+ components/TypoFix.jsx | 83 ++++++++++++++++++++++++++++++++++++++++++
+ public/demo.html       | 12 ++++++
+ public/landing.html    | 12 ++++++
+ 5 files changed, 115 insertions(+)
+ create mode 100644 components/TypoFix.jsx
+
+diff --git a/app/globals.css b/app/globals.css
+index af0c8ae..e8597a5 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -8,6 +8,10 @@ html {
+ html, body {
+   margin: 0;
+   padding: 0;
++  /* Veuves : pas de mot seul sur la dernière ligne d'un texte (19/11/2026).
++     La propriété est héritée, elle vaut donc pour tous les textes ; les
++     titres gardent leur « balance » plus bas. */
++  text-wrap: pretty;
+   background: #F6F4EF;
+   /* Garde-fou mobile (demande Alex, 27/08/2026, captures iPhone à l'appui) :
+      plusieurs pages ont une rangée d'onglets/actions en flex sans
+diff --git a/app/layout.jsx b/app/layout.jsx
+index 635a6e2..35dd22f 100644
+--- a/app/layout.jsx
++++ b/app/layout.jsx
+@@ -10,6 +10,7 @@ import { CHUNK_ERROR_RECOVERY_SCRIPT } from "@/lib/chunk-error-recovery";
+ import { APP_ENTRY_GATE_SCRIPT } from "@/lib/app-entry-gate";
+ import StyledJsxRegistry from "@/components/StyledJsxRegistry";
+ import VersionWatcher from "@/components/VersionWatcher";
++import TypoFix from "@/components/TypoFix";
+ 
+ export const metadata = {
+     title: "Meet Aaron — Le copilote de votre commercial",
+@@ -109,6 +110,9 @@ export default function RootLayout({ children }) {
+               // Bouton « ? » et bulles d'aide au premier passage (lot 3 de la
+               // refonte de l'onboarding, 22/10/2026) : n'affiche rien hors /app.
+               React.createElement(HelpLayer, null),
++              // Espaces insécables avant « : ; ? ! » : jamais de signe seul
++              // en début de ligne (19/11/2026) — components/TypoFix.jsx.
++              React.createElement(TypoFix, null),
+               children
+             )
+           )
+diff --git a/components/TypoFix.jsx b/components/TypoFix.jsx
+new file mode 100644
+index 0000000..7da5730
+--- /dev/null
++++ b/components/TypoFix.jsx
+@@ -0,0 +1,83 @@
++// components/TypoFix.jsx
++//
++// PAS DE SIGNE DE PONCTUATION SEUL EN DÉBUT DE LIGNE (19/11/2026).
++//
++// Remarque d'Alex, capture de l'écran de bienvenue à l'appui : « évite
++// veuves et orphelins. Regarde le ":" » — la carte « Tu valides » finissait
++// sa première ligne sur « importante » et commençait la suivante par « : ».
++//
++// En français, les deux-points, le point-virgule, le point d'interrogation,
++// le point d'exclamation et les guillemets sont précédés d'une espace. Si
++// c'est une espace ordinaire, le navigateur a le droit de couper la ligne à
++// cet endroit. La règle typographique est d'y mettre une espace INSÉCABLE.
++//
++// Les textes de l'application vivent dans lib/i18n.js et dans une vingtaine
++// de dictionnaires locaux, plus tout ce qu'Aaron rédige lui-même (résumés,
++// conseils, brouillons). Corriger les sources une à une laisserait passer le
++// prochain texte écrit. On corrige donc à l'affichage, une fois pour toutes :
++// ce composant remplace l'espace ordinaire par une insécable dans les textes
++// affichés, et suit les textes qui arrivent ensuite.
++//
++// Ce qu'il ne touche jamais : les champs de saisie et les zones éditables
++// (on ne modifie pas ce que la personne tape), le code, les scripts.
++//
++// Les veuves (un mot seul sur la dernière ligne) sont traitées en CSS :
++// « text-wrap: pretty » posé sur body dans app/globals.css.
++
++'use client';
++
++import { useEffect } from 'react';
++
++const NBSP = ' ';
++const BEFORE = / ([:;?!»])/g;
++const AFTER = /« /g;
++const NEEDS_FIX = / [:;?!»]|« /;
++const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CODE', 'PRE', 'NOSCRIPT']);
++
++function skipped(node) {
++  for (let el = node.parentElement; el; el = el.parentElement) {
++    if (SKIP.has(el.tagName) || el.isContentEditable) return true;
++  }
++  return false;
++}
++
++function fixTextNode(node) {
++  const value = node.nodeValue;
++  if (!value || !NEEDS_FIX.test(value) || skipped(node)) return;
++  const fixed = value.replace(BEFORE, `${NBSP}$1`).replace(AFTER, `«${NBSP}`);
++  if (fixed !== value) node.nodeValue = fixed;
++}
++
++function fixTree(root) {
++  if (!root) return;
++  if (root.nodeType === 3) {
++    fixTextNode(root);
++    return;
++  }
++  if (root.nodeType !== 1) return;
++  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
++  let node = walker.nextNode();
++  while (node) {
++    fixTextNode(node);
++    node = walker.nextNode();
++  }
++}
++
++export default function TypoFix() {
++  useEffect(() => {
++    if (typeof MutationObserver === 'undefined' || !document.body) return undefined;
++    fixTree(document.body);
++    const observer = new MutationObserver((mutations) => {
++      for (const mutation of mutations) {
++        if (mutation.type === 'characterData') {
++          fixTextNode(mutation.target);
++        } else {
++          mutation.addedNodes.forEach(fixTree);
++        }
++      }
++    });
++    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
++    return () => observer.disconnect();
++  }, []);
++  return null;
++}
+diff --git a/public/demo.html b/public/demo.html
+index 1905989..0556ce4 100644
+--- a/public/demo.html
++++ b/public/demo.html
+@@ -228,5 +228,17 @@ function applyLocale(loc){
+   });
+ })();
+ </script>
++<!-- Espaces insecables avant : ; ? ! (19/11/2026) : jamais de signe seul en debut de ligne. Meme regle que components/TypoFix.jsx. -->
++<style>body{text-wrap:pretty}</style>
++<script>
++(function(){
++  var N='\u00A0',T=/ [:;?!\u00BB]|\u00AB /,S={SCRIPT:1,STYLE:1,TEXTAREA:1,INPUT:1,CODE:1,PRE:1,NOSCRIPT:1};
++  function fx(n){var v=n.nodeValue;if(!v||!T.test(v))return;for(var e=n.parentElement;e;e=e.parentElement){if(S[e.tagName]||e.isContentEditable)return;}
++    var f=v.replace(/ ([:;?!\u00BB])/g,N+'$1').replace(/\u00AB /g,'\u00AB'+N);if(f!==v)n.nodeValue=f;}
++  function tree(r){if(!r)return;if(r.nodeType===3){fx(r);return;}if(r.nodeType!==1)return;var w=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode()))fx(n);}
++  function go(){tree(document.body);if(!window.MutationObserver)return;new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==='characterData')fx(m.target);else m.addedNodes.forEach(tree);});}).observe(document.body,{childList:true,subtree:true,characterData:true});}
++  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go();
++})();
++</script>
+ </body>
+ </html>
+diff --git a/public/landing.html b/public/landing.html
+index 9ceea55..ecb5ab1 100644
+--- a/public/landing.html
++++ b/public/landing.html
+@@ -1030,5 +1030,17 @@ function pickVideoId(){
+   });
+ })();
+ </script>
++<!-- Espaces insecables avant : ; ? ! (19/11/2026) : jamais de signe seul en debut de ligne. Meme regle que components/TypoFix.jsx. -->
++<style>body{text-wrap:pretty}</style>
++<script>
++(function(){
++  var N='\u00A0',T=/ [:;?!\u00BB]|\u00AB /,S={SCRIPT:1,STYLE:1,TEXTAREA:1,INPUT:1,CODE:1,PRE:1,NOSCRIPT:1};
++  function fx(n){var v=n.nodeValue;if(!v||!T.test(v))return;for(var e=n.parentElement;e;e=e.parentElement){if(S[e.tagName]||e.isContentEditable)return;}
++    var f=v.replace(/ ([:;?!\u00BB])/g,N+'$1').replace(/\u00AB /g,'\u00AB'+N);if(f!==v)n.nodeValue=f;}
++  function tree(r){if(!r)return;if(r.nodeType===3){fx(r);return;}if(r.nodeType!==1)return;var w=document.createTreeWalker(r,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode()))fx(n);}
++  function go(){tree(document.body);if(!window.MutationObserver)return;new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==='characterData')fx(m.target);else m.addedNodes.forEach(tree);});}).observe(document.body,{childList:true,subtree:true,characterData:true});}
++  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',go);else go();
++})();
++</script>
+ </body>
+ </html>
+-- 
+2.43.0
+
