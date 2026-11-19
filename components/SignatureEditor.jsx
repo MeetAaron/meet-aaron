@@ -55,6 +55,7 @@ const TEXT = {
     imageHint: 'Logo ou carte de visite. PNG, JPEG, GIF ou WEBP, 2 Mo maximum.',
     bannerTitle: 'Bandeau',
     bannerHint: 'Bannière affichée tout en bas, sous la signature.',
+    imagesRule: 'Tes images partent dès que le prospect t’a répondu. Le premier email part sans image : il arrive mieux.',
     add: 'Ajouter une image',
     replace: 'Remplacer',
     remove: 'Retirer',
@@ -93,6 +94,7 @@ const TEXT = {
     imageHint: 'Logo or business card. PNG, JPEG, GIF or WEBP, 2 MB max.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner shown at the very bottom, under the signature.',
+    imagesRule: 'Your images are sent once the prospect has replied. The first email goes without images: it lands better.',
     add: 'Add an image',
     replace: 'Replace',
     remove: 'Remove',
@@ -131,6 +133,7 @@ const TEXT = {
     imageHint: 'Logo oder Visitenkarte. PNG, JPEG, GIF oder WEBP, max. 2 MB.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner ganz unten, unter der Signatur.',
+    imagesRule: 'Deine Bilder werden gesendet, sobald der Interessent geantwortet hat. Die erste E-Mail geht ohne Bild raus: Sie kommt besser an.',
     add: 'Bild hinzufügen',
     replace: 'Ersetzen',
     remove: 'Entfernen',
@@ -169,6 +172,7 @@ const TEXT = {
     imageHint: 'Logo o biglietto da visita. PNG, JPEG, GIF o WEBP, max 2 MB.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner in fondo, sotto la firma.',
+    imagesRule: 'Le tue immagini partono appena il potenziale cliente ha risposto. La prima email parte senza immagini: arriva meglio.',
     add: 'Aggiungi un’immagine',
     replace: 'Sostituisci',
     remove: 'Rimuovi',
@@ -207,6 +211,7 @@ const TEXT = {
     imageHint: 'Logo o tarjeta de visita. PNG, JPEG, GIF o WEBP, 2 MB máximo.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner al final, bajo la firma.',
+    imagesRule: 'Tus imágenes se envían en cuanto el cliente potencial ha respondido. El primer email sale sin imágenes: llega mejor.',
     add: 'Añadir una imagen',
     replace: 'Reemplazar',
     remove: 'Quitar',
@@ -245,6 +250,7 @@ const TEXT = {
     imageHint: 'Logótipo ou cartão de visita. PNG, JPEG, GIF ou WEBP, 2 MB no máximo.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner no fim, sob a assinatura.',
+    imagesRule: 'As tuas imagens seguem assim que o potencial cliente responde. O primeiro email segue sem imagens: chega melhor.',
     add: 'Adicionar uma imagem',
     replace: 'Substituir',
     remove: 'Remover',
@@ -283,6 +289,7 @@ const TEXT = {
     imageHint: 'Logo of visitekaartje. PNG, JPEG, GIF of WEBP, max. 2 MB.',
     bannerTitle: 'Banner',
     bannerHint: 'Banner helemaal onderaan, onder de handtekening.',
+    imagesRule: 'Je afbeeldingen gaan mee zodra de prospect heeft geantwoord. De eerste e-mail gaat zonder afbeelding: die komt beter aan.',
     add: 'Afbeelding toevoegen',
     replace: 'Vervangen',
     remove: 'Verwijderen',
@@ -708,8 +715,13 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
         {bannerUrl ? <img className="sig-paper-banner" src={bannerUrl} alt="" /> : null}
       </div>
 
-      {/* Images */}
+      {/* Images. La règle d'envoi est dite AVANT le dépôt (19/11/2026) :
+          en prospection, image et bannière ne partent qu'après la première
+          réponse du prospect (lib/messaging.ts). Sans cette ligne, le
+          commercial déposerait son logo et croirait à une panne en ne le
+          voyant pas sur son premier email. */}
       <div className="sig-images">
+        <p className="sig-muted sig-images-rule">{tx(locale, 'imagesRule')}</p>
         <div className="sig-image-row">
           <div className="sig-image-text">
             <div className="sig-image-title">{tx(locale, 'imageTitle')}</div>
