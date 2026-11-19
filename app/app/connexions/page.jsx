@@ -27,6 +27,8 @@ import PushNotificationManager from '@/components/PushNotificationManager';
 import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
 import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
 import MfaSettings from '@/components/MfaSettings';
+import SocialLinks from '@/components/SocialLinks';
+import { socialPreviewAllowed } from '@/lib/social-access';
 import SignatureEditor from '@/components/SignatureEditor';
 import QRCode from 'qrcode';
 
@@ -2832,6 +2834,11 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
             </button>
             <p className="profile-hint">{t('connexions.emailChangeHint', locale)}</p>
           </div>
+
+          {/* Réseaux sociaux, sous l'adresse email (19/11/2026). Visible sur
+              aaron@meetaaron.app seulement tant qu'Aaron Social n'est pas
+              ouvert aux clients — lib/social-access.js. */}
+          {socialPreviewAllowed(currentEmail) && <SocialLinks locale={locale} />}
 
           <div className="profile-section">
             <label className="profile-label">{t('connexions.passwordSectionLabel', locale)}</label>
