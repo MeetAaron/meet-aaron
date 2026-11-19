@@ -1,0 +1,159 @@
+From 4b62464fc1da3feb148cea704ecf1fa101722132 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 13:17:38 +0000
+Subject: [PATCH] Prospection : image de signature et bandeau seulement apres
+ la premiere reponse du prospect
+
+Idee d'Alex (19/11) : le premier contact et les relances partent avec la
+signature ecrite seule, l'image revient des que le prospect a repondu. Meme
+raisonnement que la plaquette retiree du premier email le 25/09 : une image
+distante dans un email non sollicite pese sur le score de spam. Vaut pour
+tous les comptes. Devis, rapports et autres emails gardent leurs images.
+
+Au passage : la recherche du fil de reponse filtrait sur prospects.user_id
+alors que tout le reste du code utilise assigned_user_id. On essaie
+assigned_user_id d'abord, user_id en repli.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/email-threading.ts | 73 +++++++++++++++++++++++++++++++++++++-----
+ lib/messaging.ts       | 18 +++++++++--
+ 2 files changed, 80 insertions(+), 11 deletions(-)
+
+diff --git a/lib/email-threading.ts b/lib/email-threading.ts
+index 192f998..f9ba7fc 100644
+--- a/lib/email-threading.ts
++++ b/lib/email-threading.ts
+@@ -49,6 +49,33 @@ export function replySubject(originalSubject: string): string {
+   return `Re: ${stripReplyPrefixes(originalSubject)}`;
+ }
+ 
++// Les prospects de CE commercial qui portent cette adresse, du plus récent
++// au plus ancien.
++//
++// 19/11/2026 : la recherche filtrait sur prospects.user_id, alors que tout le
++// reste du code rattache un prospect à son commercial par assigned_user_id.
++// Si la colonne user_id n'existe pas, la requête échouait sans bruit et
++// findReplyContext répondait toujours « aucun fil » : les réponses d'Aaron
++// repartaient alors hors du fil. On essaie donc assigned_user_id d'abord, et
++// user_id seulement si la première lecture est refusée.
++async function prospectIdsFor(userId: string, email: string, limit: number): Promise<string[]> {
++  for (const column of ['assigned_user_id', 'user_id']) {
++    const { data, error } = await supabaseAdmin
++      .from('prospects')
++      .select('id')
++      .eq(column, userId)
++      .ilike('email', email)
++      .order('created_at', { ascending: false })
++      .limit(limit);
++    if (error) {
++      console.error(`prospectIdsFor (${column}):`, error.message);
++      continue;
++    }
++    return ((data || []) as any[]).map((p) => p.id);
++  }
++  return [];
++}
++
+ // Dernier message échangé avec cette adresse, pour CE commercial.
+ //
+ // Le filtrage passe par le prospect : une adresse email ne suffit pas, deux
+@@ -59,14 +86,8 @@ export async function findReplyContext(userId: string, toEmail: string): Promise
+   if (!userId || !email.includes('@')) return null;
+ 
+   try {
+-    const { data: prospect } = await supabaseAdmin
+-      .from('prospects')
+-      .select('id')
+-      .eq('user_id', userId)
+-      .ilike('email', email)
+-      .order('created_at', { ascending: false })
+-      .limit(1)
+-      .maybeSingle();
++    const prospectIds = await prospectIdsFor(userId, email, 1);
++    const prospect = prospectIds.length ? { id: prospectIds[0] } : null;
+     if (!prospect) return null;
+ 
+     const { data: conversation } = await supabaseAdmin
+@@ -106,3 +127,39 @@ export async function findReplyContext(userId: string, toEmail: string): Promise
+     return null;
+   }
+ }
++
++// CE PROSPECT A-T-IL DÉJÀ ÉCRIT ? (19/11/2026)
++//
++// Sert à décider si l'image de signature et le bandeau accompagnent un email
++// de prospection (lib/messaging.ts). Même filtrage que findReplyContext :
++// par le prospect de CE commercial, jamais par l'adresse seule.
++//
++// En cas de doute (prospect introuvable, erreur de lecture), on répond
++// « non » : un email sans image arrive mieux qu'un email avec, et l'image
++// reviendra d'elle-même à la première réponse.
++export async function hasProspectReplied(userId: string, toEmail: string): Promise<boolean> {
++  const email = (toEmail || '').trim().toLowerCase();
++  if (!userId || !email.includes('@')) return false;
++  try {
++    const prospectIds = await prospectIdsFor(userId, email, 5);
++    if (prospectIds.length === 0) return false;
++
++    const { data: conversations } = await supabaseAdmin
++      .from('conversations')
++      .select('id')
++      .in('prospect_id', prospectIds);
++    const conversationIds = ((conversations || []) as any[]).map((c) => c.id);
++    if (conversationIds.length === 0) return false;
++
++    const { count, error } = await supabaseAdmin
++      .from('messages')
++      .select('id', { count: 'exact', head: true })
++      .in('conversation_id', conversationIds)
++      .eq('direction', 'inbound');
++    if (error) return false;
++    return (count || 0) > 0;
++  } catch (err: any) {
++    console.error('hasProspectReplied:', err?.message || err);
++    return false;
++  }
++}
+diff --git a/lib/messaging.ts b/lib/messaging.ts
+index 7e008bc..8a27695 100644
+--- a/lib/messaging.ts
++++ b/lib/messaging.ts
+@@ -12,7 +12,7 @@ import { sendOutlookEmail, getOutlookFreeBusy, archiveOutlookMessage } from './m
+ import { sendImapEmail } from './imap';
+ import { isMailboxAuthBroken } from './mailbox-health';
+ import { isDomainHealthyForSending } from './email-deliverability';
+-import { findReplyContext, replySubject } from './email-threading';
++import { findReplyContext, replySubject, hasProspectReplied } from './email-threading';
+ import { pickSignature, pickBannerUrl, recipientLocaleForSignature, detectTextLocale, signatureMapForSend, tidySignature } from './signature-locale';
+ 
+ // Demande Alex (2026-08-26, captures ordinateur vs téléphone à l'appui) :
+@@ -616,10 +616,22 @@ export async function sendEmailForUser(
+   const bannerImageUrl = safeImageUrl(
+     pickBannerUrl(user?.email_banner_image_url, user?.email_banner_by_locale, signatureLocale)
+   );
+-  const signatureImageHtml = signatureImageUrl
++  // PAS D'IMAGE TANT QUE LE PROSPECT N'A PAS ÉCRIT (19/11/2026, idée d'Alex).
++  //
++  // Une image distante dans un email non sollicité pèse sur le score de spam,
++  // exactement comme la plaquette en pièce jointe (retirée du premier email
++  // le 25/09). Le premier contact et les relances partent donc avec la
++  // signature ÉCRITE seule. Dès que le prospect a répondu, l'image de
++  // signature et le bandeau reviennent : le fil est engagé, ils ne coûtent
++  // plus rien et rassurent sur le sérieux de l'expéditeur.
++  //
++  // Ne concerne que la prospection : devis, partage de fiche, rapports et
++  // tout autre email gardent leurs images comme avant.
++  const imagesAllowed = emailType !== 'prospecting' || (await hasProspectReplied(userId, to));
++  const signatureImageHtml = signatureImageUrl && imagesAllowed
+     ? `<img src="${signatureImageUrl}" alt="Signature" style="max-width:280px;display:block;margin-top:8px;">`
+     : '';
+-  const bannerImageHtml = bannerImageUrl
++  const bannerImageHtml = bannerImageUrl && imagesAllowed
+     ? `<img src="${bannerImageUrl}" alt="" style="max-width:480px;width:100%;display:block;margin-top:12px;">`
+     : '';
+   const htmlBody = plainTextToEmailHtml(textBody, {
+-- 
+2.43.0
+
