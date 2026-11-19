@@ -1,0 +1,672 @@
+From 10ca227e59c41190a3ed39765189f8cb2a48549a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 13:17:39 +0000
+Subject: [PATCH] Aaron Social : liaison d'un compte TikTok (visible sur
+ aaron@meetaaron.app seulement)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/social-tiktok.ts : adresse d'autorisation, « state » signe et lie au
+  navigateur, echange du code, lecture du nom du compte, retrait de l'acces.
+- /api/social/tiktok/start et /callback, /api/social/connections (GET, DELETE).
+- components/SocialLinks.jsx dans Mon compte, sous l'adresse email.
+- lib/social-access.js : liste des comptes qui voient la partie reseaux
+  sociaux, lue par l'ecran ET par les routes.
+- migration_social_connections_2026-11-19.sql : jetons chiffres, un compte
+  par reseau et par societe.
+
+Rien n'est encore publie sur TikTok.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/social/connections/route.ts         |  77 +++++++++
+ app/api/social/tiktok/callback/route.ts     |  79 +++++++++
+ app/api/social/tiktok/start/route.ts        |  47 +++++
+ app/app/connexions/page.jsx                 |   7 +
+ components/SocialLinks.jsx                  | 131 ++++++++++++++
+ lib/social-access.js                        |  19 +++
+ lib/social-tiktok.ts                        | 180 ++++++++++++++++++++
+ migration_social_connections_2026-11-19.sql |  29 ++++
+ 8 files changed, 569 insertions(+)
+ create mode 100644 app/api/social/connections/route.ts
+ create mode 100644 app/api/social/tiktok/callback/route.ts
+ create mode 100644 app/api/social/tiktok/start/route.ts
+ create mode 100644 components/SocialLinks.jsx
+ create mode 100644 lib/social-access.js
+ create mode 100644 lib/social-tiktok.ts
+ create mode 100644 migration_social_connections_2026-11-19.sql
+
+diff --git a/app/api/social/connections/route.ts b/app/api/social/connections/route.ts
+new file mode 100644
+index 0000000..accbd71
+--- /dev/null
++++ b/app/api/social/connections/route.ts
+@@ -0,0 +1,77 @@
++// app/api/social/connections/route.ts
++//
++// GET    -> les réseaux liés de la société (nom du compte seulement, jamais
++//           les jetons).
++// DELETE -> ?provider=tiktok : délie le réseau (retire l'accès côté réseau
++//           quand c'est possible, puis supprime la ligne).
++//
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { decryptToken } from '@/lib/encryption';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import { revokeTiktokToken } from '@/lib/social-tiktok';
++
++const PROVIDERS = ['tiktok'];
++
++// Table absente tant que migration_social_connections_2026-11-19.sql n'est
++// pas passée : PostgREST répond PGRST205, Postgres 42P01.
++function tableMissing(error: any): boolean {
++  return !!error && (error.code === '42P01' || error.code === 'PGRST205');
++}
++
++export async function GET(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email) || !authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++
++  const { data, error } = await supabaseAdmin
++    .from('social_connections')
++    .select('provider, account_name, updated_at')
++    .eq('company_id', authedUser.company_id);
++  if (error) {
++    if (tableMissing(error)) return NextResponse.json({ connections: [], migration_missing: true });
++    console.error('[social] lecture des liaisons :', error.code || '', error.message);
++    return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  }
++  return NextResponse.json({ connections: data || [] });
++}
++
++export async function DELETE(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email) || !authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++  const provider = request.nextUrl.searchParams.get('provider') || '';
++  if (!PROVIDERS.includes(provider)) {
++    return NextResponse.json({ error: 'provider_invalide' }, { status: 400 });
++  }
++
++  const { data: row } = await supabaseAdmin
++    .from('social_connections')
++    .select('id, access_token')
++    .eq('company_id', authedUser.company_id)
++    .eq('provider', provider)
++    .maybeSingle();
++  if (!row) return NextResponse.json({ success: true });
++
++  if (provider === 'tiktok') {
++    try {
++      await revokeTiktokToken(decryptToken((row as any).access_token));
++    } catch {
++      // Jeton illisible ou TikTok injoignable : on délie quand même chez nous.
++    }
++  }
++
++  const { error } = await supabaseAdmin.from('social_connections').delete().eq('id', (row as any).id);
++  if (error) {
++    console.error('[social] suppression de la liaison :', error.code || '', error.message);
++    return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  }
++  return NextResponse.json({ success: true });
++}
+diff --git a/app/api/social/tiktok/callback/route.ts b/app/api/social/tiktok/callback/route.ts
+new file mode 100644
+index 0000000..3862ef2
+--- /dev/null
++++ b/app/api/social/tiktok/callback/route.ts
+@@ -0,0 +1,79 @@
++// app/api/social/tiktok/callback/route.ts
++//
++// GET -> retour de TikTok après l'écran d'autorisation.
++//   succès : ?code=…&scopes=…&state=…
++//   refus  : ?error=…&error_description=…&state=…
++//
++// On vérifie le « state » (signature + cookie du navigateur + 10 minutes),
++// on échange le code contre des jetons, on les range CHIFFRÉS, puis on
++// renvoie vers Mon compte avec un état court : ok, refus ou erreur. Aucun
++// jeton ni code ne part dans l'adresse de retour ni dans les journaux.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { encryptToken } from '@/lib/encryption';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import {
++  exchangeTiktokCode,
++  fetchTiktokProfile,
++  readTiktokState,
++  TIKTOK_STATE_COOKIE,
++} from '@/lib/social-tiktok';
++
++function back(result: 'ok' | 'refus' | 'erreur') {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  const response = NextResponse.redirect(`${base}/app/connexions?tab=profile&social=tiktok&etat=${result}`);
++  response.cookies.set(TIKTOK_STATE_COOKIE, '', { path: '/api/social/tiktok', maxAge: 0 });
++  return response;
++}
++
++function expiry(seconds: number | null): string | null {
++  return seconds && seconds > 0 ? new Date(Date.now() + seconds * 1000).toISOString() : null;
++}
++
++export async function GET(request: NextRequest) {
++  const params = request.nextUrl.searchParams;
++  const userId = readTiktokState(params.get('state'), request.cookies.get(TIKTOK_STATE_COOKIE)?.value || null);
++  if (!userId) return back('erreur');
++
++  // La personne a refusé, ou son compte n'a pas le droit de se lier.
++  if (params.get('error')) return back('refus');
++
++  const code = params.get('code');
++  if (!code) return back('erreur');
++
++  const { data: user } = await supabaseAdmin
++    .from('users')
++    .select('id, email, company_id')
++    .eq('id', userId)
++    .maybeSingle();
++  if (!user || !(user as any).company_id || !socialPreviewAllowed((user as any).email)) return back('erreur');
++
++  const tokens = await exchangeTiktokCode(code);
++  if (!tokens) return back('erreur');
++
++  const profile = await fetchTiktokProfile(tokens.access_token);
++
++  const { error } = await supabaseAdmin.from('social_connections').upsert(
++    {
++      company_id: (user as any).company_id,
++      connected_by: (user as any).id,
++      provider: 'tiktok',
++      account_id: tokens.open_id,
++      account_name: profile.name,
++      avatar_url: profile.avatarUrl,
++      access_token: encryptToken(tokens.access_token),
++      refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
++      access_expires_at: expiry(tokens.expires_in),
++      refresh_expires_at: expiry(tokens.refresh_expires_in),
++      scopes: tokens.scope,
++      updated_at: new Date().toISOString(),
++    },
++    { onConflict: 'company_id,provider' }
++  );
++  if (error) {
++    console.error('[tiktok] enregistrement de la liaison impossible :', error.code || '', error.message);
++    return back('erreur');
++  }
++  return back('ok');
++}
+diff --git a/app/api/social/tiktok/start/route.ts b/app/api/social/tiktok/start/route.ts
+new file mode 100644
+index 0000000..077db35
+--- /dev/null
++++ b/app/api/social/tiktok/start/route.ts
+@@ -0,0 +1,47 @@
++// app/api/social/tiktok/start/route.ts
++//
++// POST -> prépare la liaison d'un compte TikTok : renvoie l'adresse
++// d'autorisation TikTok où envoyer le navigateur, et pose le cookie qui
++// permettra de reconnaître le retour (voir lib/social-tiktok.ts).
++//
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import {
++  createTiktokState,
++  tiktokAuthorizeUrl,
++  tiktokClientSecret,
++  TIKTOK_STATE_COOKIE,
++  TIKTOK_STATE_TTL_SECONDS,
++} from '@/lib/social-tiktok';
++
++export async function POST(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email)) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++  if (!authedUser.company_id) {
++    return NextResponse.json({ error: 'company_missing' }, { status: 400 });
++  }
++  if (!tiktokClientSecret()) {
++    return NextResponse.json({ error: 'tiktok_not_configured' }, { status: 503 });
++  }
++
++  const created = createTiktokState(authedUser.id);
++  if (!created) {
++    return NextResponse.json({ error: 'tiktok_not_configured' }, { status: 503 });
++  }
++
++  const response = NextResponse.json({ url: tiktokAuthorizeUrl(created.state) });
++  response.cookies.set(TIKTOK_STATE_COOKIE, created.nonce, {
++    httpOnly: true,
++    secure: true,
++    sameSite: 'lax',
++    path: '/api/social/tiktok',
++    maxAge: TIKTOK_STATE_TTL_SECONDS,
++  });
++  return response;
++}
+diff --git a/app/app/connexions/page.jsx b/app/app/connexions/page.jsx
+index c0e5b0a..0d96e8c 100644
+--- a/app/app/connexions/page.jsx
++++ b/app/app/connexions/page.jsx
+@@ -27,6 +27,8 @@ import PushNotificationManager from '@/components/PushNotificationManager';
+ import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
+ import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
+ import MfaSettings from '@/components/MfaSettings';
++import SocialLinks from '@/components/SocialLinks';
++import { socialPreviewAllowed } from '@/lib/social-access';
+ import SignatureEditor from '@/components/SignatureEditor';
+ import QRCode from 'qrcode';
+ 
+@@ -2833,6 +2835,11 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
+             <p className="profile-hint">{t('connexions.emailChangeHint', locale)}</p>
+           </div>
+ 
++          {/* Réseaux sociaux, sous l'adresse email (19/11/2026). Visible sur
++              aaron@meetaaron.app seulement tant qu'Aaron Social n'est pas
++              ouvert aux clients — lib/social-access.js. */}
++          {socialPreviewAllowed(currentEmail) && <SocialLinks locale={locale} />}
++
+           <div className="profile-section">
+             <label className="profile-label">{t('connexions.passwordSectionLabel', locale)}</label>
+             <input
+diff --git a/components/SocialLinks.jsx b/components/SocialLinks.jsx
+new file mode 100644
+index 0000000..73e0a35
+--- /dev/null
++++ b/components/SocialLinks.jsx
+@@ -0,0 +1,131 @@
++// components/SocialLinks.jsx
++//
++// MON COMPTE > RÉSEAUX SOCIAUX (19/11/2026).
++//
++// Le bloc où l'on lie ses réseaux, placé sous l'adresse email (décision
++// d'Alex du 18/11). TikTok d'abord ; Instagram, Facebook et LinkedIn
++// s'ajouteront ici à mesure que leur liaison sera codée.
++//
++// Visible uniquement sur le compte aaron@meetaaron.app tant qu'Aaron Social
++// n'est pas ouvert aux clients (lib/social-access.js) : le parent ne monte ce
++// composant que pour ce compte, et les routes /api/social/* refusent tous les
++// autres.
++//
++// Le retour de TikTok arrive sur cette page avec ?social=tiktok&etat=ok,
++// refus ou erreur : on affiche une ligne, puis on nettoie l'adresse.
++
++'use client';
++
++import { useEffect, useState } from 'react';
++
++const TEXT = {
++  fr: { title: 'Réseaux sociaux', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: 'TikTok est lié.', refus: 'Liaison refusée sur TikTok.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Pas encore disponible.' },
++  en: { title: 'Social networks', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: 'TikTok is linked.', refus: 'Linking was declined on TikTok.', erreur: 'Linking failed. Try again.', soon: 'Not available yet.' },
++  de: { title: 'Soziale Netzwerke', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: 'TikTok ist verknüpft.', refus: 'Verknüpfung auf TikTok abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Noch nicht verfügbar.' },
++  it: { title: 'Social network', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: 'TikTok è collegato.', refus: 'Collegamento rifiutato su TikTok.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Non ancora disponibile.' },
++  es: { title: 'Redes sociales', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: 'TikTok está vinculado.', refus: 'Vinculación rechazada en TikTok.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Aún no disponible.' },
++  pt: { title: 'Redes sociais', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O TikTok está ligado.', refus: 'Ligação recusada no TikTok.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Ainda não disponível.' },
++  nl: { title: 'Sociale netwerken', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: 'TikTok is gekoppeld.', refus: 'Koppeling geweigerd op TikTok.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Nog niet beschikbaar.' },
++};
++const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
++
++export default function SocialLinks({ locale = 'fr' }) {
++  const [connections, setConnections] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [busy, setBusy] = useState(false);
++  const [notice, setNotice] = useState(null); // { tone: 'ok' | 'bad', key }
++
++  async function load() {
++    try {
++      const res = await fetch('/api/social/connections');
++      const data = res.ok ? await res.json() : null;
++      setConnections(Array.isArray(data?.connections) ? data.connections : []);
++    } catch (err) {
++      setConnections([]);
++    }
++    setLoading(false);
++  }
++
++  useEffect(() => {
++    load();
++    try {
++      const params = new URLSearchParams(window.location.search);
++      if (params.get('social') === 'tiktok') {
++        const etat = params.get('etat');
++        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok' });
++        else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus' });
++        else setNotice({ tone: 'bad', key: 'erreur' });
++        params.delete('social');
++        params.delete('etat');
++        const query = params.toString();
++        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
++      }
++    } catch (err) {}
++  }, []);
++
++  async function linkTiktok() {
++    setBusy(true);
++    setNotice(null);
++    try {
++      const res = await fetch('/api/social/tiktok/start', { method: 'POST' });
++      const data = await res.json().catch(() => null);
++      if (res.ok && data?.url) {
++        window.location.href = data.url;
++        return;
++      }
++      setNotice({ tone: 'bad', key: res.status === 503 ? 'soon' : 'erreur' });
++    } catch (err) {
++      setNotice({ tone: 'bad', key: 'erreur' });
++    }
++    setBusy(false);
++  }
++
++  async function unlinkTiktok() {
++    setBusy(true);
++    setNotice(null);
++    try {
++      const res = await fetch('/api/social/connections?provider=tiktok', { method: 'DELETE' });
++      if (!res.ok) setNotice({ tone: 'bad', key: 'erreur' });
++    } catch (err) {
++      setNotice({ tone: 'bad', key: 'erreur' });
++    }
++    await load();
++    setBusy(false);
++  }
++
++  const tiktok = connections.find((c) => c.provider === 'tiktok') || null;
++
++  return (
++    <div className="social">
++      <strong className="social-title">{tx(locale, 'title')}</strong>
++      <div className="social-row">
++        <span className="social-name">TikTok</span>
++        {loading ? (
++          <span className="social-state">…</span>
++        ) : tiktok ? (
++          <>
++            <span className="social-state on">{tx(locale, 'linked')}{tiktok.account_name ? ` · ${tiktok.account_name}` : ''}</span>
++            <button type="button" className="social-ghost" onClick={unlinkTiktok} disabled={busy}>{tx(locale, 'unlink')}</button>
++          </>
++        ) : (
++          <button type="button" className="social-primary" onClick={linkTiktok} disabled={busy}>{tx(locale, 'link')}</button>
++        )}
++      </div>
++      {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key)}</p>}
++      <style jsx>{`
++        .social { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
++        .social-title { display: block; font-size: 0.92rem; margin-bottom: 0.6rem; }
++        .social-row { display: flex; align-items: center; gap: 0.7rem; min-height: 44px; flex-wrap: wrap; }
++        .social-name { font-size: 0.92rem; font-weight: 600; margin-right: auto; }
++        .social-state { font-size: 0.84rem; color: var(--muted); }
++        .social-state.on { color: var(--state-good-text, #1f9d55); }
++        .social-primary { background: var(--accent); color: #fff; border: 0; border-radius: var(--radius-sm, 8px); padding: 0.55rem 1rem; min-height: 44px; font-size: 0.86rem; cursor: pointer; }
++        .social-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); padding: 0.55rem 1rem; min-height: 44px; font-size: 0.86rem; cursor: pointer; }
++        .social-primary:disabled, .social-ghost:disabled { opacity: 0.5; cursor: default; }
++        .social-notice { font-size: 0.82rem; margin: 0.6rem 0 0; }
++        .social-notice.ok { color: var(--state-good-text, #1f9d55); }
++        .social-notice.bad { color: var(--state-bad-text, #d03c3c); }
++      `}</style>
++    </div>
++  );
++}
+diff --git a/lib/social-access.js b/lib/social-access.js
+new file mode 100644
+index 0000000..db10b80
+--- /dev/null
++++ b/lib/social-access.js
+@@ -0,0 +1,19 @@
++// lib/social-access.js
++//
++// QUI VOIT LA PARTIE « RÉSEAUX SOCIAUX » (19/11/2026).
++//
++// Décision d'Alex : tant qu'Aaron Social n'est pas terminé, tout ce qui le
++// concerne n'est visible QUE sur le compte aaron@meetaaron.app, jamais chez
++// un client. Cette liste est lue à la fois par l'écran (pour ne pas afficher
++// le bloc) et par les routes /api/social/* (pour refuser l'appel) : cacher un
++// bouton ne suffit pas, la route doit refuser aussi.
++//
++// Le jour de l'ouverture aux clients, c'est ce fichier qu'on remplace par un
++// contrôle de formule (abonnement « Réseaux sociaux »).
++
++export const SOCIAL_PREVIEW_EMAILS = ['aaron@meetaaron.app'];
++
++export function socialPreviewAllowed(email) {
++  const value = String(email || '').trim().toLowerCase();
++  return SOCIAL_PREVIEW_EMAILS.includes(value);
++}
+diff --git a/lib/social-tiktok.ts b/lib/social-tiktok.ts
+new file mode 100644
+index 0000000..aea4ef3
+--- /dev/null
++++ b/lib/social-tiktok.ts
+@@ -0,0 +1,180 @@
++// lib/social-tiktok.ts
++//
++// AARON SOCIAL — liaison d'un compte TikTok (19/11/2026).
++//
++// Parcours (Login Kit pour le Web, documentation TikTok lue le 19/11) :
++//   1. /api/social/tiktok/start    fabrique l'adresse d'autorisation TikTok ;
++//   2. la personne accepte sur tiktok.com ;
++//   3. TikTok revient sur /api/social/tiktok/callback avec un code ;
++//   4. on échange ce code contre des jetons, rangés CHIFFRÉS dans
++//      social_connections (migration_social_connections_2026-11-19.sql).
++//
++// Identifiants :
++//   - la « Client key » est publique (elle figure dans l'adresse
++//     d'autorisation). Celle du bac à sable « Test Meet Aaron » est mise en
++//     valeur par défaut ; TIKTOK_CLIENT_KEY la remplacera par celle de
++//     production le jour venu, sans toucher au code ;
++//   - le « Client secret » ne vit QUE dans Vercel (TIKTOK_CLIENT_SECRET,
++//     saisi par Alex). Il n'apparaît jamais ici ni dans le chat.
++//
++// Rien n'est encore publié sur TikTok : ce fichier ne fait que lier le compte.
++
++import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
++
++const SANDBOX_CLIENT_KEY = 'sbawztt5in3tt1qwd7';
++
++export const TIKTOK_SCOPES = 'user.info.basic,video.publish,video.upload';
++export const TIKTOK_STATE_COOKIE = 'oauth_tiktok_state';
++export const TIKTOK_STATE_TTL_SECONDS = 10 * 60;
++
++const AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/';
++const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';
++const REVOKE_URL = 'https://open.tiktokapis.com/v2/oauth/revoke/';
++const USER_INFO_URL = 'https://open.tiktokapis.com/v2/user/info/';
++
++export function tiktokClientKey(): string {
++  return process.env.TIKTOK_CLIENT_KEY || SANDBOX_CLIENT_KEY;
++}
++
++export function tiktokClientSecret(): string | null {
++  return process.env.TIKTOK_CLIENT_SECRET || null;
++}
++
++// Doit être IDENTIQUE, au caractère près, à l'adresse déclarée dans le
++// portail TikTok (Login Kit > Redirect URI).
++export function tiktokRedirectUri(): string {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  return `${base}/api/social/tiktok/callback`;
++}
++
++// ── « state » : la preuve que le retour de TikTok répond bien à NOTRE départ ──
++//
++// Forme : « <utilisateur>.<horodatage>.<aléa>.<signature> ». La signature
++// (HMAC-SHA256, clé dérivée du secret de l'application) empêche d'en fabriquer
++// un ; l'aléa est aussi posé dans un cookie du navigateur qui a cliqué
++// « Lier », ce qui empêche de faire terminer par quelqu'un d'autre une
++// liaison commencée ailleurs.
++function stateKey(): Buffer | null {
++  const secret = tiktokClientSecret();
++  if (!secret) return null;
++  return createHmac('sha256', secret).update('meet-aaron:tiktok-state:v1').digest();
++}
++
++function sign(payload: string, key: Buffer): string {
++  return createHmac('sha256', key).update(payload, 'utf8').digest('hex');
++}
++
++export function createTiktokState(userId: string, nowMs: number = Date.now()): { state: string; nonce: string } | null {
++  const key = stateKey();
++  if (!key || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
++  const nonce = randomBytes(16).toString('hex');
++  const payload = `${userId}.${Math.floor(nowMs / 1000)}.${nonce}`;
++  return { state: `${payload}.${sign(payload, key)}`, nonce };
++}
++
++export function readTiktokState(state: string | null, cookieNonce: string | null, nowMs: number = Date.now()): string | null {
++  const key = stateKey();
++  if (!key || !state || !cookieNonce) return null;
++  const parts = state.split('.');
++  if (parts.length !== 4) return null;
++  const [userId, issuedAt, nonce, signature] = parts;
++  if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^\d+$/.test(issuedAt) || !/^[0-9a-f]{32}$/.test(nonce)) return null;
++
++  const expected = Buffer.from(sign(`${userId}.${issuedAt}.${nonce}`, key), 'hex');
++  const received = Buffer.from(/^[0-9a-f]{64}$/.test(signature) ? signature : '', 'hex');
++  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null;
++
++  const a = Buffer.from(nonce);
++  const b = Buffer.from(cookieNonce);
++  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
++
++  const age = Math.floor(nowMs / 1000) - Number(issuedAt);
++  if (age < 0 || age > TIKTOK_STATE_TTL_SECONDS) return null;
++  return userId;
++}
++
++export function tiktokAuthorizeUrl(state: string): string {
++  const params = new URLSearchParams({
++    client_key: tiktokClientKey(),
++    response_type: 'code',
++    scope: TIKTOK_SCOPES,
++    redirect_uri: tiktokRedirectUri(),
++    state,
++  });
++  return `${AUTHORIZE_URL}?${params.toString()}`;
++}
++
++export interface TiktokTokens {
++  access_token: string;
++  refresh_token: string | null;
++  expires_in: number | null;
++  refresh_expires_in: number | null;
++  open_id: string;
++  scope: string | null;
++}
++
++// Échange le code contre des jetons. Renvoie null (et journalise le code
++// d'erreur de TikTok, jamais les jetons) si TikTok refuse.
++export async function exchangeTiktokCode(code: string): Promise<TiktokTokens | null> {
++  const secret = tiktokClientSecret();
++  if (!secret) return null;
++  const res = await fetch(TOKEN_URL, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++    body: new URLSearchParams({
++      client_key: tiktokClientKey(),
++      client_secret: secret,
++      code,
++      grant_type: 'authorization_code',
++      redirect_uri: tiktokRedirectUri(),
++    }).toString(),
++  });
++  const json: any = await res.json().catch(() => null);
++  if (!res.ok || !json || json.error || !json.access_token || !json.open_id) {
++    console.error('[tiktok] échange du code refusé :', res.status, json?.error || '', json?.error_description || '', json?.log_id || '');
++    return null;
++  }
++  return {
++    access_token: String(json.access_token),
++    refresh_token: json.refresh_token ? String(json.refresh_token) : null,
++    expires_in: Number.isFinite(Number(json.expires_in)) ? Number(json.expires_in) : null,
++    refresh_expires_in: Number.isFinite(Number(json.refresh_expires_in)) ? Number(json.refresh_expires_in) : null,
++    open_id: String(json.open_id),
++    scope: json.scope ? String(json.scope) : null,
++  };
++}
++
++// Nom et photo du compte, pour afficher « Lié : <nom> ». Facultatif : si la
++// lecture échoue, la liaison reste valable, sans nom.
++export async function fetchTiktokProfile(accessToken: string): Promise<{ name: string | null; avatarUrl: string | null }> {
++  try {
++    const res = await fetch(`${USER_INFO_URL}?fields=open_id,display_name,avatar_url`, {
++      headers: { Authorization: `Bearer ${accessToken}` },
++    });
++    const json: any = await res.json().catch(() => null);
++    const user = json?.data?.user;
++    return {
++      name: user?.display_name ? String(user.display_name).slice(0, 120) : null,
++      avatarUrl: typeof user?.avatar_url === 'string' && /^https:\/\//.test(user.avatar_url) ? user.avatar_url : null,
++    };
++  } catch {
++    return { name: null, avatarUrl: null };
++  }
++}
++
++// Retire l'accès côté TikTok quand le compte est délié chez nous. Au mieux :
++// un échec ici n'empêche pas de supprimer la liaison de notre base.
++export async function revokeTiktokToken(accessToken: string): Promise<boolean> {
++  const secret = tiktokClientSecret();
++  if (!secret) return false;
++  try {
++    const res = await fetch(REVOKE_URL, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++      body: new URLSearchParams({ client_key: tiktokClientKey(), client_secret: secret, token: accessToken }).toString(),
++    });
++    return res.ok;
++  } catch {
++    return false;
++  }
++}
+diff --git a/migration_social_connections_2026-11-19.sql b/migration_social_connections_2026-11-19.sql
+new file mode 100644
+index 0000000..85abde0
+--- /dev/null
++++ b/migration_social_connections_2026-11-19.sql
+@@ -0,0 +1,29 @@
++-- migration_social_connections_2026-11-19.sql
++-- Aaron Social : les réseaux liés d'une société (TikTok d'abord).
++-- Un seul compte par réseau et par société. Jetons chiffrés par l'application
++-- (lib/encryption.ts) avant d'arriver ici. Aucune lecture depuis le
++-- navigateur : la sécurité par ligne est activée sans aucune règle, seul le
++-- serveur (clé de service) y accède.
++
++create table if not exists social_connections (
++  id uuid primary key default gen_random_uuid(),
++  company_id uuid not null references companies(id) on delete cascade,
++  connected_by uuid references users(id) on delete set null,
++  provider text not null check (provider in ('tiktok', 'instagram', 'facebook', 'linkedin')),
++  account_id text not null,
++  account_name text,
++  avatar_url text,
++  access_token text not null,
++  refresh_token text,
++  access_expires_at timestamptz,
++  refresh_expires_at timestamptz,
++  scopes text,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now(),
++  unique (company_id, provider)
++);
++
++alter table social_connections enable row level security;
++
++select column_name from information_schema.columns
++where table_name = 'social_connections' order by ordinal_position;
+-- 
+2.43.0
+
