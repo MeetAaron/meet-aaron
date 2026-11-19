@@ -91,6 +91,24 @@ function refreshSessionShared() {
   return refreshInFlight;
 }
 
+// UN SEUL en-tête Authorization (19/11/2026). Depuis l'ajout de la langue de
+// l'interface (13/11), les en-têtes de l'appelant passent par un objet
+// Headers, qui met tous les noms en minuscules. Un appelant qui fournissait
+// déjà son jeton se retrouvait donc avec « authorization » (le sien) ET
+// « Authorization » (ajouté ici) : le navigateur les fusionne en
+// « Bearer X, Bearer Y », que le serveur refuse (401). Conséquence visible :
+// le bouton « Connecter ma boîte et mon agenda » renvoyait vers la page de
+// connexion au lieu d'ouvrir Google — découvert en branchant les boîtes de
+// prospection. On retire donc toute variante de casse avant de poser la nôtre.
+function withBearer(headers, token) {
+  const out = {};
+  for (const [name, value] of Object.entries(headers || {})) {
+    if (name.toLowerCase() !== 'authorization') out[name] = value;
+  }
+  out.Authorization = `Bearer ${token}`;
+  return out;
+}
+
 if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
   window.__aaronAuthFetchPatched = true;
   const originalFetch = window.fetch.bind(window);
@@ -163,7 +181,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
 
       const token = session?.access_token;
       if (token) {
-        opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+        opts.headers = withBearer(opts.headers, token);
       }
     } catch (err) {
       // Si on ne peut pas lire/rafraîchir la session, on laisse partir la
@@ -191,7 +209,7 @@ if (typeof window !== 'undefined' && !window.__aaronAuthFetchPatched) {
         const { data: refreshed } = await refreshSessionShared();
         const retryToken = refreshed?.session?.access_token;
         if (retryToken) {
-          const retryOpts = { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${retryToken}` } };
+          const retryOpts = { ...opts, headers: withBearer(opts.headers, retryToken) };
           response = await originalFetch(input, retryOpts);
         }
       } catch (err) {
