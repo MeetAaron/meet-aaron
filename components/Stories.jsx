@@ -45,6 +45,7 @@ const RING = {
   bilan_a_faire: 'linear-gradient(135deg, #b07cf5, #4b39ef)',
   commande_a_confirmer: 'linear-gradient(135deg, #3dd68c, #4b9ef0)',
   client_a_confirmer: 'linear-gradient(135deg, #3dd68c, #b07cf5)',
+  a_toi: 'linear-gradient(135deg, #f5a623, #c93f8c)',
   message_client: 'linear-gradient(135deg, #4b9ef0, #b07cf5)',
   a_risque: 'linear-gradient(135deg, #f0914e, #ef4459)',
   delivrabilite: 'linear-gradient(135deg, #ef4459, #f5a623)',
@@ -70,6 +71,7 @@ const ICON_NAME = {
   bilan_a_faire: 'notes',
   commande_a_confirmer: 'trophy',
   client_a_confirmer: 'trophy',
+  a_toi: 'message',
   message_client: 'message',
   a_risque: 'flame',
   delivrabilite: 'ban',
@@ -940,6 +942,24 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       );
       break;
     }
+    case 'a_toi':
+      // Email reçu qui n'est pas pour Aaron (19/11/2026) : il n'a pas
+      // répondu. Le commercial répond depuis sa boîte, puis dit que c'est
+      // fait ; la story disparaît aussi toute seule si la personne réécrit
+      // et qu'Aaron peut traiter.
+      body = (
+        <>
+          <p className="lead">{t('stories.aToiLead', locale).replace('{name}', item.prospect_name)}</p>
+          {item.meta?.reason && <p className="advice"><Ic name="message" /> <Translated text={item.meta.reason} locale={locale} format={frenchTypography} /></p>}
+        </>
+      );
+      actions = (
+        <>
+          <button type="button" className="btn-primary" onClick={openContact}>{t('stories.openCard', locale)}</button>
+          <button type="button" className="btn-secondary" disabled={acting} onClick={() => act(prospectUrl, { action: 'a_toi_done' })}>{t('stories.aToiDone', locale)}</button>
+        </>
+      );
+      break;
     case 'a_risque':
       // Flux « appel de sauvetage » (docx « mon avis ») : le commercial
       // rouvre la notif, dit que l'appel a eu lieu (→ bilan avec les puces)

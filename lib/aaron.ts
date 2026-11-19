@@ -123,6 +123,13 @@ export interface AaronOutput {
   // lib/first-contact.ts marque le prospect perdu pour qu'aucun cron ne
   // repaie jamais ce jugement.
   hors_cible?: { detected: boolean; reason: string | null } | null;
+  // « À toi » (19/11/2026) : le message reçu n'est pas pour Aaron (affaire
+  // personnelle, histoire commune avec le commercial qu'il ne connaît pas,
+  // message qui ne vient pas d'un client potentiel). Quand c'est vrai,
+  // Aaron ne répond PAS : email_draft est vide et le commercial reçoit une
+  // notification. Voir la section « À TOI » de lib/aaron_system_prompt.md et
+  // app/api/cron/check-inbox.
+  a_toi?: { detected: boolean; reason: string | null } | null;
   quote_requested: boolean;
   deal_approved: { detected: boolean; reason: string | null } | null;
   // Docx pipeline (Alex, 2026-08-23) : deux nouveaux signaux, même mécanique

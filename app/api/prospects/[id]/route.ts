@@ -773,6 +773,19 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   // propriétaire ou un membre de la même société peut le corriger (contrôle
   // commun plus haut). Si la migration n'est pas passée, on le dit au lieu
   // d'échouer en silence : la fiche continue d'afficher le type déduit.
+  // « À toi » traité (19/11/2026) : le commercial a répondu lui-même, la
+  // notification disparaît. Contrôle d'accès commun plus haut.
+  if (action === 'a_toi_done') {
+    const { error: aToiError } = await supabaseAdmin
+      .from('prospects')
+      .update({ a_toi_at: null, a_toi_reason: null })
+      .eq('id', prospectId);
+    if (aToiError && aToiError.code !== '42703' && aToiError.code !== 'PGRST204') {
+      return serverError(aToiError, '/api/prospects/[id]');
+    }
+    return NextResponse.json({ success: true });
+  }
+
   if (action === 'set_client_type') {
     if (client_type !== null && !isContactType(client_type)) {
       return NextResponse.json({ error: 'client_type invalide' }, { status: 400 });

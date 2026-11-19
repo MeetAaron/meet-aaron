@@ -438,6 +438,22 @@ async function handleWonCustomerMessage(
   }
 }
 
+
+// Texte du push « À toi » dans la langue du compte (les comptes anglophones
+// recevaient sinon un titre en français).
+const A_TOI_PUSH: Record<string, { title: string; body: string }> = {
+  fr: { title: 'À toi : {name}', body: "Ce message est pour toi, je n'ai pas répondu." },
+  en: { title: 'Over to you: {name}', body: 'This message is for you, I have not replied.' },
+  de: { title: 'Für dich: {name}', body: 'Diese Nachricht ist für dich, ich habe nicht geantwortet.' },
+  it: { title: 'Tocca a te: {name}', body: 'Questo messaggio è per te, non ho risposto.' },
+  es: { title: 'Te toca: {name}', body: 'Este mensaje es para ti, no he respondido.' },
+  pt: { title: 'É contigo: {name}', body: 'Esta mensagem é para ti, não respondi.' },
+  nl: { title: 'Voor jou: {name}', body: 'Dit bericht is voor jou, ik heb niet geantwoord.' },
+};
+function aToiPushText(locale?: string | null) {
+  return A_TOI_PUSH[(locale || 'fr').toLowerCase()] || A_TOI_PUSH.fr;
+}
+
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -938,8 +954,13 @@ export async function GET(request: NextRequest) {
       // met à jour le statut/la personnalité du prospect dans tous les cas,
       // mais on n'envoie et n'archive un message que s'il y a vraiment
       // quelque chose à envoyer.
+      // « À toi » (19/11/2026) : le message n'est pas pour Aaron. Il ne
+      // répond pas, même si le modèle a quand même rempli email_draft (la
+      // consigne dit de le laisser vide ; on ne s'en remet pas à elle pour
+      // empêcher un envoi). Le commercial est prévenu plus bas.
+      const aToi = aaronOutput.a_toi?.detected === true;
       const hasEmailToSend =
-        aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
+        !aToi && aaronOutput.email_draft?.subject?.trim() && aaronOutput.email_draft?.body?.trim();
 
       if (hasEmailToSend) {
         // Demande Alex (30/08/2026) : un email "long" envoyé 3 minutes après
@@ -1019,6 +1040,37 @@ export async function GET(request: NextRequest) {
       // migration_devis_upload_2026-09-01.sql), reprend. Appel séparé et
       // best-effort : colonne optionnelle tant que la migration n'est pas passée.
       await supabaseAdmin.from('prospects').update({ quote_paused_at: null }).eq('id', prospect.id).then(() => {}, () => {});
+
+      // « À toi » : on marque le contact et on prévient le commercial sur son
+      // téléphone. Sinon on efface une marque éventuelle : la personne a
+      // réécrit et Aaron a pu traiter, il n'y a plus rien à lui rendre.
+      // Appels séparés et tolérants : colonnes optionnelles tant que
+      // migration_a_toi_2026-11-19.sql n'est pas passée.
+      if (aToi) {
+        const reason = (aaronOutput.a_toi?.reason || '').trim().slice(0, 300) || null;
+        await supabaseAdmin
+          .from('prospects')
+          .update({ a_toi_at: new Date().toISOString(), a_toi_reason: reason })
+          .eq('id', prospect.id)
+          .then(() => {}, () => {});
+        try {
+          const { data: owner } = await supabaseAdmin.from('users').select('locale').eq('id', connection.user_id).maybeSingle();
+          const text = aToiPushText((owner as any)?.locale);
+          await sendPushNotification(connection.user_id, {
+            title: text.title.replace('{name}', prospect.full_name || ''),
+            body: reason || text.body,
+            url: `/app/prospects?user_id=${connection.user_id}&contact=${prospect.id}`,
+          });
+        } catch {
+          // la notification dans l'application reste, même sans push
+        }
+      } else {
+        await supabaseAdmin
+          .from('prospects')
+          .update({ a_toi_at: null, a_toi_reason: null })
+          .eq('id', prospect.id)
+          .then(() => {}, () => {});
+      }
 
       // Demande de devis détectée par Aaron dans le message reçu : on fait
       // avancer le contact et on PRÉVIENT le commercial. Aaron ne rédige

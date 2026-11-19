@@ -30,6 +30,8 @@ export type NotificationType =
   | 'bilan_a_faire'
   | 'commande_a_confirmer'
   | 'client_a_confirmer'
+  // Email reçu qui n'est pas pour Aaron : il n'a pas répondu (19/11/2026).
+  | 'a_toi'
   | 'message_client'
   | 'a_risque';
 
@@ -59,6 +61,8 @@ export const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
   // Un client existant a écrit, Aaron a préparé la réponse (31/10/2026).
   // Placé APRÈS les signaux d'argent mais AVANT « à risque » : c'est une
   // personne qui attend une réponse, pas un indicateur à surveiller.
+  // Une personne attend une réponse que seul le commercial peut donner.
+  'a_toi',
   'message_client',
   'a_risque',
 ];
@@ -124,7 +128,12 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     const newsCols = baseCols.replace('prospect_companies(name)', 'prospect_companies(name, news_signal)') + optionalCols + ', rescue_proposal_source';
     // Signal « client à confirmer » (migration_signal_client_2026-10-28.sql).
     const signalCols = newsCols + ', client_signal_detected_at, client_signal_source, client_signal_reason, client_signal_dismissed_at';
-    let res: any = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
+    // « À toi » (migration_a_toi_2026-11-19.sql) : une variante de plus,
+    // même repli que les autres si la migration n'est pas passée.
+    let res: any = await supabaseAdmin.from('prospects').select(signalCols + ', a_toi_at, a_toi_reason').eq('assigned_user_id', userId);
+    if (res.error && res.error.code === '42703') {
+      res = await supabaseAdmin.from('prospects').select(signalCols).eq('assigned_user_id', userId);
+    }
     if (res.error && res.error.code === '42703') {
       res = await supabaseAdmin.from('prospects').select(newsCols).eq('assigned_user_id', userId);
     }
@@ -215,6 +224,9 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     }
     if (p.client_signal_detected_at && !p.client_signal_dismissed_at && !p.first_order_confirmed_at) {
       push({ ...base, id: `client_a_confirmer:${p.id}`, type: 'client_a_confirmer', at: p.client_signal_detected_at, days_waiting: null, meta: { source: p.client_signal_source || null, reason: p.client_signal_reason || null } });
+    }
+    if (p.a_toi_at && !pos.lost) {
+      push({ ...base, id: `a_toi:${p.id}`, type: 'a_toi', at: p.a_toi_at, days_waiting: null, meta: { reason: p.a_toi_reason || null } });
     }
     if (pos.risk && !pos.lost) {
       push({ ...base, id: `a_risque:${p.id}`, type: 'a_risque', at: null, days_waiting: null, meta: { stage: pos.stage, advice: p.aaron_advice || null } });
