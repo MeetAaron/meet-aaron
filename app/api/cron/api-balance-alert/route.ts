@@ -81,20 +81,59 @@ async function checkProvider(provider: BalanceProvider): Promise<Record<string, 
   // silencieusement. On alerte donc sur l'ANCIENNETÉ au lieu du montant, une
   // seule fois par solde (on réutilise alerted_10_at comme marqueur).
   if (st.stale) {
-    if (st.alerted10At || st.alerted3At) return { provider, stale: true, alreadyAlerted: true };
-    await notify(
-      `Solde ${label} à revérifier`,
-      `Le dernier solde ${label} saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus ` +
-        `fiable — je ne peux plus dire combien il reste. Ouvre ${console_}, lis le solde réel et ` +
-        `saisis-le dans /app/marge. Dépense constatée depuis la dernière saisie : ` +
-        `${st.spentSinceUsd.toFixed(2)} $.`,
-      `api-balance-stale-${provider}`
-    );
-    await supabaseAdmin
-      .from('api_balance_snapshots')
-      .update({ alerted_10_at: new Date().toISOString() })
-      .eq('id', st.snapshotId);
-    return { provider, alerted: 'stale', balanceAgeDays: st.balanceAgeDays };
+    // PIRE CAS, CHIFFRÉ (19/11/2026, Alex : « j'ai reçu un email, d'où ça
+    // vient ? »). L'alerte disait seulement « je ne peux plus dire combien
+    // il reste », sans rien pour juger de l'urgence. Or, depuis que les
+    // recharges sont créditées toutes seules à partir du reçu
+    // (lib/anthropic-receipts.ts), un solde périmé veut le plus souvent dire
+    // qu'AUCUNE recharge n'a eu lieu : le reste réel est alors proche de
+    // « solde saisi moins dépense constatée ». On le donne comme hypothèse,
+    // jamais comme un fait.
+    const worstRemaining = Math.max(0, (st.balanceUsd || 0) - st.spentSinceUsd);
+    const worstDays = st.avgDailyUsd > 0 ? worstRemaining / st.avgDailyUsd : null;
+    const usd = (n: number) => n.toFixed(2).replace('.', ',');
+    const worstLine =
+      `Si tu n'as pas rechargé depuis, il resterait environ ${usd(worstRemaining)} $ sur les ` +
+      `${usd(st.balanceUsd || 0)} $ saisis` +
+      (worstDays !== null ? `, soit ${Math.max(0, Math.floor(worstDays))} jour${Math.floor(worstDays) > 1 ? 's' : ''} au rythme des 7 derniers jours` : '') +
+      `. À zéro, Aaron s'arrête pour TOUS les clients.`;
+
+    if (!st.alerted10At && !st.alerted3At) {
+      await notify(
+        `Solde ${label} à revérifier`,
+        `Ce message vient de Meet Aaron, pas de ${label} : rien n'a été débité. Le dernier solde ${label} ` +
+          `saisi date d'il y a ${st.balanceAgeDays} jours, il n'est plus fiable. ` +
+          `Dépense constatée depuis : ${usd(st.spentSinceUsd)} $. ${worstLine} ` +
+          `Ouvre ${console_}, lis le solde réel et saisis-le dans /app/marge.`,
+        `api-balance-stale-${provider}`
+      );
+      await supabaseAdmin
+        .from('api_balance_snapshots')
+        .update({ alerted_10_at: new Date().toISOString() })
+        .eq('id', st.snapshotId);
+      return { provider, alerted: 'stale', balanceAgeDays: st.balanceAgeDays };
+    }
+
+    // FILET DE SÉCURITÉ. Avant, un solde périmé ne déclenchait plus JAMAIS
+    // d'alerte après la première : les seuils 10 jours et 3 jours ont besoin
+    // d'un reste chiffré, et un solde périmé n'en a plus. Avec une petite
+    // consommation (un solde de 5 $ dure plus de dix jours), on passait donc
+    // de « à revérifier » à la panne sans rien entre les deux. Une seconde
+    // alerte part désormais quand le pire cas descend à 3 jours.
+    if (worstDays !== null && worstDays <= 3 && !st.alerted3At) {
+      await notify(
+        `Solde ${label} peut-être presque vide`,
+        `Le solde ${label} n'a toujours pas été ressaisi (dernière saisie il y a ${st.balanceAgeDays} jours). ` +
+          `${worstLine} Vérifie sur ${console_}, recharge si besoin, puis saisis le solde dans /app/marge.`,
+        `api-balance-stale-urgent-${provider}`
+      );
+      await supabaseAdmin
+        .from('api_balance_snapshots')
+        .update({ alerted_3_at: new Date().toISOString() })
+        .eq('id', st.snapshotId);
+      return { provider, alerted: 'stale_urgent', balanceAgeDays: st.balanceAgeDays };
+    }
+    return { provider, stale: true, alreadyAlerted: true };
   }
 
   if (st.daysLeft === null) {
