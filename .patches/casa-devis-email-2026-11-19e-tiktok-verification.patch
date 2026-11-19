@@ -1,0 +1,28 @@
+From 8d2acb11be25ebff05380ee79c067ac4c2c4a8c0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 07:58:41 +0000
+Subject: [PATCH] TikTok : fichier de verification du site (portail
+ developpeur)
+
+Fichier demande par TikTok pour prouver que meetaaron.app nous appartient,
+avant de pouvoir enregistrer l'application (Login Kit, Content Posting API).
+Ce n'est pas un secret : c'est un identifiant public.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ public/tiktokuO9HbyTuYooap9d0aUabmQKFuCoVmPdW.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 public/tiktokuO9HbyTuYooap9d0aUabmQKFuCoVmPdW.txt
+
+diff --git a/public/tiktokuO9HbyTuYooap9d0aUabmQKFuCoVmPdW.txt b/public/tiktokuO9HbyTuYooap9d0aUabmQKFuCoVmPdW.txt
+new file mode 100644
+index 0000000..e1058e1
+--- /dev/null
++++ b/public/tiktokuO9HbyTuYooap9d0aUabmQKFuCoVmPdW.txt
+@@ -0,0 +1 @@
++tiktok-developers-site-verification=uO9HbyTuYooap9d0aUabmQKFuCoVmPdW
+\ No newline at end of file
+-- 
+2.43.0
+
