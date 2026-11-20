@@ -1,0 +1,52 @@
+From 0b7d37b835e38069f0e8e9040c124a464d86078f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 05:56:00 +0000
+Subject: [PATCH] =?UTF-8?q?Rail=20:=20le=20seuil=20du=20menu=20=C2=AB=20?=
+ =?UTF-8?q?=E2=80=A6=20=C2=BB=20depend=20du=20nombre=20de=20rubriques?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sept rubriques tiennent jusqu'a 470 px de haut, huit jusqu'a 510, neuf
+jusqu'a 550. Le menu ne sort que lorsque tout ne tient vraiment plus.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/globals.css | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/app/globals.css b/app/globals.css
+index d4d13b8..f70fa00 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -1434,10 +1434,25 @@ html[data-theme='light']:root {
+ @media (min-width: 901px) and (max-height: 620px) {
+   .sidebar .nav-list li { padding: 0.2rem 0 !important; }
+ }
++/* Le seuil dépend du NOMBRE de rubriques (20/11/2026) : un commercial en a
++   sept, un patron huit, le compte fondateur neuf. Sept entrées tiennent
++   jusqu'à 470 px de haut, huit jusqu'à 510, neuf jusqu'à 550. On compte les
++   entrées du rail avec :has(), pour ne jamais sortir le menu « … » tant que
++   tout tient. */
+ @media (min-width: 901px) and (max-height: 550px) {
++  .sidebar:has(.nav-list:not(.rail-more) > :nth-child(9)) .nav-rare { display: none !important; }
++  .sidebar:has(.nav-list:not(.rail-more) > :nth-child(9)) .rail-more { display: flex; }
++}
++@media (min-width: 901px) and (max-height: 510px) {
++  .sidebar:has(.nav-list:not(.rail-more) > :nth-child(8)) .nav-rare { display: none !important; }
++  .sidebar:has(.nav-list:not(.rail-more) > :nth-child(8)) .rail-more { display: flex; }
++}
++@media (min-width: 901px) and (max-height: 470px) {
+   .sidebar .nav-rare { display: none !important; }
++  .sidebar .rail-more { display: flex; }
++}
++@media (min-width: 901px) and (max-height: 550px) {
+   .sidebar .rail-more {
+-    display: flex;
+     flex-direction: column;
+     list-style: none;
+     margin: 0.2rem 0 0;
+-- 
+2.43.0
+
