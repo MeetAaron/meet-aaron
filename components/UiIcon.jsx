@@ -46,6 +46,7 @@ import {
   MessageCircle,
   Building2,
   Map,
+  MapPin,
   Globe,
   Hammer,
   Building,
@@ -109,6 +110,7 @@ const ICONS = {
   message: MessageCircle,
   city: Building2,
   map: Map,
+  pin: MapPin,
   globe: Globe,
   hammer: Hammer,
   building: Building,
@@ -145,6 +147,10 @@ const ICONS = {
   trendDown: TrendingDown,
 };
 
+// 20/11/2026 : passer fill={undefined} à lucide écrasait son fill="none"
+// par défaut, et le navigateur remplissait alors chaque tracé en noir
+// (icônes pleines, « qui font anciennes », vues par Alex sur iPhone). On ne
+// transmet fill que s'il est donné.
 export default function Ic({ name, size = 14, strokeWidth = 2.2, fill, className, style }) {
   const Icon = ICONS[name];
   if (!Icon) return null;
@@ -152,7 +158,7 @@ export default function Ic({ name, size = 14, strokeWidth = 2.2, fill, className
     <Icon
       size={size}
       strokeWidth={strokeWidth}
-      fill={fill}
+      {...(fill !== undefined ? { fill } : {})}
       className={className}
       aria-hidden="true"
       style={{ verticalAlign: '-0.15em', flexShrink: 0, ...style }}
