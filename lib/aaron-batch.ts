@@ -337,6 +337,16 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
       .eq('id', prospect.assigned_user_id)
       .single();
     if (ownerRes.error?.code === '42703') {
+      // users.billing_country absente : on garde quand même le fuseau. Avant,
+      // ce repli retirait AUSSI timezone, et tous les comptes retombaient sur
+      // l'heure de Paris (emails de Charlotte partis à 18 h à Brisbane, 20/11).
+      ownerRes = await supabaseAdmin
+        .from('users')
+        .select('require_first_email_approval, company_id, email, timezone')
+        .eq('id', prospect.assigned_user_id)
+        .single();
+    }
+    if (ownerRes.error?.code === '42703') {
       ownerRes = await supabaseAdmin
         .from('users')
         .select('require_first_email_approval, company_id, email')

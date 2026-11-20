@@ -52,6 +52,10 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
     .select('id, email, require_first_email_approval, timezone, billing_country')
     .in('id', userIds);
   if (usersRes.error?.code === '42703') {
+    // Garder le fuseau même sans billing_country (voir lib/aaron-batch.ts).
+    usersRes = await supabaseAdmin.from('users').select('id, email, require_first_email_approval, timezone').in('id', userIds);
+  }
+  if (usersRes.error?.code === '42703') {
     usersRes = await supabaseAdmin.from('users').select('id, email, require_first_email_approval').in('id', userIds);
   }
   const users = new Map<string, any>();
