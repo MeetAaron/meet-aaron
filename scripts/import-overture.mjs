@@ -51,7 +51,7 @@ import { join } from 'node:path';
 
 // Version d'Overture utilisée. À mettre à jour depuis
 // https://docs.overturemaps.org/release/latest/ (une publication par mois).
-const OVERTURE_RELEASE = process.env.OVERTURE_RELEASE || '2026-08-20.0';
+const OVERTURE_RELEASE = process.env.OVERTURE_RELEASE || '2026-11-19.0';
 const OVERTURE_PLACES = `s3://overturemaps-us-west-2/release/${OVERTURE_RELEASE}/theme=places/type=place/*`;
 
 // Boîtes englobantes par pays. Overture stocke un `bbox` par établissement :
@@ -102,8 +102,32 @@ const [minLon, minLat, maxLon, maxLat] = bbox;
 //  - `confidence > 0` écarte les fermetures définitives ;
 //  - on ne prend AUCUN champ nominatif : Overture n'en a pas, et on n'ira pas
 //    en chercher ailleurs.
-const categoryFilter = categories.length
-  ? `AND (categories.primary IN (${categories.map((c) => `'${c.replace(/'/g, "''")}'`).join(', ')}))`
+// Overture a fait évoluer son schéma (2025-2026 : basic_category et
+// taxonomy à côté de categories, puis à sa place). On lit le schéma de la
+// version utilisée et on prend la colonne qui existe (20/11/2026).
+function detectColumns() {
+  const out = join(tmpdir(), `overture-schema-${Date.now()}.csv`);
+  const f = join(tmpdir(), `overture-schema-${Date.now()}.sql`);
+  writeFileSync(f, `INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';\nCOPY (SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet('${OVERTURE_PLACES}', hive_partitioning=1))) TO '${out}' (FORMAT CSV, HEADER);\n`);
+  try {
+    execFileSync('duckdb', ['-c', `.read ${f}`], { stdio: ['ignore', 'inherit', 'inherit'] });
+    return new Set(readFileSync(out, 'utf8').split('\n').map((l) => l.trim().replace(/"/g, '')).filter(Boolean));
+  } catch {
+    return new Set(['categories']);
+  } finally {
+    try { unlinkSync(f); } catch {}
+    try { unlinkSync(out); } catch {}
+  }
+}
+const cols = detectColumns();
+const hasCategories = cols.has('categories');
+const hasBasic = cols.has('basic_category');
+const CAT_PRIMARY = hasCategories ? 'categories.primary' : hasBasic ? 'basic_category' : 'NULL';
+const CAT_ALT = hasCategories ? "array_to_string(categories.alternate, '|')" : cols.has('taxonomy') ? "array_to_string(taxonomy.hierarchy, '|')" : 'NULL';
+console.error(`Colonnes de catégorie : ${CAT_PRIMARY} / ${CAT_ALT}`);
+
+const categoryFilter = categories.length && CAT_PRIMARY !== 'NULL'
+  ? `AND (${CAT_PRIMARY} IN (${categories.map((c) => `'${c.replace(/'/g, "''")}'`).join(', ')}))`
   : '';
 
 const query = `
@@ -124,8 +148,8 @@ COPY (
     addresses[1].freeform                                     AS address,
     bbox.ymin                                                 AS latitude,
     bbox.xmin                                                 AS longitude,
-    categories.primary                                        AS category,
-    array_to_string(categories.alternate, '|')                AS category_raw,
+    ${CAT_PRIMARY}                                            AS category,
+    ${CAT_ALT}                                                AS category_raw,
     id                                                        AS source_id,
     confidence                                                AS confidence
   FROM read_parquet('${OVERTURE_PLACES}', filename=true, hive_partitioning=1)

@@ -30,6 +30,7 @@ export interface DirectoryHit {
   category: string | null;
   source: string;
   sourceUrl: string | null;
+  email?: string | null;
 }
 
 // Mots-clés de secteur → catégories Overture. Volontairement court : on
@@ -88,6 +89,29 @@ export function categoriesForSectors(sectorKeywords: string[]): string[] {
 // Ville probable extraite d'un libellé de zone libre (« Lyon », « Île-de-France,
 // Lyon »). Renvoie null si le libellé décrit une région ou un pays : dans ce
 // cas on filtre seulement sur le pays et la catégorie.
+// Racines de recherche tirées des métiers tapés en anglais ou dans une autre
+// langue que la table SECTOR_TO_CATEGORY (20/11/2026 : « commercial
+// cleaning », « electrician » ne donnaient aucune catégorie, donc aucun
+// filtre : l'annuaire aurait rendu n'importe quel métier). « cleaning » →
+// « clean », « electrician » → « electric », « HVAC contractor » → « hvac ».
+const STOP_WORDS = new Set(['commercial', 'company', 'companies', 'services', 'service', 'contractor', 'contractors', 'business', 'office', 'small', 'local', 'and', 'the', 'des', 'les', 'entreprise', 'entreprises', 'societe', 'societes']);
+export function stemsForSectors(sectorKeywords: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of sectorKeywords || []) {
+    const words = normalize(raw).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
+    for (const w of words) {
+      const stem = w.replace(/(icians|ician|ings|ing|ers|er|ies|s)$/, '');
+      if (stem.length >= 4) out.add(stem);
+    }
+  }
+  return Array.from(out).slice(0, 8);
+}
+
+function cityFromZoneFirst(zoneLabel: string): string | null {
+  const first = (zoneLabel || '').split(/[,;/]/)[0]?.trim();
+  return first && first.length >= 3 ? first : null;
+}
+
 function cityFromZone(zoneLabel: string): string | null {
   const parts = (zoneLabel || '').split(/[,;/]| et /i).map((p) => p.trim()).filter(Boolean);
   const last = parts[parts.length - 1];
@@ -108,22 +132,45 @@ export async function searchDirectory(params: {
   if (!params.country) return [];
   try {
     const categories = categoriesForSectors(params.sectorKeywords);
-    let q = supabaseAdmin
-      .from('directory_companies')
-      .select('name, domain, website, phone, address, city, country, category, source')
-      .eq('country', params.country)
-      .not('domain', 'is', null)
-      // Un établissement fermé n'a rien à faire dans une campagne : Overture
-      // marque les fermetures définitives par confidence = 0.
-      .or('confidence.is.null,confidence.gt.0')
-      .limit(Math.max(params.count * 4, 40));
+    const stems = categories.length ? [] : stemsForSectors(params.sectorKeywords);
+    if (!categories.length && !stems.length) return [];
+    // Domaines déjà connus écartés DANS la requête (sinon les 40 premières
+    // lignes, toujours les mêmes, finissent toutes exclues et la campagne
+    // tourne à vide). Les caractères hors domaine sont retirés par sécurité.
+    const excluded = (params.excludeDomains || [])
+      .map((d) => String(d).toLowerCase().replace(/[^a-z0-9.-]/g, ''))
+      .filter(Boolean)
+      .slice(0, 400);
 
-    if (categories.length) q = q.in('category', categories);
+    // Une requête neuve à chaque appel : les filtres Supabase modifient
+    // l'objet sur place, on ne peut pas en réutiliser un.
+    // `any` : enchaîner ces filtres dépasse la profondeur de types de
+    // Postgrest (« Type instantiation is excessively deep »).
+    const build = (city: string | null): any => {
+      let q: any = supabaseAdmin
+        .from('directory_companies')
+        .select('name, domain, website, phone, email, address, city, country, category, source')
+        .eq('country', params.country as string)
+        .not('domain', 'is', null)
+        // Un établissement fermé n'a rien à faire dans une campagne : Overture
+        // marque les fermetures définitives par confidence = 0.
+        .or('confidence.is.null,confidence.gt.0')
+        .limit(Math.max(params.count * 4, 40));
+      if (categories.length) q = q.in('category', categories);
+      else q = q.or(stems.flatMap((st) => [`category.ilike.%${st}%`, `category_raw.ilike.%${st}%`, `name.ilike.%${st}%`]).join(','));
+      if (excluded.length) q = q.not('domain', 'in', `(${excluded.join(',')})`);
+      if (city) q = q.ilike('city', `%${city}%`);
+      return q;
+    };
 
-    const city = cityFromZone(params.zoneLabel);
-    if (city) q = q.ilike('city', `%${city}%`);
-
-    const { data, error } = await q;
+    // « Brisbane, Queensland, Australia » : la ville est la PREMIÈRE partie.
+    // Repli sur l'ancienne lecture (dernière partie) si rien ne sort.
+    const cityFirst = cityFromZoneFirst(params.zoneLabel);
+    const cityLast = cityFromZone(params.zoneLabel);
+    let { data, error }: { data: any[] | null; error: any } = await build(cityFirst);
+    if (!error && (!data || data.length === 0) && cityLast && cityLast !== cityFirst) {
+      ({ data, error } = await build(cityLast));
+    }
     if (error) {
       // Table absente (migration pas encore jouée) ou requête refusée : on se
       // tait, le sourcing enchaîne sur la recherche classique.
@@ -149,6 +196,7 @@ export async function searchDirectory(params: {
         category: row.category || null,
         source: row.source,
         sourceUrl: row.website || null,
+        email: (row as any).email || null,
       });
       if (hits.length >= params.count) break;
     }

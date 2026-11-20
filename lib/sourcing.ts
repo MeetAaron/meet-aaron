@@ -39,6 +39,8 @@ interface FoundCompany {
   website: string | null;
   source_url: string | null;
   phone?: string | null;
+  // Email générique publié par l'annuaire (info@, contact@), 20/11/2026.
+  email?: string | null;
 }
 
 interface FoundContact {
@@ -258,7 +260,7 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
     targetKeywords,
     zoneLabel,
     companySizeLabels,
-    5,
+    3,
     seller,
     alreadyFound
   );
@@ -267,7 +269,11 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
     {
       model: 'claude-haiku-4-5',
       max_tokens: 4000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+      // 3 recherches au lieu de 5 (20/11/2026, coût : 0,42 USD de recherche
+      // par prospect sur les campagnes australiennes). Le planificateur
+      // connaît désormais ce qui est déjà trouvé, donc chaque recherche
+      // rapporte plus.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
       messages: [{
         role: 'user',
         content: `${prompt}\n\nUtilise exactement ces recherches web, dans cet ordre :\n${searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nNe cherche rien d'autre. Ton travail est de LIRE ces résultats et d'en extraire les entreprises réelles qui correspondent aux critères — n'invente jamais une entreprise, un domaine ou une adresse qui n'apparaît pas dans les résultats.`,
@@ -369,6 +375,13 @@ Si tu ne trouves aucun contact fiable, réponds avec toutes les valeurs à null 
       }
       siteHint = `\n\nDéjà lu sur le site officiel (ne le recherche pas à nouveau) :\n${emailsLine}${scan.text.slice(0, 1500)}`;
     }
+  }
+
+  // Email publié par l'annuaire (20/11/2026) : chez une petite entreprise,
+  // l'adresse info@ arrive au patron. On la prend plutôt que de payer une
+  // recherche web pour trouver un nom.
+  if (company.email && /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(company.email)) {
+    return { full_name: null, job_title: null, email: company.email.trim().toLowerCase(), phone: company.phone || null, linkedin_url: null } as FoundContact;
   }
 
   const data = await callClaude(
@@ -475,6 +488,7 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
         website: h.website,
         source_url: h.sourceUrl,
         phone: h.phone,
+        email: h.email || null,
       }));
     } catch (err: any) {
       console.error('Annuaire libre (non bloquant) :', err?.message);
