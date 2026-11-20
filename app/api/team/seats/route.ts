@@ -44,7 +44,42 @@ export async function GET(request: NextRequest) {
     return serverError(error, '/api/team/seats');
   }
 
-  return NextResponse.json({ seats: seats || [] });
+  // Comptes de l'équipe créés SANS code (20/11/2026) : les quatre boîtes de
+  // prospection de Meet Aaron (thomas, julie, james, charlotte) ont été
+  // créées directement en base, sans ligne team_seats. L'onglet affichait
+  // « Aucun compte équipe » alors que l'équipe en avait quatre. On les
+  // ajoute à la liste, marqués `direct` (pas de code, pas de facturation
+  // de siège ; `billing_exempt` dit s'ils sont offerts).
+  const seatUserIds = new Set((seats || []).map((x: any) => x.user_id).filter(Boolean));
+  let usersRes: any = await supabaseAdmin
+    .from('users')
+    .select('id, full_name, email, role, billing_exempt, created_at')
+    .eq('company_id', authedUser.company_id)
+    .neq('id', authedUser.id);
+  if (usersRes.error?.code === '42703') {
+    usersRes = await supabaseAdmin
+      .from('users')
+      .select('id, full_name, email, role, created_at')
+      .eq('company_id', authedUser.company_id)
+      .neq('id', authedUser.id);
+  }
+  const direct = ((usersRes.data || []) as any[])
+    .filter((u) => !seatUserIds.has(u.id) && u.role !== 'patron')
+    .map((u) => ({
+      id: `direct:${u.id}`,
+      direct: true,
+      user_id: u.id,
+      first_name: u.full_name || u.email,
+      last_name: '',
+      job_title: null,
+      email: u.email,
+      activation_code: null,
+      status: 'active',
+      billing_exempt: u.billing_exempt === true,
+      created_at: u.created_at,
+    }));
+
+  return NextResponse.json({ seats: [...(seats || []), ...direct] });
 }
 
 export async function POST(request: NextRequest) {

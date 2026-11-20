@@ -711,7 +711,6 @@ export default function TeamPage() {
                       {m.clients_actifs} {t('team.shortClients', locale)}
                       {' · '}
                       {m.clients_perdus} {t('team.shortLost', locale)}
-                      {credits?.available ? ` · ${prospectsFromUsd(m.credits_used_usd || 0)} ${t('quota.unit', locale)}` : ''}
                     </span>
                   </div>
                   <span className="rank-score">{m.clients_gagnes || 0}</span>
@@ -831,6 +830,23 @@ export default function TeamPage() {
                 <tbody>
                   {seats.map((s) => {
                     const busy = seatActionBusy === s.id;
+                    if (s.direct) {
+                      return (
+                        <tr key={s.id}>
+                          <td>{s.first_name} {s.last_name}</td>
+                          <td className="muted">{s.job_title || '—'}</td>
+                          <td className="muted">{s.email}</td>
+                          <td className="muted">{t('team.seatPlanAaron', locale)}</td>
+                          <td>
+                            <span className="seat-status seat-status-active">
+                              {t('team.seatStatusActive', locale)}{s.billing_exempt ? ` · ${seatDirectText(locale, 'free')}` : ''}
+                            </span>
+                          </td>
+                          <td className="muted">{seatDirectText(locale, 'noCode')}</td>
+                          <td className="muted">—</td>
+                        </tr>
+                      );
+                    }
                     return (
                       <tr key={s.id}>
                         <td>{s.first_name} {s.last_name}</td>
@@ -1839,6 +1855,20 @@ function TeamSuggestionsPanel({ userId, locale }) {
 // prospects. L'estimation est volontairement prudente (le coût réel mesuré
 // par prospect est plus bas), donc le compte affiché est un PLANCHER : on
 // n'annonce jamais plus de prospects qu'on ne peut en servir.
+// Comptes créés sans code (app/api/team/seats, 20/11/2026).
+const SEAT_DIRECT_TEXT = {
+  fr: { free: 'offert', noCode: 'Créé sans code' },
+  en: { free: 'free', noCode: 'Created without a code' },
+  de: { free: 'kostenlos', noCode: 'Ohne Code erstellt' },
+  it: { free: 'gratuito', noCode: 'Creato senza codice' },
+  es: { free: 'gratis', noCode: 'Creado sin código' },
+  pt: { free: 'gratuito', noCode: 'Criado sem código' },
+  nl: { free: 'gratis', noCode: 'Aangemaakt zonder code' },
+};
+function seatDirectText(locale, key) {
+  return (SEAT_DIRECT_TEXT[locale] || SEAT_DIRECT_TEXT.fr)[key] || SEAT_DIRECT_TEXT.fr[key];
+}
+
 function prospectsFromUsd(usd) {
   const n = (Number(usd) || 0) / USD_PER_CREDIT * PROSPECTS_PER_CREDIT;
   if (n > 0 && n < 1) return '< 1';
