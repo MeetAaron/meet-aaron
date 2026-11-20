@@ -2451,7 +2451,12 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         {currentTopic === 'secteur' && (
           <div className="chip-row">
             {renderProfileChips('secteur')}
-            {QUICK_SECTORS.filter((s) => !isProfileChip('secteur', s)).map((s) => (
+            {/* Les métiers génériques (plombier, restaurant, coiffure…) ne
+                servent que quand Aaron n'a rien tiré de la fiche entreprise
+                (20/11/2026, retour d'Alex) : à côté des cibles proposées
+                pour SON entreprise, « Restaurants » ou « Coiffure » n'ont
+                aucun sens pour la plupart des clients et brouillent le choix. */}
+            {profileChipsFor('secteur').length === 0 && QUICK_SECTORS.filter((s) => !isProfileChip('secteur', s)).map((s) => (
               <button type="button" key={s} className="chip" onClick={() => addChip(s)}>+ {s}</button>
             ))}
           </div>
