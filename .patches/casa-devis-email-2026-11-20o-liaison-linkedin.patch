@@ -1,0 +1,513 @@
+From 61d0cfbc883a0ccb5ae3eeb582670ce8334f58b2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 15:51:01 +0000
+Subject: [PATCH] Aaron Social : liaison LinkedIn (OAuth, jeton chiffre,
+ deliaison), Mon compte liste TikTok et LinkedIn
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/social/connections/route.ts       |  10 +-
+ app/api/social/linkedin/callback/route.ts |  82 +++++++++++
+ app/api/social/linkedin/start/route.ts    |  47 ++++++
+ components/SocialLinks.jsx                |  82 ++++++-----
+ lib/social-linkedin.ts                    | 172 ++++++++++++++++++++++
+ 5 files changed, 356 insertions(+), 37 deletions(-)
+ create mode 100644 app/api/social/linkedin/callback/route.ts
+ create mode 100644 app/api/social/linkedin/start/route.ts
+ create mode 100644 lib/social-linkedin.ts
+
+diff --git a/app/api/social/connections/route.ts b/app/api/social/connections/route.ts
+index accbd71..8431f8d 100644
+--- a/app/api/social/connections/route.ts
++++ b/app/api/social/connections/route.ts
+@@ -13,8 +13,9 @@ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { decryptToken } from '@/lib/encryption';
+ import { socialPreviewAllowed } from '@/lib/social-access';
+ import { revokeTiktokToken } from '@/lib/social-tiktok';
++import { revokeLinkedinToken } from '@/lib/social-linkedin';
+ 
+-const PROVIDERS = ['tiktok'];
++const PROVIDERS = ['tiktok', 'linkedin'];
+ 
+ // Table absente tant que migration_social_connections_2026-11-19.sql n'est
+ // pas passée : PostgREST répond PGRST205, Postgres 42P01.
+@@ -67,6 +68,13 @@ export async function DELETE(request: NextRequest) {
+       // Jeton illisible ou TikTok injoignable : on délie quand même chez nous.
+     }
+   }
++  if (provider === 'linkedin') {
++    try {
++      await revokeLinkedinToken(decryptToken((row as any).access_token));
++    } catch {
++      // Idem : on délie chez nous même si LinkedIn ne répond pas.
++    }
++  }
+ 
+   const { error } = await supabaseAdmin.from('social_connections').delete().eq('id', (row as any).id);
+   if (error) {
+diff --git a/app/api/social/linkedin/callback/route.ts b/app/api/social/linkedin/callback/route.ts
+new file mode 100644
+index 0000000..ca65a72
+--- /dev/null
++++ b/app/api/social/linkedin/callback/route.ts
+@@ -0,0 +1,82 @@
++// app/api/social/linkedin/callback/route.ts
++//
++// GET -> retour de LinkedIn après l'écran d'autorisation.
++//   succès : ?code=…&state=…
++//   refus  : ?error=user_cancelled_authorize (ou autre)&error_description=…&state=…
++//
++// Même contrôle que TikTok (signature + cookie + 10 minutes), jeton rangé
++// CHIFFRÉ, retour vers Mon compte avec ok, refus ou erreur. Aucun jeton ni
++// code dans l'adresse de retour ni dans les journaux.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { encryptToken } from '@/lib/encryption';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import {
++  exchangeLinkedinCode,
++  fetchLinkedinProfile,
++  readLinkedinState,
++  LINKEDIN_STATE_COOKIE,
++} from '@/lib/social-linkedin';
++
++function back(result: 'ok' | 'refus' | 'erreur') {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  const response = NextResponse.redirect(`${base}/app/connexions?tab=profile&social=linkedin&etat=${result}`);
++  response.cookies.set(LINKEDIN_STATE_COOKIE, '', { path: '/api/social/linkedin', maxAge: 0 });
++  return response;
++}
++
++function expiry(seconds: number | null): string | null {
++  return seconds && seconds > 0 ? new Date(Date.now() + seconds * 1000).toISOString() : null;
++}
++
++export async function GET(request: NextRequest) {
++  const params = request.nextUrl.searchParams;
++  const userId = readLinkedinState(params.get('state'), request.cookies.get(LINKEDIN_STATE_COOKIE)?.value || null);
++  if (!userId) return back('erreur');
++
++  if (params.get('error')) {
++    // Refus de la personne, ou portée non accordée à l'appli (produit pas
++    // encore activé) : on garde la cause dans les journaux.
++    console.warn('[linkedin] autorisation non accordée :', params.get('error'));
++    return back(params.get('error') === 'user_cancelled_authorize' || params.get('error') === 'user_cancelled_login' ? 'refus' : 'erreur');
++  }
++
++  const code = params.get('code');
++  if (!code) return back('erreur');
++
++  const { data: user } = await supabaseAdmin
++    .from('users')
++    .select('id, email, company_id')
++    .eq('id', userId)
++    .maybeSingle();
++  if (!user || !(user as any).company_id || !socialPreviewAllowed((user as any).email)) return back('erreur');
++
++  const tokens = await exchangeLinkedinCode(code);
++  if (!tokens) return back('erreur');
++
++  const profile = await fetchLinkedinProfile(tokens.access_token);
++
++  const { error } = await supabaseAdmin.from('social_connections').upsert(
++    {
++      company_id: (user as any).company_id,
++      connected_by: (user as any).id,
++      provider: 'linkedin',
++      account_id: profile.id || 'inconnu',
++      account_name: profile.name,
++      avatar_url: profile.avatarUrl,
++      access_token: encryptToken(tokens.access_token),
++      refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
++      access_expires_at: expiry(tokens.expires_in),
++      refresh_expires_at: expiry(tokens.refresh_expires_in),
++      scopes: tokens.scope,
++      updated_at: new Date().toISOString(),
++    },
++    { onConflict: 'company_id,provider' }
++  );
++  if (error) {
++    console.error('[linkedin] enregistrement de la liaison impossible :', error.code || '', error.message);
++    return back('erreur');
++  }
++  return back('ok');
++}
+diff --git a/app/api/social/linkedin/start/route.ts b/app/api/social/linkedin/start/route.ts
+new file mode 100644
+index 0000000..c0e0139
+--- /dev/null
++++ b/app/api/social/linkedin/start/route.ts
+@@ -0,0 +1,47 @@
++// app/api/social/linkedin/start/route.ts
++//
++// POST -> prépare la liaison d'un compte LinkedIn : renvoie l'adresse
++// d'autorisation LinkedIn où envoyer le navigateur, et pose le cookie qui
++// permettra de reconnaître le retour (voir lib/social-linkedin.ts).
++//
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import {
++  createLinkedinState,
++  linkedinAuthorizeUrl,
++  linkedinClientSecret,
++  LINKEDIN_STATE_COOKIE,
++  LINKEDIN_STATE_TTL_SECONDS,
++} from '@/lib/social-linkedin';
++
++export async function POST(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email)) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++  if (!authedUser.company_id) {
++    return NextResponse.json({ error: 'company_missing' }, { status: 400 });
++  }
++  if (!linkedinClientSecret()) {
++    return NextResponse.json({ error: 'linkedin_not_configured' }, { status: 503 });
++  }
++
++  const created = createLinkedinState(authedUser.id);
++  if (!created) {
++    return NextResponse.json({ error: 'linkedin_not_configured' }, { status: 503 });
++  }
++
++  const response = NextResponse.json({ url: linkedinAuthorizeUrl(created.state) });
++  response.cookies.set(LINKEDIN_STATE_COOKIE, created.nonce, {
++    httpOnly: true,
++    secure: true,
++    sameSite: 'lax',
++    path: '/api/social/linkedin',
++    maxAge: LINKEDIN_STATE_TTL_SECONDS,
++  });
++  return response;
++}
+diff --git a/components/SocialLinks.jsx b/components/SocialLinks.jsx
+index 73e0a35..d7a6428 100644
+--- a/components/SocialLinks.jsx
++++ b/components/SocialLinks.jsx
+@@ -3,7 +3,7 @@
+ // MON COMPTE > RÉSEAUX SOCIAUX (19/11/2026).
+ //
+ // Le bloc où l'on lie ses réseaux, placé sous l'adresse email (décision
+-// d'Alex du 18/11). TikTok d'abord ; Instagram, Facebook et LinkedIn
++// d'Alex du 18/11). TikTok et LinkedIn ; Instagram et Facebook
+ // s'ajouteront ici à mesure que leur liaison sera codée.
+ //
+ // Visible uniquement sur le compte aaron@meetaaron.app tant qu'Aaron Social
+@@ -19,16 +19,22 @@
+ import { useEffect, useState } from 'react';
+ 
+ const TEXT = {
+-  fr: { title: 'Réseaux sociaux', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: 'TikTok est lié.', refus: 'Liaison refusée sur TikTok.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Pas encore disponible.' },
+-  en: { title: 'Social networks', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: 'TikTok is linked.', refus: 'Linking was declined on TikTok.', erreur: 'Linking failed. Try again.', soon: 'Not available yet.' },
+-  de: { title: 'Soziale Netzwerke', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: 'TikTok ist verknüpft.', refus: 'Verknüpfung auf TikTok abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Noch nicht verfügbar.' },
+-  it: { title: 'Social network', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: 'TikTok è collegato.', refus: 'Collegamento rifiutato su TikTok.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Non ancora disponibile.' },
+-  es: { title: 'Redes sociales', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: 'TikTok está vinculado.', refus: 'Vinculación rechazada en TikTok.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Aún no disponible.' },
+-  pt: { title: 'Redes sociais', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O TikTok está ligado.', refus: 'Ligação recusada no TikTok.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Ainda não disponível.' },
+-  nl: { title: 'Sociale netwerken', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: 'TikTok is gekoppeld.', refus: 'Koppeling geweigerd op TikTok.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Nog niet beschikbaar.' },
++  fr: { title: 'Réseaux sociaux', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Pas encore disponible.' },
++  en: { title: 'Social networks', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Not available yet.' },
++  de: { title: 'Soziale Netzwerke', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Noch nicht verfügbar.' },
++  it: { title: 'Social network', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Non ancora disponibile.' },
++  es: { title: 'Redes sociales', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Aún no disponible.' },
++  pt: { title: 'Redes sociais', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Ainda não disponível.' },
++  nl: { title: 'Sociale netwerken', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Nog niet beschikbaar.' },
+ };
+ const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
+ 
++// Réseaux reliables, dans l'ordre d'affichage (LinkedIn ajouté le 20/11).
++const NETWORKS = [
++  { key: 'tiktok', name: 'TikTok' },
++  { key: 'linkedin', name: 'LinkedIn' },
++];
++
+ export default function SocialLinks({ locale = 'fr' }) {
+   const [connections, setConnections] = useState([]);
+   const [loading, setLoading] = useState(true);
+@@ -50,11 +56,12 @@ export default function SocialLinks({ locale = 'fr' }) {
+     load();
+     try {
+       const params = new URLSearchParams(window.location.search);
+-      if (params.get('social') === 'tiktok') {
++      const net = NETWORKS.find((n) => n.key === params.get('social'));
++      if (net) {
+         const etat = params.get('etat');
+-        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok' });
+-        else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus' });
+-        else setNotice({ tone: 'bad', key: 'erreur' });
++        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok', name: net.name });
++        else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus', name: net.name });
++        else setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+         params.delete('social');
+         params.delete('etat');
+         const query = params.toString();
+@@ -63,55 +70,58 @@ export default function SocialLinks({ locale = 'fr' }) {
+     } catch (err) {}
+   }, []);
+ 
+-  async function linkTiktok() {
++  async function link(net) {
+     setBusy(true);
+     setNotice(null);
+     try {
+-      const res = await fetch('/api/social/tiktok/start', { method: 'POST' });
++      const res = await fetch(`/api/social/${net.key}/start`, { method: 'POST' });
+       const data = await res.json().catch(() => null);
+       if (res.ok && data?.url) {
+         window.location.href = data.url;
+         return;
+       }
+-      setNotice({ tone: 'bad', key: res.status === 503 ? 'soon' : 'erreur' });
++      setNotice({ tone: 'bad', key: res.status === 503 ? 'soon' : 'erreur', name: net.name });
+     } catch (err) {
+-      setNotice({ tone: 'bad', key: 'erreur' });
++      setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+     }
+     setBusy(false);
+   }
+ 
+-  async function unlinkTiktok() {
++  async function unlink(net) {
+     setBusy(true);
+     setNotice(null);
+     try {
+-      const res = await fetch('/api/social/connections?provider=tiktok', { method: 'DELETE' });
+-      if (!res.ok) setNotice({ tone: 'bad', key: 'erreur' });
++      const res = await fetch(`/api/social/connections?provider=${net.key}`, { method: 'DELETE' });
++      if (!res.ok) setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+     } catch (err) {
+-      setNotice({ tone: 'bad', key: 'erreur' });
++      setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+     }
+     await load();
+     setBusy(false);
+   }
+ 
+-  const tiktok = connections.find((c) => c.provider === 'tiktok') || null;
+-
+   return (
+     <div className="social">
+       <strong className="social-title">{tx(locale, 'title')}</strong>
+-      <div className="social-row">
+-        <span className="social-name">TikTok</span>
+-        {loading ? (
+-          <span className="social-state">…</span>
+-        ) : tiktok ? (
+-          <>
+-            <span className="social-state on">{tx(locale, 'linked')}{tiktok.account_name ? ` · ${tiktok.account_name}` : ''}</span>
+-            <button type="button" className="social-ghost" onClick={unlinkTiktok} disabled={busy}>{tx(locale, 'unlink')}</button>
+-          </>
+-        ) : (
+-          <button type="button" className="social-primary" onClick={linkTiktok} disabled={busy}>{tx(locale, 'link')}</button>
+-        )}
+-      </div>
+-      {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key)}</p>}
++      {NETWORKS.map((net) => {
++        const conn = connections.find((c) => c.provider === net.key) || null;
++        return (
++          <div className="social-row" key={net.key}>
++            <span className="social-name">{net.name}</span>
++            {loading ? (
++              <span className="social-state">…</span>
++            ) : conn ? (
++              <>
++                <span className="social-state on">{tx(locale, 'linked')}{conn.account_name ? ` · ${conn.account_name}` : ''}</span>
++                <button type="button" className="social-ghost" onClick={() => unlink(net)} disabled={busy}>{tx(locale, 'unlink')}</button>
++              </>
++            ) : (
++              <button type="button" className="social-primary" onClick={() => link(net)} disabled={busy}>{tx(locale, 'link')}</button>
++            )}
++          </div>
++        );
++      })}
++      {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key).replace('{name}', notice.name || '')}</p>}
+       <style jsx>{`
+         .social { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+         .social-title { display: block; font-size: 0.92rem; margin-bottom: 0.6rem; }
+diff --git a/lib/social-linkedin.ts b/lib/social-linkedin.ts
+new file mode 100644
+index 0000000..713bd0b
+--- /dev/null
++++ b/lib/social-linkedin.ts
+@@ -0,0 +1,172 @@
++// lib/social-linkedin.ts
++//
++// AARON SOCIAL — liaison d'un compte LinkedIn (20/11/2026).
++//
++// Même parcours que TikTok (lib/social-tiktok.ts), avec l'OAuth 2.0 de
++// LinkedIn (« 3-legged », produits « Sign In with LinkedIn using OpenID
++// Connect » et « Share on LinkedIn » de l'appli Meet Aaron) :
++//   1. /api/social/linkedin/start    fabrique l'adresse d'autorisation ;
++//   2. la personne accepte sur linkedin.com ;
++//   3. LinkedIn revient sur /api/social/linkedin/callback avec un code ;
++//   4. on échange le code contre un jeton, rangé CHIFFRÉ dans
++//      social_connections (provider 'linkedin', déjà permis par la table).
++//
++// Identifiants :
++//   - Client ID public (77ts9ex6n7bkq4, appli créée par Alex depuis son
++//     propre profil le 20/11, rattachée à la page Meet Aaron) ;
++//     LINKEDIN_CLIENT_ID le remplace si besoin ;
++//   - Client Secret UNIQUEMENT dans Vercel (LINKEDIN_CLIENT_SECRET, saisi
++//     par Alex), jamais ici ni dans le chat.
++//
++// Portée : publier au nom de la PERSONNE (w_member_social). Publier au nom
++// de la PAGE demande le produit « Community Management API » (examen
++// LinkedIn, plus tard). Rien n'est encore publié : ce fichier lie le compte.
++
++import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
++
++const DEFAULT_CLIENT_ID = '77ts9ex6n7bkq4';
++
++export const LINKEDIN_SCOPES = 'openid profile w_member_social';
++export const LINKEDIN_STATE_COOKIE = 'oauth_linkedin_state';
++export const LINKEDIN_STATE_TTL_SECONDS = 10 * 60;
++
++const AUTHORIZE_URL = 'https://www.linkedin.com/oauth/v2/authorization';
++const TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken';
++const REVOKE_URL = 'https://www.linkedin.com/oauth/v2/revoke';
++const USERINFO_URL = 'https://api.linkedin.com/v2/userinfo';
++
++export function linkedinClientId(): string {
++  return process.env.LINKEDIN_CLIENT_ID || DEFAULT_CLIENT_ID;
++}
++
++export function linkedinClientSecret(): string | null {
++  return process.env.LINKEDIN_CLIENT_SECRET || null;
++}
++
++// Identique, au caractère près, à « Authorized redirect URLs » de l'appli.
++export function linkedinRedirectUri(): string {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  return `${base}/api/social/linkedin/callback`;
++}
++
++// « state » signé + aléa en cookie, 10 minutes : voir lib/social-tiktok.ts.
++function stateKey(): Buffer | null {
++  const secret = linkedinClientSecret();
++  if (!secret) return null;
++  return createHmac('sha256', secret).update('meet-aaron:linkedin-state:v1').digest();
++}
++
++function sign(payload: string, key: Buffer): string {
++  return createHmac('sha256', key).update(payload, 'utf8').digest('hex');
++}
++
++export function createLinkedinState(userId: string, nowMs: number = Date.now()): { state: string; nonce: string } | null {
++  const key = stateKey();
++  if (!key || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
++  const nonce = randomBytes(16).toString('hex');
++  const payload = `${userId}.${Math.floor(nowMs / 1000)}.${nonce}`;
++  return { state: `${payload}.${sign(payload, key)}`, nonce };
++}
++
++export function readLinkedinState(state: string | null, cookieNonce: string | null, nowMs: number = Date.now()): string | null {
++  const key = stateKey();
++  if (!key || !state || !cookieNonce) return null;
++  const parts = state.split('.');
++  if (parts.length !== 4) return null;
++  const [userId, issuedAt, nonce, signature] = parts;
++  if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^\d+$/.test(issuedAt) || !/^[0-9a-f]{32}$/.test(nonce)) return null;
++
++  const expected = Buffer.from(sign(`${userId}.${issuedAt}.${nonce}`, key), 'hex');
++  const received = Buffer.from(/^[0-9a-f]{64}$/.test(signature) ? signature : '', 'hex');
++  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null;
++
++  const a = Buffer.from(nonce);
++  const b = Buffer.from(cookieNonce);
++  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
++
++  const age = Math.floor(nowMs / 1000) - Number(issuedAt);
++  if (age < 0 || age > LINKEDIN_STATE_TTL_SECONDS) return null;
++  return userId;
++}
++
++export function linkedinAuthorizeUrl(state: string): string {
++  const params = new URLSearchParams({
++    response_type: 'code',
++    client_id: linkedinClientId(),
++    redirect_uri: linkedinRedirectUri(),
++    state,
++    scope: LINKEDIN_SCOPES,
++  });
++  return `${AUTHORIZE_URL}?${params.toString()}`;
++}
++
++export interface LinkedinTokens {
++  access_token: string;
++  refresh_token: string | null;
++  expires_in: number | null;
++  refresh_expires_in: number | null;
++  scope: string | null;
++}
++
++// Jeton d'environ 2 mois (réglage de l'appli). Le jeton de
++// renouvellement n'existe que pour certains partenaires : sans lui, la
++// personne reliera de nouveau son compte à l'échéance.
++export async function exchangeLinkedinCode(code: string): Promise<LinkedinTokens | null> {
++  const secret = linkedinClientSecret();
++  if (!secret) return null;
++  const res = await fetch(TOKEN_URL, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++    body: new URLSearchParams({
++      grant_type: 'authorization_code',
++      code,
++      client_id: linkedinClientId(),
++      client_secret: secret,
++      redirect_uri: linkedinRedirectUri(),
++    }).toString(),
++  });
++  const json: any = await res.json().catch(() => null);
++  if (!res.ok || !json || json.error || !json.access_token) {
++    console.error('[linkedin] échange du code refusé :', res.status, json?.error || '', json?.error_description || '');
++    return null;
++  }
++  const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
++  return {
++    access_token: String(json.access_token),
++    refresh_token: json.refresh_token ? String(json.refresh_token) : null,
++    expires_in: num(json.expires_in),
++    refresh_expires_in: num(json.refresh_token_expires_in),
++    scope: json.scope ? String(json.scope) : null,
++  };
++}
++
++// Identifiant (sub), nom et photo, via OpenID Connect.
++export async function fetchLinkedinProfile(accessToken: string): Promise<{ id: string | null; name: string | null; avatarUrl: string | null }> {
++  try {
++    const res = await fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
++    const json: any = await res.json().catch(() => null);
++    if (!res.ok || !json) return { id: null, name: null, avatarUrl: null };
++    return {
++      id: json.sub ? String(json.sub) : null,
++      name: json.name ? String(json.name).slice(0, 120) : null,
++      avatarUrl: typeof json.picture === 'string' && /^https:\/\//.test(json.picture) ? json.picture : null,
++    };
++  } catch {
++    return { id: null, name: null, avatarUrl: null };
++  }
++}
++
++export async function revokeLinkedinToken(accessToken: string): Promise<boolean> {
++  const secret = linkedinClientSecret();
++  if (!secret) return false;
++  try {
++    const res = await fetch(REVOKE_URL, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++      body: new URLSearchParams({ client_id: linkedinClientId(), client_secret: secret, token: accessToken }).toString(),
++    });
++    return res.ok;
++  } catch {
++    return false;
++  }
++}
+-- 
+2.43.0
+
