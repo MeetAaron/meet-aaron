@@ -1,0 +1,121 @@
+From 4379ccfdc039eb5a4a23a3503bdc0e8497b1000e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 15:40:08 +0000
+Subject: [PATCH] Equipe : comptes crees sans code visibles dans Abonnement
+ equipes ; classement sans le chiffre de credits converti en prospects
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/team/seats/route.ts | 37 ++++++++++++++++++++++++++++++++++++-
+ app/app/team/page.jsx       | 32 +++++++++++++++++++++++++++++++-
+ 2 files changed, 67 insertions(+), 2 deletions(-)
+
+diff --git a/app/api/team/seats/route.ts b/app/api/team/seats/route.ts
+index 441d173..00897da 100644
+--- a/app/api/team/seats/route.ts
++++ b/app/api/team/seats/route.ts
+@@ -44,7 +44,42 @@ export async function GET(request: NextRequest) {
+     return serverError(error, '/api/team/seats');
+   }
+ 
+-  return NextResponse.json({ seats: seats || [] });
++  // Comptes de l'équipe créés SANS code (20/11/2026) : les quatre boîtes de
++  // prospection de Meet Aaron (thomas, julie, james, charlotte) ont été
++  // créées directement en base, sans ligne team_seats. L'onglet affichait
++  // « Aucun compte équipe » alors que l'équipe en avait quatre. On les
++  // ajoute à la liste, marqués `direct` (pas de code, pas de facturation
++  // de siège ; `billing_exempt` dit s'ils sont offerts).
++  const seatUserIds = new Set((seats || []).map((x: any) => x.user_id).filter(Boolean));
++  let usersRes: any = await supabaseAdmin
++    .from('users')
++    .select('id, full_name, email, role, billing_exempt, created_at')
++    .eq('company_id', authedUser.company_id)
++    .neq('id', authedUser.id);
++  if (usersRes.error?.code === '42703') {
++    usersRes = await supabaseAdmin
++      .from('users')
++      .select('id, full_name, email, role, created_at')
++      .eq('company_id', authedUser.company_id)
++      .neq('id', authedUser.id);
++  }
++  const direct = ((usersRes.data || []) as any[])
++    .filter((u) => !seatUserIds.has(u.id) && u.role !== 'patron')
++    .map((u) => ({
++      id: `direct:${u.id}`,
++      direct: true,
++      user_id: u.id,
++      first_name: u.full_name || u.email,
++      last_name: '',
++      job_title: null,
++      email: u.email,
++      activation_code: null,
++      status: 'active',
++      billing_exempt: u.billing_exempt === true,
++      created_at: u.created_at,
++    }));
++
++  return NextResponse.json({ seats: [...(seats || []), ...direct] });
+ }
+ 
+ export async function POST(request: NextRequest) {
+diff --git a/app/app/team/page.jsx b/app/app/team/page.jsx
+index fb563ab..805e29f 100644
+--- a/app/app/team/page.jsx
++++ b/app/app/team/page.jsx
+@@ -711,7 +711,6 @@ export default function TeamPage() {
+                       {m.clients_actifs} {t('team.shortClients', locale)}
+                       {' · '}
+                       {m.clients_perdus} {t('team.shortLost', locale)}
+-                      {credits?.available ? ` · ${prospectsFromUsd(m.credits_used_usd || 0)} ${t('quota.unit', locale)}` : ''}
+                     </span>
+                   </div>
+                   <span className="rank-score">{m.clients_gagnes || 0}</span>
+@@ -831,6 +830,23 @@ export default function TeamPage() {
+                 <tbody>
+                   {seats.map((s) => {
+                     const busy = seatActionBusy === s.id;
++                    if (s.direct) {
++                      return (
++                        <tr key={s.id}>
++                          <td>{s.first_name} {s.last_name}</td>
++                          <td className="muted">{s.job_title || '—'}</td>
++                          <td className="muted">{s.email}</td>
++                          <td className="muted">{t('team.seatPlanAaron', locale)}</td>
++                          <td>
++                            <span className="seat-status seat-status-active">
++                              {t('team.seatStatusActive', locale)}{s.billing_exempt ? ` · ${seatDirectText(locale, 'free')}` : ''}
++                            </span>
++                          </td>
++                          <td className="muted">{seatDirectText(locale, 'noCode')}</td>
++                          <td className="muted">—</td>
++                        </tr>
++                      );
++                    }
+                     return (
+                       <tr key={s.id}>
+                         <td>{s.first_name} {s.last_name}</td>
+@@ -1839,6 +1855,20 @@ function TeamSuggestionsPanel({ userId, locale }) {
+ // prospects. L'estimation est volontairement prudente (le coût réel mesuré
+ // par prospect est plus bas), donc le compte affiché est un PLANCHER : on
+ // n'annonce jamais plus de prospects qu'on ne peut en servir.
++// Comptes créés sans code (app/api/team/seats, 20/11/2026).
++const SEAT_DIRECT_TEXT = {
++  fr: { free: 'offert', noCode: 'Créé sans code' },
++  en: { free: 'free', noCode: 'Created without a code' },
++  de: { free: 'kostenlos', noCode: 'Ohne Code erstellt' },
++  it: { free: 'gratuito', noCode: 'Creato senza codice' },
++  es: { free: 'gratis', noCode: 'Creado sin código' },
++  pt: { free: 'gratuito', noCode: 'Criado sem código' },
++  nl: { free: 'gratis', noCode: 'Aangemaakt zonder code' },
++};
++function seatDirectText(locale, key) {
++  return (SEAT_DIRECT_TEXT[locale] || SEAT_DIRECT_TEXT.fr)[key] || SEAT_DIRECT_TEXT.fr[key];
++}
++
+ function prospectsFromUsd(usd) {
+   const n = (Number(usd) || 0) / USD_PER_CREDIT * PROSPECTS_PER_CREDIT;
+   if (n > 0 && n < 1) return '< 1';
+-- 
+2.43.0
+
