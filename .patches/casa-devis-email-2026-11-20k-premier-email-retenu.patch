@@ -1,0 +1,245 @@
+From d8c0781e8e31981976bfd6a8a6048f51622befaa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 15:22:35 +0000
+Subject: [PATCH] Premier email : le tout premier retient les suivants jusqu'a
+ validation, seuls les vrais brouillons a relire s'affichent ; prompt : pas de
+ 'I run', preuve sociale telle quelle
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/aaron-batch.ts          |  4 ++-
+ lib/aaron_system_prompt.md  |  4 +--
+ lib/first-contact.ts        | 13 ++++++++-
+ lib/first-email-approval.ts | 58 +++++++++++++++++++++++++++----------
+ lib/first-email-deferred.ts |  6 ++++
+ lib/notifications.ts        | 23 +++++++++++++--
+ 6 files changed, 86 insertions(+), 22 deletions(-)
+
+diff --git a/lib/aaron-batch.ts b/lib/aaron-batch.ts
+index 50e1954..c13b021 100644
+--- a/lib/aaron-batch.ts
++++ b/lib/aaron-batch.ts
+@@ -354,7 +354,9 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
+     // report de créneau : un tout premier email lancé un dimanche doit
+     // attendre le commercial, pas partir seul lundi matin.
+     const approval = await mustApproveFirstEmail(prospect.assigned_user_id, owner?.require_first_email_approval);
+-    if (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
++    if (approval.hold || (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {}))))) {
++      // Brouillon rangé sans notification : hors créneau, ou retenu tant que
++      // le tout premier email du compte n'est pas validé (approval.hold).
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+diff --git a/lib/aaron_system_prompt.md b/lib/aaron_system_prompt.md
+index f49e3f2..959c54f 100644
+--- a/lib/aaron_system_prompt.md
++++ b/lib/aaron_system_prompt.md
+@@ -103,7 +103,7 @@ Avant d'écrire le tout premier message à un prospect, tu dois maîtriser deux
+ 
+ ### Se présenter n'est JAMAIS optionnel (même dans le pire cas)
+ 
+-Bug remonté par Alex (26/08/2026, capture à l'appui) : un premier email du type "je me permets de vous contacter car j'aimerais échanger quelques minutes sur un sujet qui pourrait vous intéresser" a reçu pour toute réponse "qui êtes-vous ?" — c'est le signe le plus sûr d'un cold email raté, et c'est évitable dans TOUS les cas, même le pire (`offre_vendue` ET `recherche_societe_prospect` tous les deux `null` — aucune donnée exploitable sur qui que ce soit). Dans ce pire cas précis, tu n'as pas le droit d'inventer un élément de légitimité ni une connaissance du métier du prospect (voir plus haut), mais `commercial.nom` et `commercial.societe` sont eux TOUJOURS connus et ne sont jamais `null` — il n'y a donc AUCUNE excuse à un message qui ne dit pas explicitement, dès les 2 premières phrases du corps du message (pas seulement dans la signature ajoutée après l'envoi, voir STYLE D'ÉCRITURE ci-dessus), qui écrit et pour quelle société : au minimum "je suis [prénom], je travaille chez [société]" accompagné d'une amorce d'une phrase sur ce que fait la société dès que `offre_vendue` le permet, même formulée simplement. Un inconnu qui demande un appel sans jamais dire qui il est n'a aucune raison d'obtenir la confiance du prospect — c'est une question de politesse et de crédibilité de base, indépendante du niveau de personnalisation Cialdini que permettent les autres données disponibles.
++Bug remonté par Alex (26/08/2026, capture à l'appui) : un premier email du type "je me permets de vous contacter car j'aimerais échanger quelques minutes sur un sujet qui pourrait vous intéresser" a reçu pour toute réponse "qui êtes-vous ?" — c'est le signe le plus sûr d'un cold email raté, et c'est évitable dans TOUS les cas, même le pire (`offre_vendue` ET `recherche_societe_prospect` tous les deux `null` — aucune donnée exploitable sur qui que ce soit). Dans ce pire cas précis, tu n'as pas le droit d'inventer un élément de légitimité ni une connaissance du métier du prospect (voir plus haut), mais `commercial.nom` et `commercial.societe` sont eux TOUJOURS connus et ne sont jamais `null` — il n'y a donc AUCUNE excuse à un message qui ne dit pas explicitement, dès les 2 premières phrases du corps du message (pas seulement dans la signature ajoutée après l'envoi, voir STYLE D'ÉCRITURE ci-dessus), qui écrit et pour quelle société : au minimum "je suis [prénom], je travaille chez [société]" (**jamais** « je dirige [société] », « I run [société] », « fondateur » ou « gérant » : tu ne connais pas son poste, et un commercial qui se dit patron ment — vu le 20/11/2026 dans les premiers emails de deux commerciaux) accompagné d'une amorce d'une phrase sur ce que fait la société dès que `offre_vendue` le permet, même formulée simplement. Un inconnu qui demande un appel sans jamais dire qui il est n'a aucune raison d'obtenir la confiance du prospect — c'est une question de politesse et de crédibilité de base, indépendante du niveau de personnalisation Cialdini que permettent les autres données disponibles.
+ 
+ ## PROSPECT HORS CIBLE — NE PAS ÉCRIRE (04/11/2026)
+ 
+@@ -135,7 +135,7 @@ L'IDENTITÉ en tête de ce prompt indique que tu maîtrises les 7 principes de C
+ - **Autorité** : voir la section dédiée ci-dessus (positionnement basé sur `offre_vendue`, sa phrase "Légitimité :" si présente, et `recherche_societe_prospect` pour parler le langage du métier du prospect).
+ - **Réciprocité** : donne quelque chose de concret AVANT de demander quoi que ce soit — un conseil utile et gratuit lié au métier du prospect (surtout exploitable quand `recherche_societe_prospect` est renseigné), une réponse détaillée à une question sans contrepartie immédiate, une ressource utile. Particulièrement efficace dans les relances et dans la tentative de sauvetage (`rescue_proposal`, ex: "je vous envoie quand même notre étude de cas").
+ - **Engagement et cohérence** : fais dire "oui" à des petites choses avant de demander un engagement plus important (une question ouverte à faible friction dans le premier message, puis un engagement progressif — un appel de 15 min avant un rdv d'1h). Rappelle les engagements ou intérêts déjà exprimés par le prospect lui-même dans ses réponses précédentes ("vous me disiez justement que...") pour créer une cohérence qui pousse naturellement à poursuivre.
+-- **Preuve sociale** : mentionne des références ou clients similaires uniquement quand c'est honnête et vérifiable (voir `documents_entreprise`, `societe_deja_cliente`, `autres_contacts_meme_societe`) — jamais un chiffre ou un nom inventé (voir RÈGLES ABSOLUES). Un autre contact de la même société déjà client (`societe_deja_cliente`) est la forme la plus forte de preuve sociale disponible : utilise-la en priorité quand elle existe (voir GESTION MULTI-CONTACTS D'UNE MÊME SOCIÉTÉ). `offre_vendue` peut aussi contenir une phrase dédiée commençant par "Preuve sociale :" (voir `app/api/business-summary/route.ts`, nourrie par la question du questionnaire de découverte sur un exemple concret de client satisfait) — un résultat chiffré ou une transformation vécue par un vrai client, distincte de la phrase "Légitimité :" qui parle du commercial lui-même. Utilise-la telle quelle quand elle est présente, sans jamais l'inventer si elle est absente.
++- **Preuve sociale** : mentionne des références ou clients similaires uniquement quand c'est honnête et vérifiable (voir `documents_entreprise`, `societe_deja_cliente`, `autres_contacts_meme_societe`) — jamais un chiffre ou un nom inventé (voir RÈGLES ABSOLUES). Un autre contact de la même société déjà client (`societe_deja_cliente`) est la forme la plus forte de preuve sociale disponible : utilise-la en priorité quand elle existe (voir GESTION MULTI-CONTACTS D'UNE MÊME SOCIÉTÉ). `offre_vendue` peut aussi contenir une phrase dédiée commençant par "Preuve sociale :" (voir `app/api/business-summary/route.ts`, nourrie par la question du questionnaire de découverte sur un exemple concret de client satisfait) — un résultat chiffré ou une transformation vécue par un vrai client, distincte de la phrase "Légitimité :" qui parle du commercial lui-même. Utilise-la telle quelle quand elle est présente, sans jamais l'inventer si elle est absente. **Telle quelle veut dire sans l'adapter au prospect** : si elle parle d'« une PME », tu écris « une PME » (« a small business »), jamais « une entreprise de ton métier », « a trade business like yours » ou un autre secteur que celui écrit — changer le type de client pour qu'il ressemble au prospect, c'est inventer une référence (vu le 20/11/2026 : « one trade business that gave it a month… » alors que la phrase disait « une PME »).
+ - **Sympathie** : trouve un point commun réel et vérifiable (même secteur/filière, même zone géographique via `contexte_campagne_origine`, une info concrète sur son entreprise via `recherche_societe_prospect`), reste chaleureux et humain sans flatterie excessive, adapte réellement le ton au profil DISC détecté.
+ - **Rareté** : à utiliser avec parcimonie et seulement si c'est vrai — jamais une fausse urgence artificielle qui sonnerait creux et détruirait la confiance dès qu'elle serait perçue comme telle. Une disponibilité réellement limitée du commercial, une fenêtre d'action limitée dans le temps (fin de trimestre, saison), sont les seuls leviers légitimes. Le terrain principal pour la rareté reste la tentative de sauvetage (voir section dédiée plus bas).
+ - **Unité** : parle "depuis la même communauté" que le prospect (même métier/filière, mêmes défis du secteur — encore une fois surtout exploitable avec `recherche_societe_prospect`) plutôt que depuis une posture vendeur/acheteur classique. "Nous, dans le métier..." installe plus de proximité que "vous, en tant que client potentiel...".
+diff --git a/lib/first-contact.ts b/lib/first-contact.ts
+index 347e9a5..e1a44c4 100644
+--- a/lib/first-contact.ts
++++ b/lib/first-contact.ts
+@@ -179,7 +179,18 @@ export async function runFirstContact(prospect: FirstContactProspect) {
+ 
+     // Tout premier email du compte : toujours relu (lib/first-email-approval.ts).
+     const approval = hasEmailToSend ? await mustApproveFirstEmail(prospect.assigned_user_id, sender?.require_first_email_approval) : { approve: false, reason: null };
+-    if (hasEmailToSend && (approval.approve || truncated)) {
++    if (hasEmailToSend && (approval as any).hold && !truncated) {
++      // Tout premier email du compte encore à valider : celui-ci attend en
++      // brouillon, sans notification, et partira après (first-email-deferred).
++      await supabaseAdmin
++        .from('prospects')
++        .update({
++          pending_first_email_subject: aaronOutput.email_draft.subject,
++          pending_first_email_body: aaronOutput.email_draft.body,
++          pending_first_email_generated_at: new Date().toISOString(),
++        })
++        .eq('id', prospect.id);
++    } else if (hasEmailToSend && (approval.approve || truncated)) {
+       await supabaseAdmin
+         .from('prospects')
+         .update({
+diff --git a/lib/first-email-approval.ts b/lib/first-email-approval.ts
+index bae4047..b34e510 100644
+--- a/lib/first-email-approval.ts
++++ b/lib/first-email-approval.ts
+@@ -14,30 +14,56 @@
+ 
+ import { supabaseAdmin } from './supabase-admin';
+ 
+-export async function mustApproveFirstEmail(userId: string, requireApprovalPref: boolean | null | undefined): Promise<{ approve: boolean; reason: 'preference' | 'first_ever' | null }> {
++// A-t-il déjà envoyé au moins un email de prospection ? null si la lecture
++// échoue (schéma différent) : dans ce cas on ne bloque personne.
++export async function hasEverSentProspecting(userId: string): Promise<boolean | null> {
++  const { data: sent, error } = await supabaseAdmin
++    .from('messages')
++    .select('id, conversations!inner(prospects!inner(assigned_user_id))')
++    .eq('direction', 'outbound')
++    .eq('conversations.prospects.assigned_user_id', userId)
++    .limit(1);
++  if (error) {
++    console.error('[first-email-approval] lecture impossible:', error.message);
++    return null;
++  }
++  return !!(sent && sent.length);
++}
++
++// Le compte attend-il la validation de son tout premier email ? Vrai tant
++// que rien n'est jamais parti. Sert aux brouillons « retenus » (hold) et à
++// la liste « à valider » (lib/notifications.ts).
++export async function awaitingFirstApproval(userId: string): Promise<boolean> {
++  try {
++    return (await hasEverSentProspecting(userId)) === false;
++  } catch {
++    return false;
++  }
++}
++
++// 20/11/2026 (campagnes de James et Charlotte) : pendant que le tout premier
++// email attendait Alex, les suivants partaient seuls (8 envois chez
++// Charlotte), et le tout premier lui-même serait parti tout seul au créneau
++// suivant (lib/first-email-deferred.ts ne distinguait pas). Désormais :
++//   - approve : brouillon à relire, notification ;
++//   - hold : le tout premier attend déjà ; celui-ci est rangé en brouillon
++//     sans notification, et ne partira qu'une fois le premier validé.
++export async function mustApproveFirstEmail(
++  userId: string,
++  requireApprovalPref: boolean | null | undefined
++): Promise<{ approve: boolean; reason: 'preference' | 'first_ever' | null; hold?: boolean }> {
+   if (requireApprovalPref === true) return { approve: true, reason: 'preference' };
+   try {
++    const everSent = await hasEverSentProspecting(userId);
++    if (everSent !== false) return { approve: false, reason: null };
+     const { data: pending } = await supabaseAdmin
+       .from('prospects')
+       .select('id')
+       .eq('assigned_user_id', userId)
+       .not('pending_first_email_subject', 'is', null)
+       .limit(1);
+-    if (pending && pending.length) return { approve: false, reason: null };
+-
+-    const { data: sent, error } = await supabaseAdmin
+-      .from('messages')
+-      .select('id, conversations!inner(prospects!inner(assigned_user_id))')
+-      .eq('direction', 'outbound')
+-      .eq('conversations.prospects.assigned_user_id', userId)
+-      .limit(1);
+-    if (error) {
+-      // Filtre imbriqué refusé (schéma différent) : on ne bloque personne.
+-      console.error('[first-email-approval] lecture impossible:', error.message);
+-      return { approve: false, reason: null };
+-    }
+-    if (!sent || sent.length === 0) return { approve: true, reason: 'first_ever' };
+-    return { approve: false, reason: null };
++    if (pending && pending.length) return { approve: false, reason: null, hold: true };
++    return { approve: true, reason: 'first_ever' };
+   } catch (err: any) {
+     console.error('[first-email-approval]', err?.message || err);
+     return { approve: false, reason: null };
+diff --git a/lib/first-email-deferred.ts b/lib/first-email-deferred.ts
+index 5605e78..c615549 100644
+--- a/lib/first-email-deferred.ts
++++ b/lib/first-email-deferred.ts
+@@ -22,6 +22,7 @@
+ import { supabaseAdmin } from './supabase-admin';
+ import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
+ import { isProspectingWindowOpenForUser } from './send-window';
++import { awaitingFirstApproval } from './first-email-approval';
+ import { resolveUserTimeZone } from './user-timezone';
+ 
+ const MAX_PER_USER_PER_RUN = 5;
+@@ -59,6 +60,7 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
+   const perUser: Record<string, number> = {};
+   const blockedUsers = new Set<string>();
+   const windowOpen = new Map<string, boolean>();
++  const firstChecked = new Map<string, boolean>();
+ 
+   for (const draft of drafts) {
+     const user = users.get(draft.assigned_user_id);
+@@ -68,6 +70,10 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
+     // Le commercial a repris ce prospect en main : Aaron n'envoie rien.
+     if (draft.ai_managed === false) continue;
+     if (blockedUsers.has(user.id)) continue;
++    // Tout premier email du compte pas encore validé : rien ne part, ni lui
++    // ni les brouillons retenus derrière lui (20/11/2026).
++    if (!firstChecked.has(user.id)) firstChecked.set(user.id, await awaitingFirstApproval(user.id));
++    if (firstChecked.get(user.id)) continue;
+ 
+     if (!windowOpen.has(user.id)) windowOpen.set(user.id, await isProspectingWindowOpenForUser(user.id, resolveUserTimeZone(user)));
+     if (!windowOpen.get(user.id)) {
+diff --git a/lib/notifications.ts b/lib/notifications.ts
+index f794b3e..0150007 100644
+--- a/lib/notifications.ts
++++ b/lib/notifications.ts
+@@ -14,6 +14,7 @@ import { supabaseAdmin } from './supabase-admin';
+ import { selectInChunks } from './chunked-in';
+ import { resolveUserTimeZone, localDayBounds } from './user-timezone';
+ import { derivePipelinePosition } from './pipeline';
++import { awaitingFirstApproval } from './first-email-approval';
+ 
+ export type NotificationType =
+   // Test de délivrabilité négatif : rien ne part tant que ce n'est pas réglé
+@@ -116,7 +117,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+ 
+   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
+   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
+-  const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
++  const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, pending_first_email_generated_at, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
+   const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, devis_file_name';
+   async function loadProspects() {
+     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
+@@ -158,6 +159,24 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+       .order('proposed_at', { ascending: true }),
+   ]);
+ 
++  // Quels brouillons de premier email attendent VRAIMENT le commercial
++  // (20/11/2026) ? Avant, tout brouillon s'affichait « à valider », y compris
++  // ceux qui n'attendaient que le créneau d'envoi ou le plafond du jour
++  // (1 chez James, 2 chez Charlotte, Alex ne comprenait pas). Désormais :
++  // tous si le commercial a choisi de relire chaque premier email ; sinon,
++  // seulement le tout premier du compte tant que rien n'est parti.
++  const pendingDrafts = ((prospects || []) as any[]).filter((p) => p.pending_first_email_subject);
++  const toValidate = new Set<string>();
++  if (pendingDrafts.length) {
++    const { data: prefRow } = await supabaseAdmin.from('users').select('require_first_email_approval').eq('id', userId).maybeSingle();
++    if ((prefRow as any)?.require_first_email_approval === true) {
++      pendingDrafts.forEach((p) => toValidate.add(p.id));
++    } else if (await awaitingFirstApproval(userId)) {
++      const oldest = [...pendingDrafts].sort((a, b) => String(a.pending_first_email_generated_at || '').localeCompare(String(b.pending_first_email_generated_at || '')))[0];
++      if (oldest) toValidate.add(oldest.id);
++    }
++  }
++
+   const byType: Record<string, NotificationItem[]> = {};
+   function push(item: NotificationItem) {
+     (byType[item.type] ||= []).push(item);
+@@ -216,7 +235,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
+     if (p.rescue_proposal_pending) {
+       push({ ...base, id: `sauvetage_a_valider:${p.id}`, type: 'sauvetage_a_valider', at: null, days_waiting: null, meta: { subject: p.rescue_proposal_subject, body: p.rescue_proposal_body, source: p.rescue_proposal_source || null, news_signal: p.rescue_proposal_source === 'actualite' ? p.prospect_companies?.news_signal || null : null } });
+     }
+-    if (p.pending_first_email_subject) {
++    if (p.pending_first_email_subject && toValidate.has(p.id)) {
+       push({ ...base, id: `email_a_valider:${p.id}`, type: 'email_a_valider', at: null, days_waiting: null, meta: { subject: p.pending_first_email_subject, body: p.pending_first_email_body } });
+     }
+     if (p.is_won && !p.first_order_confirmed_at && !pos.lost) {
+-- 
+2.43.0
+
