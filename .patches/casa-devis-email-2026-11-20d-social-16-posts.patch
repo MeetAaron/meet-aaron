@@ -1,0 +1,853 @@
+From a7cfd0ac6e0c0ad54c1bca1a9f102c546599d18f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 06:16:32 +0000
+Subject: [PATCH] Aaron Social : preparation des 16 posts du mois (onglet
+ Reseaux sociaux, aaron@ seulement)
+
+- lib/social-posts.ts : 4 familles (realisations, clients satisfaits,
+  conseils de pro, offres et coulisses), 4 posts chacune, un sujet decline
+  en 4 formes (carrousel Instagram, texte Facebook, document LinkedIn,
+  scenes TikTok). Parle au nom de l'entreprise, rien d'invente : une photo ou
+  un avis manquant est demande, jamais imagine.
+- Une requete par famille (/api/social/campaigns/[id]/category), lancees en
+  parallele par l'ecran : chaque appel tient dans les 60 secondes, une
+  famille ratee se relance seule.
+- components/SocialCampaignPanel.jsx : preparation, progression, semaines,
+  apercu par reseau, ce qu'il manque. Rien n'est publie.
+- migration_social_posts_2026-11-20.sql (social_campaigns, social_posts).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ .../social/campaigns/[id]/category/route.ts   |  89 +++++
+ app/api/social/campaigns/route.ts             | 102 ++++++
+ app/app/campaigns/page.jsx                    |  19 +-
+ components/SocialCampaignPanel.jsx            | 317 ++++++++++++++++++
+ lib/anthropic-client.ts                       |   1 +
+ lib/social-posts.ts                           | 179 ++++++++++
+ migration_social_posts_2026-11-20.sql         |  40 +++
+ 7 files changed, 746 insertions(+), 1 deletion(-)
+ create mode 100644 app/api/social/campaigns/[id]/category/route.ts
+ create mode 100644 app/api/social/campaigns/route.ts
+ create mode 100644 components/SocialCampaignPanel.jsx
+ create mode 100644 lib/social-posts.ts
+ create mode 100644 migration_social_posts_2026-11-20.sql
+
+diff --git a/app/api/social/campaigns/[id]/category/route.ts b/app/api/social/campaigns/[id]/category/route.ts
+new file mode 100644
+index 0000000..e01cbad
+--- /dev/null
++++ b/app/api/social/campaigns/[id]/category/route.ts
+@@ -0,0 +1,89 @@
++// app/api/social/campaigns/[id]/category/route.ts
++//
++// POST { category } -> prépare les 4 posts d'une famille pour cette campagne
++// (lib/social-posts.ts) et les range dans les semaines 1 à 4, au créneau de
++// la famille. Quand les 4 familles sont là, la campagne passe « prete ».
++// Relancer une famille déjà préparée la remplace.
++//
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { readJsonBody } from '@/lib/http';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import { generateCategoryPosts, SOCIAL_CATEGORIES, SocialCategory } from '@/lib/social-posts';
++import { MonthlyCapExceededError, SubscriptionUnpaidError } from '@/lib/anthropic-client';
++
++export const runtime = 'nodejs';
++export const maxDuration = 60;
++
++export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
++  const { id: campaignId } = await ctx.params;
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email) || !authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++
++  const { category } = await readJsonBody(request);
++  if (!(SOCIAL_CATEGORIES as readonly string[]).includes(category)) {
++    return NextResponse.json({ error: 'category_invalide' }, { status: 400 });
++  }
++  const slot = (SOCIAL_CATEGORIES as readonly string[]).indexOf(category) + 1;
++
++  const { data: campaign } = await supabaseAdmin
++    .from('social_campaigns')
++    .select('id, company_id, status, locale')
++    .eq('id', campaignId)
++    .maybeSingle();
++  if (!campaign || (campaign as any).company_id !== authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++  if (!['preparation', 'prete', 'erreur'].includes((campaign as any).status)) {
++    return NextResponse.json({ error: 'campagne_lancee' }, { status: 409 });
++  }
++
++  let posts;
++  try {
++    posts = await generateCategoryPosts(authedUser.company_id, category as SocialCategory, (campaign as any).locale || authedUser.locale, authedUser.id);
++  } catch (err: any) {
++    if (err instanceof MonthlyCapExceededError || err instanceof SubscriptionUnpaidError) {
++      return NextResponse.json({ error: 'budget' }, { status: 429 });
++    }
++    console.error(`[social] famille « ${category} » :`, err?.message || err);
++    return NextResponse.json({ error: 'generation_failed' }, { status: 502 });
++  }
++  if (posts.length === 0) {
++    return NextResponse.json({ error: 'generation_failed' }, { status: 502 });
++  }
++
++  const now = new Date().toISOString();
++  const rows = posts.map((p, i) => ({
++    campaign_id: campaignId,
++    company_id: authedUser.company_id,
++    week: i + 1,
++    slot,
++    category,
++    subject: p.subject,
++    material_needed: p.material_needed,
++    material_hint: p.material_hint,
++    content: p.content,
++    status: p.material_needed === 'none' ? 'pret' : 'brouillon',
++    updated_at: now,
++  }));
++  // Relance d'une famille : on remplace ses posts.
++  await supabaseAdmin.from('social_posts').delete().eq('campaign_id', campaignId).eq('slot', slot);
++  const { error: insertError } = await supabaseAdmin.from('social_posts').insert(rows);
++  if (insertError) {
++    console.error('[social] enregistrement des posts :', insertError.code || '', insertError.message);
++    return NextResponse.json({ error: 'save_failed' }, { status: 500 });
++  }
++
++  const { data: slots } = await supabaseAdmin.from('social_posts').select('slot').eq('campaign_id', campaignId);
++  const done = new Set(((slots || []) as any[]).map((r) => r.slot)).size;
++  if (done >= SOCIAL_CATEGORIES.length) {
++    await supabaseAdmin.from('social_campaigns').update({ status: 'prete', error: null, updated_at: now }).eq('id', campaignId);
++  }
++  return NextResponse.json({ success: true, count: rows.length, categories_done: done });
++}
+diff --git a/app/api/social/campaigns/route.ts b/app/api/social/campaigns/route.ts
+new file mode 100644
+index 0000000..0b4d80d
+--- /dev/null
++++ b/app/api/social/campaigns/route.ts
+@@ -0,0 +1,102 @@
++// app/api/social/campaigns/route.ts
++//
++// AARON SOCIAL — préparation d'une campagne (20/11/2026).
++// GET  -> la dernière campagne de la société et ses posts.
++// POST -> crée une campagne vide (statut « preparation »). L'écran lance
++//         ensuite les 4 familles de posts, une requête chacune :
++//         /api/social/campaigns/[id]/category (lib/social-posts.ts).
++//
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++// Rien n'est publié sur les réseaux à ce stade.
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { socialPreviewAllowed } from '@/lib/social-access';
++
++export const runtime = 'nodejs';
++
++
++function tableMissing(error: any): boolean {
++  return !!error && (error.code === '42P01' || error.code === 'PGRST205');
++}
++
++// Une préparation abandonnée (écran fermé avant la fin) ne doit pas bloquer
++// la suivante : au-delà de 10 minutes, on la considère en échec.
++const STUCK_MS = 10 * 60 * 1000;
++
++export async function GET(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email) || !authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++
++  const { data: campaign, error } = await supabaseAdmin
++    .from('social_campaigns')
++    .select('id, status, locale, error, created_at, updated_at')
++    .eq('company_id', authedUser.company_id)
++    .order('created_at', { ascending: false })
++    .limit(1)
++    .maybeSingle();
++  if (error) {
++    if (tableMissing(error)) return NextResponse.json({ campaign: null, posts: [], migration_missing: true });
++    console.error('[social] lecture de la campagne :', error.code || '', error.message);
++    return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  }
++  if (!campaign) return NextResponse.json({ campaign: null, posts: [] });
++
++  let current: any = campaign;
++  if (current.status === 'preparation' && Date.now() - new Date(current.created_at).getTime() > STUCK_MS) {
++    await supabaseAdmin.from('social_campaigns').update({ status: 'erreur', error: 'timeout', updated_at: new Date().toISOString() }).eq('id', current.id);
++    current = { ...current, status: 'erreur', error: 'timeout' };
++  }
++
++  const { data: posts } = await supabaseAdmin
++    .from('social_posts')
++    .select('id, week, slot, category, subject, material_needed, material_hint, content, status')
++    .eq('campaign_id', current.id)
++    .order('week', { ascending: true })
++    .order('slot', { ascending: true });
++
++  return NextResponse.json({ campaign: current, posts: posts || [] });
++}
++
++export async function POST(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email) || !authedUser.company_id) {
++    return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  }
++  const companyId = authedUser.company_id;
++
++  // Une seule préparation à la fois par société.
++  const { data: running, error: readError } = await supabaseAdmin
++    .from('social_campaigns')
++    .select('id, created_at')
++    .eq('company_id', companyId)
++    .eq('status', 'preparation')
++    .limit(1)
++    .maybeSingle();
++  if (readError) {
++    if (tableMissing(readError)) return NextResponse.json({ error: 'migration_missing' }, { status: 409 });
++    return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  }
++  if (running && Date.now() - new Date((running as any).created_at).getTime() < STUCK_MS) {
++    return NextResponse.json({ campaign_id: (running as any).id, already_running: true });
++  }
++
++  const { data: created, error: createError } = await supabaseAdmin
++    .from('social_campaigns')
++    .insert({ company_id: companyId, created_by: authedUser.id, status: 'preparation', locale: authedUser.locale || 'fr' })
++    .select('id')
++    .single();
++  if (createError || !created) {
++    if (tableMissing(createError)) return NextResponse.json({ error: 'migration_missing' }, { status: 409 });
++    console.error('[social] création de la campagne :', createError?.code || '', createError?.message);
++    return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  }
++  const campaignId = (created as any).id as string;
++
++  return NextResponse.json({ campaign_id: campaignId });
++}
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 4838cc5..b10e7dc 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -16,6 +16,8 @@ import InstallPrompt from '@/components/InstallPrompt';
+ import MobileChrome from '@/components/MobileChrome';
+ import Stories from '@/components/Stories';
+ import Ic from '@/components/UiIcon';
++import SocialCampaignPanel from '@/components/SocialCampaignPanel';
++import { socialPreviewAllowed } from '@/lib/social-access';
+ import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
+ import { frenchTypography } from '@/lib/text-typography';
+ import Translated from '@/components/Translated';
+@@ -350,6 +352,8 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
+   );
+ }
+ 
++const SOCIAL_TAB_LABEL = { fr: 'Réseaux sociaux', en: 'Social media', de: 'Soziale Netzwerke', it: 'Social network', es: 'Redes sociales', pt: 'Redes sociais', nl: 'Sociale media' };
++
+ // Cycle de vie d'une campagne (20/11/2026, demande d'Alex) : brouillon à
+ // reprendre, onglets En cours / Terminées, croix pour retirer une campagne.
+ const CAMP_LIFE = {
+@@ -721,9 +725,22 @@ export default function CampaignsPage() {
+         >
+           <Ic name="refresh" /> {t('reactivation.tabLabel', locale)}
+         </button>
++        {/* Aaron Social (20/11/2026) : visible sur aaron@meetaaron.app
++            seulement tant que le produit n'est pas ouvert aux clients. */}
++        {socialPreviewAllowed(userEmail) && (
++          <button
++            type="button"
++            className={`tab-btn ${tab === 'social' ? 'active' : ''}`}
++            onClick={() => setTab('social')}
++          >
++            <Ic name="megaphone" /> {SOCIAL_TAB_LABEL[locale] || SOCIAL_TAB_LABEL.fr}
++          </button>
++        )}
+       </div>
+ 
+-      {tab === 'marketing' ? (
++      {tab === 'social' && socialPreviewAllowed(userEmail) ? (
++        <SocialCampaignPanel locale={locale} />
++      ) : tab === 'marketing' ? (
+         <MarketingCampaignsPanel userId={userId} companyId={companyId} locale={locale} customerModuleActive={customerModuleActive} />
+       ) : tab === 'reactivation' ? (
+         <div className="reactivation-panel">
+diff --git a/components/SocialCampaignPanel.jsx b/components/SocialCampaignPanel.jsx
+new file mode 100644
+index 0000000..41529ae
+--- /dev/null
++++ b/components/SocialCampaignPanel.jsx
+@@ -0,0 +1,317 @@
++// components/SocialCampaignPanel.jsx
++//
++// AARON SOCIAL — onglet « Réseaux sociaux » de la page Campagnes
++// (20/11/2026). Visible sur aaron@meetaaron.app seulement
++// (lib/social-access.js), comme toute la partie réseaux sociaux.
++//
++// Ce que l'écran fait aujourd'hui : préparer les 16 posts du mois (4 par
++// semaine, 4 familles), les montrer semaine par semaine et réseau par réseau,
++// et dire ce qu'il manque (photo, avis). Rien n'est publié : la publication
++// viendra avec les liaisons Meta, TikTok et LinkedIn validées.
++//
++// La préparation lance les 4 familles en parallèle, une requête chacune
++// (/api/social/campaigns/[id]/category) : chaque appel tient dans la limite
++// de 60 secondes, et une famille qui échoue se relance seule.
++
++'use client';
++
++import { useEffect, useRef, useState } from 'react';
++
++const CATEGORIES = ['realisation', 'avis', 'conseil', 'coulisses'];
++const NETWORKS = ['instagram', 'facebook', 'linkedin', 'tiktok'];
++
++const TEXT = {
++  fr: {
++    title: 'Tes 16 posts du mois', intro: '4 semaines, 4 posts par semaine, sur chaque réseau.', prepare: 'Préparer mes 16 posts', preparing: 'Aaron prépare tes posts…', progress: '{n} familles sur 4', resumePrep: 'Continuer la préparation', redo: 'Tout refaire', redoConfirm: 'Refaire les 16 posts ? Les posts actuels seront remplacés.', ready: '{n} posts prêts sur {t}', week: 'Semaine {n}', preview: 'Aperçu : rien n’est publié pour l’instant.', error: 'La préparation n’a pas abouti. Réessaie.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', budget: 'Plafond d’utilisation atteint pour aujourd’hui.',
++    cat: { realisation: 'Réalisation', avis: 'Client satisfait', conseil: 'Conseil de pro', coulisses: 'Offre ou coulisses' },
++    state: { pret: 'Prêt', photo: 'Photo à fournir', avis: 'Avis à fournir' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Carrousel de 5 pages', facebook: 'Photo et texte', linkedin: 'Document de 5 pages', tiktok: 'Vidéo de 15 secondes, avec tes photos' },
++    slide: 'Page', scene: 'Scène', caption: 'Légende', missing: 'À fournir',
++  },
++  en: {
++    title: 'Your 16 posts this month', intro: '4 weeks, 4 posts a week, on every network.', prepare: 'Prepare my 16 posts', preparing: 'Aaron is preparing your posts…', progress: '{n} of 4 families', resumePrep: 'Continue preparing', redo: 'Start again', redoConfirm: 'Redo all 16 posts? The current posts will be replaced.', ready: '{n} of {t} posts ready', week: 'Week {n}', preview: 'Preview: nothing is published yet.', error: 'Preparation did not finish. Try again.', migration: 'Update pending: try again in a few minutes.', budget: 'Usage limit reached for today.',
++    cat: { realisation: 'Our work', avis: 'Happy client', conseil: 'Pro tip', coulisses: 'Offer or behind the scenes' },
++    state: { pret: 'Ready', photo: 'Photo needed', avis: 'Review needed' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: '5-page carousel', facebook: 'Photo and text', linkedin: '5-page document', tiktok: '15-second video, with your photos' },
++    slide: 'Page', scene: 'Scene', caption: 'Caption', missing: 'Needed',
++  },
++  de: {
++    title: 'Deine 16 Posts des Monats', intro: '4 Wochen, 4 Posts pro Woche, in jedem Netzwerk.', prepare: 'Meine 16 Posts vorbereiten', preparing: 'Aaron bereitet deine Posts vor…', progress: '{n} von 4 Themen', resumePrep: 'Vorbereitung fortsetzen', redo: 'Neu beginnen', redoConfirm: 'Alle 16 Posts neu erstellen? Die aktuellen Posts werden ersetzt.', ready: '{n} von {t} Posts bereit', week: 'Woche {n}', preview: 'Vorschau: Noch wird nichts veröffentlicht.', error: 'Die Vorbereitung wurde nicht abgeschlossen. Bitte erneut versuchen.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', budget: 'Tageslimit erreicht.',
++    cat: { realisation: 'Projekt', avis: 'Zufriedener Kunde', conseil: 'Profi-Tipp', coulisses: 'Angebot oder Einblick' },
++    state: { pret: 'Bereit', photo: 'Foto fehlt', avis: 'Bewertung fehlt' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Karussell mit 5 Seiten', facebook: 'Foto und Text', linkedin: 'Dokument mit 5 Seiten', tiktok: '15-Sekunden-Video mit deinen Fotos' },
++    slide: 'Seite', scene: 'Szene', caption: 'Beschreibung', missing: 'Fehlt',
++  },
++  it: {
++    title: 'I tuoi 16 post del mese', intro: '4 settimane, 4 post a settimana, su ogni social.', prepare: 'Prepara i miei 16 post', preparing: 'Aaron sta preparando i tuoi post…', progress: '{n} famiglie su 4', resumePrep: 'Continua la preparazione', redo: 'Ricomincia', redoConfirm: 'Rifare tutti i 16 post? I post attuali saranno sostituiti.', ready: '{n} post pronti su {t}', week: 'Settimana {n}', preview: 'Anteprima: per ora non viene pubblicato nulla.', error: 'La preparazione non è andata a buon fine. Riprova.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', budget: 'Limite di utilizzo raggiunto per oggi.',
++    cat: { realisation: 'Realizzazione', avis: 'Cliente soddisfatto', conseil: 'Consiglio da esperto', coulisses: 'Offerta o dietro le quinte' },
++    state: { pret: 'Pronto', photo: 'Foto da fornire', avis: 'Recensione da fornire' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Carosello di 5 pagine', facebook: 'Foto e testo', linkedin: 'Documento di 5 pagine', tiktok: 'Video di 15 secondi con le tue foto' },
++    slide: 'Pagina', scene: 'Scena', caption: 'Didascalia', missing: 'Da fornire',
++  },
++  es: {
++    title: 'Tus 16 publicaciones del mes', intro: '4 semanas, 4 publicaciones por semana, en cada red.', prepare: 'Preparar mis 16 publicaciones', preparing: 'Aaron está preparando tus publicaciones…', progress: '{n} familias de 4', resumePrep: 'Continuar la preparación', redo: 'Empezar de nuevo', redoConfirm: '¿Rehacer las 16 publicaciones? Las actuales se sustituirán.', ready: '{n} de {t} publicaciones listas', week: 'Semana {n}', preview: 'Vista previa: de momento no se publica nada.', error: 'La preparación no ha terminado. Inténtalo de nuevo.', migration: 'Actualización pendiente: inténtalo en unos minutos.', budget: 'Límite de uso alcanzado por hoy.',
++    cat: { realisation: 'Trabajo realizado', avis: 'Cliente satisfecho', conseil: 'Consejo profesional', coulisses: 'Oferta o entre bastidores' },
++    state: { pret: 'Lista', photo: 'Falta una foto', avis: 'Falta una reseña' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Carrusel de 5 páginas', facebook: 'Foto y texto', linkedin: 'Documento de 5 páginas', tiktok: 'Vídeo de 15 segundos con tus fotos' },
++    slide: 'Página', scene: 'Escena', caption: 'Texto', missing: 'Falta',
++  },
++  pt: {
++    title: 'As tuas 16 publicações do mês', intro: '4 semanas, 4 publicações por semana, em cada rede.', prepare: 'Preparar as minhas 16 publicações', preparing: 'O Aaron está a preparar as tuas publicações…', progress: '{n} famílias de 4', resumePrep: 'Continuar a preparação', redo: 'Recomeçar', redoConfirm: 'Refazer as 16 publicações? As atuais serão substituídas.', ready: '{n} de {t} publicações prontas', week: 'Semana {n}', preview: 'Pré-visualização: por agora nada é publicado.', error: 'A preparação não terminou. Tenta de novo.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', budget: 'Limite de utilização atingido por hoje.',
++    cat: { realisation: 'Trabalho feito', avis: 'Cliente satisfeito', conseil: 'Dica profissional', coulisses: 'Oferta ou bastidores' },
++    state: { pret: 'Pronta', photo: 'Falta uma foto', avis: 'Falta uma avaliação' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Carrossel de 5 páginas', facebook: 'Foto e texto', linkedin: 'Documento de 5 páginas', tiktok: 'Vídeo de 15 segundos com as tuas fotos' },
++    slide: 'Página', scene: 'Cena', caption: 'Legenda', missing: 'Falta',
++  },
++  nl: {
++    title: 'Je 16 posts van de maand', intro: '4 weken, 4 posts per week, op elk netwerk.', prepare: 'Mijn 16 posts voorbereiden', preparing: 'Aaron bereidt je posts voor…', progress: '{n} van 4 soorten', resumePrep: 'Voorbereiding hervatten', redo: 'Opnieuw beginnen', redoConfirm: 'Alle 16 posts opnieuw maken? De huidige posts worden vervangen.', ready: '{n} van {t} posts klaar', week: 'Week {n}', preview: 'Voorbeeld: er wordt nog niets gepubliceerd.', error: 'De voorbereiding is niet afgerond. Probeer het opnieuw.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', budget: 'Gebruikslimiet voor vandaag bereikt.',
++    cat: { realisation: 'Project', avis: 'Tevreden klant', conseil: 'Tip van de vakman', coulisses: 'Aanbod of achter de schermen' },
++    state: { pret: 'Klaar', photo: 'Foto nodig', avis: 'Review nodig' },
++    net: { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', tiktok: 'TikTok' },
++    form: { instagram: 'Carrousel van 5 pagina’s', facebook: 'Foto en tekst', linkedin: 'Document van 5 pagina’s', tiktok: 'Video van 15 seconden met je foto’s' },
++    slide: 'Pagina', scene: 'Scène', caption: 'Bijschrift', missing: 'Nodig',
++  },
++};
++const tx = (locale) => TEXT[locale] || TEXT.fr;
++
++function postState(post) {
++  if (post.material_needed === 'photo') return 'photo';
++  if (post.material_needed === 'avis') return 'avis';
++  return 'pret';
++}
++
++function NetworkContent({ post, network, text }) {
++  const c = post.content || {};
++  if (network === 'instagram' || network === 'linkedin') {
++    const block = c[network] || {};
++    return (
++      <div className="sp-net">
++        <ol className="sp-slides">
++          {(block.slides || []).map((s, i) => (
++            <li key={i}><span className="sp-slide-n">{text.slide} {i + 1}</span>{s}</li>
++          ))}
++        </ol>
++        <p className="sp-body">{network === 'instagram' ? block.caption : block.text}</p>
++      </div>
++    );
++  }
++  if (network === 'tiktok') {
++    const block = c.tiktok || {};
++    return (
++      <div className="sp-net">
++        <ol className="sp-slides">
++          {(block.scenes || []).map((s, i) => (
++            <li key={i}><span className="sp-slide-n">{text.scene} {i + 1}</span>{s}</li>
++          ))}
++        </ol>
++        <p className="sp-body">{block.caption}</p>
++      </div>
++    );
++  }
++  return (
++    <div className="sp-net">
++      <p className="sp-body">{c.facebook?.text}</p>
++    </div>
++  );
++}
++
++export default function SocialCampaignPanel({ locale = 'fr' }) {
++  const text = tx(locale);
++  const [loading, setLoading] = useState(true);
++  const [campaign, setCampaign] = useState(null);
++  const [posts, setPosts] = useState([]);
++  const [running, setRunning] = useState(false);
++  const [error, setError] = useState(null);
++  const [openId, setOpenId] = useState(null);
++  const [network, setNetwork] = useState('instagram');
++  const alive = useRef(true);
++  useEffect(() => () => { alive.current = false; }, []);
++
++  async function load() {
++    try {
++      const res = await fetch('/api/social/campaigns');
++      const data = res.ok ? await res.json() : null;
++      if (!alive.current) return null;
++      if (data?.migration_missing) setError(text.migration);
++      setCampaign(data?.campaign || null);
++      setPosts(Array.isArray(data?.posts) ? data.posts : []);
++      setLoading(false);
++      return data;
++    } catch {
++      if (alive.current) setLoading(false);
++      return null;
++    }
++  }
++
++  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
++
++  async function runFamilies(campaignId, families) {
++    setRunning(true);
++    setError(null);
++    const outcomes = await Promise.all(
++      families.map(async (category) => {
++        try {
++          const res = await fetch(`/api/social/campaigns/${campaignId}/category`, {
++            method: 'POST',
++            headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify({ category }),
++          });
++          const ok = res.ok;
++          await load();
++          return ok ? 'ok' : res.status === 429 ? 'budget' : 'fail';
++        } catch {
++          return 'fail';
++        }
++      })
++    );
++    if (!alive.current) return;
++    setRunning(false);
++    if (outcomes.includes('budget')) setError(text.budget);
++    else if (outcomes.includes('fail')) setError(text.error);
++  }
++
++  async function start() {
++    setError(null);
++    const res = await fetch('/api/social/campaigns', { method: 'POST' });
++    const data = await res.json().catch(() => null);
++    if (!res.ok || !data?.campaign_id) {
++      setError(res.status === 409 ? text.migration : text.error);
++      return;
++    }
++    const fresh = await load();
++    const done = new Set((fresh?.posts || []).map((p) => p.category));
++    await runFamilies(data.campaign_id, CATEGORIES.filter((c) => !done.has(c)));
++  }
++
++  function redo() {
++    if (!window.confirm(text.redoConfirm)) return;
++    setCampaign(null);
++    setPosts([]);
++    start();
++  }
++
++  const doneFamilies = new Set(posts.map((p) => p.category));
++  const missingFamilies = CATEGORIES.filter((c) => !doneFamilies.has(c));
++  const readyCount = posts.filter((p) => postState(p) === 'pret').length;
++  const preparing = running || (campaign && campaign.status === 'preparation' && missingFamilies.length > 0);
++
++  if (loading) return <p className="sp-muted">…</p>;
++
++  return (
++    <section className="sp">
++      <div className="sp-head">
++        <div>
++          <h2 className="sp-title">{text.title}</h2>
++          <p className="sp-muted">{text.intro}</p>
++        </div>
++        {campaign && !running && posts.length > 0 && (
++          <button type="button" className="sp-ghost" onClick={redo}>{text.redo}</button>
++        )}
++      </div>
++
++      {error && <p className="sp-error">{error}</p>}
++
++      {!campaign && (
++        <button type="button" className="sp-primary" onClick={start} disabled={running}>{text.prepare}</button>
++      )}
++
++      {campaign && preparing && (
++        <div className="sp-progress">
++          <p>{running ? text.preparing : null} {text.progress.replace('{n}', String(doneFamilies.size))}</p>
++          <div className="sp-bar"><span style={{ width: `${(doneFamilies.size / 4) * 100}%` }} /></div>
++          {!running && missingFamilies.length > 0 && (
++            <button type="button" className="sp-primary" onClick={() => runFamilies(campaign.id, missingFamilies)}>{text.resumePrep}</button>
++          )}
++        </div>
++      )}
++
++      {posts.length > 0 && (
++        <>
++          <p className="sp-ready">{text.ready.replace('{n}', String(readyCount)).replace('{t}', String(posts.length))}</p>
++          <p className="sp-muted">{text.preview}</p>
++          {[1, 2, 3, 4].map((week) => {
++            const weekPosts = posts.filter((p) => p.week === week).sort((a, b) => a.slot - b.slot);
++            if (weekPosts.length === 0) return null;
++            return (
++              <div className="sp-week" key={week}>
++                <h3 className="sp-week-title">{text.week.replace('{n}', String(week))}</h3>
++                {weekPosts.map((post) => {
++                  const state = postState(post);
++                  const open = openId === post.id;
++                  return (
++                    <div className={`sp-post${open ? ' open' : ''}`} key={post.id}>
++                      <button type="button" className="sp-post-head" aria-expanded={open} onClick={() => setOpenId(open ? null : post.id)}>
++                        <span className="sp-post-cat">{text.cat[post.category] || post.category}</span>
++                        <span className="sp-post-subject">{post.subject}</span>
++                        <span className={`sp-state st-${state}`}>{text.state[state]}</span>
++                      </button>
++                      {open && (
++                        <div className="sp-post-body">
++                          {post.material_hint && (
++                            <p className="sp-missing"><strong>{text.missing} :</strong> {post.material_hint}</p>
++                          )}
++                          <div className="sp-tabs" role="tablist">
++                            {NETWORKS.map((n) => (
++                              <button key={n} type="button" role="tab" aria-selected={network === n} className={`sp-tab${network === n ? ' on' : ''}`} onClick={() => setNetwork(n)}>
++                                {text.net[n]}
++                              </button>
++                            ))}
++                          </div>
++                          <p className="sp-form">{text.form[network]}</p>
++                          <NetworkContent post={post} network={network} text={text} />
++                        </div>
++                      )}
++                    </div>
++                  );
++                })}
++              </div>
++            );
++          })}
++        </>
++      )}
++
++      <style jsx>{`
++        .sp { display: grid; gap: 0.9rem; max-width: 760px; }
++        .sp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.8rem; }
++        .sp-title { margin: 0 0 0.2rem; font-size: 1.12rem; }
++        .sp-muted { margin: 0; color: var(--muted); font-size: 0.86rem; }
++        .sp-error { margin: 0; color: var(--state-bad-text, #d03c3c); font-size: 0.86rem; }
++        .sp-ready { margin: 0; font-weight: 600; color: var(--state-good-text, #1f9d55); }
++        .sp-primary { justify-self: start; min-height: 44px; padding: 0 1.1rem; border: 0; border-radius: var(--radius-md, 12px); background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
++        .sp-primary:disabled { opacity: 0.6; cursor: default; }
++        .sp-ghost { flex: none; min-height: 40px; padding: 0 0.9rem; border: 1px solid var(--border); border-radius: var(--radius-md, 12px); background: transparent; color: var(--muted); font: inherit; font-size: 0.86rem; cursor: pointer; }
++        .sp-progress { display: grid; gap: 0.6rem; padding: 0.9rem; border-radius: var(--radius-md, 12px); border: 1px solid var(--border); }
++        .sp-progress p { margin: 0; font-size: 0.9rem; }
++        .sp-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
++        .sp-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.4s ease; }
++        .sp-week { display: grid; gap: 0.5rem; }
++        .sp-week-title { margin: 0.4rem 0 0; font-size: 0.9rem; color: var(--muted); font-weight: 600; }
++        .sp-post { border: 1px solid var(--border); border-radius: var(--radius-md, 12px); background: var(--bg-elevated, transparent); overflow: hidden; }
++        .sp-post.open { border-color: var(--accent); }
++        .sp-post-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.7rem; width: 100%; min-height: 52px; padding: 0.6rem 0.8rem; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
++        .sp-post-cat { font-size: 0.74rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
++        .sp-post-subject { font-size: 0.9rem; font-weight: 600; overflow-wrap: anywhere; }
++        .sp-state { font-size: 0.74rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap; border: 1px solid currentColor; }
++        .st-pret { color: var(--state-good-text, #1f9d55); }
++        .st-photo, .st-avis { color: var(--state-warn-text, #b7791f); }
++        .sp-post-body { display: grid; gap: 0.6rem; padding: 0 0.8rem 0.9rem; }
++        .sp-missing { margin: 0; font-size: 0.84rem; color: var(--state-warn-text, #b7791f); }
++        .sp-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; }
++        .sp-tab { min-height: 36px; padding: 0 0.75rem; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
++        .sp-tab.on { border-color: var(--accent); color: var(--text); background: rgba(124, 110, 245, 0.12); }
++        .sp-form { margin: 0; font-size: 0.78rem; color: var(--muted); }
++        .sp-net { display: grid; gap: 0.6rem; }
++        .sp-slides { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.35rem; }
++        .sp-slides li { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.5rem; font-size: 0.88rem; }
++        .sp-slide-n { color: var(--muted); font-size: 0.76rem; padding-top: 0.1rem; }
++        .sp-body { margin: 0; font-size: 0.88rem; white-space: pre-wrap; }
++      `}</style>
++    </section>
++  );
++}
+diff --git a/lib/anthropic-client.ts b/lib/anthropic-client.ts
+index f502506..68d673e 100644
+--- a/lib/anthropic-client.ts
++++ b/lib/anthropic-client.ts
+@@ -729,6 +729,7 @@ export type UsageFeature =
+   | 'clients'                 // automatismes Clients (check-ins, santé, relance renouvellement…)
+   | 'actualite'               // déclencheurs d'actualité
+   | 'documents'               // résumés et conseils sur les documents
++  | 'reseaux_sociaux'         // Aaron Social : préparation des posts (20/11/2026)
+   | 'autre';
+ 
+ export async function callClaude(
+diff --git a/lib/social-posts.ts b/lib/social-posts.ts
+new file mode 100644
+index 0000000..fe9f86a
+--- /dev/null
++++ b/lib/social-posts.ts
+@@ -0,0 +1,179 @@
++// lib/social-posts.ts
++//
++// AARON SOCIAL : LES 16 POSTS DU MOIS (20/11/2026).
++//
++// Règles validées par Alex (maquette du 18/11, décisions v3 et v4) :
++//   - une campagne = 4 semaines = 16 posts, 4 par semaine ;
++//   - 4 familles, une de chaque par semaine : réalisations en photo, clients
++//     satisfaits, conseils de pro, offres et coulisses ;
++//   - un sujet, quatre formes : le même post est adapté à Instagram
++//     (carrousel), Facebook (photo et texte), LinkedIn (document, ton pro) et
++//     TikTok (vidéo courte montée avec les photos du client, jamais générée) ;
++//   - Aaron parle au nom de l'entreprise et ne se présente jamais ;
++//   - la matière (plaquette, photos, avis) se collecte une fois : un post qui
++//     a besoin d'une photo ou d'un avis le dit, au lieu d'en inventer.
++//
++// HONNÊTETÉ, non négociable : aucun client, chiffre, témoignage ou
++// réalisation inventé. Ce qui n'est pas dans la fiche ou les documents de
++// l'entreprise est demandé (material_needed), jamais imaginé. Un faux avis
++// publié au nom d'une entreprise, c'est elle qu'on expose, pas nous.
++//
++// Génération : un appel par famille (4 posts chacun), pour des sujets variés
++// à l'intérieur d'une famille. Rien n'est publié ici : on prépare seulement.
++
++import { callClaude } from './anthropic-client';
++import { localeInstruction, normalizeLocale } from './locale-instruction';
++import { extractJsonObject } from './extract-json';
++import { supabaseAdmin } from './supabase-admin';
++
++export const SOCIAL_CATEGORIES = ['realisation', 'avis', 'conseil', 'coulisses'] as const;
++export type SocialCategory = (typeof SOCIAL_CATEGORIES)[number];
++
++// Créneaux de la semaine (heure locale de l'entreprise), dans l'ordre des
++// familles : mardi 9 h 30, jeudi 12 h 15, samedi 10 h, dimanche 18 h — ceux
++// de la maquette validée. À affiner quand les statistiques de publication
++// existeront.
++export const SOCIAL_SLOTS: { weekday: number; hour: number; minute: number }[] = [
++  { weekday: 2, hour: 9, minute: 30 },
++  { weekday: 4, hour: 12, minute: 15 },
++  { weekday: 6, hour: 10, minute: 0 },
++  { weekday: 7, hour: 18, minute: 0 },
++];
++
++export type MaterialNeed = 'none' | 'photo' | 'avis';
++
++export interface SocialPostContent {
++  instagram: { slides: string[]; caption: string };
++  facebook: { text: string };
++  linkedin: { slides: string[]; text: string };
++  tiktok: { scenes: string[]; caption: string };
++}
++
++export interface GeneratedPost {
++  category: SocialCategory;
++  subject: string;
++  material_needed: MaterialNeed;
++  material_hint: string | null;
++  content: SocialPostContent;
++}
++
++const CATEGORY_BRIEF: Record<SocialCategory, string> = {
++  realisation:
++    "RÉALISATIONS EN PHOTO : un travail concret que l'entreprise a fait ou sait faire, montré en images (avant/après, étapes, résultat). Si la fiche ou les documents citent une réalisation précise, pars d'elle. Sinon, décris le TYPE de réalisation et demande la photo (material_needed = \"photo\") sans inventer le client ni le lieu.",
++  avis:
++    "CLIENTS SATISFAITS : la parole d'un client. Tu ne peux utiliser QU'UN avis ou un résultat réellement écrit dans la fiche ou les documents ; recopie-le fidèlement et sans nom si aucun nom n'est donné. S'il n'y en a pas assez pour 4 posts, écris le post autour d'un emplacement [avis client] et mets material_needed = \"avis\". Jamais un faux témoignage.",
++  conseil:
++    "CONSEILS DE PRO : un conseil utile tiré du métier de l'entreprise, que son client idéal peut appliquer seul. C'est la famille où tu n'as besoin de rien : material_needed = \"none\".",
++  coulisses:
++    "OFFRES ET COULISSES : une offre réelle de l'entreprise (seulement si elle figure dans la fiche ou les documents, prix compris), ou un moment des coulisses (l'équipe, la préparation, l'outil). Une photo de l'équipe ou du lieu est souvent nécessaire : material_needed = \"photo\" dans ce cas.",
++};
++
++function postsPrompt(category: SocialCategory, companyName: string, profile: string, documents: string, locale: string): string {
++  return [
++    `Tu prépares les publications de l'entreprise « ${companyName} » sur ses réseaux sociaux. Tu parles EN SON NOM (« nous »), comme son équipe le ferait. Tu ne te présentes jamais, tu ne parles jamais d'IA ni d'assistant.`,
++    '',
++    `Famille de posts à écrire : ${CATEGORY_BRIEF[category]}`,
++    '',
++    "Écris 4 posts de cette famille, sur 4 sujets différents, pour 4 semaines de suite. Chaque sujet est décliné en quatre formes :",
++    "- instagram : un carrousel de 5 diapositives (une phrase courte par diapositive, la première accroche, la dernière invite à écrire en commentaire ou en message) + une légende de 2 à 4 phrases et 3 à 5 hashtags à la fin ;",
++    "- facebook : un texte complet de 3 à 6 phrases, sans hashtag, qui se termine par une question simple ;",
++    "- linkedin : un document de 5 pages (une phrase par page, ton professionnel) + un texte de 3 à 5 phrases, au plus 3 hashtags ;",
++    "- tiktok : 5 scènes de 2 à 3 secondes chacune (le texte affiché à l'écran sur les photos de l'entreprise) + une légende d'une phrase et 3 hashtags.",
++    '',
++    'Règles :',
++    "- Rien d'inventé : pas de client, de chiffre, de prix, de délai ou de récompense qui ne figure pas ci-dessous. Si un post a besoin d'une photo ou d'un avis que tu n'as pas, dis-le dans material_needed et material_hint (ce qu'il faut fournir, en une phrase), et écris le texte pour qu'il reste vrai.",
++    "- Une seule idée par post, des phrases courtes, aucun émoji, aucun tiret long.",
++    "- L'appel à l'action invite à écrire en commentaire ou en message privé, jamais à cliquer sur un lien.",
++    `- Écris tout ${localeInstruction(locale)}, y compris les hashtags.`,
++    '',
++    'Réponds UNIQUEMENT par un objet JSON, sans texte autour :',
++    '{"posts":[{"subject":"…","material_needed":"none|photo|avis","material_hint":"… ou null","instagram":{"slides":["…","…","…","…","…"],"caption":"…"},"facebook":{"text":"…"},"linkedin":{"slides":["…","…","…","…","…"],"text":"…"},"tiktok":{"scenes":["…","…","…","…","…"],"caption":"…"}}]}',
++    '',
++    "Fiche de l'entreprise :",
++    '"""',
++    profile || '(aucune fiche)',
++    '"""',
++    '',
++    "Documents de l'entreprise (extraits) :",
++    '"""',
++    documents || '(aucun document)',
++    '"""',
++  ].join('\n');
++}
++
++function cleanText(value: any, max: number): string {
++  return typeof value === 'string' ? value.replace(/\s+\n/g, '\n').trim().slice(0, max) : '';
++}
++
++function cleanList(value: any, count: number, max: number): string[] {
++  const list = Array.isArray(value) ? value.map((v) => cleanText(v, max)).filter(Boolean) : [];
++  return list.slice(0, count);
++}
++
++function cleanPost(category: SocialCategory, raw: any): GeneratedPost | null {
++  if (!raw || typeof raw !== 'object') return null;
++  const subject = cleanText(raw.subject, 160);
++  const need: MaterialNeed = raw.material_needed === 'photo' || raw.material_needed === 'avis' ? raw.material_needed : 'none';
++  const content: SocialPostContent = {
++    instagram: { slides: cleanList(raw.instagram?.slides, 5, 220), caption: cleanText(raw.instagram?.caption, 1500) },
++    facebook: { text: cleanText(raw.facebook?.text, 2000) },
++    linkedin: { slides: cleanList(raw.linkedin?.slides, 5, 220), text: cleanText(raw.linkedin?.text, 2000) },
++    tiktok: { scenes: cleanList(raw.tiktok?.scenes, 5, 120), caption: cleanText(raw.tiktok?.caption, 300) },
++  };
++  if (!subject || !content.facebook.text || content.instagram.slides.length === 0) return null;
++  return {
++    category,
++    subject,
++    material_needed: need,
++    material_hint: need === 'none' ? null : cleanText(raw.material_hint, 240) || null,
++    content,
++  };
++}
++
++async function companyMaterial(companyId: string): Promise<{ name: string; profile: string; documents: string }> {
++  const [{ data: company }, { data: docs }] = await Promise.all([
++    supabaseAdmin.from('companies').select('name, business_summary').eq('id', companyId).maybeSingle(),
++    supabaseAdmin
++      .from('company_documents')
++      .select('file_name, summary, extracted_text, included_in_aaron_context')
++      .eq('company_id', companyId)
++      .order('created_at', { ascending: false })
++      .limit(6),
++  ]);
++  const usable = ((docs || []) as any[]).filter((d) => d.included_in_aaron_context !== false).slice(0, 3);
++  const documents = usable
++    .map((d) => `[${d.file_name}]\n${String(d.extracted_text || d.summary || '').replace(/\s+/g, ' ').slice(0, 2500)}`)
++    .join('\n\n');
++  return {
++    name: (company as any)?.name || 'notre entreprise',
++    profile: String((company as any)?.business_summary || '').slice(0, 9000),
++    documents,
++  };
++}
++
++// Prépare les 4 posts d'UNE famille (un appel au modèle, environ 2 000 mots
++// en sortie). L'écran lance les 4 familles en parallèle, chacune dans sa
++// propre requête : chaque appel tient ainsi largement dans la limite de
++// 60 secondes d'une fonction, et une famille qui échoue se relance seule.
++export async function generateCategoryPosts(
++  companyId: string,
++  category: SocialCategory,
++  locale: string,
++  userId: string | null
++): Promise<GeneratedPost[]> {
++  const material = await companyMaterial(companyId);
++  const data = await callClaude(
++    {
++      model: 'claude-sonnet-5',
++      max_tokens: 5000,
++      messages: [{ role: 'user', content: postsPrompt(category, material.name, material.profile, material.documents, normalizeLocale(locale)) }],
++    },
++    companyId,
++    'as',
++    userId,
++    'reseaux_sociaux'
++  );
++  const text = (data.content || []).find((b: any) => b.type === 'text')?.text || '';
++  const parsed = extractJsonObject<{ posts?: any[] }>(text);
++  return ((parsed?.posts || []).map((p) => cleanPost(category, p)).filter(Boolean) as GeneratedPost[]).slice(0, 4);
++}
+diff --git a/migration_social_posts_2026-11-20.sql b/migration_social_posts_2026-11-20.sql
+new file mode 100644
+index 0000000..406a91f
+--- /dev/null
++++ b/migration_social_posts_2026-11-20.sql
+@@ -0,0 +1,40 @@
++-- migration_social_posts_2026-11-20.sql
++-- Aaron Social : une campagne = 4 semaines = 16 posts préparés par Aaron.
++-- Lecture et écriture par le serveur seulement (sécurité par ligne activée,
++-- aucune règle).
++
++create table if not exists social_campaigns (
++  id uuid primary key default gen_random_uuid(),
++  company_id uuid not null references companies(id) on delete cascade,
++  created_by uuid references users(id) on delete set null,
++  status text not null default 'preparation'
++    check (status in ('preparation', 'prete', 'en_cours', 'terminee', 'erreur')),
++  locale text not null default 'fr',
++  error text,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now()
++);
++create index if not exists social_campaigns_company_idx on social_campaigns (company_id, created_at desc);
++
++create table if not exists social_posts (
++  id uuid primary key default gen_random_uuid(),
++  campaign_id uuid not null references social_campaigns(id) on delete cascade,
++  company_id uuid not null references companies(id) on delete cascade,
++  week smallint not null check (week between 1 and 4),
++  slot smallint not null check (slot between 1 and 4),
++  category text not null check (category in ('realisation', 'avis', 'conseil', 'coulisses')),
++  subject text not null,
++  material_needed text not null default 'none' check (material_needed in ('none', 'photo', 'avis')),
++  material_hint text,
++  content jsonb not null,
++  status text not null default 'brouillon' check (status in ('brouillon', 'pret', 'publie', 'retire')),
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now(),
++  unique (campaign_id, week, slot)
++);
++
++alter table social_campaigns enable row level security;
++alter table social_posts enable row level security;
++
++select table_name, count(*) as colonnes from information_schema.columns
++where table_name in ('social_campaigns', 'social_posts') group by table_name;
+-- 
+2.43.0
+
