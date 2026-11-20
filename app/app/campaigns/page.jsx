@@ -2529,8 +2529,8 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
             <p><strong>{t('campaigns.recapObjective', locale)}</strong> {recap.target_count || 20} {t('campaigns.contactsUnit', locale)}</p>
             <p className="recap-hint">{t('campaigns.targetCountHint', locale)}</p>
             {recap.context_notes && <p><strong>{t('campaigns.recapNotes', locale)}</strong> {recap.context_notes}</p>}
-            <label>
-              {t('campaigns.targetLocaleLabel', locale)}
+            <label className="recap-lang">
+              <span>{t('campaigns.targetLocaleLabel', locale)}</span>
               <select value={chatTargetLocale} onChange={(e) => setChatTargetLocale(e.target.value)}>
                 <option value="">{t('campaigns.targetLocaleAuto', locale)}</option>
                 {LOCALES.map((l) => (
@@ -2558,9 +2558,13 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
                 </div>
               </div>
             )}
-            <button type="button" className="btn-primary" onClick={() => handleLaunch(false)} disabled={launching}>
-              {launching ? t('campaigns.launching', locale) : t('campaigns.launchCampaign', locale)}
-            </button>
+            {/* Bouton collé en bas de la fenêtre (20/11/2026) : Alex ne le
+                trouvait pas, il était sous trois paragraphes d'aide. */}
+            <div className="recap-launch">
+              <button type="button" className="btn-primary" onClick={() => handleLaunch(false)} disabled={launching}>
+                {launching ? t('campaigns.launching', locale) : t('campaigns.launchCampaign', locale)}
+              </button>
+            </div>
           </div>
         )}
 
@@ -2772,6 +2776,41 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         .recap-box p {
           margin: 0.25rem 0;
           color: var(--text);
+        }
+        .recap-lang {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          margin: 0.7rem 0 0.2rem;
+          font-weight: 600;
+          color: var(--text);
+        }
+        .recap-lang select {
+          appearance: auto;
+          width: 100%;
+          max-width: 320px;
+          min-height: 44px;
+          padding: 0.45rem 0.7rem;
+          font: inherit;
+          font-weight: 400;
+          color: var(--text);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm, 8px);
+          color-scheme: light dark;
+        }
+        .recap-launch {
+          position: sticky;
+          bottom: -1px;
+          margin: 0.8rem -1rem -0.9rem;
+          padding: 0.7rem 1rem 0.9rem;
+          background: var(--bg);
+          border-top: 1px solid var(--border);
+          border-radius: 0 0 var(--radius-md) var(--radius-md);
+        }
+        .recap-launch .btn-primary {
+          width: 100%;
+          min-height: 44px;
         }
         .budget-warning {
           border: 1px solid rgba(240, 145, 78, 0.6);
