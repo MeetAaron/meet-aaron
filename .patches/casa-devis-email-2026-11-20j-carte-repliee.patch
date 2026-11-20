@@ -1,0 +1,251 @@
+From 3318fea80558424621b9176ab7a269de298be66f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 07:09:59 +0000
+Subject: [PATCH] Campagnes : carte repliee (titre 2 lignes, ciblage 1 ligne,
+ Details pour le reste) ; icones en traits (fill lucide ecrase)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/campaigns/page.jsx | 109 ++++++++++++++++++++++++++-----------
+ components/UiIcon.jsx      |   8 ++-
+ 2 files changed, 84 insertions(+), 33 deletions(-)
+
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index 115078c..6f4f007 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -126,6 +126,13 @@ function campaignTitle(campaign, locale) {
+   return joined.charAt(0).toLocaleUpperCase(locale || 'fr') + joined.slice(1);
+ }
+ 
++// Zone courte pour la carte repliée : « Brisbane » plutôt que « Brisbane,
++// Queensland, Australia » (la zone complète reste au survol et dans les
++// détails).
++function shortZone(label) {
++  return String(label || '').split(',')[0].trim();
++}
++
+ function campaignTitleFull(campaign, locale) {
+   const sectors = (campaign?.sector_keywords || []).filter(Boolean);
+   const joined = sectors.join(', ');
+@@ -366,13 +373,13 @@ const SOCIAL_TAB_LABEL = { fr: 'Réseaux sociaux', en: 'Social media', de: 'Sozi
+ // Cycle de vie d'une campagne (20/11/2026, demande d'Alex) : brouillon à
+ // reprendre, onglets En cours / Terminées, croix pour retirer une campagne.
+ const CAMP_LIFE = {
+-  fr: { draftTitle: 'Campagne en création', draftEmpty: 'Pas encore terminée', resume: 'Reprendre', delete: 'Supprimer', draftConfirmTitle: 'Supprimer ce brouillon ?', draftConfirmBody: 'Ce que tu as déjà saisi sera perdu.', tabLive: 'En cours', tabDone: 'Terminées', remove: 'Retirer', removeConfirmTitle: 'Retirer cette campagne ?', removeConfirmBody: 'Elle s’arrête si elle tourne encore, puis disparaît de cette page. Ses prospects et ses résultats sont gardés.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', noneLive: 'Aucune campagne en cours.', noneDone: 'Aucune campagne terminée.' },
+-  en: { draftTitle: 'Campaign in progress', draftEmpty: 'Not finished yet', resume: 'Resume', delete: 'Delete', draftConfirmTitle: 'Delete this draft?', draftConfirmBody: 'What you have entered so far will be lost.', tabLive: 'Running', tabDone: 'Finished', remove: 'Remove', removeConfirmTitle: 'Remove this campaign?', removeConfirmBody: 'It stops if it is still running, then disappears from this page. Its prospects and results are kept.', migration: 'Update pending: try again in a few minutes.', noneLive: 'No running campaign.', noneDone: 'No finished campaign.' },
+-  de: { draftTitle: 'Kampagne in Erstellung', draftEmpty: 'Noch nicht fertig', resume: 'Fortsetzen', delete: 'Löschen', draftConfirmTitle: 'Diesen Entwurf löschen?', draftConfirmBody: 'Bisherige Eingaben gehen verloren.', tabLive: 'Laufend', tabDone: 'Beendet', remove: 'Entfernen', removeConfirmTitle: 'Diese Kampagne entfernen?', removeConfirmBody: 'Sie wird gestoppt, falls sie noch läuft, und verschwindet von dieser Seite. Interessenten und Ergebnisse bleiben erhalten.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', noneLive: 'Keine laufende Kampagne.', noneDone: 'Keine beendete Kampagne.' },
+-  it: { draftTitle: 'Campagna in creazione', draftEmpty: 'Non ancora finita', resume: 'Riprendi', delete: 'Elimina', draftConfirmTitle: 'Eliminare questa bozza?', draftConfirmBody: 'Quanto inserito finora andrà perso.', tabLive: 'In corso', tabDone: 'Terminate', remove: 'Rimuovi', removeConfirmTitle: 'Rimuovere questa campagna?', removeConfirmBody: 'Si ferma se è ancora attiva, poi sparisce da questa pagina. Contatti e risultati restano.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', noneLive: 'Nessuna campagna in corso.', noneDone: 'Nessuna campagna terminata.' },
+-  es: { draftTitle: 'Campaña en creación', draftEmpty: 'Aún sin terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: '¿Eliminar este borrador?', draftConfirmBody: 'Se perderá lo que ya has escrito.', tabLive: 'En curso', tabDone: 'Terminadas', remove: 'Quitar', removeConfirmTitle: '¿Quitar esta campaña?', removeConfirmBody: 'Se detiene si sigue activa y desaparece de esta página. Sus prospectos y resultados se conservan.', migration: 'Actualización pendiente: inténtalo en unos minutos.', noneLive: 'Ninguna campaña en curso.', noneDone: 'Ninguna campaña terminada.' },
+-  pt: { draftTitle: 'Campanha em criação', draftEmpty: 'Ainda por terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: 'Eliminar este rascunho?', draftConfirmBody: 'O que já escreveste será perdido.', tabLive: 'Em curso', tabDone: 'Terminadas', remove: 'Retirar', removeConfirmTitle: 'Retirar esta campanha?', removeConfirmBody: 'Para se ainda estiver ativa e desaparece desta página. Os prospetos e os resultados ficam guardados.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', noneLive: 'Nenhuma campanha em curso.', noneDone: 'Nenhuma campanha terminada.' },
+-  nl: { draftTitle: 'Campagne in aanmaak', draftEmpty: 'Nog niet klaar', resume: 'Hervatten', delete: 'Verwijderen', draftConfirmTitle: 'Dit concept verwijderen?', draftConfirmBody: 'Wat je al hebt ingevuld gaat verloren.', tabLive: 'Lopend', tabDone: 'Afgerond', remove: 'Verwijderen', removeConfirmTitle: 'Deze campagne verwijderen?', removeConfirmBody: 'Ze stopt als ze nog loopt en verdwijnt van deze pagina. Prospects en resultaten blijven bewaard.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', noneLive: 'Geen lopende campagne.', noneDone: 'Geen afgeronde campagne.' },
++  fr: { details: 'Détails', detailsLess: 'Moins', draftTitle: 'Campagne en création', draftEmpty: 'Pas encore terminée', resume: 'Reprendre', delete: 'Supprimer', draftConfirmTitle: 'Supprimer ce brouillon ?', draftConfirmBody: 'Ce que tu as déjà saisi sera perdu.', tabLive: 'En cours', tabDone: 'Terminées', remove: 'Retirer', removeConfirmTitle: 'Retirer cette campagne ?', removeConfirmBody: 'Elle s’arrête si elle tourne encore, puis disparaît de cette page. Ses prospects et ses résultats sont gardés.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', noneLive: 'Aucune campagne en cours.', noneDone: 'Aucune campagne terminée.' },
++  en: { details: 'Details', detailsLess: 'Less', draftTitle: 'Campaign in progress', draftEmpty: 'Not finished yet', resume: 'Resume', delete: 'Delete', draftConfirmTitle: 'Delete this draft?', draftConfirmBody: 'What you have entered so far will be lost.', tabLive: 'Running', tabDone: 'Finished', remove: 'Remove', removeConfirmTitle: 'Remove this campaign?', removeConfirmBody: 'It stops if it is still running, then disappears from this page. Its prospects and results are kept.', migration: 'Update pending: try again in a few minutes.', noneLive: 'No running campaign.', noneDone: 'No finished campaign.' },
++  de: { details: 'Details', detailsLess: 'Weniger', draftTitle: 'Kampagne in Erstellung', draftEmpty: 'Noch nicht fertig', resume: 'Fortsetzen', delete: 'Löschen', draftConfirmTitle: 'Diesen Entwurf löschen?', draftConfirmBody: 'Bisherige Eingaben gehen verloren.', tabLive: 'Laufend', tabDone: 'Beendet', remove: 'Entfernen', removeConfirmTitle: 'Diese Kampagne entfernen?', removeConfirmBody: 'Sie wird gestoppt, falls sie noch läuft, und verschwindet von dieser Seite. Interessenten und Ergebnisse bleiben erhalten.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', noneLive: 'Keine laufende Kampagne.', noneDone: 'Keine beendete Kampagne.' },
++  it: { details: 'Dettagli', detailsLess: 'Meno', draftTitle: 'Campagna in creazione', draftEmpty: 'Non ancora finita', resume: 'Riprendi', delete: 'Elimina', draftConfirmTitle: 'Eliminare questa bozza?', draftConfirmBody: 'Quanto inserito finora andrà perso.', tabLive: 'In corso', tabDone: 'Terminate', remove: 'Rimuovi', removeConfirmTitle: 'Rimuovere questa campagna?', removeConfirmBody: 'Si ferma se è ancora attiva, poi sparisce da questa pagina. Contatti e risultati restano.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', noneLive: 'Nessuna campagna in corso.', noneDone: 'Nessuna campagna terminata.' },
++  es: { details: 'Detalles', detailsLess: 'Menos', draftTitle: 'Campaña en creación', draftEmpty: 'Aún sin terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: '¿Eliminar este borrador?', draftConfirmBody: 'Se perderá lo que ya has escrito.', tabLive: 'En curso', tabDone: 'Terminadas', remove: 'Quitar', removeConfirmTitle: '¿Quitar esta campaña?', removeConfirmBody: 'Se detiene si sigue activa y desaparece de esta página. Sus prospectos y resultados se conservan.', migration: 'Actualización pendiente: inténtalo en unos minutos.', noneLive: 'Ninguna campaña en curso.', noneDone: 'Ninguna campaña terminada.' },
++  pt: { details: 'Detalhes', detailsLess: 'Menos', draftTitle: 'Campanha em criação', draftEmpty: 'Ainda por terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: 'Eliminar este rascunho?', draftConfirmBody: 'O que já escreveste será perdido.', tabLive: 'Em curso', tabDone: 'Terminadas', remove: 'Retirar', removeConfirmTitle: 'Retirar esta campanha?', removeConfirmBody: 'Para se ainda estiver ativa e desaparece desta página. Os prospetos e os resultados ficam guardados.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', noneLive: 'Nenhuma campanha em curso.', noneDone: 'Nenhuma campanha terminada.' },
++  nl: { details: 'Details', detailsLess: 'Minder', draftTitle: 'Campagne in aanmaak', draftEmpty: 'Nog niet klaar', resume: 'Hervatten', delete: 'Verwijderen', draftConfirmTitle: 'Dit concept verwijderen?', draftConfirmBody: 'Wat je al hebt ingevuld gaat verloren.', tabLive: 'Lopend', tabDone: 'Afgerond', remove: 'Verwijderen', removeConfirmTitle: 'Deze campagne verwijderen?', removeConfirmBody: 'Ze stopt als ze nog loopt en verdwijnt van deze pagina. Prospects en resultaten blijven bewaard.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', noneLive: 'Geen lopende campagne.', noneDone: 'Geen afgeronde campagne.' },
+ };
+ const lifeText = (locale, key) => (CAMP_LIFE[locale] || CAMP_LIFE.fr)[key] || CAMP_LIFE.fr[key];
+ 
+@@ -946,6 +953,11 @@ export default function CampaignsPage() {
+             // Afficher 0/50, une barre vide et 0 % donne à une campagne saine
+             // l'air d'être cassée.
+             const isWaiting = !isTerminee && (c.contacts_found || 0) === 0;
++            // Carte repliée par défaut (20/11/2026, retour d'Alex sur
++            // téléphone : une campagne prenait plus d'un écran ; il en veut 3
++            // ou 4 visibles d'un coup de doigt). Ciblage, explication et avis
++            // d'Aaron s'ouvrent avec « Détails ».
++            const open = briefOpenId === c.id;
+             return (
+               <div className={`card${isTerminee ? ' card-done' : ' card-live'}`} key={c.id}>
+                 {/* Refonte 04/09/2026 (« la page manque de force, elle est
+@@ -982,22 +994,25 @@ export default function CampaignsPage() {
+                         <span className="camp-more-sectors"> +{(c.sector_keywords || []).filter(Boolean).length - 2}</span>
+                       )}
+                     </h3>
+-                    <p className="camp-meta">
++                    <p className={open ? 'camp-meta open' : 'camp-meta'}>
+                       {/* Icône et libellé dans le MÊME élément : séparés, le
+                           retour à la ligne laissait l'icône seule en fin de
+                           ligne et son texte en dessous (vu au rendu à 430px). */}
++                      {/* Une seule ligne (20/11/2026, carte compacte) : ville et
++                          taille. Le détail complet est dans « Détails ». */}
+                       {c.zone_label && (
+-                        <span className="meta-bit"><Ic name="map" size={13} /> {c.zone_label}</span>
++                        <span className="meta-bit" title={c.zone_label}><Ic name="pin" size={13} /> {open ? c.zone_label : shortZone(c.zone_label)}</span>
+                       )}
+                       {c.company_sizes?.length > 0 && (
+-                        <>
+-                          {c.zone_label && <span className="sep">·</span>}
+-                          <span className="meta-bit">
+-                            <Ic name="city" size={13} />{' '}
+-                            {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
+-                            {c.target_role && ` · ${ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}`}
+-                          </span>
+-                        </>
++                        <span className="meta-bit">
++                          <Ic name="city" size={13} />{' '}
++                          {c.company_sizes.map((k) => COMPANY_SIZE_OPTIONS.find((o) => o.key === k)?.label || k).join(', ')}
++                        </span>
++                      )}
++                      {open && c.target_role && (
++                        <span className="meta-bit">
++                          <Ic name="user" size={13} /> {ROLE_SUGGESTIONS.find((r) => r.key === c.target_role)?.label || c.target_role}
++                        </span>
+                       )}
+                     </p>
+                   </div>
+@@ -1012,28 +1027,20 @@ export default function CampaignsPage() {
+                   </span>
+                 </div>
+ 
+-                {c.context_notes && (
++                {open && c.context_notes && (
+                   <div className="camp-brief">
+                     <Ic name="message" size={13} />
+-                    <span className={briefOpenId === c.id ? 'brief-text' : 'brief-text clamp2'}>{c.context_notes}</span>
+-                    <button
+-                      type="button"
+-                      className="brief-more"
+-                      onClick={() => setBriefOpenId(briefOpenId === c.id ? null : c.id)}
+-                    >
+-                      {briefOpenId === c.id ? t('campaigns.briefLess', locale) : t('campaigns.briefMore', locale)}
+-                      <Ic name={briefOpenId === c.id ? 'chevronUp' : 'chevronDown'} size={12} />
+-                    </button>
++                    <span className="brief-text">{c.context_notes}</span>
+                   </div>
+                 )}
+ 
+-                <div className="camp-pipe">
++                <div className={open ? 'camp-pipe' : 'camp-pipe compact'}>
+                   {isWaiting ? (
+                     <div className="camp-waiting">
+                       <span className="camp-halo" aria-hidden="true"><Ic name="target" size={16} /></span>
+                       <div>
+                         <p className="camp-wt">{t('campaigns.waitingTitle', locale)}</p>
+-                        <p className="camp-wd">{t('campaigns.waitingBody', locale)}</p>
++                        {open && <p className="camp-wd">{t('campaigns.waitingBody', locale)}</p>}
+                         <p className="camp-wg">
+                           <Ic name="clock" size={12} /> {t('campaigns.waitingGoal', locale).replace('{n}', c.target_count)}
+                         </p>
+@@ -1090,7 +1097,7 @@ export default function CampaignsPage() {
+                 {/* Campagne qui démarre : le panneau de droite dit déjà ce
+                     qu'Aaron fait, la ligne « Aaron donnera son avis » faisait
+                     doublon (20/11/2026). */}
+-                {!isWaiting && (
++                {open && !isWaiting && (
+                 <p className="camp-aaron">
+                   <Ic name="bot" size={14} />
+                   <span>
+@@ -1189,6 +1196,14 @@ export default function CampaignsPage() {
+                       )}
+                     </div>
+                   )}
++                  <button
++                    type="button"
++                    className="camp-details-btn"
++                    aria-expanded={open}
++                    onClick={() => setBriefOpenId(open ? null : c.id)}
++                  >
++                    {lifeText(locale, open ? 'detailsLess' : 'details')} <Ic name={open ? 'chevronUp' : 'chevronDown'} size={12} />
++                  </button>
+                 </div>
+                 <SavedFlash when={savedKey === c.id} locale={locale} />
+                 </div>
+@@ -1452,11 +1467,11 @@ export default function CampaignsPage() {
+         .card-inner {
+           background: var(--bg-elevated, var(--surface));
+           border-radius: var(--radius-lg);
+-          padding: 1.15rem 1.2rem 1.1rem;
++          padding: 1rem 1.05rem 0.9rem;
+           height: 100%;
+           box-sizing: border-box;
+           display: grid;
+-          gap: 0.95rem;
++          gap: 0.75rem;
+           align-content: start;
+           min-width: 0;
+         }
+@@ -1540,6 +1555,36 @@ export default function CampaignsPage() {
+           margin: 0;
+         }
+         .camp-meta .sep { opacity: 0.5; }
++        /* Carte repliée (20/11/2026) : titre sur deux lignes au plus, ciblage
++           sur une seule ligne. Objectif d'Alex : trois ou quatre campagnes
++           visibles sur un téléphone. */
++        .camp-head h3 {
++          display: -webkit-box;
++          -webkit-line-clamp: 2;
++          -webkit-box-orient: vertical;
++          overflow: hidden;
++        }
++        .camp-meta:not(.open) { flex-wrap: nowrap; overflow: hidden; }
++        .camp-meta:not(.open) .meta-bit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
++        .camp-meta:not(.open) .meta-bit:first-child { flex: none; max-width: 55%; }
++        .camp-pipe.compact { padding: 0.65rem 0.8rem; gap: 0.55rem; }
++        .camp-pipe.compact .camp-waiting { align-items: center; gap: 0.6rem; }
++        .camp-pipe.compact .camp-halo { width: 30px; height: 30px; }
++        .camp-pipe.compact .camp-wg { margin-top: 0.1rem; }
++        .camp-details-btn {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.3rem;
++          min-height: 40px;
++          padding: 0 0.6rem;
++          border: 0;
++          background: transparent;
++          color: var(--muted);
++          font: inherit;
++          font-size: 0.82rem;
++          cursor: pointer;
++        }
++        .camp-details-btn:hover { color: var(--text); }
+         .meta-bit { display: inline-flex; align-items: center; gap: 0.3rem; min-width: 0; }
+         .camp-brief {
+           display: grid;
+diff --git a/components/UiIcon.jsx b/components/UiIcon.jsx
+index c0106ca..254348b 100644
+--- a/components/UiIcon.jsx
++++ b/components/UiIcon.jsx
+@@ -46,6 +46,7 @@ import {
+   MessageCircle,
+   Building2,
+   Map,
++  MapPin,
+   Globe,
+   Hammer,
+   Building,
+@@ -109,6 +110,7 @@ const ICONS = {
+   message: MessageCircle,
+   city: Building2,
+   map: Map,
++  pin: MapPin,
+   globe: Globe,
+   hammer: Hammer,
+   building: Building,
+@@ -145,6 +147,10 @@ const ICONS = {
+   trendDown: TrendingDown,
+ };
+ 
++// 20/11/2026 : passer fill={undefined} à lucide écrasait son fill="none"
++// par défaut, et le navigateur remplissait alors chaque tracé en noir
++// (icônes pleines, « qui font anciennes », vues par Alex sur iPhone). On ne
++// transmet fill que s'il est donné.
+ export default function Ic({ name, size = 14, strokeWidth = 2.2, fill, className, style }) {
+   const Icon = ICONS[name];
+   if (!Icon) return null;
+@@ -152,7 +158,7 @@ export default function Ic({ name, size = 14, strokeWidth = 2.2, fill, className
+     <Icon
+       size={size}
+       strokeWidth={strokeWidth}
+-      fill={fill}
++      {...(fill !== undefined ? { fill } : {})}
+       className={className}
+       aria-hidden="true"
+       style={{ verticalAlign: '-0.15em', flexShrink: 0, ...style }}
+-- 
+2.43.0
+
