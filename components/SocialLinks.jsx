@@ -3,7 +3,7 @@
 // MON COMPTE > RÉSEAUX SOCIAUX (19/11/2026).
 //
 // Le bloc où l'on lie ses réseaux, placé sous l'adresse email (décision
-// d'Alex du 18/11). TikTok d'abord ; Instagram, Facebook et LinkedIn
+// d'Alex du 18/11). TikTok et LinkedIn ; Instagram et Facebook
 // s'ajouteront ici à mesure que leur liaison sera codée.
 //
 // Visible uniquement sur le compte aaron@meetaaron.app tant qu'Aaron Social
@@ -19,15 +19,21 @@
 import { useEffect, useState } from 'react';
 
 const TEXT = {
-  fr: { title: 'Réseaux sociaux', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: 'TikTok est lié.', refus: 'Liaison refusée sur TikTok.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Pas encore disponible.' },
-  en: { title: 'Social networks', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: 'TikTok is linked.', refus: 'Linking was declined on TikTok.', erreur: 'Linking failed. Try again.', soon: 'Not available yet.' },
-  de: { title: 'Soziale Netzwerke', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: 'TikTok ist verknüpft.', refus: 'Verknüpfung auf TikTok abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Noch nicht verfügbar.' },
-  it: { title: 'Social network', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: 'TikTok è collegato.', refus: 'Collegamento rifiutato su TikTok.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Non ancora disponibile.' },
-  es: { title: 'Redes sociales', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: 'TikTok está vinculado.', refus: 'Vinculación rechazada en TikTok.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Aún no disponible.' },
-  pt: { title: 'Redes sociais', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O TikTok está ligado.', refus: 'Ligação recusada no TikTok.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Ainda não disponível.' },
-  nl: { title: 'Sociale netwerken', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: 'TikTok is gekoppeld.', refus: 'Koppeling geweigerd op TikTok.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Nog niet beschikbaar.' },
+  fr: { title: 'Réseaux sociaux', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Pas encore disponible.' },
+  en: { title: 'Social networks', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Not available yet.' },
+  de: { title: 'Soziale Netzwerke', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Noch nicht verfügbar.' },
+  it: { title: 'Social network', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Non ancora disponibile.' },
+  es: { title: 'Redes sociales', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Aún no disponible.' },
+  pt: { title: 'Redes sociais', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Ainda não disponível.' },
+  nl: { title: 'Sociale netwerken', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Nog niet beschikbaar.' },
 };
 const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
+
+// Réseaux reliables, dans l'ordre d'affichage (LinkedIn ajouté le 20/11).
+const NETWORKS = [
+  { key: 'tiktok', name: 'TikTok' },
+  { key: 'linkedin', name: 'LinkedIn' },
+];
 
 export default function SocialLinks({ locale = 'fr' }) {
   const [connections, setConnections] = useState([]);
@@ -50,11 +56,12 @@ export default function SocialLinks({ locale = 'fr' }) {
     load();
     try {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('social') === 'tiktok') {
+      const net = NETWORKS.find((n) => n.key === params.get('social'));
+      if (net) {
         const etat = params.get('etat');
-        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok' });
-        else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus' });
-        else setNotice({ tone: 'bad', key: 'erreur' });
+        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok', name: net.name });
+        else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus', name: net.name });
+        else setNotice({ tone: 'bad', key: 'erreur', name: net.name });
         params.delete('social');
         params.delete('etat');
         const query = params.toString();
@@ -63,55 +70,58 @@ export default function SocialLinks({ locale = 'fr' }) {
     } catch (err) {}
   }, []);
 
-  async function linkTiktok() {
+  async function link(net) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch('/api/social/tiktok/start', { method: 'POST' });
+      const res = await fetch(`/api/social/${net.key}/start`, { method: 'POST' });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.url) {
         window.location.href = data.url;
         return;
       }
-      setNotice({ tone: 'bad', key: res.status === 503 ? 'soon' : 'erreur' });
+      setNotice({ tone: 'bad', key: res.status === 503 ? 'soon' : 'erreur', name: net.name });
     } catch (err) {
-      setNotice({ tone: 'bad', key: 'erreur' });
+      setNotice({ tone: 'bad', key: 'erreur', name: net.name });
     }
     setBusy(false);
   }
 
-  async function unlinkTiktok() {
+  async function unlink(net) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch('/api/social/connections?provider=tiktok', { method: 'DELETE' });
-      if (!res.ok) setNotice({ tone: 'bad', key: 'erreur' });
+      const res = await fetch(`/api/social/connections?provider=${net.key}`, { method: 'DELETE' });
+      if (!res.ok) setNotice({ tone: 'bad', key: 'erreur', name: net.name });
     } catch (err) {
-      setNotice({ tone: 'bad', key: 'erreur' });
+      setNotice({ tone: 'bad', key: 'erreur', name: net.name });
     }
     await load();
     setBusy(false);
   }
 
-  const tiktok = connections.find((c) => c.provider === 'tiktok') || null;
-
   return (
     <div className="social">
       <strong className="social-title">{tx(locale, 'title')}</strong>
-      <div className="social-row">
-        <span className="social-name">TikTok</span>
-        {loading ? (
-          <span className="social-state">…</span>
-        ) : tiktok ? (
-          <>
-            <span className="social-state on">{tx(locale, 'linked')}{tiktok.account_name ? ` · ${tiktok.account_name}` : ''}</span>
-            <button type="button" className="social-ghost" onClick={unlinkTiktok} disabled={busy}>{tx(locale, 'unlink')}</button>
-          </>
-        ) : (
-          <button type="button" className="social-primary" onClick={linkTiktok} disabled={busy}>{tx(locale, 'link')}</button>
-        )}
-      </div>
-      {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key)}</p>}
+      {NETWORKS.map((net) => {
+        const conn = connections.find((c) => c.provider === net.key) || null;
+        return (
+          <div className="social-row" key={net.key}>
+            <span className="social-name">{net.name}</span>
+            {loading ? (
+              <span className="social-state">…</span>
+            ) : conn ? (
+              <>
+                <span className="social-state on">{tx(locale, 'linked')}{conn.account_name ? ` · ${conn.account_name}` : ''}</span>
+                <button type="button" className="social-ghost" onClick={() => unlink(net)} disabled={busy}>{tx(locale, 'unlink')}</button>
+              </>
+            ) : (
+              <button type="button" className="social-primary" onClick={() => link(net)} disabled={busy}>{tx(locale, 'link')}</button>
+            )}
+          </div>
+        );
+      })}
+      {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key).replace('{name}', notice.name || '')}</p>}
       <style jsx>{`
         .social { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
         .social-title { display: block; font-size: 0.92rem; margin-bottom: 0.6rem; }

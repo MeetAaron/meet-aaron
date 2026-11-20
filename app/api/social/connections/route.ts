@@ -13,8 +13,9 @@ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { decryptToken } from '@/lib/encryption';
 import { socialPreviewAllowed } from '@/lib/social-access';
 import { revokeTiktokToken } from '@/lib/social-tiktok';
+import { revokeLinkedinToken } from '@/lib/social-linkedin';
 
-const PROVIDERS = ['tiktok'];
+const PROVIDERS = ['tiktok', 'linkedin'];
 
 // Table absente tant que migration_social_connections_2026-11-19.sql n'est
 // pas passée : PostgREST répond PGRST205, Postgres 42P01.
@@ -65,6 +66,13 @@ export async function DELETE(request: NextRequest) {
       await revokeTiktokToken(decryptToken((row as any).access_token));
     } catch {
       // Jeton illisible ou TikTok injoignable : on délie quand même chez nous.
+    }
+  }
+  if (provider === 'linkedin') {
+    try {
+      await revokeLinkedinToken(decryptToken((row as any).access_token));
+    } catch {
+      // Idem : on délie chez nous même si LinkedIn ne répond pas.
     }
   }
 
