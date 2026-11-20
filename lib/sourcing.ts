@@ -142,7 +142,8 @@ async function planSearchQueries(
   zoneLabel: string,
   companySizeLabels: string[],
   maxQueries: number,
-  seller: SellerContext | null
+  seller: SellerContext | null,
+  alreadyFound: string[] = []
 ): Promise<string[]> {
   const fallback = sectorKeywords.slice(0, maxQueries).map((kw) => `${kw} ${zoneLabel}`);
   const prompt = `Tu prépares une recherche d'entreprises B2B sur le web, pour trouver des CLIENTS POTENTIELS à démarcher.
@@ -150,7 +151,10 @@ async function planSearchQueries(
 Clients recherchés (leur métier) : ${sectorKeywords.join(', ')}
 Zone géographique : ${zoneLabel}
 ${companySizeLabels.length ? `Taille d'entreprise visée : ${companySizeLabels.join(' ou ')}\n` : ''}${sellerInstruction(seller)}
-Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
+${alreadyFound.length ? `Ces entreprises ont DÉJÀ été trouvées lors des recherches précédentes de cette campagne (${alreadyFound.length}) : ${alreadyFound.join(', ')}.
+Les mêmes requêtes rendraient les mêmes résultats, payés pour rien : change d'angle. Vise d'autres quartiers, villes voisines ou banlieues de la zone que ceux où ces entreprises se trouvent, d'autres mots du métier, d'autres annuaires.
+
+` : ''}Écris ${maxQueries} requêtes de recherche web qui feront remonter des entreprises RÉELLES correspondant à ces critères — pas des articles, pas des classements, pas des pages d'annuaire généralistes. Varie les angles : vocabulaire métier précis, villes ou arrondissements de la zone, types d'annuaires professionnels pertinents pour ce secteur.
 
 Réponds UNIQUEMENT avec un tableau JSON de chaînes, sans texte avant ni après, sans balises markdown. Exemple de forme : ["requête 1", "requête 2"]`;
 
@@ -181,8 +185,29 @@ async function searchCompaniesInZone(
   zoneLabel: string,
   companySizeKeys: string[],
   excludeDomains: string[],
-  count: number
+  count: number,
+  campaignId: string | null = null
 ): Promise<FoundCompany[]> {
+  // COÛT (20/11/2026, campagnes de James et Charlotte : 6,37 USD de
+  // recherche pour 15 prospects). Chaque passage (toutes les 10 minutes
+  // pendant le lancement) planifiait ses requêtes sans savoir ce que les
+  // passages précédents avaient déjà trouvé : mêmes requêtes, mêmes
+  // résultats, écartés comme doublons, mais payés à chaque fois. On donne
+  // désormais au planificateur les entreprises déjà trouvées par la
+  // campagne, pour qu'il change de quartier et d'angle.
+  let alreadyFound: string[] = [];
+  if (campaignId) {
+    try {
+      const { data: prev } = await supabaseAdmin
+        .from('prospect_companies')
+        .select('name')
+        .eq('found_by_campaign_id', campaignId)
+        .limit(40);
+      alreadyFound = ((prev || []) as any[]).map((r) => String(r.name || '').trim()).filter(Boolean);
+    } catch {
+      alreadyFound = [];
+    }
+  }
   const companySizeLabels = (companySizeKeys || []).map((k) => COMPANY_SIZE_LABELS[k]).filter(Boolean);
 
   const seller = await loadSellerContext(companyId);
@@ -198,6 +223,8 @@ Zone géographique : ${zoneLabel}
 ${companySizeLabels.length ? `Taille d'entreprise recherchée : ${companySizeLabels.join(' ou ')}\n` : ''}Nombre d'entreprises à trouver : ${count}
 ${sellerInstruction(seller)}
 Exclus ces domaines déjà connus : ${excludeDomains.join(', ') || 'aucun'}
+${alreadyFound.length ? `Exclus aussi ces entreprises déjà trouvées : ${alreadyFound.join(', ')}
+` : ''}
 
 Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises markdown) au format :
 [
@@ -232,7 +259,8 @@ Réponds UNIQUEMENT avec un tableau JSON (sans texte avant/après, sans balises 
     zoneLabel,
     companySizeLabels,
     5,
-    seller
+    seller,
+    alreadyFound
   );
 
   const data = await callClaude(
@@ -488,7 +516,8 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
       campaign.zone_label,
       campaign.company_sizes || [],
       excludeDomains,
-      batchSize
+      batchSize,
+      campaign.id
     );
   }
 
