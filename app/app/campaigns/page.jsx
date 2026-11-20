@@ -116,9 +116,18 @@ const STATUS_COLORS = {
 // dit maintenant les SECTEURS, et la zone descend d'une ligne. Repli sur la
 // zone quand aucun secteur n'est renseigné — mieux vaut l'ancien titre
 // qu'une carte sans titre.
+// 20/11/2026 : six métiers donnaient un titre de trois lignes (carte de
+// Charlotte). Le titre garde les deux premiers, « +4 » dit le reste et la
+// liste complète s'affiche au survol.
 function campaignTitle(campaign, locale) {
   const sectors = (campaign?.sector_keywords || []).filter(Boolean);
   if (sectors.length === 0) return campaign?.zone_label || '';
+  const joined = sectors.slice(0, 2).join(', ');
+  return joined.charAt(0).toLocaleUpperCase(locale || 'fr') + joined.slice(1);
+}
+
+function campaignTitleFull(campaign, locale) {
+  const sectors = (campaign?.sector_keywords || []).filter(Boolean);
   const joined = sectors.join(', ');
   return joined.charAt(0).toLocaleUpperCase(locale || 'fr') + joined.slice(1);
 }
@@ -810,6 +819,9 @@ export default function CampaignsPage() {
         // — un taux parmi les affaires tranchées, pas parmi les contacts. Le
         // chiffre et son libellé disent désormais la même chose : gagnés sur
         // contactés, avec la fraction écrite en clair sous l'anneau.
+        // Pas de bandeau de zéros tant qu'aucun contact n'est trouvé
+        // (20/11/2026) : même règle que la carte d'une campagne qui naît.
+        if (totals.contacts === 0) return null;
         const winRate = totals.contacts > 0 ? Math.round((totals.won / totals.contacts) * 1000) / 10 : null;
         const R = 24;
         const C = 2 * Math.PI * R;
@@ -850,16 +862,28 @@ export default function CampaignsPage() {
         );
       })()}
 
-      {!loading && campaigns.length > 0 && (
-        <div className="global-advice-row">
-          <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
-            <Ic name="bulb" /> {t('campaigns.globalAdviceOngoingBtn', locale)}
-          </button>
-          <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('past')}>
-            <Ic name="chart" /> {t('campaigns.globalAdvicePastBtn', locale)}
-          </button>
-        </div>
-      )}
+      {/* Conseils seulement quand il y a matière (20/11/2026) : un avis sur
+          des campagnes sans aucun contact, ou un bilan sans campagne
+          terminée, ne dit rien. */}
+      {!loading && campaigns.length > 0 && (() => {
+        const hasContacts = campaigns.some((c) => (c.contacts_found || 0) > 0);
+        const hasPast = campaigns.some((c) => c.status === 'terminee');
+        if (!hasContacts && !hasPast) return null;
+        return (
+          <div className="global-advice-row">
+            {hasContacts && (
+              <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('ongoing')}>
+                <Ic name="bulb" /> {t('campaigns.globalAdviceOngoingBtn', locale)}
+              </button>
+            )}
+            {hasPast && (
+              <button type="button" className="btn-ghost" onClick={() => openGlobalAdvice('past')}>
+                <Ic name="chart" /> {t('campaigns.globalAdvicePastBtn', locale)}
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Campagne commencée mais pas lancée (connexion perdue, fenêtre
           fermée à l'étape 4…) : on la retrouve ici, on la reprend ou on la
@@ -952,7 +976,12 @@ export default function CampaignsPage() {
                         les deux seules actions de la carte, dont une rouge. */}
                 <div className="camp-head">
                   <div className="camp-id">
-                    <h3>{campaignTitle(c, locale)}</h3>
+                    <h3 title={campaignTitleFull(c, locale)}>
+                      {campaignTitle(c, locale)}
+                      {(c.sector_keywords || []).filter(Boolean).length > 2 && (
+                        <span className="camp-more-sectors"> +{(c.sector_keywords || []).filter(Boolean).length - 2}</span>
+                      )}
+                    </h3>
                     <p className="camp-meta">
                       {/* Icône et libellé dans le MÊME élément : séparés, le
                           retour à la ligne laissait l'icône seule en fin de
@@ -1058,6 +1087,10 @@ export default function CampaignsPage() {
                 {/* L'avis d'Aaron redevient une ligne de conversation. En
                     capitales sur fond séparé, il avait le poids d'une section
                     alors qu'il tient en une phrase. */}
+                {/* Campagne qui démarre : le panneau de droite dit déjà ce
+                    qu'Aaron fait, la ligne « Aaron donnera son avis » faisait
+                    doublon (20/11/2026). */}
+                {!isWaiting && (
                 <p className="camp-aaron">
                   <Ic name="bot" size={14} />
                   <span>
@@ -1088,6 +1121,7 @@ export default function CampaignsPage() {
                     )}
                   </span>
                 </p>
+                )}
 
                 <div className="camp-acts">
                   {/* Le compteur enfin relié au travail réel (03/11/2026) :
@@ -1095,7 +1129,7 @@ export default function CampaignsPage() {
                       lisait « 23 trouvés, 3 réponses » sans aucun moyen
                       d'atteindre ces contacts. */}
                   <a
-                    className="camp-primary"
+                    className={isWaiting ? 'camp-primary quiet' : 'camp-primary'}
                     href={`/app/prospects?campagne=${c.id}${userId ? `&user_id=${userId}` : ''}`}
                   >
                     {isWaiting
@@ -1666,6 +1700,9 @@ export default function CampaignsPage() {
           border: 1px solid transparent;
         }
         .camp-primary:hover { background: var(--accent-light, var(--accent)); }
+        .camp-primary.quiet { background: transparent; color: var(--text); border-color: var(--border); font-weight: 500; }
+        .camp-primary.quiet:hover { background: var(--surface-hover, transparent); border-color: var(--accent); }
+        .camp-more-sectors { color: var(--muted); font-weight: 500; white-space: nowrap; }
         .relaunch-error {
           grid-column: 1 / -1;
           margin: 0;
