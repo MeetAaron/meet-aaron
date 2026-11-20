@@ -426,7 +426,10 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
 
   // Changer de story remet le texte replié : sinon la story suivante
   // s'ouvrait déjà dépliée, et la carte débordait.
-  useEffect(() => { setExpanded(false); }, [item?.id]);
+  useEffect(() => { setExpanded(false); setEmailEdit(null); }, [item?.id]);
+  // Modifier le premier email SUR PLACE (20/11/2026) : « Modifier avant
+  // envoi » ouvrait la liste Contacts, Alex ne voyait pas où modifier.
+  const [emailEdit, setEmailEdit] = useState(null); // null | { subject, body }
 
   const close = useCallback(() => setState(null), [setState]);
   const next = useCallback(() => {
@@ -454,6 +457,9 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
 
   useEffect(() => {
     function onKey(e) {
+      // En train d'écrire (email à modifier, réponse) : les flèches déplacent
+      // le curseur, elles ne changent pas de story — sinon le texte est perdu.
+      if (e.target?.closest?.('textarea, input, [contenteditable="true"]')) return;
       if (e.key === 'Escape') close();
       else if (e.key === 'ArrowRight') next();
       else if (e.key === 'ArrowLeft') prev();
@@ -537,14 +543,18 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
   // derriere. L'echec remonte au composant Stories, qui lui reste monte et
   // affiche un bandeau : annoncer « envoye » pour un email jamais parti
   // serait pire que l'attente.
-  function sendFirstEmailNow() {
+  function sendFirstEmailNow(edited) {
     const name = item.prospect_name;
     const url = prospectUrl;
     onResolved();
     fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'envoyer_premier_email' }),
+      body: JSON.stringify(
+        edited
+          ? { action: 'envoyer_premier_email', first_email_subject: edited.subject, first_email_body: edited.body }
+          : { action: 'envoyer_premier_email' }
+      ),
     })
       .then(async (res) => {
         if (res.ok) return;
@@ -844,16 +854,30 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
       );
       break;
     case 'email_a_valider':
-      body = (
+      body = emailEdit ? (
+        <>
+          <p className="lead">{t('stories.emailLead', locale).replace('{name}', item.prospect_name)}</p>
+          <div className="reply-box">
+            <input className="reply-input" value={emailEdit.subject} onChange={(e) => setEmailEdit({ ...emailEdit, subject: e.target.value })} />
+            <textarea rows={12} className="reply-input" value={emailEdit.body} onChange={(e) => setEmailEdit({ ...emailEdit, body: e.target.value })} />
+          </div>
+        </>
+      ) : (
         <>
           <p className="lead">{t('stories.emailLead', locale).replace('{name}', item.prospect_name)}</p>
           <div className="mail"><p className="subject">{item.meta?.subject}</p><p className="mailbody">{item.meta?.body}</p></div>
+          <button type="button" className="link-contact" onClick={openContact}>{t('stories.openCard', locale)}</button>
         </>
       );
-      actions = (
+      actions = emailEdit ? (
         <>
-          <button type="button" className="btn-primary" disabled={acting} onClick={sendFirstEmailNow}>{t('stories.sendAsIs', locale)}</button>
-          <button type="button" className="btn-secondary" onClick={openContact}>{t('stories.editBeforeSend', locale)}</button>
+          <button type="button" className="btn-primary" disabled={acting || !emailEdit.subject.trim() || !emailEdit.body.trim()} onClick={() => sendFirstEmailNow(emailEdit)}>{t('stories.send', locale)}</button>
+          <button type="button" className="btn-secondary" onClick={() => setEmailEdit(null)}>{t('common.back', locale)}</button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="btn-primary" disabled={acting} onClick={() => sendFirstEmailNow()}>{t('stories.sendAsIs', locale)}</button>
+          <button type="button" className="btn-secondary" onClick={() => setEmailEdit({ subject: item.meta?.subject || '', body: item.meta?.body || '' })}>{t('stories.editBeforeSend', locale)}</button>
           <button type="button" className="btn-danger" disabled={acting} onClick={() => act(prospectUrl, { action: 'rejeter_premier_email' })}>{t('stories.refuse', locale)}</button>
         </>
       );
@@ -1194,6 +1218,7 @@ function StoryViewer({ state, setState, locale, userId, onResolved, onOpenContac
         .body :global(.reply-opt:hover) { border-color: var(--accent); }
         .body :global(.reply-opt strong) { font-size: 0.86rem; }
         .body :global(.reply-opt span) { font-size: 0.76rem; color: var(--muted); }
+        .body :global(.link-contact) { align-self: flex-start; background: none; border: 0; padding: 0.3rem 0; font: inherit; font-size: 0.8rem; color: var(--accent-light, var(--accent)); cursor: pointer; }
         .body :global(.reply-input) {
           width: 100%;
           box-sizing: border-box;
