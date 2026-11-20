@@ -2212,6 +2212,15 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
     },
   ]);
   const [input, setInput] = useState('');
+  const campaignInputRef = useRef(null);
+  // La hauteur suit le texte (frappe, puce cliquée, brouillon restauré,
+  // envoi qui vide le champ) ; le plafond de 5 lignes est en CSS.
+  useEffect(() => {
+    const el = campaignInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    if (input) el.style.height = `${el.scrollHeight + 2}px`;
+  }, [input]);
   const [sending, setSending] = useState(false);
   const [recap, setRecap] = useState(null);
   const [error, setError] = useState(null);
@@ -2558,7 +2567,13 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         {error && <p className="error">{error}</p>}
 
         <form className="chat-input-row" onSubmit={handleSend}>
-          <input
+          {/* Zone qui s'agrandit avec le texte, jusqu'à 5 lignes puis défile
+              (20/11/2026, retour d'Alex : une réponse longue sortait du
+              champ d'une ligne). Comme le chat : Entrée passe à la ligne,
+              seul le bouton envoie. */}
+          <textarea
+            ref={campaignInputRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={t('campaigns.chatInputPlaceholder', locale)}
@@ -2805,14 +2820,24 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
           flex: 0 0 auto;
           margin-top: auto;
         }
-        .chat-input-row input {
+        .chat-input-row {
+          align-items: flex-end;
+        }
+        .chat-input-row textarea {
           flex: 1;
+          min-width: 0;
           background: var(--bg);
           border: 1px solid var(--border);
           border-radius: var(--radius-sm);
           padding: 0.6rem 0.8rem;
           color: var(--text);
+          font: inherit;
           font-size: 0.88rem;
+          line-height: 1.45;
+          resize: none;
+          /* 5 lignes au plus, puis défilement dans la zone. */
+          max-height: calc(1.45em * 5 + 1.2rem);
+          overflow-y: auto;
         }
         .btn-primary {
           background: var(--accent);
