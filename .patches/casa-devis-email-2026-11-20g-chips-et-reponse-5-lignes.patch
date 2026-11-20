@@ -1,0 +1,121 @@
+From c75c7ca69396be909d5401bc26b73bb3b5e200ec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 06:43:12 +0000
+Subject: [PATCH 1/2] Chat de campagne : metiers generiques masques quand Aaron
+ propose des cibles tirees de la fiche
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+« Restaurants », « Coiffure », « Plomberie »… s'affichaient a cote des cibles
+proposees pour l'entreprise (agences commerciales, prestataires B2B). Ils ne
+reviennent que si la fiche n'a rien donne.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/campaigns/page.jsx | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index b10e7dc..e7fea9c 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -2451,7 +2451,12 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+         {currentTopic === 'secteur' && (
+           <div className="chip-row">
+             {renderProfileChips('secteur')}
+-            {QUICK_SECTORS.filter((s) => !isProfileChip('secteur', s)).map((s) => (
++            {/* Les métiers génériques (plombier, restaurant, coiffure…) ne
++                servent que quand Aaron n'a rien tiré de la fiche entreprise
++                (20/11/2026, retour d'Alex) : à côté des cibles proposées
++                pour SON entreprise, « Restaurants » ou « Coiffure » n'ont
++                aucun sens pour la plupart des clients et brouillent le choix. */}
++            {profileChipsFor('secteur').length === 0 && QUICK_SECTORS.filter((s) => !isProfileChip('secteur', s)).map((s) => (
+               <button type="button" key={s} className="chip" onClick={() => addChip(s)}>+ {s}</button>
+             ))}
+           </div>
+-- 
+2.43.0
+
+
+From 22026b23deafeff33ab646174769766daebecf33 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 06:44:18 +0000
+Subject: [PATCH 2/2] Chat de campagne : zone de reponse qui s'agrandit jusqu'a
+ 5 lignes
+
+Une reponse longue sortait du champ d'une ligne. Zone de texte qui suit le
+texte, 5 lignes au plus puis defilement ; Entree passe a la ligne, seul le
+bouton envoie (comme le chat).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/app/campaigns/page.jsx | 29 +++++++++++++++++++++++++++--
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index e7fea9c..de86adc 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -2212,6 +2212,15 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+     },
+   ]);
+   const [input, setInput] = useState('');
++  const campaignInputRef = useRef(null);
++  // La hauteur suit le texte (frappe, puce cliquée, brouillon restauré,
++  // envoi qui vide le champ) ; le plafond de 5 lignes est en CSS.
++  useEffect(() => {
++    const el = campaignInputRef.current;
++    if (!el) return;
++    el.style.height = 'auto';
++    if (input) el.style.height = `${el.scrollHeight + 2}px`;
++  }, [input]);
+   const [sending, setSending] = useState(false);
+   const [recap, setRecap] = useState(null);
+   const [error, setError] = useState(null);
+@@ -2558,7 +2567,13 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+         {error && <p className="error">{error}</p>}
+ 
+         <form className="chat-input-row" onSubmit={handleSend}>
+-          <input
++          {/* Zone qui s'agrandit avec le texte, jusqu'à 5 lignes puis défile
++              (20/11/2026, retour d'Alex : une réponse longue sortait du
++              champ d'une ligne). Comme le chat : Entrée passe à la ligne,
++              seul le bouton envoie. */}
++          <textarea
++            ref={campaignInputRef}
++            rows={1}
+             value={input}
+             onChange={(e) => setInput(e.target.value)}
+             placeholder={t('campaigns.chatInputPlaceholder', locale)}
+@@ -2805,14 +2820,24 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+           flex: 0 0 auto;
+           margin-top: auto;
+         }
+-        .chat-input-row input {
++        .chat-input-row {
++          align-items: flex-end;
++        }
++        .chat-input-row textarea {
+           flex: 1;
++          min-width: 0;
+           background: var(--bg);
+           border: 1px solid var(--border);
+           border-radius: var(--radius-sm);
+           padding: 0.6rem 0.8rem;
+           color: var(--text);
++          font: inherit;
+           font-size: 0.88rem;
++          line-height: 1.45;
++          resize: none;
++          /* 5 lignes au plus, puis défilement dans la zone. */
++          max-height: calc(1.45em * 5 + 1.2rem);
++          overflow-y: auto;
+         }
+         .btn-primary {
+           background: var(--accent);
+-- 
+2.43.0
+
