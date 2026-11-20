@@ -562,22 +562,6 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
 
     if (companyError || !prospectCompany) continue;
 
-    // Même logique de maîtrise + auto-complétion de la société contactée que
-    // l'ajout manuel (voir app/api/prospects/route.ts et
-    // lib/prospect-research.ts) — une société trouvée par campagne a quasi
-    // toujours un vrai domaine/site, donc quasi toujours recherchable. Ne
-    // bloque jamais le traitement du lot en cas d'échec, et ne complète
-    // chaque champ que s'il est encore vide (jamais écraser company.website
-    // déjà trouvé par searchCompaniesInZone ci-dessus).
-    await ensureCompanyEnriched(campaign.company_id, prospectCompany, {
-      name: company.name || null,
-      domain: company.domain || null,
-      website: company.website || prospectCompany.website || null,
-      industry: prospectCompany.industry || null,
-      address: company.address || prospectCompany.address || null,
-      city: company.city || null,
-    });
-
     const { data: existingProspect } = await supabaseAdmin
       .from('prospects')
       .select('id')
@@ -596,6 +580,25 @@ export async function processCampaignBatch(campaignId: string, batchSize: number
     );
 
     if (!contact || !contact.email) continue;
+
+    // Fiche de la société APRÈS le contact trouvé (20/11/2026) : sur les
+    // campagnes de James et Charlotte, 49 entreprises trouvées, 15 gardées.
+    // La fiche était payée pour les 34 écartées faute d'email.
+    // Même logique de maîtrise + auto-complétion de la société contactée que
+    // l'ajout manuel (voir app/api/prospects/route.ts et
+    // lib/prospect-research.ts) — une société trouvée par campagne a quasi
+    // toujours un vrai domaine/site, donc quasi toujours recherchable. Ne
+    // bloque jamais le traitement du lot en cas d'échec, et ne complète
+    // chaque champ que s'il est encore vide (jamais écraser company.website
+    // déjà trouvé par searchCompaniesInZone ci-dessus).
+    await ensureCompanyEnriched(campaign.company_id, prospectCompany, {
+      name: company.name || null,
+      domain: company.domain || null,
+      website: company.website || prospectCompany.website || null,
+      industry: prospectCompany.industry || null,
+      address: company.address || prospectCompany.address || null,
+      city: company.city || null,
+    });
 
     await supabaseAdmin.from('prospects').insert({
       company_id: campaign.company_id,
