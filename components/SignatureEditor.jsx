@@ -705,7 +705,11 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
       {/* Aperçu : le bas d'un email tel que le destinataire le verra */}
       <div className="sig-section-title">{tx(locale, 'preview')}</div>
       <div className="sig-paper">
-        <div className="sig-paper-body">{tx(locale, 'previewBody')}</div>
+        {/* Le corps de l'email est figuré par des traits gris, pas par un
+            vrai texte (20/11/2026, remarque d'Alex) : avec « Bonjour Julie,
+            merci pour votre retour… », le commercial croyait que cette phrase
+            partirait dans ses emails. */}
+        <div className="sig-paper-lines" aria-hidden="true"><span /><span /><span /></div>
         {previewSignature ? (
           <div className="sig-paper-sign">{previewSignature}</div>
         ) : (
@@ -1071,6 +1075,20 @@ export default function SignatureEditor({ locale, userId, initial, onChange }) {
           line-height: 1.5;
           overflow: hidden;
         }
+        .sig-paper-lines {
+          display: grid;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        .sig-paper-lines span {
+          display: block;
+          height: 0.55rem;
+          border-radius: 999px;
+          background: #e3e5e8;
+        }
+        .sig-paper-lines span:nth-child(1) { width: 28%; }
+        .sig-paper-lines span:nth-child(2) { width: 86%; }
+        .sig-paper-lines span:nth-child(3) { width: 62%; }
         .sig-paper-body {
           white-space: pre-wrap;
           color: #3c4043;

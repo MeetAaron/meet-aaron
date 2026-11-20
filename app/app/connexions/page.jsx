@@ -25,7 +25,7 @@ import { inline } from '@/components/LegalPage';
 import AccountNav from '@/components/AccountNav';
 import PushNotificationManager from '@/components/PushNotificationManager';
 import { isNativeApp, isStoreApp, openExternal } from '@/lib/native-app';
-import { autoTranslateEnabled, setAutoTranslateEnabled } from '@/components/Translated';
+import { autoTranslateEnabled, setAutoTranslateEnabled, useLongTranslation } from '@/components/Translated';
 import MfaSettings from '@/components/MfaSettings';
 import SocialLinks from '@/components/SocialLinks';
 import { socialPreviewAllowed } from '@/lib/social-access';
@@ -530,6 +530,476 @@ function defaultFirstEmailOptionsFor(locale) {
   ];
 }
 
+// ── Composants sortis de ConnexionsPage (20/11/2026) ─────────────────────
+// Ce bloc (carte visio, carte repliable, bloc de désabonnement) était collé
+// AU MILIEU de ConnexionsPage. Un composant déclaré dans un autre est une
+// fonction NEUVE à chaque rendu : React démontait et remontait donc toutes
+// les cartes de « Mon entreprise » à chaque rendu. Depuis le 18/11, l'écran
+// de signature prévient son parent quand il se monte, ce qui relançait un
+// rendu, donc un remontage, donc un nouvel avertissement : une boucle à
+// 60 images par seconde, que l'on voyait « vibrer » (capture d'Alex).
+// Ils vivent maintenant au niveau du module, comme les autres.
+
+// Carte « Lien de visio » de l'onglet Connexion (10/09/2026).
+//
+// Trois états, un seul endroit :
+//   - Google ou Microsoft connecté : un lien Meet/Teams est créé
+//     automatiquement à chaque RDV visio. La salle personnelle reste
+//     proposée en dessous, pour ceux qui préfèrent leur propre Zoom.
+//   - Boîte « Autre boîte mail » (IMAP) et salle Aaron disponible
+//     (DAILY_API_KEY posée) : Meet exige un compte Google et Teams un compte
+//     Microsoft, alors Aaron fournit lui-même la salle, créée à chaque RDV.
+//     On l'annonce comme une solution, pas comme un manque — demande d'Alex
+//     du 10/09 : « je préfère une solution plutôt qu'un frottement ».
+//   - Boîte « Autre boîte mail » sans salle Aaron : avertissement, avec la
+//     conséquence concrète : rappel de RDV sans lien, et c'est au commercial
+//     de lancer la visio ce jour-là.
+// Enregistrement direct (pas de SaveBar) : ce panneau vit hors du bloc
+// Préférences et doit rester autonome.
+// Carte repliable de l'onglet « Mon entreprise » (demande Alex, 02/10/2026).
+//
+// Meme langage visuel que components/AccountNav : grille « icone / contenu /
+// chevron », icone en carre arrondi, titre et pastille d'etat sur la premiere
+// ligne, resume sur toute la largeur en dessous.
+//
+// minmax(0, 1fr) sur la colonne du milieu, et min-width: 0 sur ce qu'elle
+// contient : sans ca une colonne de grille ne descend jamais sous la largeur
+// de son contenu, et la carte deborde de l'ecran sur telephone. Ce bug est
+// deja survenu deux fois dans ce projet (AccountNav le 01/10, Resultats le
+// meme jour) — d'ou le rappel ici.
+// RÉSILIATION EN FIN DE PÉRIODE (18/11/2026, demande d'Alex) : « Se
+// désabonner » ne coupe plus rien sur-le-champ. L'accès reste entier jusqu'à
+// la fin de ce qui est déjà réglé ou offert (code promo compris), puis plus
+// rien n'est prélevé — voir lib/subscription-cancel.ts. Présent sur le site
+// ET dans l'application ; « Reprendre » n'existe que sur le site (dans l'app
+// iOS, rien qui ressemble à un paiement — règle Apple 3.1.1).
+const SUB_CANCEL = {
+  fr: {
+    title: 'Se désabonner',
+    body: 'Tu gardes tout jusqu’à la fin de la période déjà réglée ou offerte (code promo compris), puis plus rien n’est prélevé. Aucun rappel à faire de ton côté.',
+    button: 'Me désabonner',
+    confirm: 'Te désabonner ? Tu gardes l’accès complet jusqu’à la fin de la période en cours, puis plus rien ne sera prélevé.',
+    scheduled: 'Désabonnement enregistré. Ton accès reste complet jusqu’au {date}, puis plus rien ne sera prélevé.',
+    resume: 'Reprendre mon abonnement',
+    resumed: 'Ton abonnement continue normalement.',
+    busy: '…',
+  },
+  en: {
+    title: 'Unsubscribe',
+    body: 'You keep everything until the end of the period already paid for or offered (promo code included), then nothing more is charged. Nothing to remember on your side.',
+    button: 'Unsubscribe',
+    confirm: 'Unsubscribe? You keep full access until the end of the current period, then nothing more will be charged.',
+    scheduled: 'Unsubscribed. Your access stays complete until {date}, then nothing more will be charged.',
+    resume: 'Resume my subscription',
+    resumed: 'Your subscription continues as normal.',
+    busy: '…',
+  },
+  de: {
+    title: 'Abo kündigen',
+    body: 'Du behältst alles bis zum Ende des bereits bezahlten oder geschenkten Zeitraums (inklusive Promo-Code), danach wird nichts mehr abgebucht. Du musst an nichts denken.',
+    button: 'Abo kündigen',
+    confirm: 'Abo kündigen? Du behältst den vollen Zugang bis zum Ende des laufenden Zeitraums, danach wird nichts mehr abgebucht.',
+    scheduled: 'Kündigung gespeichert. Dein Zugang bleibt bis zum {date} vollständig, danach wird nichts mehr abgebucht.',
+    resume: 'Abo fortsetzen',
+    resumed: 'Dein Abo läuft normal weiter.',
+    busy: '…',
+  },
+  it: {
+    title: 'Disdici l’abbonamento',
+    body: 'Mantieni tutto fino alla fine del periodo già pagato o offerto (codice promozionale incluso), poi non viene più addebitato nulla. Non devi ricordarti niente.',
+    button: 'Disdici',
+    confirm: 'Disdire l’abbonamento? Mantieni l’accesso completo fino alla fine del periodo in corso, poi non verrà più addebitato nulla.',
+    scheduled: 'Disdetta registrata. Il tuo accesso resta completo fino al {date}, poi non verrà più addebitato nulla.',
+    resume: 'Riprendi l’abbonamento',
+    resumed: 'Il tuo abbonamento continua normalmente.',
+    busy: '…',
+  },
+  es: {
+    title: 'Darse de baja',
+    body: 'Conservas todo hasta el final del periodo ya pagado u ofrecido (código promocional incluido) y después no se cobra nada más. No tienes que acordarte de nada.',
+    button: 'Darme de baja',
+    confirm: '¿Darte de baja? Conservas el acceso completo hasta el final del periodo en curso y después no se cobrará nada más.',
+    scheduled: 'Baja registrada. Tu acceso sigue completo hasta el {date} y después no se cobrará nada más.',
+    resume: 'Reanudar mi suscripción',
+    resumed: 'Tu suscripción continúa con normalidad.',
+    busy: '…',
+  },
+  pt: {
+    title: 'Cancelar a subscrição',
+    body: 'Mantém tudo até ao fim do período já pago ou oferecido (código promocional incluído) e depois não é cobrado mais nada. Não tem de se lembrar de nada.',
+    button: 'Cancelar a subscrição',
+    confirm: 'Cancelar a subscrição? Mantém o acesso completo até ao fim do período em curso e depois não será cobrado mais nada.',
+    scheduled: 'Cancelamento registado. O seu acesso mantém-se completo até {date} e depois não será cobrado mais nada.',
+    resume: 'Retomar a subscrição',
+    resumed: 'A sua subscrição continua normalmente.',
+    busy: '…',
+  },
+  nl: {
+    title: 'Opzeggen',
+    body: 'Je houdt alles tot het einde van de al betaalde of aangeboden periode (promocode inbegrepen), daarna wordt er niets meer afgeschreven. Je hoeft nergens aan te denken.',
+    button: 'Opzeggen',
+    confirm: 'Opzeggen? Je houdt volledige toegang tot het einde van de lopende periode, daarna wordt er niets meer afgeschreven.',
+    scheduled: 'Opzegging opgeslagen. Je toegang blijft volledig tot {date}, daarna wordt er niets meer afgeschreven.',
+    resume: 'Abonnement hervatten',
+    resumed: 'Je abonnement loopt normaal door.',
+    busy: '…',
+  },
+};
+
+function CancelSubscriptionBlock({ locale, usage, isPatron, allowResume, onChanged }) {
+  const txt = SUB_CANCEL[locale] || SUB_CANCEL.fr;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const cancelAt = usage?.cancel_at || null;
+  const hasSubscription = Boolean(usage?.renewal_date || cancelAt);
+  if (!hasSubscription) return null;
+  const fmt = (iso) => new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+
+  async function call(action) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch('/api/subscription/modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || t('common.error', locale));
+      if (action === 'resume') setNotice(txt.resumed);
+      onChanged?.(body.cancel_at || null);
+    } catch (err) {
+      setError(err.message || t('common.error', locale));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (cancelAt) {
+    return (
+      <div className="cancel-block is-scheduled">
+        <p>{txt.scheduled.replace('{date}', fmt(cancelAt))}</p>
+        {isPatron && allowResume ? (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => call('resume')}>
+            {busy ? txt.busy : txt.resume}
+          </button>
+        ) : null}
+        {error && <p className="error">{error}</p>}
+        <style jsx>{CANCEL_BLOCK_CSS}</style>
+      </div>
+    );
+  }
+  if (!isPatron) return null;
+  return (
+    <div className="cancel-block">
+      <div className="cancel-title">{txt.title}</div>
+      <p>{txt.body}</p>
+      <button
+        type="button"
+        className="btn-danger"
+        disabled={busy}
+        onClick={() => { if (window.confirm(txt.confirm)) call('cancel'); }}
+      >
+        {busy ? txt.busy : txt.button}
+      </button>
+      {notice && <p className="cancel-ok">{notice}</p>}
+      {error && <p className="error">{error}</p>}
+      <style jsx>{CANCEL_BLOCK_CSS}</style>
+    </div>
+  );
+}
+
+const CANCEL_BLOCK_CSS = `
+  .cancel-block {
+    margin: 1.4rem 0 0.6rem;
+    padding: 1rem 1.05rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+  }
+  .cancel-block.is-scheduled {
+    border-color: var(--accent-amber);
+    background: var(--state-warn-bg);
+  }
+  .cancel-block p {
+    margin: 0 0 0.8rem;
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .cancel-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    margin-bottom: 0.35rem;
+  }
+  .cancel-block button {
+    padding: 0.55rem 1rem;
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .cancel-block .btn-danger {
+    background: transparent;
+    border: 1px solid var(--accent-red);
+    color: var(--state-bad-text);
+  }
+  .cancel-block .btn-secondary {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .cancel-block button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .cancel-ok {
+    color: var(--state-good-text) !important;
+    margin-top: 0.6rem !important;
+  }
+`;
+
+function CompanyCard({ icon, title, status, tone, open, onToggle, children }) {
+  return (
+    <div className={`co-card${open ? ' is-open' : ''}`}>
+      <button type="button" className="co-head" onClick={onToggle} aria-expanded={open ? 'true' : 'false'}>
+        <span className={`co-icon tone-${tone || 'brand'}`}>
+          <Ic name={icon} size={19} />
+        </span>
+        <span className="co-text">
+          <span className="co-title">{title}</span>
+          {status ? (
+            // title : une pastille bavarde se tronque, le texte complet
+            // reste lisible au survol et a l'appui long.
+            <span className={`co-status st-${tone || 'brand'}`} title={status}>
+              {status}
+            </span>
+          ) : null}
+        </span>
+        <span className="co-chev">
+          <Ic name={open ? 'chevronUp' : 'chevronDown'} size={18} />
+        </span>
+      </button>
+      {open ? <div className="co-body">{children}</div> : null}
+
+      <style jsx>{`
+        .co-card {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          background: var(--surface);
+          overflow: hidden;
+          transition: border-color var(--fast), box-shadow var(--fast);
+        }
+        .co-card.is-open {
+          border-color: var(--accent);
+          box-shadow: 0 1px 16px rgba(0, 0, 0, 0.06);
+        }
+        .co-head {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 0.85rem;
+          width: 100%;
+          min-height: 56px;
+          padding: 0.85rem 0.95rem;
+          background: transparent;
+          border: 0;
+          text-align: left;
+          cursor: pointer;
+          font: inherit;
+          color: inherit;
+        }
+        .co-head:hover {
+          background: var(--surface-hover);
+        }
+        .co-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          width: 38px;
+          height: 38px;
+          /* Carre arrondi, pas un cercle : meme langage que AccountNav et
+             que les icones d'application. */
+          border-radius: 12px;
+        }
+        .co-icon.tone-brand {
+          background: linear-gradient(145deg, rgba(124, 110, 245, 0.22), rgba(75, 57, 239, 0.12));
+          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.22);
+          color: var(--accent-light);
+        }
+        .co-icon.tone-ok {
+          background: linear-gradient(145deg, rgba(61, 214, 140, 0.2), rgba(61, 214, 140, 0.08));
+          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
+          color: var(--accent-green);
+        }
+        .co-icon.tone-off {
+          background: var(--tint-7);
+          box-shadow: inset 0 0 0 1px var(--border);
+          color: var(--muted);
+        }
+        .co-icon.tone-todo {
+          background: linear-gradient(145deg, rgba(245, 166, 35, 0.22), rgba(245, 166, 35, 0.1));
+          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.24);
+          color: var(--accent-amber);
+        }
+        .co-text {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          min-width: 0;
+        }
+        .co-title {
+          display: block;
+          min-width: 0;
+          font-family: var(--font-display);
+          font-size: 0.97rem;
+          font-weight: 600;
+          color: var(--text);
+          line-height: 1.25;
+        }
+        .co-status {
+          display: inline-block;
+          align-self: flex-start;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          line-height: 1.6;
+          padding: 2px 9px;
+          border-radius: 999px;
+        }
+        .co-status.st-brand {
+          background: rgba(124, 110, 245, 0.16);
+          color: var(--accent-light);
+          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.24);
+        }
+        .co-status.st-ok {
+          background: rgba(61, 214, 140, 0.15);
+          color: var(--accent-green);
+          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
+        }
+        .co-status.st-off {
+          background: var(--tint-7);
+          color: var(--muted);
+          box-shadow: inset 0 0 0 1px var(--border);
+        }
+        .co-status.st-todo {
+          background: rgba(245, 166, 35, 0.15);
+          color: var(--accent-amber);
+          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.22);
+        }
+        .co-chev {
+          display: inline-flex;
+          flex-shrink: 0;
+          color: var(--muted);
+        }
+        .co-body {
+          padding: 0.2rem 0.95rem 1.05rem;
+          border-top: 1px solid var(--border-soft);
+          margin-top: -1px;
+        }
+        @media (max-width: 480px) {
+          .co-head {
+            gap: 0.7rem;
+            padding: 0.8rem 0.75rem;
+          }
+          .co-body {
+            padding: 0.2rem 0.75rem 1rem;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved }) {
+  const [link, setLink] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { setLink(value || ''); }, [value]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, meeting_link: link.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      onSaved(link.trim());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card visio-card">
+      <div className="card-head">
+        <h3><Ic name="video" /> {t('connexions.visioTitle', locale)}</h3>
+      </div>
+      {/* Trois états (10/09/2026) :
+          - Google/Microsoft connecté  → Meet/Teams automatique ;
+          - ni l'un ni l'autre, mais Aaron sait créer une salle → on l'annonce,
+            c'est une solution et non un frottement ;
+          - ni l'un ni l'autre et pas de salle Aaron → avertissement rouge,
+            c'est au commercial de coller la sienne. */}
+      <p className={autoLink || aaronVideo ? 'desc' : 'desc visio-warning'}>
+        {autoLink
+          ? t('connexions.visioAuto', locale)
+          : aaronVideo
+            ? t('connexions.visioAaronProvided', locale)
+            : t('connexions.visioNoneWarning', locale)}
+      </p>
+      <label className="visio-field">
+        <span>{t('connexions.visioOwnRoom', locale)}</span>
+        <input
+          type="url"
+          placeholder="https://meet.google.com/xxx-xxxx-xxx"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          onBlur={() => { if ((link || '').trim() !== (value || '').trim()) save(); }}
+        />
+      </label>
+      {error && <p className="visio-error">{error}</p>}
+      <div className="visio-actions">
+        <button type="button" className="btn-secondary" onClick={save} disabled={saving}>
+          {saving ? t('common.loading', locale) : t('common.save', locale)}
+        </button>
+        {saved && <span className="visio-saved"><Ic name="check" size={13} strokeWidth={2.6} /> {t('connexions.visioSaved', locale)}</span>}
+      </div>
+      <style jsx>{`
+        .visio-card { margin-top: 1rem; }
+        .visio-card h3 { display: flex; align-items: center; gap: 6px; }
+        .visio-warning { border-left: 3px solid var(--danger, #c92a2a); padding-left: 0.7rem; }
+        .visio-field { display: flex; flex-direction: column; gap: 5px; margin: 0.9rem 0 0.6rem; font-size: 0.9rem; }
+        .visio-field input {
+          width: 100%; max-width: 420px; box-sizing: border-box; background: var(--bg);
+          border: 1px solid var(--border); border-radius: var(--radius-sm);
+          padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.86rem; font-family: inherit;
+        }
+        .visio-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .visio-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--success, #2b8a3e); font-size: 0.85rem; }
+        .visio-error { color: var(--danger, #c92a2a); font-size: 0.87rem; overflow-wrap: anywhere; }
+      `}</style>
+    </div>
+  );
+}
+
 // Abonnement unique Aaron (docx Modifs Aaron 30/08/2026 + décision Alex
 // 31/08/2026) : une seule offre affichée dans l'onglet Abonnement — le prix
 // Stripe reste techniquement l'ancien "AP" (voir lib/subscription.ts), les
@@ -794,6 +1264,10 @@ export default function ConnexionsPage() {
   const [offerError, setOfferError] = useState(null);
   const [usage, setUsage] = useState(null);
   const [businessSummary, setBusinessSummary] = useState('');
+  // Fiche telle qu'elle est ENREGISTRÉE (20/11/2026) : c'est elle qu'on
+  // traduit pour l'affichage, jamais le texte en cours de frappe — sinon
+  // chaque lettre tapée relancerait une traduction payante.
+  const [storedSummary, setStoredSummary] = useState('');
   const [summaryLoaded, setSummaryLoaded] = useState(false);
   // Bug remonté par Alex (30/08/2026) : l'aperçu affichait "Pas encore de
   // résumé" alors que le profil existait bien en base (le Word/PDF, qui lit
@@ -810,6 +1284,9 @@ export default function ConnexionsPage() {
   const [savingSummary, setSavingSummary] = useState(false);
   const [summarySaved, setSummarySaved] = useState(false);
   const [summaryDirty, setSummaryDirty] = useState(false);
+  // La fiche dans la langue de l'interface (null si elle y est déjà, ou
+  // tant que la traduction n'est pas arrivée) — components/Translated.jsx.
+  const translatedSummary = useLongTranslation(storedSummary, locale);
   // Demande Alex (27/08/2026) : le résumé d'activité (business_summary) peut
   // faire plusieurs paragraphes (généré par le questionnaire de découverte) —
   // dans un <textarea rows={6}> il paraissait "coupé" en plein milieu d'une
@@ -931,6 +1408,10 @@ export default function ConnexionsPage() {
   const [publicLinkSaved, setPublicLinkSaved] = useState(false);
   const [publicLinkError, setPublicLinkError] = useState(null);
   const [buyingCredits, setBuyingCredits] = useState(null);
+  // Achat de prospects en deux temps (20/11/2026, demande d'Alex) : on
+  // choisit un palier (il s'entoure), puis « Confirmer » ouvre le paiement.
+  // Avant, un simple clic sur la carte partait directement chez Stripe.
+  const [selectedBoost, setSelectedBoost] = useState(null);
   const [creditsError, setCreditsError] = useState(null);
   const [openingBillingPortal, setOpeningBillingPortal] = useState(false);
   const [billingPortalError, setBillingPortalError] = useState(null);
@@ -1041,7 +1522,7 @@ export default function ConnexionsPage() {
           return;
         }
         setSummaryLoadError(false);
-        setBusinessSummary(body.summary || '');
+        setBusinessSummary(body.summary || ''); setStoredSummary(body.summary || '');
         setPendingImport(body.pending || null);
         setSummaryLoaded(true);
         setSummaryDirty(false);
@@ -1339,6 +1820,7 @@ export default function ConnexionsPage() {
     if (res.ok) {
       setSummarySaved(true);
       setSummaryDirty(false);
+      setStoredSummary(businessSummary);
       setTimeout(() => setSummarySaved(false), 2500);
     }
   }
@@ -1436,7 +1918,7 @@ export default function ConnexionsPage() {
         setAnalyzeError(body.error || t('preferences.businessProfileAnalyzeError', locale));
         return;
       }
-      setBusinessSummary(body.summary || '');
+      setBusinessSummary(body.summary || ''); setStoredSummary(body.summary || '');
       setAnalyzeChangeNote(body.changeNote || null);
       setPendingImport(null);
     } catch {
@@ -1501,7 +1983,9 @@ export default function ConnexionsPage() {
   // Barre « Enregistrer / Annuler » sous un réglage modifié, ou « Changement
   // enregistré » juste après la sauvegarde. Rien du tout sinon : la barre
   // n'existe que quand elle a quelque chose à dire.
-  function SaveBar({ keys }) {
+  // Appelée comme une fonction ({renderSaveBar([...])}), pas comme un
+  // composant : déclarée ici, elle serait remontée à chaque rendu.
+  function renderSaveBar(keys) {
     const sig = keys.join('|');
     if (justSavedKeys === sig) {
       return <p className="save-ok"><Ic name="check" strokeWidth={2.6} /> {t('preferences.changeSaved', locale)}</p>;
@@ -1992,465 +2476,6 @@ export default function ConnexionsPage() {
   const [aaronVideo, setAaronVideo] = useState(false);
   const [showAllProviders, setShowAllProviders] = useState(false);
   
-// Carte « Lien de visio » de l'onglet Connexion (10/09/2026).
-//
-// Trois états, un seul endroit :
-//   - Google ou Microsoft connecté : un lien Meet/Teams est créé
-//     automatiquement à chaque RDV visio. La salle personnelle reste
-//     proposée en dessous, pour ceux qui préfèrent leur propre Zoom.
-//   - Boîte « Autre boîte mail » (IMAP) et salle Aaron disponible
-//     (DAILY_API_KEY posée) : Meet exige un compte Google et Teams un compte
-//     Microsoft, alors Aaron fournit lui-même la salle, créée à chaque RDV.
-//     On l'annonce comme une solution, pas comme un manque — demande d'Alex
-//     du 10/09 : « je préfère une solution plutôt qu'un frottement ».
-//   - Boîte « Autre boîte mail » sans salle Aaron : avertissement, avec la
-//     conséquence concrète : rappel de RDV sans lien, et c'est au commercial
-//     de lancer la visio ce jour-là.
-// Enregistrement direct (pas de SaveBar) : ce panneau vit hors du bloc
-// Préférences et doit rester autonome.
-// Carte repliable de l'onglet « Mon entreprise » (demande Alex, 02/10/2026).
-//
-// Meme langage visuel que components/AccountNav : grille « icone / contenu /
-// chevron », icone en carre arrondi, titre et pastille d'etat sur la premiere
-// ligne, resume sur toute la largeur en dessous.
-//
-// minmax(0, 1fr) sur la colonne du milieu, et min-width: 0 sur ce qu'elle
-// contient : sans ca une colonne de grille ne descend jamais sous la largeur
-// de son contenu, et la carte deborde de l'ecran sur telephone. Ce bug est
-// deja survenu deux fois dans ce projet (AccountNav le 01/10, Resultats le
-// meme jour) — d'ou le rappel ici.
-// RÉSILIATION EN FIN DE PÉRIODE (18/11/2026, demande d'Alex) : « Se
-// désabonner » ne coupe plus rien sur-le-champ. L'accès reste entier jusqu'à
-// la fin de ce qui est déjà réglé ou offert (code promo compris), puis plus
-// rien n'est prélevé — voir lib/subscription-cancel.ts. Présent sur le site
-// ET dans l'application ; « Reprendre » n'existe que sur le site (dans l'app
-// iOS, rien qui ressemble à un paiement — règle Apple 3.1.1).
-const SUB_CANCEL = {
-  fr: {
-    title: 'Se désabonner',
-    body: 'Tu gardes tout jusqu’à la fin de la période déjà réglée ou offerte (code promo compris), puis plus rien n’est prélevé. Aucun rappel à faire de ton côté.',
-    button: 'Me désabonner',
-    confirm: 'Te désabonner ? Tu gardes l’accès complet jusqu’à la fin de la période en cours, puis plus rien ne sera prélevé.',
-    scheduled: 'Désabonnement enregistré. Ton accès reste complet jusqu’au {date}, puis plus rien ne sera prélevé.',
-    resume: 'Reprendre mon abonnement',
-    resumed: 'Ton abonnement continue normalement.',
-    busy: '…',
-  },
-  en: {
-    title: 'Unsubscribe',
-    body: 'You keep everything until the end of the period already paid for or offered (promo code included), then nothing more is charged. Nothing to remember on your side.',
-    button: 'Unsubscribe',
-    confirm: 'Unsubscribe? You keep full access until the end of the current period, then nothing more will be charged.',
-    scheduled: 'Unsubscribed. Your access stays complete until {date}, then nothing more will be charged.',
-    resume: 'Resume my subscription',
-    resumed: 'Your subscription continues as normal.',
-    busy: '…',
-  },
-  de: {
-    title: 'Abo kündigen',
-    body: 'Du behältst alles bis zum Ende des bereits bezahlten oder geschenkten Zeitraums (inklusive Promo-Code), danach wird nichts mehr abgebucht. Du musst an nichts denken.',
-    button: 'Abo kündigen',
-    confirm: 'Abo kündigen? Du behältst den vollen Zugang bis zum Ende des laufenden Zeitraums, danach wird nichts mehr abgebucht.',
-    scheduled: 'Kündigung gespeichert. Dein Zugang bleibt bis zum {date} vollständig, danach wird nichts mehr abgebucht.',
-    resume: 'Abo fortsetzen',
-    resumed: 'Dein Abo läuft normal weiter.',
-    busy: '…',
-  },
-  it: {
-    title: 'Disdici l’abbonamento',
-    body: 'Mantieni tutto fino alla fine del periodo già pagato o offerto (codice promozionale incluso), poi non viene più addebitato nulla. Non devi ricordarti niente.',
-    button: 'Disdici',
-    confirm: 'Disdire l’abbonamento? Mantieni l’accesso completo fino alla fine del periodo in corso, poi non verrà più addebitato nulla.',
-    scheduled: 'Disdetta registrata. Il tuo accesso resta completo fino al {date}, poi non verrà più addebitato nulla.',
-    resume: 'Riprendi l’abbonamento',
-    resumed: 'Il tuo abbonamento continua normalmente.',
-    busy: '…',
-  },
-  es: {
-    title: 'Darse de baja',
-    body: 'Conservas todo hasta el final del periodo ya pagado u ofrecido (código promocional incluido) y después no se cobra nada más. No tienes que acordarte de nada.',
-    button: 'Darme de baja',
-    confirm: '¿Darte de baja? Conservas el acceso completo hasta el final del periodo en curso y después no se cobrará nada más.',
-    scheduled: 'Baja registrada. Tu acceso sigue completo hasta el {date} y después no se cobrará nada más.',
-    resume: 'Reanudar mi suscripción',
-    resumed: 'Tu suscripción continúa con normalidad.',
-    busy: '…',
-  },
-  pt: {
-    title: 'Cancelar a subscrição',
-    body: 'Mantém tudo até ao fim do período já pago ou oferecido (código promocional incluído) e depois não é cobrado mais nada. Não tem de se lembrar de nada.',
-    button: 'Cancelar a subscrição',
-    confirm: 'Cancelar a subscrição? Mantém o acesso completo até ao fim do período em curso e depois não será cobrado mais nada.',
-    scheduled: 'Cancelamento registado. O seu acesso mantém-se completo até {date} e depois não será cobrado mais nada.',
-    resume: 'Retomar a subscrição',
-    resumed: 'A sua subscrição continua normalmente.',
-    busy: '…',
-  },
-  nl: {
-    title: 'Opzeggen',
-    body: 'Je houdt alles tot het einde van de al betaalde of aangeboden periode (promocode inbegrepen), daarna wordt er niets meer afgeschreven. Je hoeft nergens aan te denken.',
-    button: 'Opzeggen',
-    confirm: 'Opzeggen? Je houdt volledige toegang tot het einde van de lopende periode, daarna wordt er niets meer afgeschreven.',
-    scheduled: 'Opzegging opgeslagen. Je toegang blijft volledig tot {date}, daarna wordt er niets meer afgeschreven.',
-    resume: 'Abonnement hervatten',
-    resumed: 'Je abonnement loopt normaal door.',
-    busy: '…',
-  },
-};
-
-function CancelSubscriptionBlock({ locale, usage, isPatron, allowResume, onChanged }) {
-  const txt = SUB_CANCEL[locale] || SUB_CANCEL.fr;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
-  const cancelAt = usage?.cancel_at || null;
-  const hasSubscription = Boolean(usage?.renewal_date || cancelAt);
-  if (!hasSubscription) return null;
-  const fmt = (iso) => new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
-
-  async function call(action) {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await fetch('/api/subscription/modules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || t('common.error', locale));
-      if (action === 'resume') setNotice(txt.resumed);
-      onChanged?.(body.cancel_at || null);
-    } catch (err) {
-      setError(err.message || t('common.error', locale));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (cancelAt) {
-    return (
-      <div className="cancel-block is-scheduled">
-        <p>{txt.scheduled.replace('{date}', fmt(cancelAt))}</p>
-        {isPatron && allowResume ? (
-          <button type="button" className="btn-secondary" disabled={busy} onClick={() => call('resume')}>
-            {busy ? txt.busy : txt.resume}
-          </button>
-        ) : null}
-        {error && <p className="error">{error}</p>}
-        <style jsx>{CANCEL_BLOCK_CSS}</style>
-      </div>
-    );
-  }
-  if (!isPatron) return null;
-  return (
-    <div className="cancel-block">
-      <div className="cancel-title">{txt.title}</div>
-      <p>{txt.body}</p>
-      <button
-        type="button"
-        className="btn-danger"
-        disabled={busy}
-        onClick={() => { if (window.confirm(txt.confirm)) call('cancel'); }}
-      >
-        {busy ? txt.busy : txt.button}
-      </button>
-      {notice && <p className="cancel-ok">{notice}</p>}
-      {error && <p className="error">{error}</p>}
-      <style jsx>{CANCEL_BLOCK_CSS}</style>
-    </div>
-  );
-}
-
-const CANCEL_BLOCK_CSS = `
-  .cancel-block {
-    margin: 1.4rem 0 0.6rem;
-    padding: 1rem 1.05rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg);
-  }
-  .cancel-block.is-scheduled {
-    border-color: var(--accent-amber);
-    background: var(--state-warn-bg);
-  }
-  .cancel-block p {
-    margin: 0 0 0.8rem;
-    font-size: 0.86rem;
-    line-height: 1.5;
-    color: var(--text);
-  }
-  .cancel-title {
-    font-weight: 600;
-    font-size: 0.92rem;
-    margin-bottom: 0.35rem;
-  }
-  .cancel-block button {
-    padding: 0.55rem 1rem;
-    border-radius: var(--radius-sm);
-    font: inherit;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-  .cancel-block .btn-danger {
-    background: transparent;
-    border: 1px solid var(--accent-red);
-    color: var(--state-bad-text);
-  }
-  .cancel-block .btn-secondary {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
-  .cancel-block button:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .cancel-ok {
-    color: var(--state-good-text) !important;
-    margin-top: 0.6rem !important;
-  }
-`;
-
-function CompanyCard({ icon, title, status, tone, open, onToggle, children }) {
-  return (
-    <div className={`co-card${open ? ' is-open' : ''}`}>
-      <button type="button" className="co-head" onClick={onToggle} aria-expanded={open ? 'true' : 'false'}>
-        <span className={`co-icon tone-${tone || 'brand'}`}>
-          <Ic name={icon} size={19} />
-        </span>
-        <span className="co-text">
-          <span className="co-title">{title}</span>
-          {status ? (
-            // title : une pastille bavarde se tronque, le texte complet
-            // reste lisible au survol et a l'appui long.
-            <span className={`co-status st-${tone || 'brand'}`} title={status}>
-              {status}
-            </span>
-          ) : null}
-        </span>
-        <span className="co-chev">
-          <Ic name={open ? 'chevronUp' : 'chevronDown'} size={18} />
-        </span>
-      </button>
-      {open ? <div className="co-body">{children}</div> : null}
-
-      <style jsx>{`
-        .co-card {
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          background: var(--surface);
-          overflow: hidden;
-          transition: border-color var(--fast), box-shadow var(--fast);
-        }
-        .co-card.is-open {
-          border-color: var(--accent);
-          box-shadow: 0 1px 16px rgba(0, 0, 0, 0.06);
-        }
-        .co-head {
-          display: grid;
-          grid-template-columns: auto minmax(0, 1fr) auto;
-          align-items: center;
-          gap: 0.85rem;
-          width: 100%;
-          min-height: 56px;
-          padding: 0.85rem 0.95rem;
-          background: transparent;
-          border: 0;
-          text-align: left;
-          cursor: pointer;
-          font: inherit;
-          color: inherit;
-        }
-        .co-head:hover {
-          background: var(--surface-hover);
-        }
-        .co-icon {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          width: 38px;
-          height: 38px;
-          /* Carre arrondi, pas un cercle : meme langage que AccountNav et
-             que les icones d'application. */
-          border-radius: 12px;
-        }
-        .co-icon.tone-brand {
-          background: linear-gradient(145deg, rgba(124, 110, 245, 0.22), rgba(75, 57, 239, 0.12));
-          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.22);
-          color: var(--accent-light);
-        }
-        .co-icon.tone-ok {
-          background: linear-gradient(145deg, rgba(61, 214, 140, 0.2), rgba(61, 214, 140, 0.08));
-          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
-          color: var(--accent-green);
-        }
-        .co-icon.tone-off {
-          background: var(--tint-7);
-          box-shadow: inset 0 0 0 1px var(--border);
-          color: var(--muted);
-        }
-        .co-icon.tone-todo {
-          background: linear-gradient(145deg, rgba(245, 166, 35, 0.22), rgba(245, 166, 35, 0.1));
-          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.24);
-          color: var(--accent-amber);
-        }
-        .co-text {
-          display: flex;
-          flex-direction: column;
-          gap: 0.2rem;
-          min-width: 0;
-        }
-        .co-title {
-          display: block;
-          min-width: 0;
-          font-family: var(--font-display);
-          font-size: 0.97rem;
-          font-weight: 600;
-          color: var(--text);
-          line-height: 1.25;
-        }
-        .co-status {
-          display: inline-block;
-          align-self: flex-start;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: 0.68rem;
-          font-weight: 700;
-          letter-spacing: 0.01em;
-          line-height: 1.6;
-          padding: 2px 9px;
-          border-radius: 999px;
-        }
-        .co-status.st-brand {
-          background: rgba(124, 110, 245, 0.16);
-          color: var(--accent-light);
-          box-shadow: inset 0 0 0 1px rgba(124, 110, 245, 0.24);
-        }
-        .co-status.st-ok {
-          background: rgba(61, 214, 140, 0.15);
-          color: var(--accent-green);
-          box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.22);
-        }
-        .co-status.st-off {
-          background: var(--tint-7);
-          color: var(--muted);
-          box-shadow: inset 0 0 0 1px var(--border);
-        }
-        .co-status.st-todo {
-          background: rgba(245, 166, 35, 0.15);
-          color: var(--accent-amber);
-          box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.22);
-        }
-        .co-chev {
-          display: inline-flex;
-          flex-shrink: 0;
-          color: var(--muted);
-        }
-        .co-body {
-          padding: 0.2rem 0.95rem 1.05rem;
-          border-top: 1px solid var(--border-soft);
-          margin-top: -1px;
-        }
-        @media (max-width: 480px) {
-          .co-head {
-            gap: 0.7rem;
-            padding: 0.8rem 0.75rem;
-          }
-          .co-body {
-            padding: 0.2rem 0.75rem 1rem;
-          }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved }) {
-  const [link, setLink] = useState(value || '');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState(null);
-
-  useEffect(() => { setLink(value || ''); }, [value]);
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/preferences', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, meeting_link: link.trim() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      onSaved(link.trim());
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="card visio-card">
-      <div className="card-head">
-        <h3><Ic name="video" /> {t('connexions.visioTitle', locale)}</h3>
-      </div>
-      {/* Trois états (10/09/2026) :
-          - Google/Microsoft connecté  → Meet/Teams automatique ;
-          - ni l'un ni l'autre, mais Aaron sait créer une salle → on l'annonce,
-            c'est une solution et non un frottement ;
-          - ni l'un ni l'autre et pas de salle Aaron → avertissement rouge,
-            c'est au commercial de coller la sienne. */}
-      <p className={autoLink || aaronVideo ? 'desc' : 'desc visio-warning'}>
-        {autoLink
-          ? t('connexions.visioAuto', locale)
-          : aaronVideo
-            ? t('connexions.visioAaronProvided', locale)
-            : t('connexions.visioNoneWarning', locale)}
-      </p>
-      <label className="visio-field">
-        <span>{t('connexions.visioOwnRoom', locale)}</span>
-        <input
-          type="url"
-          placeholder="https://meet.google.com/xxx-xxxx-xxx"
-          value={link}
-          onChange={(e) => setLink(e.target.value)}
-          onBlur={() => { if ((link || '').trim() !== (value || '').trim()) save(); }}
-        />
-      </label>
-      {error && <p className="visio-error">{error}</p>}
-      <div className="visio-actions">
-        <button type="button" className="btn-secondary" onClick={save} disabled={saving}>
-          {saving ? t('common.loading', locale) : t('common.save', locale)}
-        </button>
-        {saved && <span className="visio-saved"><Ic name="check" size={13} strokeWidth={2.6} /> {t('connexions.visioSaved', locale)}</span>}
-      </div>
-      <style jsx>{`
-        .visio-card { margin-top: 1rem; }
-        .visio-card h3 { display: flex; align-items: center; gap: 6px; }
-        .visio-warning { border-left: 3px solid var(--danger, #c92a2a); padding-left: 0.7rem; }
-        .visio-field { display: flex; flex-direction: column; gap: 5px; margin: 0.9rem 0 0.6rem; font-size: 0.9rem; }
-        .visio-field input {
-          width: 100%; max-width: 420px; box-sizing: border-box; background: var(--bg);
-          border: 1px solid var(--border); border-radius: var(--radius-sm);
-          padding: 0.55rem 0.7rem; color: var(--text); font-size: 0.86rem; font-family: inherit;
-        }
-        .visio-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .visio-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--success, #2b8a3e); font-size: 0.85rem; }
-        .visio-error { color: var(--danger, #c92a2a); font-size: 0.87rem; overflow-wrap: anywhere; }
-      `}</style>
-    </div>
-  );
-}
 
 // Formulaire « Autre boîte mail » (IMAP/SMTP, 09/09/2026 — voir lib/imap.ts) :
   // ouvert par le bouton unique quand le domaine n'est ni Google ni Microsoft,
@@ -2911,7 +2936,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 </p>
               ) : businessSummary ? (
                 <BusinessProfileSheet
-                  summary={businessSummary}
+                  summary={!summaryDirty && translatedSummary ? translatedSummary : businessSummary}
                   title={prefs?.company_name || t('connexions.tabCompany', locale)}
                   onOpen={() => setSummaryExpanded(true)}
                   openLabel={t('preferences.viewFullProfileButton', locale)}
@@ -3026,6 +3051,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 userId={userId}
                 onActivated={(newSummary) => {
                   setBusinessSummary(newSummary);
+                  setStoredSummary(newSummary);
                   setSummaryDirty(false);
                 }}
               />
@@ -3036,6 +3062,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
             <BusinessSummaryExpandModal
               locale={locale}
               value={businessSummary}
+              translatedValue={summaryDirty ? null : translatedSummary}
               onChange={(v) => {
                 setBusinessSummary(v);
                 setSummaryDirty(true);
@@ -3117,7 +3144,9 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                 locale={locale}
                 userId={userId}
                 initial={signatureInitial}
-                onChange={setSignatureSummary}
+                onChange={(next) => setSignatureSummary((prev) => (
+                  prev.hasSignature === next.hasSignature && prev.auto === next.auto ? prev : next
+                ))}
               />
             </CompanyCard>
           )}
@@ -3641,7 +3670,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         </button>
                       ))}
                     </div>
-                    <SaveBar keys={['notify_before_appointment_minutes']} />
+                    {renderSaveBar(['notify_before_appointment_minutes'])}
                   </div>
                 </div>
               </div>
@@ -3667,7 +3696,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         </button>
                       ))}
                     </div>
-                    <SaveBar keys={['require_first_email_approval']} />
+                    {renderSaveBar(['require_first_email_approval'])}
                   </div>
                 </div>
 
@@ -3692,7 +3721,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         </button>
                       ))}
                     </div>
-                    <SaveBar keys={['aaron_archive_threads']} />
+                    {renderSaveBar(['aaron_archive_threads'])}
                   </div>
                 </div>
 
@@ -3729,7 +3758,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                           .replace('{date}', prefs.warmup.fullFrom ? new Date(`${prefs.warmup.fullFrom}T12:00:00Z`).toLocaleDateString((locale || 'fr').replace('_', '-'), { day: 'numeric', month: 'long' }) : '')}
                       </p>
                     ) : null}
-                    <SaveBar keys={['daily_prospecting_email_cap']} />
+                    {renderSaveBar(['daily_prospecting_email_cap'])}
                   </div>
                 </div>
 
@@ -3784,7 +3813,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         </div>
                       </div>
                     )}
-                    <SaveBar keys={['prospecting_goal', 'prospecting_goal_details']} />
+                    {renderSaveBar(['prospecting_goal', 'prospecting_goal_details'])}
                   </div>
                 </div>
 
@@ -3850,7 +3879,7 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                         </div>
                       </div>
                     )}
-                    <SaveBar keys={['default_first_email_enabled', 'default_first_email_subject', 'default_first_email_body']} />
+                    {renderSaveBar(['default_first_email_enabled', 'default_first_email_subject', 'default_first_email_body'])}
                   </div>
                 </div>
               </div>
@@ -4021,7 +4050,9 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                           {isActive ? t('preferences.subscription.activeLabel', locale) : t('preferences.subscription.inactiveLabel', locale)}
                         </span>
                       </span>
-                      <span className="offer-desc">{o.desc}</span>
+                      {/* Prix dans la devise de l'entreprise (20/11/2026) :
+                          la ligne affichait toujours des euros. */}
+                      <span className="offer-desc">{t('preferences.offers.aaronDesc', locale).replace('{price}', formatSubscriptionPrice(boostCurrency))}</span>
                       {prefs.role === 'patron' && (
                         <button
                           type="button"
@@ -4139,17 +4170,28 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
                       <button
                         key={tier.id}
                         type="button"
-                        className={`boost-card${tier.highlight ? ' highlight' : ''}`}
-                        disabled={buyingCredits === tier.id}
-                        onClick={() => handleBuyBoost(tier.id)}
+                        className={`boost-card${selectedBoost === tier.id ? ' selected' : ''}`}
+                        aria-pressed={selectedBoost === tier.id ? 'true' : 'false'}
+                        disabled={!!buyingCredits}
+                        onClick={() => setSelectedBoost((cur) => (cur === tier.id ? null : tier.id))}
                       >
                         {tier.highlight && <span className="boost-badge">{t('boost.popular', locale)}</span>}
                         <span className="boost-credits">+{prospectsForTier(tier)}</span>
                         <span className="boost-unit">{t('quota.unit', locale)}</span>
-                        <span className="boost-price">{buyingCredits === tier.id ? '…' : formatBoostPrice(boostPrice(tier.id, boostCurrency), boostCurrency)}</span>
+                        <span className="boost-price">{formatBoostPrice(boostPrice(tier.id, boostCurrency), boostCurrency)}</span>
                       </button>
                     ))}
                   </div>
+                  {selectedBoost && (
+                    <button
+                      type="button"
+                      className="btn-primary boost-confirm"
+                      disabled={!!buyingCredits}
+                      onClick={() => handleBuyBoost(selectedBoost)}
+                    >
+                      {buyingCredits ? '…' : t('common.confirm', locale)}
+                    </button>
+                  )}
                 </div>
               </div>
               </>
@@ -5601,8 +5643,15 @@ function VisioLinkCard({ locale, userId, autoLink, aaronVideo, value, onSaved })
           opacity: 0.6;
           cursor: default;
         }
-        .boost-card.highlight {
+        /* Le contour violet désigne le palier CHOISI, plus le palier
+           « le plus choisi » : deux contours se lisaient comme deux choix. */
+        .boost-card.selected {
           border-color: var(--accent);
+          box-shadow: 0 0 0 2px var(--accent);
+        }
+        .boost-confirm {
+          margin-top: 0.9rem;
+          align-self: flex-start;
         }
         .boost-badge {
           position: absolute;
@@ -6438,7 +6487,25 @@ function BusinessProfileHistory({ locale, userId, onActivated }) {
 // (value/onChange) que le parent — les deux vues restent donc toujours
 // synchronisées, et "Enregistrer" ici déclenche exactement le même handler
 // (onSave = handleSaveSummary du parent).
-function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, saving, saved, onExport, exportingFormat }) {
+// Libellés de la lecture traduite (20/11/2026), dictionnaire local.
+const SUMMARY_READ_TEXT = {
+  fr: { note: 'Traduit de l’original.', edit: 'Modifier l’original', back: 'Voir la traduction' },
+  en: { note: 'Translated from the original.', edit: 'Edit the original', back: 'See the translation' },
+  de: { note: 'Aus dem Original übersetzt.', edit: 'Original bearbeiten', back: 'Übersetzung ansehen' },
+  it: { note: 'Tradotto dall’originale.', edit: 'Modifica l’originale', back: 'Vedi la traduzione' },
+  es: { note: 'Traducido del original.', edit: 'Editar el original', back: 'Ver la traducción' },
+  pt: { note: 'Traduzido do original.', edit: 'Editar o original', back: 'Ver a tradução' },
+  nl: { note: 'Vertaald uit het origineel.', edit: 'Origineel bewerken', back: 'Vertaling bekijken' },
+};
+
+function BusinessSummaryExpandModal({ locale, value, translatedValue, onChange, onClose, onSave, saving, saved, onExport, exportingFormat }) {
+  // La fiche est écrite dans une seule langue pour toute la société. Si
+  // l'interface est dans une autre, on la montre TRADUITE, en lecture ; la
+  // modifier se fait sur l'original, pour ne jamais écraser le texte source
+  // par une traduction.
+  const [editOriginal, setEditOriginal] = useState(false);
+  const readText = SUMMARY_READ_TEXT[locale] || SUMMARY_READ_TEXT.fr;
+  const reading = !!translatedValue && !editOriginal;
   return (
     <div className="summary-expand-overlay" onClick={onClose}>
       <div className="summary-expand-modal" onClick={(e) => e.stopPropagation()}>
@@ -6446,13 +6513,25 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
           <h2>{t('preferences.businessProfileExpandModalTitle', locale)}</h2>
           <button type="button" className="summary-expand-close" onClick={onClose}><Ic name="x" size={16} /></button>
         </div>
-        <textarea
-          className="summary-expand-textarea"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t('preferences.businessProfilePlaceholder', locale)}
-          autoFocus
-        />
+        {translatedValue && (
+          <p className="summary-expand-note">
+            {reading ? readText.note : null}{' '}
+            <button type="button" className="summary-expand-switch" onClick={() => setEditOriginal((v) => !v)}>
+              {reading ? readText.edit : readText.back}
+            </button>
+          </p>
+        )}
+        {reading ? (
+          <div className="summary-expand-textarea summary-expand-read" tabIndex={0}>{translatedValue}</div>
+        ) : (
+          <textarea
+            className="summary-expand-textarea"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={t('preferences.businessProfilePlaceholder', locale)}
+            autoFocus
+          />
+        )}
         <div className="summary-expand-actions">
           <button type="button" className="btn-secondary" onClick={onClose}>{t('common.close', locale)}</button>
           {/* Bouton "Télécharger" unique (demande Alex, 29/08/2026 : "un seul
@@ -6460,9 +6539,11 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
               pdf' ou 'en word'") — remplace les deux boutons distincts
               affichés jusqu'ici, ici comme dans le panneau "Mon entreprise". */}
           {onExport && <BusinessProfileDownloadButton locale={locale} onExport={onExport} exportingFormat={exportingFormat} />}
-          <button type="button" className="btn-primary" onClick={onSave} disabled={saving}>
-            {saving ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
-          </button>
+          {!reading && (
+            <button type="button" className="btn-primary" onClick={onSave} disabled={saving}>
+              {saving ? t('preferences.savingEllipsis', locale) : t('preferences.saveSummaryButton', locale)}
+            </button>
+          )}
           {saved && <span className="saved-msg">{t('preferences.summarySavedMsg', locale)}</span>}
         </div>
       </div>
@@ -6501,6 +6582,13 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
           font-size: 1.1rem;
         }
         .summary-expand-close {
+          /* Croix centrée (20/11/2026) : sans flex, l'icône se posait sur la
+             ligne de base du texte et glissait vers le coin. */
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          flex: none;
           background: transparent;
           border: 1px solid var(--border);
           color: var(--muted);
@@ -6508,6 +6596,29 @@ function BusinessSummaryExpandModal({ locale, value, onChange, onClose, onSave, 
           width: 2rem;
           height: 2rem;
           cursor: pointer;
+        }
+        .summary-expand-close :global(svg) {
+          display: block;
+        }
+        .summary-expand-note {
+          margin: 0 0 0.6rem;
+          font-size: 0.84rem;
+          color: var(--muted);
+        }
+        .summary-expand-switch {
+          background: transparent;
+          border: 0;
+          padding: 0;
+          color: var(--accent-light, var(--accent));
+          font: inherit;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: underline;
+        }
+        .summary-expand-read {
+          white-space: pre-wrap;
+          overflow-y: auto;
+          max-height: 60vh;
         }
         .summary-expand-textarea {
           flex: 1;

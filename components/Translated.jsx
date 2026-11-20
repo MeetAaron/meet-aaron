@@ -128,6 +128,69 @@ export function useTranslation(text, locale) {
   return tr;
 }
 
+// ---- Texte long (fiche entreprise) --------------------------------------
+//
+// 20/11/2026 (retour d'Alex, compte James en anglais : la fiche entreprise
+// s'affichait en français). La fiche est écrite une fois, dans la langue de
+// celui qui l'a rédigée, et partagée par toute la société : un commercial
+// dont l'interface est dans une autre langue doit pouvoir la LIRE dans la
+// sienne. Le texte dépasse le plafond d'un seul envoi (lib/translate.ts,
+// 6 000 caractères) : on le découpe par rubrique (« ## … »), puis par
+// paragraphes si une rubrique est trop longue. Chaque morceau est mis en
+// mémoire séparément, donc corriger une rubrique ne retraduit qu'elle.
+export function splitLongText(text, max = 5000) {
+  const out = [];
+  for (const section of String(text || '').split(/\n(?=## )/)) {
+    const clean = section.trim();
+    if (!clean) continue;
+    if (clean.length <= max) {
+      out.push(clean);
+      continue;
+    }
+    let current = '';
+    for (const paragraph of clean.split(/\n{2,}/)) {
+      const piece = paragraph.trim();
+      if (!piece) continue;
+      if (current && current.length + piece.length + 2 > max) {
+        out.push(current);
+        current = '';
+      }
+      current = current ? `${current}\n\n${piece}` : piece.slice(0, max);
+    }
+    if (current) out.push(current);
+  }
+  return out;
+}
+
+// Renvoie le texte traduit en entier, ou null : rien à traduire, traduction
+// pas encore arrivée, ou texte déjà dans la bonne langue. Jamais un mélange à
+// moitié traduit pendant le chargement.
+export function useLongTranslation(text, locale) {
+  const [result, setResult] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const run = () => {
+      setResult(null);
+      if (!text || typeof text !== 'string' || !locale || !autoTranslateEnabled()) return;
+      const parts = splitLongText(text);
+      if (parts.length === 0) return;
+      Promise.all(parts.map((part) => requestTranslation(part, locale))).then((answers) => {
+        if (!alive) return;
+        if (!answers.some((a) => a && a.text)) return;
+        setResult(parts.map((part, i) => (answers[i] && answers[i].text ? answers[i].text.trim() : part)).join('\n\n'));
+      });
+    };
+    run();
+    const onPref = () => run();
+    window.addEventListener('aaron-auto-translate-change', onPref);
+    return () => {
+      alive = false;
+      window.removeEventListener('aaron-auto-translate-change', onPref);
+    };
+  }, [text, locale]);
+  return result;
+}
+
 export default function Translated({ text, locale, as: Tag = 'span', className, style, format, children, toggleClassName }) {
   const tr = useTranslation(text, locale);
   const [showOriginal, setShowOriginal] = useState(false);

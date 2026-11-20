@@ -9,9 +9,10 @@
 // Fonctionnement, sans toucher à la liste existante de chaque page :
 //   - chaque page ajoute la classe `nav-rare` aux liens dont le slug est dans
 //     RARE_SLUGS (sauf la page en cours, qui reste visible dans le rail) ;
-//   - app/globals.css masque `.nav-rare` dans le rail (≥ 901 px) et affiche
-//     ce composant ; sur téléphone c'est l'inverse : le tiroir montre toute
-//     la liste et ce bouton est masqué.
+//   - app/globals.css masque `.nav-rare` dans le rail et affiche ce
+//     composant UNIQUEMENT quand la fenêtre est trop basse pour tout
+//     afficher (moins de 550 px de haut depuis le 20/11/2026) ; sur
+//     téléphone, le tiroir montre toute la liste et ce bouton est masqué.
 
 'use client';
 
