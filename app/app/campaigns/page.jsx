@@ -350,6 +350,41 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
   );
 }
 
+// Cycle de vie d'une campagne (20/11/2026, demande d'Alex) : brouillon à
+// reprendre, onglets En cours / Terminées, croix pour retirer une campagne.
+const CAMP_LIFE = {
+  fr: { draftTitle: 'Campagne en création', draftEmpty: 'Pas encore terminée', resume: 'Reprendre', delete: 'Supprimer', draftConfirmTitle: 'Supprimer ce brouillon ?', draftConfirmBody: 'Ce que tu as déjà saisi sera perdu.', tabLive: 'En cours', tabDone: 'Terminées', remove: 'Retirer', removeConfirmTitle: 'Retirer cette campagne ?', removeConfirmBody: 'Elle s’arrête si elle tourne encore, puis disparaît de cette page. Ses prospects et ses résultats sont gardés.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', noneLive: 'Aucune campagne en cours.', noneDone: 'Aucune campagne terminée.' },
+  en: { draftTitle: 'Campaign in progress', draftEmpty: 'Not finished yet', resume: 'Resume', delete: 'Delete', draftConfirmTitle: 'Delete this draft?', draftConfirmBody: 'What you have entered so far will be lost.', tabLive: 'Running', tabDone: 'Finished', remove: 'Remove', removeConfirmTitle: 'Remove this campaign?', removeConfirmBody: 'It stops if it is still running, then disappears from this page. Its prospects and results are kept.', migration: 'Update pending: try again in a few minutes.', noneLive: 'No running campaign.', noneDone: 'No finished campaign.' },
+  de: { draftTitle: 'Kampagne in Erstellung', draftEmpty: 'Noch nicht fertig', resume: 'Fortsetzen', delete: 'Löschen', draftConfirmTitle: 'Diesen Entwurf löschen?', draftConfirmBody: 'Bisherige Eingaben gehen verloren.', tabLive: 'Laufend', tabDone: 'Beendet', remove: 'Entfernen', removeConfirmTitle: 'Diese Kampagne entfernen?', removeConfirmBody: 'Sie wird gestoppt, falls sie noch läuft, und verschwindet von dieser Seite. Interessenten und Ergebnisse bleiben erhalten.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', noneLive: 'Keine laufende Kampagne.', noneDone: 'Keine beendete Kampagne.' },
+  it: { draftTitle: 'Campagna in creazione', draftEmpty: 'Non ancora finita', resume: 'Riprendi', delete: 'Elimina', draftConfirmTitle: 'Eliminare questa bozza?', draftConfirmBody: 'Quanto inserito finora andrà perso.', tabLive: 'In corso', tabDone: 'Terminate', remove: 'Rimuovi', removeConfirmTitle: 'Rimuovere questa campagna?', removeConfirmBody: 'Si ferma se è ancora attiva, poi sparisce da questa pagina. Contatti e risultati restano.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', noneLive: 'Nessuna campagna in corso.', noneDone: 'Nessuna campagna terminata.' },
+  es: { draftTitle: 'Campaña en creación', draftEmpty: 'Aún sin terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: '¿Eliminar este borrador?', draftConfirmBody: 'Se perderá lo que ya has escrito.', tabLive: 'En curso', tabDone: 'Terminadas', remove: 'Quitar', removeConfirmTitle: '¿Quitar esta campaña?', removeConfirmBody: 'Se detiene si sigue activa y desaparece de esta página. Sus prospectos y resultados se conservan.', migration: 'Actualización pendiente: inténtalo en unos minutos.', noneLive: 'Ninguna campaña en curso.', noneDone: 'Ninguna campaña terminada.' },
+  pt: { draftTitle: 'Campanha em criação', draftEmpty: 'Ainda por terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: 'Eliminar este rascunho?', draftConfirmBody: 'O que já escreveste será perdido.', tabLive: 'Em curso', tabDone: 'Terminadas', remove: 'Retirar', removeConfirmTitle: 'Retirar esta campanha?', removeConfirmBody: 'Para se ainda estiver ativa e desaparece desta página. Os prospetos e os resultados ficam guardados.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', noneLive: 'Nenhuma campanha em curso.', noneDone: 'Nenhuma campanha terminada.' },
+  nl: { draftTitle: 'Campagne in aanmaak', draftEmpty: 'Nog niet klaar', resume: 'Hervatten', delete: 'Verwijderen', draftConfirmTitle: 'Dit concept verwijderen?', draftConfirmBody: 'Wat je al hebt ingevuld gaat verloren.', tabLive: 'Lopend', tabDone: 'Afgerond', remove: 'Verwijderen', removeConfirmTitle: 'Deze campagne verwijderen?', removeConfirmBody: 'Ze stopt als ze nog loopt en verdwijnt van deze pagina. Prospects en resultaten blijven bewaard.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', noneLive: 'Geen lopende campagne.', noneDone: 'Geen afgeronde campagne.' },
+};
+const lifeText = (locale, key) => (CAMP_LIFE[locale] || CAMP_LIFE.fr)[key] || CAMP_LIFE.fr[key];
+
+// Ce qu'on montre d'un brouillon : les métiers et la zone s'ils sont déjà
+// connus, sinon la première réponse du commercial dans le chat.
+function draftSummaryOf(kind, draft) {
+  if (!draft) return null;
+  if (kind === 'form') {
+    const bits = [draft.sectors, draft.zoneLabel].map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
+    return bits.length ? bits.join(' · ') : null;
+  }
+  const recap = draft.recap;
+  if (recap && (recap.zone_label || (recap.sector_keywords || []).length)) {
+    return [(recap.sector_keywords || []).join(', '), recap.zone_label].filter(Boolean).join(' · ');
+  }
+  const first = (draft.messages || []).find((m) => m && m.role === 'user' && typeof m.content === 'string');
+  return first ? first.content.slice(0, 90) : null;
+}
+
+function hasCampaignDraft(kind, draft) {
+  if (!draft) return false;
+  if (kind === 'chat') return Array.isArray(draft.messages) && draft.messages.some((m) => m && m.role === 'user');
+  return !!(draft.zoneLabel || draft.sectors || draft.targetRole || draft.contextNotes || (draft.companySizes || []).length);
+}
+
 export default function CampaignsPage() {
   // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
   // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
@@ -380,6 +415,40 @@ export default function CampaignsPage() {
   // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
   const [briefOpenId, setBriefOpenId] = useState(null);
   const [manageOpenId, setManageOpenId] = useState(null);
+  // Brouillons (chat et formulaire), onglet affiché, retrait d'une campagne.
+  const [drafts, setDrafts] = useState({ chat: null, form: null });
+  const [confirmDraftKind, setConfirmDraftKind] = useState(null);
+  const [listTab, setListTab] = useState('live');
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState(null);
+  useEffect(() => {
+    if (!userId || showChat || showForm) return;
+    const chat = readCampaignDraft('chat', userId);
+    const form = readCampaignDraft('form', userId);
+    setDrafts({ chat: hasCampaignDraft('chat', chat) ? chat : null, form: hasCampaignDraft('form', form) ? form : null });
+  }, [userId, showChat, showForm]);
+
+  async function removeCampaign(campaignId) {
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retirer' }),
+      });
+      if (res.ok) {
+        setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+        setConfirmRemoveId(null);
+      } else {
+        setRemoveError(res.status === 409 ? lifeText(locale, 'migration') : t('common.error', locale));
+      }
+    } catch {
+      setRemoveError(t('common.error', locale));
+    }
+    setRemoving(false);
+  }
   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : "pas dans Marketing,
   // plutôt dans Campagnes" — 3e onglet ici, même composant CsvImportModal
   // que Prospects/Sales/Customer mais avec context="reactivation" (voir ce
@@ -775,6 +844,25 @@ export default function CampaignsPage() {
         </div>
       )}
 
+      {/* Campagne commencée mais pas lancée (connexion perdue, fenêtre
+          fermée à l'étape 4…) : on la retrouve ici, on la reprend ou on la
+          supprime. Le brouillon vit dans ce navigateur (lib : campaignDraftKey). */}
+      {['chat', 'form'].filter((kind) => drafts[kind]).map((kind) => (
+        <div className="camp-draft" key={kind}>
+          <span className="camp-draft-ic"><Ic name="pencil" size={15} /></span>
+          <span className="camp-draft-text">
+            <strong>{lifeText(locale, 'draftTitle')}</strong>
+            <span>{draftSummaryOf(kind, drafts[kind]) || lifeText(locale, 'draftEmpty')}</span>
+          </span>
+          <button type="button" className="btn-primary camp-draft-go" onClick={() => (kind === 'chat' ? setShowChat(true) : setShowForm(true))}>
+            {lifeText(locale, 'resume')}
+          </button>
+          <button type="button" className="camp-x" aria-label={lifeText(locale, 'delete')} title={lifeText(locale, 'delete')} onClick={() => setConfirmDraftKind(kind)}>
+            <Ic name="x" size={15} />
+          </button>
+        </div>
+      ))}
+
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
       ) : campaigns.length === 0 ? (
@@ -785,9 +873,27 @@ export default function CampaignsPage() {
           ctaLabel={t('campaigns.emptyCta', locale)}
         />
       ) : (
+        <>
+        {(() => {
+          const live = campaigns.filter((c) => c.status !== 'terminee').length;
+          const done = campaigns.length - live;
+          return (
+            <div className="camp-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={listTab === 'live'} className={`camp-tab${listTab === 'live' ? ' on' : ''}`} onClick={() => setListTab('live')}>
+                {lifeText(locale, 'tabLive')} <span className="camp-tab-n">{live}</span>
+              </button>
+              <button type="button" role="tab" aria-selected={listTab === 'done'} className={`camp-tab${listTab === 'done' ? ' on' : ''}`} onClick={() => setListTab('done')}>
+                {lifeText(locale, 'tabDone')} <span className="camp-tab-n">{done}</span>
+              </button>
+            </div>
+          );
+        })()}
         <div className="cards">
           {relaunchError && <p className="relaunch-error">{relaunchError}</p>}
-          {campaigns.map((c) => {
+          {campaigns.filter((c) => (listTab === 'done' ? c.status === 'terminee' : c.status !== 'terminee')).length === 0 && (
+            <p className="muted">{lifeText(locale, listTab === 'done' ? 'noneDone' : 'noneLive')}</p>
+          )}
+          {campaigns.filter((c) => (listTab === 'done' ? c.status === 'terminee' : c.status !== 'terminee')).map((c) => {
             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
             const isTerminee = c.status === 'terminee';
@@ -849,9 +955,14 @@ export default function CampaignsPage() {
                       )}
                     </p>
                   </div>
-                  <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
-                    {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
-                    {status.label}
+                  <span className="camp-head-end">
+                    <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
+                      {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
+                      {status.label}
+                    </span>
+                    <button type="button" className="camp-x" aria-label={lifeText(locale, 'remove')} title={lifeText(locale, 'remove')} onClick={() => { setRemoveError(null); setConfirmRemoveId(c.id); }}>
+                      <Ic name="x" size={15} />
+                    </button>
                   </span>
                 </div>
 
@@ -1034,6 +1145,7 @@ export default function CampaignsPage() {
             );
           })}
         </div>
+        </>
       )}
 
       {globalAdvice && (
@@ -1072,6 +1184,49 @@ export default function CampaignsPage() {
                 onClick={() => changeCampaignStatus(confirmEndId, 'terminer')}
               >
                 {t('common.confirm', locale)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDraftKind && (
+        <div className="overlay" onClick={() => setConfirmDraftKind(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{lifeText(locale, 'draftConfirmTitle')}</h2>
+            <p>{lifeText(locale, 'draftConfirmBody')}</p>
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmDraftKind(null)}>
+                {t('common.cancel', locale)}
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => {
+                  clearCampaignDraft(confirmDraftKind, userId);
+                  setDrafts((d) => ({ ...d, [confirmDraftKind]: null }));
+                  setConfirmDraftKind(null);
+                }}
+              >
+                {lifeText(locale, 'delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRemoveId && (
+        <div className="overlay" onClick={() => setConfirmRemoveId(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{lifeText(locale, 'removeConfirmTitle')}</h2>
+            <p>{lifeText(locale, 'removeConfirmBody')}</p>
+            {removeError && <p className="relaunch-error">{removeError}</p>}
+            <div className="confirm-actions">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmRemoveId(null)}>
+                {t('common.cancel', locale)}
+              </button>
+              <button type="button" className="btn-danger" disabled={removing} onClick={() => removeCampaign(confirmRemoveId)}>
+                {removing ? '…' : lifeText(locale, 'remove')}
               </button>
             </div>
           </div>
@@ -1263,6 +1418,60 @@ export default function CampaignsPage() {
           gap: 0.8rem;
         }
         .camp-id { min-width: 0; }
+        .camp-head-end {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          flex: none;
+        }
+        .camp-x {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex: none;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          border: 0;
+          border-radius: 8px;
+          background: transparent;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .camp-x:hover { background: var(--tint-6, rgba(127, 127, 127, 0.12)); color: var(--text); }
+        .camp-x :global(svg) { display: block; }
+        .camp-draft {
+          display: flex;
+          align-items: center;
+          gap: 0.7rem;
+          margin-bottom: 0.9rem;
+          padding: 0.7rem 0.8rem 0.7rem 0.9rem;
+          border-radius: var(--radius-md);
+          border: 1px dashed var(--accent);
+          background: var(--bg-elevated, transparent);
+        }
+        .camp-draft-ic { display: inline-flex; color: var(--accent); flex: none; }
+        .camp-draft-go { flex: none; padding: 0.5rem 0.9rem; }
+        .camp-draft-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; font-size: 0.86rem; }
+        .camp-draft-text span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .camp-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+        .camp-tab {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+          min-height: 40px;
+          padding: 0 0.9rem;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: transparent;
+          color: var(--muted);
+          font: inherit;
+          font-size: 0.86rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .camp-tab.on { border-color: var(--accent); color: var(--text); background: rgba(124, 110, 245, 0.12); }
+        .camp-tab-n { font-size: 0.76rem; font-weight: 600; opacity: 0.8; }
         .camp-head h3 {
           margin: 0 0 0.3rem;
           font-family: var(--font-display);
@@ -1923,6 +2132,15 @@ function extractCampaignJson(text) {
 // localStorage et pas la base : c'est un brouillon local, il n'a pas a voyager
 // ni a survivre a un changement de machine. Toute lecture/ecriture est
 // enveloppee, un navigateur en navigation privee ne doit jamais casser la page.
+// « **gras** » d'Aaron (20/11/2026) : le chat affichait les astérisques telles
+// quelles. Le prompt demande désormais du texte brut ; ceci rattrape les
+// messages qui en contiendraient encore.
+function renderChatBold(line) {
+  const parts = String(line || '').split(/\*\*(.+?)\*\*/g);
+  if (parts.length === 1) return line;
+  return parts.map((part, i) => (i % 2 === 1 ? <strong key={i}>{part}</strong> : part));
+}
+
 function campaignDraftKey(kind, userId) {
   return `aaron_campaign_${kind}_draft:${userId || 'anon'}`;
 }
@@ -2207,7 +2425,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
         <div className="chat-messages" ref={messagesRef}>
           {messages.map((m, i) => (
             <div key={i} className={`bubble ${m.role}`}>
-              {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
+              {m.content.split('\n').map((line, j) => <p key={j}>{renderChatBold(line)}</p>)}
             </div>
           ))}
           {sending && <div className="bubble assistant"><p className="typing">{t('campaigns.aaronThinking', locale)}</p></div>}

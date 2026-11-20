@@ -39,6 +39,30 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   if (authedUser.id !== campaign.assigned_user_id) return forbiddenResponse();
   if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
 
+  // RETIRER DE LA LISTE (20/11/2026, demande d'Alex : « une croix pour
+  // supprimer les campagnes, avec un êtes-vous sûr »). On ne supprime jamais
+  // la ligne : les prospects trouvés par la campagne, leurs échanges et les
+  // résultats en dépendent. La campagne est arrêtée si elle tournait, puis
+  // masquée de la page Campagnes (archived_at). Ses chiffres restent dans
+  // Résultats.
+  if (action === 'retirer') {
+    const now = new Date().toISOString();
+    const patch: Record<string, any> = { archived_at: now };
+    if (campaign.status !== 'terminee') {
+      patch.status = 'terminee';
+      patch.ended_manually_at = now;
+    }
+    const { error: archiveError } = await supabaseAdmin.from('prospecting_campaigns').update(patch).eq('id', campaignId);
+    if (archiveError) {
+      if (archiveError.code === '42703' || archiveError.code === 'PGRST204') {
+        return NextResponse.json({ error: 'migration_missing', code: 'campaign_archive_migration_missing' }, { status: 409 });
+      }
+      console.error('[campagnes] retrait impossible :', archiveError.code || '', archiveError.message);
+      return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, archived: true });
+  }
+
   if (campaign.status === 'terminee') {
     return NextResponse.json({ error: 'Cette campagne est déjà terminée' }, { status: 400 });
   }

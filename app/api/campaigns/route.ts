@@ -23,11 +23,23 @@ export async function GET(request: NextRequest) {
   // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
   if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
 
-  const { data: campaigns, error } = await supabaseAdmin
+  // Les campagnes retirées de la liste (archived_at, 20/11/2026) ne
+  // s'affichent plus. Repli sans filtre tant que la migration n'est pas
+  // passée : la colonne manquante ne doit pas vider la page.
+  let listRes: any = await supabaseAdmin
     .from('prospecting_campaigns')
     .select('*')
     .eq('assigned_user_id', userId)
+    .is('archived_at', null)
     .order('created_at', { ascending: false });
+  if (listRes.error && (listRes.error.code === '42703' || listRes.error.code === 'PGRST204')) {
+    listRes = await supabaseAdmin
+      .from('prospecting_campaigns')
+      .select('*')
+      .eq('assigned_user_id', userId)
+      .order('created_at', { ascending: false });
+  }
+  const { data: campaigns, error } = listRes;
 
   if (error) {
     return serverError(error, '/api/campaigns');
