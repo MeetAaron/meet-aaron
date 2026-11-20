@@ -1,0 +1,501 @@
+From db48c6e4e3649f94480e56892a661bd62ee6ee03 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 06:11:31 +0000
+Subject: [PATCH] Campagnes : brouillon a reprendre, onglets En cours /
+ Terminees, croix pour retirer ; chat de campagne qui comprend la cible
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Une campagne commencee mais pas lancee (connexion perdue, fenetre fermee)
+  apparait en tete de page : Reprendre, ou croix avec confirmation.
+- Onglets En cours / Terminees, avec leur nombre.
+- Croix sur chaque campagne : confirmation, puis la campagne s'arrete si
+  elle tournait et disparait de la page (archived_at). La ligne n'est jamais
+  supprimee : prospects, echanges et resultats en dependent.
+  migration_campagne_retiree_2026-11-20.sql, repli sans filtre tant qu'elle
+  n'est pas passee.
+- Terminer une campagne : la confirmation dit que les prospects non trouves
+  restent disponibles ce mois-ci (le quota compte les prospects crees).
+- Chat de campagne : les metiers nommes a la question « quel type
+  d'entreprise » sont la cible, jamais le metier du commercial quand sa fiche
+  dit ce qu'il vend (James, editeur de logiciel, s'etait vu repondre qu'il
+  faisait du nettoyage). Texte brut, et **gras** affiche proprement.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/campaigns/[id]/route.ts           |  24 +++
+ app/api/campaigns/chat/route.ts           |   2 +
+ app/api/campaigns/route.ts                |  14 +-
+ app/app/campaigns/page.jsx                | 228 +++++++++++++++++++++-
+ lib/i18n.js                               |  14 +-
+ migration_campagne_retiree_2026-11-20.sql |   8 +
+ 6 files changed, 277 insertions(+), 13 deletions(-)
+ create mode 100644 migration_campagne_retiree_2026-11-20.sql
+
+diff --git a/app/api/campaigns/[id]/route.ts b/app/api/campaigns/[id]/route.ts
+index a003d00..d719229 100644
+--- a/app/api/campaigns/[id]/route.ts
++++ b/app/api/campaigns/[id]/route.ts
+@@ -39,6 +39,30 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
+   if (authedUser.id !== campaign.assigned_user_id) return forbiddenResponse();
+   if (await isDemoCompany(authedUser.company_id)) return demoBlockedResponse(authedUser.locale);
+ 
++  // RETIRER DE LA LISTE (20/11/2026, demande d'Alex : « une croix pour
++  // supprimer les campagnes, avec un êtes-vous sûr »). On ne supprime jamais
++  // la ligne : les prospects trouvés par la campagne, leurs échanges et les
++  // résultats en dépendent. La campagne est arrêtée si elle tournait, puis
++  // masquée de la page Campagnes (archived_at). Ses chiffres restent dans
++  // Résultats.
++  if (action === 'retirer') {
++    const now = new Date().toISOString();
++    const patch: Record<string, any> = { archived_at: now };
++    if (campaign.status !== 'terminee') {
++      patch.status = 'terminee';
++      patch.ended_manually_at = now;
++    }
++    const { error: archiveError } = await supabaseAdmin.from('prospecting_campaigns').update(patch).eq('id', campaignId);
++    if (archiveError) {
++      if (archiveError.code === '42703' || archiveError.code === 'PGRST204') {
++        return NextResponse.json({ error: 'migration_missing', code: 'campaign_archive_migration_missing' }, { status: 409 });
++      }
++      console.error('[campagnes] retrait impossible :', archiveError.code || '', archiveError.message);
++      return NextResponse.json({ error: 'server_error' }, { status: 500 });
++    }
++    return NextResponse.json({ success: true, archived: true });
++  }
++
+   if (campaign.status === 'terminee') {
+     return NextResponse.json({ error: 'Cette campagne est déjà terminée' }, { status: 400 });
+   }
+diff --git a/app/api/campaigns/chat/route.ts b/app/api/campaigns/chat/route.ts
+index c8b84a5..855bc7a 100644
+--- a/app/api/campaigns/chat/route.ts
++++ b/app/api/campaigns/chat/route.ts
+@@ -26,6 +26,8 @@ Règles impératives :
+ - LA QUESTION DE BIFURCATION. Certains métiers se séparent en deux marchés qui n'ont PAS DU TOUT les mêmes acheteurs, et tu ne peux pas deviner lequel le commercial vise. Dans ce cas, et dans ce cas seulement, tu poses la question AVANT de proposer une cible — parce qu'une réponse change toute la liste. Exemples : pour un métier du bâtiment (portes de garage, couverture, plomberie, menuiserie), c'est TRAVAUX NEUFS (où l'acheteur est le constructeur de maisons individuelles, le promoteur, l'entreprise générale, le maçon — jamais l'habitant) contre RÉNOVATION (où l'acheteur est le particulier) ; pour un électricien, c'est tertiaire contre résidentiel. Pour beaucoup d'autres métiers, il n'y a aucune bifurcation : alors tu ne poses pas la question.
+ - Et dis franchement ce que la réponse implique quand c'est le cas : si le commercial vise un marché dont l'acheteur est un PARTICULIER, préviens-le tout de suite que tu ne démarches que des entreprises, et propose-lui l'autre marché. Mieux vaut le lui dire en première question que lui laisser lancer une campagne qui ne peut rien donner.
+ - Ce que la bifurcation change ne s'arrête pas à la liste d'entreprises : elle change aussi QUI décide (en travaux neufs, c'est le conducteur de travaux ou le responsable achats, pas le dirigeant) et CE QUI COMPTE pour lui (la tenue des délais et la capacité de volume, bien avant le prix unitaire). Reporte ces deux conséquences dans \`target_role\` et \`context_notes\`.
++- CE QUE LE COMMERCIAL NOMME À LA QUESTION « QUEL TYPE D'ENTREPRISE CHERCHES-TU ? », C'EST SA CIBLE. Jamais son propre métier, dès que le « Profil de l'entreprise du commercial » ci-dessous dit déjà ce qu'il vend et que les entreprises nommées pourraient l'acheter. Tu les prends telles quelles, tu ne cherches pas « qui achète leurs services », et tu ne lui dis JAMAIS « donc tu travailles dans le nettoyage » : c'est contredire ce qu'il t'a dit à l'inscription. (Constaté le 20/11/2026 : un éditeur de logiciel qui visait des sociétés de nettoyage s'est vu répondre qu'il faisait du nettoyage et qu'il fallait viser des gestionnaires d'immeubles.) Tu ne réinterprètes que si le profil manque, ou si les métiers nommés sont exactement ceux du profil.
++- TEXTE BRUT. Pas de markdown dans tes messages (ni **gras**, ni titres, ni listes à puces) : l'écran l'affiche tel quel, avec les astérisques.
+ - ACCUSE RÉCEPTION AVANT D'AVANCER. Chaque message qui passe à la question suivante commence par UNE phrase courte qui reformule ce que tu viens de comprendre, dans les mots du commercial : « Ok, donc tu vises des plombiers et chauffagistes, plutôt des petites structures. » Puis, ligne suivante, la question suivante. Jamais de reformulation creuse (« très bien ! », « super ! ») : si tu reformules, dis quelque chose de précis, sinon ne reformule pas.
+ - RÉPONDS AVANT DE CONTINUER. Si le commercial pose une question, dit qu'il ne comprend pas, ou demande un exemple au lieu de répondre, tu réponds à SA question d'abord, clairement et concrètement — puis tu reposes la TIENNE, reformulée autrement, dans le même message. Dans ce cas tu ne passes PAS au sujet suivant : tu remets la même ligne \`<!--topic:XXX-->\` que celle de la question restée sans réponse. Un commercial qui ne comprend pas une question donnera une mauvaise réponse, et une mauvaise réponse coûte une campagne entière.
+ - Les questions doivent être pertinentes et concrètes, pas génériques. Tu dois couvrir, dans un ordre naturel adapté à la conversation :
+diff --git a/app/api/campaigns/route.ts b/app/api/campaigns/route.ts
+index 01849a1..b8681a3 100644
+--- a/app/api/campaigns/route.ts
++++ b/app/api/campaigns/route.ts
+@@ -23,11 +23,23 @@ export async function GET(request: NextRequest) {
+   // Soi-même, ou le patron de la même société (lecture seule, voir lib/user-access.ts).
+   if (!(await canViewUserData(authedUser, userId))) return forbiddenResponse();
+ 
+-  const { data: campaigns, error } = await supabaseAdmin
++  // Les campagnes retirées de la liste (archived_at, 20/11/2026) ne
++  // s'affichent plus. Repli sans filtre tant que la migration n'est pas
++  // passée : la colonne manquante ne doit pas vider la page.
++  let listRes: any = await supabaseAdmin
+     .from('prospecting_campaigns')
+     .select('*')
+     .eq('assigned_user_id', userId)
++    .is('archived_at', null)
+     .order('created_at', { ascending: false });
++  if (listRes.error && (listRes.error.code === '42703' || listRes.error.code === 'PGRST204')) {
++    listRes = await supabaseAdmin
++      .from('prospecting_campaigns')
++      .select('*')
++      .eq('assigned_user_id', userId)
++      .order('created_at', { ascending: false });
++  }
++  const { data: campaigns, error } = listRes;
+ 
+   if (error) {
+     return serverError(error, '/api/campaigns');
+diff --git a/app/app/campaigns/page.jsx b/app/app/campaigns/page.jsx
+index d6ff68c..4838cc5 100644
+--- a/app/app/campaigns/page.jsx
++++ b/app/app/campaigns/page.jsx
+@@ -350,6 +350,41 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
+   );
+ }
+ 
++// Cycle de vie d'une campagne (20/11/2026, demande d'Alex) : brouillon à
++// reprendre, onglets En cours / Terminées, croix pour retirer une campagne.
++const CAMP_LIFE = {
++  fr: { draftTitle: 'Campagne en création', draftEmpty: 'Pas encore terminée', resume: 'Reprendre', delete: 'Supprimer', draftConfirmTitle: 'Supprimer ce brouillon ?', draftConfirmBody: 'Ce que tu as déjà saisi sera perdu.', tabLive: 'En cours', tabDone: 'Terminées', remove: 'Retirer', removeConfirmTitle: 'Retirer cette campagne ?', removeConfirmBody: 'Elle s’arrête si elle tourne encore, puis disparaît de cette page. Ses prospects et ses résultats sont gardés.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', noneLive: 'Aucune campagne en cours.', noneDone: 'Aucune campagne terminée.' },
++  en: { draftTitle: 'Campaign in progress', draftEmpty: 'Not finished yet', resume: 'Resume', delete: 'Delete', draftConfirmTitle: 'Delete this draft?', draftConfirmBody: 'What you have entered so far will be lost.', tabLive: 'Running', tabDone: 'Finished', remove: 'Remove', removeConfirmTitle: 'Remove this campaign?', removeConfirmBody: 'It stops if it is still running, then disappears from this page. Its prospects and results are kept.', migration: 'Update pending: try again in a few minutes.', noneLive: 'No running campaign.', noneDone: 'No finished campaign.' },
++  de: { draftTitle: 'Kampagne in Erstellung', draftEmpty: 'Noch nicht fertig', resume: 'Fortsetzen', delete: 'Löschen', draftConfirmTitle: 'Diesen Entwurf löschen?', draftConfirmBody: 'Bisherige Eingaben gehen verloren.', tabLive: 'Laufend', tabDone: 'Beendet', remove: 'Entfernen', removeConfirmTitle: 'Diese Kampagne entfernen?', removeConfirmBody: 'Sie wird gestoppt, falls sie noch läuft, und verschwindet von dieser Seite. Interessenten und Ergebnisse bleiben erhalten.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', noneLive: 'Keine laufende Kampagne.', noneDone: 'Keine beendete Kampagne.' },
++  it: { draftTitle: 'Campagna in creazione', draftEmpty: 'Non ancora finita', resume: 'Riprendi', delete: 'Elimina', draftConfirmTitle: 'Eliminare questa bozza?', draftConfirmBody: 'Quanto inserito finora andrà perso.', tabLive: 'In corso', tabDone: 'Terminate', remove: 'Rimuovi', removeConfirmTitle: 'Rimuovere questa campagna?', removeConfirmBody: 'Si ferma se è ancora attiva, poi sparisce da questa pagina. Contatti e risultati restano.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', noneLive: 'Nessuna campagna in corso.', noneDone: 'Nessuna campagna terminata.' },
++  es: { draftTitle: 'Campaña en creación', draftEmpty: 'Aún sin terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: '¿Eliminar este borrador?', draftConfirmBody: 'Se perderá lo que ya has escrito.', tabLive: 'En curso', tabDone: 'Terminadas', remove: 'Quitar', removeConfirmTitle: '¿Quitar esta campaña?', removeConfirmBody: 'Se detiene si sigue activa y desaparece de esta página. Sus prospectos y resultados se conservan.', migration: 'Actualización pendiente: inténtalo en unos minutos.', noneLive: 'Ninguna campaña en curso.', noneDone: 'Ninguna campaña terminada.' },
++  pt: { draftTitle: 'Campanha em criação', draftEmpty: 'Ainda por terminar', resume: 'Retomar', delete: 'Eliminar', draftConfirmTitle: 'Eliminar este rascunho?', draftConfirmBody: 'O que já escreveste será perdido.', tabLive: 'Em curso', tabDone: 'Terminadas', remove: 'Retirar', removeConfirmTitle: 'Retirar esta campanha?', removeConfirmBody: 'Para se ainda estiver ativa e desaparece desta página. Os prospetos e os resultados ficam guardados.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', noneLive: 'Nenhuma campanha em curso.', noneDone: 'Nenhuma campanha terminada.' },
++  nl: { draftTitle: 'Campagne in aanmaak', draftEmpty: 'Nog niet klaar', resume: 'Hervatten', delete: 'Verwijderen', draftConfirmTitle: 'Dit concept verwijderen?', draftConfirmBody: 'Wat je al hebt ingevuld gaat verloren.', tabLive: 'Lopend', tabDone: 'Afgerond', remove: 'Verwijderen', removeConfirmTitle: 'Deze campagne verwijderen?', removeConfirmBody: 'Ze stopt als ze nog loopt en verdwijnt van deze pagina. Prospects en resultaten blijven bewaard.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', noneLive: 'Geen lopende campagne.', noneDone: 'Geen afgeronde campagne.' },
++};
++const lifeText = (locale, key) => (CAMP_LIFE[locale] || CAMP_LIFE.fr)[key] || CAMP_LIFE.fr[key];
++
++// Ce qu'on montre d'un brouillon : les métiers et la zone s'ils sont déjà
++// connus, sinon la première réponse du commercial dans le chat.
++function draftSummaryOf(kind, draft) {
++  if (!draft) return null;
++  if (kind === 'form') {
++    const bits = [draft.sectors, draft.zoneLabel].map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
++    return bits.length ? bits.join(' · ') : null;
++  }
++  const recap = draft.recap;
++  if (recap && (recap.zone_label || (recap.sector_keywords || []).length)) {
++    return [(recap.sector_keywords || []).join(', '), recap.zone_label].filter(Boolean).join(' · ');
++  }
++  const first = (draft.messages || []).find((m) => m && m.role === 'user' && typeof m.content === 'string');
++  return first ? first.content.slice(0, 90) : null;
++}
++
++function hasCampaignDraft(kind, draft) {
++  if (!draft) return false;
++  if (kind === 'chat') return Array.isArray(draft.messages) && draft.messages.some((m) => m && m.role === 'user');
++  return !!(draft.zoneLabel || draft.sectors || draft.targetRole || draft.contextNotes || (draft.companySizes || []).length);
++}
++
+ export default function CampaignsPage() {
+   // Correctif 17/10/2026 : ce hook était déclaré dans Shell (un autre
+   // composant) alors que savedKey / flashSaved sont utilisés ICI. Dès
+@@ -380,6 +415,40 @@ export default function CampaignsPage() {
+   // rangées derrière « Gérer ». Deux états locaux, un identifiant chacun.
+   const [briefOpenId, setBriefOpenId] = useState(null);
+   const [manageOpenId, setManageOpenId] = useState(null);
++  // Brouillons (chat et formulaire), onglet affiché, retrait d'une campagne.
++  const [drafts, setDrafts] = useState({ chat: null, form: null });
++  const [confirmDraftKind, setConfirmDraftKind] = useState(null);
++  const [listTab, setListTab] = useState('live');
++  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
++  const [removing, setRemoving] = useState(false);
++  const [removeError, setRemoveError] = useState(null);
++  useEffect(() => {
++    if (!userId || showChat || showForm) return;
++    const chat = readCampaignDraft('chat', userId);
++    const form = readCampaignDraft('form', userId);
++    setDrafts({ chat: hasCampaignDraft('chat', chat) ? chat : null, form: hasCampaignDraft('form', form) ? form : null });
++  }, [userId, showChat, showForm]);
++
++  async function removeCampaign(campaignId) {
++    setRemoving(true);
++    setRemoveError(null);
++    try {
++      const res = await fetch(`/api/campaigns/${campaignId}`, {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ action: 'retirer' }),
++      });
++      if (res.ok) {
++        setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
++        setConfirmRemoveId(null);
++      } else {
++        setRemoveError(res.status === 409 ? lifeText(locale, 'migration') : t('common.error', locale));
++      }
++    } catch {
++      setRemoveError(t('common.error', locale));
++    }
++    setRemoving(false);
++  }
+   // Docx pipeline "Réactivation" (Alex, 2026-08-23) : "pas dans Marketing,
+   // plutôt dans Campagnes" — 3e onglet ici, même composant CsvImportModal
+   // que Prospects/Sales/Customer mais avec context="reactivation" (voir ce
+@@ -775,6 +844,25 @@ export default function CampaignsPage() {
+         </div>
+       )}
+ 
++      {/* Campagne commencée mais pas lancée (connexion perdue, fenêtre
++          fermée à l'étape 4…) : on la retrouve ici, on la reprend ou on la
++          supprime. Le brouillon vit dans ce navigateur (lib : campaignDraftKey). */}
++      {['chat', 'form'].filter((kind) => drafts[kind]).map((kind) => (
++        <div className="camp-draft" key={kind}>
++          <span className="camp-draft-ic"><Ic name="pencil" size={15} /></span>
++          <span className="camp-draft-text">
++            <strong>{lifeText(locale, 'draftTitle')}</strong>
++            <span>{draftSummaryOf(kind, drafts[kind]) || lifeText(locale, 'draftEmpty')}</span>
++          </span>
++          <button type="button" className="btn-primary camp-draft-go" onClick={() => (kind === 'chat' ? setShowChat(true) : setShowForm(true))}>
++            {lifeText(locale, 'resume')}
++          </button>
++          <button type="button" className="camp-x" aria-label={lifeText(locale, 'delete')} title={lifeText(locale, 'delete')} onClick={() => setConfirmDraftKind(kind)}>
++            <Ic name="x" size={15} />
++          </button>
++        </div>
++      ))}
++
+       {loading ? (
+         <p className="muted">{t('common.loading', locale)}</p>
+       ) : campaigns.length === 0 ? (
+@@ -785,9 +873,27 @@ export default function CampaignsPage() {
+           ctaLabel={t('campaigns.emptyCta', locale)}
+         />
+       ) : (
++        <>
++        {(() => {
++          const live = campaigns.filter((c) => c.status !== 'terminee').length;
++          const done = campaigns.length - live;
++          return (
++            <div className="camp-tabs" role="tablist">
++              <button type="button" role="tab" aria-selected={listTab === 'live'} className={`camp-tab${listTab === 'live' ? ' on' : ''}`} onClick={() => setListTab('live')}>
++                {lifeText(locale, 'tabLive')} <span className="camp-tab-n">{live}</span>
++              </button>
++              <button type="button" role="tab" aria-selected={listTab === 'done'} className={`camp-tab${listTab === 'done' ? ' on' : ''}`} onClick={() => setListTab('done')}>
++                {lifeText(locale, 'tabDone')} <span className="camp-tab-n">{done}</span>
++              </button>
++            </div>
++          );
++        })()}
+         <div className="cards">
+           {relaunchError && <p className="relaunch-error">{relaunchError}</p>}
+-          {campaigns.map((c) => {
++          {campaigns.filter((c) => (listTab === 'done' ? c.status === 'terminee' : c.status !== 'terminee')).length === 0 && (
++            <p className="muted">{lifeText(locale, listTab === 'done' ? 'noneDone' : 'noneLive')}</p>
++          )}
++          {campaigns.filter((c) => (listTab === 'done' ? c.status === 'terminee' : c.status !== 'terminee')).map((c) => {
+             const status = STATUS_LABELS[c.status] || STATUS_LABELS.en_attente;
+             const progress = c.target_count > 0 ? Math.min(100, Math.round((c.contacts_found / c.target_count) * 100)) : 0;
+             const isTerminee = c.status === 'terminee';
+@@ -849,9 +955,14 @@ export default function CampaignsPage() {
+                       )}
+                     </p>
+                   </div>
+-                  <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
+-                    {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
+-                    {status.label}
++                  <span className="camp-head-end">
++                    <span className="status-pill" style={{ color: status.color, borderColor: status.color }}>
++                      {!isTerminee && <span className="status-dot" style={{ background: status.color }} aria-hidden="true" />}
++                      {status.label}
++                    </span>
++                    <button type="button" className="camp-x" aria-label={lifeText(locale, 'remove')} title={lifeText(locale, 'remove')} onClick={() => { setRemoveError(null); setConfirmRemoveId(c.id); }}>
++                      <Ic name="x" size={15} />
++                    </button>
+                   </span>
+                 </div>
+ 
+@@ -1034,6 +1145,7 @@ export default function CampaignsPage() {
+             );
+           })}
+         </div>
++        </>
+       )}
+ 
+       {globalAdvice && (
+@@ -1078,6 +1190,49 @@ export default function CampaignsPage() {
+         </div>
+       )}
+ 
++      {confirmDraftKind && (
++        <div className="overlay" onClick={() => setConfirmDraftKind(null)}>
++          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
++            <h2>{lifeText(locale, 'draftConfirmTitle')}</h2>
++            <p>{lifeText(locale, 'draftConfirmBody')}</p>
++            <div className="confirm-actions">
++              <button type="button" className="btn-secondary" onClick={() => setConfirmDraftKind(null)}>
++                {t('common.cancel', locale)}
++              </button>
++              <button
++                type="button"
++                className="btn-danger"
++                onClick={() => {
++                  clearCampaignDraft(confirmDraftKind, userId);
++                  setDrafts((d) => ({ ...d, [confirmDraftKind]: null }));
++                  setConfirmDraftKind(null);
++                }}
++              >
++                {lifeText(locale, 'delete')}
++              </button>
++            </div>
++          </div>
++        </div>
++      )}
++
++      {confirmRemoveId && (
++        <div className="overlay" onClick={() => setConfirmRemoveId(null)}>
++          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
++            <h2>{lifeText(locale, 'removeConfirmTitle')}</h2>
++            <p>{lifeText(locale, 'removeConfirmBody')}</p>
++            {removeError && <p className="relaunch-error">{removeError}</p>}
++            <div className="confirm-actions">
++              <button type="button" className="btn-secondary" onClick={() => setConfirmRemoveId(null)}>
++                {t('common.cancel', locale)}
++              </button>
++              <button type="button" className="btn-danger" disabled={removing} onClick={() => removeCampaign(confirmRemoveId)}>
++                {removing ? '…' : lifeText(locale, 'remove')}
++              </button>
++            </div>
++          </div>
++        </div>
++      )}
++
+       {showChat && (
+         <ChatCampaignModal
+           userId={userId}
+@@ -1263,6 +1418,60 @@ export default function CampaignsPage() {
+           gap: 0.8rem;
+         }
+         .camp-id { min-width: 0; }
++        .camp-head-end {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.35rem;
++          flex: none;
++        }
++        .camp-x {
++          display: inline-flex;
++          align-items: center;
++          justify-content: center;
++          flex: none;
++          width: 32px;
++          height: 32px;
++          padding: 0;
++          border: 0;
++          border-radius: 8px;
++          background: transparent;
++          color: var(--muted);
++          cursor: pointer;
++        }
++        .camp-x:hover { background: var(--tint-6, rgba(127, 127, 127, 0.12)); color: var(--text); }
++        .camp-x :global(svg) { display: block; }
++        .camp-draft {
++          display: flex;
++          align-items: center;
++          gap: 0.7rem;
++          margin-bottom: 0.9rem;
++          padding: 0.7rem 0.8rem 0.7rem 0.9rem;
++          border-radius: var(--radius-md);
++          border: 1px dashed var(--accent);
++          background: var(--bg-elevated, transparent);
++        }
++        .camp-draft-ic { display: inline-flex; color: var(--accent); flex: none; }
++        .camp-draft-go { flex: none; padding: 0.5rem 0.9rem; }
++        .camp-draft-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; font-size: 0.86rem; }
++        .camp-draft-text span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++        .camp-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
++        .camp-tab {
++          display: inline-flex;
++          align-items: center;
++          gap: 0.45rem;
++          min-height: 40px;
++          padding: 0 0.9rem;
++          border-radius: 999px;
++          border: 1px solid var(--border);
++          background: transparent;
++          color: var(--muted);
++          font: inherit;
++          font-size: 0.86rem;
++          font-weight: 600;
++          cursor: pointer;
++        }
++        .camp-tab.on { border-color: var(--accent); color: var(--text); background: rgba(124, 110, 245, 0.12); }
++        .camp-tab-n { font-size: 0.76rem; font-weight: 600; opacity: 0.8; }
+         .camp-head h3 {
+           margin: 0 0 0.3rem;
+           font-family: var(--font-display);
+@@ -1923,6 +2132,15 @@ function extractCampaignJson(text) {
+ // localStorage et pas la base : c'est un brouillon local, il n'a pas a voyager
+ // ni a survivre a un changement de machine. Toute lecture/ecriture est
+ // enveloppee, un navigateur en navigation privee ne doit jamais casser la page.
++// « **gras** » d'Aaron (20/11/2026) : le chat affichait les astérisques telles
++// quelles. Le prompt demande désormais du texte brut ; ceci rattrape les
++// messages qui en contiendraient encore.
++function renderChatBold(line) {
++  const parts = String(line || '').split(/\*\*(.+?)\*\*/g);
++  if (parts.length === 1) return line;
++  return parts.map((part, i) => (i % 2 === 1 ? <strong key={i}>{part}</strong> : part));
++}
++
+ function campaignDraftKey(kind, userId) {
+   return `aaron_campaign_${kind}_draft:${userId || 'anon'}`;
+ }
+@@ -2207,7 +2425,7 @@ function ChatCampaignModal({ userId, companyId, onClose, onSwitchToForm, onCreat
+         <div className="chat-messages" ref={messagesRef}>
+           {messages.map((m, i) => (
+             <div key={i} className={`bubble ${m.role}`}>
+-              {m.content.split('\n').map((line, j) => <p key={j}>{line}</p>)}
++              {m.content.split('\n').map((line, j) => <p key={j}>{renderChatBold(line)}</p>)}
+             </div>
+           ))}
+           {sending && <div className="bubble assistant"><p className="typing">{t('campaigns.aaronThinking', locale)}</p></div>}
+diff --git a/lib/i18n.js b/lib/i18n.js
+index 493a563..8b39eab 100644
+--- a/lib/i18n.js
++++ b/lib/i18n.js
+@@ -1920,7 +1920,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Reprendre',
+     'campaigns.endCampaign': 'Terminer maintenant',
+     'campaigns.endCampaignConfirmTitle': 'Terminer cette campagne ?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron arrête immédiatement la recherche de nouveaux contacts pour cette campagne. Les prospects déjà trouvés restent dans ton pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron arrête immédiatement la recherche de nouveaux contacts pour cette campagne. Les prospects déjà trouvés restent dans ton pipeline. Ceux qui n\'ont pas été trouvés restent disponibles pour une autre campagne ce mois-ci.',
+     'campaigns.targetCountHint': 'Ton abonnement inclut 300 nouveaux prospects par mois et par siège, toutes campagnes et ajouts manuels confondus : deux campagnes de 150, c\'est pareil qu\'une de 300. Une fois l\'objectif atteint, la campagne passe en « Terminée » ; si le quota du mois est atteint avant, elle se met en pause et repart toute seule le mois suivant, ou dès qu\'un boost est ajouté.',
+     'campaigns.stepTargeting': 'Ciblage',
+     'campaigns.stepTargetingTitle': 'Qui viser chez ces entreprises ?',
+@@ -4134,7 +4134,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Resume',
+     'campaigns.endCampaign': 'End now',
+     'campaigns.endCampaignConfirmTitle': 'End this campaign?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron immediately stops searching for new contacts for this campaign. Prospects already found stay in your pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron immediately stops searching for new contacts for this campaign. Prospects already found stay in your pipeline. The ones not yet found stay available for another campaign this month.',
+     'campaigns.targetCountHint': 'Your plan includes 300 new prospects per month per seat, across all campaigns and manual additions: two campaigns of 150 are the same as one of 300. Once the target is reached the campaign switches to "Completed"; if the month\'s quota runs out first, it pauses and resumes by itself next month, or as soon as a boost is added.',
+     'campaigns.stepTargeting': 'Targeting',
+     'campaigns.stepTargetingTitle': 'Who to target at these companies?',
+@@ -6306,7 +6306,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Fortsetzen',
+     'campaigns.endCampaign': 'Jetzt beenden',
+     'campaigns.endCampaignConfirmTitle': 'Diese Kampagne beenden?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron stoppt sofort die Suche nach neuen Kontakten für diese Kampagne. Bereits gefundene Interessenten bleiben in Ihrer Pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron stoppt sofort die Suche nach neuen Kontakten für diese Kampagne. Bereits gefundene Interessenten bleiben in Ihrer Pipeline. Nicht gefundene bleiben diesen Monat für eine andere Kampagne verfügbar.',
+     'campaigns.targetCountHint': 'Dein Abo enthält 300 neue Interessenten pro Monat und Sitz, über alle Kampagnen und manuellen Ergänzungen hinweg: zwei Kampagnen mit 150 sind dasselbe wie eine mit 300. Ist das Ziel erreicht, wechselt die Kampagne auf „Abgeschlossen“; ist das Monatskontingent vorher aufgebraucht, pausiert sie und läuft im Folgemonat von selbst weiter — oder sobald ein Boost hinzukommt.',
+     'campaigns.stepTargeting': 'Zielgruppe',
+     'campaigns.stepTargetingTitle': 'Wen bei diesen Unternehmen ansprechen?',
+@@ -8478,7 +8478,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Riprendi',
+     'campaigns.endCampaign': 'Termina ora',
+     'campaigns.endCampaignConfirmTitle': 'Terminare questa campagna?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron interrompe immediatamente la ricerca di nuovi contatti per questa campagna. I prospect già trovati restano nella tua pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron interrompe immediatamente la ricerca di nuovi contatti per questa campagna. I prospect già trovati restano nella tua pipeline. Quelli non ancora trovati restano disponibili per un\'altra campagna questo mese.',
+     'campaigns.targetCountHint': 'Il tuo abbonamento include 300 nuovi contatti al mese per postazione, tra tutte le campagne e le aggiunte manuali: due campagne da 150 equivalgono a una da 300. Raggiunto l\'obiettivo, la campagna passa a « Terminata »; se la quota del mese si esaurisce prima, va in pausa e riparte da sola il mese successivo, o appena aggiungi un boost.',
+     'campaigns.stepTargeting': 'Targeting',
+     'campaigns.stepTargetingTitle': 'Chi puntare in queste aziende?',
+@@ -10650,7 +10650,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Reanudar',
+     'campaigns.endCampaign': 'Terminar ahora',
+     'campaigns.endCampaignConfirmTitle': '¿Terminar esta campaña?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron detiene inmediatamente la búsqueda de nuevos contactos para esta campaña. Los prospectos ya encontrados permanecen en tu pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron detiene inmediatamente la búsqueda de nuevos contactos para esta campaña. Los prospectos ya encontrados permanecen en tu pipeline. Los que no se han encontrado siguen disponibles para otra campaña este mes.',
+     'campaigns.targetCountHint': 'Tu suscripción incluye 300 prospectos nuevos al mes por puesto, entre todas las campañas y las altas manuales: dos campañas de 150 equivalen a una de 300. Al alcanzar el objetivo, la campaña pasa a «Terminada»; si la cuota del mes se agota antes, se pausa y se reanuda sola el mes siguiente, o en cuanto añadas un boost.',
+     'campaigns.stepTargeting': 'Segmentación',
+     'campaigns.stepTargetingTitle': '¿A quién dirigirse en estas empresas?',
+@@ -12822,7 +12822,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Retomar',
+     'campaigns.endCampaign': 'Terminar agora',
+     'campaigns.endCampaignConfirmTitle': 'Terminar esta campanha?',
+-    'campaigns.endCampaignConfirmBody': 'O Aaron interrompe imediatamente a procura de novos contactos para esta campanha. Os potenciais clientes já encontrados permanecem no seu pipeline.',
++    'campaigns.endCampaignConfirmBody': 'O Aaron interrompe imediatamente a procura de novos contactos para esta campanha. Os potenciais clientes já encontrados permanecem no seu pipeline. Os que ainda não foram encontrados continuam disponíveis para outra campanha este mês.',
+     'campaigns.targetCountHint': 'A tua subscrição inclui 300 novos prospetos por mês e por lugar, somando todas as campanhas e adições manuais: duas campanhas de 150 equivalem a uma de 300. Atingido o objetivo, a campanha passa a «Terminada»; se a quota do mês se esgotar antes, fica em pausa e retoma sozinha no mês seguinte, ou assim que um boost for adicionado.',
+     'campaigns.stepTargeting': 'Segmentação',
+     'campaigns.stepTargetingTitle': 'Quem visar nestas empresas?',
+@@ -14994,7 +14994,7 @@ export const DICT = {
+     'campaigns.resumeCampaign': 'Hervatten',
+     'campaigns.endCampaign': 'Nu beëindigen',
+     'campaigns.endCampaignConfirmTitle': 'Deze campagne beëindigen?',
+-    'campaigns.endCampaignConfirmBody': 'Aaron stopt onmiddellijk met zoeken naar nieuwe contacten voor deze campagne. Reeds gevonden prospects blijven in je pipeline.',
++    'campaigns.endCampaignConfirmBody': 'Aaron stopt onmiddellijk met zoeken naar nieuwe contacten voor deze campagne. Reeds gevonden prospects blijven in je pipeline. Niet gevonden prospects blijven deze maand beschikbaar voor een andere campagne.',
+     'campaigns.targetCountHint': 'Je abonnement bevat 300 nieuwe prospects per maand per zetel, over alle campagnes en handmatige toevoegingen samen: twee campagnes van 150 zijn hetzelfde als één van 300. Zodra het doel is bereikt gaat de campagne naar „Afgerond”; raakt het maandquotum eerder op, dan pauzeert ze en start ze vanzelf de volgende maand, of zodra een boost wordt toegevoegd.',
+     'campaigns.stepTargeting': 'Targeting',
+     'campaigns.stepTargetingTitle': 'Wie wil je bereiken bij deze bedrijven?',
+diff --git a/migration_campagne_retiree_2026-11-20.sql b/migration_campagne_retiree_2026-11-20.sql
+new file mode 100644
+index 0000000..12cd81b
+--- /dev/null
++++ b/migration_campagne_retiree_2026-11-20.sql
+@@ -0,0 +1,8 @@
++-- migration_campagne_retiree_2026-11-20.sql
++-- « Retirer de la liste » une campagne (croix sur la page Campagnes).
++-- La ligne n'est jamais supprimée : prospects, échanges et résultats en
++-- dépendent. archived_at la masque seulement de la page Campagnes.
++alter table prospecting_campaigns add column if not exists archived_at timestamptz;
++
++select column_name, data_type from information_schema.columns
++where table_name = 'prospecting_campaigns' and column_name = 'archived_at';
+-- 
+2.43.0
+
