@@ -16,6 +16,8 @@ import InstallPrompt from '@/components/InstallPrompt';
 import MobileChrome from '@/components/MobileChrome';
 import Stories from '@/components/Stories';
 import Ic from '@/components/UiIcon';
+import SocialCampaignPanel from '@/components/SocialCampaignPanel';
+import { socialPreviewAllowed } from '@/lib/social-access';
 import SavedFlash, { useSavedFlash } from '@/components/SavedFlash';
 import { frenchTypography } from '@/lib/text-typography';
 import Translated from '@/components/Translated';
@@ -349,6 +351,8 @@ function RecommendedCampaign({ userId, companyId, locale, onLaunched }) {
     </section>
   );
 }
+
+const SOCIAL_TAB_LABEL = { fr: 'Réseaux sociaux', en: 'Social media', de: 'Soziale Netzwerke', it: 'Social network', es: 'Redes sociales', pt: 'Redes sociais', nl: 'Sociale media' };
 
 // Cycle de vie d'une campagne (20/11/2026, demande d'Alex) : brouillon à
 // reprendre, onglets En cours / Terminées, croix pour retirer une campagne.
@@ -721,9 +725,22 @@ export default function CampaignsPage() {
         >
           <Ic name="refresh" /> {t('reactivation.tabLabel', locale)}
         </button>
+        {/* Aaron Social (20/11/2026) : visible sur aaron@meetaaron.app
+            seulement tant que le produit n'est pas ouvert aux clients. */}
+        {socialPreviewAllowed(userEmail) && (
+          <button
+            type="button"
+            className={`tab-btn ${tab === 'social' ? 'active' : ''}`}
+            onClick={() => setTab('social')}
+          >
+            <Ic name="megaphone" /> {SOCIAL_TAB_LABEL[locale] || SOCIAL_TAB_LABEL.fr}
+          </button>
+        )}
       </div>
 
-      {tab === 'marketing' ? (
+      {tab === 'social' && socialPreviewAllowed(userEmail) ? (
+        <SocialCampaignPanel locale={locale} />
+      ) : tab === 'marketing' ? (
         <MarketingCampaignsPanel userId={userId} companyId={companyId} locale={locale} customerModuleActive={customerModuleActive} />
       ) : tab === 'reactivation' ? (
         <div className="reactivation-panel">

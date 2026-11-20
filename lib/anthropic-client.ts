@@ -729,6 +729,7 @@ export type UsageFeature =
   | 'clients'                 // automatismes Clients (check-ins, santé, relance renouvellement…)
   | 'actualite'               // déclencheurs d'actualité
   | 'documents'               // résumés et conseils sur les documents
+  | 'reseaux_sociaux'         // Aaron Social : préparation des posts (20/11/2026)
   | 'autre';
 
 export async function callClaude(
