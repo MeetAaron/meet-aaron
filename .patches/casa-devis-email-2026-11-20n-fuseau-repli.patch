@@ -1,0 +1,74 @@
+From e3754c927d7d21eaf2cfe830e3e255ad99439fd2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 15:41:24 +0000
+Subject: [PATCH] Fuseau : les replis gardent timezone quand
+ users.billing_country manque (tout le monde etait a l'heure de Paris) +
+ migration billing_country
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/aaron-batch.ts                             | 10 ++++++++++
+ lib/first-email-deferred.ts                    |  4 ++++
+ migration_users_billing_country_2026-11-20.sql | 13 +++++++++++++
+ 3 files changed, 27 insertions(+)
+ create mode 100644 migration_users_billing_country_2026-11-20.sql
+
+diff --git a/lib/aaron-batch.ts b/lib/aaron-batch.ts
+index c13b021..a5c275b 100644
+--- a/lib/aaron-batch.ts
++++ b/lib/aaron-batch.ts
+@@ -336,6 +336,16 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
+       .select('require_first_email_approval, company_id, email, timezone, billing_country')
+       .eq('id', prospect.assigned_user_id)
+       .single();
++    if (ownerRes.error?.code === '42703') {
++      // users.billing_country absente : on garde quand même le fuseau. Avant,
++      // ce repli retirait AUSSI timezone, et tous les comptes retombaient sur
++      // l'heure de Paris (emails de Charlotte partis à 18 h à Brisbane, 20/11).
++      ownerRes = await supabaseAdmin
++        .from('users')
++        .select('require_first_email_approval, company_id, email, timezone')
++        .eq('id', prospect.assigned_user_id)
++        .single();
++    }
+     if (ownerRes.error?.code === '42703') {
+       ownerRes = await supabaseAdmin
+         .from('users')
+diff --git a/lib/first-email-deferred.ts b/lib/first-email-deferred.ts
+index c615549..c6b6887 100644
+--- a/lib/first-email-deferred.ts
++++ b/lib/first-email-deferred.ts
+@@ -51,6 +51,10 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
+     .from('users')
+     .select('id, email, require_first_email_approval, timezone, billing_country')
+     .in('id', userIds);
++  if (usersRes.error?.code === '42703') {
++    // Garder le fuseau même sans billing_country (voir lib/aaron-batch.ts).
++    usersRes = await supabaseAdmin.from('users').select('id, email, require_first_email_approval, timezone').in('id', userIds);
++  }
+   if (usersRes.error?.code === '42703') {
+     usersRes = await supabaseAdmin.from('users').select('id, email, require_first_email_approval').in('id', userIds);
+   }
+diff --git a/migration_users_billing_country_2026-11-20.sql b/migration_users_billing_country_2026-11-20.sql
+new file mode 100644
+index 0000000..7e56666
+--- /dev/null
++++ b/migration_users_billing_country_2026-11-20.sql
+@@ -0,0 +1,13 @@
++-- 20/11/2026 : users.billing_country n'existait pas. Toutes les lectures
++-- « timezone, billing_country » échouaient (42703) et leur repli retirait
++-- aussi le fuseau : chaque compte était traité à l'heure de Paris (créneau
++-- d'envoi, rapports, rendez-vous). La colonne existe désormais, remplie
++-- depuis la société ; le fuseau exact reste celui du navigateur.
++alter table public.users add column if not exists billing_country text;
++
++update public.users u
++set billing_country = c.billing_country
++from public.companies c
++where c.id = u.company_id
++  and u.billing_country is null
++  and c.billing_country is not null;
+-- 
+2.43.0
+
