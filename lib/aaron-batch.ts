@@ -354,7 +354,9 @@ export async function applyAaronOutput(item: BatchItemInput, aaronOutput: AaronO
     // report de créneau : un tout premier email lancé un dimanche doit
     // attendre le commercial, pas partir seul lundi matin.
     const approval = await mustApproveFirstEmail(prospect.assigned_user_id, owner?.require_first_email_approval);
-    if (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {})))) {
+    if (approval.hold || (!approval.approve && !(await isProspectingWindowOpenForUser(prospect.assigned_user_id, resolveUserTimeZone(owner || {}))))) {
+      // Brouillon rangé sans notification : hors créneau, ou retenu tant que
+      // le tout premier email du compte n'est pas validé (approval.hold).
       await supabaseAdmin
         .from('prospects')
         .update({

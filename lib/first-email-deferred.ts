@@ -22,6 +22,7 @@
 import { supabaseAdmin } from './supabase-admin';
 import { sendEmailForUser, hasReachedProspectingCap, DailySendCapExceededError, DomainNotDeliverableError, MailboxAuthBrokenError } from './messaging';
 import { isProspectingWindowOpenForUser } from './send-window';
+import { awaitingFirstApproval } from './first-email-approval';
 import { resolveUserTimeZone } from './user-timezone';
 
 const MAX_PER_USER_PER_RUN = 5;
@@ -59,6 +60,7 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
   const perUser: Record<string, number> = {};
   const blockedUsers = new Set<string>();
   const windowOpen = new Map<string, boolean>();
+  const firstChecked = new Map<string, boolean>();
 
   for (const draft of drafts) {
     const user = users.get(draft.assigned_user_id);
@@ -68,6 +70,10 @@ export async function sendDeferredFirstEmails(): Promise<DeferredSendReport> {
     // Le commercial a repris ce prospect en main : Aaron n'envoie rien.
     if (draft.ai_managed === false) continue;
     if (blockedUsers.has(user.id)) continue;
+    // Tout premier email du compte pas encore validé : rien ne part, ni lui
+    // ni les brouillons retenus derrière lui (20/11/2026).
+    if (!firstChecked.has(user.id)) firstChecked.set(user.id, await awaitingFirstApproval(user.id));
+    if (firstChecked.get(user.id)) continue;
 
     if (!windowOpen.has(user.id)) windowOpen.set(user.id, await isProspectingWindowOpenForUser(user.id, resolveUserTimeZone(user)));
     if (!windowOpen.get(user.id)) {

@@ -14,6 +14,7 @@ import { supabaseAdmin } from './supabase-admin';
 import { selectInChunks } from './chunked-in';
 import { resolveUserTimeZone, localDayBounds } from './user-timezone';
 import { derivePipelinePosition } from './pipeline';
+import { awaitingFirstApproval } from './first-email-approval';
 
 export type NotificationType =
   // Test de délivrabilité négatif : rien ne part tant que ce n'est pas réglé
@@ -116,7 +117,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
 
   // Colonnes optionnelles (migrations fusion / devis pas encore passées) :
   // on retente sans elles sur 42703 plutôt que de perdre toutes les notifs.
-  const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
+  const baseCols = 'id, full_name, personality_type, status, deal_stage, is_won, is_lost, first_order_confirmed_at, devis_generated_at, devis_sent_at, pending_first_email_subject, pending_first_email_body, pending_first_email_generated_at, rescue_proposal_pending, rescue_proposal_subject, rescue_proposal_body, aaron_advice, prospect_companies(name)';
   const optionalCols = ', quote_requested_at, pipeline_stage, pipeline_risk, pipeline_lost_at_stage, pipeline_lost_reason, quote_paused_at, phone, devis_opened_at, devis_last_opened_at, devis_open_count, devis_call_done_at, devis_file_name';
   async function loadProspects() {
     // `any` : les chaînes de colonnes dynamiques donnent des types Postgrest
@@ -157,6 +158,24 @@ export async function buildNotifications(userId: string, now: Date = new Date())
       .gt('proposed_at', new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString())
       .order('proposed_at', { ascending: true }),
   ]);
+
+  // Quels brouillons de premier email attendent VRAIMENT le commercial
+  // (20/11/2026) ? Avant, tout brouillon s'affichait « à valider », y compris
+  // ceux qui n'attendaient que le créneau d'envoi ou le plafond du jour
+  // (1 chez James, 2 chez Charlotte, Alex ne comprenait pas). Désormais :
+  // tous si le commercial a choisi de relire chaque premier email ; sinon,
+  // seulement le tout premier du compte tant que rien n'est parti.
+  const pendingDrafts = ((prospects || []) as any[]).filter((p) => p.pending_first_email_subject);
+  const toValidate = new Set<string>();
+  if (pendingDrafts.length) {
+    const { data: prefRow } = await supabaseAdmin.from('users').select('require_first_email_approval').eq('id', userId).maybeSingle();
+    if ((prefRow as any)?.require_first_email_approval === true) {
+      pendingDrafts.forEach((p) => toValidate.add(p.id));
+    } else if (await awaitingFirstApproval(userId)) {
+      const oldest = [...pendingDrafts].sort((a, b) => String(a.pending_first_email_generated_at || '').localeCompare(String(b.pending_first_email_generated_at || '')))[0];
+      if (oldest) toValidate.add(oldest.id);
+    }
+  }
 
   const byType: Record<string, NotificationItem[]> = {};
   function push(item: NotificationItem) {
@@ -216,7 +235,7 @@ export async function buildNotifications(userId: string, now: Date = new Date())
     if (p.rescue_proposal_pending) {
       push({ ...base, id: `sauvetage_a_valider:${p.id}`, type: 'sauvetage_a_valider', at: null, days_waiting: null, meta: { subject: p.rescue_proposal_subject, body: p.rescue_proposal_body, source: p.rescue_proposal_source || null, news_signal: p.rescue_proposal_source === 'actualite' ? p.prospect_companies?.news_signal || null : null } });
     }
-    if (p.pending_first_email_subject) {
+    if (p.pending_first_email_subject && toValidate.has(p.id)) {
       push({ ...base, id: `email_a_valider:${p.id}`, type: 'email_a_valider', at: null, days_waiting: null, meta: { subject: p.pending_first_email_subject, body: p.pending_first_email_body } });
     }
     if (p.is_won && !p.first_order_confirmed_at && !pos.lost) {

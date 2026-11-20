@@ -179,7 +179,18 @@ export async function runFirstContact(prospect: FirstContactProspect) {
 
     // Tout premier email du compte : toujours relu (lib/first-email-approval.ts).
     const approval = hasEmailToSend ? await mustApproveFirstEmail(prospect.assigned_user_id, sender?.require_first_email_approval) : { approve: false, reason: null };
-    if (hasEmailToSend && (approval.approve || truncated)) {
+    if (hasEmailToSend && (approval as any).hold && !truncated) {
+      // Tout premier email du compte encore à valider : celui-ci attend en
+      // brouillon, sans notification, et partira après (first-email-deferred).
+      await supabaseAdmin
+        .from('prospects')
+        .update({
+          pending_first_email_subject: aaronOutput.email_draft.subject,
+          pending_first_email_body: aaronOutput.email_draft.body,
+          pending_first_email_generated_at: new Date().toISOString(),
+        })
+        .eq('id', prospect.id);
+    } else if (hasEmailToSend && (approval.approve || truncated)) {
       await supabaseAdmin
         .from('prospects')
         .update({
