@@ -1,0 +1,74 @@
+# Remplit l'annuaire gratuit directory_companies depuis Overture Maps
+# (scripts/import-overture.mjs), pour que les campagnes trouvent des
+# entreprises SANS recherche web payante (20/11/2026 : la recherche web
+# coûtait 0,42 USD par prospect sur les campagnes australiennes).
+#
+# Tourne sur les serveurs de GitHub (accès direct aux fichiers Overture),
+# une fois par mois (Overture publie une version par mois) et à la demande.
+# Secrets nécessaires (Settings > Secrets and variables > Actions), saisis
+# par Alex : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY.
+
+name: Annuaire Overture
+
+on:
+  workflow_dispatch:
+    inputs:
+      country:
+        description: "Pays (code à 2 lettres)"
+        default: "AU"
+        required: true
+      bbox:
+        description: "Zone : minLon,minLat,maxLon,maxLat (vide = tout le pays)"
+        default: "152.0,-28.5,153.7,-26.0"
+        required: false
+      limit:
+        description: "Nombre maximum d'établissements"
+        default: "60000"
+        required: true
+  schedule:
+    # Le 25 de chaque mois : la version Overture du mois est publiée.
+    - cron: "17 3 25 * *"
+
+concurrency:
+  group: overture-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer DuckDB
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+
+      - name: Dernière version Overture
+        id: release
+        run: |
+          latest=$(aws s3 ls s3://overturemaps-us-west-2/release/ --no-sign-request | awk '{print $2}' | tr -d '/' | sort | tail -n 1)
+          echo "Version : $latest"
+          echo "name=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Import
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OVERTURE_RELEASE: ${{ steps.release.outputs.name }}
+          IN_COUNTRY: ${{ github.event.inputs.country || 'AU' }}
+          IN_BBOX: ${{ github.event.inputs.bbox || '152.0,-28.5,153.7,-26.0' }}
+          IN_LIMIT: ${{ github.event.inputs.limit || '60000' }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "Secrets SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY manquants dans GitHub."
+            exit 1
+          fi
+          args="--country $IN_COUNTRY --limit $IN_LIMIT"
+          if [ -n "$IN_BBOX" ]; then args="$args --bbox $IN_BBOX"; fi
+          node scripts/import-overture.mjs $args
