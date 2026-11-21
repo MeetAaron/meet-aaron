@@ -57,10 +57,20 @@ export async function GET(request: NextRequest) {
   const base = 'id, week, slot, category, subject, material_needed, material_hint, content, status';
   let postsRes: any = await supabaseAdmin
     .from('social_posts')
-    .select(`${base}, media, review_text`)
+    .select(`${base}, media, review_text, published`)
     .eq('campaign_id', current.id)
     .order('week', { ascending: true })
     .order('slot', { ascending: true });
+  // published (migration_social_publish_2026-11-21.sql) absente : on garde
+  // photos et avis.
+  if (postsRes.error?.code === '42703') {
+    postsRes = await supabaseAdmin
+      .from('social_posts')
+      .select(`${base}, media, review_text`)
+      .eq('campaign_id', current.id)
+      .order('week', { ascending: true })
+      .order('slot', { ascending: true });
+  }
   const mediaReady = !postsRes.error;
   if (postsRes.error?.code === '42703') {
     postsRes = await supabaseAdmin

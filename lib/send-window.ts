@@ -54,17 +54,26 @@ interface Window {
   startHour: number; // inclus
   endHour: number; // exclu
   weekdays: number[]; // 1 = lundi … 7 = dimanche
+  // Samedi matin (21/11/2026, accord d'Alex) : les artisans travaillent le
+  // samedi et lisent leurs emails. RÉPONSES seulement, jamais la prospection.
+  saturday?: { startHour: number; endHour: number };
 }
 
 export const SEND_WINDOWS: Record<SendKind, Window> = {
   prospecting: { startHour: 8, endHour: 12, weekdays: [1, 2, 3, 4, 5] },
-  reply: { startHour: 8, endHour: 19, weekdays: [1, 2, 3, 4, 5] },
+  reply: { startHour: 8, endHour: 19, weekdays: [1, 2, 3, 4, 5], saturday: { startHour: 8, endHour: 12 } },
 };
+
+function windowOpenAt(w: Window, hour: number, weekday: number): boolean {
+  if (w.weekdays.includes(weekday)) return hour >= w.startHour && hour < w.endHour;
+  if (weekday === 6 && w.saturday) return hour >= w.saturday.startHour && hour < w.saturday.endHour;
+  return false;
+}
 
 export function isSendWindowOpen(kind: SendKind, timeZone: string, now: Date = new Date()): boolean {
   const w = SEND_WINDOWS[kind];
   const { hour, weekday } = localParts(now, timeZone);
-  return w.weekdays.includes(weekday) && hour >= w.startHour && hour < w.endHour;
+  return windowOpenAt(w, hour, weekday);
 }
 
 // Prochain instant (UTC) où la fenêtre sera ouverte — l'instant courant si
@@ -81,7 +90,7 @@ export function nextSendWindowOpening(kind: SendKind, timeZone: string, now: Dat
   t.setUTCHours(t.getUTCHours() + 1);
   for (let i = 0; i < 24 * 8; i += 1) {
     const { hour, weekday } = localParts(t, timeZone);
-    if (w.weekdays.includes(weekday) && hour === w.startHour) return t;
+    if (windowOpenAt(w, hour, weekday)) return t;
     t.setUTCHours(t.getUTCHours() + 1);
   }
   return t;
