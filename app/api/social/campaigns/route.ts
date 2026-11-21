@@ -52,14 +52,26 @@ export async function GET(request: NextRequest) {
     current = { ...current, status: 'erreur', error: 'timeout' };
   }
 
-  const { data: posts } = await supabaseAdmin
+  // Photos et avis (migration_social_media_2026-11-21.sql) : repli sans
+  // eux tant que la migration n'est pas passée.
+  const base = 'id, week, slot, category, subject, material_needed, material_hint, content, status';
+  let postsRes: any = await supabaseAdmin
     .from('social_posts')
-    .select('id, week, slot, category, subject, material_needed, material_hint, content, status')
+    .select(`${base}, media, review_text`)
     .eq('campaign_id', current.id)
     .order('week', { ascending: true })
     .order('slot', { ascending: true });
+  const mediaReady = !postsRes.error;
+  if (postsRes.error?.code === '42703') {
+    postsRes = await supabaseAdmin
+      .from('social_posts')
+      .select(base)
+      .eq('campaign_id', current.id)
+      .order('week', { ascending: true })
+      .order('slot', { ascending: true });
+  }
 
-  return NextResponse.json({ campaign: current, posts: posts || [] });
+  return NextResponse.json({ campaign: current, posts: postsRes.data || [], media_ready: mediaReady });
 }
 
 export async function POST(request: NextRequest) {
