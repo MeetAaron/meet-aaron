@@ -491,6 +491,8 @@ export default function CampaignsPage() {
   // verrouillage visuel + le fait qu'un module inactif n'a simplement pas de
   // données à afficher).
   const [tab, setTab] = useState('prospection');
+  // « + » de l'onglet Réseaux sociaux : signal envoyé au panneau (21/11/2026).
+  const [socialStart, setSocialStart] = useState(0);
   const [customerModuleActive, setCustomerModuleActive] = useState(() => {
     const known = initialJson((id) => `/api/preferences?user_id=${id}`)?.preferences;
     return known ? known.offer_ac_active === true : true;
@@ -708,8 +710,8 @@ export default function CampaignsPage() {
           04/09/2026). Même bouton flottant que l'Agenda (classe globale .fab,
           app/globals.css) : un seul geste « créer » dans toute l'app, au même
           endroit. */}
-      {tab === 'prospection' && (
-        <button type="button" className="fab" aria-label={t('campaigns.newCampaign', locale)} onClick={() => setShowChat(true)}>
+      {(tab === 'prospection' || (tab === 'social' && socialPreviewAllowed(userEmail))) && (
+        <button type="button" className="fab" aria-label={t('campaigns.newCampaign', locale)} onClick={() => (tab === 'social' ? setSocialStart((n) => n + 1) : setShowChat(true))}>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       )}
@@ -755,7 +757,7 @@ export default function CampaignsPage() {
       </div>
 
       {tab === 'social' && socialPreviewAllowed(userEmail) ? (
-        <SocialCampaignPanel locale={locale} />
+        <SocialCampaignPanel locale={locale} startSignal={socialStart} />
       ) : tab === 'marketing' ? (
         <MarketingCampaignsPanel userId={userId} companyId={companyId} locale={locale} customerModuleActive={customerModuleActive} />
       ) : tab === 'reactivation' ? (

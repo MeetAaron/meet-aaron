@@ -22,7 +22,7 @@ import {
 
 function back(result: 'ok' | 'refus' | 'erreur') {
   const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
-  const response = NextResponse.redirect(`${base}/app/connexions?tab=profile&social=tiktok&etat=${result}`);
+  const response = NextResponse.redirect(`${base}/app/connexions?tab=social&social=tiktok&etat=${result}`);
   response.cookies.set(TIKTOK_STATE_COOKIE, '', { path: '/api/social/tiktok', maxAge: 0 });
   return response;
 }

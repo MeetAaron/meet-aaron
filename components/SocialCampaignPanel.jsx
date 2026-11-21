@@ -22,6 +22,8 @@ const NETWORKS = ['instagram', 'facebook', 'linkedin', 'tiktok'];
 
 const TEXT = {
   fr: {
+    progressPosts: '{n} posts sur 16', linkNets: 'Pour publier, lie tes réseaux sociaux.', linkNetsBtn: 'Lier mes réseaux',
+    emptyTitle: 'Aucune campagne sur les réseaux', emptyBody: 'Aaron prépare 16 posts pour le mois : 4 par semaine, sur Instagram, Facebook, LinkedIn et TikTok.', launch: 'Lancer une campagne', campaignOf: 'Campagne de {m}', stPrep: 'En préparation', stReady: 'Prête', stLive: 'En cours', meta: '16 posts · 4 par semaine · 4 réseaux', toProvide: '{n} à fournir', seePosts: 'Voir les posts', hidePosts: 'Masquer les posts',
     publishTiktok: 'Publier sur TikTok', publishing: 'Envoi à TikTok…', published: 'Publié sur TikTok', publishFail: 'TikTok a refusé la publication : {e}', needPhoto: 'Ajoute au moins une photo pour publier.', linkTiktok: 'Lie ton compte TikTok dans Mon compte.', privateNote: 'Visible seulement par toi tant que TikTok n’a pas validé l’appli. TikTok ajoute une musique proposée.',
     todo: 'À fournir', todoLeft: 'Encore {n} à fournir : une photo ou un avis par carte.', allDone: 'Tout est fourni. Tes 16 posts sont prêts.', addPhoto: 'Ajouter une photo', addAnother: 'Ajouter une photo', photos: 'Photos', reviewLabel: 'Avis du client', reviewPh: 'Colle ici l’avis, tel que le client l’a écrit.', save: 'Enregistrer', saved: 'Enregistré', edit: 'Modifier le texte', cancel: 'Annuler', remove: 'Retirer', onePerLine: 'Une page par ligne', oneScenePerLine: 'Une scène par ligne', uploading: 'Envoi…', uploadError: 'La photo n’a pas pu être envoyée. Réessaie.', saveError: 'L’enregistrement n’a pas abouti. Réessaie.', mediaMigration: 'Photos et avis : mise à jour en attente.',
     title: 'Tes 16 posts du mois', intro: '4 semaines, 4 posts par semaine, sur chaque réseau.', prepare: 'Préparer mes 16 posts', preparing: 'Aaron prépare tes posts…', progress: '{n} familles sur 4', resumePrep: 'Continuer la préparation', redo: 'Tout refaire', redoConfirm: 'Refaire les 16 posts ? Les posts actuels seront remplacés.', ready: '{n} posts prêts sur {t}', week: 'Semaine {n}', preview: 'Aperçu : rien n’est publié pour l’instant.', error: 'La préparation n’a pas abouti. Réessaie.', migration: 'Mise à jour en attente : réessaie dans quelques minutes.', budget: 'Plafond d’utilisation atteint pour aujourd’hui.',
@@ -32,6 +34,8 @@ const TEXT = {
     slide: 'Page', scene: 'Scène', caption: 'Légende', missing: 'À fournir',
   },
   en: {
+    progressPosts: '{n} of 16 posts', linkNets: 'To publish, link your social accounts.', linkNetsBtn: 'Link my accounts',
+    emptyTitle: 'No social media campaign', emptyBody: 'Aaron prepares 16 posts for the month: 4 a week, on Instagram, Facebook, LinkedIn and TikTok.', launch: 'Launch a campaign', campaignOf: '{m} campaign', stPrep: 'Preparing', stReady: 'Ready', stLive: 'Running', meta: '16 posts · 4 a week · 4 networks', toProvide: '{n} to provide', seePosts: 'See the posts', hidePosts: 'Hide the posts',
     publishTiktok: 'Publish on TikTok', publishing: 'Sending to TikTok…', published: 'Published on TikTok', publishFail: 'TikTok refused the post: {e}', needPhoto: 'Add at least one photo to publish.', linkTiktok: 'Link your TikTok account in My account.', privateNote: 'Visible only to you until TikTok approves the app. TikTok adds a suggested track.',
     todo: 'To provide', todoLeft: '{n} left to provide: one photo or review per card.', allDone: 'Everything is in. Your 16 posts are ready.', addPhoto: 'Add a photo', addAnother: 'Add a photo', photos: 'Photos', reviewLabel: 'Client review', reviewPh: 'Paste the review here, exactly as the client wrote it.', save: 'Save', saved: 'Saved', edit: 'Edit text', cancel: 'Cancel', remove: 'Remove', onePerLine: 'One page per line', oneScenePerLine: 'One scene per line', uploading: 'Uploading…', uploadError: 'The photo could not be uploaded. Try again.', saveError: 'Saving failed. Try again.', mediaMigration: 'Photos and reviews: update pending.',
     title: 'Your 16 posts this month', intro: '4 weeks, 4 posts a week, on every network.', prepare: 'Prepare my 16 posts', preparing: 'Aaron is preparing your posts…', progress: '{n} of 4 families', resumePrep: 'Continue preparing', redo: 'Start again', redoConfirm: 'Redo all 16 posts? The current posts will be replaced.', ready: '{n} of {t} posts ready', week: 'Week {n}', preview: 'Preview: nothing is published yet.', error: 'Preparation did not finish. Try again.', migration: 'Update pending: try again in a few minutes.', budget: 'Usage limit reached for today.',
@@ -42,6 +46,8 @@ const TEXT = {
     slide: 'Page', scene: 'Scene', caption: 'Caption', missing: 'Needed',
   },
   de: {
+    progressPosts: '{n} von 16 Posts', linkNets: 'Zum Veröffentlichen verknüpfe deine Social-Media-Konten.', linkNetsBtn: 'Konten verknüpfen',
+    emptyTitle: 'Keine Social-Media-Kampagne', emptyBody: 'Aaron bereitet 16 Posts für den Monat vor: 4 pro Woche, auf Instagram, Facebook, LinkedIn und TikTok.', launch: 'Kampagne starten', campaignOf: 'Kampagne {m}', stPrep: 'In Vorbereitung', stReady: 'Bereit', stLive: 'Läuft', meta: '16 Posts · 4 pro Woche · 4 Netzwerke', toProvide: '{n} zu liefern', seePosts: 'Posts ansehen', hidePosts: 'Posts ausblenden',
     publishTiktok: 'Auf TikTok veröffentlichen', publishing: 'Wird an TikTok gesendet…', published: 'Auf TikTok veröffentlicht', publishFail: 'TikTok hat den Post abgelehnt: {e}', needPhoto: 'Füge mindestens ein Foto hinzu, um zu veröffentlichen.', linkTiktok: 'Verknüpfe dein TikTok-Konto unter Mein Konto.', privateNote: 'Nur für dich sichtbar, bis TikTok die App freigibt. TikTok fügt passende Musik hinzu.',
     todo: 'Noch zu liefern', todoLeft: 'Noch {n} zu liefern: ein Foto oder eine Bewertung pro Karte.', allDone: 'Alles geliefert. Deine 16 Posts sind bereit.', addPhoto: 'Foto hinzufügen', addAnother: 'Foto hinzufügen', photos: 'Fotos', reviewLabel: 'Kundenbewertung', reviewPh: 'Füge die Bewertung hier ein, so wie der Kunde sie geschrieben hat.', save: 'Speichern', saved: 'Gespeichert', edit: 'Text bearbeiten', cancel: 'Abbrechen', remove: 'Entfernen', onePerLine: 'Eine Seite pro Zeile', oneScenePerLine: 'Eine Szene pro Zeile', uploading: 'Wird hochgeladen…', uploadError: 'Das Foto konnte nicht hochgeladen werden. Bitte erneut versuchen.', saveError: 'Speichern fehlgeschlagen. Bitte erneut versuchen.', mediaMigration: 'Fotos und Bewertungen: Aktualisierung ausstehend.',
     title: 'Deine 16 Posts des Monats', intro: '4 Wochen, 4 Posts pro Woche, in jedem Netzwerk.', prepare: 'Meine 16 Posts vorbereiten', preparing: 'Aaron bereitet deine Posts vor…', progress: '{n} von 4 Themen', resumePrep: 'Vorbereitung fortsetzen', redo: 'Neu beginnen', redoConfirm: 'Alle 16 Posts neu erstellen? Die aktuellen Posts werden ersetzt.', ready: '{n} von {t} Posts bereit', week: 'Woche {n}', preview: 'Vorschau: Noch wird nichts veröffentlicht.', error: 'Die Vorbereitung wurde nicht abgeschlossen. Bitte erneut versuchen.', migration: 'Aktualisierung ausstehend: in ein paar Minuten erneut versuchen.', budget: 'Tageslimit erreicht.',
@@ -52,6 +58,8 @@ const TEXT = {
     slide: 'Seite', scene: 'Szene', caption: 'Beschreibung', missing: 'Fehlt',
   },
   it: {
+    progressPosts: '{n} post su 16', linkNets: 'Per pubblicare, collega i tuoi account social.', linkNetsBtn: 'Collega i miei account',
+    emptyTitle: 'Nessuna campagna social', emptyBody: 'Aaron prepara 16 post per il mese: 4 a settimana, su Instagram, Facebook, LinkedIn e TikTok.', launch: 'Lancia una campagna', campaignOf: 'Campagna di {m}', stPrep: 'In preparazione', stReady: 'Pronta', stLive: 'In corso', meta: '16 post · 4 a settimana · 4 social', toProvide: '{n} da fornire', seePosts: 'Vedi i post', hidePosts: 'Nascondi i post',
     publishTiktok: 'Pubblica su TikTok', publishing: 'Invio a TikTok…', published: 'Pubblicato su TikTok', publishFail: 'TikTok ha rifiutato il post: {e}', needPhoto: 'Aggiungi almeno una foto per pubblicare.', linkTiktok: 'Collega il tuo account TikTok in Il mio account.', privateNote: 'Visibile solo a te finché TikTok non approva l’app. TikTok aggiunge una musica suggerita.',
     todo: 'Da fornire', todoLeft: 'Ancora {n} da fornire: una foto o una recensione per scheda.', allDone: 'Tutto fornito. I tuoi 16 post sono pronti.', addPhoto: 'Aggiungi una foto', addAnother: 'Aggiungi una foto', photos: 'Foto', reviewLabel: 'Recensione del cliente', reviewPh: 'Incolla qui la recensione, così come l’ha scritta il cliente.', save: 'Salva', saved: 'Salvato', edit: 'Modifica il testo', cancel: 'Annulla', remove: 'Rimuovi', onePerLine: 'Una pagina per riga', oneScenePerLine: 'Una scena per riga', uploading: 'Invio…', uploadError: 'Impossibile inviare la foto. Riprova.', saveError: 'Salvataggio non riuscito. Riprova.', mediaMigration: 'Foto e recensioni: aggiornamento in corso.',
     title: 'I tuoi 16 post del mese', intro: '4 settimane, 4 post a settimana, su ogni social.', prepare: 'Prepara i miei 16 post', preparing: 'Aaron sta preparando i tuoi post…', progress: '{n} famiglie su 4', resumePrep: 'Continua la preparazione', redo: 'Ricomincia', redoConfirm: 'Rifare tutti i 16 post? I post attuali saranno sostituiti.', ready: '{n} post pronti su {t}', week: 'Settimana {n}', preview: 'Anteprima: per ora non viene pubblicato nulla.', error: 'La preparazione non è andata a buon fine. Riprova.', migration: 'Aggiornamento in corso: riprova tra qualche minuto.', budget: 'Limite di utilizzo raggiunto per oggi.',
@@ -62,6 +70,8 @@ const TEXT = {
     slide: 'Pagina', scene: 'Scena', caption: 'Didascalia', missing: 'Da fornire',
   },
   es: {
+    progressPosts: '{n} de 16 publicaciones', linkNets: 'Para publicar, vincula tus redes sociales.', linkNetsBtn: 'Vincular mis redes',
+    emptyTitle: 'Ninguna campaña en redes', emptyBody: 'Aaron prepara 16 publicaciones para el mes: 4 por semana, en Instagram, Facebook, LinkedIn y TikTok.', launch: 'Lanzar una campaña', campaignOf: 'Campaña de {m}', stPrep: 'En preparación', stReady: 'Lista', stLive: 'En curso', meta: '16 publicaciones · 4 por semana · 4 redes', toProvide: 'Faltan {n}', seePosts: 'Ver las publicaciones', hidePosts: 'Ocultar las publicaciones',
     publishTiktok: 'Publicar en TikTok', publishing: 'Enviando a TikTok…', published: 'Publicado en TikTok', publishFail: 'TikTok rechazó la publicación: {e}', needPhoto: 'Añade al menos una foto para publicar.', linkTiktok: 'Vincula tu cuenta de TikTok en Mi cuenta.', privateNote: 'Solo visible para ti hasta que TikTok apruebe la app. TikTok añade una música sugerida.',
     todo: 'Por aportar', todoLeft: 'Faltan {n}: una foto o una reseña por tarjeta.', allDone: 'Todo listo. Tus 16 publicaciones están preparadas.', addPhoto: 'Añadir una foto', addAnother: 'Añadir una foto', photos: 'Fotos', reviewLabel: 'Reseña del cliente', reviewPh: 'Pega aquí la reseña, tal como la escribió el cliente.', save: 'Guardar', saved: 'Guardado', edit: 'Editar el texto', cancel: 'Cancelar', remove: 'Quitar', onePerLine: 'Una página por línea', oneScenePerLine: 'Una escena por línea', uploading: 'Enviando…', uploadError: 'No se pudo enviar la foto. Inténtalo de nuevo.', saveError: 'No se pudo guardar. Inténtalo de nuevo.', mediaMigration: 'Fotos y reseñas: actualización pendiente.',
     title: 'Tus 16 publicaciones del mes', intro: '4 semanas, 4 publicaciones por semana, en cada red.', prepare: 'Preparar mis 16 publicaciones', preparing: 'Aaron está preparando tus publicaciones…', progress: '{n} familias de 4', resumePrep: 'Continuar la preparación', redo: 'Empezar de nuevo', redoConfirm: '¿Rehacer las 16 publicaciones? Las actuales se sustituirán.', ready: '{n} de {t} publicaciones listas', week: 'Semana {n}', preview: 'Vista previa: de momento no se publica nada.', error: 'La preparación no ha terminado. Inténtalo de nuevo.', migration: 'Actualización pendiente: inténtalo en unos minutos.', budget: 'Límite de uso alcanzado por hoy.',
@@ -72,6 +82,8 @@ const TEXT = {
     slide: 'Página', scene: 'Escena', caption: 'Texto', missing: 'Falta',
   },
   pt: {
+    progressPosts: '{n} de 16 publicações', linkNets: 'Para publicar, liga as tuas redes sociais.', linkNetsBtn: 'Ligar as minhas redes',
+    emptyTitle: 'Nenhuma campanha nas redes', emptyBody: 'O Aaron prepara 16 publicações para o mês: 4 por semana, no Instagram, Facebook, LinkedIn e TikTok.', launch: 'Lançar uma campanha', campaignOf: 'Campanha de {m}', stPrep: 'Em preparação', stReady: 'Pronta', stLive: 'Em curso', meta: '16 publicações · 4 por semana · 4 redes', toProvide: 'Faltam {n}', seePosts: 'Ver as publicações', hidePosts: 'Esconder as publicações',
     publishTiktok: 'Publicar no TikTok', publishing: 'A enviar para o TikTok…', published: 'Publicado no TikTok', publishFail: 'O TikTok recusou a publicação: {e}', needPhoto: 'Adiciona pelo menos uma foto para publicar.', linkTiktok: 'Liga a tua conta TikTok em A minha conta.', privateNote: 'Visível só para ti até o TikTok aprovar a app. O TikTok adiciona uma música sugerida.',
     todo: 'Por fornecer', todoLeft: 'Faltam {n}: uma foto ou uma avaliação por cartão.', allDone: 'Está tudo. As tuas 16 publicações estão prontas.', addPhoto: 'Adicionar uma foto', addAnother: 'Adicionar uma foto', photos: 'Fotos', reviewLabel: 'Avaliação do cliente', reviewPh: 'Cola aqui a avaliação, tal como o cliente a escreveu.', save: 'Guardar', saved: 'Guardado', edit: 'Editar o texto', cancel: 'Cancelar', remove: 'Retirar', onePerLine: 'Uma página por linha', oneScenePerLine: 'Uma cena por linha', uploading: 'A enviar…', uploadError: 'Não foi possível enviar a foto. Tenta de novo.', saveError: 'Não foi possível guardar. Tenta de novo.', mediaMigration: 'Fotos e avaliações: atualização pendente.',
     title: 'As tuas 16 publicações do mês', intro: '4 semanas, 4 publicações por semana, em cada rede.', prepare: 'Preparar as minhas 16 publicações', preparing: 'O Aaron está a preparar as tuas publicações…', progress: '{n} famílias de 4', resumePrep: 'Continuar a preparação', redo: 'Recomeçar', redoConfirm: 'Refazer as 16 publicações? As atuais serão substituídas.', ready: '{n} de {t} publicações prontas', week: 'Semana {n}', preview: 'Pré-visualização: por agora nada é publicado.', error: 'A preparação não terminou. Tenta de novo.', migration: 'Atualização pendente: tenta de novo daqui a uns minutos.', budget: 'Limite de utilização atingido por hoje.',
@@ -82,6 +94,8 @@ const TEXT = {
     slide: 'Página', scene: 'Cena', caption: 'Legenda', missing: 'Falta',
   },
   nl: {
+    progressPosts: '{n} van 16 posts', linkNets: 'Koppel je sociale accounts om te publiceren.', linkNetsBtn: 'Accounts koppelen',
+    emptyTitle: 'Geen socialemediacampagne', emptyBody: 'Aaron bereidt 16 posts voor de maand voor: 4 per week, op Instagram, Facebook, LinkedIn en TikTok.', launch: 'Campagne starten', campaignOf: 'Campagne {m}', stPrep: 'In voorbereiding', stReady: 'Klaar', stLive: 'Loopt', meta: '16 posts · 4 per week · 4 netwerken', toProvide: 'Nog {n} aan te leveren', seePosts: 'Posts bekijken', hidePosts: 'Posts verbergen',
     publishTiktok: 'Publiceren op TikTok', publishing: 'Wordt naar TikTok gestuurd…', published: 'Gepubliceerd op TikTok', publishFail: 'TikTok heeft de post geweigerd: {e}', needPhoto: 'Voeg minstens één foto toe om te publiceren.', linkTiktok: 'Koppel je TikTok-account in Mijn account.', privateNote: 'Alleen zichtbaar voor jou tot TikTok de app goedkeurt. TikTok voegt voorgestelde muziek toe.',
     todo: 'Nog aan te leveren', todoLeft: 'Nog {n} aan te leveren: een foto of review per kaart.', allDone: 'Alles is binnen. Je 16 posts zijn klaar.', addPhoto: 'Foto toevoegen', addAnother: 'Foto toevoegen', photos: 'Foto’s', reviewLabel: 'Review van de klant', reviewPh: 'Plak hier de review, precies zoals de klant hem schreef.', save: 'Opslaan', saved: 'Opgeslagen', edit: 'Tekst bewerken', cancel: 'Annuleren', remove: 'Verwijderen', onePerLine: 'Eén pagina per regel', oneScenePerLine: 'Eén scène per regel', uploading: 'Uploaden…', uploadError: 'De foto kon niet worden geüpload. Probeer het opnieuw.', saveError: 'Opslaan is mislukt. Probeer het opnieuw.', mediaMigration: 'Foto’s en reviews: update bezig.',
     title: 'Je 16 posts van de maand', intro: '4 weken, 4 posts per week, op elk netwerk.', prepare: 'Mijn 16 posts voorbereiden', preparing: 'Aaron bereidt je posts voor…', progress: '{n} van 4 soorten', resumePrep: 'Voorbereiding hervatten', redo: 'Opnieuw beginnen', redoConfirm: 'Alle 16 posts opnieuw maken? De huidige posts worden vervangen.', ready: '{n} van {t} posts klaar', week: 'Week {n}', preview: 'Voorbeeld: er wordt nog niets gepubliceerd.', error: 'De voorbereiding is niet afgerond. Probeer het opnieuw.', migration: 'Update bezig: probeer het over een paar minuten opnieuw.', budget: 'Gebruikslimiet voor vandaag bereikt.',
@@ -169,7 +183,7 @@ function TiktokPublish({ post, text, linked, busy, onPublish }) {
   if (linked === false) {
     return (
       <p className="sp-pub">
-        <a href="/app/connexions?tab=profile">{text.linkTiktok}</a>
+        <a href="/app/connexions?tab=social">{text.linkTiktok}</a>
       </p>
     );
   }
@@ -221,7 +235,7 @@ function NetworkContent({ post, network, text }) {
   );
 }
 
-export default function SocialCampaignPanel({ locale = 'fr' }) {
+export default function SocialCampaignPanel({ locale = 'fr', startSignal = 0 }) {
   const text = tx(locale);
   const [loading, setLoading] = useState(true);
   const [campaign, setCampaign] = useState(null);
@@ -236,7 +250,9 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
   const [editing, setEditing] = useState(null); // { postId, network, lines, body }
   const [savedId, setSavedId] = useState(null);
   const [tiktokLinked, setTiktokLinked] = useState(null); // null = inconnu
+  const [anyLinked, setAnyLinked] = useState(null);
   const [publishingId, setPublishingId] = useState(null);
+  const [showPosts, setShowPosts] = useState(false);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -259,33 +275,68 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Bouton « + » de la page Campagnes (même geste que la prospection).
+  const lastSignal = useRef(startSignal);
+  useEffect(() => {
+    if (startSignal === lastSignal.current) return;
+    lastSignal.current = startSignal;
+    if (loading || running) return;
+    if (campaign && posts.length > 0) redo();
+    else if (!campaign) start();
+  }, [startSignal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // TikTok lié ? (bloc Réseaux sociaux de Mon compte)
   useEffect(() => {
     fetch('/api/social/connections')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive.current) setTiktokLinked(Array.isArray(d?.connections) && d.connections.some((c) => c.provider === 'tiktok')); })
-      .catch(() => { if (alive.current) setTiktokLinked(false); });
+      .then((d) => {
+        if (!alive.current) return;
+        const list = Array.isArray(d?.connections) ? d.connections : [];
+        setTiktokLinked(list.some((c) => c.provider === 'tiktok'));
+        setAnyLinked(list.length > 0);
+      })
+      .catch(() => { if (alive.current) { setTiktokLinked(false); setAnyLinked(false); } });
   }, []);
 
-  async function runFamilies(campaignId, families) {
+  // Préparation post par post (21/11/2026) : une famille entière ne tenait
+  // pas dans les 60 secondes d'une fonction. Semaine par semaine, les 4
+  // familles en parallèle : chaque semaine connaît les sujets des
+  // précédentes, pour varier.
+  function missingSlots(list) {
+    const have = new Set((list || []).map((p) => `${p.week}:${p.category}`));
+    const out = [];
+    for (let week = 1; week <= 4; week += 1) {
+      for (const category of CATEGORIES) if (!have.has(`${week}:${category}`)) out.push({ week, category });
+    }
+    return out;
+  }
+
+  async function runPosts(campaignId, list) {
     setRunning(true);
     setError(null);
-    const outcomes = await Promise.all(
-      families.map(async (category) => {
-        try {
-          const res = await fetch(`/api/social/campaigns/${campaignId}/category`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category }),
-          });
-          const ok = res.ok;
-          await load();
-          return ok ? 'ok' : res.status === 429 ? 'budget' : 'fail';
-        } catch {
-          return 'fail';
-        }
-      })
-    );
+    const todo = missingSlots(list);
+    const outcomes = [];
+    for (let week = 1; week <= 4 && alive.current; week += 1) {
+      const batch = todo.filter((x) => x.week === week);
+      if (batch.length === 0) continue;
+      const res = await Promise.all(
+        batch.map(async ({ category }) => {
+          try {
+            const r = await fetch(`/api/social/campaigns/${campaignId}/category`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ category, week }),
+            });
+            return r.ok ? 'ok' : r.status === 429 ? 'budget' : 'fail';
+          } catch {
+            return 'fail';
+          }
+        })
+      );
+      outcomes.push(...res);
+      await load();
+      if (res.includes('budget')) break;
+    }
     if (!alive.current) return;
     setRunning(false);
     if (outcomes.includes('budget')) setError(text.budget);
@@ -301,8 +352,7 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
       return;
     }
     const fresh = await load();
-    const done = new Set((fresh?.posts || []).map((p) => p.category));
-    await runFamilies(data.campaign_id, CATEGORIES.filter((c) => !done.has(c)));
+    await runPosts(data.campaign_id, fresh?.posts || []);
   }
 
   function replacePost(updated) {
@@ -409,42 +459,77 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
     start();
   }
 
-  const doneFamilies = new Set(posts.map((p) => p.category));
-  const missingFamilies = CATEGORIES.filter((c) => !doneFamilies.has(c));
+  const missingCount = missingSlots(posts).length;
   const readyCount = posts.filter((p) => postState(p) === 'pret').length;
-  const preparing = running || (campaign && campaign.status === 'preparation' && missingFamilies.length > 0);
+  const preparing = running || (campaign && campaign.status !== 'en_cours' && missingCount > 0);
 
   if (loading) return <p className="sp-muted">…</p>;
 
   return (
     <section className="sp">
-      <div className="sp-head">
-        <div>
-          <h2 className="sp-title">{text.title}</h2>
-          <p className="sp-muted">{text.intro}</p>
-        </div>
-        {campaign && !running && posts.length > 0 && (
-          <button type="button" className="sp-ghost" onClick={redo}>{text.redo}</button>
-        )}
-      </div>
-
       {error && <p className="sp-error">{error}</p>}
 
-      {!campaign && (
-        <button type="button" className="sp-primary" onClick={start} disabled={running}>{text.prepare}</button>
+      {/* Aucun réseau lié (21/11/2026, Alex) : on le dit tout de suite, avec
+          le bouton qui y mène. La préparation des posts reste possible. */}
+      {anyLinked === false && (
+        <div className="sp-link-nets">
+          <span>{text.linkNets}</span>
+          <a className="sp-primary sp-link-btn" href="/app/connexions?tab=social">{text.linkNetsBtn}</a>
+        </div>
       )}
+
+      {/* Même présentation que la prospection (21/11/2026, Alex) : pas de
+          campagne = état vide avec le « + » ; une campagne = une carte. */}
+      {!campaign && (
+        <div className="sp-empty">
+          <button type="button" className="sp-empty-plus" onClick={start} disabled={running} aria-label={text.launch} title={text.launch}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+          <p className="sp-empty-title">{text.emptyTitle}</p>
+          <p className="sp-empty-body">{text.emptyBody}</p>
+        </div>
+      )}
+
+      {campaign && (() => {
+        const todoCount = posts.filter((p) => postState(p) !== 'pret').length;
+        const month = new Date(campaign.created_at).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+        const statusLabel = preparing ? text.stPrep : campaign.status === 'en_cours' ? text.stLive : text.stReady;
+        return (
+          <div className="sp-camp">
+            <div className="sp-camp-inner">
+              <div className="sp-camp-head">
+                <h3 className="sp-camp-title">{text.campaignOf.replace('{m}', month)}</h3>
+                <span className={`sp-pill${preparing ? ' prep' : ''}`}>{statusLabel}</span>
+              </div>
+              <p className="sp-muted">{text.meta}</p>
+              {!preparing && posts.length > 0 && (
+                <p className="sp-camp-line">
+                  <span className="sp-ok">{text.ready.replace('{n}', String(readyCount)).replace('{t}', String(posts.length))}</span>
+                  {todoCount > 0 && <span className="sp-warn"> · {text.toProvide.replace('{n}', String(todoCount))}</span>}
+                </p>
+              )}
+              {!preparing && posts.length > 0 && (
+                <div className="sp-camp-acts">
+                  <button type="button" className="sp-primary" onClick={() => setShowPosts(!showPosts)}>{showPosts ? text.hidePosts : text.seePosts}</button>
+                  <button type="button" className="sp-ghost" onClick={redo}>{text.redo}</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {campaign && preparing && (
         <div className="sp-progress">
-          <p>{running ? text.preparing : null} {text.progress.replace('{n}', String(doneFamilies.size))}</p>
-          <div className="sp-bar"><span style={{ width: `${(doneFamilies.size / 4) * 100}%` }} /></div>
-          {!running && missingFamilies.length > 0 && (
-            <button type="button" className="sp-primary" onClick={() => runFamilies(campaign.id, missingFamilies)}>{text.resumePrep}</button>
+          <p>{running ? text.preparing : null} {text.progressPosts.replace('{n}', String(16 - missingCount))}</p>
+          <div className="sp-bar"><span style={{ width: `${((16 - missingCount) / 16) * 100}%` }} /></div>
+          {!running && missingCount > 0 && (
+            <button type="button" className="sp-primary" onClick={() => runPosts(campaign.id, posts)}>{text.resumePrep}</button>
           )}
         </div>
       )}
 
-      {posts.length > 0 && mediaReady && (() => {
+      {showPosts && posts.length > 0 && mediaReady && (() => {
         // À FOURNIR (21/11/2026, Alex : « simple et ludique ») : une carte
         // par élément manquant, avec son bouton, dans l'ordre des semaines.
         const todo = posts
@@ -478,9 +563,8 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
         );
       })()}
 
-      {posts.length > 0 && (
+      {showPosts && posts.length > 0 && (
         <>
-          <p className="sp-ready">{text.ready.replace('{n}', String(readyCount)).replace('{t}', String(posts.length))}</p>
           <p className="sp-muted">{text.preview}</p>
           {[1, 2, 3, 4].map((week) => {
             const weekPosts = posts.filter((p) => p.week === week).sort((a, b) => a.slot - b.slot);
@@ -629,6 +713,23 @@ export default function SocialCampaignPanel({ locale = 'fr' }) {
         .sp-review, .sp-edit { display: grid; gap: 0.45rem; }
         .sp-review textarea, .sp-edit textarea { width: 100%; box-sizing: border-box; padding: 0.6rem 0.7rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface, transparent); color: var(--text); font: inherit; font-size: 0.88rem; line-height: 1.45; resize: vertical; }
         .sp-edit-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .sp-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 3.2rem 1.5rem; background: rgba(75, 57, 239, 0.05); border: 1px dashed rgba(75, 57, 239, 0.5); border-radius: var(--radius-lg, 16px); }
+        .sp-empty-plus { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 50%; border: 0; background: linear-gradient(135deg, var(--accent), #c93f8c); color: #fff; cursor: pointer; margin-bottom: 1rem; box-shadow: 0 8px 24px rgba(75, 57, 239, 0.35); }
+        .sp-empty-plus:disabled { opacity: 0.6; cursor: default; }
+        .sp-empty-title { margin: 0 0 0.35rem; font-weight: 600; font-size: 1rem; }
+        .sp-empty-body { margin: 0; color: var(--muted); font-size: 0.88rem; max-width: 420px; }
+        .sp-camp { border-radius: calc(var(--radius-lg, 16px) + 1px); padding: 1px; background: linear-gradient(135deg, var(--accent), #c93f8c); }
+        .sp-camp-inner { display: grid; gap: 0.55rem; padding: 1rem 1.05rem 0.9rem; border-radius: var(--radius-lg, 16px); background: var(--bg-elevated, var(--surface)); }
+        .sp-camp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.8rem; }
+        .sp-camp-title { margin: 0; font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; }
+        .sp-pill { flex: none; font-size: 0.74rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--state-good-text, #1f9d55); color: var(--state-good-text, #1f9d55); }
+        .sp-pill.prep { border-color: var(--accent); color: var(--accent-light, var(--accent)); }
+        .sp-camp-line { margin: 0; font-size: 0.86rem; }
+        .sp-ok { color: var(--state-good-text, #1f9d55); font-weight: 600; }
+        .sp-warn { color: var(--state-warn-text, #b7791f); font-weight: 600; }
+        .sp-camp-acts { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+        .sp-link-nets { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; padding: 0.8rem 0.9rem; border-radius: var(--radius-md, 12px); border: 1px solid var(--accent); background: rgba(124, 110, 245, 0.08); font-size: 0.9rem; }
+        .sp-link-btn { display: inline-flex; align-items: center; text-decoration: none; }
         .sp-pub-box { display: grid; gap: 0.35rem; justify-items: start; }
         .sp-pub { margin: 0; font-size: 0.8rem; color: var(--muted); }
         .sp-pub.ok { color: var(--state-good-text, #1f9d55); font-weight: 600; }

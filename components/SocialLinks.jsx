@@ -30,12 +30,16 @@ const TEXT = {
 const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
 
 // Réseaux reliables, dans l'ordre d'affichage (LinkedIn ajouté le 20/11).
+// Ordre demandé par Alex (21/11/2026). Instagram et Facebook passent par
+// Meta, dont la liaison n'est pas encore codée : « Pas encore disponible ».
 const NETWORKS = [
+  { key: 'instagram', name: 'Instagram', soon: true },
+  { key: 'facebook', name: 'Facebook', soon: true },
   { key: 'tiktok', name: 'TikTok' },
   { key: 'linkedin', name: 'LinkedIn' },
 ];
 
-export default function SocialLinks({ locale = 'fr' }) {
+export default function SocialLinks({ locale = 'fr', standalone = false, onChange }) {
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -45,7 +49,9 @@ export default function SocialLinks({ locale = 'fr' }) {
     try {
       const res = await fetch('/api/social/connections');
       const data = res.ok ? await res.json() : null;
-      setConnections(Array.isArray(data?.connections) ? data.connections : []);
+      const list = Array.isArray(data?.connections) ? data.connections : [];
+      setConnections(list);
+      if (onChange) onChange(list.length);
     } catch (err) {
       setConnections([]);
     }
@@ -101,14 +107,16 @@ export default function SocialLinks({ locale = 'fr' }) {
   }
 
   return (
-    <div className="social">
+    <div className={standalone ? 'social standalone' : 'social'}>
       <strong className="social-title">{tx(locale, 'title')}</strong>
       {NETWORKS.map((net) => {
         const conn = connections.find((c) => c.provider === net.key) || null;
         return (
           <div className="social-row" key={net.key}>
             <span className="social-name">{net.name}</span>
-            {loading ? (
+            {net.soon ? (
+              <span className="social-state">{tx(locale, 'soon')}</span>
+            ) : loading ? (
               <span className="social-state">…</span>
             ) : conn ? (
               <>
@@ -124,6 +132,8 @@ export default function SocialLinks({ locale = 'fr' }) {
       {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key).replace('{name}', notice.name || '')}</p>}
       <style jsx>{`
         .social { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+        .social.standalone { margin-top: 0; padding-top: 0; border-top: 0; }
+        .social-row + .social-row { border-top: 1px solid var(--border); }
         .social-title { display: block; font-size: 0.92rem; margin-bottom: 0.6rem; }
         .social-row { display: flex; align-items: center; gap: 0.7rem; min-height: 44px; flex-wrap: wrap; }
         .social-name { font-size: 0.92rem; font-weight: 600; margin-right: auto; }

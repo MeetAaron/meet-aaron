@@ -21,7 +21,7 @@ import {
 
 function back(result: 'ok' | 'refus' | 'erreur') {
   const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
-  const response = NextResponse.redirect(`${base}/app/connexions?tab=profile&social=linkedin&etat=${result}`);
+  const response = NextResponse.redirect(`${base}/app/connexions?tab=social&social=linkedin&etat=${result}`);
   response.cookies.set(LINKEDIN_STATE_COOKIE, '', { path: '/api/social/linkedin', maxAge: 0 });
   return response;
 }

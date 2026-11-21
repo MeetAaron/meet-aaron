@@ -46,6 +46,15 @@ const ICONS = {
       <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
     </>
   ),
+  // Réseaux sociaux (21/11/2026) : trois points reliés (partage).
+  social: (
+    <>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98" />
+    </>
+  ),
   crm: (
     <>
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />

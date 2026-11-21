@@ -304,6 +304,17 @@ const AUTO_CONVERSION_HINT = {
 };
 
 // Thème « Automatique » (18/11/2026) : suit le réglage de l'appareil.
+// Rubrique « Réseaux sociaux » de Mon compte (21/11/2026).
+const SOCIAL_NAV = {
+  fr: { title: 'Réseaux sociaux', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} lié(s)' },
+  en: { title: 'Social networks', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} linked' },
+  de: { title: 'Soziale Netzwerke', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} verknüpft' },
+  it: { title: 'Social network', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} collegati' },
+  es: { title: 'Redes sociales', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} vinculadas' },
+  pt: { title: 'Redes sociais', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} ligadas' },
+  nl: { title: 'Sociale netwerken', desc: 'Instagram, Facebook, TikTok, LinkedIn', linked: '{n} gekoppeld' },
+};
+
 const THEME_AUTO = {
   fr: { label: 'Automatique', hint: 'Suit le réglage clair ou sombre de ton appareil.' },
   en: { label: 'Automatic', hint: 'Follows the light or dark setting of your device.' },
@@ -1132,6 +1143,8 @@ export default function ConnexionsPage() {
   // tout de suite : la liste y est une colonne de gauche, pas un écran à
   // part — un panneau vide à droite n'aurait aucun sens.
   const [activeTab, setActiveTab] = useState(null);
+  // Nombre de réseaux liés, pour l'état de la rubrique Réseaux sociaux.
+  const [socialCount, setSocialCount] = useState(null);
   // Fusion "Mon compte" (2026-08-25) : les anciens liens "module verrouillé"
   // (voir Shell plus bas, dupliqué dans les 14 pages) et les retours Stripe
   // pointent vers ?tab=subscription (ex-page /app/preferences) — ouvre
@@ -1144,7 +1157,7 @@ export default function ConnexionsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    const VALID_TABS = ['profile', 'company', 'connection', 'crm', 'preferences', 'subscription', 'delete'];
+    const VALID_TABS = ['profile', 'company', 'connection', 'social', 'crm', 'preferences', 'subscription', 'delete'];
     if (tabParam && VALID_TABS.includes(tabParam)) setActiveTab(tabParam);
     else if (params.get('setup') === 'push') setActiveTab('connection');
     // Grand écran : la liste est la colonne de gauche, le panneau doit donc
@@ -1431,6 +1444,13 @@ export default function ConnexionsPage() {
   // sont synchronisés automatiquement après confirmation (voir
   // app/api/auth/link/route.ts).
   const [currentEmail, setCurrentEmail] = useState('');
+  useEffect(() => {
+    if (!socialPreviewAllowed(currentEmail)) return;
+    fetch('/api/social/connections')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setSocialCount(Array.isArray(d?.connections) ? d.connections.length : 0))
+      .catch(() => {});
+  }, [currentEmail]);
   const [newEmail, setNewEmail] = useState('');
   const [emailChangeSaving, setEmailChangeSaving] = useState(false);
   const [emailChangeSent, setEmailChangeSent] = useState(false);
@@ -2699,6 +2719,20 @@ export default function ConnexionsPage() {
             ? { tone: 'ok', label: t('connexions.navStatusConnected', locale) }
             : { tone: 'todo', label: t('connexions.navStatusNotConnected', locale) },
         },
+        // Réseaux sociaux sous la boîte mail (21/11/2026, Alex). Visible sur
+        // aaron@meetaaron.app seulement tant qu'Aaron Social n'est pas ouvert.
+        ...(socialPreviewAllowed(currentEmail)
+          ? [{
+              key: 'social',
+              title: (SOCIAL_NAV[locale] || SOCIAL_NAV.fr).title,
+              description: (SOCIAL_NAV[locale] || SOCIAL_NAV.fr).desc,
+              status: socialCount === null
+                ? null
+                : socialCount > 0
+                  ? { tone: 'ok', label: (SOCIAL_NAV[locale] || SOCIAL_NAV.fr).linked.replace('{n}', String(socialCount)) }
+                  : { tone: 'todo', label: t('connexions.navStatusNotConnected', locale) },
+            }]
+          : []),
       ],
     },
     {
@@ -2812,6 +2846,10 @@ export default function ConnexionsPage() {
 
       {loading ? (
         <p className="muted">{t('common.loading', locale)}</p>
+      ) : activeTab === 'social' && socialPreviewAllowed(currentEmail) ? (
+        <div className="profile-panel">
+          <SocialLinks locale={locale} standalone onChange={setSocialCount} />
+        </div>
       ) : activeTab === 'profile' ? (
         <div className="profile-panel">
           <label className="profile-label">{t('connexions.profileNameLabel', locale)}</label>
@@ -2860,10 +2898,6 @@ export default function ConnexionsPage() {
             <p className="profile-hint">{t('connexions.emailChangeHint', locale)}</p>
           </div>
 
-          {/* Réseaux sociaux, sous l'adresse email (19/11/2026). Visible sur
-              aaron@meetaaron.app seulement tant qu'Aaron Social n'est pas
-              ouvert aux clients — lib/social-access.js. */}
-          {socialPreviewAllowed(currentEmail) && <SocialLinks locale={locale} />}
 
           <div className="profile-section">
             <label className="profile-label">{t('connexions.passwordSectionLabel', locale)}</label>

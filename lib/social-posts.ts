@@ -68,13 +68,15 @@ const CATEGORY_BRIEF: Record<SocialCategory, string> = {
     "OFFRES ET COULISSES : une offre réelle de l'entreprise (seulement si elle figure dans la fiche ou les documents, prix compris), ou un moment des coulisses (l'équipe, la préparation, l'outil). Une photo de l'équipe ou du lieu est souvent nécessaire : material_needed = \"photo\" dans ce cas.",
 };
 
-function postsPrompt(category: SocialCategory, companyName: string, profile: string, documents: string, locale: string): string {
+function postsPrompt(category: SocialCategory, companyName: string, profile: string, documents: string, locale: string, count: number = 4, avoid: string[] = []): string {
   return [
     `Tu prépares les publications de l'entreprise « ${companyName} » sur ses réseaux sociaux. Tu parles EN SON NOM (« nous »), comme son équipe le ferait. Tu ne te présentes jamais, tu ne parles jamais d'IA ni d'assistant.`,
     '',
     `Famille de posts à écrire : ${CATEGORY_BRIEF[category]}`,
     '',
-    "Écris 4 posts de cette famille, sur 4 sujets différents, pour 4 semaines de suite. Chaque sujet est décliné en quatre formes :",
+    count === 1
+      ? `Écris 1 post de cette famille.${avoid.length ? ` Il doit traiter un sujet DIFFÉRENT de ceux déjà pris : ${avoid.map((a) => `« ${a} »`).join(', ')}.` : ''} Ce sujet est décliné en quatre formes :`
+      : "Écris 4 posts de cette famille, sur 4 sujets différents, pour 4 semaines de suite. Chaque sujet est décliné en quatre formes :",
     "- instagram : un carrousel de 5 diapositives (une phrase courte par diapositive, la première accroche, la dernière invite à écrire en commentaire ou en message) + une légende de 2 à 4 phrases et 3 à 5 hashtags à la fin ;",
     "- facebook : un texte complet de 3 à 6 phrases, sans hashtag, qui se termine par une question simple ;",
     "- linkedin : un document de 5 pages (une phrase par page, ton professionnel) + un texte de 3 à 5 phrases, au plus 3 hashtags ;",
@@ -155,6 +157,36 @@ async function companyMaterial(companyId: string): Promise<{ name: string; profi
 // en sortie). L'écran lance les 4 familles en parallèle, chacune dans sa
 // propre requête : chaque appel tient ainsi largement dans la limite de
 // 60 secondes d'une fonction, et une famille qui échoue se relance seule.
+// UN post (21/11/2026) : la famille entière (4 posts, ~5 000 jetons) ne
+// tenait pas dans les 60 secondes d'une fonction avec Sonnet, et l'écran
+// restait sur « 0 familles sur 4 ». Un post = ~1 500 jetons = ~20 secondes.
+// L'écran prépare semaine par semaine : les sujets déjà pris dans la famille
+// sont passés au modèle pour varier.
+export async function generateOnePost(
+  companyId: string,
+  category: SocialCategory,
+  locale: string,
+  userId: string | null,
+  avoidSubjects: string[]
+): Promise<GeneratedPost | null> {
+  const material = await companyMaterial(companyId);
+  const data = await callClaude(
+    {
+      model: 'claude-sonnet-5',
+      max_tokens: 1800,
+      messages: [{ role: 'user', content: postsPrompt(category, material.name, material.profile, material.documents, normalizeLocale(locale), 1, avoidSubjects.slice(0, 8)) }],
+    },
+    companyId,
+    'as',
+    userId,
+    'reseaux_sociaux'
+  );
+  const text = (data.content || []).find((b: any) => b.type === 'text')?.text || '';
+  const parsed = extractJsonObject<{ posts?: any[] }>(text);
+  const first = (parsed?.posts || [])[0];
+  return first ? cleanPost(category, first) : null;
+}
+
 export async function generateCategoryPosts(
   companyId: string,
   category: SocialCategory,
