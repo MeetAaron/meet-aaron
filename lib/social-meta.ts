@@ -115,8 +115,16 @@ export const META_GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_V
 export const META_STATE_COOKIE = 'oauth_meta_state';
 export const META_STATE_TTL_SECONDS = 10 * 60;
 
+// Configuration « Aaron Social » créée le 21/11/2026 dans la console Meta
+// (jeton utilisateur ; business_management, instagram_basic,
+// instagram_content_publish, instagram_manage_comments,
+// instagram_manage_messages, pages_manage_engagement, pages_manage_metadata,
+// pages_manage_posts, pages_read_engagement, pages_read_user_content +
+// pages_show_list par dépendance). Identifiant public.
+const DEFAULT_LOGIN_CONFIG_ID = '2435483476859148';
+
 export function metaLoginConfigId(): string | null {
-  return process.env.META_LOGIN_CONFIG_ID || null;
+  return process.env.META_LOGIN_CONFIG_ID || DEFAULT_LOGIN_CONFIG_ID;
 }
 
 export function metaRedirectUri(): string {
