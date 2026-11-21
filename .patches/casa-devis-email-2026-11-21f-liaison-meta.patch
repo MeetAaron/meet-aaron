@@ -1,0 +1,400 @@
+From ef8fa02ba3a93c0c48802e71cf92269aa52edcdb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 21 Nov 2026 05:58:26 +0000
+Subject: [PATCH] Aaron Social : liaison Facebook + Instagram (Facebook Login
+ for Business, page et compte Instagram pro, jeton de page chiffre), deliaison
+ commune
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/social/connections/route.ts   |  20 +++-
+ app/api/social/meta/callback/route.ts |  71 ++++++++++++
+ app/api/social/meta/start/route.ts    |  33 ++++++
+ components/SocialLinks.jsx            |  25 +++--
+ lib/social-meta.ts                    | 153 +++++++++++++++++++++++++-
+ 5 files changed, 288 insertions(+), 14 deletions(-)
+ create mode 100644 app/api/social/meta/callback/route.ts
+ create mode 100644 app/api/social/meta/start/route.ts
+
+diff --git a/app/api/social/connections/route.ts b/app/api/social/connections/route.ts
+index 8431f8d..4aaffac 100644
+--- a/app/api/social/connections/route.ts
++++ b/app/api/social/connections/route.ts
+@@ -14,8 +14,9 @@ import { decryptToken } from '@/lib/encryption';
+ import { socialPreviewAllowed } from '@/lib/social-access';
+ import { revokeTiktokToken } from '@/lib/social-tiktok';
+ import { revokeLinkedinToken } from '@/lib/social-linkedin';
++import { revokeMetaPermissions } from '@/lib/social-meta';
+ 
+-const PROVIDERS = ['tiktok', 'linkedin'];
++const PROVIDERS = ['tiktok', 'linkedin', 'facebook', 'instagram'];
+ 
+ // Table absente tant que migration_social_connections_2026-11-19.sql n'est
+ // pas passée : PostgREST répond PGRST205, Postgres 42P01.
+@@ -76,6 +77,23 @@ export async function DELETE(request: NextRequest) {
+     }
+   }
+ 
++  // Facebook et Instagram partagent la même autorisation Meta : délier
++  // l'un délie les deux (21/11/2026).
++  if (provider === 'facebook' || provider === 'instagram') {
++    try {
++      await revokeMetaPermissions(decryptToken((row as any).access_token));
++    } catch {
++      // Meta injoignable : on délie quand même chez nous.
++    }
++    const { error: metaErr } = await supabaseAdmin
++      .from('social_connections')
++      .delete()
++      .eq('company_id', authedUser.company_id)
++      .in('provider', ['facebook', 'instagram']);
++    if (metaErr) return NextResponse.json({ error: 'server_error' }, { status: 500 });
++    return NextResponse.json({ success: true });
++  }
++
+   const { error } = await supabaseAdmin.from('social_connections').delete().eq('id', (row as any).id);
+   if (error) {
+     console.error('[social] suppression de la liaison :', error.code || '', error.message);
+diff --git a/app/api/social/meta/callback/route.ts b/app/api/social/meta/callback/route.ts
+new file mode 100644
+index 0000000..54f43f7
+--- /dev/null
++++ b/app/api/social/meta/callback/route.ts
+@@ -0,0 +1,71 @@
++// app/api/social/meta/callback/route.ts
++//
++// GET -> retour de Facebook (Facebook Login for Business), 21/11/2026.
++// On vérifie le « state », on échange le code, on lit la page gérée et son
++// compte Instagram professionnel, puis on range DEUX liaisons chiffrées :
++// 'facebook' (la page) et 'instagram' (le compte relié), avec le jeton de
++// la page (c'est lui qui publie, pour les deux).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { encryptToken } from '@/lib/encryption';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import { exchangeMetaCode, fetchMetaPages, readMetaState, META_STATE_COOKIE } from '@/lib/social-meta';
++
++function back(result: 'ok' | 'refus' | 'erreur' | 'sans_page') {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  const response = NextResponse.redirect(`${base}/app/connexions?tab=social&social=facebook&etat=${result}`);
++  response.cookies.set(META_STATE_COOKIE, '', { path: '/api/social/meta', maxAge: 0 });
++  return response;
++}
++
++export async function GET(request: NextRequest) {
++  const params = request.nextUrl.searchParams;
++  const userId = readMetaState(params.get('state'), request.cookies.get(META_STATE_COOKIE)?.value || null);
++  if (!userId) return back('erreur');
++  if (params.get('error')) return back(params.get('error_reason') === 'user_denied' ? 'refus' : 'erreur');
++  const code = params.get('code');
++  if (!code) return back('erreur');
++
++  const { data: user } = await supabaseAdmin.from('users').select('id, email, company_id').eq('id', userId).maybeSingle();
++  if (!user || !(user as any).company_id || !socialPreviewAllowed((user as any).email)) return back('erreur');
++
++  const tokens = await exchangeMetaCode(code);
++  if (!tokens) return back('erreur');
++  const pages = await fetchMetaPages(tokens.token);
++  const page = pages.find((p) => p.instagram) || pages[0];
++  if (!page) return back('sans_page');
++
++  const now = new Date().toISOString();
++  const base = { company_id: (user as any).company_id, connected_by: (user as any).id, refresh_token: null, refresh_expires_at: null, updated_at: now };
++  const rows: any[] = [
++    {
++      ...base,
++      provider: 'facebook',
++      account_id: page.id,
++      account_name: page.name || null,
++      avatar_url: null,
++      access_token: encryptToken(page.accessToken),
++      access_expires_at: null, // jeton de page issu d'un jeton long : sans échéance
++      scopes: 'page',
++    },
++  ];
++  if (page.instagram) {
++    rows.push({
++      ...base,
++      provider: 'instagram',
++      account_id: page.instagram.id,
++      account_name: page.instagram.username ? `@${page.instagram.username}` : null,
++      avatar_url: page.instagram.picture,
++      access_token: encryptToken(page.accessToken),
++      access_expires_at: null,
++      scopes: `page:${page.id}`,
++    });
++  }
++  const { error } = await supabaseAdmin.from('social_connections').upsert(rows, { onConflict: 'company_id,provider' });
++  if (error) {
++    console.error('[meta] enregistrement de la liaison :', error.code || '', error.message);
++    return back('erreur');
++  }
++  return back('ok');
++}
+diff --git a/app/api/social/meta/start/route.ts b/app/api/social/meta/start/route.ts
+new file mode 100644
+index 0000000..6ad02c9
+--- /dev/null
++++ b/app/api/social/meta/start/route.ts
+@@ -0,0 +1,33 @@
++// app/api/social/meta/start/route.ts
++//
++// POST -> prépare la liaison Facebook + Instagram (21/11/2026) : renvoie
++// l'adresse de la boîte de dialogue Facebook et pose le cookie de retour
++// (voir lib/social-meta.ts). 503 tant que META_APP_SECRET ou
++// META_LOGIN_CONFIG_ID manquent.
++// Réservé pour l'instant au compte aaron@meetaaron.app (lib/social-access.js).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import { createMetaState, metaAuthorizeUrl, META_STATE_COOKIE, META_STATE_TTL_SECONDS } from '@/lib/social-meta';
++
++export async function POST(request: NextRequest) {
++  const authedUser = await getAuthedUser(request);
++  if (!authedUser) return unauthorizedResponse();
++  if (!socialPreviewAllowed(authedUser.email)) return NextResponse.json({ error: 'not_found' }, { status: 404 });
++  if (!authedUser.company_id) return NextResponse.json({ error: 'company_missing' }, { status: 400 });
++
++  const created = createMetaState(authedUser.id);
++  const url = created ? metaAuthorizeUrl(created.state) : null;
++  if (!created || !url) return NextResponse.json({ error: 'meta_not_configured' }, { status: 503 });
++
++  const response = NextResponse.json({ url });
++  response.cookies.set(META_STATE_COOKIE, created.nonce, {
++    httpOnly: true,
++    secure: true,
++    sameSite: 'lax',
++    path: '/api/social/meta',
++    maxAge: META_STATE_TTL_SECONDS,
++  });
++  return response;
++}
+diff --git a/components/SocialLinks.jsx b/components/SocialLinks.jsx
+index 67bc0aa..f11c6b0 100644
+--- a/components/SocialLinks.jsx
++++ b/components/SocialLinks.jsx
+@@ -19,22 +19,22 @@
+ import { useEffect, useState } from 'react';
+ 
+ const TEXT = {
+-  fr: { title: 'Réseaux sociaux', intro: 'Aaron publie tes posts et répond aux commentaires depuis ces comptes.', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Bientôt', d_instagram: 'Carrousels, commentaires et messages', d_facebook: 'Posts de ta page, commentaires et messages', d_tiktok: 'Photos en vidéo, avec une musique proposée', d_linkedin: 'Posts et documents, au nom de ton profil' },
+-  en: { title: 'Social networks', intro: 'Aaron publishes your posts and replies to comments from these accounts.', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Soon', d_instagram: 'Carousels, comments and messages', d_facebook: 'Page posts, comments and messages', d_tiktok: 'Photo posts, with a suggested track', d_linkedin: 'Posts and documents, from your profile' },
+-  de: { title: 'Soziale Netzwerke', intro: 'Aaron veröffentlicht deine Posts und beantwortet Kommentare über diese Konten.', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Bald', d_instagram: 'Karussells, Kommentare und Nachrichten', d_facebook: 'Seitenposts, Kommentare und Nachrichten', d_tiktok: 'Fotobeiträge mit vorgeschlagener Musik', d_linkedin: 'Posts und Dokumente über dein Profil' },
+-  it: { title: 'Social network', intro: 'Aaron pubblica i tuoi post e risponde ai commenti da questi account.', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Presto', d_instagram: 'Caroselli, commenti e messaggi', d_facebook: 'Post della pagina, commenti e messaggi', d_tiktok: 'Post di foto, con una musica suggerita', d_linkedin: 'Post e documenti, dal tuo profilo' },
+-  es: { title: 'Redes sociales', intro: 'Aaron publica tus publicaciones y responde a los comentarios desde estas cuentas.', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Pronto', d_instagram: 'Carruseles, comentarios y mensajes', d_facebook: 'Publicaciones de tu página, comentarios y mensajes', d_tiktok: 'Publicaciones de fotos, con una música sugerida', d_linkedin: 'Publicaciones y documentos, desde tu perfil' },
+-  pt: { title: 'Redes sociais', intro: 'O Aaron publica as tuas publicações e responde aos comentários a partir destas contas.', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Em breve', d_instagram: 'Carrosséis, comentários e mensagens', d_facebook: 'Publicações da página, comentários e mensagens', d_tiktok: 'Publicações de fotos, com uma música sugerida', d_linkedin: 'Publicações e documentos, a partir do teu perfil' },
+-  nl: { title: 'Sociale netwerken', intro: 'Aaron publiceert je posts en beantwoordt reacties vanaf deze accounts.', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Binnenkort', d_instagram: "Carrousels, reacties en berichten", d_facebook: "Paginaposts, reacties en berichten", d_tiktok: "Fotoposts, met voorgestelde muziek", d_linkedin: "Posts en documenten, vanaf je profiel" },
++  fr: { noPage: 'Aucune page Facebook trouvée sur ce compte. Crée la page Meet Aaron, relie-lui ton Instagram professionnel, puis réessaie.', title: 'Réseaux sociaux', intro: 'Aaron publie tes posts et répond aux commentaires depuis ces comptes.', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Bientôt', d_instagram: 'Carrousels, commentaires et messages', d_facebook: 'Posts de ta page, commentaires et messages', d_tiktok: 'Photos en vidéo, avec une musique proposée', d_linkedin: 'Posts et documents, au nom de ton profil' },
++  en: { noPage: 'No Facebook Page found on this account. Create your business Page, link your Instagram professional account to it, then try again.', title: 'Social networks', intro: 'Aaron publishes your posts and replies to comments from these accounts.', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Soon', d_instagram: 'Carousels, comments and messages', d_facebook: 'Page posts, comments and messages', d_tiktok: 'Photo posts, with a suggested track', d_linkedin: 'Posts and documents, from your profile' },
++  de: { noPage: 'Keine Facebook-Seite in diesem Konto gefunden. Erstelle deine Unternehmensseite, verknüpfe dein Instagram-Profikonto damit und versuche es erneut.', title: 'Soziale Netzwerke', intro: 'Aaron veröffentlicht deine Posts und beantwortet Kommentare über diese Konten.', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Bald', d_instagram: 'Karussells, Kommentare und Nachrichten', d_facebook: 'Seitenposts, Kommentare und Nachrichten', d_tiktok: 'Fotobeiträge mit vorgeschlagener Musik', d_linkedin: 'Posts und Dokumente über dein Profil' },
++  it: { noPage: 'Nessuna pagina Facebook trovata su questo account. Crea la pagina aziendale, collegale il tuo account Instagram professionale e riprova.', title: 'Social network', intro: 'Aaron pubblica i tuoi post e risponde ai commenti da questi account.', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Presto', d_instagram: 'Caroselli, commenti e messaggi', d_facebook: 'Post della pagina, commenti e messaggi', d_tiktok: 'Post di foto, con una musica suggerita', d_linkedin: 'Post e documenti, dal tuo profilo' },
++  es: { noPage: 'No se encontró ninguna página de Facebook en esta cuenta. Crea la página de tu empresa, vincula tu cuenta profesional de Instagram y vuelve a intentarlo.', title: 'Redes sociales', intro: 'Aaron publica tus publicaciones y responde a los comentarios desde estas cuentas.', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Pronto', d_instagram: 'Carruseles, comentarios y mensajes', d_facebook: 'Publicaciones de tu página, comentarios y mensajes', d_tiktok: 'Publicaciones de fotos, con una música sugerida', d_linkedin: 'Publicaciones y documentos, desde tu perfil' },
++  pt: { noPage: 'Nenhuma página do Facebook encontrada nesta conta. Cria a página da tua empresa, liga-lhe a tua conta profissional do Instagram e tenta de novo.', title: 'Redes sociais', intro: 'O Aaron publica as tuas publicações e responde aos comentários a partir destas contas.', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Em breve', d_instagram: 'Carrosséis, comentários e mensagens', d_facebook: 'Publicações da página, comentários e mensagens', d_tiktok: 'Publicações de fotos, com uma música sugerida', d_linkedin: 'Publicações e documentos, a partir do teu perfil' },
++  nl: { noPage: 'Geen Facebookpagina gevonden in dit account. Maak je bedrijfspagina aan, koppel je zakelijke Instagram-account eraan en probeer het opnieuw.', title: 'Sociale netwerken', intro: 'Aaron publiceert je posts en beantwoordt reacties vanaf deze accounts.', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Binnenkort', d_instagram: "Carrousels, reacties en berichten", d_facebook: "Paginaposts, reacties en berichten", d_tiktok: "Fotoposts, met voorgestelde muziek", d_linkedin: "Posts en documenten, vanaf je profiel" },
+ };
+ const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
+ 
+ // Réseaux reliables, dans l'ordre d'affichage (LinkedIn ajouté le 20/11).
+-// Ordre demandé par Alex (21/11/2026). Instagram et Facebook passent par
+-// Meta, dont la liaison n'est pas encore codée : « Pas encore disponible ».
++// Ordre demandé par Alex (21/11/2026). Instagram et Facebook passent par la
++// même liaison Meta (une page Facebook et son compte Instagram professionnel).
+ const NETWORKS = [
+-  { key: 'instagram', name: 'Instagram', soon: true },
+-  { key: 'facebook', name: 'Facebook', soon: true },
++  { key: 'instagram', name: 'Instagram', start: 'meta' },
++  { key: 'facebook', name: 'Facebook', start: 'meta' },
+   { key: 'tiktok', name: 'TikTok' },
+   { key: 'linkedin', name: 'LinkedIn' },
+ ];
+@@ -98,6 +98,7 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+         const etat = params.get('etat');
+         if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok', name: net.name });
+         else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus', name: net.name });
++        else if (etat === 'sans_page') setNotice({ tone: 'bad', key: 'noPage', name: net.name });
+         else setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+         params.delete('social');
+         params.delete('etat');
+@@ -111,7 +112,7 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+     setBusy(true);
+     setNotice(null);
+     try {
+-      const res = await fetch(`/api/social/${net.key}/start`, { method: 'POST' });
++      const res = await fetch(`/api/social/${net.start || net.key}/start`, { method: 'POST' });
+       const data = await res.json().catch(() => null);
+       if (res.ok && data?.url) {
+         window.location.href = data.url;
+diff --git a/lib/social-meta.ts b/lib/social-meta.ts
+index a6999c5..627a24b 100644
+--- a/lib/social-meta.ts
++++ b/lib/social-meta.ts
+@@ -19,7 +19,7 @@
+ // publique qui accepterait n'importe quel appel non signé serait une porte
+ // ouverte le jour où le traitement sera branché.
+ 
+-import { createHmac, timingSafeEqual } from 'crypto';
++import { createHmac, timingSafeEqual, randomBytes as metaRandom } from 'crypto';
+ 
+ export function metaAppSecret(): string | null {
+   return process.env.META_APP_SECRET || null;
+@@ -89,3 +89,154 @@ export async function readSignedRequest(request: Request): Promise<string | null
+   }
+   return new URLSearchParams(raw).get('signed_request');
+ }
++
++// ─────────────────────────────────────────────────────────────────────────
++// LIAISON FACEBOOK + INSTAGRAM (21/11/2026) — « Facebook Login for
++// Business » de l'appli « Aaron Sales Copilot » (id 29046254768335337).
++//
++// Parcours :
++//   1. /api/social/meta/start fabrique l'adresse de la boîte de dialogue
++//      Facebook, avec la « configuration » créée dans la console Meta
++//      (META_LOGIN_CONFIG_ID, identifiant public : elle porte la liste des
++//      autorisations, pages_* et instagram_*) ;
++//   2. retour sur /api/social/meta/callback (adresse déjà enregistrée dans
++//      l'appli) avec un code ;
++//   3. code -> jeton court -> jeton long (60 jours) ;
++//   4. /me/accounts donne les pages gérées, leur jeton de page (qui
++//      n'expire pas quand il vient d'un jeton long) et le compte Instagram
++//      professionnel relié à la page. On garde la première page : deux
++//      liaisons, 'facebook' (la page) et 'instagram' (le compte relié).
++// Tant que Meta n'a pas examiné l'appli, seuls les comptes qui ont un rôle
++// sur l'appli (administrateur, testeur) peuvent se lier.
++
++
++export const META_APP_ID = process.env.META_APP_ID || '29046254768335337';
++export const META_GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}`;
++export const META_STATE_COOKIE = 'oauth_meta_state';
++export const META_STATE_TTL_SECONDS = 10 * 60;
++
++export function metaLoginConfigId(): string | null {
++  return process.env.META_LOGIN_CONFIG_ID || null;
++}
++
++export function metaRedirectUri(): string {
++  const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
++  return `${base}/api/social/meta/callback`;
++}
++
++function metaStateKey(): Buffer | null {
++  const secret = metaAppSecret();
++  if (!secret) return null;
++  return createHmac('sha256', secret).update('meet-aaron:meta-state:v1').digest();
++}
++
++export function createMetaState(userId: string, nowMs: number = Date.now()): { state: string; nonce: string } | null {
++  const key = metaStateKey();
++  if (!key || !/^[0-9a-f-]{36}$/i.test(userId)) return null;
++  const nonce = metaRandom(16).toString('hex');
++  const payload = `${userId}.${Math.floor(nowMs / 1000)}.${nonce}`;
++  return { state: `${payload}.${createHmac('sha256', key).update(payload).digest('hex')}`, nonce };
++}
++
++export function readMetaState(state: string | null, cookieNonce: string | null, nowMs: number = Date.now()): string | null {
++  const key = metaStateKey();
++  if (!key || !state || !cookieNonce) return null;
++  const parts = state.split('.');
++  if (parts.length !== 4) return null;
++  const [userId, issuedAt, nonce, signature] = parts;
++  if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^\d+$/.test(issuedAt) || !/^[0-9a-f]{32}$/.test(nonce)) return null;
++  const expected = Buffer.from(createHmac('sha256', key).update(`${userId}.${issuedAt}.${nonce}`).digest('hex'), 'hex');
++  const received = Buffer.from(/^[0-9a-f]{64}$/.test(signature) ? signature : '', 'hex');
++  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null;
++  const a = Buffer.from(nonce);
++  const b = Buffer.from(cookieNonce);
++  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
++  const age = Math.floor(nowMs / 1000) - Number(issuedAt);
++  if (age < 0 || age > META_STATE_TTL_SECONDS) return null;
++  return userId;
++}
++
++export function metaAuthorizeUrl(state: string): string | null {
++  const configId = metaLoginConfigId();
++  if (!configId) return null;
++  const params = new URLSearchParams({
++    client_id: META_APP_ID,
++    redirect_uri: metaRedirectUri(),
++    state,
++    response_type: 'code',
++    config_id: configId,
++  });
++  return `https://www.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}/dialog/oauth?${params.toString()}`;
++}
++
++async function metaGet(path: string, params: Record<string, string>): Promise<any> {
++  const res = await fetch(`${META_GRAPH}${path}?${new URLSearchParams(params).toString()}`);
++  const json: any = await res.json().catch(() => null);
++  if (!res.ok || !json || json.error) {
++    console.error('[meta] appel refusé :', path, res.status, json?.error?.code || '', json?.error?.type || '');
++    return null;
++  }
++  return json;
++}
++
++// Code -> jeton utilisateur long (environ 60 jours).
++export async function exchangeMetaCode(code: string): Promise<{ token: string; expiresIn: number | null } | null> {
++  const secret = metaAppSecret();
++  if (!secret) return null;
++  const short = await metaGet('/oauth/access_token', {
++    client_id: META_APP_ID,
++    client_secret: secret,
++    redirect_uri: metaRedirectUri(),
++    code,
++  });
++  if (!short?.access_token) return null;
++  const long = await metaGet('/oauth/access_token', {
++    grant_type: 'fb_exchange_token',
++    client_id: META_APP_ID,
++    client_secret: secret,
++    fb_exchange_token: String(short.access_token),
++  });
++  const token = String(long?.access_token || short.access_token);
++  const expiresIn = Number(long?.expires_in || short.expires_in) || null;
++  return { token, expiresIn };
++}
++
++export interface MetaPage {
++  id: string;
++  name: string;
++  accessToken: string;
++  instagram: { id: string; username: string | null; picture: string | null } | null;
++}
++
++export async function fetchMetaPages(userToken: string): Promise<MetaPage[]> {
++  const json = await metaGet('/me/accounts', {
++    access_token: userToken,
++    fields: 'id,name,access_token,instagram_business_account{id,username,profile_picture_url}',
++    limit: '25',
++  });
++  const list: any[] = Array.isArray(json?.data) ? json.data : [];
++  return list
++    .filter((p) => p?.id && p?.access_token)
++    .map((p) => ({
++      id: String(p.id),
++      name: String(p.name || ''),
++      accessToken: String(p.access_token),
++      instagram: p.instagram_business_account?.id
++        ? {
++            id: String(p.instagram_business_account.id),
++            username: p.instagram_business_account.username ? String(p.instagram_business_account.username) : null,
++            picture: typeof p.instagram_business_account.profile_picture_url === 'string' ? p.instagram_business_account.profile_picture_url : null,
++          }
++        : null,
++    }));
++}
++
++// Retire l'autorisation de l'appli sur le compte Facebook (au mieux).
++export async function revokeMetaPermissions(userOrPageToken: string): Promise<boolean> {
++  try {
++    const res = await fetch(`${META_GRAPH}/me/permissions?access_token=${encodeURIComponent(userOrPageToken)}`, { method: 'DELETE' });
++    return res.ok;
++  } catch {
++    return false;
++  }
++}
+-- 
+2.43.0
+
