@@ -4,15 +4,16 @@
 // On vérifie le « state », on échange le code, on lit la page gérée et son
 // compte Instagram professionnel, puis on range DEUX liaisons chiffrées :
 // 'facebook' (la page) et 'instagram' (le compte relié), avec le jeton de
-// la page (c'est lui qui publie, pour les deux).
+// la page (c'est lui qui publie, pour les deux). Plusieurs pages : retour
+// avec etat=choix, la personne choisit (app/api/social/meta/pages).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { encryptToken } from '@/lib/encryption';
 import { socialPreviewAllowed } from '@/lib/social-access';
-import { exchangeMetaCode, fetchMetaPages, readMetaState, META_STATE_COOKIE } from '@/lib/social-meta';
+import { exchangeMetaCode, fetchMetaPages, readMetaState, saveMetaPage, META_PICK_COOKIE, META_PICK_TTL_SECONDS, META_STATE_COOKIE } from '@/lib/social-meta';
 
-function back(result: 'ok' | 'refus' | 'erreur' | 'sans_page') {
+function back(result: 'ok' | 'refus' | 'erreur' | 'sans_page' | 'choix') {
   const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
   const response = NextResponse.redirect(`${base}/app/connexions?tab=social&social=facebook&etat=${result}`);
   response.cookies.set(META_STATE_COOKIE, '', { path: '/api/social/meta', maxAge: 0 });
@@ -33,39 +34,21 @@ export async function GET(request: NextRequest) {
   const tokens = await exchangeMetaCode(code);
   if (!tokens) return back('erreur');
   const pages = await fetchMetaPages(tokens.token);
-  const page = pages.find((p) => p.instagram) || pages[0];
-  if (!page) return back('sans_page');
+  if (pages.length === 0) return back('sans_page');
 
-  const now = new Date().toISOString();
-  const base = { company_id: (user as any).company_id, connected_by: (user as any).id, refresh_token: null, refresh_expires_at: null, updated_at: now };
-  const rows: any[] = [
-    {
-      ...base,
-      provider: 'facebook',
-      account_id: page.id,
-      account_name: page.name || null,
-      avatar_url: null,
-      access_token: encryptToken(page.accessToken),
-      access_expires_at: null, // jeton de page issu d'un jeton long : sans échéance
-      scopes: 'page',
-    },
-  ];
-  if (page.instagram) {
-    rows.push({
-      ...base,
-      provider: 'instagram',
-      account_id: page.instagram.id,
-      account_name: page.instagram.username ? `@${page.instagram.username}` : null,
-      avatar_url: page.instagram.picture,
-      access_token: encryptToken(page.accessToken),
-      access_expires_at: null,
-      scopes: `page:${page.id}`,
+  if (pages.length > 1) {
+    // Plusieurs pages : la personne choisit dans Mon compte.
+    const response = back('choix');
+    response.cookies.set(META_PICK_COOKIE, encryptToken(tokens.token), {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/api/social/meta',
+      maxAge: META_PICK_TTL_SECONDS,
     });
+    return response;
   }
-  const { error } = await supabaseAdmin.from('social_connections').upsert(rows, { onConflict: 'company_id,provider' });
-  if (error) {
-    console.error('[meta] enregistrement de la liaison :', error.code || '', error.message);
-    return back('erreur');
-  }
-  return back('ok');
+
+  const saved = await saveMetaPage(supabaseAdmin, (user as any).company_id, (user as any).id, pages[0], encryptToken);
+  return back(saved ? 'ok' : 'erreur');
 }

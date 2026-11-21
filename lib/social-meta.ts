@@ -248,3 +248,53 @@ export async function revokeMetaPermissions(userOrPageToken: string): Promise<bo
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Choix de la page (21/11/2026). Un compte Facebook peut gérer plusieurs
+// pages : la première trouvée n'est pas forcément la bonne (Alex a vu sa
+// page « The Age of Kings Saga » liée à la place de Meet Aaron). Avec une
+// seule page, on la lie tout de suite ; avec plusieurs, le jeton utilisateur
+// part CHIFFRÉ dans un cookie court et la personne choisit dans Mon compte.
+
+export const META_PICK_COOKIE = 'meta_pick';
+export const META_PICK_TTL_SECONDS = 15 * 60;
+
+export async function saveMetaPage(supabase: any, companyId: string, userId: string, page: MetaPage, encrypt: (s: string) => string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const base = { company_id: companyId, connected_by: userId, refresh_token: null, refresh_expires_at: null, updated_at: now };
+  const rows: any[] = [
+    {
+      ...base,
+      provider: 'facebook',
+      account_id: page.id,
+      account_name: page.name || null,
+      avatar_url: null,
+      access_token: encrypt(page.accessToken),
+      access_expires_at: null, // jeton de page issu d'un jeton long : sans échéance
+      scopes: 'page',
+    },
+  ];
+  if (page.instagram) {
+    rows.push({
+      ...base,
+      provider: 'instagram',
+      account_id: page.instagram.id,
+      account_name: page.instagram.username ? `@${page.instagram.username}` : null,
+      avatar_url: page.instagram.picture,
+      access_token: encrypt(page.accessToken),
+      access_expires_at: null,
+      scopes: `page:${page.id}`,
+    });
+  }
+  const { error } = await supabase.from('social_connections').upsert(rows, { onConflict: 'company_id,provider' });
+  if (error) {
+    console.error('[meta] enregistrement de la liaison :', error.code || '', error.message);
+    return false;
+  }
+  if (!page.instagram) {
+    // Nouvelle page sans Instagram : on retire l'Instagram de l'ancienne page
+    // (celui lié directement par Instagram reste).
+    await supabase.from('social_connections').delete().eq('company_id', companyId).eq('provider', 'instagram').like('scopes', 'page:%');
+  }
+  return true;
+}

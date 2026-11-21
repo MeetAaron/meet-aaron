@@ -26,7 +26,16 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
 const DEFAULT_CLIENT_ID = '77ts9ex6n7bkq4';
 
-export const LINKEDIN_SCOPES = 'openid profile w_member_social';
+// 21/11/2026 : publication au nom de la PAGE (Community Management API,
+// demandée le 21/11, en examen chez LinkedIn). Tant que LinkedIn n'a pas
+// accordé le produit, ces droits sont refusés (invalid_scope) : la liaison
+// reste « en attente » jusqu'à LINKEDIN_READY=1 dans Vercel.
+export const LINKEDIN_SCOPES = 'r_organization_social w_organization_social rw_organization_admin';
+const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || '202511';
+
+export function linkedinPagesReady(): boolean {
+  return process.env.LINKEDIN_READY === '1';
+}
 export const LINKEDIN_STATE_COOKIE = 'oauth_linkedin_state';
 export const LINKEDIN_STATE_TTL_SECONDS = 10 * 60;
 
@@ -168,5 +177,25 @@ export async function revokeLinkedinToken(accessToken: string): Promise<boolean>
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+// Page LinkedIn administrée par la personne (la première approuvée).
+export async function fetchLinkedinOrganization(accessToken: string): Promise<{ id: string | null; name: string | null }> {
+  const headers = { Authorization: `Bearer ${accessToken}`, 'LinkedIn-Version': LINKEDIN_VERSION, 'X-Restli-Protocol-Version': '2.0.0' };
+  try {
+    const res = await fetch('https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED', { headers });
+    const json: any = await res.json().catch(() => null);
+    const urn = Array.isArray(json?.elements) && json.elements[0]?.organization ? String(json.elements[0].organization) : null;
+    if (!res.ok || !urn) {
+      console.error('[linkedin] page introuvable :', res.status, json?.code || json?.message || '');
+      return { id: null, name: null };
+    }
+    const orgId = urn.split(':').pop() || '';
+    const orgRes = await fetch(`https://api.linkedin.com/rest/organizations/${encodeURIComponent(orgId)}`, { headers });
+    const org: any = await orgRes.json().catch(() => null);
+    return { id: urn, name: org?.localizedName ? String(org.localizedName).slice(0, 120) : null };
+  } catch {
+    return { id: null, name: null };
   }
 }

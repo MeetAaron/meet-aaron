@@ -13,7 +13,7 @@ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
 import { decryptToken } from '@/lib/encryption';
 import { socialPreviewAllowed } from '@/lib/social-access';
 import { revokeTiktokToken } from '@/lib/social-tiktok';
-import { revokeLinkedinToken } from '@/lib/social-linkedin';
+import { linkedinPagesReady, revokeLinkedinToken } from '@/lib/social-linkedin';
 import { revokeMetaPermissions } from '@/lib/social-meta';
 
 const PROVIDERS = ['tiktok', 'linkedin', 'facebook', 'instagram'];
@@ -40,7 +40,10 @@ export async function GET(request: NextRequest) {
     console.error('[social] lecture des liaisons :', error.code || '', error.message);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }
-  return NextResponse.json({ connections: data || [] });
+  // Réseaux pas encore ouverts par la plateforme (LinkedIn : examen de la
+  // Community Management API en cours, 21/11/2026).
+  const pending = linkedinPagesReady() ? [] : ['linkedin'];
+  return NextResponse.json({ connections: data || [], pending });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -56,7 +59,7 @@ export async function DELETE(request: NextRequest) {
 
   const { data: row } = await supabaseAdmin
     .from('social_connections')
-    .select('id, access_token')
+    .select('id, access_token, scopes')
     .eq('company_id', authedUser.company_id)
     .eq('provider', provider)
     .maybeSingle();
@@ -79,7 +82,7 @@ export async function DELETE(request: NextRequest) {
 
   // Facebook et Instagram partagent la même autorisation Meta : délier
   // l'un délie les deux (21/11/2026).
-  if (provider === 'facebook' || provider === 'instagram') {
+  if (provider === 'facebook' || (provider === 'instagram' && String((row as any).scopes || '').startsWith('page:'))) {
     try {
       await revokeMetaPermissions(decryptToken((row as any).access_token));
     } catch {
@@ -89,7 +92,13 @@ export async function DELETE(request: NextRequest) {
       .from('social_connections')
       .delete()
       .eq('company_id', authedUser.company_id)
-      .in('provider', ['facebook', 'instagram']);
+      .eq('provider', 'facebook');
+    await supabaseAdmin
+      .from('social_connections')
+      .delete()
+      .eq('company_id', authedUser.company_id)
+      .eq('provider', 'instagram')
+      .like('scopes', 'page:%');
     if (metaErr) return NextResponse.json({ error: 'server_error' }, { status: 500 });
     return NextResponse.json({ success: true });
   }

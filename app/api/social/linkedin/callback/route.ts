@@ -14,7 +14,7 @@ import { encryptToken } from '@/lib/encryption';
 import { socialPreviewAllowed } from '@/lib/social-access';
 import {
   exchangeLinkedinCode,
-  fetchLinkedinProfile,
+  fetchLinkedinOrganization,
   readLinkedinState,
   LINKEDIN_STATE_COOKIE,
 } from '@/lib/social-linkedin';
@@ -55,16 +55,17 @@ export async function GET(request: NextRequest) {
   const tokens = await exchangeLinkedinCode(code);
   if (!tokens) return back('erreur');
 
-  const profile = await fetchLinkedinProfile(tokens.access_token);
+  const org = await fetchLinkedinOrganization(tokens.access_token);
+  if (!org.id) return back('erreur');
 
   const { error } = await supabaseAdmin.from('social_connections').upsert(
     {
       company_id: (user as any).company_id,
       connected_by: (user as any).id,
       provider: 'linkedin',
-      account_id: profile.id || 'inconnu',
-      account_name: profile.name,
-      avatar_url: profile.avatarUrl,
+      account_id: org.id,
+      account_name: org.name,
+      avatar_url: null,
       access_token: encryptToken(tokens.access_token),
       refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
       access_expires_at: expiry(tokens.expires_in),

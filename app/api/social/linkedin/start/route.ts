@@ -13,6 +13,7 @@ import {
   createLinkedinState,
   linkedinAuthorizeUrl,
   linkedinClientSecret,
+  linkedinPagesReady,
   LINKEDIN_STATE_COOKIE,
   LINKEDIN_STATE_TTL_SECONDS,
 } from '@/lib/social-linkedin';
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
   }
   if (!authedUser.company_id) {
     return NextResponse.json({ error: 'company_missing' }, { status: 400 });
+  }
+  if (!linkedinPagesReady()) {
+    return NextResponse.json({ error: 'linkedin_pending' }, { status: 409 });
   }
   if (!linkedinClientSecret()) {
     return NextResponse.json({ error: 'linkedin_not_configured' }, { status: 503 });
