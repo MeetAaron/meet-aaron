@@ -1,0 +1,523 @@
+From 6b7bf532c3b76a920ff70b12b5afa42d3bb67818 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 21 Nov 2026 12:16:56 +0000
+Subject: [PATCH] Reseaux sociaux : choix de la page Facebook quand le compte
+ en gere plusieurs, LinkedIn en attente de la Community Management API
+ (publication au nom de la page)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ app/api/social/connections/route.ts       | 19 ++++--
+ app/api/social/linkedin/callback/route.ts | 11 ++--
+ app/api/social/linkedin/start/route.ts    |  4 ++
+ app/api/social/meta/callback/route.ts     | 53 ++++++----------
+ app/api/social/meta/pages/route.ts        | 54 ++++++++++++++++
+ components/SocialLinks.jsx                | 76 ++++++++++++++++++++---
+ lib/social-linkedin.ts                    | 31 ++++++++-
+ lib/social-meta.ts                        | 50 +++++++++++++++
+ 8 files changed, 244 insertions(+), 54 deletions(-)
+ create mode 100644 app/api/social/meta/pages/route.ts
+
+diff --git a/app/api/social/connections/route.ts b/app/api/social/connections/route.ts
+index 4aaffac..b292921 100644
+--- a/app/api/social/connections/route.ts
++++ b/app/api/social/connections/route.ts
+@@ -13,7 +13,7 @@ import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
+ import { decryptToken } from '@/lib/encryption';
+ import { socialPreviewAllowed } from '@/lib/social-access';
+ import { revokeTiktokToken } from '@/lib/social-tiktok';
+-import { revokeLinkedinToken } from '@/lib/social-linkedin';
++import { linkedinPagesReady, revokeLinkedinToken } from '@/lib/social-linkedin';
+ import { revokeMetaPermissions } from '@/lib/social-meta';
+ 
+ const PROVIDERS = ['tiktok', 'linkedin', 'facebook', 'instagram'];
+@@ -40,7 +40,10 @@ export async function GET(request: NextRequest) {
+     console.error('[social] lecture des liaisons :', error.code || '', error.message);
+     return NextResponse.json({ error: 'server_error' }, { status: 500 });
+   }
+-  return NextResponse.json({ connections: data || [] });
++  // Réseaux pas encore ouverts par la plateforme (LinkedIn : examen de la
++  // Community Management API en cours, 21/11/2026).
++  const pending = linkedinPagesReady() ? [] : ['linkedin'];
++  return NextResponse.json({ connections: data || [], pending });
+ }
+ 
+ export async function DELETE(request: NextRequest) {
+@@ -56,7 +59,7 @@ export async function DELETE(request: NextRequest) {
+ 
+   const { data: row } = await supabaseAdmin
+     .from('social_connections')
+-    .select('id, access_token')
++    .select('id, access_token, scopes')
+     .eq('company_id', authedUser.company_id)
+     .eq('provider', provider)
+     .maybeSingle();
+@@ -79,7 +82,7 @@ export async function DELETE(request: NextRequest) {
+ 
+   // Facebook et Instagram partagent la même autorisation Meta : délier
+   // l'un délie les deux (21/11/2026).
+-  if (provider === 'facebook' || provider === 'instagram') {
++  if (provider === 'facebook' || (provider === 'instagram' && String((row as any).scopes || '').startsWith('page:'))) {
+     try {
+       await revokeMetaPermissions(decryptToken((row as any).access_token));
+     } catch {
+@@ -89,7 +92,13 @@ export async function DELETE(request: NextRequest) {
+       .from('social_connections')
+       .delete()
+       .eq('company_id', authedUser.company_id)
+-      .in('provider', ['facebook', 'instagram']);
++      .eq('provider', 'facebook');
++    await supabaseAdmin
++      .from('social_connections')
++      .delete()
++      .eq('company_id', authedUser.company_id)
++      .eq('provider', 'instagram')
++      .like('scopes', 'page:%');
+     if (metaErr) return NextResponse.json({ error: 'server_error' }, { status: 500 });
+     return NextResponse.json({ success: true });
+   }
+diff --git a/app/api/social/linkedin/callback/route.ts b/app/api/social/linkedin/callback/route.ts
+index 4971ad5..b05f96f 100644
+--- a/app/api/social/linkedin/callback/route.ts
++++ b/app/api/social/linkedin/callback/route.ts
+@@ -14,7 +14,7 @@ import { encryptToken } from '@/lib/encryption';
+ import { socialPreviewAllowed } from '@/lib/social-access';
+ import {
+   exchangeLinkedinCode,
+-  fetchLinkedinProfile,
++  fetchLinkedinOrganization,
+   readLinkedinState,
+   LINKEDIN_STATE_COOKIE,
+ } from '@/lib/social-linkedin';
+@@ -55,16 +55,17 @@ export async function GET(request: NextRequest) {
+   const tokens = await exchangeLinkedinCode(code);
+   if (!tokens) return back('erreur');
+ 
+-  const profile = await fetchLinkedinProfile(tokens.access_token);
++  const org = await fetchLinkedinOrganization(tokens.access_token);
++  if (!org.id) return back('erreur');
+ 
+   const { error } = await supabaseAdmin.from('social_connections').upsert(
+     {
+       company_id: (user as any).company_id,
+       connected_by: (user as any).id,
+       provider: 'linkedin',
+-      account_id: profile.id || 'inconnu',
+-      account_name: profile.name,
+-      avatar_url: profile.avatarUrl,
++      account_id: org.id,
++      account_name: org.name,
++      avatar_url: null,
+       access_token: encryptToken(tokens.access_token),
+       refresh_token: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
+       access_expires_at: expiry(tokens.expires_in),
+diff --git a/app/api/social/linkedin/start/route.ts b/app/api/social/linkedin/start/route.ts
+index c0e0139..ba2e09e 100644
+--- a/app/api/social/linkedin/start/route.ts
++++ b/app/api/social/linkedin/start/route.ts
+@@ -13,6 +13,7 @@ import {
+   createLinkedinState,
+   linkedinAuthorizeUrl,
+   linkedinClientSecret,
++  linkedinPagesReady,
+   LINKEDIN_STATE_COOKIE,
+   LINKEDIN_STATE_TTL_SECONDS,
+ } from '@/lib/social-linkedin';
+@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
+   if (!authedUser.company_id) {
+     return NextResponse.json({ error: 'company_missing' }, { status: 400 });
+   }
++  if (!linkedinPagesReady()) {
++    return NextResponse.json({ error: 'linkedin_pending' }, { status: 409 });
++  }
+   if (!linkedinClientSecret()) {
+     return NextResponse.json({ error: 'linkedin_not_configured' }, { status: 503 });
+   }
+diff --git a/app/api/social/meta/callback/route.ts b/app/api/social/meta/callback/route.ts
+index 54f43f7..a66177b 100644
+--- a/app/api/social/meta/callback/route.ts
++++ b/app/api/social/meta/callback/route.ts
+@@ -4,15 +4,16 @@
+ // On vérifie le « state », on échange le code, on lit la page gérée et son
+ // compte Instagram professionnel, puis on range DEUX liaisons chiffrées :
+ // 'facebook' (la page) et 'instagram' (le compte relié), avec le jeton de
+-// la page (c'est lui qui publie, pour les deux).
++// la page (c'est lui qui publie, pour les deux). Plusieurs pages : retour
++// avec etat=choix, la personne choisit (app/api/social/meta/pages).
+ 
+ import { NextRequest, NextResponse } from 'next/server';
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { encryptToken } from '@/lib/encryption';
+ import { socialPreviewAllowed } from '@/lib/social-access';
+-import { exchangeMetaCode, fetchMetaPages, readMetaState, META_STATE_COOKIE } from '@/lib/social-meta';
++import { exchangeMetaCode, fetchMetaPages, readMetaState, saveMetaPage, META_PICK_COOKIE, META_PICK_TTL_SECONDS, META_STATE_COOKIE } from '@/lib/social-meta';
+ 
+-function back(result: 'ok' | 'refus' | 'erreur' | 'sans_page') {
++function back(result: 'ok' | 'refus' | 'erreur' | 'sans_page' | 'choix') {
+   const base = (process.env.APP_URL || 'https://meetaaron.app').replace(/\/+$/, '');
+   const response = NextResponse.redirect(`${base}/app/connexions?tab=social&social=facebook&etat=${result}`);
+   response.cookies.set(META_STATE_COOKIE, '', { path: '/api/social/meta', maxAge: 0 });
+@@ -33,39 +34,21 @@ export async function GET(request: NextRequest) {
+   const tokens = await exchangeMetaCode(code);
+   if (!tokens) return back('erreur');
+   const pages = await fetchMetaPages(tokens.token);
+-  const page = pages.find((p) => p.instagram) || pages[0];
+-  if (!page) return back('sans_page');
++  if (pages.length === 0) return back('sans_page');
+ 
+-  const now = new Date().toISOString();
+-  const base = { company_id: (user as any).company_id, connected_by: (user as any).id, refresh_token: null, refresh_expires_at: null, updated_at: now };
+-  const rows: any[] = [
+-    {
+-      ...base,
+-      provider: 'facebook',
+-      account_id: page.id,
+-      account_name: page.name || null,
+-      avatar_url: null,
+-      access_token: encryptToken(page.accessToken),
+-      access_expires_at: null, // jeton de page issu d'un jeton long : sans échéance
+-      scopes: 'page',
+-    },
+-  ];
+-  if (page.instagram) {
+-    rows.push({
+-      ...base,
+-      provider: 'instagram',
+-      account_id: page.instagram.id,
+-      account_name: page.instagram.username ? `@${page.instagram.username}` : null,
+-      avatar_url: page.instagram.picture,
+-      access_token: encryptToken(page.accessToken),
+-      access_expires_at: null,
+-      scopes: `page:${page.id}`,
++  if (pages.length > 1) {
++    // Plusieurs pages : la personne choisit dans Mon compte.
++    const response = back('choix');
++    response.cookies.set(META_PICK_COOKIE, encryptToken(tokens.token), {
++      httpOnly: true,
++      secure: true,
++      sameSite: 'lax',
++      path: '/api/social/meta',
++      maxAge: META_PICK_TTL_SECONDS,
+     });
++    return response;
+   }
+-  const { error } = await supabaseAdmin.from('social_connections').upsert(rows, { onConflict: 'company_id,provider' });
+-  if (error) {
+-    console.error('[meta] enregistrement de la liaison :', error.code || '', error.message);
+-    return back('erreur');
+-  }
+-  return back('ok');
++
++  const saved = await saveMetaPage(supabaseAdmin, (user as any).company_id, (user as any).id, pages[0], encryptToken);
++  return back(saved ? 'ok' : 'erreur');
+ }
+diff --git a/app/api/social/meta/pages/route.ts b/app/api/social/meta/pages/route.ts
+new file mode 100644
+index 0000000..e27399c
+--- /dev/null
++++ b/app/api/social/meta/pages/route.ts
+@@ -0,0 +1,54 @@
++// app/api/social/meta/pages/route.ts
++//
++// Choix de la page Facebook quand le compte en gère plusieurs (21/11/2026).
++// GET  -> les pages proposées (nom, compte Instagram relié), jamais de jeton ;
++// POST { page_id } -> lie cette page (et son Instagram), efface le cookie.
++// Le jeton utilisateur vient du cookie chiffré posé par le retour Facebook
++// (lib/social-meta.ts, META_PICK_COOKIE, 15 minutes).
++
++import { NextRequest, NextResponse } from 'next/server';
++import { supabaseAdmin } from '@/lib/supabase-admin';
++import { getAuthedUser, unauthorizedResponse } from '@/lib/auth-helpers';
++import { decryptToken, encryptToken } from '@/lib/encryption';
++import { socialPreviewAllowed } from '@/lib/social-access';
++import { readJsonBody } from '@/lib/http';
++import { fetchMetaPages, saveMetaPage, META_PICK_COOKIE } from '@/lib/social-meta';
++
++async function context(request: NextRequest): Promise<{ user: any; token: string } | { error: NextResponse }> {
++  const user = await getAuthedUser(request);
++  if (!user) return { error: unauthorizedResponse() };
++  if (!socialPreviewAllowed(user.email) || !user.company_id) {
++    return { error: NextResponse.json({ error: 'not_found' }, { status: 404 }) };
++  }
++  const stored = request.cookies.get(META_PICK_COOKIE)?.value;
++  if (!stored) return { error: NextResponse.json({ error: 'expired' }, { status: 410 }) };
++  try {
++    return { user, token: decryptToken(stored) };
++  } catch {
++    return { error: NextResponse.json({ error: 'expired' }, { status: 410 }) };
++  }
++}
++
++export async function GET(request: NextRequest) {
++  const ctx = await context(request);
++  if ('error' in ctx) return ctx.error;
++  const pages = await fetchMetaPages(ctx.token);
++  return NextResponse.json({
++    pages: pages.map((p) => ({ id: p.id, name: p.name, instagram: p.instagram?.username ? `@${p.instagram.username}` : null })),
++  });
++}
++
++export async function POST(request: NextRequest) {
++  const ctx = await context(request);
++  if ('error' in ctx) return ctx.error;
++  const body = await readJsonBody(request).catch(() => ({}));
++  const pageId = String(body?.page_id || '');
++  const pages = await fetchMetaPages(ctx.token);
++  const page = pages.find((p) => p.id === pageId);
++  if (!page) return NextResponse.json({ error: 'page_not_found' }, { status: 400 });
++  const saved = await saveMetaPage(supabaseAdmin, ctx.user.company_id, ctx.user.id, page, encryptToken);
++  if (!saved) return NextResponse.json({ error: 'server_error' }, { status: 500 });
++  const response = NextResponse.json({ success: true });
++  response.cookies.set(META_PICK_COOKIE, '', { path: '/api/social/meta', maxAge: 0 });
++  return response;
++}
+diff --git a/components/SocialLinks.jsx b/components/SocialLinks.jsx
+index d9054bf..6193b7d 100644
+--- a/components/SocialLinks.jsx
++++ b/components/SocialLinks.jsx
+@@ -13,19 +13,22 @@
+ //
+ // Le retour de TikTok arrive sur cette page avec ?social=tiktok&etat=ok,
+ // refus ou erreur : on affiche une ligne, puis on nettoie l'adresse.
++// Facebook avec plusieurs pages revient avec etat=choix : on propose les
++// pages (21/11/2026). LinkedIn reste « en attente » tant que la plateforme
++// n'a pas ouvert la publication au nom de la page.
+ 
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+ 
+ const TEXT = {
+-  fr: { noPage: 'Aucune page Facebook trouvée sur ce compte. Crée la page Meet Aaron, relie-lui ton Instagram professionnel, puis réessaie.', title: 'Réseaux sociaux', intro: 'Aaron publie tes posts et répond aux commentaires depuis ces comptes.', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Bientôt', d_instagram: 'Carrousels, commentaires et messages', d_facebook: 'Posts de ta page, commentaires et messages', d_tiktok: 'Photos en vidéo, avec une musique proposée', d_linkedin: 'Posts et documents, au nom de ton profil' },
+-  en: { noPage: 'No Facebook Page found on this account. Create your business Page, link your Instagram professional account to it, then try again.', title: 'Social networks', intro: 'Aaron publishes your posts and replies to comments from these accounts.', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Soon', d_instagram: 'Carousels, comments and messages', d_facebook: 'Page posts, comments and messages', d_tiktok: 'Photo posts, with a suggested track', d_linkedin: 'Posts and documents, from your profile' },
+-  de: { noPage: 'Keine Facebook-Seite in diesem Konto gefunden. Erstelle deine Unternehmensseite, verknüpfe dein Instagram-Profikonto damit und versuche es erneut.', title: 'Soziale Netzwerke', intro: 'Aaron veröffentlicht deine Posts und beantwortet Kommentare über diese Konten.', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Bald', d_instagram: 'Karussells, Kommentare und Nachrichten', d_facebook: 'Seitenposts, Kommentare und Nachrichten', d_tiktok: 'Fotobeiträge mit vorgeschlagener Musik', d_linkedin: 'Posts und Dokumente über dein Profil' },
+-  it: { noPage: 'Nessuna pagina Facebook trovata su questo account. Crea la pagina aziendale, collegale il tuo account Instagram professionale e riprova.', title: 'Social network', intro: 'Aaron pubblica i tuoi post e risponde ai commenti da questi account.', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Presto', d_instagram: 'Caroselli, commenti e messaggi', d_facebook: 'Post della pagina, commenti e messaggi', d_tiktok: 'Post di foto, con una musica suggerita', d_linkedin: 'Post e documenti, dal tuo profilo' },
+-  es: { noPage: 'No se encontró ninguna página de Facebook en esta cuenta. Crea la página de tu empresa, vincula tu cuenta profesional de Instagram y vuelve a intentarlo.', title: 'Redes sociales', intro: 'Aaron publica tus publicaciones y responde a los comentarios desde estas cuentas.', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Pronto', d_instagram: 'Carruseles, comentarios y mensajes', d_facebook: 'Publicaciones de tu página, comentarios y mensajes', d_tiktok: 'Publicaciones de fotos, con una música sugerida', d_linkedin: 'Publicaciones y documentos, desde tu perfil' },
+-  pt: { noPage: 'Nenhuma página do Facebook encontrada nesta conta. Cria a página da tua empresa, liga-lhe a tua conta profissional do Instagram e tenta de novo.', title: 'Redes sociais', intro: 'O Aaron publica as tuas publicações e responde aos comentários a partir destas contas.', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Em breve', d_instagram: 'Carrosséis, comentários e mensagens', d_facebook: 'Publicações da página, comentários e mensagens', d_tiktok: 'Publicações de fotos, com uma música sugerida', d_linkedin: 'Publicações e documentos, a partir do teu perfil' },
+-  nl: { noPage: 'Geen Facebookpagina gevonden in dit account. Maak je bedrijfspagina aan, koppel je zakelijke Instagram-account eraan en probeer het opnieuw.', title: 'Sociale netwerken', intro: 'Aaron publiceert je posts en beantwoordt reacties vanaf deze accounts.', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Binnenkort', d_instagram: "Carrousels, reacties en berichten", d_facebook: "Paginaposts, reacties en berichten", d_tiktok: "Fotoposts, met voorgestelde muziek", d_linkedin: "Posts en documenten, vanaf je profiel" },
++  fr: { noPage: 'Aucune page Facebook trouvée sur ce compte. Crée la page Meet Aaron, relie-lui ton Instagram professionnel, puis réessaie.', title: 'Réseaux sociaux', intro: 'Aaron publie tes posts et répond aux commentaires depuis ces comptes.', link: 'Lier', linked: 'Lié', unlink: 'Délier', ok: '{name} est lié.', refus: 'Liaison refusée sur {name}.', erreur: "La liaison n'a pas abouti. Réessaie.", soon: 'Bientôt', d_instagram: 'Carrousels, commentaires et messages', d_facebook: 'Posts de ta page, commentaires et messages', d_tiktok: 'Photos en vidéo, avec une musique proposée', d_linkedin: 'Posts au nom de ta page', pending: "Validation LinkedIn en cours", pickTitle: 'Quelle page Facebook utiliser ?', pickExpired: 'Le choix a expiré. Relance Lier Facebook.' },
++  en: { noPage: 'No Facebook Page found on this account. Create your business Page, link your Instagram professional account to it, then try again.', title: 'Social networks', intro: 'Aaron publishes your posts and replies to comments from these accounts.', link: 'Link', linked: 'Linked', unlink: 'Unlink', ok: '{name} is linked.', refus: 'Linking was declined on {name}.', erreur: 'Linking failed. Try again.', soon: 'Soon', d_instagram: 'Carousels, comments and messages', d_facebook: 'Page posts, comments and messages', d_tiktok: 'Photo posts, with a suggested track', d_linkedin: 'Posts from your Page', pending: "LinkedIn review in progress", pickTitle: 'Which Facebook Page should Aaron use?', pickExpired: 'The choice expired. Start Link Facebook again.' },
++  de: { noPage: 'Keine Facebook-Seite in diesem Konto gefunden. Erstelle deine Unternehmensseite, verknüpfe dein Instagram-Profikonto damit und versuche es erneut.', title: 'Soziale Netzwerke', intro: 'Aaron veröffentlicht deine Posts und beantwortet Kommentare über diese Konten.', link: 'Verknüpfen', linked: 'Verknüpft', unlink: 'Trennen', ok: '{name} ist verknüpft.', refus: 'Verknüpfung auf {name} abgelehnt.', erreur: 'Verknüpfung fehlgeschlagen. Bitte erneut versuchen.', soon: 'Bald', d_instagram: 'Karussells, Kommentare und Nachrichten', d_facebook: 'Seitenposts, Kommentare und Nachrichten', d_tiktok: 'Fotobeiträge mit vorgeschlagener Musik', d_linkedin: 'Posts im Namen deiner Seite', pending: "LinkedIn-Prüfung läuft", pickTitle: 'Welche Facebook-Seite soll Aaron nutzen?', pickExpired: 'Die Auswahl ist abgelaufen. Starte Facebook verknüpfen erneut.' },
++  it: { noPage: 'Nessuna pagina Facebook trovata su questo account. Crea la pagina aziendale, collegale il tuo account Instagram professionale e riprova.', title: 'Social network', intro: 'Aaron pubblica i tuoi post e risponde ai commenti da questi account.', link: 'Collega', linked: 'Collegato', unlink: 'Scollega', ok: '{name} è collegato.', refus: 'Collegamento rifiutato su {name}.', erreur: 'Collegamento non riuscito. Riprova.', soon: 'Presto', d_instagram: 'Caroselli, commenti e messaggi', d_facebook: 'Post della pagina, commenti e messaggi', d_tiktok: 'Post di foto, con una musica suggerita', d_linkedin: 'Post a nome della tua pagina', pending: "Verifica LinkedIn in corso", pickTitle: 'Quale pagina Facebook deve usare Aaron?', pickExpired: 'La scelta è scaduta. Riavvia Collega Facebook.' },
++  es: { noPage: 'No se encontró ninguna página de Facebook en esta cuenta. Crea la página de tu empresa, vincula tu cuenta profesional de Instagram y vuelve a intentarlo.', title: 'Redes sociales', intro: 'Aaron publica tus publicaciones y responde a los comentarios desde estas cuentas.', link: 'Vincular', linked: 'Vinculado', unlink: 'Desvincular', ok: '{name} está vinculado.', refus: 'Vinculación rechazada en {name}.', erreur: 'La vinculación ha fallado. Inténtalo de nuevo.', soon: 'Pronto', d_instagram: 'Carruseles, comentarios y mensajes', d_facebook: 'Publicaciones de tu página, comentarios y mensajes', d_tiktok: 'Publicaciones de fotos, con una música sugerida', d_linkedin: 'Publicaciones en nombre de tu página', pending: "Revisión de LinkedIn en curso", pickTitle: '¿Qué página de Facebook debe usar Aaron?', pickExpired: 'La elección ha caducado. Vuelve a vincular Facebook.' },
++  pt: { noPage: 'Nenhuma página do Facebook encontrada nesta conta. Cria a página da tua empresa, liga-lhe a tua conta profissional do Instagram e tenta de novo.', title: 'Redes sociais', intro: 'O Aaron publica as tuas publicações e responde aos comentários a partir destas contas.', link: 'Ligar', linked: 'Ligado', unlink: 'Desligar', ok: 'O {name} está ligado.', refus: 'Ligação recusada no {name}.', erreur: 'A ligação falhou. Tenta de novo.', soon: 'Em breve', d_instagram: 'Carrosséis, comentários e mensagens', d_facebook: 'Publicações da página, comentários e mensagens', d_tiktok: 'Publicações de fotos, com uma música sugerida', d_linkedin: 'Publicações em nome da tua página', pending: "Revisão do LinkedIn em curso", pickTitle: 'Que página do Facebook deve o Aaron usar?', pickExpired: 'A escolha expirou. Volta a ligar o Facebook.' },
++  nl: { noPage: 'Geen Facebookpagina gevonden in dit account. Maak je bedrijfspagina aan, koppel je zakelijke Instagram-account eraan en probeer het opnieuw.', title: 'Sociale netwerken', intro: 'Aaron publiceert je posts en beantwoordt reacties vanaf deze accounts.', link: 'Koppelen', linked: 'Gekoppeld', unlink: 'Ontkoppelen', ok: '{name} is gekoppeld.', refus: 'Koppeling geweigerd op {name}.', erreur: 'Koppelen is mislukt. Probeer het opnieuw.', soon: 'Binnenkort', d_instagram: "Carrousels, reacties en berichten", d_facebook: "Paginaposts, reacties en berichten", d_tiktok: "Fotoposts, met voorgestelde muziek", d_linkedin: "Posts namens je pagina", pending: "LinkedIn-beoordeling loopt", pickTitle: 'Welke Facebookpagina moet Aaron gebruiken?', pickExpired: 'De keuze is verlopen. Koppel Facebook opnieuw.' },
+ };
+ const tx = (locale, key) => (TEXT[locale] || TEXT.fr)[key] || TEXT.fr[key];
+ 
+@@ -75,6 +78,8 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+   const [loading, setLoading] = useState(true);
+   const [busy, setBusy] = useState(false);
+   const [notice, setNotice] = useState(null); // { tone: 'ok' | 'bad', key }
++  const [pending, setPending] = useState([]); // réseaux en attente de la plateforme
++  const [pages, setPages] = useState(null); // choix de la page Facebook
+ 
+   async function load() {
+     try {
+@@ -82,6 +87,7 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+       const data = res.ok ? await res.json() : null;
+       const list = Array.isArray(data?.connections) ? data.connections : [];
+       setConnections(list);
++      setPending(Array.isArray(data?.pending) ? data.pending : []);
+       if (onChange) onChange(list.length);
+     } catch (err) {
+       setConnections([]);
+@@ -96,7 +102,8 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+       const net = NETWORKS.find((n) => n.key === params.get('social'));
+       if (net) {
+         const etat = params.get('etat');
+-        if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok', name: net.name });
++        if (etat === 'choix') loadPages();
++        else if (etat === 'ok') setNotice({ tone: 'ok', key: 'ok', name: net.name });
+         else if (etat === 'refus') setNotice({ tone: 'bad', key: 'refus', name: net.name });
+         else if (etat === 'sans_page') setNotice({ tone: 'bad', key: 'noPage', name: net.name });
+         else setNotice({ tone: 'bad', key: 'erreur', name: net.name });
+@@ -108,6 +115,41 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+     } catch (err) {}
+   }, []);
+ 
++  async function loadPages() {
++    try {
++      const res = await fetch('/api/social/meta/pages');
++      const data = res.ok ? await res.json() : null;
++      if (Array.isArray(data?.pages) && data.pages.length) setPages(data.pages);
++      else setNotice({ tone: 'bad', key: 'pickExpired', name: 'Facebook' });
++    } catch (err) {
++      setNotice({ tone: 'bad', key: 'erreur', name: 'Facebook' });
++    }
++  }
++
++  async function pickPage(page) {
++    setBusy(true);
++    try {
++      const res = await fetch('/api/social/meta/pages', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ page_id: page.id }),
++      });
++      if (res.ok) {
++        setPages(null);
++        setNotice({ tone: 'ok', key: 'ok', name: page.name });
++      } else if (res.status === 410) {
++        setPages(null);
++        setNotice({ tone: 'bad', key: 'pickExpired', name: 'Facebook' });
++      } else {
++        setNotice({ tone: 'bad', key: 'erreur', name: 'Facebook' });
++      }
++    } catch (err) {
++      setNotice({ tone: 'bad', key: 'erreur', name: 'Facebook' });
++    }
++    await load();
++    setBusy(false);
++  }
++
+   async function link(net) {
+     setBusy(true);
+     setNotice(null);
+@@ -157,6 +199,8 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+               <span className="social-end">
+                 {net.soon ? (
+                   <span className="social-pill">{tx(locale, 'soon')}</span>
++                ) : pending.includes(net.key) && !conn ? (
++                  <span className="social-pill">{tx(locale, 'pending')}</span>
+                 ) : loading ? (
+                   <span className="social-pill">…</span>
+                 ) : conn ? (
+@@ -172,6 +216,17 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+           );
+         })}
+       </div>
++      {pages && (
++        <div className="social-pick">
++          <strong className="social-pick-title">{tx(locale, 'pickTitle')}</strong>
++          {pages.map((page) => (
++            <button type="button" key={page.id} className="social-pick-item" onClick={() => pickPage(page)} disabled={busy}>
++              <span className="social-name">{page.name}</span>
++              {page.instagram && <span className="social-desc">Instagram {page.instagram}</span>}
++            </button>
++          ))}
++        </div>
++      )}
+       {notice && <p className={`social-notice ${notice.tone}`}>{tx(locale, notice.key).replace('{name}', notice.name || '')}</p>}
+       <style jsx>{`
+         .social { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+@@ -193,6 +248,11 @@ export default function SocialLinks({ locale = 'fr', standalone = false, onChang
+         .social-link:hover { background: var(--accent); color: #fff; }
+         .social-ghost { min-height: 36px; padding: 0 0.8rem; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+         .social-link:disabled, .social-ghost:disabled { opacity: 0.5; cursor: default; }
++        .social-pick { margin-top: 0.9rem; display: grid; gap: 0.5rem; padding: 0.9rem; border-radius: var(--radius-md, 12px); border: 1px solid rgba(124, 110, 245, 0.45); background: rgba(124, 110, 245, 0.06); }
++        .social-pick-title { font-size: 0.9rem; font-weight: 600; }
++        .social-pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; min-height: 48px; padding: 0.6rem 0.8rem; border-radius: 10px; border: 1px solid var(--border); background: var(--bg, transparent); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
++        .social-pick-item:hover { border-color: var(--accent); }
++        .social-pick-item:disabled { opacity: 0.5; cursor: default; }
+         .social-notice { font-size: 0.82rem; margin: 0.7rem 0 0; }
+         .social-notice.ok { color: var(--state-good-text, #1f9d55); }
+         .social-notice.bad { color: var(--state-bad-text, #d03c3c); }
+diff --git a/lib/social-linkedin.ts b/lib/social-linkedin.ts
+index 713bd0b..1f2bdc1 100644
+--- a/lib/social-linkedin.ts
++++ b/lib/social-linkedin.ts
+@@ -26,7 +26,16 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+ 
+ const DEFAULT_CLIENT_ID = '77ts9ex6n7bkq4';
+ 
+-export const LINKEDIN_SCOPES = 'openid profile w_member_social';
++// 21/11/2026 : publication au nom de la PAGE (Community Management API,
++// demandée le 21/11, en examen chez LinkedIn). Tant que LinkedIn n'a pas
++// accordé le produit, ces droits sont refusés (invalid_scope) : la liaison
++// reste « en attente » jusqu'à LINKEDIN_READY=1 dans Vercel.
++export const LINKEDIN_SCOPES = 'r_organization_social w_organization_social rw_organization_admin';
++const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || '202511';
++
++export function linkedinPagesReady(): boolean {
++  return process.env.LINKEDIN_READY === '1';
++}
+ export const LINKEDIN_STATE_COOKIE = 'oauth_linkedin_state';
+ export const LINKEDIN_STATE_TTL_SECONDS = 10 * 60;
+ 
+@@ -170,3 +179,23 @@ export async function revokeLinkedinToken(accessToken: string): Promise<boolean>
+     return false;
+   }
+ }
++
++// Page LinkedIn administrée par la personne (la première approuvée).
++export async function fetchLinkedinOrganization(accessToken: string): Promise<{ id: string | null; name: string | null }> {
++  const headers = { Authorization: `Bearer ${accessToken}`, 'LinkedIn-Version': LINKEDIN_VERSION, 'X-Restli-Protocol-Version': '2.0.0' };
++  try {
++    const res = await fetch('https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED', { headers });
++    const json: any = await res.json().catch(() => null);
++    const urn = Array.isArray(json?.elements) && json.elements[0]?.organization ? String(json.elements[0].organization) : null;
++    if (!res.ok || !urn) {
++      console.error('[linkedin] page introuvable :', res.status, json?.code || json?.message || '');
++      return { id: null, name: null };
++    }
++    const orgId = urn.split(':').pop() || '';
++    const orgRes = await fetch(`https://api.linkedin.com/rest/organizations/${encodeURIComponent(orgId)}`, { headers });
++    const org: any = await orgRes.json().catch(() => null);
++    return { id: urn, name: org?.localizedName ? String(org.localizedName).slice(0, 120) : null };
++  } catch {
++    return { id: null, name: null };
++  }
++}
+diff --git a/lib/social-meta.ts b/lib/social-meta.ts
+index ca659fc..dac9eda 100644
+--- a/lib/social-meta.ts
++++ b/lib/social-meta.ts
+@@ -248,3 +248,53 @@ export async function revokeMetaPermissions(userOrPageToken: string): Promise<bo
+     return false;
+   }
+ }
++
++// ---------------------------------------------------------------------------
++// Choix de la page (21/11/2026). Un compte Facebook peut gérer plusieurs
++// pages : la première trouvée n'est pas forcément la bonne (Alex a vu sa
++// page « The Age of Kings Saga » liée à la place de Meet Aaron). Avec une
++// seule page, on la lie tout de suite ; avec plusieurs, le jeton utilisateur
++// part CHIFFRÉ dans un cookie court et la personne choisit dans Mon compte.
++
++export const META_PICK_COOKIE = 'meta_pick';
++export const META_PICK_TTL_SECONDS = 15 * 60;
++
++export async function saveMetaPage(supabase: any, companyId: string, userId: string, page: MetaPage, encrypt: (s: string) => string): Promise<boolean> {
++  const now = new Date().toISOString();
++  const base = { company_id: companyId, connected_by: userId, refresh_token: null, refresh_expires_at: null, updated_at: now };
++  const rows: any[] = [
++    {
++      ...base,
++      provider: 'facebook',
++      account_id: page.id,
++      account_name: page.name || null,
++      avatar_url: null,
++      access_token: encrypt(page.accessToken),
++      access_expires_at: null, // jeton de page issu d'un jeton long : sans échéance
++      scopes: 'page',
++    },
++  ];
++  if (page.instagram) {
++    rows.push({
++      ...base,
++      provider: 'instagram',
++      account_id: page.instagram.id,
++      account_name: page.instagram.username ? `@${page.instagram.username}` : null,
++      avatar_url: page.instagram.picture,
++      access_token: encrypt(page.accessToken),
++      access_expires_at: null,
++      scopes: `page:${page.id}`,
++    });
++  }
++  const { error } = await supabase.from('social_connections').upsert(rows, { onConflict: 'company_id,provider' });
++  if (error) {
++    console.error('[meta] enregistrement de la liaison :', error.code || '', error.message);
++    return false;
++  }
++  if (!page.instagram) {
++    // Nouvelle page sans Instagram : on retire l'Instagram de l'ancienne page
++    // (celui lié directement par Instagram reste).
++    await supabase.from('social_connections').delete().eq('company_id', companyId).eq('provider', 'instagram').like('scopes', 'page:%');
++  }
++  return true;
++}
+-- 
+2.43.0
+
