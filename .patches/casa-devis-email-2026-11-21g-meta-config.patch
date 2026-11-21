@@ -1,0 +1,37 @@
+From 174597761270cdc665cfb396b672eede916f06e8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 21 Nov 2026 06:40:29 +0000
+Subject: [PATCH] Meta : configuration Facebook Login for Business Aaron Social
+ (2435483476859148) par defaut
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/social-meta.ts | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/lib/social-meta.ts b/lib/social-meta.ts
+index 627a24b..ca659fc 100644
+--- a/lib/social-meta.ts
++++ b/lib/social-meta.ts
+@@ -115,8 +115,16 @@ export const META_GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_V
+ export const META_STATE_COOKIE = 'oauth_meta_state';
+ export const META_STATE_TTL_SECONDS = 10 * 60;
+ 
++// Configuration « Aaron Social » créée le 21/11/2026 dans la console Meta
++// (jeton utilisateur ; business_management, instagram_basic,
++// instagram_content_publish, instagram_manage_comments,
++// instagram_manage_messages, pages_manage_engagement, pages_manage_metadata,
++// pages_manage_posts, pages_read_engagement, pages_read_user_content +
++// pages_show_list par dépendance). Identifiant public.
++const DEFAULT_LOGIN_CONFIG_ID = '2435483476859148';
++
+ export function metaLoginConfigId(): string | null {
+-  return process.env.META_LOGIN_CONFIG_ID || null;
++  return process.env.META_LOGIN_CONFIG_ID || DEFAULT_LOGIN_CONFIG_ID;
+ }
+ 
+ export function metaRedirectUri(): string {
+-- 
+2.43.0
+
