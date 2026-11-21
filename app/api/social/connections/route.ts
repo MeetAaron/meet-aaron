@@ -14,8 +14,9 @@ import { decryptToken } from '@/lib/encryption';
 import { socialPreviewAllowed } from '@/lib/social-access';
 import { revokeTiktokToken } from '@/lib/social-tiktok';
 import { revokeLinkedinToken } from '@/lib/social-linkedin';
+import { revokeMetaPermissions } from '@/lib/social-meta';
 
-const PROVIDERS = ['tiktok', 'linkedin'];
+const PROVIDERS = ['tiktok', 'linkedin', 'facebook', 'instagram'];
 
 // Table absente tant que migration_social_connections_2026-11-19.sql n'est
 // pas passée : PostgREST répond PGRST205, Postgres 42P01.
@@ -74,6 +75,23 @@ export async function DELETE(request: NextRequest) {
     } catch {
       // Idem : on délie chez nous même si LinkedIn ne répond pas.
     }
+  }
+
+  // Facebook et Instagram partagent la même autorisation Meta : délier
+  // l'un délie les deux (21/11/2026).
+  if (provider === 'facebook' || provider === 'instagram') {
+    try {
+      await revokeMetaPermissions(decryptToken((row as any).access_token));
+    } catch {
+      // Meta injoignable : on délie quand même chez nous.
+    }
+    const { error: metaErr } = await supabaseAdmin
+      .from('social_connections')
+      .delete()
+      .eq('company_id', authedUser.company_id)
+      .in('provider', ['facebook', 'instagram']);
+    if (metaErr) return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    return NextResponse.json({ success: true });
   }
 
   const { error } = await supabaseAdmin.from('social_connections').delete().eq('id', (row as any).id);
