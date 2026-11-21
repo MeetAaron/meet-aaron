@@ -1,0 +1,82 @@
+From a4303b3656e11ee87c75931c83d9a30df27faf56 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 21 Nov 2026 05:16:10 +0000
+Subject: [PATCH] Annuaire : grandes villes filtrees par coordonnees (Overture
+ range les entreprises par banlieue, pas par ville)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FAruUpwVVmdAo2zCN9Cguf
+---
+ lib/directory-db.ts | 35 +++++++++++++++++++++++++++++++++--
+ 1 file changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/lib/directory-db.ts b/lib/directory-db.ts
+index 3a3cc27..b546916 100644
+--- a/lib/directory-db.ts
++++ b/lib/directory-db.ts
+@@ -107,6 +107,29 @@ export function stemsForSectors(sectorKeywords: string[]): string[] {
+   return Array.from(out).slice(0, 8);
+ }
+ 
++// Zones métropolitaines (21/11/2026) : dans Overture, la « locality » d'un
++// établissement est souvent sa banlieue (Chermside, Fortitude Valley…), pas
++// « Brisbane ». Filtrer sur le nom de la ville ratait l'essentiel de
++// l'agglomération : pour les grandes villes connues, on filtre sur un cadre
++// de coordonnées. [latMin, latMax, lonMin, lonMax]
++const METRO_BOXES: Record<string, [number, number, number, number]> = {
++  brisbane: [-27.75, -27.0, 152.65, 153.35],
++  'gold coast': [-28.25, -27.75, 153.2, 153.55],
++  'sunshine coast': [-26.9, -26.3, 152.85, 153.2],
++  sydney: [-34.2, -33.5, 150.6, 151.35],
++  melbourne: [-38.2, -37.5, 144.6, 145.5],
++  perth: [-32.5, -31.6, 115.6, 116.1],
++  adelaide: [-35.2, -34.6, 138.4, 138.8],
++};
++
++function metroBox(zoneLabel: string): [number, number, number, number] | null {
++  const z = normalize(zoneLabel);
++  for (const [name, box] of Object.entries(METRO_BOXES)) {
++    if (z.includes(name)) return box;
++  }
++  return null;
++}
++
+ function cityFromZoneFirst(zoneLabel: string): string | null {
+   const first = (zoneLabel || '').split(/[,;/]/)[0]?.trim();
+   return first && first.length >= 3 ? first : null;
+@@ -146,6 +169,7 @@ export async function searchDirectory(params: {
+     // l'objet sur place, on ne peut pas en réutiliser un.
+     // `any` : enchaîner ces filtres dépasse la profondeur de types de
+     // Postgrest (« Type instantiation is excessively deep »).
++    const box = metroBox(params.zoneLabel);
+     const build = (city: string | null): any => {
+       let q: any = supabaseAdmin
+         .from('directory_companies')
+@@ -159,7 +183,11 @@ export async function searchDirectory(params: {
+       if (categories.length) q = q.in('category', categories);
+       else q = q.or(stems.flatMap((st) => [`category.ilike.%${st}%`, `category_raw.ilike.%${st}%`, `name.ilike.%${st}%`]).join(','));
+       if (excluded.length) q = q.not('domain', 'in', `(${excluded.join(',')})`);
+-      if (city) q = q.ilike('city', `%${city}%`);
++      if (box && city === '__box__') {
++        q = q.gte('latitude', box[0]).lte('latitude', box[1]).gte('longitude', box[2]).lte('longitude', box[3]);
++      } else if (city) {
++        q = q.ilike('city', `%${city}%`);
++      }
+       return q;
+     };
+ 
+@@ -167,7 +195,10 @@ export async function searchDirectory(params: {
+     // Repli sur l'ancienne lecture (dernière partie) si rien ne sort.
+     const cityFirst = cityFromZoneFirst(params.zoneLabel);
+     const cityLast = cityFromZone(params.zoneLabel);
+-    let { data, error }: { data: any[] | null; error: any } = await build(cityFirst);
++    let { data, error }: { data: any[] | null; error: any } = await build(box ? '__box__' : cityFirst);
++    if (!error && (!data || data.length === 0) && box && cityFirst) {
++      ({ data, error } = await build(cityFirst));
++    }
+     if (!error && (!data || data.length === 0) && cityLast && cityLast !== cityFirst) {
+       ({ data, error } = await build(cityLast));
+     }
+-- 
+2.43.0
+
